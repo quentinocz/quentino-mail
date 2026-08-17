@@ -286,6 +286,49 @@ export async function publish(
 /* ---------- Souběžné sdílení na Facebook stránku ---------- */
 
 /**
+ * Video na stránku přes Reels API.
+ *
+ * Starší cesta (`/{page}/videos`) vrací „No permission to publish the video"
+ * i s platnými oprávněními ke stránce — Meta ji pro tenhle případ opustila.
+ * Aktuální postup má tři kroky: založit relaci, poslat soubor, zveřejnit.
+ */
+async function shareReel(pageId: string, token: string, description: string, video: GraphMedia): Promise<string> {
+  const start = await graph(`${pageId}/video_reels`, { upload_phase: 'start' }, token, 'POST');
+  const videoId = start.video_id as string;
+  if (!videoId) throw new GraphError('Facebook nezaložil nahrávání videa.');
+  const uploadUrl = (start.upload_url as string) || `https://rupload.facebook.com/video-upload/${VERSION}/${videoId}`;
+
+  const headers: Record<string, string> = { Authorization: `OAuth ${token}` };
+  if (video.data) {
+    headers.offset = '0';
+    headers.file_size = String(video.data.length);
+    headers['Content-Type'] = 'application/octet-stream';
+  } else if (video.publicUrl) {
+    headers.file_url = video.publicUrl;
+  } else {
+    throw new GraphError('Video není odkud vzít.');
+  }
+
+  // Dvě varianty volání místo jedné s nepovinným tělem — typy pro fetch
+  // nepřipouštějí `body: undefined` s binárními daty v jedné větvi.
+  const up = video.data
+    ? await fetch(uploadUrl, { method: 'POST', headers, body: new Uint8Array(video.data) })
+    : await fetch(uploadUrl, { method: 'POST', headers });
+  const upBody = await up.json().catch(() => ({}));
+  if (upBody?.error) throw new GraphError(upBody.error.message ?? 'Nahrání videa na stránku selhalo.', upBody.error.code);
+  if (!up.ok) throw new GraphError(`Nahrání videa na stránku selhalo (${up.status}).`, up.status);
+
+  await graph(`${pageId}/video_reels`, {
+    video_id: videoId,
+    upload_phase: 'finish',
+    video_state: 'PUBLISHED',
+    description
+  }, token, 'POST');
+
+  return videoId;
+}
+
+/**
  * Zveřejní stejný obsah na Facebook stránce, ke které je Instagram připojený.
  *
  * Fotky se nahrají jako nezveřejněné a připojí se k jednomu příspěvku, takže
@@ -302,11 +345,7 @@ export async function shareToPage(
   const photos = media.filter(m => !m.isVideo && m.publicUrl);
   const video = media.find(m => m.isVideo);
 
-  if (video) {
-    if (!video.publicUrl) throw new GraphError('Video se na stránku nesdílí — Metě šlo přímo, bez veřejné adresy.');
-    const res = await graph(`${pageId}/videos`, { file_url: video.publicUrl, description: caption }, token, 'POST');
-    return res.id ?? '';
-  }
+  if (video) return shareReel(pageId, token, caption, video);
 
   if (photos.length === 0) throw new GraphError('Není co na stránku sdílet.');
 

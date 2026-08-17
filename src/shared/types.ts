@@ -537,6 +537,8 @@ export interface IgBrand {
   tones: string[];
   avoid: string;
   rules: string;
+  /** Jak velkou volnost má model v emoji */
+  emoji: 'none' | 'sparse' | 'free';
   /** Kolik variant popisku na trh model vytvoří */
   variants: number;
   /** Přibalit ke generování znalostní bázi z Nastavení */

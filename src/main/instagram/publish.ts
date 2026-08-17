@@ -162,19 +162,10 @@ export async function runJob(jobId: number): Promise<void> {
     // Souběžné sdílení na Facebook stránku. Nepovede-li se, příspěvek na
     // Instagramu tím neruším — jen se u položky poznamená, co chybělo.
     if (account.shareFb && account.pageId) {
-      const temporary: string[] = [];
       try {
-        // Facebook si obsah stahuje z adresy, takže video poslané Metě přímo
-        // se sem musí na chvíli nahrát do úložiště. Po sdílení se smaže.
-        const forFb: graph.GraphMedia[] = [];
-        for (const item of items) {
-          if (item.publicUrl || !item.data) { forFb.push(item); continue; }
-          const key = `share/${jobId}-${temporary.length}.mp4`;
-          const up = await media.upload(item.data, key, item.isVideo ? 'video/mp4' : 'image/jpeg');
-          temporary.push(up.key);
-          forFb.push({ ...item, publicUrl: up.publicUrl });
-        }
-        const fbId = await graph.shareToPage(account.pageId, token, text, forFb);
+        // Fotky si Facebook stáhne z úložiště, video mu jde přímo — obojí
+        // stejnými daty, která už máme připravená pro Instagram.
+        const fbId = await graph.shareToPage(account.pageId, token, text, items);
         store.setJobState(jobId, { fb_post_id: fbId, fb_error: null });
       } catch (e: any) {
         const msg = e?.message ?? String(e);
@@ -183,8 +174,6 @@ export async function runJob(jobId: number): Promise<void> {
             ? `${msg} — účet je potřeba připojit znovu, aby přidal oprávnění ke stránce.`
             : msg
         });
-      } finally {
-        for (const key of temporary) await media.remove(key);
       }
     }
   } catch (e: any) {

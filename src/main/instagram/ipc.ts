@@ -74,6 +74,7 @@ export function registerIgIpc() {
 
   /* Generování a publikace */
   handle('ig:generate', (postId: number, langs: string[]) => ig.generate(postId, langs ?? []));
+  handle('ig:blankCaptions', (postId: number, langs: string[]) => ig.blankCaptions(postId, langs ?? []));
   handle('ig:chooseVariant', (captionId: number, index: number) => ig.chooseVariant(captionId, index));
   handle('ig:editCaption', (captionId: number, text: string) => ig.editCaption(captionId, text));
   handle('ig:publish', (captionId: number, at?: string | null) => ig.publishCaption(captionId, at ?? null));

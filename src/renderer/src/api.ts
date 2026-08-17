@@ -237,6 +237,8 @@ export const api = {
     warnings: (postId: number) => call<string[]>('ig:warnings', postId),
 
     generate: (postId: number, langs: string[]) => call<IgPost>('ig:generate', postId, langs),
+    /** Prázdné popisky k ručnímu napsání */
+    blankCaptions: (postId: number, langs: string[]) => call<IgPost>('ig:blankCaptions', postId, langs),
     chooseVariant: (captionId: number, index: number) => call<void>('ig:chooseVariant', captionId, index),
     editCaption: (captionId: number, text: string) => call<void>('ig:editCaption', captionId, text),
     publish: (captionId: number, at?: string | null) => call<number>('ig:publish', captionId, at ?? null),

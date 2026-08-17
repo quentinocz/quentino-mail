@@ -209,6 +209,7 @@ const DEFAULT_BRAND: IgBrand = {
   tones: ['přátelský', 'věcný', 'bez patosu'],
   avoid: 'Superlativy bez obsahu, klišé typu „nenechte si ujít", vykřičníky na konci každé věty, emoji v každé větě.',
   rules: 'Bez nabubřelých frází. Konkrétní detail místo obecného chvalozpěvu. Hashtagy až na konec, oddělené prázdným řádkem.',
+  emoji: 'sparse',
   variants: 2,
   useKnowledge: false
 };

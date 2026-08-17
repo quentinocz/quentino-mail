@@ -269,6 +269,21 @@ export async function generate(postId: number, langs: string[]): Promise<IgPost>
   return store.getPost(postId)!;
 }
 
+/**
+ * Připraví prázdné popisky, aby se daly napsat ručně. Generování se tím
+ * nevylučuje — kdo si to rozmyslí, dá později Vygenerovat texty a přepíše to.
+ */
+export function blankCaptions(postId: number, langs: string[]): IgPost {
+  if (langs.length === 0) throw new Error('Vyber aspoň jeden trh.');
+  const post = store.getPost(postId);
+  if (!post) throw new Error('Příspěvek nenalezen.');
+  const fresh = langs.filter(l => !post.captions.some(c => c.lang === l));
+  if (fresh.length === 0) return post;
+  store.saveCaptions(postId, fresh.map(lang => ({ lang, variants: [''] })));
+  emit();
+  return store.getPost(postId)!;
+}
+
 export function chooseVariant(captionId: number, index: number): void {
   store.updateCaption(captionId, { chosen: index });
 }

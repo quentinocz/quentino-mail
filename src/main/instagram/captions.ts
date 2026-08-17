@@ -60,10 +60,17 @@ export function buildPrompt(input: GenerateInput, brand: IgBrand, markets: IgMar
 
   if (input.mediaNote.trim()) parts.push('', 'K MÉDIÍM', input.mediaNote);
 
+  const emojiRule = brand.emoji === 'none'
+    ? 'Nepoužívej emoji.'
+    : brand.emoji === 'free'
+      ? 'Emoji používej, kde se hodí — ale ne v každé větě a nikdy místo slova, které něco říká.'
+      : 'Emoji používej velmi střídmě: nejvýš jedno až dvě na popisek, a jen když opravdu něco přidají.';
+
   parts.push(
     '',
     'PRAVIDLA',
     brand.rules,
+    emojiRule,
     'Nepřekládej doslova — piš tak, jak by to napsal rodilý mluvčí daného trhu.',
     'Popisek nesmí přesáhnout 2 200 znaků ani 30 hashtagů.',
     '',

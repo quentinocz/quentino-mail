@@ -131,6 +131,18 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
     }
   };
 
+  /** Prázdná pole pro ruční psaní — bez modelu a bez čekání. */
+  const writeOwn = async () => {
+    const chosen = langs.filter(l => targets.some(t => t.lang === l));
+    if (chosen.length === 0) { toast('Vyber aspoň jeden trh.', 'error'); return; }
+    try {
+      const target = await ensurePost();
+      setPost(await api.ig.blankCaptions(target.id, chosen));
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  };
+
   const publishAll = async () => {
     if (!post) return;
     setPublishing(true);
@@ -251,8 +263,13 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
                 ? <><span className="spinner-inline" /> Píšu texty…</>
                 : <><Icon name="sparkles" size={14} /> {ready ? 'Vygenerovat znovu' : 'Vygenerovat texty'}</>}
             </button>
+            <button className="btn ghost" onClick={writeOwn} disabled={generating}
+              data-tip="Připraví prázdná pole pro každý vybraný trh — text napíšeš sám">
+              <Icon name="pen" size={13} /> Napsat vlastní
+            </button>
             <span className="ig-muted">
               {overview.brand.variants} {overview.brand.variants === 1 ? 'varianta' : 'varianty'} na trh
+              {overview.brand.emoji === 'none' ? ' · bez emoji' : overview.brand.emoji === 'free' ? ' · emoji volně' : ' · emoji střídmě'}
             </span>
           </div>
         </section>

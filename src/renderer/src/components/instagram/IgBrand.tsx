@@ -109,6 +109,15 @@ export default function IgBrand({ overview, onChanged }: { overview: IgOverview;
             {b.loveOn && <textarea rows={4} value={b.love} onChange={e => set({ love: e.target.value })} />}
           </div>
 
+          <div className="field">
+            <label>Emoji</label>
+            <select value={b.emoji} onChange={e => set({ emoji: e.target.value as Brand['emoji'] })}>
+              <option value="none">Vůbec ne</option>
+              <option value="sparse">Střídmě — jedno až dvě, když něco přidají</option>
+              <option value="free">Volně, ale ne v každé větě</option>
+            </select>
+          </div>
+
           <div className="field-grid">
             <div className="field">
               <label>Variant na trh</label>
