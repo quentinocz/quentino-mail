@@ -131,7 +131,13 @@ const CALLBACK_HTML = `<!doctype html>
  * kvůli tomu nikdo zakládat nemusí.
  */
 export async function installCallbackPage(): Promise<string> {
-  const { publicUrl } = await upload(Buffer.from(CALLBACK_HTML, 'utf8'), 'oauth/callback.html', 'text/html');
+  // Charset výslovně: bez něj některá úložiště pošlou stránku jako čistý text
+  // a prohlížeč pak zobrazí zdrojový kód místo stránky.
+  const { publicUrl } = await upload(
+    Buffer.from(CALLBACK_HTML, 'utf8'),
+    'oauth/callback.html',
+    'text/html; charset=utf-8'
+  );
   return publicUrl;
 }
 

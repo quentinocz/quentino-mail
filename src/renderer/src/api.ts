@@ -197,6 +197,9 @@ export const api = {
     connect: (lang: string) => call<string>('ig:connect', lang),
     connectToken: (lang: string, token: string) =>
       call<{ saved?: any; pick?: { igUserId: string; username: string; pageName: string }[] }>('ig:connectToken', lang, token),
+    /** Dokončení přihlášení z adresy zkopírované z prohlížeče */
+    pasteCallback: (url: string) =>
+      call<{ saved?: any; pick?: { igUserId: string; username: string; pageName: string }[] }>('ig:pasteCallback', url),
     finishConnect: (igUserId: string) => call<any>('ig:finishConnect', igUserId),
     disconnect: (id: number) => call<void>('ig:disconnect', id),
     setSource: (id: number) => call<void>('ig:setSource', id),

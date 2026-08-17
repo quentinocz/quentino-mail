@@ -28,6 +28,9 @@ export function registerIgIpc() {
     return url;
   });
   handle('ig:connectToken', (lang: string, token: string) => ig.connectWithToken(lang, token));
+  // Náhradní cesta, když návratovou stránku prohlížeč nepředá zpět aplikaci:
+  // uživatel zkopíruje adresu z řádku prohlížeče a vloží ji sem.
+  handle('ig:pasteCallback', (url: string) => ig.handleCallbackUrl(url));
   handle('ig:finishConnect', (igUserId: string) => ig.finishConnect(igUserId));
   handle('ig:disconnect', (id: number) => ig.disconnect(id));
   handle('ig:setSource', (id: number) => ig.setSource(id));

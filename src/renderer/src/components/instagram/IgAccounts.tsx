@@ -30,6 +30,7 @@ export default function IgAccounts({ overview, onChanged }: Props) {
   const [busy, setBusy] = useState('');
   const [pick, setPick] = useState<{ igUserId: string; username: string; pageName: string }[] | null>(null);
   const [manual, setManual] = useState<{ lang: string; token: string } | null>(null);
+  const [paste, setPaste] = useState<string | null>(null);
   const [limits, setLimits] = useState<Record<number, { used: number; cap: number } | null>>({});
 
   useEffect(() => api.on('ig:connected', (p: any) => {
@@ -131,9 +132,15 @@ export default function IgAccounts({ overview, onChanged }: Props) {
                 ))}
               </div>
               {!appId && <p className="ig-muted">Nejdřív vyplň App ID Meta aplikace vpravo.</p>}
-              <button className="btn ghost" onClick={() => setManual({ lang: marketsWithoutAccount[0].lang, token: '' })}>
-                Vložit token ručně
-              </button>
+              <div className="ig-actions">
+                <button className="btn ghost" onClick={() => setPaste('')}
+                  data-tip="Když prohlížeč po přihlášení nepřepne zpátky do aplikace">
+                  Dokončit z adresy prohlížeče
+                </button>
+                <button className="btn ghost" onClick={() => setManual({ lang: marketsWithoutAccount[0].lang, token: '' })}>
+                  Vložit token ručně
+                </button>
+              </div>
             </>
           )}
 
@@ -230,6 +237,43 @@ export default function IgAccounts({ overview, onChanged }: Props) {
                   <span className="ig-muted">{p.pageName}</span>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {paste !== null && (
+        <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) setPaste(null); }}>
+          <div className="modal" style={{ width: 'min(560px, 94vw)' }}>
+            <div className="modal-head">
+              <span>Dokončení přihlášení z adresy</span>
+              <button className="icon-btn" onClick={() => setPaste(null)}><Icon name="x" size={15} /></button>
+            </div>
+            <div className="modal-body">
+              <p className="ig-muted">
+                Když se po přihlášení otevře stránka „Účet je ověřený" a nic se nestane,
+                zkopíruj celou adresu z řádku prohlížeče a vlož ji sem. Obsahuje
+                jednorázový kód, kterým se připojení dokončí.
+              </p>
+              <div className="field">
+                <label>Adresa z prohlížeče</label>
+                <textarea
+                  rows={4}
+                  value={paste}
+                  autoFocus
+                  placeholder="https://…/callback.html?code=…&state=…"
+                  onChange={e => setPaste(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setPaste(null)}>Zavřít</button>
+              <button className="btn primary" disabled={!paste.includes('code=') || busy === 'pc'}
+                onClick={() => run('pc', async () => {
+                  const res = await api.ig.pasteCallback(paste);
+                  if (res.pick) setPick(res.pick);
+                  setPaste(null);
+                }, 'Účet připojen.')}>Dokončit</button>
             </div>
           </div>
         </div>
