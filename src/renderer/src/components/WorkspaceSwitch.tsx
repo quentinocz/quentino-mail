@@ -1,14 +1,20 @@
 import Icon from './Icon';
+import { SIDE_COMPACT, useSidebarWidth } from '../sidebar';
 
 export type Workspace = 'mail' | 'chat' | 'instagram';
 
+const TABS: { id: Workspace; icon: string; label: string; tip: string }[] = [
+  { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
+  { id: 'chat', icon: 'chat', label: 'Chat', tip: 'Chat ze zákaznického widgetu na e-shopu' },
+  { id: 'instagram', icon: 'image', label: 'Social', tip: 'Vícejazyčné publikování na Instagram a Facebook' }
+];
+
 /**
- * Přepínač pracovních prostorů. Je ve všech třech postranních panelech na
- * stejném místě, aby se dalo přepínat bez hledání.
+ * Přepínač pracovních prostorů — ve všech panelech na stejném místě.
  *
- * Rozvržení je mřížka o třech stejných dílech, ne pružný řádek: šířka tlačítek
- * tak nezávisí na délce popisku ani na tom, jestli u chatu zrovna svítí číslo.
- * Popisek se v úzkém panelu zkrátí, tlačítko nikdy nepřeteče.
+ * Rozvržení je mřížka o třech stejných dílech, takže šířka tlačítek nezávisí
+ * na délce popisku ani na odznaku s počtem. V úzkém panelu se popisky schovají
+ * a zůstanou jen ikony; text tak nemá jak přetéct.
  */
 export default function WorkspaceSwitch({ current, onChange, chatUnread }: {
   current: Workspace;
@@ -16,25 +22,25 @@ export default function WorkspaceSwitch({ current, onChange, chatUnread }: {
   /** Nepřečtené zprávy v chatu — číslo u záložky */
   chatUnread?: number;
 }) {
-  const tab = (id: Workspace, icon: string, label: string, tip: string, badge?: number) => (
-    <button
-      key={id}
-      className={current === id ? 'active' : ''}
-      onClick={() => current !== id && onChange(id)}
-      data-tip={tip}
-      title={label}
-    >
-      <Icon name={icon} size={14} />
-      <span className="ws-label">{label}</span>
-      {badge ? <span className="ws-badge">{badge > 9 ? '9+' : badge}</span> : null}
-    </button>
-  );
+  const compact = useSidebarWidth() < SIDE_COMPACT;
 
   return (
-    <div className="ig-switch">
-      {tab('mail', 'mail', 'Pošta', 'E-mailová schránka')}
-      {tab('chat', 'chat', 'Chat', 'Chat ze zákaznického widgetu na e-shopu', chatUnread)}
-      {tab('instagram', 'image', 'Social', 'Vícejazyčné publikování na Instagram a Facebook')}
+    <div className={`ig-switch ${compact ? 'compact' : ''}`}>
+      {TABS.map(t => (
+        <button
+          key={t.id}
+          className={current === t.id ? 'active' : ''}
+          onClick={() => current !== t.id && onChange(t.id)}
+          data-tip={t.tip}
+          aria-label={t.label}
+        >
+          <Icon name={t.icon} size={14} />
+          {!compact && <span className="ws-label">{t.label}</span>}
+          {t.id === 'chat' && chatUnread ? (
+            <span className="ws-badge">{chatUnread > 9 ? '9+' : chatUnread}</span>
+          ) : null}
+        </button>
+      ))}
     </div>
   );
 }

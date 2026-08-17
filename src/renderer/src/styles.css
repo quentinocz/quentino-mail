@@ -89,6 +89,20 @@ input:focus, textarea:focus, select:focus {
   flex-direction: column;
   padding: 14px 10px 10px;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+/* Vše v panelu se zkracuje, nikdy nerozšiřuje */
+.sidebar .brand,
+.sidebar .btn-compose,
+.sidebar .side-item .label,
+.sidebar .account-chip .label,
+.sidebar .ch-conv-name,
+.sidebar .ch-conv-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .side-scroll {
@@ -2363,6 +2377,8 @@ button, kbd, label,
   white-space: nowrap;
   min-width: 0;
 }
+/* Úzký panel: jen ikony, popisek by se stejně nevešel */
+.ig-switch.compact button { gap: 0; padding: 7px 0; }
 /* Odznak plave v rohu, takže se popisek kvůli němu nepřekresluje */
 .ig-switch .ws-badge {
   position: absolute;

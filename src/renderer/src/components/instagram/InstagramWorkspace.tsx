@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
 import WorkspaceSwitch, { Workspace } from '../WorkspaceSwitch';
+import { SidebarResizer } from '../../sidebar';
 import IgFeed from './IgFeed';
 import IgCompose from './IgCompose';
 import IgQueue from './IgQueue';
@@ -82,6 +83,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
 
   return (
     <div className="app ig-app">
+      <SidebarResizer />
       <div className="sidebar">
         <div className="brand">quentino<span> social</span></div>
 

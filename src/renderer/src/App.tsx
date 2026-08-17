@@ -15,6 +15,7 @@ import PackingModal from './components/PackingModal';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
 import type { Workspace } from './components/WorkspaceSwitch';
+import { SidebarResizer, useSidebarWidth } from './sidebar';
 
 function AppInner() {
   const toast = useToast();
@@ -84,34 +85,22 @@ function AppInner() {
   }, [activeAccountId]);
 
   // Nastavitelné šířky sloupců (přetažením oddělovačů), pamatují se mezi spuštěními
-  // Postranní panel nesmí být užší než přepínač prostorů — jinak by z něj
-  // tlačítka lezla ven. Uložená užší hodnota se proto při načtení zvedne.
-  const SIDE_MIN = 240;
-  const SIDE_MAX = 360;
-  const [paneW, setPaneW] = useState<{ side: number; list: number }>(() => {
+  // Šířka panelu je společná pro všechny prostory (viz `sidebar.tsx`);
+  // tady se drží jen šířka seznamu zpráv, ta je vlastní poště.
+  const sideW = useSidebarWidth();
+  const [listW, setListW] = useState<number>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('paneWidths') || 'null');
-      if (saved && typeof saved.side === 'number' && typeof saved.list === 'number') {
-        return { side: Math.min(SIDE_MAX, Math.max(SIDE_MIN, saved.side)), list: saved.list };
-      }
+      if (saved && typeof saved.list === 'number') return saved.list;
     } catch { /* */ }
-    return { side: 264, list: 360 };
+    return 360;
   });
-
-  // Šířka jde do CSS proměnné, takže ji použijí i chat a sociální sítě —
-  // přepnutím prostoru se panel nezúží ani nerozšíří
-  useEffect(() => {
-    document.documentElement.style.setProperty('--side-w', `${paneW.side}px`);
-  }, [paneW.side]);
-  const dragRef = useRef<{ which: 'side' | 'list'; startX: number; startW: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
   useEffect(() => {
     const move = (e: MouseEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
-      const dx = e.clientX - drag.startX;
-      setPaneW(prev => drag.which === 'side'
-        ? { ...prev, side: Math.min(SIDE_MAX, Math.max(SIDE_MIN, drag.startW + dx)) }
-        : { ...prev, list: Math.min(620, Math.max(290, drag.startW + dx)) });
+      setListW(Math.min(620, Math.max(290, drag.startW + (e.clientX - drag.startX))));
     };
     const up = () => {
       if (dragRef.current) { dragRef.current = null; document.body.style.cursor = ''; }
@@ -120,9 +109,9 @@ function AppInner() {
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, []);
-  useEffect(() => { localStorage.setItem('paneWidths', JSON.stringify(paneW)); }, [paneW]);
-  const startDrag = (which: 'side' | 'list') => (e: React.MouseEvent) => {
-    dragRef.current = { which, startX: e.clientX, startW: which === 'side' ? paneW.side : paneW.list };
+  useEffect(() => { localStorage.setItem('paneWidths', JSON.stringify({ list: listW })); }, [listW]);
+  const startListDrag = (e: React.MouseEvent) => {
+    dragRef.current = { startX: e.clientX, startW: listW };
     document.body.style.cursor = 'col-resize';
     e.preventDefault();
   };
@@ -295,7 +284,7 @@ function AppInner() {
   }
 
   return (
-    <div className="app" style={{ gridTemplateColumns: `${paneW.side}px ${paneW.list}px 1fr` }}>
+    <div className="app" style={{ gridTemplateColumns: `var(--side-w) ${listW}px 1fr` }}>
       {settings?.secretsLocked && (
         <div className="locked-bar">
           <Icon name="zap" size={14} />
@@ -306,8 +295,8 @@ function AppInner() {
           <button className="btn ghost" onClick={() => setSettingsOpen(true)}>Otevřít nastavení</button>
         </div>
       )}
-      <div className="pane-resizer" style={{ left: paneW.side - 3 }} onMouseDown={startDrag('side')} />
-      <div className="pane-resizer" style={{ left: paneW.side + paneW.list - 3 }} onMouseDown={startDrag('list')} />
+      <SidebarResizer />
+      <div className="pane-resizer" style={{ left: sideW + listW - 3 }} onMouseDown={startListDrag} />
       <Sidebar
         accounts={accounts}
         activeAccountId={activeAccountId}

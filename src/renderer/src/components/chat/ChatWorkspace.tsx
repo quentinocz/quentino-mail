@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
 import WorkspaceSwitch, { Workspace } from '../WorkspaceSwitch';
+import { SidebarResizer } from '../../sidebar';
 import ChatMessageView from './ChatMessage';
 import ChatProductPicker from './ChatProductPicker';
 import ChatSettings from './ChatSettings';
@@ -189,6 +190,7 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
 
   return (
     <div className="app ch-app">
+      <SidebarResizer />
       <div className="sidebar">
         <div className="brand">quentino<span> chat</span></div>
         <WorkspaceSwitch current="chat" onChange={onWorkspace} chatUnread={chatUnread} />
