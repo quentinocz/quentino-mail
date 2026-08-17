@@ -54,22 +54,29 @@ function shortName(p: { name: string; displayNames?: { cz: string } }): string {
  * k první odpovědi v konverzaci — dál už zákazník ví, s kým mluví, a podpis
  * pod každou větou by v chatu působil úředně.
  */
-function signature(): string | null {
+function signature(personId?: number | null): string | null {
   const cfg = config.getConfig();
-  if (cfg.signMode === 'off' || !cfg.operatorPersonId) return null;
-  const person = listPersons().find(p => p.id === cfg.operatorPersonId);
+  // 0 znamená „tuhle zprávu nepodepisovat", undefined „použij nastavení"
+  if (personId === 0) return null;
+  const id = personId ?? cfg.operatorPersonId;
+  if (cfg.signMode === 'off' || !id) return null;
+  const person = listPersons().find(p => p.id === id);
   if (!person) return null;
   const short = shortName(person);
   if (!short) return null;
   return cfg.signSuffix ? `${short}, ${cfg.signSuffix}` : short;
 }
 
-export async function send(conversationId: string, text: string): Promise<ChatMessage[]> {
+export async function send(
+  conversationId: string,
+  text: string,
+  personId?: number | null
+): Promise<ChatMessage[]> {
   const content = text.trim();
   if (!content) throw new Error('Zpráva je prázdná.');
 
   const cfg = config.getConfig();
-  const sign = signature();
+  const sign = signature(personId);
   let finalText = content;
 
   if (sign) {

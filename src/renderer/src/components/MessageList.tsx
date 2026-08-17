@@ -228,7 +228,7 @@ export default function MessageList(p: Props) {
         {!p.hasAccount && (
           <div className="empty-state">
             <div className="big"><Icon name="mail" size={36} /></div>
-            Vítej v Quentino Mail!<br />Začni přidáním e-mailového účtu v Nastavení.
+            Vítej v Quentino App!<br />Začni přidáním e-mailového účtu v Nastavení.
           </div>
         )}
         {p.hasAccount && p.messages.length === 0 && (

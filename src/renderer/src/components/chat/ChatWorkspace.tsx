@@ -22,13 +22,15 @@ interface Props {
   onOpenSettings: () => void;
   onWorkspace: (w: Workspace) => void;
   chatUnread: number;
+  /** Napsat zákazníkovi e-mail — přepne do pošty a otevře novou zprávu */
+  onComposeEmail: (email: string) => void;
 }
 
 /**
  * Chat ze zákaznického widgetu. Data jsou tatáž, se kterou pracuje webový
  * admin — aplikace do nich jen píše, takže widget ani nasazený chat se nemění.
  */
-export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread }: Props) {
+export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread, onComposeEmail }: Props) {
   const toast = useToast();
   const [overview, setOverview] = useState<ChatOverview | null>(null);
   const [convs, setConvs] = useState<ChatConversation[]>([]);
@@ -40,6 +42,8 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread 
   const [picker, setPicker] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  /** Kdo podepisuje tuhle odpověď; 0 = bez podpisu, null = ještě podle nastavení */
+  const [signPerson, setSignPerson] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const active = useMemo(() => convs.find(c => c.id === activeId) ?? null, [convs, activeId]);
@@ -95,7 +99,7 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread 
     if (!activeId || !reply.trim()) return;
     setBusy('send');
     try {
-      setMessages(await api.chat.send(activeId, reply));
+      setMessages(await api.chat.send(activeId, reply, signPerson ?? undefined));
       setReply('');
       loadConvs();
     } catch (e: any) {
@@ -154,6 +158,16 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread 
       toast(e.message, 'error');
     }
   };
+
+  const cfg = overview?.config;
+  const personId = signPerson ?? cfg?.operatorPersonId ?? 0;
+  const person = overview?.persons.find(p => p.id === personId);
+  const signText = person && cfg?.signMode !== 'off'
+    ? (cfg?.signSuffix ? `${person.short}, ${cfg.signSuffix}` : person.short)
+    : null;
+  /** Podepisuje se jen první odpověď — pokud není nastaveno jinak */
+  const wouldSign = !!signText && (cfg?.signMode === 'always' || !messages.some(m => m.sender === 'operator'));
+  const alreadyInText = !!signText && reply.trimEnd().endsWith(signText);
 
   const label = (c: ChatConversation) =>
     c.name || c.email || c.phone || `Anonymní #${c.sessionId.slice(0, 6).toUpperCase()}`;
@@ -228,9 +242,9 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread 
               </div>
               <div className="ig-head-tools">
                 {active.email && (
-                  <button className="btn ghost" data-tip="Přepne do pošty a najde e-maily tohoto zákazníka"
-                    onClick={() => { onWorkspace('mail'); }}>
-                    <Icon name="mail" size={13} /> Do pošty
+                  <button className="btn ghost" data-tip={`Otevře novou zprávu na ${active.email}`}
+                    onClick={() => onComposeEmail(active.email!)}>
+                    <Icon name="mail" size={13} /> Napsat e-mail
                   </button>
                 )}
                 <button className="btn ghost" onClick={toggleStatus}>
@@ -256,6 +270,26 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread 
                 }}
                 placeholder="Odpověď… (⌘+Enter odešle)"
               />
+              <div className="ch-signline">
+                <select
+                  value={personId}
+                  onChange={e => setSignPerson(Number(e.target.value))}
+                  data-tip="Kdo tuhle odpověď podepíše"
+                >
+                  <option value={0}>Bez podpisu</option>
+                  {overview?.persons.map(p => (
+                    <option key={p.id} value={p.id}>{p.short}</option>
+                  ))}
+                </select>
+                {alreadyInText
+                  ? <span className="ch-sign-note">Podpis už máš v textu — přidávat se nebude.</span>
+                  : wouldSign
+                    ? <span className="ch-sign-note added">Na konec se přidá: <b>{signText}</b></span>
+                    : signText
+                      ? <span className="ch-sign-note">Podepsáno bylo dřív — tahle odpověď podpis mít nebude.</span>
+                      : <span className="ch-sign-note">Bez podpisu.</span>}
+              </div>
+
               <div className="ch-tools">
                 <button className="btn ghost" onClick={() => setPicker(true)}
                   data-tip="Vloží odkaz na produkt — zákazníkovi se ve widgetu zobrazí jako karta">
@@ -272,12 +306,6 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread 
                   data-tip={`Přeloží do jazyka zákazníka (${active.locale})`}>
                   {busy === 'translate' ? <span className="spinner-inline" /> : <Icon name="globe" size={13} />} Přeložit
                 </button>
-
-                <span className="ch-sign">
-                  {overview?.config.operatorPersonId
-                    ? `podepisuje ${overview.persons.find(p => p.id === overview.config.operatorPersonId)?.short ?? ''}`
-                    : 'bez podpisu'}
-                </span>
 
                 <button className="btn primary" onClick={send} disabled={!reply.trim() || busy === 'send'}>
                   {busy === 'send' ? <span className="spinner-inline" /> : <Icon name="send" size={13} />} Odeslat

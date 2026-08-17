@@ -265,7 +265,9 @@ export const api = {
 
     conversations: (onlyOpen = true) => call<ChatConversation[]>('chat:conversations', onlyOpen),
     messages: (id: string) => call<ChatMessage[]>('chat:messages', id),
-    send: (id: string, text: string) => call<ChatMessage[]>('chat:send', id, text),
+    /** `personId` 0 = tuhle zprávu nepodepisovat, undefined = podle nastavení */
+    send: (id: string, text: string, personId?: number | null) =>
+      call<ChatMessage[]>('chat:send', id, text, personId),
     markRead: (id: string) => call<void>('chat:markRead', id),
     setStatus: (id: string, status: 'open' | 'closed') => call<void>('chat:setStatus', id, status),
 

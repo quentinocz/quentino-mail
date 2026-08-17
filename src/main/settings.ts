@@ -152,7 +152,22 @@ export function deletePerson(id: number): Person[] {
  */
 
 /** Klíče, které nesou tajemství — v souboru jsou dešifrované v `secrets`, ne v `settings`. */
-const SECRET_SETTING_KEYS = ['anthropicApiKey', 'upgatesKey'];
+const SECRET_SETTING_KEYS = [
+  'anthropicApiKey', 'upgatesKey',
+  // Instagram a chat: v databázi jsou zašifrované systémovou klíčenkou, která
+  // na jiném počítači nefunguje — do zálohy proto patří rozšifrované
+  'igAppSecret', 'igStorageKey', 'igUserToken', 'chatAnonKey'
+];
+
+/** Popisky do hlášky po importu. */
+const SECRET_LABELS: Record<string, string> = {
+  anthropicApiKey: 'API klíč',
+  upgatesKey: 'Upgates klíč',
+  igAppSecret: 'Meta aplikace',
+  igStorageKey: 'úložiště médií',
+  igUserToken: 'přístup k Instagramu',
+  chatAnonKey: 'klíč k chatu'
+};
 
 /** Provozní hodnoty, které nemá smysl přenášet (razítka synchronizace apod.). */
 const VOLATILE_SETTING_KEYS = ['stateStamp', 'ftsBuilt', 'productFeedSync', 'productFeedSchema', 'appsyncLastRun', 'appsyncLastResult'];
@@ -225,7 +240,7 @@ export function exportConfig(passphrase?: string): object {
 
   // Celá tabulka nastavení 1:1 — přenese se i to, co nemá políčko v UI
   const settings: Record<string, string> = {};
-  const secrets: Record<string, any> = { accountPasswords: {} };
+  const secrets: Record<string, any> = { accountPasswords: {}, igTokens: {} };
   for (const r of d.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]) {
     if (VOLATILE_SETTING_KEYS.includes(r.key)) continue;
     if (SECRET_SETTING_KEYS.includes(r.key)) {
@@ -261,6 +276,21 @@ export function exportConfig(passphrase?: string): object {
     };
   });
 
+  // Instagram: účty i s přístupem, trhy a barvy
+  const igAccounts = (d.prepare('SELECT * FROM ig_accounts ORDER BY id').all() as any[]).map(a => {
+    try {
+      secrets.igTokens[a.ig_user_id] = a.token_enc ? decrypt(a.token_enc) : '';
+    } catch {
+      secrets.igTokens[a.ig_user_id] = '';
+    }
+    return {
+      ig_user_id: a.ig_user_id, username: a.username, lang: a.lang, color: a.color,
+      is_source: a.is_source, token_expires: a.token_expires,
+      page_id: a.page_id ?? '', page_name: a.page_name ?? '', share_fb: a.share_fb ?? 0
+    };
+  });
+  const igMarkets = d.prepare('SELECT * FROM ig_markets ORDER BY ord, lang').all() as any[];
+
   // Osoby i s fotkami do podpisu
   const persons = listPersons().map((p, i) => ({
     name: p.name,
@@ -280,6 +310,8 @@ export function exportConfig(passphrase?: string): object {
     knowledge: listKnowledge().map(k => ({ title: k.title, content: k.content })),
     persons,
     accounts,
+    igAccounts,
+    igMarkets,
     files,
     secrets: passphrase ? seal(secrets, passphrase) : secrets
   };
@@ -295,6 +327,7 @@ export function importConfig(data: any, passphrase?: string): string {
     ? unseal(data.secrets, passphrase ?? '')
     : (data.secrets ?? {});
   const accountPasswords: Record<string, string> = secrets.accountPasswords ?? {};
+  const igTokens: Record<string, string> = secrets.igTokens ?? {};
 
   /* ---- Nastavení ---- */
   if (data.settings) {
@@ -318,7 +351,7 @@ export function importConfig(data: any, passphrase?: string): string {
   for (const key of SECRET_SETTING_KEYS) {
     if (typeof secrets[key] === 'string' && secrets[key]) {
       setSetting(key, encrypt(secrets[key]));
-      parts.push(key === 'anthropicApiKey' ? 'API klíč' : 'Upgates klíč');
+      parts.push(SECRET_LABELS[key] ?? key);
     }
   }
 
@@ -394,6 +427,43 @@ export function importConfig(data: any, passphrase?: string): string {
     if (added) parts.push(`${added}× nový účet`);
     if (updated) parts.push(`${updated}× aktualizovaný účet`);
     if (missingPass) parts.push(`u ${missingPass} účtů chybí heslo — doplň ho ručně`);
+  }
+
+  /* ---- Instagram: trhy a účty ---- */
+  if (Array.isArray(data.igMarkets)) {
+    for (const m of data.igMarkets) {
+      if (!m?.lang) continue;
+      d.prepare(
+        `INSERT INTO ig_markets (lang, label, note, tags, color, enabled, ord)
+         VALUES (?,?,?,?,?,?,?)
+         ON CONFLICT(lang) DO UPDATE SET label=excluded.label, note=excluded.note,
+           tags=excluded.tags, color=excluded.color, enabled=excluded.enabled, ord=excluded.ord`
+      ).run(m.lang, m.label ?? '', m.note ?? '', m.tags ?? '', m.color ?? '#7c5cff', m.enabled ?? 1, m.ord ?? 0);
+    }
+    if (data.igMarkets.length) parts.push(`${data.igMarkets.length}× trh`);
+  }
+
+  if (Array.isArray(data.igAccounts)) {
+    let n = 0;
+    for (const a of data.igAccounts) {
+      if (!a?.ig_user_id) continue;
+      const token = igTokens[a.ig_user_id] ?? '';
+      d.prepare(
+        `INSERT INTO ig_accounts (ig_user_id, username, lang, color, is_source, token_enc, token_expires, page_id, page_name, share_fb)
+         VALUES (?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(ig_user_id) DO UPDATE SET
+           username=excluded.username, lang=excluded.lang, color=excluded.color,
+           is_source=excluded.is_source, token_expires=excluded.token_expires,
+           page_id=excluded.page_id, page_name=excluded.page_name, share_fb=excluded.share_fb,
+           token_enc=CASE WHEN excluded.token_enc = '' THEN ig_accounts.token_enc ELSE excluded.token_enc END`
+      ).run(
+        a.ig_user_id, a.username ?? '', a.lang ?? 'CS', a.color ?? '#7c5cff', a.is_source ?? 0,
+        token ? encrypt(token) : '', a.token_expires ?? null,
+        a.page_id ?? '', a.page_name ?? '', a.share_fb ?? 0
+      );
+      n++;
+    }
+    if (n) parts.push(`${n}× instagramový účet`);
   }
 
   const embedded = Object.keys(files).length;

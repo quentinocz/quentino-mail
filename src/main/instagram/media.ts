@@ -106,7 +106,7 @@ export async function testStorage(): Promise<string> {
 const CALLBACK_HTML = `<!doctype html>
 <html lang="cs"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Quentino Mail — připojení účtu</title>
+<title>Quentino App — připojení účtu</title>
 <style>
  body{font:15px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#201d29;
       background:#f6f5f8;margin:0;display:grid;place-items:center;height:100vh;text-align:center}
@@ -118,8 +118,8 @@ const CALLBACK_HTML = `<!doctype html>
 </style></head>
 <body><div class="box">
  <h1>Účet je ověřený</h1>
- <p>Vrať se do Quentino Mailu — okno se za chvíli zavře samo.</p>
- <a class="btn" id="open" href="#">Otevřít Quentino Mail</a>
+ <p>Vrať se do Quentino App — okno se za chvíli zavře samo.</p>
+ <a class="btn" id="open" href="#">Otevřít Quentino App</a>
  <code id="fallback" hidden></code>
 </div>
 <script>

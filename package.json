@@ -1,8 +1,8 @@
 {
-  "name": "quentino-mail",
-  "productName": "Quentino Mail",
+  "name": "quentino-app",
+  "productName": "Quentino App",
   "version": "1.1.0",
-  "description": "Chytrý e-mailový klient s AI asistencí pro Quentino",
+  "description": "Pošta, zákaznický chat a publikování na sociální sítě pro Quentino",
   "main": "dist/main/main/main.js",
   "author": "Quentino",
   "license": "UNLICENSED",

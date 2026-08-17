@@ -44,6 +44,9 @@ function AppInner() {
   });
   useEffect(() => { localStorage.setItem('workspace', workspace); }, [workspace]);
 
+  // E-mail, který se má otevřít po přepnutí z chatu do pošty
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+
   // Nepřečtené zprávy z chatu — číslo u záložky Chat, i když jsi v poště
   const [chatUnread, setChatUnread] = useState(0);
   useEffect(() => {
@@ -217,6 +220,13 @@ function AppInner() {
 
   const startCompose = useCallback((init: ComposerInit) => setComposer(init), []);
 
+  // Přišlo z chatu: jakmile je pošta připravená, otevře se nová zpráva na zákazníka
+  useEffect(() => {
+    if (workspace !== 'mail' || !pendingEmail || !activeAccountId) return;
+    setComposer({ mode: 'new', accountId: activeAccountId, to: pendingEmail });
+    setPendingEmail(null);
+  }, [workspace, pendingEmail, activeAccountId]);
+
   const currentCategory: Category | null = view.type === 'category' ? view.category : null;
 
   if (workspace === 'chat') {
@@ -226,6 +236,7 @@ function AppInner() {
           onOpenSettings={() => setSettingsOpen(true)}
           onWorkspace={setWorkspace}
           chatUnread={chatUnread}
+          onComposeEmail={email => { setPendingEmail(email); setWorkspace('mail'); }}
         />
         {settingsOpen && (
           <SettingsModal

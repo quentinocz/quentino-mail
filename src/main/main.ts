@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, powerMonitor, screen } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { installSystemCa } from './systemca';
 import { registerIpc } from './ipc';
 import { startScheduler } from './scheduler';
@@ -11,6 +12,27 @@ import { renderPage } from './render';
 import { handleCallbackUrl } from './instagram';
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Přejmenování aplikace na Quentino App by jinak znamenalo ztrátu dat: Electron
+ * odvozuje složku s databází od názvu, takže po přejmenování by aplikace
+ * naskočila prázdná. Složku proto jednorázově přesuneme; kdyby to nešlo
+ * (otevřené soubory, práva), zůstaneme u té staré.
+ */
+function keepUserData() {
+  try {
+    const next = app.getPath('userData');
+    const previous = path.join(path.dirname(next), 'Quentino Mail');
+    if (next === previous || fs.existsSync(next) || !fs.existsSync(previous)) return;
+    try {
+      fs.renameSync(previous, next);
+    } catch {
+      app.setPath('userData', previous);
+    }
+  } catch { /* nová instalace nemá co přesouvat */ }
+}
+
+keepUserData();
 
 /**
  * Návrat z přihlášení k Instagramu. Prohlížeč otevře odkaz
@@ -74,8 +96,10 @@ function installCrashGuards() {
   });
 }
 
-const MIN_WIDTH = 1000;
-const MIN_HEIGHT = 640;
+// Panely nástrojů v chatu a na sociálních sítích potřebují víc místa než pošta;
+// pod těmito rozměry by se tlačítka lámala do druhého řádku.
+const MIN_WIDTH = 1180;
+const MIN_HEIGHT = 760;
 
 interface WindowState {
   x?: number;
@@ -94,7 +118,13 @@ interface WindowState {
  * se vycentruje; velikost se zachová.
  */
 function loadWindowState(): WindowState {
-  const fallback: WindowState = { width: 1440, height: 900, maximized: false };
+  // Výchozí okno je co největší, ale vždy s rezervou k okrajům obrazovky
+  const area = screen.getPrimaryDisplay().workAreaSize;
+  const fallback: WindowState = {
+    width: Math.max(MIN_WIDTH, Math.min(1680, area.width - 80)),
+    height: Math.max(MIN_HEIGHT, Math.min(1040, area.height - 60)),
+    maximized: false
+  };
   try {
     const raw = getSetting('windowState');
     if (!raw) return fallback;
@@ -142,7 +172,7 @@ function createWindow() {
     height: state.height,
     minWidth: MIN_WIDTH,
     minHeight: MIN_HEIGHT,
-    title: 'Quentino Mail',
+    title: 'Quentino App',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#f6f5f8',
     webPreferences: {

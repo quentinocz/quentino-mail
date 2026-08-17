@@ -680,6 +680,8 @@ export interface ChatConversation {
   createdAt: string;
   /** Kdy zákazník zavřel widget */
   leftAt: string | null;
+  /** Poslední zpráva je od nás — odpovězeno (i z Telegramu nebo webového adminu) */
+  answered: boolean;
 }
 
 export interface ChatMessage {

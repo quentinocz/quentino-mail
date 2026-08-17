@@ -43,7 +43,8 @@ function toConversation(r: any): ChatConversation {
     unread: r.unread_operator ?? 0,
     channel: r.channel ?? 'widget',
     createdAt: r.created_at,
-    leftAt: r.left_at ?? null
+    leftAt: r.left_at ?? null,
+    answered: false
   };
 }
 
@@ -59,19 +60,58 @@ function toMessage(r: any): ChatMessage {
   };
 }
 
+/**
+ * Kdo psal v konverzaci naposled. Počítadlo `unread_operator` totiž zvyšuje
+ * server u každé zprávy zákazníka, ale nuluje ho jen ten, kdo konverzaci
+ * otevře ve webovém adminu — když se odpoví z Telegramu nebo z jiného
+ * zařízení, zůstane viset. Poslední zpráva je spolehlivější znamení: pokud
+ * je od nás, je vyřízeno.
+ */
+async function lastSenders(): Promise<Map<string, string>> {
+  const rows = await rest('messages?select=conversation_id,sender,created_at&order=created_at.desc&limit=600');
+  const map = new Map<string, string>();
+  for (const r of rows ?? []) {
+    if (!map.has(r.conversation_id)) map.set(r.conversation_id, r.sender);
+  }
+  return map;
+}
+
+/** Nepřečtené podle skutečnosti, ne podle počítadla. */
+function effectiveUnread(row: any, lastSender: string | undefined): number {
+  if (lastSender && lastSender !== 'customer') return 0;
+  const counter = row.unread_operator ?? 0;
+  // Poslední zpráva je od zákazníka, ale počítadlo je nulové (odpovědělo se
+  // odjinud a pak přišla další otázka) — pořád je to jedna nepřečtená.
+  return counter > 0 ? counter : (lastSender === 'customer' ? 1 : 0);
+}
+
 export async function listConversations(onlyOpen: boolean): Promise<ChatConversation[]> {
   const filter = onlyOpen ? '&status=eq.open' : '';
-  const rows = await rest(`conversations?select=*&order=last_message_at.desc&limit=150${filter}`);
-  return (rows ?? []).map(toConversation);
+  const [rows, senders] = await Promise.all([
+    rest(`conversations?select=*&order=last_message_at.desc&limit=150${filter}`),
+    lastSenders().catch(() => new Map<string, string>())
+  ]);
+
+  const list: ChatConversation[] = [];
+  for (const r of rows ?? []) {
+    const last = senders.get(r.id);
+    const unread = effectiveUnread(r, last);
+    // Zapomenuté počítadlo rovnou srovnáme, ať se webový admin i Telegram
+    // dívají na totéž
+    if ((r.unread_operator ?? 0) > 0 && unread === 0) {
+      patchConversation(r.id, { unread_operator: 0 }).catch(() => {});
+    }
+    list.push({ ...toConversation(r), unread, answered: !!last && last !== 'customer' });
+  }
+  return list;
 }
 
 /** Součet nepřečtených u otevřených konverzací — pro odznak v přepínači. */
 export async function unreadTotal(): Promise<{ unread: number; conversations: number }> {
-  const rows = await rest('conversations?select=unread_operator&status=eq.open&limit=500');
-  const list = rows ?? [];
+  const list = await listConversations(true);
   return {
-    unread: list.reduce((sum: number, r: any) => sum + (r.unread_operator ?? 0), 0),
-    conversations: list.filter((r: any) => (r.unread_operator ?? 0) > 0).length
+    unread: list.reduce((sum, c) => sum + c.unread, 0),
+    conversations: list.filter(c => c.unread > 0).length
   };
 }
 

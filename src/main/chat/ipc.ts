@@ -21,7 +21,7 @@ export function registerChatIpc() {
 
   handle('chat:conversations', (onlyOpen?: boolean) => chat.conversations(onlyOpen !== false));
   handle('chat:messages', (id: string) => chat.messages(id));
-  handle('chat:send', (id: string, text: string) => chat.send(id, text));
+  handle('chat:send', (id: string, text: string, personId?: number | null) => chat.send(id, text, personId));
   handle('chat:markRead', (id: string) => chat.markRead(id));
   handle('chat:setStatus', (id: string, status: 'open' | 'closed') => chat.setStatus(id, status));
 

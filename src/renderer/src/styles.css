@@ -2901,3 +2901,24 @@ button, kbd, label,
 
 [data-theme="dark"] .ch-conv:hover { background: #292534; color: var(--text); }
 [data-theme="dark"] .ch-hit:hover { background: #292534; }
+
+/* Tlačítkové lišty se nesmí lámat ani mačkat — radši ať se dají posunout */
+.btn { white-space: nowrap; flex-shrink: 0; }
+.ig-head-tools, .ch-tools, .ig-seg { flex-wrap: nowrap; }
+.ch-tools { overflow-x: auto; padding-bottom: 2px; }
+.ch-tools::-webkit-scrollbar { height: 0; }
+.ig-head-tools { overflow-x: auto; }
+.ig-seg button { white-space: nowrap; }
+
+/* Řádek s podpisem nad tlačítky */
+.ch-signline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.ch-signline select { padding: 4px 8px; font-size: 12.5px; }
+.ch-sign-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-sign-note.added { color: var(--text-2); }
+.ch-sign-note b { color: var(--accent-dark); }

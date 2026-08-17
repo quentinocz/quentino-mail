@@ -1,5 +1,5 @@
 appId: cz.quentino.mail
-productName: Quentino Mail
+productName: Quentino App
 directories:
   output: release
   buildResources: build
@@ -30,7 +30,7 @@ afterPack: scripts/afterpack-adhoc.cjs
 # Vlastní schéma odkazu. Používá ho návrat z přihlášení k Instagramu:
 # prohlížeč otevře quentino-mail://ig-oauth?... a systém tím probudí aplikaci.
 protocols:
-  - name: Quentino Mail
+  - name: Quentino App
     schemes: [quentino-mail]
 
 mac:
