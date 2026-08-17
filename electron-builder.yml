@@ -22,6 +22,11 @@ files:
 asarUnpack:
   - "**/node_modules/better-sqlite3/**"
 
+# Bez certifikátu electron-builder podepisování přeskočí úplně a taková
+# aplikace se na Apple Silicon vůbec nespustí. Tenhle krok jí dá aspoň
+# provizorní podpis; s certifikátem se sám přeskočí.
+afterPack: scripts/afterpack-adhoc.cjs
+
 mac:
   category: public.app-category.productivity
   icon: build/icon.png

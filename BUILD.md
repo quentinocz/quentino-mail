@@ -185,6 +185,38 @@ Výsledky najdeš ve složce `release`:
 Buildí se pro **Apple Silicon (arm64)**. Na Intel Macu takto sestavená aplikace
 nepoběží.
 
+### Rozdávání aplikace bez certifikátu
+
+Build dostane vždycky aspoň **provizorní podpis** (`scripts/afterpack-adhoc.cjs`).
+Bez něj by se aplikace na Apple Silicon vůbec nespustila — systém by ji ukončil
+hláškou „je poškozená a nelze ji otevřít". Notarizaci to ale nenahrazuje.
+
+Co uvidí příjemce, závisí na tom, **jak se k aplikaci dostane**:
+
+| Cesta | Co se stane |
+| --- | --- |
+| **USB flashka nebo sdílená složka v síti** | Otevře se rovnou, bez varování. Kopírování z disku nebo ze sítě značku „staženo z internetu" nepřidává. |
+| Stažení z prohlížeče, AirDrop, e-mail | Jednorázové varování Gatekeeperu — viz níže. |
+
+Takže nejjednodušší cesta ke kolegům bez jediného varování a bez terminálu:
+
+1. Stáhni `.dmg` na svém Macu, otevři a přetáhni aplikaci do Aplikací
+2. Jednou u sebe sundej značku:
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Quentino Mail.app"
+   ```
+3. Zkopíruj `Quentino Mail.app` na flashku nebo do sdílené složky
+4. Kolega si ji přetáhne do svých Aplikací a spustí dvojklikem
+
+Když aplikace přijde stažením, musí příjemce na **macOS 15 Sequoia a novějším**
+projít tudy (pravý klik → Otevřít už Apple zrušil):
+
+1. dvojklik → objeví se varování, kliknout na **Hotovo**
+2. **Systémová nastavení → Soukromí a zabezpečení** → dole řádek
+   *„Quentino Mail bylo zablokováno…"* → **Přesto otevřít**
+
+Na macOS 14 a starším stačí pravý klik na aplikaci → **Otevřít** → **Otevřít**.
+
 ### Podpis a notarizace
 
 Bez certifikátu se aplikace nepodepíše. Funguje, ale na cizím Macu ji jde poprvé
