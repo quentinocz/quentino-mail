@@ -3,7 +3,7 @@ import type {
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
   UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, CustomerContext, VoucherSpec,
-  IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob
+  IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels
 } from '@shared/types';
 
 declare global {
@@ -241,9 +241,10 @@ export const api = {
     blankCaptions: (postId: number, langs: string[]) => call<IgPost>('ig:blankCaptions', postId, langs),
     chooseVariant: (captionId: number, index: number) => call<void>('ig:chooseVariant', captionId, index),
     editCaption: (captionId: number, text: string) => call<void>('ig:editCaption', captionId, text),
-    publish: (captionId: number, at?: string | null) => call<number>('ig:publish', captionId, at ?? null),
-    publishPost: (postId: number, at?: string | null, force = false) =>
-      call<{ queued: number; skipped: string[] }>('ig:publishPost', postId, at ?? null, force),
+    publish: (captionId: number, at?: string | null, channels?: IgChannels) =>
+      call<number>('ig:publish', captionId, at ?? null, channels),
+    publishPost: (postId: number, at?: string | null, force = false, channels?: IgChannels) =>
+      call<{ queued: number; skipped: string[] }>('ig:publishPost', postId, at ?? null, force, channels),
     /** Zkusí znovu jen sdílení na Facebook stránku */
     retryFacebook: (jobId: number) => call<void>('ig:retryFacebook', jobId),
     /** Zahodí uložený přístup a otevře přihlášení znovu (kvůli novým oprávněním) */

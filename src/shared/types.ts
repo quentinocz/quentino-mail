@@ -617,6 +617,9 @@ export interface IgPost {
   sourcePermalink?: string;
 }
 
+/** Kam publikace míří: jen Instagram, jen Facebook stránka, nebo obojí. */
+export type IgChannels = 'ig' | 'fb' | 'ig+fb';
+
 export interface IgJob {
   id: number;
   captionId: number;
@@ -629,8 +632,9 @@ export interface IgJob {
   finishedAt: string | null;
   permalink: string | null;
   error: string | null;
-  /** Výsledek souběžného sdílení na Facebook stránku */
+  /** Výsledek sdílení na Facebook stránku */
   fbPostId: string | null;
   fbError: string | null;
+  channels: IgChannels;
   preview: string;
 }

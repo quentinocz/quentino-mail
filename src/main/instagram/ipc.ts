@@ -77,9 +77,10 @@ export function registerIgIpc() {
   handle('ig:blankCaptions', (postId: number, langs: string[]) => ig.blankCaptions(postId, langs ?? []));
   handle('ig:chooseVariant', (captionId: number, index: number) => ig.chooseVariant(captionId, index));
   handle('ig:editCaption', (captionId: number, text: string) => ig.editCaption(captionId, text));
-  handle('ig:publish', (captionId: number, at?: string | null) => ig.publishCaption(captionId, at ?? null));
-  handle('ig:publishPost', (postId: number, at?: string | null, force?: boolean) =>
-    ig.publishPost(postId, at ?? null, !!force));
+  handle('ig:publish', (captionId: number, at?: string | null, channels?: any) =>
+    ig.publishCaption(captionId, at ?? null, channels));
+  handle('ig:publishPost', (postId: number, at?: string | null, force?: boolean, channels?: any) =>
+    ig.publishPost(postId, at ?? null, !!force, channels));
   handle('ig:retryFacebook', (jobId: number) => ig.retryFacebook(jobId));
   handle('ig:relogin', (lang: string) => {
     const url = ig.oauth.relogin(lang);

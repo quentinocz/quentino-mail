@@ -77,7 +77,7 @@ export default function IgQueue({ overview, onOpenPost }: { overview: IgOverview
                   Zkusit znovu
                 </button>
               )}
-              {j.state === 'done' && (j.fbError || !j.fbPostId) && (
+              {j.state === 'done' && j.channels.includes('fb') && (j.fbError || !j.fbPostId) && (
                 <button className="btn ghost"
                   onClick={() => act(async () => api.ig.retryFacebook(j.id), 'Zkouším sdílení na Facebook.')}
                   data-tip="Příspěvek na Instagramu zůstane; zkusí se jen sdílení na stránku">
@@ -110,7 +110,8 @@ function Row({ job, onOpenPost, children }: { job: IgJob; onOpenPost: (id: numbe
           {job.preview || <span className="ig-muted">bez textu</span>}
         </button>
         <div className="ig-muted">
-          @{job.username} · {STATE_LABEL[job.state] ?? job.state}
+          {job.channels === 'fb' ? 'Facebook' : job.channels === 'ig+fb' ? 'Instagram + Facebook' : 'Instagram'}
+          {' · '}@{job.username} · {STATE_LABEL[job.state] ?? job.state}
           {job.state === 'scheduled' && ` · ${fmtDate(job.scheduledAt)}`}
           {job.finishedAt && ` · ${fmtDate(job.finishedAt)}`}
         </div>

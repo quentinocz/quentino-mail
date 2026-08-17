@@ -98,7 +98,8 @@ export const igSchema = `
     attempts INTEGER NOT NULL DEFAULT 0,
     error TEXT,
     fb_post_id TEXT,
-    fb_error TEXT
+    fb_error TEXT,
+    channels TEXT NOT NULL DEFAULT 'ig'
   );
   CREATE INDEX IF NOT EXISTS idx_ig_jobs_due ON ig_jobs(state, scheduled_at);
 `;
@@ -112,7 +113,8 @@ export const igAlters: string[] = [
   "ALTER TABLE ig_accounts ADD COLUMN page_name TEXT NOT NULL DEFAULT ''",
   'ALTER TABLE ig_accounts ADD COLUMN share_fb INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE ig_jobs ADD COLUMN fb_post_id TEXT',
-  'ALTER TABLE ig_jobs ADD COLUMN fb_error TEXT'
+  'ALTER TABLE ig_jobs ADD COLUMN fb_error TEXT',
+  "ALTER TABLE ig_jobs ADD COLUMN channels TEXT NOT NULL DEFAULT 'ig'"
 ];
 
 /** Trhy, se kterými se začíná. Uživatel je v rozhraní přepíše. */

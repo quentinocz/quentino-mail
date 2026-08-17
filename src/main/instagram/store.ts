@@ -2,7 +2,7 @@ import { getDb, getSetting, setSetting } from '../db';
 import { encrypt, decrypt } from '../secure';
 import { DEFAULT_MARKETS } from './schema';
 import type {
-  IgAccount, IgBrand, IgMarket, IgPost, IgCaption, IgMediaItem, IgSourcePost, IgJob, IgConnection
+  IgAccount, IgBrand, IgMarket, IgPost, IgCaption, IgMediaItem, IgSourcePost, IgJob, IgConnection, IgChannels
 } from '../../shared/types';
 
 /* ---------- Připojení (Meta aplikace + úložiště médií) ---------- */
@@ -413,10 +413,10 @@ export function captionRow(id: number): any {
 
 /* ---------- Fronta publikací ---------- */
 
-export function enqueue(captionId: number, accountId: number, at: string): number {
+export function enqueue(captionId: number, accountId: number, at: string, channels: IgChannels): number {
   const r = getDb().prepare(
-    `INSERT INTO ig_jobs (caption_id, account_id, state, scheduled_at) VALUES (?,?,'scheduled',?)`
-  ).run(captionId, accountId, at);
+    `INSERT INTO ig_jobs (caption_id, account_id, state, scheduled_at, channels) VALUES (?,?,'scheduled',?,?)`
+  ).run(captionId, accountId, at, channels);
   return Number(r.lastInsertRowid);
 }
 
@@ -457,6 +457,7 @@ export function listJobs(limit = 80): IgJob[] {
     error: r.error,
     fbPostId: r.fb_post_id ?? null,
     fbError: r.fb_error ?? null,
+    channels: (r.channels ?? 'ig') as IgChannels,
     preview: captionText(r).slice(0, 160)
   }));
 }

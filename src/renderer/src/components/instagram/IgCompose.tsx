@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { IgOverview, IgPost, IgCaption } from '@shared/types';
+import type { IgOverview, IgPost, IgCaption, IgChannels } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
@@ -29,6 +29,7 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
   const [publishing, setPublishing] = useState(false);
   const [when, setWhen] = useState('');
   const [republish, setRepublish] = useState(false);
+  const [channels, setChannels] = useState<IgChannels>('ig');
 
   const isSourcePost = post?.kind === 'source';
 
@@ -74,6 +75,13 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
     if (postId != null) loadPost(postId);
     else api.ig.drafts().then(setDrafts).catch(() => {});
   }), [postId, loadPost]);
+
+  // Výchozí cíl: když mají účty zapnuté sdílení na stránku, nabídne se obojí
+  useEffect(() => {
+    const anyFb = overview.accounts.some(a => a.shareFb && a.pageId);
+    setChannels(anyFb ? 'ig+fb' : 'ig');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overview.accounts.length]);
 
   // Výchozí výběr trhů
   useEffect(() => {
@@ -153,7 +161,7 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
     setPublishing(true);
     try {
       const at = when ? toIso(when) : null;
-      const res = await api.ig.publishPost(post.id, at, republish);
+      const res = await api.ig.publishPost(post.id, at, republish, channels);
       toast(at
         ? `Naplánováno ${res.queued} příspěvků na ${fmtDate(at)}.`
         : `Do fronty šlo ${res.queued} příspěvků.`);
@@ -289,12 +297,31 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
                   caption={c}
                   color={marketColor(overview.markets, c.lang)}
                   label={overview.markets.find(m => m.lang === c.lang)?.label ?? c.lang}
+                  channels={channels}
                   onChanged={() => loadPost(post!.id)}
                 />
               ))}
             </div>
 
             <div className="ig-publish">
+              <div className="field">
+                <label>Kam publikovat</label>
+                <div className="ig-seg">
+                  <button className={channels === 'ig' ? 'active' : ''} onClick={() => setChannels('ig')}>
+                    Instagram
+                  </button>
+                  <button className={channels === 'ig+fb' ? 'active' : ''} onClick={() => setChannels('ig+fb')}>
+                    Instagram + Facebook
+                  </button>
+                  <button className={channels === 'fb' ? 'active' : ''} onClick={() => setChannels('fb')}
+                    data-tip="Na Instagramu nic nevznikne, příspěvek půjde jen na Facebook stránku">
+                    Jen Facebook
+                  </button>
+                </div>
+                {channels !== 'ig' && !overview.accounts.some(a => a.pageId) && (
+                  <span className="desc ig-over">Žádný účet nemá známou Facebook stránku — připoj účty znovu.</span>
+                )}
+              </div>
               <div className="field">
                 <label>Naplánovat na</label>
                 <div className="ig-when">
@@ -366,8 +393,8 @@ function FileChip({ file, onRemove }: { file: string; onRemove: () => void }) {
   );
 }
 
-function CaptionCard({ caption, color, label, onChanged }: {
-  caption: IgCaption; color: string; label: string; onChanged: () => void;
+function CaptionCard({ caption, color, label, channels, onChanged }: {
+  caption: IgCaption; color: string; label: string; channels: IgChannels; onChanged: () => void;
 }) {
   const toast = useToast();
   const [text, setText] = useState(caption.text);
@@ -395,7 +422,7 @@ function CaptionCard({ caption, color, label, onChanged }: {
 
   const publishOne = async () => {
     try {
-      await api.ig.publish(caption.id, null);
+      await api.ig.publish(caption.id, null, channels);
       toast(`${caption.lang} šel do fronty.`);
     } catch (e: any) {
       toast(e.message, 'error');

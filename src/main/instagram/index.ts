@@ -12,7 +12,7 @@ import * as media from './media';
 import * as captions from './captions';
 import * as publisher from './publish';
 import * as oauth from './oauth';
-import type { IgOverview, IgMediaItem, IgPost } from '../../shared/types';
+import type { IgOverview, IgMediaItem, IgPost, IgChannels } from '../../shared/types';
 
 export { store, media, publisher, oauth };
 export const connect = oauth.startConnect;
@@ -294,8 +294,8 @@ export function editCaption(captionId: number, text: string): void {
 
 /* ---------- Publikace ---------- */
 
-export function publishCaption(captionId: number, at?: string | null): number {
-  return publisher.schedule(captionId, at);
+export function publishCaption(captionId: number, at?: string | null, channels?: IgChannels): number {
+  return publisher.schedule(captionId, at, channels);
 }
 
 /**
@@ -305,7 +305,8 @@ export function publishCaption(captionId: number, at?: string | null): number {
 export function publishPost(
   postId: number,
   at?: string | null,
-  force = false
+  force = false,
+  channels?: IgChannels
 ): { queued: number; skipped: string[] } {
   const post = store.getPost(postId);
   if (!post) throw new Error('Příspěvek nenalezen.');
@@ -318,7 +319,7 @@ export function publishPost(
   for (const c of post.captions) {
     if (!force && c.status === 'published') continue;
     try {
-      publisher.schedule(c.id, at);
+      publisher.schedule(c.id, at, channels);
       queued++;
     } catch (e: any) {
       skipped.push(`${c.lang}: ${e.message}`);

@@ -10,6 +10,7 @@ import { getDb } from '../db';
 import * as store from './store';
 import * as graph from './graph';
 import * as media from './media';
+import type { IgChannels } from '../../shared/types';
 
 function emit(payload: unknown = {}) {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send('ig:changed', payload);
@@ -132,6 +133,13 @@ export async function runJob(jobId: number): Promise<void> {
     const account = store.listAccounts().find(a => a.id === job.account_id);
     if (!account) throw new Error('Cílový účet už není připojený.');
 
+    const channels: string = job.channels ?? 'ig';
+    const toInstagram = channels.includes('ig');
+    const toFacebook = channels.includes('fb');
+    if (toFacebook && !account.pageId) {
+      throw new Error('U účtu není známá Facebook stránka — připoj ho znovu, doplní se.');
+    }
+
     const token = store.tokenFor(account.id);
     const sourceAccount = store.sourceAccount();
     let source: { id: number; token: string } | null = null;
@@ -146,22 +154,26 @@ export async function runJob(jobId: number): Promise<void> {
     const items = await resolveMedia(caption.post_id, source);
     const text = store.captionText(caption);
 
-    const result = await graph.publish(account.igUserId, token, text, items);
-
-    store.setJobState(jobId, {
-      state: 'done',
-      container_id: result.containerId,
-      ig_media_id: result.igMediaId,
-      permalink: result.permalink,
-      error: null,
-      finished_at: new Date().toISOString()
-    });
-    store.updateCaption(caption.id, { status: 'published' });
+    if (toInstagram) {
+      const result = await graph.publish(account.igUserId, token, text, items);
+      store.setJobState(jobId, {
+        state: 'done',
+        container_id: result.containerId,
+        ig_media_id: result.igMediaId,
+        permalink: result.permalink,
+        error: null,
+        finished_at: new Date().toISOString()
+      });
+      store.updateCaption(caption.id, { status: 'published' });
+    } else {
+      // Jen Facebook: na Instagramu nic nevzniká, popisek proto zůstává rozpracovaný
+      store.setJobState(jobId, { state: 'done', error: null, finished_at: new Date().toISOString() });
+    }
     store.setAccountError(account.id, null);
 
-    // Souběžné sdílení na Facebook stránku. Nepovede-li se, příspěvek na
-    // Instagramu tím neruším — jen se u položky poznamená, co chybělo.
-    if (account.shareFb && account.pageId) {
+    // Sdílení na stránku. Nepovede-li se, příspěvek na Instagramu tím neruším —
+    // jen se u položky poznamená, co chybělo, a jde to zkusit zvlášť.
+    if (toFacebook) {
       await shareOnFacebook(jobId, account, token, text, items);
     }
   } catch (e: any) {
@@ -272,17 +284,25 @@ export async function processQueue(): Promise<void> {
 }
 
 /** Zařadí popisek na účet odpovídajícího trhu. `at` prázdné = hned. */
-export function schedule(captionId: number, at?: string | null): number {
+export function schedule(captionId: number, at?: string | null, channels?: IgChannels): number {
   const caption = store.captionRow(captionId);
   if (!caption) throw new Error('Popisek nenalezen.');
   const account = store.accountForLang(caption.lang);
   if (!account) throw new Error(`Pro trh ${caption.lang} není připojený žádný účet.`);
 
+  // Bez výslovné volby platí nastavení účtu
+  const target: IgChannels = channels ?? (account.shareFb ? 'ig+fb' : 'ig');
+  if (target.includes('fb') && !account.pageId) {
+    throw new Error(`Účet ${caption.lang} nemá známou Facebook stránku — připoj ho znovu.`);
+  }
+
   const text = store.captionText(caption);
-  graph.validateCaption(text);
+  // Limity 2 200 znaků a 30 hashtagů jsou instagramové, na Facebook se nevztahují
+  if (target.includes('ig')) graph.validateCaption(text);
+  else if (!text.trim()) throw new Error('Popisek je prázdný.');
 
   const when = at && at.trim() ? new Date(at).toISOString() : new Date().toISOString();
-  const id = store.enqueue(captionId, account.id, when);
+  const id = store.enqueue(captionId, account.id, when, target);
   store.updateCaption(captionId, { status: 'approved' });
   emit();
   if (!at || new Date(when) <= new Date()) setTimeout(() => processQueue().catch(() => {}), 200);
