@@ -22,7 +22,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest   # runner je x64 → odpovídá `win.arch: [x64]`
+          # Schválně `windows-2022`, ne `windows-latest`. Ten má dnes Visual
+          # Studio 2026 (verze 18) a node-gyp 9 — který si přes @electron/rebuild
+          # nese electron-builder — ho neumí rozpoznat: zná jen VS 2013 až 2022
+          # a spadne na „Could not find any Visual Studio installation to use".
+          # Až electron-builder povýší node-gyp, dá se vrátit na windows-latest.
+          # Runner je x64, takže odpovídá `win.arch: [x64]`.
+          - os: windows-2022
             label: Windows x64
             script: dist:win
             artifact: windows-x64

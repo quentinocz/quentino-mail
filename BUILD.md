@@ -59,6 +59,13 @@ winget install -e --id Python.Python.3.11
 winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
+> **Schválně Build Tools 2022, ne novější.** node-gyp 9 hledá Visual Studio
+> napevno podle verzí 12 až 17 (VS 2013 až 2022). **Visual Studio 2026 má verzi 18
+> a node-gyp ho přejde** hláškou `Could not find any Visual Studio installation
+> to use`, i když je nainstalované celé — [nodejs/node-gyp#3282](https://github.com/nodejs/node-gyp/issues/3282).
+> Když už 2026 na počítači máš, nech ho být a doinstaluj Build Tools 2022 vedle;
+> vedle sebe fungují.
+
 > **Schválně Python 3.11, ne novější.** `electron-builder` si přes `@electron/rebuild`
 > nese **node-gyp 9**, jehož `gyp` importuje modul `distutils` — a ten byl
 > z Pythonu **3.12 odstraněn** ([PEP 632](https://peps.python.org/pep-0632/)).
@@ -312,6 +319,11 @@ pak visí u běhu jako *Artifacts* a mažou se po 30 dnech.
 
 - **Python je pevně 3.11.** Novější verze nemá `distutils`, který node-gyp 9
   potřebuje. Bez toho kroku by build spadl stejně jako lokálně.
+- **Windows runner je pevně `windows-2022`, ne `windows-latest`.** Ten má dnes
+  Visual Studio 2026 (verze 18), které node-gyp 9 nerozpozná. Až electron-builder
+  povýší node-gyp, dá se vrátit zpátky. Kdyby GitHub `windows-2022` jednou
+  vyřadil, bude potřeba buď novější electron-builder, nebo `overrides` na
+  node-gyp v `package.json`.
 - **Instalátory nejsou podepsané.** Windows ohlásí SmartScreen, macOS vyžádá
   pravý klik → Otevřít. Pro podpis a notarizaci macOS verze přidej v repozitáři
   *Settings → Secrets and variables → Actions* položky `APPLE_ID`,
@@ -342,6 +354,7 @@ pak visí u běhu jako *Artifacts* a mažou se po 30 dnech.
 | `Python 3.12 neobsahuje modul distutils` | `py -3 -m pip install setuptools`, nebo přejít na Python 3.11 — postup je přímo v hlášce. |
 | `Nejsou nainstalované Visual Studio Build Tools (C++)` | Příkaz je přímo v hlášce; pak nové okno a `npm install`. |
 | `Ve Visual Studiu chybí komponenta „MSVC v143 …"` | Postup je přímo v hlášce; podrobně v sekci s požadavky pro Windows. |
+| `node-gyp … neumí rozpoznat Visual Studio 2026` | Doinstaluj Build Tools **2022** vedle stávajícího — příkaz je v hlášce. |
 | `Nejsou nainstalované Xcode Command Line Tools` | `xcode-select --install` |
 | `Nativní modul better-sqlite3 je zkompilovaný pro …` | `node_modules` je z jiného počítače. Smaž ji a spusť `npm install`. |
 | `Nativní modul better-sqlite3 není sestavený` | `npx electron-builder install-app-deps` |
@@ -357,6 +370,7 @@ pak visí u běhu jako *Artifacts* a mažou se po 30 dnech.
 | --- | --- |
 | `gyp ERR!`, `node-gyp rebuild failed` | Chybí kompilátor — viz sekce s požadavky pro tvůj systém. Pak `npx electron-builder install-app-deps` |
 | `ModuleNotFoundError: No module named 'distutils'` | Python je 3.12 nebo novější — viz řádek o distutils v tabulce výše. |
+| `Could not find any Visual Studio installation to use` | Buď VS není vůbec, nebo je to VS 2026, které node-gyp nezná. `npm run check` rozliší které. |
 | `error MSB8020: Nenašly se nástroje sestavení pro v143` | Ve Visual Studiu chybí sada nástrojů pro tenhle procesor — na ARM stroji komponenta `…VC.Tools.ARM64`. |
 | `Cannot find module 'better-sqlite3'` nebo pád při startu | Nativní modul není sestavený: `npx electron-builder install-app-deps` |
 | `Rollup failed to resolve import` | Chybí některá závislost: `npm install` |

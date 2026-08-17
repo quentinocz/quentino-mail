@@ -208,9 +208,14 @@ function configuredArches(section) {
  * postinstall kroku — což je nesrozumitelná chyba, když člověk neví, co hledat.
  */
 function checkNativeToolchain() {
-  // `prefix` jsou argumenty, kterými se tentýž interpret spustí znovu (kvůli `py -3`)
+  // Pořadí je schválně stejné jako v node-gyp (`lib/find-python.js`): nejdřív
+  // proměnné prostředí, pak `python3` a `python` z PATH, teprve nakonec spouštěč
+  // `py`. Kdyby se hledalo jinak, hlásila by kontrola jiný interpret, než jaký
+  // se pak doopravdy použije — `py -3` sáhne po nejnovější nainstalované verzi,
+  // zatímco node-gyp vezme tu z PATH.
+  // `prefix` jsou argumenty, kterými se tentýž interpret spustí znovu.
   const pythonCandidates = process.platform === 'win32'
-    ? [['py', ['-3']], ['python', []], ['python3', []]]
+    ? [['python3', []], ['python', []], ['py', ['-3']]]
     : [['python3', []], ['python', []]];
 
   const configured = process.env.npm_config_python || process.env.PYTHON;
@@ -305,6 +310,34 @@ function checkNativeToolchain() {
         );
       } else {
         notes.push(`Visual Studio C++ (${process.arch}): ${found.split(/\r?\n/)[0]}`);
+
+        // Visual Studio umí být novější, než node-gyp zná. `find-visualstudio.js`
+        // v node-gyp 9 hledá napevno VS 2013 až 2022 (verze 12 až 17); Visual
+        // Studio 2026 má verzi 18 a node-gyp ho přejde s hláškou „Could not find
+        // any Visual Studio installation to use", i když je nainstalované celé.
+        const rawVer = run(vswhere, [
+          '-products', '*', '-latest', '-prerelease',
+          '-requires', COMPONENT.id,
+          '-property', 'installationVersion'
+        ]);
+        const vsMajor = Number(rawVer?.split(/\r?\n/)[0]?.split('.')[0]);
+        const gypVersion = readJson(path.join('node_modules', 'node-gyp', 'package.json'))?.version;
+        const gypMajor = Number(gypVersion?.split('.')[0]);
+
+        if (Number.isFinite(vsMajor) && Number.isFinite(gypMajor) && vsMajor > 17 && gypMajor < 11) {
+          const vsName = vsMajor === 18 ? 'Visual Studio 2026' : `Visual Studio verze ${vsMajor}`;
+          fail(
+            `node-gyp ${gypVersion} neumí rozpoznat ${vsName}.`,
+            `Nainstalované Visual Studio má verzi ${vsMajor}, ale node-gyp hledá napevno verze 12 až 17\n`
+            + '       (VS 2013 až 2022). Kompilace by skončila na „Could not find any Visual Studio\n'
+            + '       installation to use", i když je všechno nainstalované. Známá chyba,\n'
+            + '       viz nodejs/node-gyp#3282 a electron/rebuild#1264.\n\n'
+            + '       Doinstaluj Visual Studio Build Tools 2022 vedle stávajícího:\n'
+            + '       winget install -e --id Microsoft.VisualStudio.2022.BuildTools '
+            + `--override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --add ${COMPONENT.id} --includeRecommended"\n\n`
+            + '       Na GitHub Actions se místo toho použije runner `windows-2022`.'
+          );
+        }
       }
     }
   } else if (process.platform === 'darwin') {
