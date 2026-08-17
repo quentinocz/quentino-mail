@@ -195,6 +195,12 @@ export const api = {
     testStorage: () => call<string>('ig:testStorage'),
 
     connect: (lang: string) => call<string>('ig:connect', lang),
+    /** Přidá účet pro trh; `needsLogin` = je potřeba projít přihlášením v prohlížeči */
+    addMarket: (lang: string) => call<{
+      saved?: any;
+      pick?: { igUserId: string; username: string; pageName: string }[];
+      needsLogin?: boolean;
+    }>('ig:addMarket', lang),
     connectToken: (lang: string, token: string) =>
       call<{ saved?: any; pick?: { igUserId: string; username: string; pageName: string }[] }>('ig:connectToken', lang, token),
     /** Dokončení přihlášení z adresy zkopírované z prohlížeče */

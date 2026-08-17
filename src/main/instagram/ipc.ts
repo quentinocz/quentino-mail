@@ -27,6 +27,7 @@ export function registerIgIpc() {
     shell.openExternal(url);
     return url;
   });
+  handle('ig:addMarket', (lang: string) => ig.addMarket(lang));
   handle('ig:connectToken', (lang: string, token: string) => ig.connectWithToken(lang, token));
   // Náhradní cesta, když návratovou stránku prohlížeč nepředá zpět aplikaci:
   // uživatel zkopíruje adresu z řádku prohlížeče a vloží ji sem.

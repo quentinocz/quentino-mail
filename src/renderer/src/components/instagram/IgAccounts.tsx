@@ -68,11 +68,29 @@ export default function IgAccounts({ overview, onChanged }: Props) {
     callbackUrl
   }), 'Uloženo.');
 
+  /**
+   * Přidání účtu pro trh. Když aplikace drží přístup z minulého přihlášení,
+   * účet se připojí hned; jinak se otevře přihlášení v prohlížeči.
+   */
   const connect = async (lang: string) => {
-    await run(`c-${lang}`, async () => {
+    setBusy(`c-${lang}`);
+    try {
       await api.ig.saveConnection({ appId, ...(appSecret ? { appSecret } : {}), callbackUrl });
-      await api.ig.connect(lang);
-    }, 'Otevřel jsem přihlášení v prohlížeči.');
+      const res = await api.ig.addMarket(lang);
+      if (res.pick) {
+        setPick(res.pick);
+      } else if (res.needsLogin) {
+        await api.ig.connect(lang);
+        toast('Otevřel jsem přihlášení v prohlížeči.');
+      } else {
+        toast(`Účet připojen jako ${lang}.`);
+      }
+      onChanged();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
   };
 
   const marketsWithoutAccount = overview.markets.filter(m =>
@@ -132,6 +150,12 @@ export default function IgAccounts({ overview, onChanged }: Props) {
                 ))}
               </div>
               {!appId && <p className="ig-muted">Nejdřív vyplň App ID Meta aplikace vpravo.</p>}
+              {overview.accounts.length > 0 && (
+                <p className="ig-muted">
+                  Přístup z prvního přihlášení si aplikace pamatuje, takže další trh
+                  se připojí bez přihlašování — jen vyber jeho zkratku.
+                </p>
+              )}
               <div className="ig-actions">
                 <button className="btn ghost" onClick={() => setPaste('')}
                   data-tip="Když prohlížeč po přihlášení nepřepne zpátky do aplikace">

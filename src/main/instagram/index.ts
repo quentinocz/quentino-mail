@@ -20,6 +20,17 @@ export const finishConnect = oauth.finishConnect;
 export const connectWithToken = oauth.connectWithToken;
 export const handleCallbackUrl = oauth.handleCallbackUrl;
 export const syncSource = publisher.syncSource;
+
+/**
+ * Přidání účtu pro daný trh. Když aplikace drží platný přístup z minulého
+ * přihlášení, použije ho; jinak řekne rozhraní, že se má otevřít prohlížeč.
+ */
+export async function addMarket(lang: string): Promise<
+  { saved?: unknown; pick?: unknown[]; needsLogin?: boolean }
+> {
+  const result = await oauth.connectFromSaved(lang);
+  return result ?? { needsLogin: true };
+}
 export const refreshTokens = publisher.refreshTokens;
 export const processQueue = publisher.processQueue;
 

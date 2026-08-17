@@ -19,6 +19,27 @@ export interface GraphMedia {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+/** Chyba z Graph API i s číselným kódem, aby se dala poznat od ostatních. */
+export class GraphError extends Error {
+  code?: number;
+  constructor(message: string, code?: number) {
+    super(message);
+    this.name = 'GraphError';
+    this.code = code;
+  }
+}
+
+/**
+ * Poznává chyby, po kterých nemá smysl nic zkoušet znovu — účet je potřeba
+ * připojit nanovo. 190 = zneplatněná session (změna hesla, nově vydaný token),
+ * 102 = session vypršela, 463 = token po expiraci.
+ */
+export function isTokenError(e: unknown): boolean {
+  const code = (e as GraphError | undefined)?.code;
+  if (code === 190 || code === 102 || code === 463) return true;
+  return /access token|OAuthException|session has been invalidated/i.test((e as Error | undefined)?.message ?? '');
+}
+
 async function graph(
   path: string,
   params: Record<string, string>,
@@ -32,9 +53,14 @@ async function graph(
   const data = await res.json().catch(() => ({}));
   if (data?.error) {
     const e = data.error;
-    throw new Error(`${e.message}${e.code ? ` (kód ${e.code})` : ''}`);
+    // Hláška od Mety je anglická a technická; u nejčastějších případů ji nahradíme
+    // tím, co má uživatel udělat.
+    const friendly = e.code === 190 || e.code === 102 || e.code === 463
+      ? 'Přístup k účtu už neplatí — Facebook session zneplatnil (typicky změna hesla nebo nově vydaný token). Připoj účet znovu.'
+      : `${e.message}${e.code ? ` (kód ${e.code})` : ''}`;
+    throw new GraphError(friendly, e.code);
   }
-  if (!res.ok) throw new Error(`Meta odpověděla ${res.status}.`);
+  if (!res.ok) throw new GraphError(`Meta odpověděla ${res.status}.`, res.status);
   return data;
 }
 

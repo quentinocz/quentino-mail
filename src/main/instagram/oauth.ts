@@ -76,11 +76,30 @@ export async function connectWithToken(lang: string, token: string): Promise<Con
   return chooseAccount(code, longLived);
 }
 
+/**
+ * Přidání dalšího trhu bez nového přihlášení — použije uložený uživatelský
+ * token. `null` znamená, že žádný použitelný není a je potřeba se přihlásit.
+ */
+export async function connectFromSaved(lang: string): Promise<ConnectResult | null> {
+  const code = lang.trim().toUpperCase();
+  if (!code) throw new Error('Vyber trh, ke kterému účet patří.');
+  const token = store.getUserToken();
+  if (!token) return null;
+  try {
+    return await chooseAccount(code, token);
+  } catch (e) {
+    if (graph.isTokenError(e)) return null; // vypršelo — pošleme uživatele na přihlášení
+    throw e;
+  }
+}
+
 async function chooseAccount(lang: string, token: string): Promise<ConnectResult> {
   const accounts = await graph.discoverAccounts(token);
   if (accounts.length === 0) {
     throw new Error('Na žádné z tvých stránek není napojený Instagram účet typu Business nebo Creator.');
   }
+  // Přístup si pamatujeme, aby další trh nepotřeboval znovu projít přihlášením
+  store.setUserToken(token, new Date(Date.now() + 59 * 864e5).toISOString());
   pending = { lang, nonce: pending?.nonce ?? '', token, accounts };
   if (accounts.length === 1) return { saved: saveDiscovered(lang, accounts[0]) };
   return { pick: accounts.map(a => ({ igUserId: a.igUserId, username: a.username, pageName: a.pageName })) };

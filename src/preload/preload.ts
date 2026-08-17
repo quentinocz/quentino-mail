@@ -33,7 +33,7 @@ const ALLOWED_INVOKE = [
   'stats:categories',
   // Instagram
   'ig:overview', 'ig:saveConnection', 'ig:installCallback', 'ig:testStorage',
-  'ig:connect', 'ig:connectToken', 'ig:pasteCallback', 'ig:finishConnect', 'ig:disconnect', 'ig:setSource', 'ig:limit',
+  'ig:connect', 'ig:addMarket', 'ig:connectToken', 'ig:pasteCallback', 'ig:finishConnect', 'ig:disconnect', 'ig:setSource', 'ig:limit',
   'ig:markets', 'ig:saveMarket', 'ig:deleteMarket', 'ig:brand', 'ig:saveBrand',
   'ig:feed', 'ig:sync', 'ig:thumb', 'ig:createFromSource',
   'ig:pickMedia', 'ig:preview', 'ig:createDraft', 'ig:updateDraft', 'ig:post', 'ig:drafts',

@@ -50,6 +50,31 @@ export function connectionState(): IgConnection {
   };
 }
 
+/* ---------- Uživatelský přístup ---------- */
+
+/**
+ * Dlouhodobý uživatelský token z přihlášení. Tokeny jednotlivých účtů jsou
+ * tokeny *stránek* a jimi se seznam stránek načíst nedá — proto se uchovává
+ * i ten uživatelský. Díky němu se další trh přidá jedním kliknutím, bez
+ * dalšího přihlašování.
+ */
+export function setUserToken(token: string, expires: string): void {
+  setSetting('igUserToken', encrypt(token));
+  setSetting('igUserTokenExp', expires);
+}
+
+export function getUserToken(): string | null {
+  const raw = getSetting('igUserToken', '')!;
+  if (!raw) return null;
+  const exp = getSetting('igUserTokenExp', '');
+  if (exp && new Date(exp) < new Date()) return null;
+  try {
+    return decrypt(raw);
+  } catch {
+    return null;
+  }
+}
+
 /* ---------- Účty ---------- */
 
 function rowToAccount(r: any): IgAccount {

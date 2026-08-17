@@ -24,7 +24,10 @@ function emit(payload: unknown = {}) {
  * - médium převzaté z vlastního účtu → přímo z Instagram CDN, adresa se
  *   čte až teď, protože ty starší vyprší.
  */
-async function resolveMedia(postId: number, sourceToken: string | null): Promise<graph.GraphMedia[]> {
+async function resolveMedia(
+  postId: number,
+  source: { id: number; token: string } | null
+): Promise<graph.GraphMedia[]> {
   const rows = store.postMedia(postId);
   if (rows.length === 0) throw new Error('Příspěvek nemá žádná média.');
 
@@ -34,12 +37,18 @@ async function resolveMedia(postId: number, sourceToken: string | null): Promise
 
     if (row.source_url) {
       const igId = String(row.source_url).replace(/^ig:/, '');
-      if (!sourceToken) throw new Error('Není připojený zdrojový účet, ze kterého médium pochází.');
+      if (!source) throw new Error('Není připojený zdrojový účet, ze kterého médium pochází.');
       let url = '';
       try {
-        const info = await graph.mediaUrls(igId, sourceToken);
+        const info = await graph.mediaUrls(igId, source.token);
         url = info.media_url ?? info.thumbnail_url ?? '';
       } catch (e: any) {
+        // Zneplatněný přístup se pozná u účtu, ne až u příspěvku — jinak
+        // uživatel vidí chybu ve frontě a nikde nestojí, co s tím.
+        if (graph.isTokenError(e)) {
+          store.setAccountError(source.id, e.message);
+          throw new Error(`Zdrojový účet je potřeba připojit znovu: ${e.message}`);
+        }
         throw new Error(`Médium z původního příspěvku se nepodařilo načíst: ${e.message}`);
       }
       if (!url) throw new Error('Původní příspěvek nemá dostupné médium.');
@@ -99,11 +108,17 @@ export async function runJob(jobId: number): Promise<void> {
     if (!account) throw new Error('Cílový účet už není připojený.');
 
     const token = store.tokenFor(account.id);
-    const source = store.sourceAccount();
-    let sourceToken: string | null = null;
-    try { sourceToken = source ? store.tokenFor(source.id) : null; } catch { sourceToken = null; }
+    const sourceAccount = store.sourceAccount();
+    let source: { id: number; token: string } | null = null;
+    if (sourceAccount) {
+      try {
+        source = { id: sourceAccount.id, token: store.tokenFor(sourceAccount.id) };
+      } catch {
+        source = null; // vypršelý přístup řeší hláška níž
+      }
+    }
 
-    const items = await resolveMedia(caption.post_id, sourceToken);
+    const items = await resolveMedia(caption.post_id, source);
     const text = store.captionText(caption);
 
     const result = await graph.publish(account.igUserId, token, text, items);
@@ -124,6 +139,8 @@ export async function runJob(jobId: number): Promise<void> {
       error: e?.message ?? String(e),
       finished_at: new Date().toISOString()
     });
+    // Když padl přístup k cílovému účtu, označí se u něj — v Účtech je to pak vidět
+    if (graph.isTokenError(e)) store.setAccountError(job.account_id, e?.message ?? String(e));
   } finally {
     try { await cleanupPostMedia(caption.post_id); } catch { /* úklid není kritický */ }
     emit();
