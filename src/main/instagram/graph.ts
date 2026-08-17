@@ -69,19 +69,42 @@ async function graph(
 
 /* ---------- Přihlášení a tokeny ---------- */
 
+/**
+ * Oprávnění, bez kterých modul nefunguje celý. Poslední dvě jsou kvůli
+ * souběžnému sdílení na Facebook stránku — jsou v seznamu i pro toho, kdo ho
+ * nepoužívá, protože přidat je později znamená projít přihlášením znovu.
+ */
+export const REQUIRED_SCOPES = [
+  'instagram_basic',
+  'instagram_content_publish',
+  'pages_show_list',
+  'business_management',
+  'pages_manage_posts',
+  'pages_read_engagement'
+];
+
+/**
+ * Co tokenu chybí proti seznamu výše. Starý token vydaný před rozšířením
+ * oprávnění je jinak k nerozeznání od nového — a pozná se to až chybou při
+ * publikování na stránku.
+ */
+export async function missingScopes(token: string): Promise<string[]> {
+  try {
+    const res = await graph('me/permissions', { limit: '100' }, token);
+    const granted = new Set(
+      (res.data ?? []).filter((p: any) => p.status === 'granted').map((p: any) => p.permission)
+    );
+    return REQUIRED_SCOPES.filter(scope => !granted.has(scope));
+  } catch {
+    return []; // když se to nepodaří zjistit, nebudeme uživateli stát v cestě
+  }
+}
+
 export function authUrl(state: string): string {
   const s = getSecrets();
   if (!s.appId) throw new Error('Není vyplněné App ID Meta aplikace (Instagram → Účty → Připojení).');
   if (!s.callbackUrl) throw new Error('Není vyplněná adresa pro návrat z přihlášení.');
-  const scopes = [
-    'instagram_basic',
-    'instagram_content_publish',
-    'pages_show_list',
-    'business_management',
-    // Pro souběžné sdílení na Facebook stránku
-    'pages_manage_posts',
-    'pages_read_engagement'
-  ].join(',');
+  const scopes = REQUIRED_SCOPES.join(',');
   return `https://www.facebook.com/${VERSION}/dialog/oauth`
     + `?client_id=${encodeURIComponent(s.appId)}`
     + `&redirect_uri=${encodeURIComponent(s.callbackUrl)}`

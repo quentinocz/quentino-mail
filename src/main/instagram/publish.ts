@@ -162,19 +162,7 @@ export async function runJob(jobId: number): Promise<void> {
     // Souběžné sdílení na Facebook stránku. Nepovede-li se, příspěvek na
     // Instagramu tím neruším — jen se u položky poznamená, co chybělo.
     if (account.shareFb && account.pageId) {
-      try {
-        // Fotky si Facebook stáhne z úložiště, video mu jde přímo — obojí
-        // stejnými daty, která už máme připravená pro Instagram.
-        const fbId = await graph.shareToPage(account.pageId, token, text, items);
-        store.setJobState(jobId, { fb_post_id: fbId, fb_error: null });
-      } catch (e: any) {
-        const msg = e?.message ?? String(e);
-        store.setJobState(jobId, {
-          fb_error: /permission|oprávnění|OAuthException/i.test(msg)
-            ? `${msg} — účet je potřeba připojit znovu, aby přidal oprávnění ke stránce.`
-            : msg
-        });
-      }
+      await shareOnFacebook(jobId, account, token, text, items);
     }
   } catch (e: any) {
     const message = e?.message ?? String(e);
@@ -211,6 +199,63 @@ export async function runJob(jobId: number): Promise<void> {
 const TRANSIENT = /2207076|2207001|2207053|2207032|Media upload has failed|Please try again|temporarily/i;
 const RETRY_AFTER = 5 * 60_000;
 const MAX_ATTEMPTS = 3;
+
+/**
+ * Zveřejnění téhož obsahu na Facebook stránce. Neúspěch nemá vliv na příspěvek
+ * na Instagramu — jen se u položky ve frontě poznamená, co chybělo, a jde to
+ * zkusit zvlášť.
+ */
+async function shareOnFacebook(
+  jobId: number,
+  account: { pageId: string; pageName: string },
+  token: string,
+  text: string,
+  items: graph.GraphMedia[]
+): Promise<void> {
+  try {
+    const fbId = await graph.shareToPage(account.pageId, token, text, items);
+    store.setJobState(jobId, { fb_post_id: fbId, fb_error: null });
+  } catch (e: any) {
+    const msg = e?.message ?? String(e);
+    const scope = /permission|pages_read_engagement|pages_manage_posts/i.test(msg);
+    store.setJobState(jobId, {
+      fb_error: scope
+        ? `${msg} — v Účtech dej u toho účtu „Rozšířit oprávnění" a projdi přihlášení znovu.`
+        : msg
+    });
+  }
+}
+
+/** Zkusí sdílení na Facebook znovu u položky, která na Instagramu už vyšla. */
+export async function retryFacebook(jobId: number): Promise<void> {
+  const job = getDb().prepare('SELECT * FROM ig_jobs WHERE id = ?').get(jobId) as any;
+  if (!job) throw new Error('Položka nenalezena.');
+  const caption = store.captionRow(job.caption_id);
+  if (!caption) throw new Error('Popisek už neexistuje.');
+
+  const account = store.listAccounts().find(a => a.id === job.account_id);
+  if (!account) throw new Error('Účet už není připojený.');
+  if (!account.pageId) throw new Error('U účtu není známá Facebook stránka — připoj ho znovu.');
+
+  const token = store.tokenFor(account.id);
+  const sourceAccount = store.sourceAccount();
+  let source: { id: number; token: string } | null = null;
+  if (sourceAccount) {
+    try {
+      source = { id: sourceAccount.id, token: store.tokenFor(sourceAccount.id) };
+    } catch {
+      source = null;
+    }
+  }
+
+  try {
+    const items = await resolveMedia(caption.post_id, source);
+    await shareOnFacebook(jobId, account, token, store.captionText(caption), items);
+  } finally {
+    try { await cleanupPostMedia(caption.post_id); } catch { /* úklid není kritický */ }
+    emit();
+  }
+}
 
 let queueRunning = false;
 

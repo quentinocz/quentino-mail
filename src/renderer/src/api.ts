@@ -242,8 +242,12 @@ export const api = {
     chooseVariant: (captionId: number, index: number) => call<void>('ig:chooseVariant', captionId, index),
     editCaption: (captionId: number, text: string) => call<void>('ig:editCaption', captionId, text),
     publish: (captionId: number, at?: string | null) => call<number>('ig:publish', captionId, at ?? null),
-    publishPost: (postId: number, at?: string | null) =>
-      call<{ queued: number; skipped: string[] }>('ig:publishPost', postId, at ?? null),
+    publishPost: (postId: number, at?: string | null, force = false) =>
+      call<{ queued: number; skipped: string[] }>('ig:publishPost', postId, at ?? null, force),
+    /** Zkusí znovu jen sdílení na Facebook stránku */
+    retryFacebook: (jobId: number) => call<void>('ig:retryFacebook', jobId),
+    /** Zahodí uložený přístup a otevře přihlášení znovu (kvůli novým oprávněním) */
+    relogin: (lang: string) => call<string>('ig:relogin', lang),
 
     jobs: () => call<IgJob[]>('ig:jobs'),
     cancelJob: (id: number) => call<void>('ig:cancelJob', id),

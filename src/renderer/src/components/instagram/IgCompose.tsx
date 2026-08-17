@@ -28,16 +28,21 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
   const [generating, setGenerating] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [when, setWhen] = useState('');
+  const [republish, setRepublish] = useState(false);
 
   const isSourcePost = post?.kind === 'source';
 
+  /** Trhy, na které se dá publikovat — mají připojený účet. */
+  const targets = overview.markets.filter(m =>
+    m.enabled && overview.accounts.some(a => a.lang === m.lang));
+
   /**
-   * Trhy, na které se dá publikovat. Zdrojový účet se vynechává jen u přepisu
-   * — tam už příspěvek vyšel. U nového příspěvku je čeština normální cíl.
+   * U přepisu se zdrojový trh nepředvybírá — tam příspěvek už vyšel. Zaškrtnout
+   * si ho ale jde, když má vyjít znovu.
    */
-  const targets = overview.markets.filter(m => m.enabled && overview.accounts.some(
-    a => a.lang === m.lang && (!isSourcePost || !a.isSource)
-  ));
+  const defaultLangs = targets
+    .filter(m => !(isSourcePost && overview.accounts.some(a => a.lang === m.lang && a.isSource)))
+    .map(m => m.lang);
   const missing = overview.markets.filter(m =>
     m.enabled && m.lang !== 'CS' && !overview.accounts.some(a => a.lang === m.lang));
 
@@ -70,11 +75,11 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
     else api.ig.drafts().then(setDrafts).catch(() => {});
   }), [postId, loadPost]);
 
-  // Výchozí výběr trhů: všechny, kam se dá publikovat
+  // Výchozí výběr trhů
   useEffect(() => {
-    if (langs.length === 0 && targets.length > 0) setLangs(targets.map(m => m.lang));
+    if (langs.length === 0 && defaultLangs.length > 0) setLangs(defaultLangs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview.markets.length, overview.accounts.length]);
+  }, [overview.markets.length, overview.accounts.length, isSourcePost]);
 
   const pickFiles = async () => {
     const picked = await api.ig.pickMedia();
@@ -148,7 +153,7 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
     setPublishing(true);
     try {
       const at = when ? toIso(when) : null;
-      const res = await api.ig.publishPost(post.id, at);
+      const res = await api.ig.publishPost(post.id, at, republish);
       toast(at
         ? `Naplánováno ${res.queued} příspěvků na ${fmtDate(at)}.`
         : `Do fronty šlo ${res.queued} příspěvků.`);
@@ -301,6 +306,12 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
                   {when && <button className="btn ghost" onClick={() => setWhen('')}>Zrušit termín</button>}
                 </div>
               </div>
+              {post!.captions.some(c => c.status === 'published') && (
+                <label className="ig-checkline" data-tip="Pošle i trhy, na kterých příspěvek už vyšel — vznikne tam druhý příspěvek">
+                  <input type="checkbox" checked={republish} onChange={e => setRepublish(e.target.checked)} />
+                  Publikovat znovu i tam, kde už vyšlo
+                </label>
+              )}
               <button className="btn primary" onClick={publishAll} disabled={publishing}>
                 {publishing
                   ? <><span className="spinner-inline" /> Odesílám…</>
@@ -412,7 +423,6 @@ function CaptionCard({ caption, color, label, onChanged }: {
       <textarea
         rows={8}
         value={text}
-        disabled={published}
         onChange={e => setText(e.target.value)}
         onBlur={save}
       />
@@ -423,11 +433,10 @@ function CaptionCard({ caption, color, label, onChanged }: {
         <span className="ig-caption-actions">
           {saving && <span className="ig-muted">ukládám…</span>}
           {caption.edited && !published && <span className="ig-muted">ručně upraveno</span>}
-          {!published && (
-            <button className="btn ghost" onClick={publishOne} disabled={stats.over}>
-              <Icon name="send" size={13} /> Jen tento trh
-            </button>
-          )}
+          <button className="btn ghost" onClick={publishOne} disabled={stats.over}
+            data-tip={published ? 'Vyjde na tomhle trhu ještě jednou' : undefined}>
+            <Icon name="send" size={13} /> {published ? 'Publikovat znovu' : 'Jen tento trh'}
+          </button>
         </span>
       </div>
     </div>

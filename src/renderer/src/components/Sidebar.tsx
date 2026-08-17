@@ -64,8 +64,8 @@ export default function Sidebar(p: Props) {
 
       <div className="ig-switch">
         <button className="active"><Icon name="mail" size={14} /> Pošta</button>
-        <button onClick={p.onSwitchToInstagram} data-tip="Vícejazyčné publikování na Instagram">
-          <Icon name="image" size={14} /> Instagram
+        <button onClick={p.onSwitchToInstagram} data-tip="Vícejazyčné publikování na Instagram a Facebook">
+          <Icon name="image" size={14} /> Social
         </button>
       </div>
 

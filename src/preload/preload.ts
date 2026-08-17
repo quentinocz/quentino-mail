@@ -38,7 +38,7 @@ const ALLOWED_INVOKE = [
   'ig:feed', 'ig:sync', 'ig:thumb', 'ig:createFromSource',
   'ig:pickMedia', 'ig:preview', 'ig:createDraft', 'ig:updateDraft', 'ig:post', 'ig:drafts',
   'ig:deletePost', 'ig:warnings',
-  'ig:generate', 'ig:blankCaptions', 'ig:chooseVariant', 'ig:editCaption', 'ig:publish', 'ig:publishPost',
+  'ig:generate', 'ig:blankCaptions', 'ig:chooseVariant', 'ig:editCaption', 'ig:publish', 'ig:publishPost', 'ig:retryFacebook', 'ig:relogin',
   'ig:jobs', 'ig:cancelJob', 'ig:retryJob', 'ig:runQueue', 'ig:refreshTokens'
 ];
 

@@ -298,13 +298,25 @@ export function publishCaption(captionId: number, at?: string | null): number {
   return publisher.schedule(captionId, at);
 }
 
-export function publishPost(postId: number, at?: string | null): { queued: number; skipped: string[] } {
+/**
+ * Zařadí popisky příspěvku k publikaci. `force` pošle i ty, které už vyšly —
+ * hodí se, když se má stejný příspěvek zopakovat (třeba po přepsání textu).
+ */
+export function publishPost(
+  postId: number,
+  at?: string | null,
+  force = false
+): { queued: number; skipped: string[] } {
   const post = store.getPost(postId);
   if (!post) throw new Error('Příspěvek nenalezen.');
   const skipped: string[] = [];
   let queued = 0;
+  const alreadyOut = post.captions.filter(c => c.status === 'published').length;
+  if (!force && alreadyOut === post.captions.length && alreadyOut > 0) {
+    throw new Error('Příspěvek už vyšel na všech vybraných trzích. Zaškrtni „publikovat znovu", pokud ho chceš zopakovat.');
+  }
   for (const c of post.captions) {
-    if (c.status === 'published') continue;
+    if (!force && c.status === 'published') continue;
     try {
       publisher.schedule(c.id, at);
       queued++;
@@ -317,6 +329,7 @@ export function publishPost(postId: number, at?: string | null): { queued: numbe
 }
 
 export const jobs = () => store.listJobs();
+export const retryFacebook = (jobId: number) => publisher.retryFacebook(jobId);
 export const cancelJob = (id: number) => { store.cancelJob(id); emit(); };
 export const retryJob = (id: number) => { store.retryJob(id); emit(); setTimeout(() => publisher.processQueue().catch(() => {}), 200); };
 

@@ -134,6 +134,12 @@ export default function IgAccounts({ overview, onChanged }: Props) {
                 {a.lastError && <div className="ig-job-error">{a.lastError}</div>}
               </div>
               <div className="ig-job-actions">
+                <button className="btn ghost"
+                  onClick={() => run(`re-${a.id}`, async () => api.ig.relogin(a.lang),
+                    'Otevřel jsem přihlášení — potvrď i oprávnění ke stránce.')}
+                  data-tip="Zahodí uložený přístup a projde přihlášením znovu, aby token dostal aktuální oprávnění">
+                  Rozšířit oprávnění
+                </button>
                 {!a.isSource && (
                   <button className="btn ghost" onClick={() => run(`s-${a.id}`, async () => api.ig.setSource(a.id), 'Zdroj přenastaven.')}>
                     Nastavit jako zdroj

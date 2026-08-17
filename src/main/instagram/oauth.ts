@@ -85,12 +85,30 @@ export async function connectFromSaved(lang: string): Promise<ConnectResult | nu
   if (!code) throw new Error('Vyber trh, ke kterému účet patří.');
   const token = store.getUserToken();
   if (!token) return null;
+
+  // Token vydaný před rozšířením oprávnění by se tvářil jako platný a selhal
+  // by až při publikování na stránku — proto se rovnou zahodí.
+  const missing = await graph.missingScopes(token);
+  if (missing.length > 0) {
+    store.clearUserToken();
+    return null;
+  }
+
   try {
     return await chooseAccount(code, token);
   } catch (e) {
-    if (graph.isTokenError(e)) return null; // vypršelo — pošleme uživatele na přihlášení
+    if (graph.isTokenError(e)) {
+      store.clearUserToken();
+      return null; // vypršelo — pošleme uživatele na přihlášení
+    }
     throw e;
   }
+}
+
+/** Vynucené nové přihlášení: zahodí uložený přístup a vrátí adresu k otevření. */
+export function relogin(lang: string): string {
+  store.clearUserToken();
+  return startConnect(lang);
 }
 
 async function chooseAccount(lang: string, token: string): Promise<ConnectResult> {

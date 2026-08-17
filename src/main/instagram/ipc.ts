@@ -78,7 +78,14 @@ export function registerIgIpc() {
   handle('ig:chooseVariant', (captionId: number, index: number) => ig.chooseVariant(captionId, index));
   handle('ig:editCaption', (captionId: number, text: string) => ig.editCaption(captionId, text));
   handle('ig:publish', (captionId: number, at?: string | null) => ig.publishCaption(captionId, at ?? null));
-  handle('ig:publishPost', (postId: number, at?: string | null) => ig.publishPost(postId, at ?? null));
+  handle('ig:publishPost', (postId: number, at?: string | null, force?: boolean) =>
+    ig.publishPost(postId, at ?? null, !!force));
+  handle('ig:retryFacebook', (jobId: number) => ig.retryFacebook(jobId));
+  handle('ig:relogin', (lang: string) => {
+    const url = ig.oauth.relogin(lang);
+    shell.openExternal(url);
+    return url;
+  });
 
   /* Fronta */
   handle('ig:jobs', () => ig.jobs());

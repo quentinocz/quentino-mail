@@ -85,7 +85,7 @@ export default function InstagramWorkspace({ onOpenSettings, onSwitchToMail }: P
 
         <div className="ig-switch">
           <button onClick={onSwitchToMail}><Icon name="mail" size={14} /> Pošta</button>
-          <button className="active"><Icon name="image" size={14} /> Instagram</button>
+          <button className="active"><Icon name="image" size={14} /> Social</button>
         </div>
 
         <button className="btn-compose" onClick={newPost}>

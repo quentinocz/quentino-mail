@@ -75,6 +75,11 @@ export function getUserToken(): string | null {
   }
 }
 
+export function clearUserToken(): void {
+  setSetting('igUserToken', '');
+  setSetting('igUserTokenExp', '');
+}
+
 /* ---------- Účty ---------- */
 
 function rowToAccount(r: any): IgAccount {

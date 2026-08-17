@@ -77,6 +77,13 @@ export default function IgQueue({ overview, onOpenPost }: { overview: IgOverview
                   Zkusit znovu
                 </button>
               )}
+              {j.state === 'done' && (j.fbError || !j.fbPostId) && (
+                <button className="btn ghost"
+                  onClick={() => act(async () => api.ig.retryFacebook(j.id), 'Zkouším sdílení na Facebook.')}
+                  data-tip="Příspěvek na Instagramu zůstane; zkusí se jen sdílení na stránku">
+                  Sdílet na Facebook
+                </button>
+              )}
               {j.permalink && (
                 <button className="btn ghost" onClick={() => api.shell.openUrl(j.permalink!)}>
                   <Icon name="globe" size={13} /> Na Instagramu
