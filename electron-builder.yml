@@ -1,0 +1,51 @@
+appId: cz.quentino.mail
+productName: Quentino Mail
+directories:
+  output: release
+  buildResources: build
+
+# Aplikace se nikam nenahrává. Bez tohohle se electron-builder pokusí build
+# publikovat, jakmile v prostředí najde GH_TOKEN nebo podobnou proměnnou —
+# a build pak skončí chybou o chybějícím repozitáři.
+publish: null
+
+# Názvy bez mezer a diakritiky: takový soubor se dá poslat, stáhnout i zabalit
+# bez uvozovek a nerozbije se cestou přes web ani přes příkazovou řádku.
+artifactName: ${name}-${version}-${arch}.${ext}
+
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+
+# Nativní modul nesmí zůstat uvnitř asar archivu — Node ho odtamtud nenačte.
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Notarizace se spustí automaticky, pokud jsou nastavené env proměnné
+  # APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD a APPLE_TEAM_ID; jinak se přeskočí.
+  notarize: true
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  artifactName: ${name}-setup-${version}-${arch}.${ext}

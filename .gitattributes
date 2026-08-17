@@ -1,0 +1,22 @@
+# Zdrojové soubory mají v repozitáři vždy LF. Bez tohohle si Git na Windows
+# při stažení přepíše konce řádků na CRLF a projekt sestavený na Windows se
+# pak od macOS verze liší v každém řádku každého souboru.
+* text=auto eol=lf
+
+# Skripty, které se spouští přes shebang, musí mít LF i na Windows
+*.mjs text eol=lf
+*.sh  text eol=lf
+
+# Binární soubory Git nesmí sahat
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.svg    text eol=lf
+*.woff   binary
+*.woff2  binary
+*.icns   binary
+*.ico    binary
+*.node   binary
+*.dmg    binary
+*.exe    binary
+*.zip    binary

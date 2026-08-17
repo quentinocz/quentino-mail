@@ -1,0 +1,53 @@
+{
+  "name": "quentino-mail",
+  "productName": "Quentino Mail",
+  "version": "1.0.0",
+  "description": "Chytrý e-mailový klient s AI asistencí pro Quentino",
+  "main": "dist/main/main/main.js",
+  "author": "Quentino",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.mjs",
+    "clean": "node scripts/clean.mjs",
+    "check": "node scripts/preflight.mjs env",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p src/renderer/tsconfig.json --noEmit",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build": "npm run clean && npm run build:main && npm run build:renderer",
+    "dev": "npm run build:main && concurrently -k \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "start": "npm run build && electron .",
+    "dist": "node scripts/preflight.mjs env --target=auto && npm run typecheck && npm run build && node scripts/preflight.mjs dist && electron-builder",
+    "dist:mac": "node scripts/preflight.mjs env --target=mac && npm run typecheck && npm run build && node scripts/preflight.mjs dist && electron-builder --mac",
+    "dist:win": "node scripts/preflight.mjs env --target=win && npm run typecheck && npm run build && node scripts/preflight.mjs dist && electron-builder --win"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.57.0",
+    "@fontsource/montserrat": "^5.1.0",
+    "better-sqlite3": "^12.0.0",
+    "imapflow": "^1.0.191",
+    "mailparser": "^3.7.4",
+    "nodemailer": "^6.10.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/mailparser": "^3.4.6",
+    "@types/node": "^22.15.0",
+    "@types/nodemailer": "^6.4.17",
+    "@types/react": "^18.3.20",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.5.0",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "dompurify": "^3.2.6",
+    "electron": "^43.0.0",
+    "electron-builder": "^25.1.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.8.3",
+    "vite": "^5.4.19",
+    "wait-on": "^8.0.3"
+  }
+}

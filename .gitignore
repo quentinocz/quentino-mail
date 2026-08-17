@@ -1,0 +1,13 @@
+node_modules/
+dist/
+release/
+npmi.log
+*.log
+.DS_Store
+
+# Projekt zabalený pro přenos na jiný počítač. Do repozitáře nepatří —
+# Archive.zip měl 373 MB, což je víc než celý zbytek projektu dohromady.
+*.zip
+
+# Odkládací složka pro soubory ke smazání
+_to_delete/

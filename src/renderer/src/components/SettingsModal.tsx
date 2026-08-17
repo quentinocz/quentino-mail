@@ -1,0 +1,893 @@
+import { useEffect, useState } from 'react';
+import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang } from '@shared/types';
+import { CATEGORY_LABELS } from '@shared/types';
+import { api } from '../api';
+import { useToast } from '../toast';
+import Icon from './Icon';
+import { buildBrandSignature, DEFAULT_SIG_CONFIG } from '../signature';
+
+type Tab = 'accounts' | 'persons' | 'ai' | 'knowledge' | 'rules' | 'sync';
+
+interface SyncCfg { folder: string | null; enabled: boolean; lastRun: string | null; lastResult: string | null }
+
+const EMPTY_ACCOUNT: AccountConfig = {
+  name: 'Quentino',
+  email: '',
+  imapHost: '',
+  imapPort: 993,
+  imapSecure: true,
+  smtpHost: '',
+  smtpPort: 465,
+  smtpSecure: true,
+  username: '',
+  password: '',
+  signatureHtml: '',
+  sigConfig: null,
+  logoPath: null,
+  color: '#7c5cff'
+};
+
+/** Kulatý náhled fotky osoby (v UI; v e-mailu se řeší inline styly). */
+function PersonAvatar({ person, size = 40 }: { person: Person; size?: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (person.photoPath) {
+      api.files.readAsDataUrl(person.photoPath).then(u => { if (!cancelled) setUrl(u); }).catch(() => {});
+    } else {
+      setUrl(null);
+    }
+    return () => { cancelled = true; };
+  }, [person.photoPath]);
+  if (url) {
+    return <img src={url} alt={person.name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />;
+  }
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', background: 'var(--accent-soft)', color: 'var(--accent-dark)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, flexShrink: 0
+    }}>{person.name.charAt(0).toUpperCase()}</div>
+  );
+}
+
+interface Props {
+  accounts: AccountPublic[];
+  onClose: () => void;
+  onAccountsChanged: () => void;
+  onSettingsChanged: () => void;
+}
+
+export default function SettingsModal(p: Props) {
+  const toast = useToast();
+  const [tab, setTab] = useState<Tab>(p.accounts.length === 0 ? 'accounts' : 'ai');
+  const freshSigConfig = (email = '') => ({
+    ...DEFAULT_SIG_CONFIG,
+    names: { ...DEFAULT_SIG_CONFIG.names },
+    emails: { cz: email, sk: email, en: email },
+    taglines: { ...DEFAULT_SIG_CONFIG.taglines },
+    webs: { ...DEFAULT_SIG_CONFIG.webs }
+  });
+  const [editing, setEditing] = useState<AccountConfig | null>(
+    p.accounts.length === 0 ? { ...EMPTY_ACCOUNT, sigConfig: freshSigConfig() } : null
+  );
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  /** Panel pro heslo k záloze — 'export' při ukládání, 'unlock' při obnově zamčeného souboru */
+  const [backupBox, setBackupBox] = useState<'export' | 'unlock' | null>(null);
+  const [backupPass, setBackupPass] = useState('');
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [sigPrevLang, setSigPrevLang] = useState<MailLang>('cz');
+  const [knowledge, setKnowledge] = useState<KnowledgeDoc[]>([]);
+  const [editingDoc, setEditingDoc] = useState<{ id?: number; title: string; content: string } | null>(null);
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [feed, setFeed] = useState<FeedStatus | null>(null);
+  const [aiUsage, setAiUsage] = useState<{ month: string; calls: number; inputTokens: number; outputTokens: number; estUsd: number } | null>(null);
+  const [syncCfg, setSyncCfg] = useState<SyncCfg | null>(null);
+  const [upgates, setUpgates] = useState<{ url: string; login: string; hasKey: boolean } | null>(null);
+  const [upgatesKeyInput, setUpgatesKeyInput] = useState('');
+  const [editingPerson, setEditingPerson] = useState<{
+    id?: number; name: string;
+    positions: { cz: string; sk: string; en: string };
+    displayNames: { cz: string; sk: string; en: string };
+    photoPath: string | null;
+  } | null>(null);
+  const [personPhotoPreview, setPersonPhotoPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.settings.get().then(setSettings).catch(() => {});
+    api.knowledge.list().then(setKnowledge).catch(() => {});
+    api.persons.list().then(setPersons).catch(() => {});
+    api.products.status().then(setFeed).catch(() => {});
+    api.ai.usage().then(setAiUsage).catch(() => {});
+    api.appsync.get().then(setSyncCfg).catch(() => {});
+    api.upgates.config().then(setUpgates).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (editing?.logoPath) {
+      api.files.readAsDataUrl(editing.logoPath).then(setLogoPreview).catch(() => setLogoPreview(null));
+    } else {
+      setLogoPreview(null);
+    }
+  }, [editing?.logoPath]);
+
+  useEffect(() => {
+    if (editingPerson?.photoPath) {
+      api.files.readAsDataUrl(editingPerson.photoPath).then(setPersonPhotoPreview).catch(() => setPersonPhotoPreview(null));
+    } else {
+      setPersonPhotoPreview(null);
+    }
+  }, [editingPerson?.photoPath]);
+
+  const run = async (key: string, fn: () => Promise<void>) => {
+    setBusy(key);
+    try { await fn(); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(null); }
+  };
+
+  const set = (patch: Partial<AccountConfig>) => setEditing(e => (e ? { ...e, ...patch } : e));
+
+  const testAccount = () => run('test', async () => {
+    if (!editing) return;
+    await api.accounts.test({
+      imapHost: editing.imapHost, imapPort: editing.imapPort, imapSecure: editing.imapSecure,
+      smtpHost: editing.smtpHost, smtpPort: editing.smtpPort, smtpSecure: editing.smtpSecure,
+      username: editing.username, password: editing.password ?? ''
+    });
+    toast('Připojení k IMAP i SMTP funguje.');
+  });
+
+  const saveAccount = () => run('save', async () => {
+    if (!editing) return;
+    if (!editing.email || !editing.imapHost || !editing.smtpHost || !editing.username) {
+      toast('Vyplň e-mail, servery a přihlašovací jméno.', 'error');
+      return;
+    }
+    await api.accounts.save(editing);
+    toast('Účet uložen.');
+    setEditing(null);
+    p.onAccountsChanged();
+  });
+
+  const pickLogo = () => run('logo', async () => {
+    const path = await api.files.pickImage();
+    if (path) set({ logoPath: path });
+  });
+
+  /** Zajistí, že účet má inicializovaný strukturovaný podpis (s e-mailem účtu). */
+  const openAccountEditor = (acc: AccountConfig) => {
+    setEditing({ ...acc, sigConfig: acc.sigConfig ?? freshSigConfig(acc.email) });
+  };
+
+  const setSig = (patch: Partial<NonNullable<AccountConfig['sigConfig']>>) =>
+    setEditing(e => (e && e.sigConfig ? { ...e, sigConfig: { ...e.sigConfig, ...patch } } : e));
+
+  const saveAi = () => run('saveAi', async () => {
+    if (!settings) return;
+    await api.settings.save({
+      ...(apiKeyInput ? { anthropicApiKey: apiKeyInput } : {}),
+      brandPrompt: settings.brandPrompt,
+      draftModel: settings.draftModel,
+      fastModel: settings.fastModel,
+      autoSummarize: settings.autoSummarize,
+      autoCategorize: settings.autoCategorize,
+      autoTranslate: settings.autoTranslate,
+      loadRemoteImages: settings.loadRemoteImages,
+      autoSummarizeCategories: settings.autoSummarizeCategories,
+      contactInfo: settings.contactInfo,
+      productFeedUrl: settings.productFeedUrl,
+      adminOrderRef: settings.adminOrderRef,
+      voucherLogo: settings.voucherLogo,
+      theme: settings.theme
+    });
+    setApiKeyInput('');
+    toast('Nastavení AI uloženo.');
+    setSettings(await api.settings.get());
+    p.onSettingsChanged();
+  });
+
+  const saveRules = () => run('saveRules', async () => {
+    if (!settings) return;
+    await api.settings.save({ categoryRules: settings.categoryRules });
+    toast('Pravidla uložena.');
+    p.onSettingsChanged();
+  });
+
+  const updateRule = (i: number, patch: Partial<CategoryRule>) => {
+    setSettings(s => s ? { ...s, categoryRules: s.categoryRules.map((r, j) => (j === i ? { ...r, ...patch } : r)) } : s);
+  };
+
+  const toggleSummarizeCat = (c: Category) => {
+    setSettings(s => {
+      if (!s) return s;
+      const has = s.autoSummarizeCategories.includes(c);
+      return { ...s, autoSummarizeCategories: has ? s.autoSummarizeCategories.filter(x => x !== c) : [...s.autoSummarizeCategories, c] };
+    });
+  };
+
+  const saveDoc = () => run('saveDoc', async () => {
+    if (!editingDoc || !editingDoc.title.trim()) { toast('Vyplň název dokumentu.', 'error'); return; }
+    setKnowledge(await api.knowledge.save(editingDoc));
+    setEditingDoc(null);
+    toast('Dokument uložen — AI ho od teď používá při návrzích odpovědí.');
+  });
+
+  const importDoc = () => run('import', async () => {
+    const res = await api.knowledge.importFile();
+    if (res) setEditingDoc(res);
+  });
+
+  const savePerson = () => run('savePerson', async () => {
+    if (!editingPerson || !editingPerson.name.trim()) { toast('Vyplň jméno osoby.', 'error'); return; }
+    setPersons(await api.persons.save(editingPerson));
+    setEditingPerson(null);
+    toast('Osoba uložena — vybereš ji při psaní zprávy v poli „Podepsán".');
+  });
+
+  const setDefaultPerson = (id: number | null) => run('defPerson', async () => {
+    await api.settings.save({ defaultPersonId: id });
+    setSettings(await api.settings.get());
+    p.onSettingsChanged();
+    toast(id ? 'Výchozí osoba nastavena.' : 'Výchozí osoba zrušena.');
+  });
+
+  /** Po importu je potřeba přenačíst všechno, co se mohlo změnit. */
+  const reloadAfterImport = async (msg: string) => {
+    toast(msg);
+    setSettings(await api.settings.get());
+    setKnowledge(await api.knowledge.list());
+    setPersons(await api.persons.list());
+    p.onAccountsChanged();
+    p.onSettingsChanged();
+  };
+
+  const exportCfg = () => run('export', async () => {
+    const path = await api.config.export(backupPass.trim() || undefined);
+    if (!path) return;
+    setBackupBox(null);
+    setBackupPass('');
+    toast(backupPass.trim()
+      ? 'Záloha uložena a zamčená heslem — obsahuje účty, hesla, klíče i obrázky.'
+      : 'Záloha uložena — obsahuje účty, hesla, klíče i obrázky. Ulož ji na bezpečné místo.');
+  });
+
+  const importCfg = () => run('importCfg', async () => {
+    const res = await api.config.import();
+    if (!res) return;
+    if (res.needPassphrase) {
+      setBackupBox('unlock');
+      setBackupPass('');
+      toast('Záloha je zamčená heslem — zadej ho níž.');
+      return;
+    }
+    if (res.message) await reloadAfterImport(res.message);
+  });
+
+  const unlockImport = () => run('importCfg', async () => {
+    const res = await api.config.importUnlock(backupPass);
+    setBackupBox(null);
+    setBackupPass('');
+    await reloadAfterImport(res.message);
+  });
+
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) p.onClose(); }}>
+      <div className="modal">
+        <div className="modal-head">
+          <span>Nastavení</span>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button className="toolbar-btn" disabled={busy === 'export'}
+              onClick={() => { setBackupBox('export'); setBackupPass(''); }}
+              data-tip="Kompletní záloha: účty s hesly, API klíče, podpisy, loga i fotky">
+              <Icon name="download" size={14} /> Záloha
+            </button>
+            <button className="toolbar-btn" disabled={busy === 'importCfg'} onClick={importCfg} data-tip="Obnovit vše ze souboru se zálohou">
+              <Icon name="upload" size={14} /> Obnovit
+            </button>
+            <button className="icon-btn" data-tip="Zavřít nastavení" onClick={p.onClose}><Icon name="x" size={15} /></button>
+          </div>
+        </div>
+
+        {backupBox && (
+          <div className="backup-box">
+            <div className="backup-title">
+              <Icon name="ban" size={13} />
+              {backupBox === 'export'
+                ? 'Záloha obsahuje hesla k účtům i API klíče. Můžeš ji zamknout heslem (nepovinné, ale doporučené).'
+                : 'Tahle záloha je zamčená — zadej heslo, kterým jsi ji vytvořil.'}
+            </div>
+            <div className="backup-row">
+              <input
+                type="password"
+                autoFocus
+                value={backupPass}
+                onChange={e => setBackupPass(e.target.value)}
+                placeholder={backupBox === 'export' ? 'Heslo k záloze (nech prázdné = bez hesla)' : 'Heslo k záloze'}
+                onKeyDown={e => { if (e.key === 'Enter') (backupBox === 'export' ? exportCfg() : unlockImport()); }}
+              />
+              <button className="btn primary"
+                disabled={busy === 'export' || busy === 'importCfg' || (backupBox === 'unlock' && !backupPass)}
+                onClick={() => (backupBox === 'export' ? exportCfg() : unlockImport())}>
+                {backupBox === 'export' ? 'Uložit zálohu' : 'Odemknout a obnovit'}
+              </button>
+              <button className="btn ghost" onClick={() => { setBackupBox(null); setBackupPass(''); }}>Zrušit</button>
+            </div>
+          </div>
+        )}
+        <div className="tabs">
+          <button className={`tab ${tab === 'accounts' ? 'active' : ''}`} onClick={() => setTab('accounts')}>Účty a podpisy</button>
+          <button className={`tab ${tab === 'persons' ? 'active' : ''}`} onClick={() => setTab('persons')}>Osoby</button>
+          <button className={`tab ${tab === 'ai' ? 'active' : ''}`} onClick={() => setTab('ai')}>AI</button>
+          <button className={`tab ${tab === 'knowledge' ? 'active' : ''}`} onClick={() => setTab('knowledge')}>Znalosti</button>
+          <button className={`tab ${tab === 'rules' ? 'active' : ''}`} onClick={() => setTab('rules')}>Třídění</button>
+          <button className={`tab ${tab === 'sync' ? 'active' : ''}`} onClick={() => setTab('sync')}>Sync</button>
+        </div>
+
+        <div className="modal-body">
+          {/* ===================== ÚČTY ===================== */}
+          {tab === 'accounts' && !editing && (
+            <>
+              {p.accounts.map(a => (
+                <div key={a.id} className="account-list-item">
+                  <span className="account-dot" style={{ background: a.color }} />
+                  <div className="grow">
+                    <div style={{ fontWeight: 600 }}>{a.name}</div>
+                    <div className="mail">{a.email} · {a.imapHost}</div>
+                  </div>
+                  <button className="btn ghost" onClick={() => openAccountEditor({ ...a, password: '' })}>Upravit</button>
+                  <button className="btn danger" onClick={() => run('del', async () => {
+                    if (confirm(`Smazat účet ${a.email} včetně lokálních dat?`)) {
+                      await api.accounts.delete(a.id);
+                      p.onAccountsChanged();
+                    }
+                  })}>Smazat</button>
+                </div>
+              ))}
+              <button className="btn primary" style={{ alignSelf: 'flex-start' }} onClick={() => openAccountEditor({ ...EMPTY_ACCOUNT })}>
+                <Icon name="plus" size={14} /> Přidat účet
+              </button>
+            </>
+          )}
+
+          {tab === 'accounts' && editing && (
+            <>
+              <div className="field-grid">
+                <div className="field"><label>Název (zobrazované jméno)</label>
+                  <input value={editing.name} onChange={e => set({ name: e.target.value })} /></div>
+                <div className="field"><label>E-mailová adresa</label>
+                  <input value={editing.email} onChange={e => set({ email: e.target.value })} placeholder="info@quentino.cz" /></div>
+                <div className="field"><label>IMAP server</label>
+                  <input value={editing.imapHost} onChange={e => set({ imapHost: e.target.value })} placeholder="imap.hosting.cz" /></div>
+                <div className="field"><label>IMAP port</label>
+                  <input type="number" value={editing.imapPort} onChange={e => set({ imapPort: Number(e.target.value) })} /></div>
+                <div className="field"><label>SMTP server</label>
+                  <input value={editing.smtpHost} onChange={e => set({ smtpHost: e.target.value })} placeholder="smtp.hosting.cz" /></div>
+                <div className="field"><label>SMTP port</label>
+                  <input type="number" value={editing.smtpPort} onChange={e => set({ smtpPort: Number(e.target.value) })} /></div>
+                <div className="field"><label>Přihlašovací jméno</label>
+                  <input value={editing.username} onChange={e => set({ username: e.target.value })} /></div>
+                <div className="field"><label>Heslo {editing.id ? '(prázdné = beze změny)' : ''}</label>
+                  <input type="password" value={editing.password ?? ''} onChange={e => set({ password: e.target.value })} /></div>
+              </div>
+              <label className="check-row">
+                <input type="checkbox" checked={editing.imapSecure} onChange={e => set({ imapSecure: e.target.checked })} />
+                IMAP přes SSL/TLS (port 993)
+              </label>
+              <label className="check-row">
+                <input type="checkbox" checked={editing.smtpSecure} onChange={e => set({ smtpSecure: e.target.checked })} />
+                SMTP přes SSL/TLS (port 465; vypnuto = STARTTLS na 587)
+              </label>
+
+              {editing.sigConfig && (
+                <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                  <label><Icon name="pen" size={13} /> Podpis značky</label>
+                  <div className="desc">
+                    Podpis se do e-mailu vkládá vždy v jazyce zprávy (CZ/SK/EN) — slogan i doména se
+                    přepnou automaticky. Logo se vkládá přímo do zprávy a zachovává poměr stran.
+                    Osoby s fotkou spravuješ v záložce „Osoby".
+                  </div>
+                  <div className="field" style={{ marginTop: 6 }}>
+                    <label>Telefon (společný pro všechny jazyky)</label>
+                    <input value={editing.sigConfig.phone} placeholder="+420 777 123 456"
+                      onChange={e => setSig({ phone: e.target.value })} style={{ maxWidth: 260 }} />
+                  </div>
+                  {([
+                    ['names', 'Jméno / značka podle jazyka', { cz: 'Quentino', sk: 'Quentino', en: 'Quentino' }],
+                    ['emails', 'E-mail v podpisu podle jazyka', { cz: 'info@quentino.cz', sk: 'info@quentino.sk', en: 'info@wearquentino.com' }],
+                    ['taglines', 'Slogan podle jazyka', { cz: 'S láskou zabaleno 💛', sk: 'S láskou zabalené 💛', en: 'Packed with love 💛' }],
+                    ['webs', 'Web podle jazyka', { cz: 'quentino.cz', sk: 'quentino.sk', en: 'wearquentino.com' }]
+                  ] as const).map(([key, label, ph]) => (
+                    <div className="field" key={key}>
+                      <label>{label}</label>
+                      <div className="field-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                        {(['cz', 'sk', 'en'] as MailLang[]).map(l => (
+                          <div className="field" key={l}><label>{l.toUpperCase()}</label>
+                            <input value={editing.sigConfig![key][l]} placeholder={ph[l]}
+                              onChange={e => setSig({ [key]: { ...editing.sigConfig![key], [l]: e.target.value } } as any)} /></div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                    <button className="btn ghost" disabled={busy === 'logo'} onClick={pickLogo}>
+                      <Icon name="image" size={14} /> {editing.logoPath ? 'Změnit logo' : 'Nahrát logo'}
+                    </button>
+                    {logoPreview && <img className="sig-logo-preview" src={logoPreview} alt="logo" />}
+                    {editing.logoPath && (
+                      <button className="btn ghost" onClick={() => set({ logoPath: null })}>Odebrat logo</button>
+                    )}
+                  </div>
+                  <div className="field" style={{ marginTop: 4 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      Náhled podpisu
+                      <span className="lang-switch">
+                        {(['cz', 'sk', 'en'] as MailLang[]).map(l => (
+                          <button key={l} className={`lang-btn ${sigPrevLang === l ? 'active' : ''}`}
+                            onClick={() => setSigPrevLang(l)}>{l.toUpperCase()}</button>
+                        ))}
+                      </span>
+                    </label>
+                    <div className="signature-preview" style={{ maxHeight: 160 }}
+                      dangerouslySetInnerHTML={{
+                        __html: (() => {
+                          let html = buildBrandSignature(editing.sigConfig!, sigPrevLang, editing.color, !!editing.logoPath);
+                          if (logoPreview) html = html.replaceAll('cid:sig-logo', logoPreview);
+                          else html = html.replace(/<img[^>]*cid:sig-logo[^>]*>/gi, '');
+                          return html;
+                        })()
+                      }} />
+                  </div>
+                </div>
+              )}
+              <div className="field">
+                <label>Barva účtu (použije se i v podpisu)</label>
+                <input type="color" value={editing.color} onChange={e => set({ color: e.target.value })} style={{ width: 60, padding: 2, height: 32 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn ghost" disabled={busy === 'test'} onClick={testAccount}>
+                  {busy === 'test' ? <span className="spinner-inline" /> : null} Otestovat připojení
+                </button>
+                <span style={{ flex: 1 }} />
+                <button className="btn ghost" onClick={() => setEditing(null)}>Zpět</button>
+                <button className="btn primary" disabled={busy === 'save'} onClick={saveAccount}>Uložit účet</button>
+              </div>
+            </>
+          )}
+
+          {/* ===================== OSOBY ===================== */}
+          {tab === 'persons' && !editingPerson && (
+            <>
+              <div className="desc" style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
+                Osoby se přidávají do podpisu e-mailu — kulatá fotka, jméno a pozice. Při psaní zprávy
+                vybereš osobu v poli „Podepsán" a podpis lze před odesláním ještě upravit.
+              </div>
+              {persons.length === 0 && (
+                <div className="empty-state" style={{ padding: '30px 20px' }}>
+                  <div className="big"><Icon name="users" size={32} /></div>
+                  Zatím žádné osoby
+                </div>
+              )}
+              {persons.map(person => {
+                const isDefault = settings?.defaultPersonId === person.id;
+                return (
+                  <div key={person.id} className="account-list-item">
+                    <PersonAvatar person={person} />
+                    <div className="grow">
+                      <div style={{ fontWeight: 600 }}>
+                        {person.name}
+                        {isDefault && <span className="cat-chip cat-other" style={{ marginLeft: 8 }}>výchozí</span>}
+                      </div>
+                      <div className="mail">
+                        {[person.positions.cz, person.positions.sk, person.positions.en].filter(Boolean).join(' / ') || '—'}
+                      </div>
+                    </div>
+                    <button className="icon-btn" data-tip={isDefault ? 'Zrušit výchozí' : 'Nastavit jako výchozí pro nové maily a odpovědi'}
+                      style={isDefault ? { color: 'var(--warn)' } : undefined}
+                      onClick={() => setDefaultPerson(isDefault ? null : person.id)}>
+                      <Icon name="star" size={15} filled={isDefault} />
+                    </button>
+                    <button className="btn ghost" onClick={() => setEditingPerson({ id: person.id, name: person.name, positions: { ...person.positions }, displayNames: { ...person.displayNames }, photoPath: person.photoPath })}>Upravit</button>
+                    <button className="btn danger" onClick={() => run('delPerson', async () => setPersons(await api.persons.delete(person.id)))}>Smazat</button>
+                  </div>
+                );
+              })}
+              <button className="btn primary" style={{ alignSelf: 'flex-start' }}
+                onClick={() => setEditingPerson({ name: '', positions: { cz: '', sk: '', en: '' }, displayNames: { cz: '', sk: '', en: '' }, photoPath: null })}>
+                <Icon name="plus" size={14} /> Přidat osobu
+              </button>
+            </>
+          )}
+
+          {tab === 'persons' && editingPerson && (
+            <>
+              <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                {personPhotoPreview
+                  ? <img src={personPhotoPreview} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
+                  : <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'var(--accent-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-dark)' }}><Icon name="user" size={28} /></div>}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <button className="btn ghost" onClick={() => run('photo', async () => {
+                    const path = await api.files.pickImage();
+                    if (path) setEditingPerson(x => x ? { ...x, photoPath: path } : x);
+                  })}>
+                    <Icon name="image" size={14} /> {editingPerson.photoPath ? 'Změnit fotku' : 'Nahrát fotku'}
+                  </button>
+                  {editingPerson.photoPath && (
+                    <button className="btn ghost" onClick={() => setEditingPerson(x => x ? { ...x, photoPath: null } : x)}>Odebrat fotku</button>
+                  )}
+                </div>
+              </div>
+              <div className="field">
+                <label>Jméno</label>
+                <input value={editingPerson.name} onChange={e => setEditingPerson(x => x ? { ...x, name: e.target.value } : x)} placeholder="Patrik Tokoš" />
+              </div>
+              <div className="field">
+                <label>Pozice (podle jazyka e-mailu se použije správná varianta)</label>
+                <div className="field-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                  <div className="field"><label>🇨🇿 CZ</label>
+                    <input value={editingPerson.positions.cz} placeholder="majitel"
+                      onChange={e => setEditingPerson(x => x ? { ...x, positions: { ...x.positions, cz: e.target.value } } : x)} /></div>
+                  <div className="field"><label>🇸🇰 SK</label>
+                    <input value={editingPerson.positions.sk} placeholder="majiteľ"
+                      onChange={e => setEditingPerson(x => x ? { ...x, positions: { ...x.positions, sk: e.target.value } } : x)} /></div>
+                  <div className="field"><label>🇬🇧 EN</label>
+                    <input value={editingPerson.positions.en} placeholder="owner"
+                      onChange={e => setEditingPerson(x => x ? { ...x, positions: { ...x.positions, en: e.target.value } } : x)} /></div>
+                </div>
+                <div className="desc">Prázdná varianta = použije se česká. Fotka se do e-mailu vkládá přímo (CID) a zobrazí se kulatá — doporučujeme čtvercový výřez.</div>
+              </div>
+              <div className="field">
+                <label>Zobrazované jméno odesílatele (co příjemce uvidí jako „Od")</label>
+                <div className="field-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                  {(() => {
+                    const first = editingPerson.name.split(' ')[0] || 'Petra';
+                    const ph = { cz: `${first} z Quentino`, sk: `${first} z Quentino`, en: `${first} from Quentino` };
+                    return (['cz', 'sk', 'en'] as const).map(l => (
+                      <div className="field" key={l}><label>{l.toUpperCase()}</label>
+                        <input value={editingPerson.displayNames[l]} placeholder={ph[l]}
+                          onChange={e => setEditingPerson(x => x ? { ...x, displayNames: { ...x.displayNames, [l]: e.target.value } } : x)} /></div>
+                    ));
+                  })()}
+                </div>
+                <div className="desc">Prázdné = doplní se automaticky „Jméno z/from Značka" podle jazyka mailu.</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn ghost" onClick={() => setEditingPerson(null)}>Zpět</button>
+                <button className="btn primary" disabled={busy === 'savePerson'} onClick={savePerson}>Uložit osobu</button>
+              </div>
+            </>
+          )}
+
+          {/* ===================== AI ===================== */}
+          {tab === 'ai' && settings && (
+            <>
+              <div className="field">
+                <label>Anthropic API klíč {settings.hasApiKey ? '· nastaven ✓' : '· nenastaven'}</label>
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={e => setApiKeyInput(e.target.value)}
+                  placeholder={settings.hasApiKey ? '••••••••  (vyplň jen pro změnu)' : 'sk-ant-…'}
+                />
+                <div className="desc">Klíč získáš na console.anthropic.com. Ukládá se šifrovaně v systémové keychain.</div>
+              </div>
+              {aiUsage && (
+                <div className="usage-box">
+                  <b>Spotřeba AI tento měsíc ({aiUsage.month})</b><br />
+                  {aiUsage.calls} volání · {(aiUsage.inputTokens / 1000).toFixed(0)}k vstupních + {(aiUsage.outputTokens / 1000).toFixed(0)}k výstupních tokenů
+                  · odhad nákladů <b>~${aiUsage.estUsd.toFixed(2)}</b>
+                  <div className="desc" style={{ marginTop: 4 }}>
+                    Zůstatek kreditu Anthropic bohužel nelze přes API zjistit (běžný klíč to neumožňuje) —
+                    počítáme proto spotřebu lokálně dle ceníku modelů.{' '}
+                    <button style={{ color: 'var(--accent-dark)', fontWeight: 600 }}
+                      onClick={() => api.shell.openUrl('https://console.anthropic.com/settings/billing')}>
+                      Zobrazit kredit v konzoli →
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="field">
+                <label>Znění značky (brand prompt)</label>
+                <textarea rows={6} value={settings.brandPrompt}
+                  onChange={e => setSettings(s => s ? { ...s, brandPrompt: e.target.value } : s)} />
+                <div className="desc">Tímto stylem se řídí všechny AI generované a vylepšované e-maily. Obsahuje i kontext e-shopu (zasíláme, nevymýšlet fakta).</div>
+              </div>
+              <div className="field">
+                <label>Kontaktní údaje firmy (AI je použije v odpovědích)</label>
+                <textarea rows={3} value={settings.contactInfo}
+                  placeholder={'Quentino s.r.o.\ninfo@quentino.cz · +420 …\nDoručení: Zásilkovna, PPL — odesíláme do 2 pracovních dnů'}
+                  onChange={e => setSettings(s => s ? { ...s, contactInfo: e.target.value } : s)} />
+              </div>
+              <label className="check-row">
+                <input type="checkbox" checked={settings.autoSummarize}
+                  onChange={e => setSettings(s => s ? { ...s, autoSummarize: e.target.checked } : s)} />
+                Automaticky shrnovat nové nepřečtené zprávy
+              </label>
+              <div className="field">
+                <label>Vždy automaticky shrnout při načtení ze serveru — kategorie:</label>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  {(Object.keys(CATEGORY_LABELS) as Category[]).map(c => (
+                    <label key={c} className="check-row">
+                      <input type="checkbox" checked={settings.autoSummarizeCategories.includes(c)}
+                        onChange={() => toggleSummarizeCat(c)} />
+                      {CATEGORY_LABELS[c]}
+                    </label>
+                  ))}
+                </div>
+                <div className="desc">U vybraných kategorií se tělo zprávy stáhne a shrne hned po synchronizaci.</div>
+              </div>
+              <label className="check-row">
+                <input type="checkbox" checked={settings.autoCategorize}
+                  onChange={e => setSettings(s => s ? { ...s, autoCategorize: e.target.checked } : s)} />
+                Automaticky třídit doručenou poštu (objednávky / lidé / firmy)
+              </label>
+              <label className="check-row">
+                <input type="checkbox" checked={settings.loadRemoteImages}
+                  onChange={e => setSettings(s => s ? { ...s, loadRemoteImages: e.target.checked } : s)} />
+                Vždy načítat vzdálené obrázky v e-mailech (méně soukromí)
+              </label>
+              <div className="field-grid">
+                <div className="field">
+                  <label>Model pro psaní</label>
+                  <input value={settings.draftModel} onChange={e => setSettings(s => s ? { ...s, draftModel: e.target.value } : s)} />
+                </div>
+                <div className="field">
+                  <label>Rychlý model (shrnutí, třídění)</label>
+                  <input value={settings.fastModel} onChange={e => setSettings(s => s ? { ...s, fastModel: e.target.value } : s)} />
+                </div>
+              </div>
+              <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                <label>Vzhled aplikace</label>
+                <div className="lang-switch" style={{ alignSelf: 'flex-start' }}>
+                  <button className={`lang-btn ${settings.theme === 'light' ? 'active' : ''}`}
+                    onClick={() => run('theme', async () => {
+                      await api.settings.save({ theme: 'light' });
+                      setSettings(s => s ? { ...s, theme: 'light' } : s);
+                      p.onSettingsChanged();
+                    })}><Icon name="sun" size={13} /> Světlý</button>
+                  <button className={`lang-btn ${settings.theme === 'dark' ? 'active' : ''}`}
+                    onClick={() => run('theme', async () => {
+                      await api.settings.save({ theme: 'dark' });
+                      setSettings(s => s ? { ...s, theme: 'dark' } : s);
+                      p.onSettingsChanged();
+                    })}><Icon name="moon" size={13} /> Tmavý</button>
+                </div>
+              </div>
+
+              {upgates && (
+                <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                  <label><Icon name="bag" size={13} /> Upgates API (objednávky zákazníků)</label>
+                  <div className="desc">
+                    Po vyplnění AI uvidí u odpovědí reálné objednávky zákazníka (stav, tracking, položky)
+                    a u zprávy přibude tlačítko „Objednávky". Přístup vytvoříš v administraci e-shopu:
+                    Doplňky → API (doporučujeme práva jen pro čtení objednávek). Dokud údaje nevyplníš, funkce je neaktivní.
+                  </div>
+                  <div className="field-grid" style={{ marginTop: 6 }}>
+                    <div className="field"><label>URL API</label>
+                      <input value={upgates.url} placeholder="https://eshop.admin.sX.upgates.com"
+                        onChange={e => setUpgates(u => u ? { ...u, url: e.target.value } : u)} /></div>
+                    <div className="field"><label>Login API uživatele</label>
+                      <input value={upgates.login}
+                        onChange={e => setUpgates(u => u ? { ...u, login: e.target.value } : u)} /></div>
+                  </div>
+                  <div className="field">
+                    <label>API klíč {upgates.hasKey ? '· uložen ✓' : '· nenastaven'}</label>
+                    <input type="password" value={upgatesKeyInput}
+                      placeholder={upgates.hasKey ? '••••••••  (vyplň jen pro změnu)' : 'klíč z administrace'}
+                      onChange={e => setUpgatesKeyInput(e.target.value)} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn primary" disabled={busy === 'upgSave'}
+                      onClick={() => run('upgSave', async () => {
+                        const saved = await api.upgates.saveConfig({
+                          url: upgates.url,
+                          login: upgates.login,
+                          ...(upgatesKeyInput ? { apiKey: upgatesKeyInput } : {})
+                        });
+                        setUpgates(saved);
+                        setUpgatesKeyInput('');
+                        toast('Upgates API uloženo.');
+                      })}>Uložit</button>
+                    <button className="btn ghost" disabled={busy === 'upgTest'}
+                      onClick={() => run('upgTest', async () => toast(await api.upgates.test()))}>
+                      {busy === 'upgTest' ? <span className="spinner-inline" /> : null} Otestovat připojení
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                <label><Icon name="settings" size={13} /> Odkaz na objednávku v administraci</label>
+                <input value={settings.adminOrderRef} placeholder="023702:1185"
+                  onChange={e => setSettings(s => s ? { ...s, adminOrderRef: e.target.value } : s)} />
+                <div className="desc">
+                  Adresa objednávky v administraci nese vnitřní ID, ne číslo objednávky
+                  (<code>…/orders/edit-order/default/<b>1185</b>/</code> pro objednávku 023702). Obě řady rostou
+                  po jedné, takže z jedné známé dvojice <b>číslo objednávky : ID</b> se dopočítají ostatní.
+                  Otevři v administraci libovolnou objednávku a opiš obě čísla sem. Je-li nastavené Upgates API,
+                  má přednost přesné ID z něj a tohle se nepoužije.
+                </div>
+              </div>
+
+              <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                <label><Icon name="image" size={13} /> Logo na dárkové poukazy</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input value={settings.voucherLogo} placeholder="zatím nevybráno — poukaz použije název značky"
+                    onChange={e => setSettings(s => s ? { ...s, voucherLogo: e.target.value } : s)} />
+                  <button className="btn ghost" style={{ flexShrink: 0 }}
+                    onClick={() => api.files.pickImage().then(f => {
+                      if (f) setSettings(s => s ? { ...s, voucherLogo: f } : s);
+                    })}>Vybrat…</button>
+                  {settings.voucherLogo && (
+                    <button className="btn ghost" style={{ flexShrink: 0 }}
+                      onClick={() => setSettings(s => s ? { ...s, voucherLogo: '' } : s)}>Zrušit</button>
+                  )}
+                </div>
+                <div className="desc">
+                  PNG nebo SVG na světlé pozadí. Sází se do pravého horního rohu poukazu;
+                  bez loga se použije název značky vysazený písmem.
+                </div>
+              </div>
+
+              <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                <label><Icon name="bag" size={13} /> Produktový feed (XML)</label>
+                <input value={settings.productFeedUrl}
+                  onChange={e => setSettings(s => s ? { ...s, productFeedUrl: e.target.value } : s)} />
+                <div className="desc">
+                  {feed
+                    ? `V katalogu ${feed.count} produktů · naposledy aktualizováno ${feed.lastSync ? new Date(feed.lastSync).toLocaleString('cs-CZ') : 'nikdy'}. Aktualizuje se automaticky každý den.`
+                    : 'Katalog produktů pro vkládání do e-mailů (CZ/SK/EN odkazy, obrázky, ceny).'}
+                </div>
+                <button className="btn ghost" style={{ alignSelf: 'flex-start' }} disabled={busy === 'feed'}
+                  onClick={() => run('feed', async () => {
+                    await api.settings.save({ productFeedUrl: settings.productFeedUrl });
+                    const st = await api.products.refresh();
+                    setFeed(st);
+                    toast(`Feed aktualizován — ${st.count} produktů.`);
+                  })}>
+                  {busy === 'feed' ? <span className="spinner-inline" /> : <Icon name="refresh" size={14} />} Aktualizovat feed teď
+                </button>
+              </div>
+              <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy === 'saveAi'} onClick={saveAi}>
+                Uložit nastavení AI
+              </button>
+            </>
+          )}
+
+          {/* ===================== ZNALOSTI ===================== */}
+          {tab === 'knowledge' && !editingDoc && (
+            <>
+              <div className="desc" style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
+                Nahraj obchodní podmínky, reklamační řád, ceník dopravy, FAQ… AI z nich čerpá fakta
+                při návrzích odpovědí — díky tomu odpovídá přesně podle vašich pravidel a nic si nevymýšlí.
+              </div>
+              {knowledge.length === 0 && (
+                <div className="empty-state" style={{ padding: '30px 20px' }}>
+                  <div className="big"><Icon name="book" size={32} /></div>
+                  Zatím žádné dokumenty
+                </div>
+              )}
+              {knowledge.map(doc => (
+                <div key={doc.id} className="account-list-item">
+                  <Icon name="fileText" size={18} style={{ color: 'var(--text-2)' }} />
+                  <div className="grow">
+                    <div style={{ fontWeight: 600 }}>{doc.title}</div>
+                    <div className="mail">{doc.content.slice(0, 90)}…</div>
+                  </div>
+                  <button className="btn ghost" onClick={() => setEditingDoc({ id: doc.id, title: doc.title, content: doc.content })}>Upravit</button>
+                  <button className="btn danger" onClick={() => run('delDoc', async () => setKnowledge(await api.knowledge.delete(doc.id)))}>Smazat</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn primary" onClick={() => setEditingDoc({ title: '', content: '' })}>
+                  <Icon name="plus" size={14} /> Nový dokument
+                </button>
+                <button className="btn ghost" disabled={busy === 'import'} onClick={importDoc}>
+                  <Icon name="upload" size={14} /> Importovat soubor (.txt, .md)
+                </button>
+              </div>
+            </>
+          )}
+
+          {tab === 'knowledge' && editingDoc && (
+            <>
+              <div className="field">
+                <label>Název (např. „Reklamační řád")</label>
+                <input value={editingDoc.title} onChange={e => setEditingDoc(d => d ? { ...d, title: e.target.value } : d)} />
+              </div>
+              <div className="field">
+                <label>Obsah</label>
+                <textarea rows={14} value={editingDoc.content}
+                  onChange={e => setEditingDoc(d => d ? { ...d, content: e.target.value } : d)} />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn ghost" onClick={() => setEditingDoc(null)}>Zpět</button>
+                <button className="btn primary" disabled={busy === 'saveDoc'} onClick={saveDoc}>Uložit dokument</button>
+              </div>
+            </>
+          )}
+
+          {/* ===================== SYNC ===================== */}
+          {tab === 'sync' && syncCfg && (
+            <>
+              <div className="desc" style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
+                Synchronizace mezi zařízeními (např. Mac + Windows) přes sdílenou složku — vyber složku,
+                kterou ti synchronizuje Dropbox, OneDrive, Google Drive, Syncthing nebo NAS, a na druhém
+                zařízení nastav tu samou. Přenáší se: nastavení AI, brand prompt, znalosti, osoby (včetně fotek),
+                pravidla třídění, kontakty našeptávače a <b>lokální archiv včetně příloh</b>.
+                U nastavení vyhrává novější změna, archiv a kontakty se slučují — nikdy se nic neztratí.
+                Hesla účtů a API klíč se z bezpečnostních důvodů nesynchronizují.
+              </div>
+              <label className="check-row">
+                <input type="checkbox" checked={syncCfg.enabled}
+                  onChange={e => run('syncSave', async () => setSyncCfg(await api.appsync.save({ enabled: e.target.checked })))} />
+                Zapnout synchronizaci (běží automaticky každou minutu)
+              </label>
+              <div className="field">
+                <label>Synchronizační složka</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input readOnly value={syncCfg.folder ?? ''} placeholder="— nevybráno —" style={{ flex: 1 }} />
+                  <button className="btn ghost" onClick={() => run('syncFolder', async () => {
+                    const folder = await api.appsync.pickFolder();
+                    if (folder) setSyncCfg(await api.appsync.save({ folder }));
+                  })}>
+                    <Icon name="folder" size={14} /> Vybrat
+                  </button>
+                </div>
+                <div className="desc">Doporučení: vytvoř si v cloudové složce podsložku, např. „QuentinoMail-sync".</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button className="btn primary" disabled={busy === 'syncNow' || !syncCfg.enabled || !syncCfg.folder}
+                  onClick={() => run('syncNow', async () => {
+                    const res = await api.appsync.run();
+                    toast(`Synchronizace: ${res}`);
+                    setSyncCfg(await api.appsync.get());
+                  })}>
+                  {busy === 'syncNow' ? <span className="spinner-inline" /> : <Icon name="refresh" size={14} />} Synchronizovat teď
+                </button>
+                {syncCfg.lastRun && (
+                  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                    Naposledy {new Date(syncCfg.lastRun).toLocaleString('cs-CZ')} · {syncCfg.lastResult}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ===================== TŘÍDĚNÍ ===================== */}
+          {tab === 'rules' && settings && (
+            <>
+              <div className="desc" style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
+                Pravidla se vyhodnocují před AI klasifikací — jsou okamžitá a zdarma. Co pravidla nezachytí, roztřídí AI podle kontextu.
+              </div>
+              {settings.categoryRules.map((r, i) => (
+                <div key={i} className="compose-row">
+                  <select value={r.field} onChange={e => updateRule(i, { field: e.target.value as 'from' | 'subject' })}>
+                    <option value="subject">Předmět</option>
+                    <option value="from">Odesílatel</option>
+                  </select>
+                  <span style={{ color: 'var(--text-3)', fontSize: 12 }}>obsahuje</span>
+                  <input value={r.contains} onChange={e => updateRule(i, { contains: e.target.value })} />
+                  <span style={{ color: 'var(--text-3)', fontSize: 12 }}>→</span>
+                  <select value={r.category} onChange={e => updateRule(i, { category: e.target.value as Category })}>
+                    {(Object.keys(CATEGORY_LABELS) as Category[]).map(c => (
+                      <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
+                    ))}
+                  </select>
+                  <button className="icon-btn" data-tip="Odebrat pravidlo" onClick={() =>
+                    setSettings(s => s ? { ...s, categoryRules: s.categoryRules.filter((_, j) => j !== i) } : s)
+                  }><Icon name="x" size={13} /></button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn ghost" onClick={() =>
+                  setSettings(s => s ? { ...s, categoryRules: [...s.categoryRules, { field: 'subject', contains: '', category: 'orders' }] } : s)
+                }><Icon name="plus" size={14} /> Přidat pravidlo</button>
+                <button className="btn primary" disabled={busy === 'saveRules'} onClick={saveRules}>Uložit pravidla</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

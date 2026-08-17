@@ -1,0 +1,92 @@
+name: Instalátory
+
+# Build se spustí označením verze (`git tag v1.0.1 && git push --tags`)
+# nebo ručně tlačítkem v záložce Actions.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# Nový tag zruší rozdělaný běh nad tím samým tagem — ať se neplýtvá minutami
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Když spadne jedna platforma, druhá má doběhnout — ať je vidět,
+      # jestli je problém obecný, nebo jen v jednom systému
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest   # runner je x64 → odpovídá `win.arch: [x64]`
+            label: Windows x64
+            script: dist:win
+            artifact: windows-x64
+          - os: macos-14         # runner je Apple Silicon → odpovídá `mac.arch: [arm64]`
+            label: macOS arm64
+            script: dist:mac
+            artifact: macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Schválně 3.11, ne novější. node-gyp 9 (nese ho electron-builder přes
+      # @electron/rebuild) importuje modul `distutils`, který byl z Pythonu 3.12
+      # odstraněn. Bez tohohle kroku by kompilace better-sqlite3 spadla na
+      # `ModuleNotFoundError: No module named 'distutils'`.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalace závislostí
+        run: npm ci
+
+      - name: Sestavení instalátoru
+        run: npm run ${{ matrix.script }}
+        env:
+          # Runner nemá v keychainu žádný certifikát. Bez tohohle by se
+          # electron-builder pokoušel podpisovou identitu hledat a spadl by.
+          # Až budou certifikáty v Secrets, řádek se smaže — viz BUILD.md.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Uložení výsledku
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+
+  release:
+    name: Vydání
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: instalatory
+          merge-multiple: true
+
+      - name: Vytvoření vydání
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" instalatory/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Quentino Mail $GITHUB_REF_NAME" \
+            --notes "Instalátory sestavené automaticky. Windows verze je nepodepsaná — SmartScreen ohlásí varování, je potřeba kliknout na *Více informací → Přesto spustit*."

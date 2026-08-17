@@ -1,0 +1,258 @@
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
+import { app } from 'electron';
+
+let db: Database.Database;
+
+export function getDb(): Database.Database {
+  if (!db) {
+    const dir = app.getPath('userData');
+    fs.mkdirSync(dir, { recursive: true });
+    db = new Database(path.join(dir, 'quentino-mail.db'));
+    db.pragma('journal_mode = WAL');
+    migrate(db);
+  }
+  return db;
+}
+
+function migrate(d: Database.Database) {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      imap_host TEXT NOT NULL,
+      imap_port INTEGER NOT NULL,
+      imap_secure INTEGER NOT NULL DEFAULT 1,
+      smtp_host TEXT NOT NULL,
+      smtp_port INTEGER NOT NULL,
+      smtp_secure INTEGER NOT NULL DEFAULT 1,
+      username TEXT NOT NULL,
+      pass_enc TEXT NOT NULL,
+      signature_html TEXT NOT NULL DEFAULT '',
+      color TEXT NOT NULL DEFAULT '#7c5cff'
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL,
+      folder TEXT NOT NULL,
+      uid INTEGER NOT NULL,
+      message_id TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      from_addr TEXT NOT NULL DEFAULT '',
+      from_name TEXT NOT NULL DEFAULT '',
+      to_addr TEXT NOT NULL DEFAULT '',
+      cc TEXT NOT NULL DEFAULT '',
+      date TEXT NOT NULL DEFAULT '',
+      snippet TEXT NOT NULL DEFAULT '',
+      body_html TEXT,
+      body_text TEXT,
+      seen INTEGER NOT NULL DEFAULT 0,
+      flagged INTEGER NOT NULL DEFAULT 0,
+      answered INTEGER NOT NULL DEFAULT 0,
+      has_attachments INTEGER NOT NULL DEFAULT 0,
+      thread_key TEXT NOT NULL DEFAULT '',
+      category TEXT,
+      summary TEXT,
+      detected_lang TEXT,
+      translation_cz TEXT,
+      archived INTEGER NOT NULL DEFAULT 0,
+      raw_path TEXT,
+      fetched_full INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(account_id, folder, uid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_list ON messages(account_id, folder, date DESC);
+    CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_key);
+    CREATE INDEX IF NOT EXISTS idx_messages_msgid ON messages(message_id);
+
+    CREATE TABLE IF NOT EXISTS attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_pk INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+      size INTEGER NOT NULL DEFAULT 0,
+      path TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL,
+      to_addr TEXT NOT NULL,
+      cc TEXT NOT NULL DEFAULT '',
+      bcc TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      html TEXT NOT NULL DEFAULT '',
+      attachments_json TEXT NOT NULL DEFAULT '[]',
+      in_reply_to TEXT,
+      refs TEXT,
+      reply_to_db_id INTEGER,
+      send_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS knowledge (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS persons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      position TEXT NOT NULL DEFAULT '',
+      photo_path TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS products (
+      code TEXT PRIMARY KEY,
+      title_cz TEXT NOT NULL DEFAULT '',
+      url_cz TEXT NOT NULL DEFAULT '',
+      price_cz TEXT NOT NULL DEFAULT '',
+      title_sk TEXT NOT NULL DEFAULT '',
+      url_sk TEXT NOT NULL DEFAULT '',
+      price_sk TEXT NOT NULL DEFAULT '',
+      title_en TEXT NOT NULL DEFAULT '',
+      url_en TEXT NOT NULL DEFAULT '',
+      price_en TEXT NOT NULL DEFAULT '',
+      image TEXT,
+      category TEXT NOT NULL DEFAULT '',
+      categories TEXT NOT NULL DEFAULT '',
+      manufacturer TEXT NOT NULL DEFAULT '',
+      availability TEXT NOT NULL DEFAULT '',
+      stock INTEGER,
+      price_num REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_products_title ON products(title_cz);
+
+    CREATE TABLE IF NOT EXISTS contacts (
+      email TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      uses INTEGER NOT NULL DEFAULT 1,
+      last_used TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_archive (
+      key TEXT PRIMARY KEY
+    );
+
+    CREATE TABLE IF NOT EXISTS packing (
+      message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      packed_json TEXT NOT NULL DEFAULT '[]',
+      done INTEGER NOT NULL DEFAULT 0,
+      done_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS order_cache (
+      message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      json TEXT,
+      at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS order_index (
+      order_number TEXT PRIMARY KEY,
+      customer_email TEXT NOT NULL DEFAULT '',
+      message_pk INTEGER NOT NULL,
+      date TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_index_email ON order_index(customer_email);
+
+    CREATE TABLE IF NOT EXISTS order_link (
+      message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      order_number TEXT NOT NULL DEFAULT '',
+      order_msg_pk INTEGER,
+      resolved INTEGER NOT NULL DEFAULT 0,
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_link_open ON order_link(resolved);
+
+    CREATE TABLE IF NOT EXISTS ship_phase (
+      skeleton TEXT PRIMARY KEY,
+      phase TEXT NOT NULL,
+      sample TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'ai',
+      at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_usage (
+      month TEXT NOT NULL,
+      model TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      calls INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (month, model)
+    );
+  `);
+  // Fulltextové vyhledávání (FTS5) nad zprávami
+  d.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      subject, from_name, from_addr, body_text,
+      content='messages', content_rowid='id'
+    );
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, subject, from_name, from_addr, body_text)
+      VALUES (new.id, new.subject, new.from_name, new.from_addr, coalesce(new.body_text,''));
+    END;
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, subject, from_name, from_addr, body_text)
+      VALUES ('delete', old.id, old.subject, old.from_name, old.from_addr, coalesce(old.body_text,''));
+    END;
+    CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, subject, from_name, from_addr, body_text)
+      VALUES ('delete', old.id, old.subject, old.from_name, old.from_addr, coalesce(old.body_text,''));
+      INSERT INTO messages_fts(rowid, subject, from_name, from_addr, body_text)
+      VALUES (new.id, new.subject, new.from_name, new.from_addr, coalesce(new.body_text,''));
+    END;
+  `);
+  try {
+    const built = d.prepare("SELECT value FROM settings WHERE key = 'ftsBuilt'").get() as any;
+    if (!built) {
+      d.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
+      d.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('ftsBuilt','1')").run();
+    }
+  } catch { /* rebuild při příštím startu */ }
+
+  // Doplňkové migrace pro existující databáze
+  try { d.exec('ALTER TABLE accounts ADD COLUMN signature_logo TEXT'); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE attachments ADD COLUMN cid TEXT'); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE outbox ADD COLUMN inline_json TEXT NOT NULL DEFAULT '[]'"); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE accounts ADD COLUMN sig_json TEXT'); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE persons ADD COLUMN position_cz TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE persons ADD COLUMN position_sk TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE persons ADD COLUMN position_en TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("UPDATE persons SET position_cz = position WHERE position_cz = '' AND position != ''"); } catch { /* starý sloupec neexistuje */ }
+  try { d.exec("ALTER TABLE persons ADD COLUMN display_cz TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE persons ADD COLUMN display_sk TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE persons ADD COLUMN display_en TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE outbox ADD COLUMN from_name TEXT"); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE messages ADD COLUMN size INTEGER NOT NULL DEFAULT 0'); } catch { /* sloupec už existuje */ }
+
+  // Katalog produktů: kategorie a dostupnost pro prohlížeč produktů v kompozeru.
+  // Hodnoty se doplní při nejbližší synchronizaci feedu (feedNeedsCategories()).
+  try { d.exec("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE products ADD COLUMN categories TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE products ADD COLUMN manufacturer TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE products ADD COLUMN availability TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE products ADD COLUMN stock INTEGER'); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE products ADD COLUMN price_num REAL'); } catch { /* sloupec už existuje */ }
+  try { d.exec('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)'); } catch { /* index už existuje */ }
+}
+
+export function getSetting(key: string, fallback: string | null = null): string | null {
+  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row ? row.value : fallback;
+}
+
+export function setSetting(key: string, value: string) {
+  getDb()
+    .prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, value);
+}
