@@ -87,7 +87,10 @@ function rowToAccount(r: any): IgAccount {
     isSource: !!r.is_source,
     tokenExpires: r.token_expires,
     connectedAt: r.connected_at,
-    lastError: r.last_error ?? null
+    lastError: r.last_error ?? null,
+    pageId: r.page_id ?? '',
+    pageName: r.page_name ?? '',
+    shareFb: !!r.share_fb
   };
 }
 
@@ -107,7 +110,8 @@ export function accountForLang(lang: string): IgAccount | null {
 }
 
 export function saveAccountToken(a: {
-  igUserId: string; username: string; lang: string; token: string; expires: string; isSource?: boolean;
+  igUserId: string; username: string; lang: string; token: string; expires: string;
+  isSource?: boolean; pageId?: string; pageName?: string;
 }): IgAccount {
   const d = getDb();
   const market = listMarkets().find(m => m.lang === a.lang);
@@ -115,14 +119,19 @@ export function saveAccountToken(a: {
   // Když se už připojený účet připojuje znovu, příznak zdroje si drží
   const existing = d.prepare('SELECT is_source FROM ig_accounts WHERE ig_user_id = ?').get(a.igUserId) as any;
   const isSource = existing ? !!existing.is_source : (a.isSource ?? a.lang === 'CS');
+  // share_fb se ve výčtu úmyslně není — volba uživatele přežije opětovné připojení
   d.prepare(
-    `INSERT INTO ig_accounts (ig_user_id, username, lang, color, is_source, token_enc, token_expires, connected_at, last_error)
-     VALUES (?,?,?,?,?,?,?,datetime('now'),NULL)
+    `INSERT INTO ig_accounts (ig_user_id, username, lang, color, is_source, token_enc, token_expires, connected_at, last_error, page_id, page_name)
+     VALUES (?,?,?,?,?,?,?,datetime('now'),NULL,?,?)
      ON CONFLICT(ig_user_id) DO UPDATE SET
        username = excluded.username, lang = excluded.lang, color = excluded.color,
        is_source = excluded.is_source, token_enc = excluded.token_enc,
-       token_expires = excluded.token_expires, connected_at = datetime('now'), last_error = NULL`
-  ).run(a.igUserId, a.username, a.lang, color, isSource ? 1 : 0, encrypt(a.token), a.expires);
+       token_expires = excluded.token_expires, connected_at = datetime('now'), last_error = NULL,
+       page_id = excluded.page_id, page_name = excluded.page_name`
+  ).run(
+    a.igUserId, a.username, a.lang, color, isSource ? 1 : 0, encrypt(a.token), a.expires,
+    a.pageId ?? '', a.pageName ?? ''
+  );
   // Zdrojový účet může být jen jeden
   if (isSource) d.prepare('UPDATE ig_accounts SET is_source = 0 WHERE ig_user_id != ?').run(a.igUserId);
   return accountForLang(a.lang)!;
@@ -144,6 +153,10 @@ export function setAccountToken(accountId: number, token: string, expires: strin
 
 export function setAccountError(accountId: number, message: string | null): void {
   getDb().prepare('UPDATE ig_accounts SET last_error = ? WHERE id = ?').run(message, accountId);
+}
+
+export function setShareFb(id: number, value: boolean): void {
+  getDb().prepare('UPDATE ig_accounts SET share_fb = ? WHERE id = ?').run(value ? 1 : 0, id);
 }
 
 export function deleteAccount(id: number): void {
@@ -436,6 +449,8 @@ export function listJobs(limit = 80): IgJob[] {
     finishedAt: r.finished_at,
     permalink: r.permalink,
     error: r.error,
+    fbPostId: r.fb_post_id ?? null,
+    fbError: r.fb_error ?? null,
     preview: captionText(r).slice(0, 160)
   }));
 }

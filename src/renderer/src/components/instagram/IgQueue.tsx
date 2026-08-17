@@ -108,6 +108,8 @@ function Row({ job, onOpenPost, children }: { job: IgJob; onOpenPost: (id: numbe
           {job.finishedAt && ` · ${fmtDate(job.finishedAt)}`}
         </div>
         {job.error && <div className="ig-job-error">{job.error}</div>}
+        {job.fbPostId && <div className="ig-muted">Sdíleno i na Facebook stránku.</div>}
+        {job.fbError && <div className="ig-job-error">Facebook: {job.fbError}</div>}
       </div>
       <div className="ig-job-actions">
         {job.state === 'publishing' && <span className="spinner-inline" />}

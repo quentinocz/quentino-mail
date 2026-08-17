@@ -118,6 +118,19 @@ export default function IgAccounts({ overview, onChanged }: Props) {
                   přístup platí do {fmtDate(a.tokenExpires)}
                   {limits[a.id] && ` · dnes ${limits[a.id]!.used}/${limits[a.id]!.cap} příspěvků`}
                 </div>
+                {a.pageId ? (
+                  <label className="ig-checkline" data-tip="Stejný obsah se po zveřejnění na Instagramu přidá i na Facebook stránku">
+                    <input
+                      type="checkbox"
+                      checked={a.shareFb}
+                      onChange={e => run(`fb-${a.id}`, async () => api.ig.setShareFb(a.id, e.target.checked),
+                        e.target.checked ? 'Bude se sdílet i na Facebook.' : 'Sdílení na Facebook vypnuto.')}
+                    />
+                    Sdílet i na stránku {a.pageName || 'Facebook'}
+                  </label>
+                ) : (
+                  <div className="ig-muted">Stránka není známá — připoj účet znovu, doplní se.</div>
+                )}
                 {a.lastError && <div className="ig-job-error">{a.lastError}</div>}
               </div>
               <div className="ig-job-actions">

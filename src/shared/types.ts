@@ -512,6 +512,11 @@ export interface IgAccount {
   tokenExpires: string | null;
   connectedAt: string;
   lastError: string | null;
+  /** Facebook stránka, přes kterou účet publikuje */
+  pageId: string;
+  pageName: string;
+  /** Zveřejnit stejný obsah i na té stránce */
+  shareFb: boolean;
 }
 
 export interface IgMarket {
@@ -622,5 +627,8 @@ export interface IgJob {
   finishedAt: string | null;
   permalink: string | null;
   error: string | null;
+  /** Výsledek souběžného sdílení na Facebook stránku */
+  fbPostId: string | null;
+  fbError: string | null;
   preview: string;
 }

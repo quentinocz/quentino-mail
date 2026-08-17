@@ -77,7 +77,10 @@ export function authUrl(state: string): string {
     'instagram_basic',
     'instagram_content_publish',
     'pages_show_list',
-    'business_management'
+    'business_management',
+    // Pro souběžné sdílení na Facebook stránku
+    'pages_manage_posts',
+    'pages_read_engagement'
   ].join(',');
   return `https://www.facebook.com/${VERSION}/dialog/oauth`
     + `?client_id=${encodeURIComponent(s.appId)}`
@@ -112,6 +115,7 @@ export async function exchangeLongLived(token: string): Promise<string> {
 export interface DiscoveredAccount {
   igUserId: string;
   username: string;
+  pageId: string;
   pageName: string;
   pageToken: string;
 }
@@ -123,7 +127,7 @@ export interface DiscoveredAccount {
  */
 export async function discoverAccounts(userToken: string): Promise<DiscoveredAccount[]> {
   const res = await graph('me/accounts', {
-    fields: 'name,access_token,instagram_business_account{id,username}',
+    fields: 'id,name,access_token,instagram_business_account{id,username}',
     limit: '100'
   }, userToken);
   const out: DiscoveredAccount[] = [];
@@ -132,6 +136,7 @@ export async function discoverAccounts(userToken: string): Promise<DiscoveredAcc
     out.push({
       igUserId: p.instagram_business_account.id,
       username: p.instagram_business_account.username ?? '',
+      pageId: p.id ?? '',
       pageName: p.name ?? '',
       pageToken: p.access_token
     });
@@ -276,6 +281,49 @@ export async function publish(
   } catch { /* odkaz je jen pro pohodlí */ }
 
   return { containerId, igMediaId: published.id, permalink };
+}
+
+/* ---------- Souběžné sdílení na Facebook stránku ---------- */
+
+/**
+ * Zveřejní stejný obsah na Facebook stránce, ke které je Instagram připojený.
+ *
+ * Fotky se nahrají jako nezveřejněné a připojí se k jednomu příspěvku, takže
+ * z karuselu vznikne na Facebooku album, ne pět samostatných příspěvků. Video
+ * se posílá adresou; když ji nemáme (video šlo Metě přímo), sdílení se
+ * přeskočí a řekne to.
+ */
+export async function shareToPage(
+  pageId: string,
+  token: string,
+  caption: string,
+  media: GraphMedia[]
+): Promise<string> {
+  const photos = media.filter(m => !m.isVideo && m.publicUrl);
+  const video = media.find(m => m.isVideo);
+
+  if (video) {
+    if (!video.publicUrl) throw new GraphError('Video se na stránku nesdílí — Metě šlo přímo, bez veřejné adresy.');
+    const res = await graph(`${pageId}/videos`, { file_url: video.publicUrl, description: caption }, token, 'POST');
+    return res.id ?? '';
+  }
+
+  if (photos.length === 0) throw new GraphError('Není co na stránku sdílet.');
+
+  if (photos.length === 1) {
+    const res = await graph(`${pageId}/photos`, { url: photos[0].publicUrl, caption }, token, 'POST');
+    return res.post_id ?? res.id ?? '';
+  }
+
+  const ids: string[] = [];
+  for (const p of photos) {
+    const up = await graph(`${pageId}/photos`, { url: p.publicUrl, published: 'false' }, token, 'POST');
+    ids.push(up.id);
+  }
+  const params: Record<string, string> = { message: caption };
+  ids.forEach((id, i) => { params[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id }); });
+  const res = await graph(`${pageId}/feed`, params, token, 'POST');
+  return res.id ?? '';
 }
 
 /** Kolik příspěvků účet za posledních 24 h publikoval přes API (limit je 100). */

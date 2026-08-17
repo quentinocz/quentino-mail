@@ -209,6 +209,8 @@ export const api = {
     finishConnect: (igUserId: string) => call<any>('ig:finishConnect', igUserId),
     disconnect: (id: number) => call<void>('ig:disconnect', id),
     setSource: (id: number) => call<void>('ig:setSource', id),
+    /** Zveřejňovat obsah i na Facebook stránce daného účtu */
+    setShareFb: (id: number, value: boolean) => call<void>('ig:setShareFb', id, value),
     limit: (id: number) => call<{ used: number; cap: number } | null>('ig:limit', id),
 
     markets: () => call<IgMarket[]>('ig:markets'),

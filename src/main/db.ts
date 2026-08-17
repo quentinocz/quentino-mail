@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { app } from 'electron';
-import { igSchema } from './instagram/schema';
+import { igSchema, igAlters } from './instagram/schema';
 
 let db: Database.Database;
 
@@ -194,6 +194,9 @@ function migrate(d: Database.Database) {
   `);
   // Instagram: účty, trhy, příspěvky, popisky a fronta publikací
   d.exec(igSchema);
+  for (const sql of igAlters) {
+    try { d.exec(sql); } catch { /* sloupec už existuje */ }
+  }
 
   // Fulltextové vyhledávání (FTS5) nad zprávami
   d.exec(`

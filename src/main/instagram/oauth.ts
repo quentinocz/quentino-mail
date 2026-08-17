@@ -117,6 +117,8 @@ function saveDiscovered(lang: string, a: graph.DiscoveredAccount): IgAccount {
     igUserId: a.igUserId,
     username: a.username || a.pageName,
     lang,
+    pageId: a.pageId,
+    pageName: a.pageName,
     token: a.pageToken,
     expires: new Date(Date.now() + 59 * 864e5).toISOString(),
     isSource: lang === 'CS' && !store.sourceAccount()

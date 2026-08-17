@@ -312,6 +312,11 @@ export function disconnect(id: number): void {
   emit();
 }
 
+export function setShareFb(id: number, value: boolean): void {
+  store.setShareFb(id, value);
+  emit();
+}
+
 export function setSource(id: number): void {
   store.setSourceAccount(id);
   emit();

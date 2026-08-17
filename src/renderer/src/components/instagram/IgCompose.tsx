@@ -29,9 +29,15 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
   const [publishing, setPublishing] = useState(false);
   const [when, setWhen] = useState('');
 
-  /** Trhy, na které se dá publikovat — mají připojený účet a nejsou zdroj. */
-  const targets = overview.markets.filter(m =>
-    m.enabled && overview.accounts.some(a => a.lang === m.lang && !a.isSource));
+  const isSourcePost = post?.kind === 'source';
+
+  /**
+   * Trhy, na které se dá publikovat. Zdrojový účet se vynechává jen u přepisu
+   * — tam už příspěvek vyšel. U nového příspěvku je čeština normální cíl.
+   */
+  const targets = overview.markets.filter(m => m.enabled && overview.accounts.some(
+    a => a.lang === m.lang && (!isSourcePost || !a.isSource)
+  ));
   const missing = overview.markets.filter(m =>
     m.enabled && m.lang !== 'CS' && !overview.accounts.some(a => a.lang === m.lang));
 
@@ -108,11 +114,14 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
   };
 
   const generate = async () => {
-    if (langs.length === 0) { toast('Vyber aspoň jeden trh.', 'error'); return; }
+    // Vybrané trhy se prořežou podle toho, co je v tuhle chvíli dostupné —
+    // u přepisu například vypadne zdrojový účet
+    const chosen = langs.filter(l => targets.some(t => t.lang === l));
+    if (chosen.length === 0) { toast('Vyber aspoň jeden trh.', 'error'); return; }
     setGenerating(true);
     try {
       const target = await ensurePost();
-      const updated = await api.ig.generate(target.id, langs);
+      const updated = await api.ig.generate(target.id, chosen);
       setPost(updated);
       toast('Texty jsou hotové — projdi je a uprav, co nesedí.');
     } catch (e: any) {
@@ -147,13 +156,12 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
     toast('Koncept smazaný.');
   };
 
-  const isSource = post?.kind === 'source';
   const ready = post && post.captions.length > 0;
 
   return (
     <div className="ig-page">
       <div className="ig-head">
-        <h2>{postId == null ? 'Nový příspěvek' : isSource ? 'Přepis příspěvku' : 'Rozpracovaný příspěvek'}</h2>
+        <h2>{postId == null ? 'Nový příspěvek' : isSourcePost ? 'Přepis příspěvku' : 'Rozpracovaný příspěvek'}</h2>
         <div className="ig-head-tools">
           {post && <button className="btn ghost" onClick={discard}>Zahodit</button>}
           {postId != null && <button className="btn ghost" onClick={() => onPostId(null)}>Zpět na rozpracované</button>}
@@ -163,7 +171,7 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
       <div className="ig-compose">
         <section className="ig-card">
           <h3>Média</h3>
-          {isSource ? (
+          {isSourcePost ? (
             <div className="ig-source-media">
               <SourcePreview sourcePostId={post!.sourcePostId} />
               <div>
@@ -193,8 +201,8 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
         </section>
 
         <section className="ig-card">
-          <h3>{isSource ? 'Původní text' : 'Zadání'}</h3>
-          {isSource ? (
+          <h3>{isSourcePost ? 'Původní text' : 'Zadání'}</h3>
+          {isSourcePost ? (
             <div className="ig-source-caption">{post!.sourceCaption || <span className="ig-muted">Původní příspěvek nemá popisek — doplň zadání níž.</span>}</div>
           ) : (
             <textarea

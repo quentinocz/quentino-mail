@@ -35,6 +35,7 @@ export function registerIgIpc() {
   handle('ig:finishConnect', (igUserId: string) => ig.finishConnect(igUserId));
   handle('ig:disconnect', (id: number) => ig.disconnect(id));
   handle('ig:setSource', (id: number) => ig.setSource(id));
+  handle('ig:setShareFb', (id: number, value: boolean) => ig.setShareFb(id, !!value));
   handle('ig:limit', (id: number) => ig.accountLimit(id));
 
   /* Trhy a značka */
