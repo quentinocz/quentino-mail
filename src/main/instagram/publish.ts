@@ -20,9 +20,11 @@ function emit(payload: unknown = {}) {
 /**
  * Z každé položky příspěvku udělá veřejnou adresu, kterou si Meta stáhne.
  *
- * - soubor z disku → nahraje se do úložiště,
- * - médium převzaté z vlastního účtu → přímo z Instagram CDN, adresa se
- *   čte až teď, protože ty starší vyprší.
+ * Do úložiště jde všechno — soubory z disku i média převzatá z vlastního účtu.
+ * Podstrčit Metě rovnou odkaz na její Instagram CDN se zdá jako zkratka, ale
+ * ty adresy jsou podepsané a časově omezené a její vlastní stahovač na nich
+ * selhává (chyby řady 22070xx). Radši jednou stáhneme a nahrajeme k sobě;
+ * po zveřejnění se soubor z úložiště zase smaže.
  */
 async function resolveMedia(
   postId: number,
@@ -32,16 +34,24 @@ async function resolveMedia(
   if (rows.length === 0) throw new Error('Příspěvek nemá žádná média.');
 
   const out: graph.GraphMedia[] = [];
+  // Jedno video se Metě posílá přímo; karusel na to nemá, tam se použije adresa
+  const directVideo = rows.length === 1 && !!rows[0].is_video;
+
   for (const row of rows) {
     const isVideo = !!row.is_video;
 
     if (row.source_url) {
+      if (row.public_url) {
+        out.push({ publicUrl: row.public_url, isVideo, coverOffset: row.cover_offset });
+        continue;
+      }
+
       const igId = String(row.source_url).replace(/^ig:/, '');
       if (!source) throw new Error('Není připojený zdrojový účet, ze kterého médium pochází.');
-      let url = '';
+      let cdnUrl = '';
       try {
         const info = await graph.mediaUrls(igId, source.token);
-        url = info.media_url ?? info.thumbnail_url ?? '';
+        cdnUrl = info.media_url ?? info.thumbnail_url ?? '';
       } catch (e: any) {
         // Zneplatněný přístup se pozná u účtu, ne až u příspěvku — jinak
         // uživatel vidí chybu ve frontě a nikde nestojí, co s tím.
@@ -51,8 +61,19 @@ async function resolveMedia(
         }
         throw new Error(`Médium z původního příspěvku se nepodařilo načíst: ${e.message}`);
       }
-      if (!url) throw new Error('Původní příspěvek nemá dostupné médium.');
-      out.push({ publicUrl: url, isVideo, coverOffset: row.cover_offset });
+      if (!cdnUrl) throw new Error('Původní příspěvek nemá dostupné médium.');
+
+      const copy = await media.download(cdnUrl);
+      if (directVideo) {
+        // Do úložiště se video vůbec nedostane — jde rovnou Metě
+        out.push({ publicUrl: '', isVideo, coverOffset: row.cover_offset, data: copy });
+        continue;
+      }
+      const ext = isVideo ? 'mp4' : 'jpg';
+      const copyKey = `posts/${postId}/${row.id}-${Date.now()}.${ext}`;
+      const uploaded = await media.upload(copy, copyKey, isVideo ? 'video/mp4' : 'image/jpeg');
+      store.setMediaPublicUrl(row.id, uploaded.publicUrl, uploaded.key);
+      out.push({ publicUrl: uploaded.publicUrl, isVideo, coverOffset: row.cover_offset });
       continue;
     }
 
@@ -62,6 +83,10 @@ async function resolveMedia(
     }
 
     const buf = media.readFile(row.path);
+    if (directVideo) {
+      out.push({ publicUrl: '', isVideo, coverOffset: row.cover_offset, data: buf });
+      continue;
+    }
     const key = `posts/${postId}/${row.id}-${Date.now()}.${(row.mime.split('/')[1] ?? 'bin').replace(/[^a-z0-9]/gi, '')}`;
     const up = await media.upload(buf, key, row.mime);
     store.setMediaPublicUrl(row.id, up.publicUrl, up.key);
@@ -134,18 +159,40 @@ export async function runJob(jobId: number): Promise<void> {
     store.updateCaption(caption.id, { status: 'published' });
     store.setAccountError(account.id, null);
   } catch (e: any) {
-    store.setJobState(jobId, {
-      state: 'failed',
-      error: e?.message ?? String(e),
-      finished_at: new Date().toISOString()
-    });
+    const message = e?.message ?? String(e);
+    const attempts = (job.attempts ?? 0) + 1;
+
+    if (TRANSIENT.test(message) && attempts < MAX_ATTEMPTS && !graph.isTokenError(e)) {
+      // Vrátí se do fronty; nahraná média zůstanou, protože položka je pořád otevřená
+      store.setJobState(jobId, {
+        state: 'scheduled',
+        error: `${message} — zkusím to znovu za 5 minut (pokus ${attempts} z ${MAX_ATTEMPTS}).`,
+        scheduled_at: new Date(Date.now() + RETRY_AFTER).toISOString(),
+        started_at: null
+      });
+    } else {
+      store.setJobState(jobId, {
+        state: 'failed',
+        error: message,
+        finished_at: new Date().toISOString()
+      });
+    }
     // Když padl přístup k cílovému účtu, označí se u něj — v Účtech je to pak vidět
-    if (graph.isTokenError(e)) store.setAccountError(job.account_id, e?.message ?? String(e));
+    if (graph.isTokenError(e)) store.setAccountError(job.account_id, message);
   } finally {
     try { await cleanupPostMedia(caption.post_id); } catch { /* úklid není kritický */ }
     emit();
   }
 }
+
+/**
+ * Chyby, u kterých má smysl to za chvíli zkusit znovu. Meta jimi hlásí
+ * i vlastní zádrhely při zpracování médií (řada 22070xx), takže první
+ * neúspěch neznamená, že je něco špatně s příspěvkem.
+ */
+const TRANSIENT = /2207076|2207001|2207053|2207032|Media upload has failed|Please try again|temporarily/i;
+const RETRY_AFTER = 5 * 60_000;
+const MAX_ATTEMPTS = 3;
 
 let queueRunning = false;
 

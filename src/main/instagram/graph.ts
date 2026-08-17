@@ -12,9 +12,12 @@ const VERSION = 'v23.0';
 const GRAPH = `https://graph.facebook.com/${VERSION}`;
 
 export interface GraphMedia {
+  /** Veřejná adresa, ze které si Meta médium stáhne (obrázky, karusel) */
   publicUrl: string;
   isVideo: boolean;
   coverOffset?: number | null;
+  /** Data videa poslaná Metě přímo — pro jedno video je to spolehlivější než adresa */
+  data?: Buffer;
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -191,6 +194,32 @@ async function waitReady(containerId: string, token: string, maxMs = 5 * 60_000)
   throw new Error('Zpracování média trvalo příliš dlouho. Zkus to znovu, nebo zmenši video.');
 }
 
+/**
+ * Přímé odeslání videa Metě.
+ *
+ * U videa se ukázalo, že stahování z veřejné adresy Meta zvládá nespolehlivě
+ * (chyby řady 22070xx, i když soubor je v pořádku a dostupný). Tenhle způsob
+ * je v dokumentaci určený právě pro soubory z disku: nejdřív vznikne prázdný
+ * kontejner a do něj se pošlou bajty.
+ */
+async function uploadVideo(containerId: string, token: string, data: Buffer): Promise<void> {
+  const res = await fetch(`https://rupload.facebook.com/ig-api-upload/${VERSION}/${containerId}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `OAuth ${token}`,
+      offset: '0',
+      file_size: String(data.length),
+      'Content-Type': 'application/octet-stream'
+    },
+    body: new Uint8Array(data)
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body?.error) throw new GraphError(body.error.message ?? 'Nahrání videa selhalo.', body.error.code);
+  if (!res.ok || body?.success === false) {
+    throw new GraphError(`Nahrání videa selhalo (${res.status}).`, res.status);
+  }
+}
+
 export function validateCaption(text: string): void {
   if (!text.trim()) throw new Error('Popisek je prázdný.');
   if (text.length > 2200) throw new Error(`Popisek má ${text.length} znaků, Instagram povoluje 2 200.`);
@@ -226,10 +255,14 @@ export async function publish(
   } else {
     const m = media[0];
     const params: Record<string, string> = m.isVideo
-      ? { media_type: 'REELS', video_url: m.publicUrl, caption, share_to_feed: 'true' }
+      ? m.data
+        // Video putuje Metě přímo: kontejner se založí prázdný a bajty se pošlou zvlášť
+        ? { media_type: 'REELS', upload_type: 'resumable', caption, share_to_feed: 'true' }
+        : { media_type: 'REELS', video_url: m.publicUrl, caption, share_to_feed: 'true' }
       : { image_url: m.publicUrl, caption };
     if (m.isVideo && m.coverOffset != null) params.thumb_offset = String(Math.round(m.coverOffset * 1000));
     const c = await graph(`${igUserId}/media`, params, token, 'POST');
+    if (m.isVideo && m.data) await uploadVideo(c.id, token, m.data);
     containerId = c.id;
   }
 

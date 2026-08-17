@@ -66,6 +66,13 @@ export async function upload(data: Buffer, key: string, mime: string): Promise<U
     headers: headers(s, { 'Content-Type': mime || 'application/octet-stream', 'x-upsert': 'true' }),
     body: new Uint8Array(data)
   });
+  if (res.status === 413) {
+    throw new Error(
+      `Soubor má ${Math.round(data.length / 1024 / 1024)} MB a úložiště víc nedovolí. `
+      + 'Supabase má ve výchozím stavu limit 50 MB na soubor — zvedni ho v Settings → Storage, '
+      + 'nebo video zkrať.'
+    );
+  }
   if (!res.ok) throw new Error(`Nahrání média selhalo: ${(await res.text()).slice(0, 200)}`);
   return {
     key,
