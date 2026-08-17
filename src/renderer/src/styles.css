@@ -2327,3 +2327,382 @@ button, kbd, label,
   border-bottom-right-radius: 16px;
 }
 .composer-grip:hover { opacity: 1; }
+
+/* ==================== Instagram ==================== */
+
+/* Přepínač pracovních prostorů (pošta / Instagram) */
+.ig-switch {
+  display: flex;
+  gap: 3px;
+  margin: 0 10px 10px;
+  padding: 3px;
+  background: #edeaf3;
+  border-radius: 9px;
+}
+.ig-switch button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 4px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.ig-switch button:hover { color: var(--text); }
+.ig-switch button.active { background: var(--panel); color: var(--accent-dark); box-shadow: var(--shadow); }
+
+/* Instagram má jen dva sloupce — panel a obsah */
+.ig-app { grid-template-columns: 232px 1fr !important; }
+.ig-main { overflow-y: auto; background: var(--panel); border-left: 1px solid var(--border); }
+
+.ig-page { padding: 22px 26px 40px; max-width: 1180px; }
+.ig-pad { padding: 10px 0; }
+.ig-muted { color: var(--text-3); font-size: 12.5px; }
+.ig-over { color: var(--danger); font-size: 12.5px; font-weight: 600; }
+
+.ig-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  margin-bottom: 18px;
+  -webkit-app-region: drag;
+}
+.ig-head h2 { font-size: 19px; letter-spacing: -0.02em; }
+.ig-head-tools { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
+
+.ig-search { position: relative; display: flex; align-items: center; }
+.ig-search svg { position: absolute; left: 9px; color: var(--text-3); }
+.ig-search input { padding-left: 28px; width: 200px; }
+
+.ig-seg { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+.ig-seg button { padding: 5px 10px; border-radius: 6px; font-size: 12.5px; color: var(--text-2); }
+.ig-seg button.active { background: var(--panel); color: var(--accent-dark); font-weight: 600; box-shadow: var(--shadow); }
+
+.ig-section-title {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: 700;
+  margin: 20px 0 8px;
+}
+
+/* Kartičky obsahu */
+.ig-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ig-card h3 { font-size: 14px; }
+.ig-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+@media (max-width: 1080px) { .ig-cols { grid-template-columns: 1fr; } }
+.ig-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ig-checkline { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+
+/* Jazykové zkratky — barva trhu na první pohled */
+.ig-lang {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.ig-lang-done { color: #fff; }
+.ig-lang-pending { color: #fff; opacity: 0.45; }
+.ig-lang-none { background: transparent; opacity: 0.5; }
+.ig-langs { display: flex; gap: 3px; flex-wrap: wrap; }
+
+/* Feed */
+.ig-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.ig-tile {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.ig-tile:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.ig-tile:active { transform: scale(0.995); }
+.ig-tile:disabled { opacity: 0.6; }
+.ig-tile-img { position: relative; aspect-ratio: 1; background: var(--bg); display: grid; place-items: center; }
+.ig-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ig-tile-ph { color: var(--text-3); }
+.ig-badge {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.ig-tile-body { padding: 9px 10px 10px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+.ig-tile-caption {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ig-tile-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* Skládání příspěvku */
+.ig-compose { display: flex; flex-direction: column; }
+.ig-media-strip { display: flex; gap: 10px; flex-wrap: wrap; }
+.ig-file {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  display: grid;
+  place-items: center;
+}
+.ig-file img { width: 100%; height: 100%; object-fit: cover; }
+.ig-file-ph { color: var(--text-3); }
+.ig-file-x {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.ig-media-add {
+  width: 92px;
+  height: 92px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--text-3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.ig-media-add:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+.ig-source-media { display: flex; gap: 14px; align-items: flex-start; }
+.ig-thumb-lg {
+  width: 132px;
+  height: 132px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.ig-thumb-lg img { width: 100%; height: 100%; object-fit: cover; }
+.ig-source-caption {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  background: var(--bg);
+  border-radius: 9px;
+  padding: 10px 12px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.ig-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--warn);
+  background: rgba(217, 154, 27, 0.1);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.ig-market-picks { display: flex; gap: 7px; flex-wrap: wrap; }
+.ig-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: transparent;
+}
+.ig-pick.active { color: #fff; }
+.ig-pick:disabled { opacity: 0.5; }
+
+/* Popisky vedle sebe */
+.ig-captions { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.ig-caption {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px 11px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ig-caption-head { display: flex; align-items: center; gap: 7px; }
+.ig-caption textarea { width: 100%; resize: vertical; line-height: 1.5; }
+.ig-caption-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ig-caption-actions { display: flex; align-items: center; gap: 8px; }
+.ig-variants { margin-left: auto; display: flex; gap: 3px; }
+.ig-variants button {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.ig-variants button.active { background: var(--accent-soft); color: var(--accent-dark); border-color: var(--accent); }
+.ig-tag-done, .ig-tag-src {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(47, 158, 110, 0.14);
+  color: var(--ok);
+}
+.ig-tag-src { background: var(--accent-soft); color: var(--accent-dark); margin-left: 6px; }
+
+.ig-publish {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.ig-when { display: flex; align-items: center; gap: 8px; }
+
+/* Rozpracované */
+.ig-drafts { margin-top: 18px; display: flex; flex-direction: column; gap: 6px; }
+.ig-draft-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.ig-draft-row:hover { border-color: var(--accent); }
+.ig-draft-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Fronta */
+.ig-job {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 7px;
+  background: var(--panel);
+}
+.ig-job-failed { border-color: rgba(229, 72, 77, 0.45); }
+.ig-job-publishing { border-color: var(--accent); }
+.ig-job-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ig-job-preview {
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ig-job-preview:hover { color: var(--accent-dark); }
+.ig-job-error { font-size: 12.5px; color: var(--danger); }
+.ig-job-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* Účty */
+.ig-account {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ig-account:last-of-type { border-bottom: none; }
+.ig-account-body { flex: 1; min-width: 0; }
+.ig-account-name { font-size: 13.5px; font-weight: 600; }
+
+.ig-setup-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(217, 154, 27, 0.12);
+  color: var(--warn);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+}
+
+/* Trhy */
+.ig-market { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; }
+.ig-market-head { display: flex; align-items: center; gap: 8px; padding: 9px 11px; }
+.ig-market-name { flex: 1; text-align: left; font-size: 13.5px; font-weight: 600; }
+.ig-market-body { padding: 0 11px 12px; display: flex; flex-direction: column; gap: 10px; }
+.ig-tones { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ig-tones input { width: 110px; padding: 4px 8px; }
+.ig-tone {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .ig-switch { background: #24202f; }
+[data-theme="dark"] .ig-tile:hover, [data-theme="dark"] .ig-draft-row:hover { border-color: var(--accent); }
+[data-theme="dark"] .ig-caption { background: #1a1824; }

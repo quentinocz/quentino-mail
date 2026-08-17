@@ -8,8 +8,39 @@ import { getDb, getSetting, setSetting } from './db';
 import { backfillContacts } from './contacts';
 import { setHtmlRenderer, clearTrackingCache } from './ordertrack';
 import { renderPage } from './render';
+import { handleCallbackUrl } from './instagram';
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Návrat z přihlášení k Instagramu. Prohlížeč otevře odkaz
+ * `quentino-mail://ig-oauth?...`; podle systému přijde buď jako událost
+ * `open-url` (macOS), nebo v parametrech druhého spuštění (Windows).
+ */
+const IG_PROTOCOL = 'quentino-mail';
+
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+async function handleDeepLink(url: string) {
+  if (!url || !url.startsWith(`${IG_PROTOCOL}://`)) return;
+  focusMainWindow();
+  try {
+    const result = await handleCallbackUrl(url);
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('ig:connected', result);
+  } catch (e: any) {
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.webContents.send('ig:connected', { error: e?.message ?? String(e) });
+    }
+  }
+}
+
+function deepLinkFromArgv(argv: string[]): string | null {
+  return argv.find(a => a.startsWith(`${IG_PROTOCOL}://`)) ?? null;
+}
 
 /** Po jak dlouhé pauze se považují stavy objednávek za zastaralé */
 const FRESHEN_AFTER = 10 * 60_000;
@@ -162,6 +193,26 @@ function createWindow() {
   }
 }
 
+// Nad jednou SQLite databází smí běžet jen jedna instance; druhé spuštění
+// jen probudí okno (a předá případný odkaz z prohlížeče).
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => {
+    focusMainWindow();
+    const link = deepLinkFromArgv(argv);
+    if (link) handleDeepLink(link);
+  });
+}
+
+app.setAsDefaultProtocolClient(IG_PROTOCOL);
+if (process.platform === 'win32') app.setAppUserModelId('cz.quentino.mail');
+
+app.on('open-url', (e, url) => {
+  e.preventDefault();
+  handleDeepLink(url);
+});
+
 app.whenReady().then(() => {
   installCrashGuards();
   installSystemCa(); // kořeny z Keychainu ještě před prvním síťovým voláním
@@ -173,6 +224,10 @@ app.whenReady().then(() => {
   startScheduler();
   // úvodní synchronizace na pozadí
   setTimeout(() => syncAllAccounts().catch(() => {}), 1500);
+
+  // Odkaz, kterým se aplikace teprve spustila (Windows, studený start)
+  const startLink = deepLinkFromArgv(process.argv);
+  if (startLink) setTimeout(() => handleDeepLink(startLink), 2000);
 
   // Po probuzení jsou stará spojení mrtvá — chvíli počkáme na síť a natáhneme poštu znovu
   powerMonitor.on('resume', () => {

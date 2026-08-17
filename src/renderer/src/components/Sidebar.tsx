@@ -45,6 +45,8 @@ interface Props {
   onOpenPacking: () => void;
   /** Kolik zpráv k objednávkám čeká na odpověď */
   orderPending: number;
+  /** Přepnutí na instagramový pracovní prostor */
+  onSwitchToInstagram: () => void;
 }
 
 function fmtGB(bytes: number): string {
@@ -59,6 +61,14 @@ export default function Sidebar(p: Props) {
   return (
     <div className="sidebar">
       <div className="brand">quentino<span> mail</span></div>
+
+      <div className="ig-switch">
+        <button className="active"><Icon name="mail" size={14} /> Pošta</button>
+        <button onClick={p.onSwitchToInstagram} data-tip="Vícejazyčné publikování na Instagram">
+          <Icon name="image" size={14} /> Instagram
+        </button>
+      </div>
+
       <button className="btn-compose" onClick={p.onCompose}><Icon name="pen" size={15} /> Nová zpráva</button>
 
       <div className="side-scroll">

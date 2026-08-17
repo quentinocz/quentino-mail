@@ -27,6 +27,12 @@ asarUnpack:
 # provizorní podpis; s certifikátem se sám přeskočí.
 afterPack: scripts/afterpack-adhoc.cjs
 
+# Vlastní schéma odkazu. Používá ho návrat z přihlášení k Instagramu:
+# prohlížeč otevře quentino-mail://ig-oauth?... a systém tím probudí aplikaci.
+protocols:
+  - name: Quentino Mail
+    schemes: [quentino-mail]
+
 mac:
   category: public.app-category.productivity
   icon: build/icon.png

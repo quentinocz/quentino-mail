@@ -26,6 +26,7 @@ import { relearnPhase } from './shipphase';
 import { createVouchers } from './voucher';
 import { listOutbox, cancelOutbox, processOutbox } from './scheduler';
 import { getDb } from './db';
+import { registerIgIpc } from './instagram/ipc';
 
 /** Záloha zamčená heslem čeká tady, než uživatel heslo doplní. */
 let pendingImport: any = null;
@@ -279,4 +280,7 @@ export function registerIpc() {
     for (const r of rows) out[r.category ?? 'none'] = { cnt: r.cnt, unseen: r.unseen };
     return out;
   });
+
+  // Instagram (vlastní modul)
+  registerIgIpc();
 }

@@ -2,7 +2,8 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, CustomerContext, VoucherSpec
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, CustomerContext, VoucherSpec,
+  IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob
 } from '@shared/types';
 
 declare global {
@@ -181,6 +182,61 @@ export const api = {
   stats: {
     categories: (accountId: number) =>
       call<Record<string, { cnt: number; unseen: number }>>('stats:categories', accountId)
+  },
+  /** Instagram — vícejazyčné publikování */
+  ig: {
+    overview: () => call<IgOverview>('ig:overview'),
+    saveConnection: (p: {
+      appId?: string; appSecret?: string; storageUrl?: string; storageBucket?: string;
+      storageKey?: string; callbackUrl?: string; autoSync?: boolean;
+    }) => call<IgOverview>('ig:saveConnection', p),
+    /** Nahraje návratovou stránku do úložiště a vrátí její adresu pro Meta aplikaci */
+    installCallback: () => call<string>('ig:installCallback'),
+    testStorage: () => call<string>('ig:testStorage'),
+
+    connect: (lang: string) => call<string>('ig:connect', lang),
+    connectToken: (lang: string, token: string) =>
+      call<{ saved?: any; pick?: { igUserId: string; username: string; pageName: string }[] }>('ig:connectToken', lang, token),
+    finishConnect: (igUserId: string) => call<any>('ig:finishConnect', igUserId),
+    disconnect: (id: number) => call<void>('ig:disconnect', id),
+    setSource: (id: number) => call<void>('ig:setSource', id),
+    limit: (id: number) => call<{ used: number; cap: number } | null>('ig:limit', id),
+
+    markets: () => call<IgMarket[]>('ig:markets'),
+    saveMarket: (m: IgMarket) => call<IgMarket[]>('ig:saveMarket', m),
+    deleteMarket: (lang: string) => call<IgMarket[]>('ig:deleteMarket', lang),
+    brand: () => call<IgBrand>('ig:brand'),
+    saveBrand: (b: Partial<IgBrand>) => call<IgBrand>('ig:saveBrand', b),
+
+    feed: (limit = 60, offset = 0) => call<IgSourcePost[]>('ig:feed', limit, offset),
+    sync: (full = false) => call<number>('ig:sync', full),
+    /** Náhled příspěvku (stažený z Instagramu a uložený na disk) */
+    thumb: (sourcePostId: number) => call<string | null>('ig:thumb', sourcePostId),
+    createFromSource: (sourcePostId: number) => call<IgPost>('ig:createFromSource', sourcePostId),
+
+    pickMedia: () => call<string[]>('ig:pickMedia'),
+    preview: (file: string) => call<string | null>('ig:preview', file),
+    createDraft: (files: string[], brief: string, mediaNote: string) =>
+      call<IgPost>('ig:createDraft', files, brief, mediaNote),
+    updateDraft: (postId: number, patch: { brief?: string; mediaNote?: string; files?: string[] }) =>
+      call<IgPost>('ig:updateDraft', postId, patch),
+    post: (id: number) => call<IgPost | null>('ig:post', id),
+    drafts: () => call<IgPost[]>('ig:drafts'),
+    deletePost: (id: number) => call<void>('ig:deletePost', id),
+    warnings: (postId: number) => call<string[]>('ig:warnings', postId),
+
+    generate: (postId: number, langs: string[]) => call<IgPost>('ig:generate', postId, langs),
+    chooseVariant: (captionId: number, index: number) => call<void>('ig:chooseVariant', captionId, index),
+    editCaption: (captionId: number, text: string) => call<void>('ig:editCaption', captionId, text),
+    publish: (captionId: number, at?: string | null) => call<number>('ig:publish', captionId, at ?? null),
+    publishPost: (postId: number, at?: string | null) =>
+      call<{ queued: number; skipped: string[] }>('ig:publishPost', postId, at ?? null),
+
+    jobs: () => call<IgJob[]>('ig:jobs'),
+    cancelJob: (id: number) => call<void>('ig:cancelJob', id),
+    retryJob: (id: number) => call<void>('ig:retryJob', id),
+    runQueue: () => call<void>('ig:runQueue'),
+    refreshTokens: () => call<{ refreshed: number; failed: string[] }>('ig:refreshTokens')
   },
   on: (channel: string, cb: (payload: any) => void) => window.api.on(channel, cb)
 };

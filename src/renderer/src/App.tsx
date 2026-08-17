@@ -11,6 +11,7 @@ import OutboxModal from './components/OutboxModal';
 import TooltipLayer from './components/TooltipLayer';
 import DigestModal from './components/DigestModal';
 import PackingModal from './components/PackingModal';
+import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 
 function AppInner() {
   const toast = useToast();
@@ -34,6 +35,11 @@ function AppInner() {
   const [digestOpen, setDigestOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
   const [orderPending, setOrderPending] = useState(0);
+  // Pracovní prostor: pošta nebo Instagram. Pamatuje se mezi spuštěními.
+  const [workspace, setWorkspace] = useState<'mail' | 'instagram'>(
+    () => (localStorage.getItem('workspace') === 'instagram' ? 'instagram' : 'mail')
+  );
+  useEffect(() => { localStorage.setItem('workspace', workspace); }, [workspace]);
 
   // Undo send — lišta s odpočtem, zprávu lze do ~10 s vzít zpět
   const [undoSend, setUndoSend] = useState<(UndoInfo & { until: number }) | null>(null);
@@ -203,6 +209,26 @@ function AppInner() {
 
   const currentCategory: Category | null = view.type === 'category' ? view.category : null;
 
+  if (workspace === 'instagram') {
+    return (
+      <>
+        <InstagramWorkspace
+          onOpenSettings={() => setSettingsOpen(true)}
+          onSwitchToMail={() => setWorkspace('mail')}
+        />
+        {settingsOpen && (
+          <SettingsModal
+            accounts={accounts}
+            onClose={() => setSettingsOpen(false)}
+            onAccountsChanged={loadAccounts}
+            onSettingsChanged={() => api.settings.get().then(setSettings).catch(() => {})}
+          />
+        )}
+        <TooltipLayer />
+      </>
+    );
+  }
+
   return (
     <div className="app" style={{ gridTemplateColumns: `${paneW.side}px ${paneW.list}px 1fr` }}>
       <div className="pane-resizer" style={{ left: paneW.side - 3 }} onMouseDown={startDrag('side')} />
@@ -224,6 +250,7 @@ function AppInner() {
         onOpenDigest={() => setDigestOpen(true)}
         onOpenPacking={() => setPackingOpen(true)}
         orderPending={orderPending}
+        onSwitchToInstagram={() => setWorkspace('instagram')}
       />
       <MessageList
         messages={messages}

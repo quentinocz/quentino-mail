@@ -10,14 +10,14 @@ function emit(channel: string, payload: unknown) {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload);
 }
 
-function client(): Anthropic {
+export function client(): Anthropic {
   const key = getApiKey();
   if (!key) throw new Error('Není nastaven Anthropic API klíč (Nastavení → AI)');
   return new Anthropic({ apiKey: key });
 }
 
 /** Lokální evidence spotřeby tokenů (Anthropic nezveřejňuje zůstatek kreditu přes API). */
-function recordUsage(model: string, usage: { input_tokens?: number; output_tokens?: number } | undefined) {
+export function recordUsage(model: string, usage: { input_tokens?: number; output_tokens?: number } | undefined) {
   try {
     const month = new Date().toISOString().slice(0, 7);
     getDb().prepare(

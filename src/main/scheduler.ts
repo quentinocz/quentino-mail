@@ -4,11 +4,16 @@ import { sendNow } from './smtp';
 import { syncAllAccounts } from './imap';
 import { refreshFeed, feedIsStale } from './products';
 import { runSync } from './appsync';
+import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncSource as syncIgSource } from './instagram/publish';
+import { getSetting } from './db';
 import { OutboxItem } from '../shared/types';
 
 const OUTBOX_INTERVAL = 5_000; // kontrola plánovaných odeslání (krátká kvůli „Zpět" po odeslání)
 const SYNC_INTERVAL = 3 * 60_000; // periodická synchronizace
 const FEED_CHECK_INTERVAL = 60 * 60_000; // kontrola stáří produktového feedu
+const IG_QUEUE_INTERVAL = 30_000; // fronta instagramových publikací
+const IG_TOKEN_INTERVAL = 12 * 60 * 60_000; // obnova přístupu k účtům (tokeny platí 60 dní)
+const IG_SYNC_INTERVAL = 6 * 60 * 60_000; // dotažení nových příspěvků ze zdrojového účtu
 
 function emit(channel: string, payload: unknown) {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload);
@@ -26,6 +31,17 @@ export function startScheduler() {
   // Synchronizace mezi zařízeními (sdílená složka) — každou minutu
   setInterval(() => runSync().catch(() => {}), 60_000);
   setTimeout(() => runSync().catch(() => {}), 8_000);
+  // Instagram: fronta se odbavuje často, tokeny a synchronizace zdroje zřídka
+  setInterval(() => processIgQueue().catch(() => {}), IG_QUEUE_INTERVAL);
+  setInterval(() => refreshIgTokens().catch(() => {}), IG_TOKEN_INTERVAL);
+  setTimeout(() => refreshIgTokens().catch(() => {}), 30_000);
+  const igSync = () => {
+    if (getSetting('igAutoSync', '1') !== '1') return;
+    syncIgSource(false).catch(() => {}); // bez připojeného účtu jen tiše skončí
+  };
+  setInterval(igSync, IG_SYNC_INTERVAL);
+  setTimeout(igSync, 45_000);
+
   // první běh krátce po startu
   setTimeout(processOutbox, 5_000);
 }

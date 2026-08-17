@@ -30,10 +30,22 @@ const ALLOWED_INVOKE = [
   'packing:scan', 'packing:setItem', 'packing:setDone', 'packing:reset',
   'messages:exportPdf', 'files:saveTempImage',
   'files:openAttachment', 'files:showInFolder', 'files:pickAttachments', 'files:pickImage', 'files:readAsDataUrl',
-  'stats:categories'
+  'stats:categories',
+  // Instagram
+  'ig:overview', 'ig:saveConnection', 'ig:installCallback', 'ig:testStorage',
+  'ig:connect', 'ig:connectToken', 'ig:finishConnect', 'ig:disconnect', 'ig:setSource', 'ig:limit',
+  'ig:markets', 'ig:saveMarket', 'ig:deleteMarket', 'ig:brand', 'ig:saveBrand',
+  'ig:feed', 'ig:sync', 'ig:thumb', 'ig:createFromSource',
+  'ig:pickMedia', 'ig:preview', 'ig:createDraft', 'ig:updateDraft', 'ig:post', 'ig:drafts',
+  'ig:deletePost', 'ig:warnings',
+  'ig:generate', 'ig:chooseVariant', 'ig:editCaption', 'ig:publish', 'ig:publishPost',
+  'ig:jobs', 'ig:cancelJob', 'ig:retryJob', 'ig:runQueue', 'ig:refreshTokens'
 ];
 
-const ALLOWED_EVENTS = ['sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed', 'packing:progress'];
+const ALLOWED_EVENTS = [
+  'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
+  'packing:progress', 'ig:changed', 'ig:connected'
+];
 
 contextBridge.exposeInMainWorld('api', {
   invoke: (channel: string, ...args: any[]) => {

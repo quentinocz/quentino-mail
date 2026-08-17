@@ -497,3 +497,130 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 export const DEFAULT_BRAND_PROMPT = `Jsi asistent pro psaní e-mailů značky Quentino. Quentino je lovebrand – komunikace je vždy vřelá, pozitivní, lidská a vstřícná. Piš přátelsky, ale profesionálně. Zákazník se má po přečtení cítit dobře. Používej přirozenou češtinu (nebo jazyk konverzace), žádné fráze typu "S pozdravem tým podpory". Buď konkrétní a řeš věc zákazníka.
 
 DŮLEŽITÝ KONTEXT: Quentino je internetový obchod (e-shop). Objednávky ZASÍLÁME přepravcem na adresu zákazníka – osobní vyzvednutí nenabízíme, pokud to ve vlákně není výslovně zmíněno. NIKDY si nevymýšlej fakta: termíny doručení, ceny, stavy objednávek, podmínky vracení apod. uváděj jen tehdy, když vyplývají z e-mailového vlákna nebo z poskytnutých firemních znalostí. Pokud informaci nemáš, formuluj odpověď obecně, nebo napiš, že věc ověříme a ozveme se.`;
+
+/* ==================== Instagram ==================== */
+
+export interface IgAccount {
+  id: number;
+  igUserId: string;
+  username: string;
+  /** Kód trhu, ke kterému účet patří (CS, EN, DE…) */
+  lang: string;
+  color: string;
+  /** Zdrojový účet, ze kterého se čerpají příspěvky */
+  isSource: boolean;
+  tokenExpires: string | null;
+  connectedAt: string;
+  lastError: string | null;
+}
+
+export interface IgMarket {
+  lang: string;
+  label: string;
+  /** Čím se trh liší — jde přímo do promptu */
+  note: string;
+  /** Hashtagy, ze kterých může model vybírat */
+  tags: string;
+  color: string;
+  enabled: boolean;
+}
+
+export interface IgBrand {
+  context: string;
+  loveOn: boolean;
+  love: string;
+  tones: string[];
+  avoid: string;
+  rules: string;
+  /** Kolik variant popisku na trh model vytvoří */
+  variants: number;
+  /** Přibalit ke generování znalostní bázi z Nastavení */
+  useKnowledge: boolean;
+}
+
+export interface IgConnection {
+  hasAppId: boolean;
+  hasAppSecret: boolean;
+  appId: string;
+  callbackUrl: string;
+  storage: { url: string; bucket: string; hasKey: boolean };
+  autoSync: boolean;
+}
+
+export interface IgOverview {
+  accounts: IgAccount[];
+  markets: IgMarket[];
+  brand: IgBrand;
+  connection: IgConnection;
+  storageReady: boolean;
+  queued: number;
+  failed: number;
+  hasSource: boolean;
+}
+
+export interface IgSourcePost {
+  id: number;
+  igMediaId: string;
+  mediaType: string;
+  permalink: string;
+  caption: string;
+  postedAt: string;
+  likeCount: number;
+  commentCount: number;
+  childCount: number;
+  /** Trhy, kde už příspěvek vyšel */
+  done: string[];
+  /** Trhy, kde je rozepsaný nebo čeká ve frontě */
+  pending: string[];
+}
+
+export interface IgMediaItem {
+  id?: number;
+  path: string;
+  mime: string;
+  isVideo: boolean;
+  width?: number | null;
+  height?: number | null;
+  coverOffset?: number | null;
+  /** `ig:<id>` u médií převzatých z vlastního účtu */
+  sourceUrl?: string | null;
+}
+
+export interface IgCaption {
+  id: number;
+  lang: string;
+  variants: string[];
+  chosen: number;
+  /** Text, který se opravdu odešle (vybraná varianta nebo ruční úprava) */
+  text: string;
+  status: 'draft' | 'approved' | 'published';
+  edited: boolean;
+}
+
+export interface IgPost {
+  id: number;
+  kind: 'new' | 'source';
+  sourcePostId: number | null;
+  brief: string;
+  mediaNote: string;
+  createdAt: string;
+  media: IgMediaItem[];
+  captions: IgCaption[];
+  sourceCaption?: string;
+  sourcePermalink?: string;
+}
+
+export interface IgJob {
+  id: number;
+  captionId: number;
+  postId: number;
+  lang: string;
+  username: string;
+  color: string;
+  state: 'scheduled' | 'publishing' | 'done' | 'failed';
+  scheduledAt: string;
+  finishedAt: string | null;
+  permalink: string | null;
+  error: string | null;
+  preview: string;
+}
