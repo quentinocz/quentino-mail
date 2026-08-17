@@ -220,6 +220,15 @@ function AppInner() {
     }
   }, [toast]);
 
+  // Kliknutí na systémové upozornění otevře přímo tu zprávu
+  useEffect(() => api.on('mail:open', (p: any) => {
+    if (!p?.id) return;
+    setWorkspace('mail');
+    if (p.accountId) setActiveAccountId(p.accountId);
+    setView({ type: 'folder', folder: 'INBOX' });
+    openMessage(p.id);
+  }), [openMessage]);
+
   const refresh = useCallback(async () => {
     if (!activeAccountId) return;
     const folder = view.type === 'folder' ? view.folder : 'INBOX';

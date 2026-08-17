@@ -48,7 +48,7 @@ const ALLOWED_INVOKE = [
 
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
-  'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread'
+  'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open'
 ];
 
 contextBridge.exposeInMainWorld('api', {

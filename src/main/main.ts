@@ -10,6 +10,7 @@ import { backfillContacts } from './contacts';
 import { setHtmlRenderer, clearTrackingCache } from './ordertrack';
 import { renderPage } from './render';
 import { handleCallbackUrl } from './instagram';
+import { refreshWatchers, restartWatchers } from './idle';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -274,6 +275,9 @@ app.whenReady().then(() => {
   // úvodní synchronizace na pozadí
   setTimeout(() => syncAllAccounts().catch(() => {}), 1500);
 
+  // Trvalé spojení se serverem: nová pošta dorazí sama, bez čekání na cyklus
+  setTimeout(() => { try { refreshWatchers(); } catch { /* poběží periodická synchronizace */ } }, 3000);
+
   // Odkaz, kterým se aplikace teprve spustila (Windows, studený start)
   const startLink = deepLinkFromArgv(process.argv);
   if (startLink) setTimeout(() => handleDeepLink(startLink), 2000);
@@ -283,6 +287,8 @@ app.whenReady().then(() => {
     lastFreshen = 0;
     freshenIfStale();
     setTimeout(() => syncAllAccounts().catch(() => {}), 4000);
+    // Spojení uspaná se strojem už nic neohlásí — navážou se znovu
+    setTimeout(() => { try { restartWatchers(); } catch { /* nevadí */ } }, 5000);
   });
 
   // Stavy objednávek a zásilek se drží v paměti, aby se stránky nestahovaly

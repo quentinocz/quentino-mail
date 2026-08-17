@@ -9,6 +9,8 @@ declare module 'imapflow' {
     logger?: false | object;
     tls?: { rejectUnauthorized?: boolean; ca?: string | string[] | Buffer | Buffer[] };
     socketTimeout?: number;
+    /** Přeruší a znovu zahájí IDLE po zadané době — drží spojení naživu */
+    maxIdleTime?: number;
   }
 
   export interface MailboxLockObject {
@@ -74,6 +76,8 @@ declare module 'imapflow' {
     messageDelete(range: string | number[], options?: { uid?: boolean }): Promise<boolean>;
     append(path: string, content: Buffer | string, flags?: string[], idate?: Date): Promise<any>;
     mailboxOpen(path: string): Promise<any>;
+    /** Ruční IDLE; bez volání se spouští samo při nečinnosti spojení */
+    idle(): Promise<void>;
     getQuota(path?: string): Promise<false | {
       path?: string;
       storage?: { used?: number; usage?: number; limit?: number };

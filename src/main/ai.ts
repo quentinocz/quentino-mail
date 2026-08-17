@@ -206,16 +206,21 @@ export async function autoProcessNewMessages(
   if (!getApiKey()) return;
   const d = getDb();
 
+  // Když je vybraná konkrétní kategorie, platí jen ta — obecné shrnutí by
+  // jinak stejně shrnulo všechno, včetně objednávek, které uživatel nechtěl
+  const onlyChosen = s.autoSummarizeCategories.length > 0;
+
   // Obecné auto-shrnutí nepřečtených (pouze již stažená těla)
-  if (s.autoSummarize) {
+  if (s.autoSummarize && !onlyChosen) {
     const rows = d.prepare(
       'SELECT id FROM messages WHERE account_id = ? AND folder = ? AND seen = 0 AND summary IS NULL AND fetched_full = 1 ORDER BY date DESC LIMIT 5'
     ).all(accountId, folder) as any[];
     for (const r of rows) await summarize(r.id).catch(() => {});
   }
 
-  // Shrnutí dle zvolených kategorií — stáhne tělo ze serveru, pokud chybí
-  if (s.autoSummarizeCategories.length > 0 && fetchFull) {
+  // Shrnutí dle zvolených kategorií — stáhne tělo ze serveru, pokud chybí.
+  // Zprávy bez kategorie se neshrnují: `IN (…)` je s NULL nespáruje.
+  if (onlyChosen && fetchFull) {
     const placeholders = s.autoSummarizeCategories.map(() => '?').join(',');
     const rows = d.prepare(
       `SELECT id, fetched_full FROM messages

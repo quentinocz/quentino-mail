@@ -173,6 +173,7 @@ export default function SettingsModal(p: Props) {
       autoCategorize: settings.autoCategorize,
       autoTranslate: settings.autoTranslate,
       loadRemoteImages: settings.loadRemoteImages,
+      notifyNewMail: settings.notifyNewMail,
       autoSummarizeCategories: settings.autoSummarizeCategories,
       contactInfo: settings.contactInfo,
       productFeedUrl: settings.productFeedUrl,
@@ -625,6 +626,15 @@ export default function SettingsModal(p: Props) {
                   onChange={e => setSettings(s => s ? { ...s, loadRemoteImages: e.target.checked } : s)} />
                 Vždy načítat vzdálené obrázky v e-mailech (méně soukromí)
               </label>
+              <label className="check-row">
+                <input type="checkbox" checked={settings.notifyNewMail}
+                  onChange={e => setSettings(s => s ? { ...s, notifyNewMail: e.target.checked } : s)} />
+                Upozornit systémovou notifikací na novou zprávu
+              </label>
+              <div className="desc">
+                Aplikace drží se serverem otevřené spojení, takže nová pošta dorazí hned,
+                bez čekání na synchronizaci. Upozornění se neukáže, když je okno v popředí.
+              </div>
               <div className="field-grid">
                 <div className="field">
                   <label>Model pro psaní</label>

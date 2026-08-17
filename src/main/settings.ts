@@ -43,6 +43,7 @@ export function getSettings(): Settings {
     productFeedUrl: getSetting('productFeedUrl', 'https://www.quentino.cz/export-full-products-he7RJAV2iN.xml')!,
     adminOrderRef: getSetting('adminOrderRef', '')!,
     voucherLogo: getSetting('voucherLogo', '')!,
+    notifyNewMail: getSetting('notifyNewMail', '1') === '1',
     defaultPersonId: (() => {
       const v = parseInt(getSetting('defaultPersonId', '0')!, 10);
       return v > 0 ? v : null;
@@ -68,6 +69,7 @@ export function saveSettings(s: Partial<Settings>) {
   if (s.productFeedUrl !== undefined) setSetting('productFeedUrl', s.productFeedUrl);
   if (s.adminOrderRef !== undefined) setSetting('adminOrderRef', s.adminOrderRef.trim());
   if (s.voucherLogo !== undefined) setSetting('voucherLogo', s.voucherLogo);
+  if (s.notifyNewMail !== undefined) setSetting('notifyNewMail', s.notifyNewMail ? '1' : '0');
   if (s.defaultPersonId !== undefined) setSetting('defaultPersonId', String(s.defaultPersonId ?? 0));
   if (s.theme !== undefined) setSetting('theme', s.theme);
   setSetting('stateStamp', new Date().toISOString());

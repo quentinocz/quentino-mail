@@ -203,6 +203,8 @@ export interface Settings {
   voucherLogo: string;
   /** Výchozí osoba pro podpis nových mailů a odpovědí */
   defaultPersonId: number | null;
+  /** Systémové upozornění při nové zprávě */
+  notifyNewMail: boolean;
   /** Vzhled aplikace */
   theme: 'light' | 'dark';
 }

@@ -28,6 +28,7 @@ import { listOutbox, cancelOutbox, processOutbox } from './scheduler';
 import { getDb } from './db';
 import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
+import { refreshWatchers } from './idle';
 
 /** Záloha zamčená heslem čeká tady, než uživatel heslo doplní. */
 let pendingImport: any = null;
@@ -46,8 +47,16 @@ function handle(channel: string, fn: (...args: any[]) => any) {
 export function registerIpc() {
   // Účty
   handle('accounts:list', () => listAccounts());
-  handle('accounts:save', (cfg) => saveAccount(cfg));
-  handle('accounts:delete', (id) => deleteAccount(id));
+  handle('accounts:save', (cfg) => {
+    const saved = saveAccount(cfg);
+    refreshWatchers(); // nový nebo změněný účet začne poslouchat hned
+    return saved;
+  });
+  handle('accounts:delete', (id) => {
+    const res = deleteAccount(id);
+    refreshWatchers();
+    return res;
+  });
   handle('accounts:test', async (cfg) => {
     await testConnection(cfg);
     await testSmtp(cfg);
