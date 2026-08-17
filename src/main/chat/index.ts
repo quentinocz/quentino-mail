@@ -1,6 +1,8 @@
 /**
  * Vnější rozhraní chatu — všechno, co volá `ipc.ts`.
  */
+import fs from 'fs';
+import path from 'path';
 import { BrowserWindow } from 'electron';
 import * as config from './config';
 import * as db from './supabase';
@@ -89,6 +91,44 @@ export async function send(
   }
 
   await db.insertMessage(conversationId, finalText);
+  await db.markRead(conversationId);
+  emit('chat:changed', { conversationId });
+  return db.listMessages(conversationId);
+}
+
+const IMAGE_MIME: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+  webp: 'image/webp', gif: 'image/gif', heic: 'image/heic', heif: 'image/heif'
+};
+
+/**
+ * Obrázek zákazníkovi. Soubor se nahrává tam, kam ho nahrává i widget
+ * (`/api/chat/upload` nasazeného chatu), a do konverzace pak jde zpráva
+ * s adresou a typem `image` — přesně jak to dělá webový admin, takže se
+ * obrázek zobrazí i ve widgetu.
+ */
+export async function sendImage(conversationId: string, file: string): Promise<ChatMessage[]> {
+  const base = config.getSecrets().apiBase;
+  if (!base) throw new Error('Není vyplněná adresa chatu (Chat → Nastavení).');
+
+  const ext = path.extname(file).toLowerCase().slice(1);
+  const mime = IMAGE_MIME[ext];
+  if (!mime) throw new Error('Podporují se jen obrázky (JPG, PNG, WebP, GIF, HEIC).');
+
+  const data = fs.readFileSync(file);
+  if (data.length > 8 * 1024 * 1024) throw new Error('Obrázek je větší než 8 MB — chat víc nepřijme.');
+
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(data)], { type: mime }), path.basename(file));
+  form.append('conversation_id', conversationId);
+
+  const res = await fetch(`${base}/api/chat/upload`, { method: 'POST', body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.url) {
+    throw new Error(`Obrázek se nepodařilo nahrát: ${body?.error ?? res.status}`);
+  }
+
+  await db.insertMessage(conversationId, body.url, 'image');
   await db.markRead(conversationId);
   emit('chat:changed', { conversationId });
   return db.listMessages(conversationId);

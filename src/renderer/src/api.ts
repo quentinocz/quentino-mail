@@ -268,6 +268,8 @@ export const api = {
     /** `personId` 0 = tuhle zprávu nepodepisovat, undefined = podle nastavení */
     send: (id: string, text: string, personId?: number | null) =>
       call<ChatMessage[]>('chat:send', id, text, personId),
+    /** Nahraje obrázek tam, kam ho nahrává widget, a pošle ho do konverzace */
+    sendImage: (id: string, file: string) => call<ChatMessage[]>('chat:sendImage', id, file),
     markRead: (id: string) => call<void>('chat:markRead', id),
     setStatus: (id: string, status: 'open' | 'closed') => call<void>('chat:setStatus', id, status),
 

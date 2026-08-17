@@ -42,7 +42,7 @@ const ALLOWED_INVOKE = [
   'ig:jobs', 'ig:cancelJob', 'ig:retryJob', 'ig:runQueue', 'ig:refreshTokens',
   // Chat
   'chat:overview', 'chat:saveConfig', 'chat:test',
-  'chat:conversations', 'chat:messages', 'chat:send', 'chat:markRead', 'chat:setStatus',
+  'chat:conversations', 'chat:messages', 'chat:send', 'chat:sendImage', 'chat:markRead', 'chat:setStatus',
   'chat:cards', 'chat:searchProducts', 'chat:productInDomain', 'chat:suggest'
 ];
 

@@ -2332,7 +2332,9 @@ button, kbd, label,
 
 /* Přepínač pracovních prostorů (pošta / Instagram) */
 .ig-switch {
-  display: flex;
+  /* Tři stejné díly — šířka tlačítek nezávisí na délce popisku ani na odznaku */
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   margin: 0 10px 10px;
   padding: 3px;
@@ -2340,17 +2342,44 @@ button, kbd, label,
   border-radius: 9px;
 }
 .ig-switch button {
-  flex: 1;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
+  min-width: 0;
   padding: 6px 4px;
   border-radius: 7px;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text-2);
+  overflow: hidden;
 }
+.ig-switch .ws-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+/* Odznak plave v rohu, takže se popisek kvůli němu nepřekresluje */
+.ig-switch .ws-badge {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+/* Ikony mají pevnou velikost, takže se popisek zkracuje jako první */
+.ig-switch button svg { flex-shrink: 0; }
 .ig-switch button:hover { color: var(--text); }
 .ig-switch button.active { background: var(--panel); color: var(--accent-dark); box-shadow: var(--shadow); }
 
@@ -2709,20 +2738,6 @@ button, kbd, label,
 
 /* ==================== Chat ==================== */
 
-.ig-switch-badge {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 3px;
-}
 
 .ch-app { grid-template-columns: 288px 1fr !important; }
 .ch-main {

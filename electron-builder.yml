@@ -1,5 +1,5 @@
 appId: cz.quentino.mail
-productName: Quentino App
+productName: Quentino Mail
 directories:
   output: release
   buildResources: build

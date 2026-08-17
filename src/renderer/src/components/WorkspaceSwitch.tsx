@@ -5,6 +5,10 @@ export type Workspace = 'mail' | 'chat' | 'instagram';
 /**
  * Přepínač pracovních prostorů. Je ve všech třech postranních panelech na
  * stejném místě, aby se dalo přepínat bez hledání.
+ *
+ * Rozvržení je mřížka o třech stejných dílech, ne pružný řádek: šířka tlačítek
+ * tak nezávisí na délce popisku ani na tom, jestli u chatu zrovna svítí číslo.
+ * Popisek se v úzkém panelu zkrátí, tlačítko nikdy nepřeteče.
  */
 export default function WorkspaceSwitch({ current, onChange, chatUnread }: {
   current: Workspace;
@@ -18,9 +22,11 @@ export default function WorkspaceSwitch({ current, onChange, chatUnread }: {
       className={current === id ? 'active' : ''}
       onClick={() => current !== id && onChange(id)}
       data-tip={tip}
+      title={label}
     >
-      <Icon name={icon} size={14} /> {label}
-      {badge ? <span className="ig-switch-badge">{badge > 99 ? '99+' : badge}</span> : null}
+      <Icon name={icon} size={14} />
+      <span className="ws-label">{label}</span>
+      {badge ? <span className="ws-badge">{badge > 9 ? '9+' : badge}</span> : null}
     </button>
   );
 

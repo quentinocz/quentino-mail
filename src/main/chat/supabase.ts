@@ -61,22 +61,13 @@ function toMessage(r: any): ChatMessage {
 }
 
 /**
- * Kdo psal v konverzaci naposled. Počítadlo `unread_operator` totiž zvyšuje
- * server u každé zprávy zákazníka, ale nuluje ho jen ten, kdo konverzaci
- * otevře ve webovém adminu — když se odpoví z Telegramu nebo z jiného
- * zařízení, zůstane viset. Poslední zpráva je spolehlivější znamení: pokud
- * je od nás, je vyřízeno.
+ * Nepřečtené podle skutečnosti, ne podle počítadla.
+ *
+ * `unread_operator` zvyšuje server u každé zprávy zákazníka, ale nuluje ho jen
+ * ten, kdo konverzaci otevře ve webovém adminu — po odpovědi z Telegramu nebo
+ * z jiného zařízení zůstane viset. Poslední zpráva je spolehlivější znamení:
+ * je-li od nás, je vyřízeno.
  */
-async function lastSenders(): Promise<Map<string, string>> {
-  const rows = await rest('messages?select=conversation_id,sender,created_at&order=created_at.desc&limit=600');
-  const map = new Map<string, string>();
-  for (const r of rows ?? []) {
-    if (!map.has(r.conversation_id)) map.set(r.conversation_id, r.sender);
-  }
-  return map;
-}
-
-/** Nepřečtené podle skutečnosti, ne podle počítadla. */
 function effectiveUnread(row: any, lastSender: string | undefined): number {
   if (lastSender && lastSender !== 'customer') return 0;
   const counter = row.unread_operator ?? 0;
@@ -87,14 +78,18 @@ function effectiveUnread(row: any, lastSender: string | undefined): number {
 
 export async function listConversations(onlyOpen: boolean): Promise<ChatConversation[]> {
   const filter = onlyOpen ? '&status=eq.open' : '';
-  const [rows, senders] = await Promise.all([
-    rest(`conversations?select=*&order=last_message_at.desc&limit=150${filter}`),
-    lastSenders().catch(() => new Map<string, string>())
-  ]);
+  // Poslední zpráva každé konverzace přijde rovnou s ní — vnořený výběr
+  // s vlastním řazením a limitem. Jeden dotaz místo dvou a hlavně bez stropu,
+  // pod kterým by starší konverzace zůstaly neznámé.
+  const rows = await rest(
+    'conversations?select=*,messages(sender,created_at)'
+    + '&messages.order=created_at.desc&messages.limit=1'
+    + `&order=last_message_at.desc&limit=150${filter}`
+  );
 
   const list: ChatConversation[] = [];
   for (const r of rows ?? []) {
-    const last = senders.get(r.id);
+    const last: string | undefined = r.messages?.[0]?.sender;
     const unread = effectiveUnread(r, last);
     // Zapomenuté počítadlo rovnou srovnáme, ať se webový admin i Telegram
     // dívají na totéž
@@ -122,10 +117,19 @@ export async function listMessages(conversationId: string): Promise<ChatMessage[
   return (rows ?? []).map(toMessage);
 }
 
-export async function insertMessage(conversationId: string, content: string): Promise<ChatMessage> {
+export async function insertMessage(
+  conversationId: string,
+  content: string,
+  contentType?: string
+): Promise<ChatMessage> {
   const rows = await rest('messages', {
     method: 'POST',
-    body: JSON.stringify({ conversation_id: conversationId, content, sender: 'operator' })
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      content,
+      sender: 'operator',
+      ...(contentType ? { content_type: contentType } : {})
+    })
   });
   await patchConversation(conversationId, { last_message_at: new Date().toISOString() });
   return toMessage(Array.isArray(rows) ? rows[0] : rows);

@@ -109,6 +109,21 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
     }
   };
 
+  const sendImage = async () => {
+    if (!activeId) return;
+    const file = await api.files.pickImage();
+    if (!file) return;
+    setBusy('image');
+    try {
+      setMessages(await api.chat.sendImage(activeId, file));
+      loadConvs();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const suggest = async () => {
     if (!activeId) return;
     setBusy('ai');
@@ -294,6 +309,10 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
                 <button className="btn ghost" onClick={() => setPicker(true)}
                   data-tip="Vloží odkaz na produkt — zákazníkovi se ve widgetu zobrazí jako karta">
                   <Icon name="bag" size={13} /> Produkt
+                </button>
+                <button className="btn ghost" onClick={sendImage} disabled={!!busy}
+                  data-tip="Odešle obrázek rovnou — bez textu">
+                  {busy === 'image' ? <span className="spinner-inline" /> : <Icon name="image" size={13} />} Obrázek
                 </button>
                 <button className="btn ghost" onClick={suggest} disabled={!!busy}
                   data-tip="Napíše návrh podle průběhu konverzace; rozepsaný text použije jako zadání">

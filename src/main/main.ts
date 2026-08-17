@@ -14,20 +14,39 @@ import { handleCallbackUrl } from './instagram';
 let mainWindow: BrowserWindow | null = null;
 
 /**
- * Přejmenování aplikace na Quentino App by jinak znamenalo ztrátu dat: Electron
- * odvozuje složku s databází od názvu, takže po přejmenování by aplikace
- * naskočila prázdná. Složku proto jednorázově přesuneme; kdyby to nešlo
- * (otevřené soubory, práva), zůstaneme u té staré.
+ * Složka s daty přežije přejmenování aplikace — v obou směrech.
+ *
+ * Electron odvozuje cestu k datům od názvu aplikace, takže po přejmenování by
+ * appka naskočila prázdná. Hledá se proto i pod druhým názvem a data se
+ * přestěhují tam, kam aktuálně patří.
+ *
+ * Pozn.: název aplikace je zároveň klíč k systémové klíčence — hesla a API
+ * klíče zašifrované pod jedním názvem nejde přečíst pod jiným. Proto je
+ * vnitřní název (`productName`) schválně pořád „Quentino Mail", i když se
+ * aplikace navenek jmenuje Quentino App. Skutečné přejmenování se dělá přes
+ * zálohu: Nastavení → Záloha, přejmenovat, Obnovit.
  */
+const DATA_FOLDERS = ['Quentino Mail', 'Quentino App'];
+
 function keepUserData() {
   try {
-    const next = app.getPath('userData');
-    const previous = path.join(path.dirname(next), 'Quentino Mail');
-    if (next === previous || fs.existsSync(next) || !fs.existsSync(previous)) return;
+    const current = app.getPath('userData');
+    const parent = path.dirname(current);
+    const other = DATA_FOLDERS
+      .map(name => path.join(parent, name))
+      .find(dir => dir !== current && fs.existsSync(dir));
+    if (!other) return;
+
+    if (fs.existsSync(current)) {
+      // Prázdnou složku zakládá systém sám; ta přesunu nebrání
+      if (fs.readdirSync(current).length > 0) return;
+      try { fs.rmdirSync(current); } catch { return; }
+    }
+
     try {
-      fs.renameSync(previous, next);
+      fs.renameSync(other, current);
     } catch {
-      app.setPath('userData', previous);
+      app.setPath('userData', other); // přesun nešel — použijeme složku tam, kde je
     }
   } catch { /* nová instalace nemá co přesouvat */ }
 }

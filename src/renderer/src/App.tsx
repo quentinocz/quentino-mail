@@ -83,12 +83,18 @@ function AppInner() {
   }, [activeAccountId]);
 
   // Nastavitelné šířky sloupců (přetažením oddělovačů), pamatují se mezi spuštěními
+  // Postranní panel nesmí být užší než přepínač prostorů — jinak by z něj
+  // tlačítka lezla ven. Uložená užší hodnota se proto při načtení zvedne.
+  const SIDE_MIN = 232;
+  const SIDE_MAX = 360;
   const [paneW, setPaneW] = useState<{ side: number; list: number }>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('paneWidths') || 'null');
-      if (saved && typeof saved.side === 'number' && typeof saved.list === 'number') return saved;
+      if (saved && typeof saved.side === 'number' && typeof saved.list === 'number') {
+        return { side: Math.min(SIDE_MAX, Math.max(SIDE_MIN, saved.side)), list: saved.list };
+      }
     } catch { /* */ }
-    return { side: 232, list: 360 };
+    return { side: SIDE_MIN, list: 360 };
   });
   const dragRef = useRef<{ which: 'side' | 'list'; startX: number; startW: number } | null>(null);
   useEffect(() => {
@@ -97,7 +103,7 @@ function AppInner() {
       if (!drag) return;
       const dx = e.clientX - drag.startX;
       setPaneW(prev => drag.which === 'side'
-        ? { ...prev, side: Math.min(340, Math.max(180, drag.startW + dx)) }
+        ? { ...prev, side: Math.min(SIDE_MAX, Math.max(SIDE_MIN, drag.startW + dx)) }
         : { ...prev, list: Math.min(620, Math.max(290, drag.startW + dx)) });
     };
     const up = () => {
