@@ -3,6 +3,7 @@ import type { IgOverview } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
+import WorkspaceSwitch, { Workspace } from '../WorkspaceSwitch';
 import IgFeed from './IgFeed';
 import IgCompose from './IgCompose';
 import IgQueue from './IgQueue';
@@ -13,14 +14,15 @@ export type IgView = 'feed' | 'compose' | 'queue' | 'accounts' | 'brand';
 
 interface Props {
   onOpenSettings: () => void;
-  onSwitchToMail: () => void;
+  onWorkspace: (w: Workspace) => void;
+  chatUnread: number;
 }
 
 /**
  * Instagramový pracovní prostor. Sdílí s poštou vzhled i postranní panel,
  * ale obsah okna je jiný — pošta a sociální sítě spolu nesoupeří o místo.
  */
-export default function InstagramWorkspace({ onOpenSettings, onSwitchToMail }: Props) {
+export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUnread }: Props) {
   const toast = useToast();
   const [view, setView] = useState<IgView>('feed');
   const [overview, setOverview] = useState<IgOverview | null>(null);
@@ -83,10 +85,7 @@ export default function InstagramWorkspace({ onOpenSettings, onSwitchToMail }: P
       <div className="sidebar">
         <div className="brand">quentino<span> social</span></div>
 
-        <div className="ig-switch">
-          <button onClick={onSwitchToMail}><Icon name="mail" size={14} /> Pošta</button>
-          <button className="active"><Icon name="image" size={14} /> Social</button>
-        </div>
+        <WorkspaceSwitch current="instagram" onChange={onWorkspace} chatUnread={chatUnread} />
 
         <button className="btn-compose" onClick={newPost}>
           <Icon name="plus" size={15} /> Nový příspěvek

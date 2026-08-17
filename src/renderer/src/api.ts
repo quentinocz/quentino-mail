@@ -3,7 +3,8 @@ import type {
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
   UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, CustomerContext, VoucherSpec,
-  IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels
+  IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
+  ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct
 } from '@shared/types';
 
 declare global {
@@ -255,6 +256,27 @@ export const api = {
     retryJob: (id: number) => call<void>('ig:retryJob', id),
     runQueue: () => call<void>('ig:runQueue'),
     refreshTokens: () => call<{ refreshed: number; failed: string[] }>('ig:refreshTokens')
+  },
+  /** Chat na e-shopu (widget quentino.cz/.sk/.com) */
+  chat: {
+    overview: () => call<ChatOverview>('chat:overview'),
+    saveConfig: (p: Partial<ChatConfig> & { anonKey?: string }) => call<ChatConfig>('chat:saveConfig', p),
+    test: () => call<string>('chat:test'),
+
+    conversations: (onlyOpen = true) => call<ChatConversation[]>('chat:conversations', onlyOpen),
+    messages: (id: string) => call<ChatMessage[]>('chat:messages', id),
+    send: (id: string, text: string) => call<ChatMessage[]>('chat:send', id, text),
+    markRead: (id: string) => call<void>('chat:markRead', id),
+    setStatus: (id: string, status: 'open' | 'closed') => call<void>('chat:setStatus', id, status),
+
+    /** Produktové karty k adresám ve zprávě */
+    cards: (text: string) => call<ChatProduct[]>('chat:cards', text),
+    searchProducts: (q: string) => call<ChatProduct[]>('chat:searchProducts', q),
+    productInDomain: (id: string, domain: 'cz' | 'sk' | 'en') =>
+      call<ChatProduct | null>('chat:productInDomain', id, domain),
+
+    /** Návrh odpovědi podle průběhu konverzace a znalostní báze */
+    suggest: (id: string, note = '') => call<string>('chat:suggest', id, note)
   },
   on: (channel: string, cb: (payload: any) => void) => window.api.on(channel, cb)
 };

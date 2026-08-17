@@ -638,3 +638,65 @@ export interface IgJob {
   channels: IgChannels;
   preview: string;
 }
+
+/* ==================== Chat ==================== */
+
+export interface ChatConfig {
+  /** Adresa Supabase projektu chatu */
+  url: string;
+  hasKey: boolean;
+  /** Adresa nasazeného chatu (Vercel) — kvůli produktovým kartám */
+  apiBase: string;
+  ready: boolean;
+  /** Kdo odpovídá — osoba ze stejného seznamu jako podpisy v poště */
+  operatorPersonId: number | null;
+  /** Kdy připojit podpis: jen k první odpovědi, ke každé, nebo nikdy */
+  signMode: 'first' | 'always' | 'off';
+  /** Co se píše za jméno — „Petra, Quentino" */
+  signSuffix: string;
+}
+
+export interface ChatOverview {
+  config: ChatConfig;
+  /** Nepřečtené zprávy celkem */
+  unread: number;
+  /** Kolik konverzací čeká na odpověď */
+  waiting: number;
+  persons: { id: number; name: string; short: string }[];
+}
+
+export interface ChatConversation {
+  id: string;
+  sessionId: string;
+  status: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  /** cs | sk | en */
+  locale: string;
+  lastMessageAt: string;
+  unread: number;
+  channel: string;
+  createdAt: string;
+  /** Kdy zákazník zavřel widget */
+  leftAt: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  sender: 'customer' | 'operator' | 'system' | string;
+  content: string;
+  contentType: string | null;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface ChatProduct {
+  id: string;
+  name: string;
+  price: string;
+  imgUrl: string;
+  url: string;
+  domain: string;
+}

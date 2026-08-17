@@ -39,12 +39,16 @@ const ALLOWED_INVOKE = [
   'ig:pickMedia', 'ig:preview', 'ig:createDraft', 'ig:updateDraft', 'ig:post', 'ig:drafts',
   'ig:deletePost', 'ig:warnings',
   'ig:generate', 'ig:blankCaptions', 'ig:chooseVariant', 'ig:editCaption', 'ig:publish', 'ig:publishPost', 'ig:retryFacebook', 'ig:relogin',
-  'ig:jobs', 'ig:cancelJob', 'ig:retryJob', 'ig:runQueue', 'ig:refreshTokens'
+  'ig:jobs', 'ig:cancelJob', 'ig:retryJob', 'ig:runQueue', 'ig:refreshTokens',
+  // Chat
+  'chat:overview', 'chat:saveConfig', 'chat:test',
+  'chat:conversations', 'chat:messages', 'chat:send', 'chat:markRead', 'chat:setStatus',
+  'chat:cards', 'chat:searchProducts', 'chat:productInDomain', 'chat:suggest'
 ];
 
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
-  'packing:progress', 'ig:changed', 'ig:connected'
+  'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread'
 ];
 
 contextBridge.exposeInMainWorld('api', {

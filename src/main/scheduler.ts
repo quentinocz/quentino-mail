@@ -6,6 +6,7 @@ import { refreshFeed, feedIsStale } from './products';
 import { runSync } from './appsync';
 import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncSource as syncIgSource } from './instagram/publish';
 import { getSetting } from './db';
+import { pollUnread as pollChatUnread } from './chat';
 import { OutboxItem } from '../shared/types';
 
 const OUTBOX_INTERVAL = 5_000; // kontrola plánovaných odeslání (krátká kvůli „Zpět" po odeslání)
@@ -14,6 +15,7 @@ const FEED_CHECK_INTERVAL = 60 * 60_000; // kontrola stáří produktového feed
 const IG_QUEUE_INTERVAL = 30_000; // fronta instagramových publikací
 const IG_TOKEN_INTERVAL = 12 * 60 * 60_000; // obnova přístupu k účtům (tokeny platí 60 dní)
 const IG_SYNC_INTERVAL = 6 * 60 * 60_000; // dotažení nových příspěvků ze zdrojového účtu
+const CHAT_UNREAD_INTERVAL = 20_000; // nepřečtené zprávy z chatu pro odznak v přepínači
 
 function emit(channel: string, payload: unknown) {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload);
@@ -41,6 +43,10 @@ export function startScheduler() {
   };
   setInterval(igSync, IG_SYNC_INTERVAL);
   setTimeout(igSync, 45_000);
+
+  // Chat: odznak s nepřečtenými. Vlastní obrazovka si data načítá sama a častěji.
+  setInterval(() => pollChatUnread().catch(() => {}), CHAT_UNREAD_INTERVAL);
+  setTimeout(() => pollChatUnread().catch(() => {}), 6_000);
 
   // první běh krátce po startu
   setTimeout(processOutbox, 5_000);

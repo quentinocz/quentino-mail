@@ -230,22 +230,51 @@ async function waitReady(containerId: string, token: string, maxMs = 5 * 60_000)
  * je v dokumentaci určený právě pro soubory z disku: nejdřív vznikne prázdný
  * kontejner a do něj se pošlou bajty.
  */
-async function uploadVideo(containerId: string, token: string, data: Buffer): Promise<void> {
-  const res = await fetch(`https://rupload.facebook.com/ig-api-upload/${VERSION}/${containerId}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `OAuth ${token}`,
-      offset: '0',
-      file_size: String(data.length),
-      'Content-Type': 'application/octet-stream'
-    },
-    body: new Uint8Array(data)
-  });
-  const body = await res.json().catch(() => ({}));
-  if (body?.error) throw new GraphError(body.error.message ?? 'Nahrání videa selhalo.', body.error.code);
-  if (!res.ok || body?.success === false) {
-    throw new GraphError(`Nahrání videa selhalo (${res.status}).`, res.status);
+async function sendVideoBytes(url: string, token: string, data: Buffer, what: string): Promise<void> {
+  // Odesílání občas skončí čtyřstovkou bez bližšího vysvětlení a napodruhé
+  // projde beze změny — kontejner zřejmě chvíli po založení ještě není hotový.
+  const delays = [0, 3000, 8000];
+  let last: Error | null = null;
+
+  for (const wait of delays) {
+    if (wait) await sleep(wait);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `OAuth ${token}`,
+        offset: '0',
+        file_size: String(data.length),
+        'Content-Type': 'application/octet-stream'
+      },
+      body: new Uint8Array(data)
+    });
+
+    const raw = await res.text();
+    let body: any = {};
+    try { body = raw ? JSON.parse(raw) : {}; } catch { /* Meta občas vrátí prostý text */ }
+
+    if (res.ok && body?.success !== false && !body?.error) return;
+
+    // Detail z odpovědi je při hledání příčiny cennější než holé číslo stavu
+    const detail = body?.error?.message ?? (raw ? raw.slice(0, 200) : '');
+    last = new GraphError(
+      `${what} selhalo (${res.status})${detail ? `: ${detail}` : '.'}`,
+      body?.error?.code ?? res.status
+    );
+    // Zamítnutí kvůli oprávnění nebo tokenu nemá smysl opakovat
+    if (res.status === 401 || res.status === 403 || isTokenError(last)) break;
   }
+
+  throw last ?? new GraphError(`${what} selhalo.`);
+}
+
+async function uploadVideo(containerId: string, token: string, data: Buffer): Promise<void> {
+  await sendVideoBytes(
+    `https://rupload.facebook.com/ig-api-upload/${VERSION}/${containerId}`,
+    token,
+    data,
+    'Nahrání videa'
+  );
 }
 
 export function validateCaption(text: string): void {
@@ -332,14 +361,17 @@ async function shareReel(pageId: string, token: string, description: string, vid
     throw new GraphError('Video není odkud vzít.');
   }
 
-  // Dvě varianty volání místo jedné s nepovinným tělem — typy pro fetch
-  // nepřipouštějí `body: undefined` s binárními daty v jedné větvi.
-  const up = video.data
-    ? await fetch(uploadUrl, { method: 'POST', headers, body: new Uint8Array(video.data) })
-    : await fetch(uploadUrl, { method: 'POST', headers });
-  const upBody = await up.json().catch(() => ({}));
-  if (upBody?.error) throw new GraphError(upBody.error.message ?? 'Nahrání videa na stránku selhalo.', upBody.error.code);
-  if (!up.ok) throw new GraphError(`Nahrání videa na stránku selhalo (${up.status}).`, up.status);
+  if (video.data) {
+    await sendVideoBytes(uploadUrl, token, video.data, 'Nahrání videa na stránku');
+  } else {
+    // Soubor hostovaný jinde si Facebook stáhne sám podle hlavičky file_url
+    const up = await fetch(uploadUrl, { method: 'POST', headers });
+    const raw = await up.text();
+    let body: any = {};
+    try { body = raw ? JSON.parse(raw) : {}; } catch { /* prostý text */ }
+    if (body?.error) throw new GraphError(body.error.message ?? 'Nahrání videa na stránku selhalo.', body.error.code);
+    if (!up.ok) throw new GraphError(`Nahrání videa na stránku selhalo (${up.status}): ${raw.slice(0, 200)}`, up.status);
+  }
 
   await graph(`${pageId}/video_reels`, {
     video_id: videoId,

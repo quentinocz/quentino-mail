@@ -12,6 +12,8 @@ import TooltipLayer from './components/TooltipLayer';
 import DigestModal from './components/DigestModal';
 import PackingModal from './components/PackingModal';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
+import ChatWorkspace from './components/chat/ChatWorkspace';
+import type { Workspace } from './components/WorkspaceSwitch';
 
 function AppInner() {
   const toast = useToast();
@@ -36,10 +38,18 @@ function AppInner() {
   const [packingOpen, setPackingOpen] = useState(false);
   const [orderPending, setOrderPending] = useState(0);
   // Pracovní prostor: pošta nebo Instagram. Pamatuje se mezi spuštěními.
-  const [workspace, setWorkspace] = useState<'mail' | 'instagram'>(
-    () => (localStorage.getItem('workspace') === 'instagram' ? 'instagram' : 'mail')
-  );
+  const [workspace, setWorkspace] = useState<Workspace>(() => {
+    const saved = localStorage.getItem('workspace');
+    return saved === 'instagram' || saved === 'chat' ? saved : 'mail';
+  });
   useEffect(() => { localStorage.setItem('workspace', workspace); }, [workspace]);
+
+  // Nepřečtené zprávy z chatu — číslo u záložky Chat, i když jsi v poště
+  const [chatUnread, setChatUnread] = useState(0);
+  useEffect(() => {
+    api.chat.overview().then(o => setChatUnread(o.unread)).catch(() => {});
+    return api.on('chat:unread', (p: any) => setChatUnread(p?.unread ?? 0));
+  }, []);
 
   // Undo send — lišta s odpočtem, zprávu lze do ~10 s vzít zpět
   const [undoSend, setUndoSend] = useState<(UndoInfo & { until: number }) | null>(null);
@@ -209,12 +219,34 @@ function AppInner() {
 
   const currentCategory: Category | null = view.type === 'category' ? view.category : null;
 
+  if (workspace === 'chat') {
+    return (
+      <>
+        <ChatWorkspace
+          onOpenSettings={() => setSettingsOpen(true)}
+          onWorkspace={setWorkspace}
+          chatUnread={chatUnread}
+        />
+        {settingsOpen && (
+          <SettingsModal
+            accounts={accounts}
+            onClose={() => setSettingsOpen(false)}
+            onAccountsChanged={loadAccounts}
+            onSettingsChanged={() => api.settings.get().then(setSettings).catch(() => {})}
+          />
+        )}
+        <TooltipLayer />
+      </>
+    );
+  }
+
   if (workspace === 'instagram') {
     return (
       <>
         <InstagramWorkspace
           onOpenSettings={() => setSettingsOpen(true)}
-          onSwitchToMail={() => setWorkspace('mail')}
+          onWorkspace={setWorkspace}
+          chatUnread={chatUnread}
         />
         {settingsOpen && (
           <SettingsModal
@@ -250,7 +282,8 @@ function AppInner() {
         onOpenDigest={() => setDigestOpen(true)}
         onOpenPacking={() => setPackingOpen(true)}
         orderPending={orderPending}
-        onSwitchToInstagram={() => setWorkspace('instagram')}
+        onWorkspace={setWorkspace}
+        chatUnread={chatUnread}
       />
       <MessageList
         messages={messages}

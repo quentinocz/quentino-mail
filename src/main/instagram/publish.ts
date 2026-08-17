@@ -208,7 +208,7 @@ export async function runJob(jobId: number): Promise<void> {
  * i vlastní zádrhely při zpracování médií (řada 22070xx), takže první
  * neúspěch neznamená, že je něco špatně s příspěvkem.
  */
-const TRANSIENT = /2207076|2207001|2207053|2207032|Media upload has failed|Please try again|temporarily/i;
+const TRANSIENT = /2207076|2207001|2207053|2207032|Media upload has failed|Nahrání videa|Please try again|temporarily/i;
 const RETRY_AFTER = 5 * 60_000;
 const MAX_ATTEMPTS = 3;
 

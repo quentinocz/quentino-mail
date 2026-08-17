@@ -1,6 +1,7 @@
 import type { AccountPublic, FolderInfo, Category } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import Icon from './Icon';
+import WorkspaceSwitch, { Workspace } from './WorkspaceSwitch';
 
 export type View =
   | { type: 'folder'; folder: string }
@@ -45,8 +46,10 @@ interface Props {
   onOpenPacking: () => void;
   /** Kolik zpráv k objednávkám čeká na odpověď */
   orderPending: number;
-  /** Přepnutí na instagramový pracovní prostor */
-  onSwitchToInstagram: () => void;
+  /** Přepnutí pracovního prostoru */
+  onWorkspace: (w: Workspace) => void;
+  /** Nepřečtené zprávy v chatu */
+  chatUnread: number;
 }
 
 function fmtGB(bytes: number): string {
@@ -62,12 +65,7 @@ export default function Sidebar(p: Props) {
     <div className="sidebar">
       <div className="brand">quentino<span> mail</span></div>
 
-      <div className="ig-switch">
-        <button className="active"><Icon name="mail" size={14} /> Pošta</button>
-        <button onClick={p.onSwitchToInstagram} data-tip="Vícejazyčné publikování na Instagram a Facebook">
-          <Icon name="image" size={14} /> Social
-        </button>
-      </div>
+      <WorkspaceSwitch current="mail" onChange={p.onWorkspace} chatUnread={p.chatUnread} />
 
       <button className="btn-compose" onClick={p.onCompose}><Icon name="pen" size={15} /> Nová zpráva</button>
 
