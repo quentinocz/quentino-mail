@@ -11,6 +11,8 @@
   --danger: #e5484d;
   --ok: #2f9e6e;
   --warn: #d99a1b;
+  /* Šířka postranního panelu — stejná ve všech prostorech, mění ji tažení v poště */
+  --side-w: 264px;
   --radius: 12px;
   --shadow: 0 1px 3px rgba(32, 29, 41, 0.06), 0 4px 16px rgba(32, 29, 41, 0.05);
   --shadow-lg: 0 8px 40px rgba(32, 29, 41, 0.18);
@@ -2384,7 +2386,7 @@ button, kbd, label,
 .ig-switch button.active { background: var(--panel); color: var(--accent-dark); box-shadow: var(--shadow); }
 
 /* Instagram má jen dva sloupce — panel a obsah */
-.ig-app { grid-template-columns: 232px 1fr !important; }
+.ig-app { grid-template-columns: var(--side-w) 1fr !important; }
 .ig-main { overflow-y: auto; background: var(--panel); border-left: 1px solid var(--border); }
 
 .ig-page { padding: 22px 26px 40px; max-width: 1180px; }
@@ -2739,7 +2741,7 @@ button, kbd, label,
 /* ==================== Chat ==================== */
 
 
-.ch-app { grid-template-columns: 288px 1fr !important; }
+.ch-app { grid-template-columns: var(--side-w) 1fr !important; }
 .ch-main {
   display: flex;
   flex-direction: column;
@@ -2937,3 +2939,25 @@ button, kbd, label,
 .ch-sign-note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-sign-note.added { color: var(--text-2); }
 .ch-sign-note b { color: var(--accent-dark); }
+
+/* Upozornění, když nejdou přečíst uložená hesla a klíče */
+.locked-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 9px 14px;
+  background: #fdebec;
+  color: #7f2226;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(229, 72, 77, 0.35);
+}
+.locked-bar .btn { background: #fff; color: #7f2226; }
+[data-theme="dark"] .locked-bar { background: #40191c; color: #ffd9db; }
+[data-theme="dark"] .locked-bar .btn { background: #5a2327; color: #ffd9db; }

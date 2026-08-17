@@ -177,6 +177,8 @@ export interface OutboxItem {
 export interface Settings {
   anthropicApiKey?: string; // jen zápis; čtení vrací pouze boolean hasApiKey
   hasApiKey?: boolean;
+  /** Uložená hesla a klíče nejdou rozšifrovat — typicky po přejmenování aplikace */
+  secretsLocked?: boolean;
   brandPrompt: string;
   draftModel: string;
   fastModel: string;

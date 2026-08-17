@@ -12,9 +12,24 @@ const DEFAULT_RULES: CategoryRule[] = [
   { field: 'subject', contains: 'faktura', category: 'companies' }
 ];
 
+/**
+ * Klíč v systémové klíčence je vázaný na název aplikace. Po přejmenování
+ * (nebo po přenesení dat na jiný počítač) jsou uložená hesla a klíče
+ * nečitelná — pozná se to tak, že hodnota v databázi je, ale rozšifrovat
+ * se nedá. Rozhraní pak místo záhadných chyb nabídne obnovení ze zálohy.
+ */
+export function secretsLocked(): boolean {
+  const stored = getSetting('anthropicApiKey', '')!
+    || (getDb().prepare('SELECT pass_enc FROM accounts LIMIT 1').get() as any)?.pass_enc
+    || '';
+  if (!stored || !stored.startsWith('enc:')) return false;
+  return decrypt(stored) === '';
+}
+
 export function getSettings(): Settings {
   return {
     hasApiKey: !!getSetting('anthropicApiKey'),
+    secretsLocked: secretsLocked(),
     brandPrompt: getSetting('brandPrompt', DEFAULT_BRAND_PROMPT)!,
     draftModel: getSetting('draftModel', 'claude-sonnet-5')!,
     fastModel: getSetting('fastModel', 'claude-haiku-4-5-20251001')!,

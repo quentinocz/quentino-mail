@@ -3,6 +3,7 @@ import type { AccountPublic, FolderInfo, MessageHeader, MessageFull, Settings, C
 import { api } from './api';
 import { ToastProvider, useToast } from './toast';
 import Sidebar, { View } from './components/Sidebar';
+import Icon from './components/Icon';
 import MessageList from './components/MessageList';
 import MessageView from './components/MessageView';
 import Composer, { ComposerInit, UndoInfo } from './components/Composer';
@@ -85,7 +86,7 @@ function AppInner() {
   // Nastavitelné šířky sloupců (přetažením oddělovačů), pamatují se mezi spuštěními
   // Postranní panel nesmí být užší než přepínač prostorů — jinak by z něj
   // tlačítka lezla ven. Uložená užší hodnota se proto při načtení zvedne.
-  const SIDE_MIN = 232;
+  const SIDE_MIN = 240;
   const SIDE_MAX = 360;
   const [paneW, setPaneW] = useState<{ side: number; list: number }>(() => {
     try {
@@ -94,8 +95,14 @@ function AppInner() {
         return { side: Math.min(SIDE_MAX, Math.max(SIDE_MIN, saved.side)), list: saved.list };
       }
     } catch { /* */ }
-    return { side: SIDE_MIN, list: 360 };
+    return { side: 264, list: 360 };
   });
+
+  // Šířka jde do CSS proměnné, takže ji použijí i chat a sociální sítě —
+  // přepnutím prostoru se panel nezúží ani nerozšíří
+  useEffect(() => {
+    document.documentElement.style.setProperty('--side-w', `${paneW.side}px`);
+  }, [paneW.side]);
   const dragRef = useRef<{ which: 'side' | 'list'; startX: number; startW: number } | null>(null);
   useEffect(() => {
     const move = (e: MouseEvent) => {
@@ -280,6 +287,16 @@ function AppInner() {
 
   return (
     <div className="app" style={{ gridTemplateColumns: `${paneW.side}px ${paneW.list}px 1fr` }}>
+      {settings?.secretsLocked && (
+        <div className="locked-bar">
+          <Icon name="zap" size={14} />
+          <span>
+            Hesla a klíče jsou zamčené klíčenkou pod původním názvem aplikace.
+            Obnov je ze zálohy — Nastavení → Obnovit.
+          </span>
+          <button className="btn ghost" onClick={() => setSettingsOpen(true)}>Otevřít nastavení</button>
+        </div>
+      )}
       <div className="pane-resizer" style={{ left: paneW.side - 3 }} onMouseDown={startDrag('side')} />
       <div className="pane-resizer" style={{ left: paneW.side + paneW.list - 3 }} onMouseDown={startDrag('list')} />
       <Sidebar
