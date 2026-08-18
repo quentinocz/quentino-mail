@@ -30,10 +30,14 @@ jobs:
           node-version: 22
           cache: npm
 
-      # 1) Rozhraní — tentýž React, jaký běží na počítači
+      # 1) Rozhraní — tentýž React, jaký běží na počítači.
+      #    Nativní moduly Electronu se sem netahají: pro .ipa jsou k ničemu
+      #    a jejich přestavba na runneru padá na Pythonu bez distutils.
       - name: Sestavení rozhraní
+        env:
+          QUENTINO_SKIP_NATIVE: '1'
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npx vite build
           rm -rf ios/QuentinoApp/Resources/renderer
           mkdir -p ios/QuentinoApp/Resources/renderer

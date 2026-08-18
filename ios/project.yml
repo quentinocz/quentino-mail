@@ -23,13 +23,15 @@ targets:
   QuentinoApp:
     type: application
     platform: iOS
-    # iPhone i iPad, na iPadu plná obrazovka i Split View
-    deviceFamily: [1, 2]
+    # iPhone i iPad (řídí TARGETED_DEVICE_FAMILY níž)
     sources:
+      # Swift kód
       - path: QuentinoApp
         excludes:
-          - "Resources/renderer/**"
-      - path: QuentinoApp/Resources
+          - "Resources/**"
+      # Sestavené rozhraní jako složka — v balíčku zůstane struktura souborů,
+      # takže si ji vlastní schéma quentino:// umí naservírovat
+      - path: QuentinoApp/Resources/renderer
         type: folder
     info:
       path: QuentinoApp/Info.plist
@@ -37,8 +39,9 @@ targets:
         CFBundleDisplayName: Quentino App
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        UILaunchScreen:
-          UIColorName: LaunchBackground
+        # Prázdná úvodní obrazovka = systémové pozadí; vlastní grafiku sem
+        # doplníme, až bude co ukazovat
+        UILaunchScreen: {}
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown

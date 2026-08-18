@@ -18,6 +18,14 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
+// Sestavení mobilní verze (iOS) potřebuje jen rozhraní přeložené Vitem —
+// nativní modul pro Electron by tam byl k ničemu a na runneru navíc padá
+// na Pythonu bez distutils. Proměnná to celé přeskočí.
+if (process.env.QUENTINO_SKIP_NATIVE === '1') {
+  console.log('postinstall: přeskočeno (QUENTINO_SKIP_NATIVE=1) — nativní moduly se nesestavují.');
+  process.exit(0);
+}
+
 // npm přidává node_modules/.bin do PATH, takže se binárka najde sama.
 // shell:true je kvůli Windows, kde jde o electron-builder.cmd.
 const built = spawnSync('electron-builder', ['install-app-deps'], {
