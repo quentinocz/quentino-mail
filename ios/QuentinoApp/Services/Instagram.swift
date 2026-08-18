@@ -4,7 +4,7 @@ import Foundation
  Instagram a Facebook.
 
  Zatím drží jen návrat z přihlášení, aby most měl co volat; publikování
- a generování textů se překlopí ze stolní verze (`src/main/instagram/*`),
+ a generování textů se překlopí ze stolní verze (`src/main/instagram/`),
  kde je celá logika už hotová a ověřená.
  */
 final class Instagram {
