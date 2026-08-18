@@ -114,10 +114,24 @@ export default function IgAccounts({ overview, onChanged }: Props) {
                   @{a.username}
                   {a.isSource && <span className="ig-tag-src">zdroj</span>}
                 </div>
-                <div className="ig-muted">
-                  přístup platí do {fmtDate(a.tokenExpires)}
-                  {limits[a.id] && ` · dnes ${limits[a.id]!.used}/${limits[a.id]!.cap} příspěvků`}
-                </div>
+                {(() => {
+                  const days = a.tokenExpires
+                    ? Math.round((new Date(a.tokenExpires).getTime() - Date.now()) / 864e5)
+                    : null;
+                  const soon = days !== null && days < 10;
+                  return (
+                    <div className={soon ? 'ig-over' : 'ig-muted'}>
+                      {days === null
+                        ? 'přístup bez známé platnosti'
+                        : days <= 0
+                          ? 'přístup vypršel — připoj účet znovu'
+                          : soon
+                            ? `přístup vyprší za ${days} dní — spusť „Obnovit přístupy"`
+                            : `přístup platí ${days} dní, obnovuje se sám`}
+                      {limits[a.id] && ` · dnes ${limits[a.id]!.used}/${limits[a.id]!.cap} příspěvků`}
+                    </div>
+                  );
+                })()}
                 {a.pageId ? (
                   <label className="ig-checkline" data-tip="Stejný obsah se po zveřejnění na Instagramu přidá i na Facebook stránku">
                     <input
@@ -187,9 +201,15 @@ export default function IgAccounts({ overview, onChanged }: Props) {
             </>
           )}
 
-          <button className="btn ghost" onClick={() => run('tok', () => api.ig.refreshTokens(), 'Přístupy obnoveny.')}>
+          <button className="btn ghost" onClick={() => run('tok', () => api.ig.refreshTokens(), 'Přístupy obnoveny.')}
+            data-tip="Aplikace to dělá sama každých 6 hodin i po probuzení počítače; tohle je ruční kontrola">
             <Icon name="refresh" size={13} /> Obnovit přístupy
           </button>
+          <span className="ig-muted">
+            {overview.expiringSoon > 0
+              ? `${overview.expiringSoon} účtům se blíží konec platnosti přístupu.`
+              : 'Přístup k účtům se obnovuje automaticky, dokud aplikaci občas zapneš.'}
+          </span>
         </section>
 
         <section className="ig-card">

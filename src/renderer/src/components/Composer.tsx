@@ -526,6 +526,8 @@ export default function Composer(p: Props) {
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) p.onClose(); }}>
       {voucherOpen && (
         <VoucherDialog
+          recipient={to}
+          lang={mailLang}
           onClose={() => setVoucherOpen(false)}
           onCreated={files => setAttachments(prev => [...prev, ...files])}
         />

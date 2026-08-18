@@ -43,8 +43,12 @@ function emit(payload: unknown = {}) {
 export function overview(): IgOverview {
   const accounts = store.listAccounts();
   const jobs = store.listJobs(20);
+  // Kolik účtů má přístup na spadnutí — automatická obnova běží, ale když
+  // aplikace dlouho nepoběží nebo Meta obnovu odmítne, má to být vidět
+  const soon = Date.now() + 10 * 864e5;
   return {
     accounts,
+    expiringSoon: accounts.filter(a => a.tokenExpires && new Date(a.tokenExpires).getTime() < soon).length,
     markets: store.listMarkets(),
     brand: store.getBrand(),
     connection: store.connectionState(),

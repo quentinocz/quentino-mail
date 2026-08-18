@@ -24,6 +24,10 @@ import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderl
 import { customerContext, customerConversation, messageText } from './customer';
 import { relearnPhase } from './shipphase';
 import { createVouchers } from './voucher';
+import {
+  listTemplates, saveTemplate, deleteTemplate, addCodes, listCodes, deleteCode,
+  takeCode, releaseCode, specFromTemplate
+} from './vouchers';
 import { listOutbox, cancelOutbox, processOutbox } from './scheduler';
 import { getDb } from './db';
 import { registerIgIpc } from './instagram/ipc';
@@ -198,6 +202,26 @@ export function registerIpc() {
   // Zprávy zákazníků navázané na objednávky
   // Dárkové poukazy do přílohy
   handle('voucher:create', (spec: any) => createVouchers(spec));
+
+  // Šablony poukazů a zásoba kódů
+  handle('vouchers:list', () => listTemplates());
+  handle('vouchers:save', (t: any) => saveTemplate(t));
+  handle('vouchers:delete', (id: string) => deleteTemplate(id));
+  handle('vouchers:addCodes', (id: string, raw: string) => addCodes(id, raw ?? ''));
+  handle('vouchers:codes', (id: string) => listCodes(id));
+  handle('vouchers:deleteCode', (id: string, code: string) => deleteCode(id, code));
+  handle('vouchers:release', (id: string, code: string) => releaseCode(id, code));
+  /** Odebere kód ze šablony a rovnou z něj vysází PDF do přílohy */
+  handle('vouchers:use', async (id: string, forWhom: string) => {
+    const { code, remaining } = takeCode(id, forWhom ?? '');
+    try {
+      const files = await createVouchers(specFromTemplate(id, code));
+      return { code, remaining, files };
+    } catch (e) {
+      releaseCode(id, code); // sazba selhala — kód se vrací do zásoby
+      throw e;
+    }
+  });
 
   handle('ship:relearn', (text: string, phase: string) => relearnPhase(text, phase as any));
   handle('customer:context', (email: string) => customerContext(email));

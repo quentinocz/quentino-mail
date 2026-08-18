@@ -324,11 +324,27 @@ export async function syncSource(full = false): Promise<number> {
 
 /* ---------- Obnova tokenů ---------- */
 
-/** Tokeny platí 60 dní; obnovují se, když zbývá míň než 20. */
+/**
+ * Tokeny platí 60 dní a obnovují se samy, jakmile zbývá míň než 30 —
+ * to je dost velká rezerva na dovolenou i na týden bez zapnutého počítače.
+ * Obnovuje se i uložený uživatelský přístup, jinak by po dvou měsících
+ * přestalo fungovat přidávání dalších účtů.
+ */
 export async function refreshTokens(force = false): Promise<{ refreshed: number; failed: string[] }> {
   const failed: string[] = [];
   let refreshed = 0;
-  const limit = Date.now() + 20 * 864e5;
+  const limit = Date.now() + 30 * 864e5;
+
+  const userToken = store.getUserToken();
+  if (userToken) {
+    try {
+      const next = await graph.exchangeLongLived(userToken);
+      store.setUserToken(next, new Date(Date.now() + 59 * 864e5).toISOString());
+    } catch {
+      // Vypršelý uživatelský přístup se pozná až při přidávání účtu — tam
+      // aplikace sama nabídne přihlášení znovu
+    }
+  }
 
   for (const account of store.listAccounts()) {
     const expires = account.tokenExpires ? new Date(account.tokenExpires).getTime() : 0;

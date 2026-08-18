@@ -120,6 +120,76 @@ function applyState(dir: string, remote: any): void {
   setSetting('stateStamp', remote.updatedAt);
 }
 
+/* ---------- Poukazy: šablony a zásoba kódů (sjednocení) ---------- */
+
+/**
+ * Šablony a kódy se neslučují jako „novější stav vyhrává", ale po řádcích:
+ *  - šablona: vyhrává novější `updated_at` (i smazání, to je jen příznak),
+ *  - kód: použití vyhrává vždycky a platí dřívější čas.
+ *
+ * Kdyby se přenášel celý stav najednou, dvě zařízení by si navzájem přepsala
+ * odepsané kódy a stejný kód by šel ven dvakrát.
+ */
+function syncVouchers(dir: string): void {
+  const d = getDb();
+  const file = path.join(dir, 'vouchers.json');
+  let remote: any = null;
+  try { remote = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* první běh */ }
+
+  if (remote && Array.isArray(remote.templates)) {
+    const upsert = d.prepare(
+      `INSERT INTO voucher_templates (id, name, value, unit, valid_until, note, lang, code_mode, fixed_code, archived, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name, value = excluded.value, unit = excluded.unit,
+         valid_until = excluded.valid_until, note = excluded.note, lang = excluded.lang,
+         code_mode = excluded.code_mode, fixed_code = excluded.fixed_code,
+         archived = excluded.archived, updated_at = excluded.updated_at
+       WHERE excluded.updated_at > voucher_templates.updated_at`
+    );
+    for (const t of remote.templates) {
+      if (!t?.id || !t?.name) continue;
+      upsert.run(
+        t.id, t.name, t.value ?? '', t.unit ?? 'CZK', t.valid_until ?? '', t.note ?? '',
+        t.lang ?? 'cz', t.code_mode ?? 'fixed', t.fixed_code ?? '', t.archived ?? 0,
+        t.updated_at ?? new Date().toISOString()
+      );
+    }
+  }
+
+  if (remote && Array.isArray(remote.codes)) {
+    const upsert = d.prepare(
+      `INSERT INTO voucher_codes (template_id, code, used_at, used_for, created_at)
+       VALUES (?,?,?,?,?)
+       ON CONFLICT(template_id, code) DO UPDATE SET
+         used_at = CASE
+           WHEN voucher_codes.used_at IS NULL THEN excluded.used_at
+           WHEN excluded.used_at IS NULL THEN voucher_codes.used_at
+           WHEN excluded.used_at < voucher_codes.used_at THEN excluded.used_at
+           ELSE voucher_codes.used_at
+         END,
+         used_for = CASE
+           WHEN excluded.used_at IS NOT NULL
+                AND (voucher_codes.used_at IS NULL OR excluded.used_at < voucher_codes.used_at)
+             THEN excluded.used_for
+           ELSE voucher_codes.used_for
+         END`
+    );
+    for (const c of remote.codes) {
+      if (!c?.template_id || !c?.code) continue;
+      upsert.run(c.template_id, c.code, c.used_at ?? null, c.used_for ?? '', c.created_at ?? new Date().toISOString());
+    }
+  }
+
+  const out = {
+    templates: d.prepare('SELECT * FROM voucher_templates').all(),
+    codes: d.prepare('SELECT * FROM voucher_codes').all()
+  };
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(out), 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 /* ---------- Kontakty (sjednocení) ---------- */
 
 function syncContacts(dir: string): void {
@@ -258,7 +328,14 @@ export async function runSync(): Promise<string> {
     // 2) Kontakty — sjednocení
     syncContacts(dir);
 
-    // 3) Archiv — oboustranné doplnění
+    // 3) Poukazy — šablony i odepsané kódy, po řádcích
+    try {
+      syncVouchers(dir);
+    } catch (e: any) {
+      parts.push(`poukazy: ${e?.message ?? e}`);
+    }
+
+    // 4) Archiv — oboustranné doplnění
     const arch = await syncArchive(dir);
     if (arch.exported) parts.push(`${arch.exported}× archiv odeslán`);
     if (arch.imported) {

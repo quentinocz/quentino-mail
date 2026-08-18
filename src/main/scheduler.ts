@@ -13,7 +13,7 @@ const OUTBOX_INTERVAL = 5_000; // kontrola plánovaných odeslání (krátká kv
 const SYNC_INTERVAL = 3 * 60_000; // periodická synchronizace
 const FEED_CHECK_INTERVAL = 60 * 60_000; // kontrola stáří produktového feedu
 const IG_QUEUE_INTERVAL = 30_000; // fronta instagramových publikací
-const IG_TOKEN_INTERVAL = 12 * 60 * 60_000; // obnova přístupu k účtům (tokeny platí 60 dní)
+const IG_TOKEN_INTERVAL = 6 * 60 * 60_000; // obnova přístupu k účtům (tokeny platí 60 dní)
 const IG_SYNC_INTERVAL = 6 * 60 * 60_000; // dotažení nových příspěvků ze zdrojového účtu
 const CHAT_UNREAD_INTERVAL = 20_000; // nepřečtené zprávy z chatu pro odznak v přepínači
 

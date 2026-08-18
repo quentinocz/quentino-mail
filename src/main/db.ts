@@ -183,6 +183,32 @@ function migrate(d: Database.Database) {
       at TEXT NOT NULL
     );
 
+    -- Šablony dárkových poukazů a zásoba kódů k nim.
+    -- Klíč je UUID, aby šlo šablony slučovat mezi zařízeními bez kolizí ID.
+    CREATE TABLE IF NOT EXISTS voucher_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      value TEXT NOT NULL DEFAULT '',
+      unit TEXT NOT NULL DEFAULT 'CZK',
+      valid_until TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      lang TEXT NOT NULL DEFAULT 'cz',
+      code_mode TEXT NOT NULL DEFAULT 'fixed',
+      fixed_code TEXT NOT NULL DEFAULT '',
+      archived INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS voucher_codes (
+      template_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      used_at TEXT,
+      used_for TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (template_id, code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_voucher_codes_free ON voucher_codes(template_id, used_at);
+
     CREATE TABLE IF NOT EXISTS ai_usage (
       month TEXT NOT NULL,
       model TEXT NOT NULL,

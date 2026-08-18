@@ -3,6 +3,7 @@ import type {
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
   UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, CustomerContext, VoucherSpec,
+  VoucherTemplate,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
   ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct
 } from '@shared/types';
@@ -130,6 +131,21 @@ export const api = {
   voucher: {
     /** Vytvoří PDF poukazy (jeden na každý kód) a vrátí cesty k souborům */
     create: (spec: VoucherSpec) => call<string[]>('voucher:create', spec)
+  },
+  /** Šablony poukazů — hodnota, platnost a zásoba kódů; synchronizují se mezi zařízeními */
+  vouchers: {
+    list: () => call<VoucherTemplate[]>('vouchers:list'),
+    save: (t: Partial<VoucherTemplate> & { name: string }) => call<VoucherTemplate[]>('vouchers:save', t),
+    delete: (id: string) => call<VoucherTemplate[]>('vouchers:delete', id),
+    addCodes: (id: string, raw: string) => call<{ added: number; skipped: number }>('vouchers:addCodes', id, raw),
+    codes: (id: string) => call<{ code: string; usedAt: string | null; usedFor: string }[]>('vouchers:codes', id),
+    deleteCode: (id: string, code: string) =>
+      call<{ code: string; usedAt: string | null; usedFor: string }[]>('vouchers:deleteCode', id, code),
+    /** Vrátí kód zpátky do zásoby (když se e-mail neodeslal) */
+    release: (id: string, code: string) => call<void>('vouchers:release', id, code),
+    /** Odebere kód a vysází z něj PDF poukaz do přílohy */
+    use: (id: string, forWhom: string) =>
+      call<{ code: string; remaining: number; files: string[] }>('vouchers:use', id, forWhom)
   },
   ship: {
     /** Ruční oprava zařazení hlášky dopravce; aplikace si ji zapamatuje */

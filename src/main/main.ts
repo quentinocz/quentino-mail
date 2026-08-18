@@ -11,6 +11,7 @@ import { setHtmlRenderer, clearTrackingCache } from './ordertrack';
 import { renderPage } from './render';
 import { handleCallbackUrl } from './instagram';
 import { refreshWatchers, restartWatchers } from './idle';
+import { refreshTokens as refreshIgTokens } from './instagram/publish';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -289,6 +290,8 @@ app.whenReady().then(() => {
     setTimeout(() => syncAllAccounts().catch(() => {}), 4000);
     // Spojení uspaná se strojem už nic neohlásí — navážou se znovu
     setTimeout(() => { try { restartWatchers(); } catch { /* nevadí */ } }, 5000);
+    // Po delším spánku mohl mezitím vypršet přístup k Metě
+    setTimeout(() => { refreshIgTokens().catch(() => {}); }, 8000);
   });
 
   // Stavy objednávek a zásilek se drží v paměti, aby se stránky nestahovaly

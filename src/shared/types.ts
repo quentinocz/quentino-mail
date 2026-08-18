@@ -223,6 +223,25 @@ export interface VoucherSpec {
   note: string;
 }
 
+/** Šablona dárkového poukazu — hodnota, platnost a zdroj kódů */
+export interface VoucherTemplate {
+  /** UUID, aby šlo šablony slučovat mezi zařízeními */
+  id: string;
+  /** Interní název, zákazník ho nikdy neuvidí */
+  name: string;
+  value: string;
+  unit: VoucherSpec['unit'];
+  validUntil: string;
+  note: string;
+  lang: MailLang;
+  /** `fixed` = pořád stejný kód, `unique` = odebírá se ze zásoby */
+  codeMode: 'fixed' | 'unique';
+  fixedCode: string;
+  codesTotal: number;
+  codesFree: number;
+  updatedAt: string;
+}
+
 /** Objednávka z Upgates API (živá data e-shopu) */
 export interface UpgatesOrder {
   orderNumber: string;
@@ -560,6 +579,8 @@ export interface IgConnection {
 
 export interface IgOverview {
   accounts: IgAccount[];
+  /** Kolik účtů má přístup platný míň než 10 dní */
+  expiringSoon: number;
   markets: IgMarket[];
   brand: IgBrand;
   connection: IgConnection;
