@@ -1,0 +1,64 @@
+# Projekt pro XcodeGen — .xcodeproj se generuje, nedrží se v gitu.
+# Xcode projekty jsou v gitu zdrojem konfliktů a v CI se stejně vytvoří znovu.
+name: QuentinoApp
+options:
+  bundleIdPrefix: cz.quentino
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "1.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    # Podpis se nedělá v CI — .ipa je nepodepsané a podepíše si ho až SideStore
+    # certifikátem konkrétního uživatele.
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGN_ENTITLEMENTS: ""
+
+targets:
+  QuentinoApp:
+    type: application
+    platform: iOS
+    # iPhone i iPad, na iPadu plná obrazovka i Split View
+    deviceFamily: [1, 2]
+    sources:
+      - path: QuentinoApp
+        excludes:
+          - "Resources/renderer/**"
+      - path: QuentinoApp/Resources
+        type: folder
+    info:
+      path: QuentinoApp/Info.plist
+      properties:
+        CFBundleDisplayName: Quentino App
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Aplikace mluví s IMAP/SMTP servery po TLS a s API přes HTTPS;
+        # výjimka z ATS není potřeba.
+        ITSAppUsesNonExemptEncryption: false
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIBackgroundModes:
+          - fetch
+          - processing
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cz.quentino.app
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_BITCODE: "NO"
+        GENERATE_INFOPLIST_FILE: "NO"
