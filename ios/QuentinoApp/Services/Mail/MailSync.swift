@@ -166,7 +166,7 @@ enum MailSync {
 
     private static func store(_ headers: [IMAP.Header], accountId: Int, folder: String) {
         var uids: [Int] = []
-        try? SQLite.shared.transaction {
+        _ = try? SQLite.shared.transaction {
             for header in headers {
                 let parsed = Mime.parseHeadersOnly(header.raw)
                 let contentType = (parsed.headers["content-type"] ?? "").lowercased()
@@ -212,7 +212,7 @@ enum MailSync {
         // Co na serveru v tomhle rozsahu není, nemá být ani u nás
         if let smallest = uids.min() {
             let list = uids.map(String.init).joined(separator: ",")
-            try? SQLite.shared.run(
+            _ = try? SQLite.shared.run(
                 """
                 DELETE FROM messages WHERE account_id = ? AND folder = ? AND uid >= ?
                   AND uid NOT IN (\(list)) AND archived = 0
@@ -223,7 +223,7 @@ enum MailSync {
     }
 
     private static func rememberContact(_ email: String, _ name: String) {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             """
             INSERT INTO contacts (email, name, uses, last_used) VALUES (?,?,1,?)
             ON CONFLICT(email) DO UPDATE SET uses = uses + 1, last_used = excluded.last_used,
@@ -264,15 +264,15 @@ enum MailSync {
         var html = message.html
 
         let directory = MailStore.mailDirectory.appendingPathComponent("\(dbId)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? SQLite.shared.run("DELETE FROM attachments WHERE message_pk = ?", [.int(Int64(dbId))])
+        _ = try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        _ = try? SQLite.shared.run("DELETE FROM attachments WHERE message_pk = ?", [.int(Int64(dbId))])
 
         for (index, attachment) in message.attachments.enumerated() {
             let safe = attachment.filename
                 .replacingOccurrences(of: "/", with: "-")
                 .replacingOccurrences(of: ":", with: "-")
             let file = directory.appendingPathComponent("\(index)-\(safe.isEmpty ? "priloha" : safe)")
-            try? attachment.data.write(to: file)
+            _ = try? attachment.data.write(to: file)
 
             // Obrázek vložený do textu se v HTML nahradí odkazem na soubor,
             // aby ho zobrazila i webová část aplikace
@@ -280,7 +280,7 @@ enum MailSync {
                 let dataUrl = "data:\(attachment.mime);base64,\(attachment.data.base64EncodedString())"
                 html = html?.replacingOccurrences(of: "cid:\(cid)", with: dataUrl)
             }
-            try? SQLite.shared.run(
+            _ = try? SQLite.shared.run(
                 "INSERT INTO attachments (message_pk, filename, mime, size, path, cid) VALUES (?,?,?,?,?,?)",
                 [
                     .int(Int64(dbId)), .text(attachment.filename), .text(attachment.mime),
@@ -291,7 +291,7 @@ enum MailSync {
         }
 
         let visible = message.attachments.filter { !$0.isInline }.count
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             """
             UPDATE messages SET body_html = ?, body_text = ?, snippet = ?, fetched_full = 1,
               has_attachments = ? WHERE id = ?
@@ -311,7 +311,7 @@ enum MailSync {
     static func setFlag(_ dbId: Int, flag: String, value: Bool) throws {
         guard let row = MailStore.row(dbId) else { return }
         let column = flag == "seen" ? "seen" : "flagged"
-        try? SQLite.shared.run("UPDATE messages SET \(column) = ? WHERE id = ?",
+        _ = try? SQLite.shared.run("UPDATE messages SET \(column) = ? WHERE id = ?",
                                [.int(value ? 1 : 0), .int(Int64(dbId))])
         let imapFlag = flag == "seen" ? "\\Seen" : "\\Flagged"
         try withClient(row["account_id"] as? Int ?? 0) { client in
@@ -331,8 +331,8 @@ enum MailSync {
             try client.delete(uid: row["uid"] as? Int ?? 0, trash: trash)
         }
         if (row["archived"] as? Int ?? 0) == 0 {
-            try? SQLite.shared.run("DELETE FROM attachments WHERE message_pk = ?", [.int(Int64(dbId))])
-            try? SQLite.shared.run("DELETE FROM messages WHERE id = ?", [.int(Int64(dbId))])
+            _ = try? SQLite.shared.run("DELETE FROM attachments WHERE message_pk = ?", [.int(Int64(dbId))])
+            _ = try? SQLite.shared.run("DELETE FROM messages WHERE id = ?", [.int(Int64(dbId))])
         }
         Bridge.notify("messages:changed", ["accountId": accountId, "folder": folder])
     }
@@ -344,7 +344,7 @@ enum MailSync {
             _ = try client.select(row["folder"] as? String ?? "INBOX")
             try client.move(uid: row["uid"] as? Int ?? 0, to: target)
         }
-        try? SQLite.shared.run("DELETE FROM messages WHERE id = ?", [.int(Int64(dbId))])
+        _ = try? SQLite.shared.run("DELETE FROM messages WHERE id = ?", [.int(Int64(dbId))])
         Bridge.notify("messages:changed", ["accountId": accountId])
     }
 
@@ -360,10 +360,10 @@ enum MailSync {
             return try client.body(uid: row["uid"] as? Int ?? 0)
         }
         let file = MailStore.mailDirectory.appendingPathComponent("\(dbId).eml")
-        try? raw.write(to: file)
+        _ = try? raw.write(to: file)
         if (row["fetched_full"] as? Int ?? 0) == 0 { storeParsed(dbId, raw) }
 
-        try? SQLite.shared.run("UPDATE messages SET archived = 1, raw_path = ? WHERE id = ?",
+        _ = try? SQLite.shared.run("UPDATE messages SET archived = 1, raw_path = ? WHERE id = ?",
                                [.text(file.path), .int(Int64(dbId))])
         Bridge.notify("messages:changed", ["accountId": accountId, "folder": folder])
         return file.path
@@ -374,7 +374,7 @@ enum MailSync {
             throw BridgeError.message("Složka koše nebyla nalezena.")
         }
         let count = try withClient(accountId) { try $0.emptyTrash(trash) }
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             """
             DELETE FROM messages WHERE account_id = ? AND folder = ? AND archived = 0
             """,
@@ -451,13 +451,13 @@ enum MailSync {
 
         // Kopie do Odeslané pošty na serveru; její selhání odeslání neruší
         if let sent = specialFolder(accountId, "\\Sent") {
-            try? withClient(accountId) { client in
+            _ = try? withClient(accountId) { client in
                 try client.append(folder: sent, message: message)
             }
         }
 
         if let replyTo = draft["replyToDbId"] as? Int {
-            try? SQLite.shared.run("UPDATE messages SET answered = 1 WHERE id = ?", [.int(Int64(replyTo))])
+            _ = try? SQLite.shared.run("UPDATE messages SET answered = 1 WHERE id = ?", [.int(Int64(replyTo))])
         }
         for list in [envelope.to, envelope.cc, envelope.bcc] where !list.isEmpty {
             for address in Mime.addresses(list) where !address.address.isEmpty {
@@ -475,7 +475,7 @@ enum MailSync {
 
         for item in due {
             let id = item["id"] as? Int ?? 0
-            try? SQLite.shared.run("UPDATE outbox SET status = 'sending' WHERE id = ?", [.int(Int64(id))])
+            _ = try? SQLite.shared.run("UPDATE outbox SET status = 'sending' WHERE id = ?", [.int(Int64(id))])
             func list(_ key: String) -> [Any] {
                 guard let text = item[key] as? String, let data = text.data(using: .utf8),
                       let parsed = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return [] }
@@ -496,10 +496,10 @@ enum MailSync {
                     "references": item["refs"] as? String ?? "",
                     "replyToDbId": item["reply_to_db_id"] as? Int ?? 0
                 ])
-                try? SQLite.shared.run("UPDATE outbox SET status = 'sent', error = NULL WHERE id = ?",
+                _ = try? SQLite.shared.run("UPDATE outbox SET status = 'sent', error = NULL WHERE id = ?",
                                        [.int(Int64(id))])
             } catch {
-                try? SQLite.shared.run("UPDATE outbox SET status = 'failed', error = ? WHERE id = ?",
+                _ = try? SQLite.shared.run("UPDATE outbox SET status = 'failed', error = ? WHERE id = ?",
                                        [.text(error.readableMessage), .int(Int64(id))])
             }
             Bridge.notify("outbox:changed")

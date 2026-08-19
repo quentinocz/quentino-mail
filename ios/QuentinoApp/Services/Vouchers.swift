@@ -23,7 +23,7 @@ enum Vouchers {
             ORDER BY t.name COLLATE NOCASE
             """
         )) ?? []
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             [
                 "id": row["id"] ?? "",
                 "name": row["name"] ?? "",
@@ -78,7 +78,7 @@ enum Vouchers {
      by ji při nejbližší synchronizaci vrátilo zpátky.
      */
     static func deleteTemplate(id: String) -> [[String: Any]] {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "UPDATE voucher_templates SET archived = 1, updated_at = ? WHERE id = ?",
             [.text(Formats.iso()), .text(id)]
         )
@@ -95,7 +95,7 @@ enum Vouchers {
             .filter { !$0.isEmpty && seen.insert($0).inserted }
 
         var added = 0
-        try? SQLite.shared.transaction {
+        _ = try? SQLite.shared.transaction {
             for code in codes {
                 let result = try SQLite.shared.run(
                     "INSERT OR IGNORE INTO voucher_codes (template_id, code) VALUES (?,?)",
@@ -113,13 +113,13 @@ enum Vouchers {
             "SELECT code, used_at, used_for FROM voucher_codes WHERE template_id = ? ORDER BY used_at IS NOT NULL, code",
             [.text(templateId)]
         )) ?? []
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             ["code": row["code"] ?? "", "usedAt": row["used_at"] ?? NSNull(), "usedFor": row["used_for"] ?? ""]
         }
     }
 
     static func deleteCode(templateId: String, code: String) -> [[String: Any]] {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "DELETE FROM voucher_codes WHERE template_id = ? AND code = ?", [.text(templateId), .text(code)]
         )
         Store.touchState()
@@ -170,7 +170,7 @@ enum Vouchers {
 
     /// Vrácení kódu do zásoby — když se e-mail nakonec neodeslal.
     static func releaseCode(templateId: String, code: String) {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "UPDATE voucher_codes SET used_at = NULL, used_for = '' WHERE template_id = ? AND code = ?",
             [.text(templateId), .text(code)]
         )

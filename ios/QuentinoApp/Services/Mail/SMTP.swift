@@ -220,7 +220,7 @@ enum SMTP {
         try socket.write("\r\n.\r\n")
         try expect(socket, code: "250")
 
-        try? send(socket, "QUIT")
+        _ = try? send(socket, "QUIT")
     }
 
     /// Řádek začínající tečkou by ukončil přenos, proto se zdvojuje.
@@ -300,6 +300,6 @@ enum SMTP {
             capabilities = try hello(socket, host: host)
         }
         try authenticate(socket, capabilities: capabilities, user: user, password: password)
-        try? send(socket, "QUIT")
+        _ = try? send(socket, "QUIT")
     }
 }

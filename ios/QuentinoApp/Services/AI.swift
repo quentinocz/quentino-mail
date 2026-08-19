@@ -63,7 +63,7 @@ enum AI {
         let month = String(ISO8601DateFormatter().string(from: Date()).prefix(7))
         let input = usage?["input_tokens"] as? Int ?? 0
         let output = usage?["output_tokens"] as? Int ?? 0
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             """
             INSERT INTO ai_usage (month, model, input_tokens, output_tokens, calls) VALUES (?,?,?,?,1)
             ON CONFLICT(month, model) DO UPDATE SET

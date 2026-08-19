@@ -30,10 +30,10 @@ final class Scheduler {
         observe()
         ticker = Task { [weak self] in
             // Krátká prodleva po startu, ať se nejdřív ukáže rozhraní
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            _ = try? await Task.sleep(nanoseconds: 4_000_000_000)
             while !Task.isCancelled {
                 await self?.tick()
-                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                _ = try? await Task.sleep(nanoseconds: 30_000_000_000)
             }
         }
     }

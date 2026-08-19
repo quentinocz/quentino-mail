@@ -12,7 +12,7 @@ extension IgStore {
 
     @discardableResult
     static func upsertSourcePosts(_ items: [[String: Any]]) -> Int {
-        try? SQLite.shared.transaction {
+        _ = try? SQLite.shared.transaction {
             for item in items {
                 let children = (item["children"] as? [String: Any])?["data"] as? [[String: Any]] ?? []
                 let childrenJson = (try? JSONSerialization.data(withJSONObject: children))
@@ -77,7 +77,7 @@ extension IgStore {
             }
         }
 
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             let id = row["id"] as? Int ?? 0
             var children = 0
             if let json = row["children_json"] as? String, let data = json.data(using: .utf8),
@@ -120,15 +120,15 @@ extension IgStore {
 
     static func updatePost(id: Int, brief: String?, mediaNote: String?) {
         if let brief {
-            try? SQLite.shared.run("UPDATE ig_posts SET brief = ? WHERE id = ?", [.text(brief), .int(Int64(id))])
+            _ = try? SQLite.shared.run("UPDATE ig_posts SET brief = ? WHERE id = ?", [.text(brief), .int(Int64(id))])
         }
         if let mediaNote {
-            try? SQLite.shared.run("UPDATE ig_posts SET media_note = ? WHERE id = ?", [.text(mediaNote), .int(Int64(id))])
+            _ = try? SQLite.shared.run("UPDATE ig_posts SET media_note = ? WHERE id = ?", [.text(mediaNote), .int(Int64(id))])
         }
     }
 
     static func setPostMedia(postId: Int, items: [[String: Any]]) {
-        try? SQLite.shared.transaction {
+        _ = try? SQLite.shared.transaction {
             try SQLite.shared.run("DELETE FROM ig_post_media WHERE post_id = ?", [.int(Int64(postId))])
             for (index, item) in items.enumerated() {
                 try SQLite.shared.run(
@@ -159,7 +159,7 @@ extension IgStore {
     }
 
     static func setMediaPublicUrl(mediaId: Int, url: String?, key: String?) {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "UPDATE ig_post_media SET public_url = ?, storage_key = ? WHERE id = ?",
             [
                 url.map { SQLite.Value.text($0) } ?? .null,
@@ -174,7 +174,7 @@ extension IgStore {
     /// Opakované generování nepřepíše popisek, který už vyšel — proto ta
     /// podmínka na konci `ON CONFLICT`.
     static func saveCaptions(postId: Int, captions: [(lang: String, variants: [String])]) {
-        try? SQLite.shared.transaction {
+        _ = try? SQLite.shared.transaction {
             for caption in captions {
                 let json = (try? JSONSerialization.data(withJSONObject: caption.variants))
                     .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -195,20 +195,20 @@ extension IgStore {
 
     static func updateCaption(id: Int, chosen: Int? = nil, edited: String? = nil, status: String? = nil) {
         if let chosen {
-            try? SQLite.shared.run(
+            _ = try? SQLite.shared.run(
                 "UPDATE ig_captions SET chosen = ?, edited = NULL, updated_at = datetime('now') WHERE id = ?",
                 [.int(Int64(chosen)), .int(Int64(id))]
             )
         }
         if let edited {
             // Prázdný text znamená „zruš ruční přepis" — vrátí se vybraná varianta
-            try? SQLite.shared.run(
+            _ = try? SQLite.shared.run(
                 "UPDATE ig_captions SET edited = ?, updated_at = datetime('now') WHERE id = ?",
                 [edited.isEmpty ? .null : .text(edited), .int(Int64(id))]
             )
         }
         if let status {
-            try? SQLite.shared.run("UPDATE ig_captions SET status = ? WHERE id = ?",
+            _ = try? SQLite.shared.run("UPDATE ig_captions SET status = ? WHERE id = ?",
                                    [.text(status), .int(Int64(id))])
         }
     }
@@ -295,7 +295,7 @@ extension IgStore {
     }
 
     static func deletePost(id: Int) {
-        try? SQLite.shared.run("DELETE FROM ig_posts WHERE id = ?", [.int(Int64(id))])
+        _ = try? SQLite.shared.run("DELETE FROM ig_posts WHERE id = ?", [.int(Int64(id))])
     }
 
     static func postIdFromSource(_ sourcePostId: Int) -> Int? {
@@ -333,7 +333,7 @@ extension IgStore {
         let assignments = patch.map { "\($0.0) = ?" }.joined(separator: ", ")
         var values = patch.map { $0.1 }
         values.append(.int(Int64(id)))
-        try? SQLite.shared.run("UPDATE ig_jobs SET \(assignments) WHERE id = ?", values)
+        _ = try? SQLite.shared.run("UPDATE ig_jobs SET \(assignments) WHERE id = ?", values)
     }
 
     static func jobs(limit: Int = 80) -> [[String: Any]] {
@@ -350,7 +350,7 @@ extension IgStore {
             [.int(Int64(limit))]
         )) ?? []
 
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             [
                 "id": row["id"] ?? 0,
                 "captionId": row["caption_id"] ?? 0,
@@ -372,13 +372,13 @@ extension IgStore {
     }
 
     static func cancelJob(id: Int) {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "DELETE FROM ig_jobs WHERE id = ? AND state IN ('scheduled','failed')", [.int(Int64(id))]
         )
     }
 
     static func retryJob(id: Int) {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "UPDATE ig_jobs SET state = 'scheduled', error = NULL, scheduled_at = ? WHERE id = ? AND state = 'failed'",
             [.text(Formats.iso()), .int(Int64(id))]
         )

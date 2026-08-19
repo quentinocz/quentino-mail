@@ -225,7 +225,7 @@ extension Instagram {
         let url = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Quentino/ig-thumbs", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        _ = try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
@@ -253,7 +253,7 @@ extension Instagram {
             ?? children.first?["media_url"] as? String
         guard let address, let data = try? await IgMedia.download(address) else { return nil }
 
-        try? data.write(to: file)
+        _ = try? data.write(to: file)
         return "data:image/jpeg;base64,\(data.base64EncodedString())"
     }
 

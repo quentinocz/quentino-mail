@@ -128,8 +128,8 @@ enum MailStore {
         if let row = accountRow(id), let email = row["email"] as? String {
             Secrets.set("mail-pass-\(email)", "")
         }
-        try? SQLite.shared.run("DELETE FROM messages WHERE account_id = ?", [.int(Int64(id))])
-        try? SQLite.shared.run("DELETE FROM accounts WHERE id = ?", [.int(Int64(id))])
+        _ = try? SQLite.shared.run("DELETE FROM messages WHERE account_id = ?", [.int(Int64(id))])
+        _ = try? SQLite.shared.run("DELETE FROM accounts WHERE id = ?", [.int(Int64(id))])
         MailSync.forgetFolders(id)
         Store.touchState()
     }
@@ -225,7 +225,7 @@ enum MailStore {
             "SELECT id, filename, mime, size, path, cid FROM attachments WHERE message_pk = ?",
             [.int(Int64(dbId))]
         )) ?? []
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             [
                 "id": row["id"] ?? 0,
                 "filename": row["filename"] ?? "",
@@ -292,7 +292,7 @@ enum MailStore {
             ORDER BY send_at DESC LIMIT 100
             """
         )) ?? []
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             [
                 "id": row["id"] ?? 0,
                 "accountId": row["account_id"] ?? 0,
@@ -338,7 +338,7 @@ enum MailStore {
     }
 
     static func cancelOutbox(_ id: Int) {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "DELETE FROM outbox WHERE id = ? AND status IN ('scheduled','failed')", [.int(Int64(id))]
         )
     }
@@ -348,7 +348,7 @@ enum MailStore {
         let url = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Quentino/posta", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        _ = try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 }

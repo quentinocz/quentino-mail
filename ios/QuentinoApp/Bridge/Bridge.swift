@@ -32,8 +32,8 @@ final class Bridge: NSObject, ObservableObject, WKScriptMessageHandler {
     }
 
     /// Událost do rozhraní odkudkoliv z aplikace, i mimo hlavní vlákno.
-    static func notify(_ channel: String, _ payload: [String: Any] = [:]) {
-        Task {  in Bridge.current?.emit(channel, payload) }
+    nonisolated static func notify(_ channel: String, _ payload: [String: Any] = [:]) {
+        Task { @MainActor in Bridge.current?.emit(channel, payload) }
     }
 
     func attach(webView: WKWebView) {

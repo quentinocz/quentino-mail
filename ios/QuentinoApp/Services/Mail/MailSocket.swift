@@ -76,7 +76,7 @@ final class MailSocket {
 
     /// Bez limitu by se čtení z mrtvého spojení nikdy nevrátilo.
     private func applySocketTimeout(seconds: Int) {
-        let key = Stream.PropertyKey(kCFStreamPropertySocketNativeHandle as String)
+        let key = Stream.PropertyKey(kCFStreamPropertySocketNativeHandle.rawValue as String)
         guard let raw = input?.property(forKey: key) as? Data, raw.count >= 4 else { return }
         var handle: Int32 = 0
         withUnsafeMutableBytes(of: &handle) { buffer in

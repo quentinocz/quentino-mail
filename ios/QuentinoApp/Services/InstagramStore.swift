@@ -74,7 +74,7 @@ enum IgStore {
 
     static func accounts() -> [[String: Any]] {
         let rows = (try? SQLite.shared.query("SELECT * FROM ig_accounts ORDER BY is_source DESC, lang")) ?? []
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             [
                 "id": row["id"] ?? 0,
                 "igUserId": row["ig_user_id"] ?? "",
@@ -129,7 +129,7 @@ enum IgStore {
         let source = existing.map { ($0["is_source"] as? Int ?? 0) == 1 } ?? (isSource ?? (lang == "CS"))
         let color = markets().first { ($0["lang"] as? String) == lang }?["color"] as? String ?? "#7c5cff"
 
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             """
             INSERT INTO ig_accounts (ig_user_id, username, lang, color, is_source, token_enc, token_expires,
               connected_at, last_error, page_id, page_name)
@@ -147,7 +147,7 @@ enum IgStore {
         )
         Secrets.set("ig-token-\(igUserId)", token)
         if source {
-            try? SQLite.shared.run("UPDATE ig_accounts SET is_source = 0 WHERE ig_user_id != ?", [.text(igUserId)])
+            _ = try? SQLite.shared.run("UPDATE ig_accounts SET is_source = 0 WHERE ig_user_id != ?", [.text(igUserId)])
         }
         Store.touchState()
         return account(lang: lang)
@@ -156,14 +156,14 @@ enum IgStore {
     static func setAccountToken(accountId: Int, token: String, expires: Date) {
         guard let account = account(id: accountId), let igUserId = account["igUserId"] as? String else { return }
         Secrets.set("ig-token-\(igUserId)", token)
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "UPDATE ig_accounts SET token_expires = ?, last_error = NULL WHERE id = ?",
             [.text(Formats.iso(expires)), .int(Int64(accountId))]
         )
     }
 
     static func setAccountError(accountId: Int, message: String?) {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "UPDATE ig_accounts SET last_error = ? WHERE id = ?",
             [message.map { SQLite.Value.text($0) } ?? .null, .int(Int64(accountId))]
         )
@@ -173,18 +173,18 @@ enum IgStore {
         if let account = account(id: id), let igUserId = account["igUserId"] as? String {
             Secrets.set("ig-token-\(igUserId)", "")
         }
-        try? SQLite.shared.run("DELETE FROM ig_accounts WHERE id = ?", [.int(Int64(id))])
+        _ = try? SQLite.shared.run("DELETE FROM ig_accounts WHERE id = ?", [.int(Int64(id))])
         Store.touchState()
     }
 
     static func setSource(id: Int) {
-        try? SQLite.shared.run("UPDATE ig_accounts SET is_source = 0")
-        try? SQLite.shared.run("UPDATE ig_accounts SET is_source = 1 WHERE id = ?", [.int(Int64(id))])
+        _ = try? SQLite.shared.run("UPDATE ig_accounts SET is_source = 0")
+        _ = try? SQLite.shared.run("UPDATE ig_accounts SET is_source = 1 WHERE id = ?", [.int(Int64(id))])
         Store.touchState()
     }
 
     static func setShareFb(id: Int, value: Bool) {
-        try? SQLite.shared.run("UPDATE ig_accounts SET share_fb = ? WHERE id = ?",
+        _ = try? SQLite.shared.run("UPDATE ig_accounts SET share_fb = ? WHERE id = ?",
                                [.int(value ? 1 : 0), .int(Int64(id))])
         Store.touchState()
     }
@@ -203,14 +203,14 @@ enum IgStore {
         let count = ((try? SQLite.shared.query("SELECT COUNT(*) AS c FROM ig_markets"))?.first?["c"] as? Int) ?? 0
         if count == 0 {
             for (index, market) in defaultMarkets.enumerated() {
-                try? SQLite.shared.run(
+                _ = try? SQLite.shared.run(
                     "INSERT INTO ig_markets (lang, label, note, tags, color, enabled, ord) VALUES (?,?,?,'',?,1,?)",
                     [.text(market.0), .text(market.1), .text(market.3), .text(market.2), .int(Int64(index))]
                 )
             }
         }
         let rows = (try? SQLite.shared.query("SELECT * FROM ig_markets ORDER BY ord, lang")) ?? []
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             [
                 "lang": row["lang"] ?? "",
                 "label": row["label"] ?? "",
@@ -224,7 +224,7 @@ enum IgStore {
 
     static func saveMarket(_ market: [String: Any]) -> [[String: Any]] {
         guard let lang = (market["lang"] as? String)?.uppercased(), !lang.isEmpty else { return markets() }
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             """
             INSERT INTO ig_markets (lang, label, note, tags, color, enabled, ord)
             VALUES (?,?,?,?,?,?,(SELECT COALESCE(MAX(ord)+1,0) FROM ig_markets))
@@ -242,7 +242,7 @@ enum IgStore {
     }
 
     static func deleteMarket(lang: String) -> [[String: Any]] {
-        try? SQLite.shared.run("DELETE FROM ig_markets WHERE lang = ?", [.text(lang)])
+        _ = try? SQLite.shared.run("DELETE FROM ig_markets WHERE lang = ?", [.text(lang)])
         Store.touchState()
         return markets()
     }

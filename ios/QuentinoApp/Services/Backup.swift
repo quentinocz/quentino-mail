@@ -172,10 +172,10 @@ enum Backup {
                       let content = item["content"] as? String, !content.isEmpty else { continue }
                 let existing = (try? SQLite.shared.query("SELECT id FROM knowledge WHERE title = ?", [.text(title)]))?.first
                 if let id = existing?["id"] as? Int {
-                    try? SQLite.shared.run("UPDATE knowledge SET content = ? WHERE id = ?",
+                    _ = try? SQLite.shared.run("UPDATE knowledge SET content = ? WHERE id = ?",
                                            [.text(content), .int(Int64(id))])
                 } else {
-                    try? SQLite.shared.run("INSERT INTO knowledge (title, content) VALUES (?,?)",
+                    _ = try? SQLite.shared.run("INSERT INTO knowledge (title, content) VALUES (?,?)",
                                            [.text(title), .text(content)])
                 }
                 count += 1
@@ -194,7 +194,7 @@ enum Backup {
                 let existing = (try? SQLite.shared.query("SELECT id FROM persons WHERE name = ?", [.text(name)]))?.first
 
                 if let id = existing?["id"] as? Int {
-                    try? SQLite.shared.run(
+                    _ = try? SQLite.shared.run(
                         """
                         UPDATE persons SET position_cz=?, position_sk=?, position_en=?,
                           display_cz=?, display_sk=?, display_en=?,
@@ -207,7 +207,7 @@ enum Backup {
                         ]
                     )
                 } else {
-                    try? SQLite.shared.run(
+                    _ = try? SQLite.shared.run(
                         """
                         INSERT INTO persons (name, position, position_cz, position_sk, position_en,
                           display_cz, display_sk, display_en, photo_path)
@@ -252,7 +252,7 @@ enum Backup {
                 ]
 
                 if let id = existing?["id"] as? Int {
-                    try? SQLite.shared.run(
+                    _ = try? SQLite.shared.run(
                         """
                         UPDATE accounts SET name=?, imap_host=?, imap_port=?, imap_secure=?,
                           smtp_host=?, smtp_port=?, smtp_secure=?, username=?,
@@ -262,7 +262,7 @@ enum Backup {
                     )
                     updated += 1
                 } else {
-                    try? SQLite.shared.run(
+                    _ = try? SQLite.shared.run(
                         """
                         INSERT INTO accounts (name, email, imap_host, imap_port, imap_secure,
                           smtp_host, smtp_port, smtp_secure, username, pass_enc,
@@ -283,7 +283,7 @@ enum Backup {
         if let markets = data["igMarkets"] as? [[String: Any]] {
             for market in markets {
                 guard let lang = market["lang"] as? String, !lang.isEmpty else { continue }
-                try? SQLite.shared.run(
+                _ = try? SQLite.shared.run(
                     """
                     INSERT INTO ig_markets (lang, label, note, tags, color, enabled, ord)
                     VALUES (?,?,?,?,?,?,?)
@@ -305,7 +305,7 @@ enum Backup {
             for account in igAccounts {
                 guard let igUserId = account["ig_user_id"] as? String, !igUserId.isEmpty else { continue }
                 if let token = igTokens[igUserId], !token.isEmpty { Secrets.set("ig-token-\(igUserId)", token) }
-                try? SQLite.shared.run(
+                _ = try? SQLite.shared.run(
                     """
                     INSERT INTO ig_accounts (ig_user_id, username, lang, color, is_source, token_enc,
                       token_expires, page_id, page_name, share_fb)
@@ -351,7 +351,7 @@ enum Backup {
               let base64 = entry["data"], let data = Data(base64Encoded: base64) else { return nil }
         let safe = (entry["name"] ?? "obrazek").filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" }
         let target = Files.scratch.appendingPathComponent("\(Int(Date().timeIntervalSince1970))-\(safe)")
-        try? data.write(to: target)
+        _ = try? data.write(to: target)
         return FileManager.default.fileExists(atPath: target.path) ? target.path : nil
     }
 

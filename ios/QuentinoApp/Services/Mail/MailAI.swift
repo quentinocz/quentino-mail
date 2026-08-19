@@ -31,7 +31,7 @@ enum MailAI {
                 + "Předmět: \(row["subject"] as? String ?? "")\n\n\(text(row, limit: 4000))",
             maxTokens: 100
         )
-        try? SQLite.shared.run("UPDATE messages SET summary = ? WHERE id = ?",
+        _ = try? SQLite.shared.run("UPDATE messages SET summary = ? WHERE id = ?",
                                [.text(summary), .int(Int64(dbId))])
         Bridge.notify("messages:changed", ["accountId": row["account_id"] as? Int ?? 0])
         return summary
@@ -101,7 +101,7 @@ enum MailAI {
 
     private static func setCategory(_ category: String, _ dbId: Int) {
         guard dbId > 0 else { return }
-        try? SQLite.shared.run("UPDATE messages SET category = ? WHERE id = ?",
+        _ = try? SQLite.shared.run("UPDATE messages SET category = ? WHERE id = ?",
                                [.text(category), .int(Int64(dbId))])
     }
 
@@ -270,7 +270,7 @@ enum MailAI {
         let rest = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         let translation = rest == "SKIP" ? "" : rest
 
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "UPDATE messages SET detected_lang = ?, translation_cz = ? WHERE id = ?",
             [.text(language), .text(translation), .int(Int64(dbId))]
         )

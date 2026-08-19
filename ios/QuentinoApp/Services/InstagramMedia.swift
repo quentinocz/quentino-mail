@@ -186,7 +186,7 @@ enum IgMedia {
         let url = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Quentino/ig-media", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        _ = try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 

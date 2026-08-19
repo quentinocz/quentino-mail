@@ -127,8 +127,8 @@ enum AppSync {
                 let name = "\(stableHash(person["name"] as? String ?? ""))-\(sanitize((path as NSString).lastPathComponent))"
                 let destination = mediaDir.appendingPathComponent(name)
                 if !FileManager.default.fileExists(atPath: destination.path) {
-                    try? FileManager.default.createDirectory(at: mediaDir, withIntermediateDirectories: true)
-                    try? FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: destination)
+                    _ = try? FileManager.default.createDirectory(at: mediaDir, withIntermediateDirectories: true)
+                    _ = try? FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: destination)
                 }
                 photoFile = name
             }
@@ -166,17 +166,17 @@ enum AppSync {
 
         // Znalosti — kompletní náhrada novějším stavem
         if let knowledge = remote["knowledge"] as? [[String: Any]] {
-            try? SQLite.shared.run("DELETE FROM knowledge")
+            _ = try? SQLite.shared.run("DELETE FROM knowledge")
             for item in knowledge {
                 guard let title = item["title"] as? String, !title.isEmpty else { continue }
-                try? SQLite.shared.run("INSERT INTO knowledge (title, content) VALUES (?,?)",
+                _ = try? SQLite.shared.run("INSERT INTO knowledge (title, content) VALUES (?,?)",
                                        [.text(title), .text(item["content"] as? String ?? "")])
             }
         }
 
         // Osoby — kompletní náhrada, fotky ze složky media
         if let persons = remote["persons"] as? [[String: Any]] {
-            try? SQLite.shared.run("DELETE FROM persons")
+            _ = try? SQLite.shared.run("DELETE FROM persons")
             for person in persons {
                 guard let name = person["name"] as? String, !name.isEmpty else { continue }
                 var photoPath: String?
@@ -185,14 +185,14 @@ enum AppSync {
                     let target = Files.scratch.appendingPathComponent(file)
                     if FileManager.default.fileExists(atPath: source.path) {
                         if !FileManager.default.fileExists(atPath: target.path) {
-                            try? FileManager.default.copyItem(at: source, to: target)
+                            _ = try? FileManager.default.copyItem(at: source, to: target)
                         }
                         photoPath = target.path
                     }
                 }
                 let positions = person["positions"] as? [String: String] ?? [:]
                 let display = person["displayNames"] as? [String: String] ?? [:]
-                try? SQLite.shared.run(
+                _ = try? SQLite.shared.run(
                     """
                     INSERT INTO persons (name, position, position_cz, position_sk, position_en,
                       display_cz, display_sk, display_en, photo_path)
@@ -224,7 +224,7 @@ enum AppSync {
         if let remote = readJson(file) as? [[String: Any]] {
             for contact in remote {
                 guard let email = (contact["email"] as? String)?.lowercased(), !email.isEmpty else { continue }
-                try? SQLite.shared.run(
+                _ = try? SQLite.shared.run(
                     """
                     INSERT INTO contacts (email, name, uses, last_used) VALUES (?,?,?,?)
                     ON CONFLICT(email) DO UPDATE SET
@@ -241,7 +241,7 @@ enum AppSync {
             }
         }
         let all = (try? SQLite.shared.query("SELECT email, name, uses, last_used FROM contacts")) ?? []
-        try? writeJson(all, to: file)
+        _ = try? writeJson(all, to: file)
     }
 
     // MARK: - Poukazy
@@ -260,7 +260,7 @@ enum AppSync {
         for template in remote?["templates"] as? [[String: Any]] ?? [] {
             guard let id = template["id"] as? String, let name = template["name"] as? String,
                   !id.isEmpty, !name.isEmpty else { continue }
-            try? SQLite.shared.run(
+            _ = try? SQLite.shared.run(
                 """
                 INSERT INTO voucher_templates (id, name, value, unit, valid_until, note, lang,
                   code_mode, fixed_code, archived, updated_at)
@@ -289,7 +289,7 @@ enum AppSync {
         for code in remote?["codes"] as? [[String: Any]] ?? [] {
             guard let templateId = code["template_id"] as? String, let value = code["code"] as? String,
                   !templateId.isEmpty, !value.isEmpty else { continue }
-            try? SQLite.shared.run(
+            _ = try? SQLite.shared.run(
                 """
                 INSERT INTO voucher_codes (template_id, code, used_at, used_for, created_at)
                 VALUES (?,?,?,?,?)
@@ -320,7 +320,7 @@ enum AppSync {
             "templates": (try? SQLite.shared.query("SELECT * FROM voucher_templates")) ?? [],
             "codes": (try? SQLite.shared.query("SELECT * FROM voucher_codes")) ?? []
         ]
-        try? writeJson(out, to: file)
+        _ = try? writeJson(out, to: file)
     }
 
     // MARK: - Soubory

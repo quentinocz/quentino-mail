@@ -58,7 +58,7 @@ enum MediaPicker {
                 var paths: [String] = []
                 for url in urls {
                     let target = uniqueFile(named: url.lastPathComponent)
-                    try? FileManager.default.copyItem(at: url, to: target)
+                    _ = try? FileManager.default.copyItem(at: url, to: target)
                     if FileManager.default.fileExists(atPath: target.path) { paths.append(target.path) }
                 }
                 continuation.resume(returning: paths)
@@ -165,12 +165,12 @@ enum MediaPicker {
         let isPng = data.count > 8 && data[0] == 0x89 && data[1] == 0x50
         if isJpeg || isPng {
             let target = uniqueFile(named: "foto-\(stamp()).\(isPng ? "png" : "jpg")")
-            try? data.write(to: target)
+            _ = try? data.write(to: target)
             return target.path
         }
         guard let image = UIImage(data: data), let jpeg = image.jpegData(compressionQuality: 0.92) else { return nil }
         let target = uniqueFile(named: "foto-\(stamp()).jpg")
-        try? jpeg.write(to: target)
+        _ = try? jpeg.write(to: target)
         return target.path
     }
 
@@ -197,7 +197,7 @@ enum MediaPicker {
                     ? "media-\(Int(Date().timeIntervalSince1970)).\(fallbackExtension)"
                     : url.lastPathComponent
                 let target = uniqueFile(named: name)
-                try? FileManager.default.copyItem(at: url, to: target)
+                _ = try? FileManager.default.copyItem(at: url, to: target)
                 continuation.resume(returning: FileManager.default.fileExists(atPath: target.path) ? target.path : nil)
             }
         }
