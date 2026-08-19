@@ -5,6 +5,7 @@ import { useToast } from '../../toast';
 import Icon from '../Icon';
 import WorkspaceSwitch, { Workspace } from '../WorkspaceSwitch';
 import { SidebarResizer } from '../../sidebar';
+import { useIsPhone } from '../../mobile';
 import IgFeed from './IgFeed';
 import IgCompose from './IgCompose';
 import IgQueue from './IgQueue';
@@ -25,6 +26,7 @@ interface Props {
  */
 export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUnread }: Props) {
   const toast = useToast();
+  const phone = useIsPhone();
   const [view, setView] = useState<IgView>('feed');
   const [overview, setOverview] = useState<IgOverview | null>(null);
   const [postId, setPostId] = useState<number | null>(null);
@@ -90,7 +92,9 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
         <WorkspaceSwitch current="instagram" onChange={onWorkspace} chatUnread={chatUnread} />
 
         <button className="btn-compose" onClick={newPost}>
-          <Icon name="plus" size={15} /> Nový příspěvek
+          {/* Na telefonu je z panelu vodorovný pás — dlouhý popisek by z něj
+              vytlačil ostatní záložky */}
+          <Icon name="plus" size={15} /> {phone ? 'Nový' : 'Nový příspěvek'}
         </button>
 
         <div className="side-scroll">

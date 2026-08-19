@@ -23,3 +23,6 @@ ios/build/
 
 # Dočasné soubory připojené složky
 .fuse_hidden*
+
+# Náhledy z tools/preview-phone.mjs
+tools/shots/

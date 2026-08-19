@@ -356,14 +356,14 @@ function AppInner() {
         view={view}
         onSelectView={v => { setView(v); setSelectedId(null); setDetail(null); setDrawer(false); }}
         catStats={catStats}
-        onCompose={() => activeAccount && startCompose({ mode: 'new', accountId: activeAccount.id })}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenOutbox={() => setOutboxOpen(true)}
+        onCompose={() => { setDrawer(false); if (activeAccount) startCompose({ mode: 'new', accountId: activeAccount.id }); }}
+        onOpenSettings={() => { setDrawer(false); setSettingsOpen(true); }}
+        onOpenOutbox={() => { setDrawer(false); setOutboxOpen(true); }}
         onSyncAll={refresh}
         syncing={syncing}
         quota={quota}
-        onOpenDigest={() => setDigestOpen(true)}
-        onOpenPacking={() => setPackingOpen(true)}
+        onOpenDigest={() => { setDrawer(false); setDigestOpen(true); }}
+        onOpenPacking={() => { setDrawer(false); setPackingOpen(true); }}
         orderPending={orderPending}
         onWorkspace={setWorkspace}
         chatUnread={chatUnread}

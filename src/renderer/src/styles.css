@@ -3080,9 +3080,11 @@ html[data-form-factor="phone"] .m-only { display: inline-flex; }
 
 html[data-form-factor="phone"] .app {
   grid-template-columns: 1fr !important;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   height: 100dvh;
   overflow: hidden;
+  /* Místo pro spodní přepínač, který stojí napevno přes celou šířku */
+  padding-bottom: calc(var(--m-tabs-h) + var(--safe-bottom));
 }
 
 html[data-form-factor="phone"] .pane-resizer { display: none !important; }
@@ -3171,11 +3173,14 @@ html[data-form-factor="phone"] .app:not(.ch-app):not(.ig-app) .sidebar {
   z-index: 60;
   transform: translateX(-102%);
   transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  /* Leží nad spodní lištou (z-index 60 vs 40), takže má celou výšku */
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.22);
   padding-top: var(--safe-top);
   padding-bottom: var(--safe-bottom);
 }
-html[data-form-factor="phone"] .app[data-drawer="open"] .sidebar { transform: translateX(0); }
+html[data-form-factor="phone"] .app:not(.ch-app):not(.ig-app)[data-drawer="open"] .sidebar {
+  transform: translateX(0);
+}
 
 html[data-form-factor="phone"] .m-scrim {
   position: fixed;
@@ -3193,9 +3198,16 @@ html[data-form-factor="phone"] .ig-switch { display: none; }
 
 .m-tabs { display: none; }
 
+/*
+   Napevno u spodního okraje, ne jako řádek mřížky: v chatu a na sociálních
+   sítích je lišta sourozencem `.app`, ne jejím dítětem, a v mřížce by se
+   neměla o co opřít — sjela by pod okraj obrazovky.
+*/
 html[data-form-factor="phone"] .m-tabs {
-  grid-row: 3;
-  grid-column: 1;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   align-items: stretch;
@@ -3273,16 +3285,21 @@ html[data-form-factor="phone"] .ig-app .sidebar-footer {
 }
 html[data-form-factor="phone"] .ig-app .side-item {
   flex: 0 0 auto;
+  /* Základní pravidlo panelu roztahuje položku přes celou šířku — v pásu
+     by z jedné pilulky byl celý řádek */
+  width: auto;
   height: 38px;
   padding: 0 14px;
   border-radius: 19px;
-  background: var(--accent-soft);
+  background: #efedf4;
   white-space: nowrap;
+  gap: 6px;
 }
 html[data-form-factor="phone"] .ig-app .side-item.active { background: var(--accent-soft); }
 html[data-form-factor="phone"] .ig-app .btn-compose {
   flex: 0 0 auto;
   width: auto;
+  white-space: nowrap;
   margin: 0;
   height: 38px;
   padding: 0 14px;
@@ -3371,3 +3388,71 @@ html[data-form-factor="phone"] .locked-bar {
   font-size: 12.5px;
   flex-wrap: wrap;
 }
+
+/* ---------- Doladěno podle náhledů na iPhonu ---------- */
+
+/* Hlášky musí zůstat nad spodní lištou, ne pod ní */
+html[data-form-factor="phone"] .toast-wrap {
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--m-tabs-h) + var(--safe-bottom) + 12px);
+}
+html[data-form-factor="phone"] .toast { max-width: none; }
+
+/* Název složky je v hlavičce, v seznamu by byl podruhé */
+html[data-form-factor="phone"] .list-title { display: none; }
+/* Hromadný výběr se na telefonu nepoužívá — zabíral celý řádek */
+html[data-form-factor="phone"] .select-hint { display: none; }
+
+/* Chat: seznam konverzací začíná hned, ne až v třetině obrazovky */
+html[data-form-factor="phone"] .ch-app .sidebar { padding-top: 10px; }
+html[data-form-factor="phone"] .ch-app .brand { margin-bottom: 8px; }
+
+/* Sociální sítě: do pásu se vejde víc a je vidět, že pokračuje za okraj */
+html[data-form-factor="phone"] .ig-app .sidebar {
+  padding: calc(var(--safe-top) + 6px) 10px 6px;
+  -webkit-mask-image: linear-gradient(to right, #000 0 92%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 0 92%, transparent 100%);
+}
+html[data-form-factor="phone"] .ig-app .side-item,
+html[data-form-factor="phone"] .ig-app .btn-compose {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-radius: 17px;
+}
+html[data-form-factor="phone"] .ig-app .side-item .count { margin-left: 4px; }
+
+/*
+   Vrstvy na telefonu. Dialog je tu celoobrazovkový, takže musí překrýt
+   i spodní lištu — jinak se do něj prokresluje a schová poslední řádky.
+   Pořadí zdola: přepínač (30) → zásuvka a její stín (50/60) → dialog (80)
+   → hlášky (100).
+*/
+html[data-form-factor="phone"] .m-tabs { z-index: 30; }
+html[data-form-factor="phone"] .overlay { z-index: 80; }
+
+/* Záložky nastavení pokračují za okraj — ať je to poznat */
+html[data-form-factor="phone"] .modal .tabs,
+html[data-form-factor="phone"] .modal-tabs {
+  -webkit-mask-image: linear-gradient(to right, #000 0 93%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 0 93%, transparent 100%);
+}
+
+/* Dvousloupcové formuláře a prohlížeče z desktopu se na telefon vejdou
+   jen na výšku — jinak polovina zmizí za pravým okrajem. */
+html[data-form-factor="phone"] .field-grid,
+html[data-form-factor="phone"] .pk-panels,
+html[data-form-factor="phone"] .oc-addrs {
+  grid-template-columns: 1fr;
+}
+html[data-form-factor="phone"] .pb-body,
+html[data-form-factor="phone"] .pk-body {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+}
+/* Postranní filtry prohlížeče produktů se složí nad výpis */
+html[data-form-factor="phone"] .pb-body > :nth-child(3) { display: none; }
+
+/* Bez názvu složky (ten je v hlavičce) zbývá v řádku jen obnovení — patří doprava */
+html[data-form-factor="phone"] .list-title-row { justify-content: flex-end; }
