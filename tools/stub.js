@@ -54,18 +54,105 @@
     'quota:get': { used: 2000000000, limit: 10000000000 },
     'orderlinks:pending': 0,
     'orderlinks:refresh': { orders: 0, links: 0 },
-    'orders:badge': null,
-    'orders:card': null,
-    'chat:overview': { config: { url: '', hasKey: false, apiBase: '', ready: false, operatorPersonId: 0, signMode: 'first', signSuffix: 'Quentino' }, persons: [], unread: 2, waiting: 1 },
-    'chat:conversations': [],
+    'orders:badge': {
+      orderNumber: '20260819', total: '2\u00a0480 Kč', status: 'Odeslána', tone: 'sent',
+      carrierName: 'Zásilkovna', shipmentStage: 'na cestě'
+    },
+    'orders:card': {
+      orderNumber: '20260819', lang: 'cz', placedAt: '2026-08-12T09:14:00Z',
+      customerEmail: 'zakaznik0@seznam.cz', customerPhone: '+420 777 123 456',
+      billing: { name: 'Jana Nováková', company: null, lines: ['Dlouhá 12', '110 00 Praha 1'], country: 'CZ' },
+      shipping: { name: 'Jana Nováková', company: null, lines: ['Z-Box Praha 1, Dlouhá'], country: 'CZ' },
+      items: [
+        { qty: 1, unit: 'ks', title: 'Kožený pásek Quentino — hnědý', code: 'QP-118', url: null,
+          price: '1\u00a0290 Kč', availability: 'Skladem', variants: ['Délka: 110 cm'],
+          image: null, feedUrl: null, feedPrice: null, matched: false },
+        { qty: 2, unit: 'ks', title: 'Manžetové knoflíčky Onyx', code: 'QM-042', url: null,
+          price: '595 Kč', availability: 'Skladem', variants: [],
+          image: null, feedUrl: null, feedPrice: null, matched: false }
+      ],
+      shipmentName: 'Zásilkovna', shipmentPrice: '79 Kč',
+      paymentName: 'Kartou online', paymentPrice: '0 Kč',
+      total: '2\u00a0480 Kč', historyUrl: null, adminUrl: 'https://example.upgates.cz/order/1', adminSource: 'api',
+      live: {
+        status: 'Odeslána', paid: true, paidDate: '2026-08-12', deliveredDate: null,
+        trackingCode: 'Z 1234 5678', trackingUrl: 'https://tracking.packeta.com/Z12345678',
+        adminUrl: 'https://example.upgates.cz/order/1'
+      },
+      tracking: {
+        source: 'api', status: 'Odeslána', createdAt: '2026-08-12T09:14:00Z', paidDate: '2026-08-12',
+        customerPhone: '+420 777 123 456', carrierId: null, carrierName: 'Zásilkovna',
+        trackingCode: 'Z 1234 5678', trackingUrl: 'https://tracking.packeta.com/Z12345678',
+        shipment: { description: 'Předáno dopravci', at: '2026-08-12T14:02:00Z', phase: 'transit' },
+        shipmentError: null
+      }
+    },
+    'customer:context': {
+      email: 'zakaznik0@seznam.cz', name: 'Jana Nováková', total: 3,
+      messages: [
+        { id: 1, folder: 'INBOX', subject: 'Dotaz k objednávce 20260819', date: '2026-08-19T14:26:00Z',
+          snippet: 'Dobrý den, chtěl bych se zeptat…', seen: false, outgoing: false },
+        { id: 90, folder: 'Sent', subject: 'Re: Potvrzení objednávky', date: '2026-08-13T08:10:00Z',
+          snippet: 'Dobrý den, objednávka byla expedována…', seen: true, outgoing: true }
+      ],
+      orders: []
+    },
+    'chat:overview': {
+      config: { url: 'https://x.supabase.co', hasKey: true, apiBase: 'https://quentino.cz', ready: true,
+        operatorPersonId: 1, signMode: 'first', signSuffix: 'Quentino' },
+      persons: [{ id: 1, name: 'Petra Nováková', short: 'Petra' }, { id: 2, name: 'Tomáš Kraus', short: 'Tomáš' }],
+      unread: 2, waiting: 1
+    },
+    'chat:conversations': [
+      { id: 'c1', sessionId: 'abc123def', status: 'open', name: 'Jana Nováková', email: 'jana@seznam.cz',
+        phone: '+420 777 123 456', locale: 'cs', lastMessageAt: new Date(Date.now() - 4 * 60e3).toISOString(),
+        unread: 2, channel: 'widget', createdAt: new Date(Date.now() - 40 * 60e3).toISOString(),
+        leftAt: null, answered: false },
+      { id: 'c2', sessionId: 'ff8812aa', status: 'open', name: null, email: null, phone: null,
+        locale: 'sk', lastMessageAt: new Date(Date.now() - 55 * 60e3).toISOString(), unread: 0,
+        channel: 'widget', createdAt: new Date(Date.now() - 90 * 60e3).toISOString(),
+        leftAt: new Date(Date.now() - 50 * 60e3).toISOString(), answered: true },
+      { id: 'c3', sessionId: '77aa11bb', status: 'closed', name: 'Peter Kovac', email: 'peter@gmail.com',
+        phone: null, locale: 'en', lastMessageAt: new Date(Date.now() - 26 * 3600e3).toISOString(),
+        unread: 0, channel: 'telegram', createdAt: new Date(Date.now() - 30 * 3600e3).toISOString(),
+        leftAt: null, answered: true }
+    ],
+    'chat:messages': [
+      { id: 'm1', conversationId: 'c1', sender: 'customer',
+        content: 'Dobry den, objednala jsem u vas pasek a chtela bych vedet, jestli uz je odeslany.',
+        contentType: 'text', createdAt: new Date(Date.now() - 30 * 60e3).toISOString(), readAt: null },
+      { id: 'm2', conversationId: 'c1', sender: 'operator',
+        content: 'Dobry den, dekuji za zpravu. Objednavku 20260819 jsme predali Zasilkovne dnes rano.\nPetra, Quentino',
+        contentType: 'text', createdAt: new Date(Date.now() - 22 * 60e3).toISOString(),
+        readAt: new Date(Date.now() - 21 * 60e3).toISOString() },
+      { id: 'm3', conversationId: 'c1', sender: 'customer',
+        content: 'Super, dekuji! A jeste bych se zeptala, jestli mate ten pasek i v cerne barve a v delce 115 cm?',
+        contentType: 'text', createdAt: new Date(Date.now() - 6 * 60e3).toISOString(), readAt: null },
+      { id: 'm4', conversationId: 'c1', sender: 'customer',
+        content: 'Pripadne jestli byste mi mohli poslat foto.',
+        contentType: 'text', createdAt: new Date(Date.now() - 4 * 60e3).toISOString(), readAt: null }
+    ],
+    'chat:markRead': null,
+    'chat:suggest': 'Dobry den, cerny pasek v delce 115 cm mame skladem.',
+    'chat:cards': [],
+    'chat:searchProducts': [],
     'ig:overview': {
       accounts: [], expiringSoon: 0,
       markets: [{ lang: 'CS', label: 'Čeština', note: '', tags: '', color: '#232849', enabled: true }],
       brand: { context: '', loveOn: false, love: '', tones: [], avoid: '', rules: '', emoji: 'sparse', variants: 2, useKnowledge: false },
       connection: { hasAppId: false, hasAppSecret: false, appId: '', callbackUrl: '', storage: { url: '', bucket: 'instagram', hasKey: false }, autoSync: true },
-      storageReady: false, queued: 0, failed: 0, hasSource: false
+      storageReady: true, queued: 2, failed: 0, hasSource: true
     },
-    'ig:feed': [], 'ig:drafts': [], 'ig:jobs': [], 'ig:markets': [],
+    'ig:feed': Array.from({ length: 8 }, (_, i) => ({
+      id: i + 1, igMediaId: 'm' + i, mediaType: i % 3 === 0 ? 'VIDEO' : 'IMAGE',
+      permalink: 'https://instagram.com/p/x' + i,
+      caption: 'Nová kolekce koženého zboží — ručně šité pásky z italské kůže. #quentino',
+      postedAt: new Date(Date.now() - i * 86400e3).toISOString(),
+      likeCount: 120 + i * 7, commentCount: 3 + i, childCount: i % 4 === 0 ? 3 : 0,
+      done: i % 2 === 0 ? ['CS', 'EN'] : ['CS'], pending: i % 3 === 0 ? ['DE'] : []
+    })),
+    'ig:thumb': null,
+    'ig:drafts': [], 'ig:jobs': [], 'ig:markets': [],
     'products:status': { url: '', count: 0, lastSync: null },
     'vouchers:list': []
   };

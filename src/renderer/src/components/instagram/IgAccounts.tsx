@@ -182,7 +182,7 @@ export default function IgAccounts({ overview, onChanged }: Props) {
                   </button>
                 ))}
               </div>
-              {!appId && <p className="ig-muted">Nejdřív vyplň App ID Meta aplikace vpravo.</p>}
+              {!appId && <p className="ig-muted">Nejdřív vyplň App ID v sekci Meta aplikace.</p>}
               {overview.accounts.length > 0 && (
                 <p className="ig-muted">
                   Přístup z prvního přihlášení si aplikace pamatuje, takže další trh

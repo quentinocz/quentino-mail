@@ -59,12 +59,20 @@ extension Bridge {
         // Karty objednávek a balení stojí na rozboru potvrzovacích e-mailů
         // a na stahování stránek dopravců. Na telefonu se to nehodí (je to
         // práce u počítače), takže se hlásí poctivě, že to tu není.
+        // MARK: Objednávka u zprávy
+
+        register("orders:card") { args in await Orders.card(dbId: try Self.int(args.first)) }
+        register("orders:refresh") { args in await Orders.card(dbId: try Self.int(args.first)) }
+        register("orders:badge") { args in await Orders.badge(dbId: try Self.int(args.first)) }
+        register("orders:shipment") { args in await Orders.shipment(dbId: try Self.int(args.first)) }
+
+        // Balení a ruční opravy hlášek dopravců jsou práce u stolu; vazby zpráv
+        // na objednávky staví na rozboru e-mailů, který na telefonu není.
         pending([
-            "orders:card", "orders:badge", "orders:refresh", "orders:shipment",
             "orderlinks:refresh", "orderlinks:pending", "orderlinks:resolve",
             "packing:scan", "packing:setItem", "packing:setDone", "packing:reset",
             "ship:relearn"
-        ], "Objednávkové karty a balení jsou zatím jen na počítači")
+        ], "Balení a vazby na objednávky jsou zatím jen na počítači")
     }
 
     func registerFileChannels() {

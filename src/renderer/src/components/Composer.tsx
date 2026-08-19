@@ -3,6 +3,8 @@ import type { AccountPublic, ComposeDraft, Person, ProductHit, MailLang, Product
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import { Sheet, SheetActions } from './Sheet';
+import { useIsPhone } from '../mobile';
 import VoucherDialog from './VoucherDialog';
 import AddressInput from './AddressInput';
 import ProductBrowser from './ProductBrowser';
@@ -199,6 +201,9 @@ export default function Composer(p: Props) {
   const [aiNote, setAiNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const phone = useIsPhone();
+  // Šest nástrojů se do lišty na telefonu nevejde — schovají se za jedno tlačítko
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [sendAt, setSendAt] = useState('');
   const [translateOut, setTranslateOut] = useState(false);
   const [targetLang, setTargetLang] = useState('');
@@ -549,17 +554,20 @@ export default function Composer(p: Props) {
       <div className="composer" ref={composerRef} style={composerStyle}>
         <div className="composer-head">
           <span>{p.init.mode === 'reply' ? 'Odpověď' : p.init.mode === 'forward' ? 'Přeposlat' : 'Nová zpráva'}</span>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            {(size || maximized) && (
+          <div className="composer-head-tools" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            {/* Velikost okna se mění jen na počítači — na telefonu je zpráva vždy přes celou obrazovku */}
+            {!phone && (size || maximized) && (
               <button className="icon-btn" data-tip="Vrátit výchozí velikost okna" onClick={resetSize}>
                 <Icon name="refresh" size={14} />
               </button>
             )}
-            <button className="icon-btn"
-              data-tip={maximized ? 'Zmenšit okno' : 'Roztáhnout okno přes celou plochu'}
-              onClick={() => setMaximized(v => !v)}>
-              <Icon name="expand" size={14} style={maximized ? { transform: 'rotate(180deg)' } : undefined} />
-            </button>
+            {!phone && (
+              <button className="icon-btn"
+                data-tip={maximized ? 'Zmenšit okno' : 'Roztáhnout okno přes celou plochu'}
+                onClick={() => setMaximized(v => !v)}>
+                <Icon name="expand" size={14} style={maximized ? { transform: 'rotate(180deg)' } : undefined} />
+              </button>
+            )}
             <button className="icon-btn" data-tip="Zavřít bez odeslání" onClick={p.onClose}><Icon name="x" size={15} /></button>
           </div>
         </div>
@@ -608,7 +616,7 @@ export default function Composer(p: Props) {
                   return <option key={x.id} value={x.id}>{x.name}{pos ? ` · ${pos}` : ''}</option>;
                 })}
               </select>
-              <span style={{ fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)', whiteSpace: phone ? 'normal' : 'nowrap' }}>
                 odesílatel: <b style={{ color: 'var(--text-2)' }}>{senderName}</b>
               </span>
             </div>
@@ -685,11 +693,12 @@ export default function Composer(p: Props) {
             </div>
           )}
 
-          <div className="compose-row" style={{ gap: 8 }}>
+          <div className="compose-row compose-translate" style={{ gap: 8 }}>
             <label style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 5 }}>
               <Icon name="globe" size={14} /> Přeložit do
             </label>
-            <select value={targetLang} onChange={e => setTargetLang(e.target.value)} style={{ flex: 'none', width: 170 }}>
+            <select value={targetLang} onChange={e => setTargetLang(e.target.value)}
+              style={phone ? { flex: 1, minWidth: 0 } : { flex: 'none', width: 170 }}>
               <option value="">— vyber jazyk —</option>
               {LANGS.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
             </select>
@@ -715,6 +724,11 @@ export default function Composer(p: Props) {
         </div>
 
         <div className="composer-foot">
+          {phone && (
+            <button className="btn ghost" onClick={() => setToolsOpen(true)}>
+              <Icon name="sliders" size={14} /> Nástroje{basket.length > 0 ? ` (${basket.length})` : ''}
+            </button>
+          )}
           <div className="ai-tools">
             <button className="toolbar-btn ai" disabled={busy === 'improve'} onClick={() => improve('improve')}>
               {busy === 'improve' ? <span className="spinner-inline" /> : <Icon name="sparkles" size={14} />} Vylepšit
@@ -743,6 +757,28 @@ export default function Composer(p: Props) {
             {busy === 'send' ? <span className="spinner-inline" /> : scheduleOpen && sendAt ? 'Naplánovat odeslání' : 'Odeslat'}
           </button>
         </div>
+
+        {toolsOpen && (
+          <Sheet title="Nástroje" onClose={() => setToolsOpen(false)}>
+            <SheetActions
+              onDone={() => setToolsOpen(false)}
+              actions={[
+                { icon: 'sparkles', label: 'Vylepšit text', hint: 'AI uhladí formulace podle značky',
+                  busy: busy === 'improve', onClick: () => improve('improve') },
+                { icon: 'check', label: 'Opravit gramatiku', busy: busy === 'grammar',
+                  onClick: () => improve('grammar') },
+                { icon: 'bag', label: basket.length > 0 ? `Produkty (${basket.length})` : 'Vložit produkty',
+                  onClick: () => { rememberCaret(); setBrowserOpen(true); } },
+                { icon: 'card', label: 'Dárkový poukaz', hint: 'Vytvoří PDF a přiloží ho',
+                  onClick: () => setVoucherOpen(true) },
+                { icon: 'paperclip', label: 'Přidat přílohu',
+                  onClick: () => { api.files.pickAttachments().then(ps => setAttachments(prev => [...prev, ...ps])); } },
+                { icon: 'clock', label: scheduleOpen ? 'Zrušit plán odeslání' : 'Naplánovat odeslání',
+                  active: scheduleOpen, onClick: () => setScheduleOpen(v => !v) }
+              ]}
+            />
+          </Sheet>
+        )}
 
         <div className="composer-grip"
           onMouseDown={startResize}

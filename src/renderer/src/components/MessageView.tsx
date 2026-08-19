@@ -5,6 +5,8 @@ import { api } from '../api';
 import { useToast } from '../toast';
 import type { ComposerInit } from './Composer';
 import Icon from './Icon';
+import { Sheet, SheetActions } from './Sheet';
+import { useIsPhone } from '../mobile';
 import OrderCard from './OrderCard';
 import CustomerPanel from './CustomerPanel';
 import { shopLabel } from './OrderBadge';
@@ -102,6 +104,9 @@ export default function MessageView(p: Props) {
   }, [d?.id]);
 
   const [convOpen, setConvOpen] = useState(false);
+  const phone = useIsPhone();
+  // Na telefonu se do lišty vejdou dvě tlačítka; zbytek je za třemi tečkami
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [shipLoading, setShipLoading] = useState(false);
   const retryShipment = async () => {
@@ -299,6 +304,18 @@ export default function MessageView(p: Props) {
           onReply={() => { setConvOpen(false); reply(); }}
         />
       )}
+      {phone ? (
+        <div className="read-toolbar">
+          <button className="toolbar-btn primary" onClick={reply}><Icon name="reply" size={14} /> Odpovědět</button>
+          <button className="toolbar-btn ai" disabled={busy === 'suggest'} onClick={suggestReply}>
+            {busy === 'suggest' ? <span className="spinner-inline" /> : <Icon name="zap" size={14} />} Navrhnout
+          </button>
+          <span className="toolbar-spacer" />
+          <button className="m-round" onClick={() => setMenuOpen(true)} aria-label="Další akce">
+            <Icon name="dots" size={18} />
+          </button>
+        </div>
+      ) : (
       <div className="read-toolbar">
         <button className="toolbar-btn primary" onClick={reply}><Icon name="reply" size={14} /> Odpovědět</button>
         <button className="toolbar-btn ai" disabled={busy === 'suggest'} onClick={suggestReply}
@@ -334,6 +351,31 @@ export default function MessageView(p: Props) {
         </button>
         <button className="toolbar-btn" disabled={busy === 'del'} data-tip="Smazat" onClick={doDelete}><Icon name="trash" size={15} /></button>
       </div>
+      )}
+
+      {menuOpen && (
+        <Sheet title="Se zprávou" onClose={() => setMenuOpen(false)}>
+          <SheetActions
+            onDone={() => setMenuOpen(false)}
+            actions={[
+              { icon: 'forward', label: 'Přeposlat', onClick: forward },
+              { icon: 'chat', label: 'Konverzace', hint: 'Celá komunikace s tímto zákazníkem',
+                disabled: !customerEmail, onClick: () => setConvOpen(true) },
+              { icon: 'sparkles', label: 'Shrnout', busy: busy === 'sum', onClick: doSummarize },
+              { icon: 'globe', label: 'Přeložit do češtiny', busy: busy === 'tr', onClick: doTranslate },
+              { icon: 'star', label: d.flagged ? 'Odebrat hvězdičku' : 'Označit hvězdičkou',
+                active: d.flagged,
+                onClick: () => { api.messages.setFlag(d.id, 'flagged', !d.flagged).then(p.onChanged); } },
+              { icon: 'mail', label: 'Označit jako nepřečtené',
+                onClick: () => { api.messages.setFlag(d.id, 'seen', false).then(() => { p.onClose(); p.onChanged(); }); } },
+              { icon: 'printer', label: 'Uložit jako PDF', busy: busy === 'pdf', onClick: doExportPdf },
+              { icon: 'save', label: 'Archivovat v zařízení', hint: 'Zůstane i po smazání ze serveru',
+                busy: busy === 'arch', onClick: doArchive },
+              { icon: 'trash', label: 'Smazat', danger: true, busy: busy === 'del', onClick: doDelete }
+            ]}
+          />
+        </Sheet>
+      )}
 
       <div className="read-scroll">
         <div className="read-card">

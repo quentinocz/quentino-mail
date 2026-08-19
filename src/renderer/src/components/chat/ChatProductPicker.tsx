@@ -37,6 +37,13 @@ export default function ChatProductPicker({ locale, onInsert, onClose }: {
     return () => clearTimeout(timer);
   }, [q, toast]);
 
+  // Zavření klávesou — na počítači zvyk, na telefonu to dělá tlačítko systému
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const insert = async (p: ChatProduct) => {
     if (domain === 'cz') { onInsert(p.url); onClose(); return; }
     try {

@@ -92,7 +92,14 @@ enum Upgates {
         ]
     }
 
-    static func orders(email rawEmail: String) async throws -> [[String: Any]] {
+    /**
+     Objednávky zákazníka tak, jak je vrátí API.
+
+     Karta objednávky z nich potřebuje víc než zjednodušený přehled (položky
+     s variantami, adresy, ceny dopravy), proto se drží obojí a mapuje se až
+     na výstupu.
+     */
+    static func rawOrders(email rawEmail: String) async throws -> [[String: Any]] {
         let email = rawEmail.trimmingCharacters(in: .whitespaces).lowercased()
         guard email.contains("@") else { return [] }
         if let hit = cacheQueue.sync(execute: { cache[email] }), Date().timeIntervalSince(hit.at) < 600 {
@@ -101,10 +108,13 @@ enum Upgates {
         let data = try await call(
             "/api/v2/orders?email=\(Http.escaped(email))&order_by=creation_time&order_dir=desc"
         )
-        let list = (data["orders"] as? [[String: Any]] ?? []).prefix(10).map(order)
-        let out = Array(list)
+        let out = Array((data["orders"] as? [[String: Any]] ?? []).prefix(10))
         cacheQueue.sync { cache[email] = (Date(), out) }
         return out
+    }
+
+    static func orders(email rawEmail: String) async throws -> [[String: Any]] {
+        try await rawOrders(email: rawEmail).map(order)
     }
 
     /// Textový blok pro AI — poslední objednávky zákazníka jako zdroj faktů.

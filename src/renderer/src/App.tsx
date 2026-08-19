@@ -321,7 +321,7 @@ function AppInner() {
               <Icon name="menu" size={20} />
             </button>
           )}
-          <div className="m-head-title">{selectedId ? (detail?.subject ?? 'Zpráva') : mobileTitle}</div>
+          <div className="m-head-title">{selectedId ? (detail?.fromName || detail?.fromAddr || 'Zpráva') : mobileTitle}</div>
           {!selectedId && (
             <button
               className="m-head-btn right"
