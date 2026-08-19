@@ -3044,3 +3044,330 @@ button, kbd, label,
 .vch-code.used { opacity: 0.45; text-decoration: line-through; }
 .vch-code button { display: flex; color: var(--text-3); }
 .vch-code button:hover { color: var(--danger); }
+
+/* ==========================================================================
+   Telefon
+   --------------------------------------------------------------------------
+   Tři sloupce vedle sebe se na displej telefonu nevejdou, takže se prochází
+   jeden po druhém: seznam → zpráva, složky vyjedou jako zásuvka. Hlavní
+   navigace je dole u palce, jak je na iOS zvykem.
+
+   Atribut `data-form-factor` nastavuje `mobile.ts` — na iOS podle nativního
+   obalu, v prohlížeči podle šířky okna, aby se to dalo zkoušet i na počítači.
+   ========================================================================== */
+
+.m-only { display: none; }
+
+html[data-form-factor="phone"] {
+  /* Bezpečné zóny: zaoblené rohy, výřez a spodní ovládací proužek */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --m-head-h: 52px;
+  --m-tabs-h: 58px;
+  /* Palcem se míří hůř než myší — všechna tlačítka mají aspoň 44 bodů */
+  --tap: 44px;
+}
+
+html[data-form-factor="phone"] body {
+  /* Odskočení stránky při tažení působí na aplikaci rozbitě */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html[data-form-factor="phone"] .m-only { display: inline-flex; }
+
+/* ---------- Rozvržení ---------- */
+
+html[data-form-factor="phone"] .app {
+  grid-template-columns: 1fr !important;
+  grid-template-rows: auto 1fr auto;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+html[data-form-factor="phone"] .pane-resizer { display: none !important; }
+
+/* Hlavička */
+html[data-form-factor="phone"] .m-head {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(var(--m-head-h) + var(--safe-top));
+  padding: var(--safe-top) 6px 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 20;
+}
+
+html[data-form-factor="phone"] .m-head-title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+}
+
+html[data-form-factor="phone"] .m-head-btn,
+.m-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: var(--tap);
+  height: var(--tap);
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 15px;
+  cursor: pointer;
+  border-radius: 10px;
+}
+html[data-form-factor="phone"] .m-head-btn:active { background: var(--accent-soft); }
+html[data-form-factor="phone"] .m-head-btn.right { justify-content: flex-end; }
+
+/* Sloupce: vidět je vždy jen jeden */
+html[data-form-factor="phone"] .list-pane,
+html[data-form-factor="phone"] .read-pane,
+html[data-form-factor="phone"] .ch-main,
+html[data-form-factor="phone"] .ig-main {
+  grid-row: 2;
+  grid-column: 1;
+  border-left: 0;
+  border-right: 0;
+  width: 100%;
+}
+
+html[data-form-factor="phone"] .app[data-pane="list"] .read-pane,
+html[data-form-factor="phone"] .app[data-pane="detail"] .list-pane {
+  display: none;
+}
+
+/* Chat: seznam konverzací je v postranním panelu, vlákno v hlavní části */
+html[data-form-factor="phone"] .ch-app[data-pane="list"] .ch-main { display: none; }
+html[data-form-factor="phone"] .ch-app[data-pane="detail"] .sidebar { display: none; }
+html[data-form-factor="phone"] .ch-app[data-pane="list"] .sidebar {
+  position: static;
+  transform: none;
+  width: 100%;
+  grid-row: 2;
+  grid-column: 1;
+  box-shadow: none;
+}
+
+/* ---------- Zásuvka se složkami (pošta) ---------- */
+
+html[data-form-factor="phone"] .app:not(.ch-app):not(.ig-app) .sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(84vw, 320px);
+  z-index: 60;
+  transform: translateX(-102%);
+  transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.22);
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+html[data-form-factor="phone"] .app[data-drawer="open"] .sidebar { transform: translateX(0); }
+
+html[data-form-factor="phone"] .m-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 28, 0.4);
+  z-index: 50;
+  animation: m-fade 0.2s ease;
+}
+@keyframes m-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Přepínač prostorů v panelu je na telefonu zbytečný — je dole */
+html[data-form-factor="phone"] .ig-switch { display: none; }
+
+/* ---------- Spodní přepínač ---------- */
+
+.m-tabs { display: none; }
+
+html[data-form-factor="phone"] .m-tabs {
+  grid-row: 3;
+  grid-column: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: stretch;
+  height: calc(var(--m-tabs-h) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+  border-top: 1px solid var(--border);
+  z-index: 40;
+}
+
+html[data-form-factor="phone"] .m-tabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  padding: 0;
+}
+html[data-form-factor="phone"] .m-tabs button.active { color: var(--accent); }
+html[data-form-factor="phone"] .m-tabs button:active { opacity: 0.55; }
+
+html[data-form-factor="phone"] .m-tab-icon { position: relative; line-height: 0; }
+html[data-form-factor="phone"] .m-tab-badge {
+  position: absolute;
+  top: -5px;
+  right: -9px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* ---------- Sociální sítě: z panelu je vodorovný pás ---------- */
+
+html[data-form-factor="phone"] .ig-app { grid-template-columns: 1fr !important; }
+html[data-form-factor="phone"] .ig-app .sidebar {
+  grid-row: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  height: auto;
+  padding: calc(var(--safe-top) + 8px) 10px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+html[data-form-factor="phone"] .ig-app .sidebar::-webkit-scrollbar { display: none; }
+html[data-form-factor="phone"] .ig-app .brand,
+html[data-form-factor="phone"] .ig-app .side-section { display: none; }
+html[data-form-factor="phone"] .ig-app .side-scroll,
+html[data-form-factor="phone"] .ig-app .sidebar-footer {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  flex: 0 0 auto;
+}
+html[data-form-factor="phone"] .ig-app .side-item {
+  flex: 0 0 auto;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 19px;
+  background: var(--accent-soft);
+  white-space: nowrap;
+}
+html[data-form-factor="phone"] .ig-app .side-item.active { background: var(--accent-soft); }
+html[data-form-factor="phone"] .ig-app .btn-compose {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  height: 38px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+html[data-form-factor="phone"] .ig-app .ig-main { grid-row: 2; }
+
+/* ---------- Seznam zpráv ---------- */
+
+html[data-form-factor="phone"] .msg-item {
+  padding: 12px 14px;
+  min-height: 66px;
+}
+/* Hromadný výběr je práce u počítače; na telefonu jen zabírá místo a plete se */
+html[data-form-factor="phone"] .msg-check { display: none; }
+html[data-form-factor="phone"] .list-header { padding: 8px 12px; }
+html[data-form-factor="phone"] .list-title-row { gap: 6px; }
+
+/* ---------- Zpráva ---------- */
+
+html[data-form-factor="phone"] .read-pane { padding-bottom: 8px; }
+html[data-form-factor="phone"] .read-toolbar { padding: 12px 14px; }
+html[data-form-factor="phone"] .read-scroll { padding: 0 10px 10px; }
+html[data-form-factor="phone"] .read-card { border-radius: 12px; }
+/* Tlačítka nad zprávou se na úzkém displeji zalomí místo přetečení */
+html[data-form-factor="phone"] .read-toolbar,
+html[data-form-factor="phone"] .ig-head-tools,
+html[data-form-factor="phone"] .list-actions {
+  flex-wrap: wrap;
+}
+html[data-form-factor="phone"] .read-toolbar .btn,
+html[data-form-factor="phone"] .list-actions .btn { min-height: 38px; }
+
+/* ---------- Psaní zprávy a dialogy přes celou obrazovku ---------- */
+
+html[data-form-factor="phone"] .composer,
+html[data-form-factor="phone"] .modal {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-width: 0 !important;
+  border-radius: 0 !important;
+  transform: none !important;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+html[data-form-factor="phone"] .composer-grip { display: none; }
+html[data-form-factor="phone"] .composer-head,
+html[data-form-factor="phone"] .modal-head { min-height: var(--tap); }
+html[data-form-factor="phone"] .composer-foot,
+html[data-form-factor="phone"] .modal-foot { flex-wrap: wrap; gap: 8px; }
+
+/* Systém při psaní přiblíží pole, které má písmo menší než 16 px */
+html[data-form-factor="phone"] input,
+html[data-form-factor="phone"] textarea,
+html[data-form-factor="phone"] select { font-size: 16px; }
+
+/* ---------- Dotyk ---------- */
+
+html[data-form-factor="phone"] .btn,
+html[data-form-factor="phone"] .side-item,
+html[data-form-factor="phone"] .icon-btn {
+  min-height: 38px;
+}
+/* Nápovědy u kurzoru na dotyku nedávají smysl */
+html[data-form-factor="phone"] .tip-layer { display: none; }
+
+/* ---------- Tablet ---------- */
+
+/* iPad zvládne stejné rozvržení jako počítač, jen se doteku hodí větší cíle */
+html[data-form-factor="tablet"] .btn,
+html[data-form-factor="tablet"] .side-item {
+  min-height: 36px;
+}
+html[data-form-factor="tablet"] .msg-item { padding-top: 10px; padding-bottom: 10px; }
+html[data-form="tablet"] .sidebar { padding-top: env(safe-area-inset-top, 0px); }
+
+/* Upozornění na zamčenou klíčenku visí nahoře přes celou šířku — na telefonu
+   ho posuneme pod hlavičku, ať ji nepřekrývá. */
+html[data-form-factor="phone"] .locked-bar {
+  top: calc(var(--safe-top) + var(--m-head-h));
+  padding: 10px 14px;
+  font-size: 12.5px;
+  flex-wrap: wrap;
+}

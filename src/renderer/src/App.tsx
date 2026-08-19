@@ -16,6 +16,8 @@ import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
 import type { Workspace } from './components/WorkspaceSwitch';
 import { SidebarResizer, useSidebarWidth } from './sidebar';
+import { useIsPhone } from './mobile';
+import MobileTabs from './components/MobileTabs';
 
 function AppInner() {
   const toast = useToast();
@@ -45,6 +47,13 @@ function AppInner() {
     return saved === 'instagram' || saved === 'chat' ? saved : 'mail';
   });
   useEffect(() => { localStorage.setItem('workspace', workspace); }, [workspace]);
+
+  // Telefon: sloupce se nevejdou vedle sebe, prochází se jeden po druhém
+  const phone = useIsPhone();
+  const [drawer, setDrawer] = useState(false);
+  // Zásuvku i otevřenou zprávu zavře přepnutí prostoru — jinak by se otevřel
+  // Chat a pod ním zůstal viset panel složek
+  useEffect(() => { setDrawer(false); }, [workspace]);
 
   // E-mail, který se má otevřít po přepnutí z chatu do pošty
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -249,6 +258,7 @@ function AppInner() {
           chatUnread={chatUnread}
           onComposeEmail={email => { setPendingEmail(email); setWorkspace('mail'); }}
         />
+        {phone && <MobileTabs current="chat" onChange={setWorkspace} chatUnread={chatUnread} />}
         {settingsOpen && (
           <SettingsModal
             accounts={accounts}
@@ -270,6 +280,7 @@ function AppInner() {
           onWorkspace={setWorkspace}
           chatUnread={chatUnread}
         />
+        {phone && <MobileTabs current="instagram" onChange={setWorkspace} chatUnread={chatUnread} />}
         {settingsOpen && (
           <SettingsModal
             accounts={accounts}
@@ -283,8 +294,46 @@ function AppInner() {
     );
   }
 
+  // Nadpis mobilní hlavičky podle toho, co je zrovna vidět
+  const mobileTitle = view.type === 'folder'
+    ? (folders.find(f => f.path === view.folder)?.name ?? view.folder)
+    : view.type === 'category'
+      ? ({ orders: 'Objednávky', people: 'Lidé', companies: 'Firmy', other: 'Ostatní' } as Record<string, string>)[view.category] ?? 'Pošta'
+      : view.type === 'archive' ? 'Archiv' : 'K objednávkám';
+
+  const closeDetail = () => { setSelectedId(null); setDetail(null); };
+
   return (
-    <div className="app" style={{ gridTemplateColumns: `var(--side-w) ${listW}px 1fr` }}>
+    <div
+      className="app"
+      data-pane={selectedId ? 'detail' : 'list'}
+      data-drawer={drawer ? 'open' : 'closed'}
+      style={phone ? undefined : { gridTemplateColumns: `var(--side-w) ${listW}px 1fr` }}
+    >
+      {phone && (
+        <div className="m-head">
+          {selectedId ? (
+            <button className="m-head-btn" onClick={closeDetail} aria-label="Zpět na seznam">
+              <Icon name="chevLeft" size={20} /><span>Zpět</span>
+            </button>
+          ) : (
+            <button className="m-head-btn" onClick={() => setDrawer(true)} aria-label="Složky">
+              <Icon name="menu" size={20} />
+            </button>
+          )}
+          <div className="m-head-title">{selectedId ? (detail?.subject ?? 'Zpráva') : mobileTitle}</div>
+          {!selectedId && (
+            <button
+              className="m-head-btn right"
+              onClick={() => activeAccount && startCompose({ mode: 'new', accountId: activeAccount.id })}
+              aria-label="Nová zpráva"
+            >
+              <Icon name="pen" size={19} />
+            </button>
+          )}
+        </div>
+      )}
+      {phone && drawer && <div className="m-scrim" onClick={() => setDrawer(false)} />}
       {settings?.secretsLocked && (
         <div className="locked-bar">
           <Icon name="zap" size={14} />
@@ -295,15 +344,17 @@ function AppInner() {
           <button className="btn ghost" onClick={() => setSettingsOpen(true)}>Otevřít nastavení</button>
         </div>
       )}
-      <SidebarResizer />
-      <div className="pane-resizer" style={{ left: sideW + listW - 3 }} onMouseDown={startListDrag} />
+      {!phone && <SidebarResizer />}
+      {!phone && (
+        <div className="pane-resizer" style={{ left: sideW + listW - 3 }} onMouseDown={startListDrag} />
+      )}
       <Sidebar
         accounts={accounts}
         activeAccountId={activeAccountId}
-        onSelectAccount={id => { setActiveAccountId(id); setSelectedId(null); setDetail(null); }}
+        onSelectAccount={id => { setActiveAccountId(id); setSelectedId(null); setDetail(null); setDrawer(false); }}
         folders={folders}
         view={view}
-        onSelectView={v => { setView(v); setSelectedId(null); setDetail(null); }}
+        onSelectView={v => { setView(v); setSelectedId(null); setDetail(null); setDrawer(false); }}
         catStats={catStats}
         onCompose={() => activeAccount && startCompose({ mode: 'new', accountId: activeAccount.id })}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -392,6 +443,7 @@ function AppInner() {
         />
       )}
       {outboxOpen && <OutboxModal onClose={() => setOutboxOpen(false)} />}
+      {phone && <MobileTabs current="mail" onChange={setWorkspace} chatUnread={chatUnread} />}
       <TooltipLayer />
     </div>
   );
