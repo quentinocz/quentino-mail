@@ -3361,7 +3361,7 @@ html[data-form-factor="tablet"] .side-item {
   min-height: 36px;
 }
 html[data-form-factor="tablet"] .msg-item { padding-top: 10px; padding-bottom: 10px; }
-html[data-form="tablet"] .sidebar { padding-top: env(safe-area-inset-top, 0px); }
+html[data-form-factor="tablet"] .sidebar { padding-top: env(safe-area-inset-top, 0px); }
 
 /* Upozornění na zamčenou klíčenku visí nahoře přes celou šířku — na telefonu
    ho posuneme pod hlavičku, ať ji nepřekrývá. */
