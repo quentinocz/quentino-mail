@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WebKit
 
 /**
@@ -21,7 +22,9 @@ struct WebHost: UIViewRepresentable {
         let controller = WKUserContentController()
         controller.add(bridge, name: "quentino")
         controller.addUserScript(WKUserScript(
-            source: Bridge.shim,
+            // Idiom zařízení jde do rozhraní rovnou — je to jediný spolehlivý
+            // zdroj, dokud se nenačte stránka
+            source: Bridge.shim(formFactor: UIDevice.current.userInterfaceIdiom == .pad ? "tablet" : "phone"),
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
