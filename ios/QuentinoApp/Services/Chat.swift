@@ -167,7 +167,7 @@ enum Chat {
             }
         }
 
-        try await rest("messages", method: "POST", body: [
+        _ = try await rest("messages", method: "POST", body: [
             "conversation_id": conversationId, "content": final, "sender": "operator"
         ])
         try await patch(conversationId, ["last_message_at": ISO8601DateFormatter().string(from: Date())])

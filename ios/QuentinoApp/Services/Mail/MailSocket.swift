@@ -79,7 +79,7 @@ final class MailSocket {
         let key = Stream.PropertyKey(CFStreamPropertyKey.socketNativeHandle.rawValue as String)
         guard let raw = input?.property(forKey: key) as? Data, raw.count >= 4 else { return }
         var handle: Int32 = 0
-        withUnsafeMutableBytes(of: &handle) { buffer in
+        _ = withUnsafeMutableBytes(of: &handle) { buffer in
             raw.copyBytes(to: buffer.bindMemory(to: UInt8.self), count: 4)
         }
         guard handle > 0 else { return }

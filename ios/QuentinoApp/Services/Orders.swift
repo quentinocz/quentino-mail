@@ -82,7 +82,9 @@ enum Orders {
     private static func items(_ raw: [String: Any], currency: String) -> [[String: Any]] {
         (raw["products"] as? [[String: Any]] ?? [])
             .filter { ($0["type"] as? String) != "shipment" && ($0["type"] as? String) != "payment" }
-            .map { product in
+            // Typ návratu explicitně — u víceřádkové uzávěry se slovník s tuctem
+            // klíčů jinak překládá neúnosně dlouho
+            .map { product -> [String: Any] in
                 let variants = (product["parameters"] as? [[String: Any]] ?? []).compactMap { parameter -> String? in
                     guard let name = text(parameter["name"]), let value = text(parameter["value"]) else { return nil }
                     return "\(name): \(value)"
@@ -156,11 +158,16 @@ enum Orders {
             "adminUrl": text(raw["admin_url"]) ?? NSNull()
         ]
 
+        var customerEmail: Any = NSNull()
+        if let found = text(raw["email"]) ?? email { customerEmail = found }
+        var adminSource: Any = NSNull()
+        if text(raw["admin_url"]) != nil { adminSource = "api" }
+
         return [
             "orderNumber": text(raw["order_number"]) ?? NSNull(),
             "lang": (text(raw["language_id"]) ?? "cz").lowercased(),
             "placedAt": text(raw["creation_time"]) ?? NSNull(),
-            "customerEmail": text(raw["email"]) ?? email ?? NSNull(),
+            "customerEmail": customerEmail,
             "customerPhone": text(raw["phone"]) ?? NSNull(),
             "billing": address(raw, prefix: "_invoice"),
             "shipping": address(raw, prefix: "_postal"),
@@ -172,7 +179,7 @@ enum Orders {
             "total": money(raw["order_total"], currency: currency) ?? NSNull(),
             "historyUrl": NSNull(),
             "adminUrl": text(raw["admin_url"]) ?? NSNull(),
-            "adminSource": text(raw["admin_url"]) == nil ? NSNull() : "api",
+            "adminSource": adminSource,
             "live": live,
             "tracking": tracking(raw)
         ]
@@ -239,13 +246,20 @@ enum Orders {
         let status = text(raw["status"])
         let paid = text(raw["paid_date"]) != nil
         let delivered = text(raw["delivered_date"]) != nil
+        // Podmínku nejde napsat jedním výrazem — větve mají různý typ (text a null)
+        var stage: Any = NSNull()
+        if delivered {
+            stage = "doručeno"
+        } else if text(raw["tracking_code"]) != nil {
+            stage = "na cestě"
+        }
         return [
             "orderNumber": text(raw["order_number"]) ?? NSNull(),
             "total": money(raw["order_total"], currency: text(raw["currency_id"]) ?? "CZK") ?? NSNull(),
             "status": status ?? NSNull(),
             "tone": tone(status: status, paid: paid, delivered: delivered),
             "carrierName": text((raw["shipment"] as? [String: Any])?["name"]) ?? NSNull(),
-            "shipmentStage": delivered ? "doručeno" : (text(raw["tracking_code"]) != nil ? "na cestě" : NSNull())
+            "shipmentStage": stage
         ]
     }
 
