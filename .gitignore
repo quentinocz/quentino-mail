@@ -20,3 +20,6 @@ _to_delete/
 *.ipa
 ios/*.xcodeproj/
 ios/build/
+
+# Dočasné soubory připojené složky
+.fuse_hidden*

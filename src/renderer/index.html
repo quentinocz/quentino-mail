@@ -2,9 +2,11 @@
 <html lang="cs">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: obsah smí pod zaoblené rohy a ovládací proužek, o odsazení
+         se pak stará CSS přes env(safe-area-inset-*) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'self' data: about:; connect-src 'self' http://localhost:5173 ws://localhost:5173" />
-    <title>Quentino Mail</title>
+    <title>Quentino App</title>
   </head>
   <body>
     <div id="root"></div>

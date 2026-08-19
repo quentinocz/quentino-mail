@@ -96,12 +96,13 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
             file.appendPathComponent(String(part))
         }
 
-        guard let data = try? Data(contentsOf: file) else {
+        guard var data = try? Data(contentsOf: file) else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
 
         let type = Self.mimeTypes[file.pathExtension.lowercased()] ?? "application/octet-stream"
+        if file.pathExtension.lowercased() == "html" { data = Self.patchPolicy(data) }
         // Odpověď musí nést hlavičku Content-Type. Bez ní WKWebView u vlastního
         // schématu obsah nepozná a HTML ukáže jako obyčejný text.
         let response = HTTPURLResponse(
@@ -121,4 +122,37 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) { }
+
+    /**
+     Pravidla obsahu (CSP) přepsaná pro iOS.
+
+     Hlavička v `index.html` je psaná pro Electron — počítá s `file://`
+     a vývojovým serverem na localhostu. Tady stránka běží pod vlastním
+     schématem `quentino:`, kterému se musí povolit skripty, styly
+     i vstřikovaný můstek, jinak zůstane bílá obrazovka.
+
+     Dělá se to při servírování, ne při sestavení: kdyby se krok v CI
+     někdy zapomněl, aplikace se tím nerozbije.
+     */
+    private static let policy = [
+        "default-src 'self' quentino:",
+        "script-src 'self' quentino: 'unsafe-inline'",
+        "style-src 'self' quentino: 'unsafe-inline'",
+        "img-src 'self' quentino: data: https:",
+        "font-src 'self' quentino: data:",
+        "frame-src 'self' data: about:",
+        "connect-src 'self' quentino: data: https:"
+    ].joined(separator: "; ")
+
+    private static func patchPolicy(_ data: Data) -> Data {
+        guard var html = String(data: data, encoding: .utf8), html.contains("Content-Security-Policy") else {
+            return data
+        }
+        html = html.replacingOccurrences(
+            of: "<meta http-equiv=\"Content-Security-Policy\"[^>]*>",
+            with: "<meta http-equiv=\"Content-Security-Policy\" content=\"\(policy)\">",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        return Data(html.utf8)
+    }
 }

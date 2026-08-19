@@ -1,15 +1,13 @@
 import Foundation
 import UIKit
+import UniformTypeIdentifiers
 
 /**
- Kanály, které na iOS teprve vzniknou.
+ Kanály, které na iOS teprve vzniknou, a drobnosti kolem souborů.
 
- Registrují se schválně — rozhraní pak místo ticha dostane větu, co ještě
- chybí, a v aplikaci je hned vidět, kam sáhnout dřív. Jak které služby
- přibývají, mizí odsud řádky.
-
- Pár drobností, které jdou udělat rovnou (otevření odkazu, náhled souboru),
- je hotových tady.
+ Nehotové kanály se registrují schválně — rozhraní pak místo ticha dostane
+ větu, co ještě chybí, a v aplikaci je hned vidět, kam sáhnout dřív. Jak které
+ služby přibývají, mizí odsud řádky.
  */
 extension Bridge {
     private func pending(_ channels: [String], _ note: String) {
@@ -18,55 +16,66 @@ extension Bridge {
         }
     }
 
-    func registerMailChannels() {
-        pending([
-            "accounts:list", "accounts:save", "accounts:delete", "accounts:test",
-            "folders:list", "sync:folder", "sync:all",
-            "messages:list", "messages:get", "messages:thread", "messages:setFlag",
-            "messages:delete", "messages:move", "messages:archive", "messages:categorize",
-            "messages:bulkFlag", "messages:bulkDelete", "messages:bulkArchive", "trash:empty",
-            "send:now", "send:schedule", "outbox:list", "outbox:cancel", "outbox:processNow",
-            "quota:get", "stats:categories", "messages:exportPdf"
-        ], "Pošta se na iPhonu a iPadu teprve dodělává")
-    }
-
-    func registerInstagramChannels() {
-        pending([
-            "ig:overview", "ig:saveConnection", "ig:installCallback", "ig:testStorage",
-            "ig:connect", "ig:addMarket", "ig:connectToken", "ig:pasteCallback", "ig:finishConnect",
-            "ig:disconnect", "ig:setSource", "ig:setShareFb", "ig:limit",
-            "ig:markets", "ig:saveMarket", "ig:deleteMarket", "ig:brand", "ig:saveBrand",
-            "ig:feed", "ig:sync", "ig:thumb", "ig:createFromSource",
-            "ig:pickMedia", "ig:preview", "ig:createDraft", "ig:updateDraft", "ig:post", "ig:drafts",
-            "ig:deletePost", "ig:warnings", "ig:generate", "ig:blankCaptions", "ig:chooseVariant",
-            "ig:editCaption", "ig:publish", "ig:publishPost", "ig:jobs", "ig:cancelJob",
-            "ig:retryJob", "ig:runQueue", "ig:refreshTokens", "ig:retryFacebook", "ig:relogin"
-        ], "Sociální sítě se na mobil chystají")
-    }
-
     func registerShopChannels() {
+        // MARK: Katalog produktů
+
+        register("products:search") { args in
+            Products.search(args.first as? String ?? "")
+        }
+        register("products:list") { args in
+            Products.list(args.first as? [String: Any] ?? [:])
+        }
+        register("products:facets") { _ in Products.facets() }
+        register("products:status") { _ in Products.status() }
+        register("products:refresh") { _ in try await Products.refresh() }
+
+        register("contacts:search") { args in
+            Customer.search(contacts: args.first as? String ?? "")
+        }
+
+        // MARK: Upgates
+
+        register("upgates:config") { _ in Upgates.config() }
+        register("upgates:saveConfig") { args in
+            Upgates.saveConfig(args.first as? [String: Any] ?? [:])
+        }
+        register("upgates:test") { _ in try await Upgates.test() }
+        register("upgates:orders") { args in
+            try await Upgates.orders(email: args.first as? String ?? "")
+        }
+
+        // MARK: Zákazník
+
+        register("customer:context") { args in
+            await Customer.context(email: args.first as? String ?? "", withBodies: false)
+        }
+        register("customer:conversation") { args in
+            await Customer.context(email: args.first as? String ?? "", withBodies: true)
+        }
+        register("customer:messageText") { args in
+            try await Customer.messageText(try Self.int(args.first))
+        }
+
+        // Karty objednávek a balení stojí na rozboru potvrzovacích e-mailů
+        // a na stahování stránek dopravců. Na telefonu se to nehodí (je to
+        // práce u počítače), takže se hlásí poctivě, že to tu není.
         pending([
-            "products:search", "products:refresh", "products:status", "products:list", "products:facets",
-            "contacts:search", "upgates:config", "upgates:saveConfig", "upgates:test", "upgates:orders",
             "orders:card", "orders:badge", "orders:refresh", "orders:shipment",
             "orderlinks:refresh", "orderlinks:pending", "orderlinks:resolve",
             "packing:scan", "packing:setItem", "packing:setDone", "packing:reset",
-            "customer:context", "customer:conversation", "customer:messageText", "ship:relearn",
-            "voucher:create", "vouchers:list", "vouchers:save", "vouchers:delete", "vouchers:addCodes",
-            "vouchers:codes", "vouchers:deleteCode", "vouchers:release", "vouchers:use"
-        ], "Objednávky a poukazy se doplní po poště")
+            "ship:relearn"
+        ], "Objednávkové karty a balení jsou zatím jen na počítači")
     }
 
     func registerFileChannels() {
-        // Otevření odkazu v prohlížeči — funguje hned
+        // Otevření odkazu v prohlížeči
         register("shell:openUrl") { args in
-            guard let text = args.first as? String, let url = URL(string: text),
-                  text.hasPrefix("https://") else { return false }
-            await MainActor.run { UIApplication.shared.open(url, options: [:], completionHandler: nil) }
+            guard let text = args.first as? String, text.hasPrefix("https://") else { return false }
+            await Self.openExternally(text)
             return true
         }
 
-        // Náhled obrázku z disku jako data URI (používá podpis a poukazy)
+        // Náhled obrázku z disku jako data URI (podpis, poukazy, chat)
         register("files:readAsDataUrl") { args in
             guard let path = args.first as? String else { throw BridgeError.message("Chybí cesta k souboru.") }
             let url = URL(fileURLWithPath: path)
@@ -78,17 +87,74 @@ extension Bridge {
             }
             let mime: [String: String] = [
                 "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                "gif": "image/gif", "webp": "image/webp"
+                "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf"
             ]
             let type = mime[url.pathExtension.lowercased()] ?? "application/octet-stream"
             return "data:\(type);base64,\(data.base64EncodedString())"
         }
 
-        pending([
-            "files:openAttachment", "files:showInFolder", "files:pickAttachments",
-            "files:pickImage", "files:saveTempImage",
-            "config:export", "config:import", "config:importUnlock",
-            "appsync:get", "appsync:save", "appsync:run", "appsync:pickFolder"
-        ], "Práce se soubory a synchronizace se dodělává")
+        register("knowledge:importFile") { _ in
+            guard let url = await MediaPicker.pickFile(types: [.plainText, .html, .commaSeparatedText, .text]) else {
+                return NSNull()
+            }
+            guard let raw = try? Data(contentsOf: url),
+                  let content = String(data: raw, encoding: .utf8) ?? String(data: raw, encoding: .isoLatin2) else {
+                throw BridgeError.message("Soubor se nepodařilo přečíst jako text.")
+            }
+            let title = (url.deletingPathExtension().lastPathComponent)
+            return ["title": title, "content": String(content.prefix(100_000))]
+        }
+
+        register("files:pickAttachments") { _ in await MediaPicker.pickDocuments() }
+        register("files:pickImage") { _ in await MediaPicker.pickImage() }
+
+        // Obrázek vložený do textu (podpis, poukaz) — uloží se do složky aplikace
+        register("files:saveTempImage") { args in
+            guard let name = args.first as? String, args.count > 1, let base64 = args[1] as? String else {
+                throw BridgeError.message("Chybí obrázek.")
+            }
+            let clean = base64.contains(",") ? String(base64.split(separator: ",").last ?? "") : base64
+            guard let data = Data(base64Encoded: clean) else {
+                throw BridgeError.message("Obrázek se nepodařilo přečíst.")
+            }
+            let target = Files.scratch.appendingPathComponent(name.isEmpty ? "obrazek.png" : name)
+            try data.write(to: target)
+            return target.path
+        }
+
+        // Na iOS není „složka se souborem"; obojí proto otevře systémové sdílení,
+        // odkud jde soubor uložit, poslat dál nebo zobrazit v náhledu.
+        for channel in ["files:openAttachment", "files:showInFolder"] {
+            register(channel) { args in
+                guard let path = args.first as? String, FileManager.default.fileExists(atPath: path) else {
+                    throw BridgeError.message("Soubor už na zařízení není.")
+                }
+                await Files.share(URL(fileURLWithPath: path))
+                return true
+            }
+        }
+    }
+}
+
+/// Sdílení souborů a odkládací složka.
+enum Files {
+    static var scratch: URL {
+        let url = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Quentino/soubory", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @MainActor
+    static func share(_ url: URL) {
+        guard let host = MediaPicker.topViewController() else { return }
+        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        // Na iPadu musí mít nabídka z čeho vyjet, jinak spadne
+        sheet.popoverPresentationController?.sourceView = host.view
+        sheet.popoverPresentationController?.sourceRect = CGRect(
+            x: host.view.bounds.midX, y: host.view.bounds.maxY - 60, width: 1, height: 1
+        )
+        host.present(sheet, animated: true)
     }
 }

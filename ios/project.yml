@@ -54,6 +54,18 @@ targets:
         # Aplikace mluví s IMAP/SMTP servery po TLS a s API přes HTTPS;
         # výjimka z ATS není potřeba.
         ITSAppUsesNonExemptEncryption: false
+        # Návrat z přihlášení k Metě: prohlížeč otevře quentino-mail://ig-oauth
+        # a systém odkaz předá aplikaci. Bez tohohle zápisu by se nikam nevrátil.
+        CFBundleURLTypes:
+          - CFBundleURLName: cz.quentino.app.oauth
+            CFBundleURLSchemes:
+              - quentino-mail
+        # Výběr fotek a videí do příspěvku a do podpisu
+        NSPhotoLibraryUsageDescription: >-
+          Z knihovny se vybírají fotky a videa pro příspěvky na Instagram
+          a přílohy e-mailů. Nic se nikam neposílá bez tvého potvrzení.
+        NSCameraUsageDescription: >-
+          Vyfocení přílohy nebo obrázku do příspěvku přímo v aplikaci.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UIBackgroundModes:

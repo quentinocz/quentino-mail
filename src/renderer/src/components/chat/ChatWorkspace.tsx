@@ -189,7 +189,7 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
     c.name || c.email || c.phone || `Anonymní #${c.sessionId.slice(0, 6).toUpperCase()}`;
 
   return (
-    <div className="app ch-app">
+    <div className="app ch-app" data-pane={activeId ? 'detail' : 'list'}>
       <SidebarResizer />
       <div className="sidebar">
         <div className="brand">quentino<span> chat</span></div>
@@ -248,6 +248,10 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
         ) : (
           <>
             <div className="ch-head">
+              {/* Na telefonu je vidět vždy jen jedna obrazovka — odsud vede cesta zpět na seznam */}
+              <button className="m-only m-back" onClick={() => setActiveId(null)} aria-label="Zpět na konverzace">
+                <Icon name="chevLeft" size={20} />
+              </button>
               <div>
                 <div className="ch-head-name">
                   {FLAG[active.locale] ?? '🌍'} {label(active)}

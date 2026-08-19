@@ -18,6 +18,7 @@ struct QuentinoAppApp: App {
                 .ignoresSafeArea(.container, edges: .bottom)
                 .preferredColorScheme(nil)   // světlý i tmavý režim řídí systém
                 .onOpenURL { url in bridge.handleDeepLink(url) }
+                .task { Scheduler.shared.start() }
         }
     }
 }
