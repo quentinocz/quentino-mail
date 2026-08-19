@@ -46,6 +46,7 @@ jobs:
           rm -rf ios/QuentinoApp/Resources/renderer
           mkdir -p ios/QuentinoApp/Resources/renderer
           cp -R dist/renderer/. ios/QuentinoApp/Resources/renderer/
+          node ios/ci/patch-csp.mjs
 
       # 2) Projekt pro Xcode se generuje, v gitu není
       - name: Příprava projektu

@@ -1,7 +1,14 @@
 import { getDb, getSetting, setSetting } from './db';
 import { ProductHit, FeedStatus, MailLang, ProductQuery, ProductPage, ProductFacets } from '../shared/types';
 
-export const DEFAULT_FEED_URL = 'https://www.quentino.cz/export-full-products-he7RJAV2iN.xml';
+/**
+ * Adresa produktového feedu se v kódu nedrží.
+ *
+ * Export z Upgates je „tajný odkazem" — kdo ho zná, stáhne celý katalog
+ * s cenami a sklady. V repozitáři (a od chvíle, kdy je veřejný, i mimo firmu)
+ * nemá co dělat, takže se vyplňuje v Nastavení a leží jen v lokální databázi.
+ */
+export const DEFAULT_FEED_URL = '';
 
 const LANGS: MailLang[] = ['cz', 'sk', 'en'];
 const CURRENCY_SYMBOL: Record<string, string> = { CZK: 'Kč', EUR: '€', USD: '$', GBP: '£', PLN: 'zł' };
@@ -147,6 +154,9 @@ export function importFeedXml(xml: string): number {
 
 export async function refreshFeed(): Promise<FeedStatus> {
   const url = getSetting('productFeedUrl', DEFAULT_FEED_URL)!;
+  if (!url.trim()) {
+    throw new Error('Není vyplněná adresa produktového feedu (Nastavení → Produkty).');
+  }
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok) throw new Error(`Feed se nepodařilo stáhnout (HTTP ${res.status})`);
   const xml = await res.text();

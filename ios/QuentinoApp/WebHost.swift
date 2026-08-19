@@ -56,38 +56,65 @@ final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
     private static let mimeTypes: [String: String] = [
         "html": "text/html; charset=utf-8",
         "js": "text/javascript; charset=utf-8",
+        "mjs": "text/javascript; charset=utf-8",
         "css": "text/css; charset=utf-8",
         "json": "application/json; charset=utf-8",
         "svg": "image/svg+xml",
         "png": "image/png",
         "jpg": "image/jpeg",
         "jpeg": "image/jpeg",
+        "gif": "image/gif",
         "webp": "image/webp",
+        "ico": "image/x-icon",
         "woff": "font/woff",
-        "woff2": "font/woff2"
+        "woff2": "font/woff2",
+        "ttf": "font/ttf",
+        "map": "application/json; charset=utf-8"
     ]
+
+    /// Kořen se hledá dvakrát: podle toho, jestli se rozhraní do balíčku
+    /// dostalo jako složka `renderer`, nebo se soubory rozsypaly do kořene.
+    private static let root: URL = {
+        if let folder = Bundle.main.url(forResource: "renderer", withExtension: nil),
+           FileManager.default.fileExists(atPath: folder.appendingPathComponent("index.html").path) {
+            return folder
+        }
+        return Bundle.main.bundleURL
+    }()
 
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         guard let url = task.request.url else { return task.didFailWithError(URLError(.badURL)) }
 
-        // Cesta bez počátečního lomítka; prázdná znamená index
         var relative = url.path.isEmpty || url.path == "/" ? "index.html" : String(url.path.dropFirst())
         if relative.hasSuffix("/") { relative += "index.html" }
+        relative = relative.removingPercentEncoding ?? relative
 
-        guard let root = Bundle.main.url(forResource: "renderer", withExtension: nil),
-              let file = URL(string: relative, relativeTo: root),
-              let data = try? Data(contentsOf: file) else {
+        // Cesty se skládají po komponentách; `URL(string:relativeTo:)` by
+        // u kořene bez lomítka poslední komponentu nahradilo místo připojení.
+        var file = Self.root
+        for part in relative.split(separator: "/") where part != ".." {
+            file.appendPathComponent(String(part))
+        }
+
+        guard let data = try? Data(contentsOf: file) else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
 
-        let ext = (relative as NSString).pathExtension.lowercased()
-        let response = URLResponse(
+        let type = Self.mimeTypes[file.pathExtension.lowercased()] ?? "application/octet-stream"
+        // Odpověď musí nést hlavičku Content-Type. Bez ní WKWebView u vlastního
+        // schématu obsah nepozná a HTML ukáže jako obyčejný text.
+        let response = HTTPURLResponse(
             url: url,
-            mimeType: Self.mimeTypes[ext] ?? "application/octet-stream",
-            expectedContentLength: data.count,
-            textEncodingName: nil
-        )
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "Content-Type": type,
+                "Content-Length": String(data.count),
+                "Cache-Control": "no-cache",
+                "Access-Control-Allow-Origin": "*"
+            ]
+        )!
         task.didReceive(response)
         task.didReceive(data)
         task.didFinish()

@@ -40,7 +40,7 @@ export function getSettings(): Settings {
     categoryRules: JSON.parse(getSetting('categoryRules', JSON.stringify(DEFAULT_RULES))!),
     autoSummarizeCategories: JSON.parse(getSetting('autoSummarizeCategories', '[]')!),
     contactInfo: getSetting('contactInfo', '')!,
-    productFeedUrl: getSetting('productFeedUrl', 'https://www.quentino.cz/export-full-products-he7RJAV2iN.xml')!,
+    productFeedUrl: getSetting('productFeedUrl', '')!,
     adminOrderRef: getSetting('adminOrderRef', '')!,
     voucherLogo: getSetting('voucherLogo', '')!,
     notifyNewMail: getSetting('notifyNewMail', '1') === '1',

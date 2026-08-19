@@ -11,3 +11,12 @@ npmi.log
 
 # Odkládací složka pro soubory ke smazání
 _to_delete/
+
+# Zálohy nastavení — obsahují rozšifrovaná hesla a klíče
+*zaloha*.json
+*backup*.json
+
+# Sestavené mobilní balíčky
+*.ipa
+ios/*.xcodeproj/
+ios/build/

@@ -30,21 +30,6 @@ extension Bridge {
         ], "Pošta se na iPhonu a iPadu teprve dodělává")
     }
 
-    func registerAiChannels() {
-        pending([
-            "ai:summarize", "ai:reply", "ai:improve", "ai:translateIncoming", "ai:translateText",
-            "ai:usage", "ai:digest"
-        ], "AI funkce se doplní spolu s poštou")
-    }
-
-    func registerChatChannels() {
-        pending([
-            "chat:overview", "chat:saveConfig", "chat:test", "chat:conversations", "chat:messages",
-            "chat:send", "chat:sendImage", "chat:markRead", "chat:setStatus", "chat:cards",
-            "chat:searchProducts", "chat:productInDomain", "chat:suggest"
-        ], "Chat se na mobil chystá jako první")
-    }
-
     func registerInstagramChannels() {
         pending([
             "ig:overview", "ig:saveConnection", "ig:installCallback", "ig:testStorage",
