@@ -38,7 +38,8 @@ enum SMTP {
             guard html.contains("cid:\(image.cid)") else { continue }
             // Kdyby se soubor mezitím ztratil, poslala by se prázdná příloha
             // a příjemce by v podpisu viděl díru — radši obrázek ze zprávy vyřadíme.
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: image.path)), !data.isEmpty else {
+            guard let found = Files.resolve(image.path),
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: found)), !data.isEmpty else {
                 html = html.replacingOccurrences(
                     of: "<img[^>]*cid:\(image.cid)[^>]*>", with: "",
                     options: [.regularExpression, .caseInsensitive]
@@ -51,7 +52,8 @@ enum SMTP {
 
         var attachmentParts: [(name: String, mime: String, data: Data)] = []
         for path in envelope.attachments {
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { continue }
+            guard let found = Files.resolve(path),
+                  let data = try? Data(contentsOf: URL(fileURLWithPath: found)) else { continue }
             attachmentParts.append(((path as NSString).lastPathComponent, IgMedia.mime(for: path), data))
         }
 

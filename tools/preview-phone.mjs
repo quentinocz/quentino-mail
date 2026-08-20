@@ -168,11 +168,21 @@ for (const device of DEVICES) {
   await page.keyboard.press('Escape'); await page.waitForTimeout(300);
 
   await click('.m-back');
-  await click('.sidebar-footer .side-item', { hasText: 'Nastavení chatu' });
+  await click('.ch-brandrow .m-round');
+  await click('.sheet-action', { hasText: 'Nastavení chatu' });
   await check('chat — nastavení'); await snap('14-chat-nastaveni');
   await click('.modal-head .icon-btn');
 
   await click('.m-tabs button:nth-child(1)');
+  await click('.m-head-btn');
+  await click('.sidebar .side-item', { hasText: 'Balení' });
+  await check('balení — seznam'); await snap('14-baleni-seznam');
+  await click('.pk-row');
+  await check('balení — objednávka'); await snap('15-baleni-detail');
+  // V hlavičce balení jsou dvě ikony (obnovit, zavřít) — zavírá ta poslední
+  try { await page.locator('.pk-modal .modal-head .icon-btn').last().click({ timeout: 3000 }); }
+  catch { problems.push(`${device.name}: nešlo zavřít balení`); }
+  await page.waitForTimeout(400);
   await click('.m-head-btn');
   await click('.sidebar .side-item', { hasText: 'Nastavení' });
   await check('nastavení'); await snap('15-nastaveni');

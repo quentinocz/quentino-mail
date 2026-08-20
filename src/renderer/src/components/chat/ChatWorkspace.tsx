@@ -50,6 +50,7 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   /** Na telefonu se akce hlavičky a nástroje odpovědi schovávají do panelů */
   const [headSheet, setHeadSheet] = useState(false);
   const [toolSheet, setToolSheet] = useState(false);
+  const [listSheet, setListSheet] = useState(false);
   const phone = useIsPhone();
   const endRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
@@ -207,7 +208,16 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
     <div className="app ch-app" data-pane={activeId ? 'detail' : 'list'}>
       <SidebarResizer />
       <div className="sidebar">
-        <div className="brand">quentino<span> chat</span></div>
+        <div className="ch-brandrow">
+          <div className="brand">quentino<span> chat</span></div>
+          {/* Na telefonu je nastavení pod ozubeným kolečkem — dvě tlačítka přes
+              celou šířku dole braly místo konverzacím */}
+          {phone && (
+            <button className="m-round" onClick={() => setListSheet(true)} aria-label="Nastavení">
+              <Icon name="settings" size={18} />
+            </button>
+          )}
+        </div>
         <WorkspaceSwitch current="chat" onChange={onWorkspace} chatUnread={chatUnread} />
 
         <div className="ig-seg" style={{ margin: '0 10px 8px' }}>
@@ -392,6 +402,18 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
           </>
         )}
       </div>
+
+      {listSheet && (
+        <Sheet title="Nastavení" onClose={() => setListSheet(false)}>
+          <SheetActions
+            onDone={() => setListSheet(false)}
+            actions={[
+              { icon: 'settings', label: 'Nastavení chatu', hint: 'Napojení, podpisy, kdo odpovídá', onClick: () => setSettingsOpen(true) },
+              { icon: 'user', label: 'Nastavení aplikace', hint: 'Účty, osoby, AI, poukazy', onClick: onOpenSettings }
+            ]}
+          />
+        </Sheet>
+      )}
 
       {headSheet && active && (
         <Sheet title={label(active)} onClose={() => setHeadSheet(false)}>

@@ -190,7 +190,9 @@ enum IgMedia {
         return url
     }
 
-    static func read(_ path: String) throws -> Data {
+    static func read(_ rawPath: String) throws -> Data {
+        // Po přeinstalaci aplikace se mění jméno kontejneru — viz Files.resolve
+        let path = Files.resolve(rawPath) ?? rawPath
         let url = URL(fileURLWithPath: path)
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)
         let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0

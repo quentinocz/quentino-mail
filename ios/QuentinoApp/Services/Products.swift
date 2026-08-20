@@ -175,6 +175,9 @@ enum Products {
         let data = try await Http.request(url, timeout: 120)
         let xml = String(data: data, encoding: .utf8) ?? Mime.string(data, charset: "windows-1250")
         _ = try importFeed(xml)
+        // Domény e-shopu se odvozují z feedu — po přesypání musí zestárnout,
+        // jinak by se karta objednávky u nových adres neukázala
+        Orders.resetShopDomains()
         return status()
     }
 

@@ -85,7 +85,9 @@ enum VoucherPdf {
     /// Logo jako data URL, aby se do PDF vysadilo bez síťového požadavku.
     private static func logoDataUrl() -> String? {
         let path = Store.setting("voucherLogo", "") ?? ""
-        guard !path.isEmpty, let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+        // Cesta v nastavení může být z předchozí instalace — viz Files.resolve
+        guard let found = Files.resolve(path),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: found)) else { return nil }
         let ext = (path as NSString).pathExtension.lowercased()
         let mime = ext == "svg" ? "image/svg+xml" : (ext == "jpg" || ext == "jpeg") ? "image/jpeg" : "image/png"
         return "data:\(mime);base64,\(data.base64EncodedString())"

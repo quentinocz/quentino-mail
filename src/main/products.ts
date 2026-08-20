@@ -1,5 +1,6 @@
 import { getDb, getSetting, setSetting } from './db';
 import { ProductHit, FeedStatus, MailLang, ProductQuery, ProductPage, ProductFacets } from '../shared/types';
+import { syncFeedXml } from './ptrans';
 
 /**
  * Adresa produktového feedu se v kódu nedrží.
@@ -161,6 +162,13 @@ export async function refreshFeed(): Promise<FeedStatus> {
   if (!res.ok) throw new Error(`Feed se nepodařilo stáhnout (HTTP ${res.status})`);
   const xml = await res.text();
   importFeedXml(xml);
+  // Ze stejného stažení se plní i podrobná databáze pro překlady. Kdyby se
+  // rozbor pokazil, katalog pro našeptávání tím trpět nemá.
+  try {
+    syncFeedXml(xml);
+  } catch (e) {
+    console.error('Překladová databáze se nenaplnila:', e);
+  }
   return feedStatus();
 }
 

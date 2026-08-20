@@ -33,10 +33,14 @@ targets:
       # takže si ji vlastní schéma quentino:// umí naservírovat
       - path: QuentinoApp/Resources/renderer
         type: folder
+      # Ikona aplikace; katalog se překládá do Assets.car
+      - path: QuentinoApp/Resources/Assets.xcassets
     info:
       path: QuentinoApp/Info.plist
       properties:
         CFBundleDisplayName: Quentino App
+        # Bez tohohle klíče systém ikonu z katalogu nenajde a plocha zůstane prázdná
+        CFBundleIconName: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Prázdná úvodní obrazovka = systémové pozadí; vlastní grafiku sem
@@ -77,3 +81,4 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_BITCODE: "NO"
         GENERATE_INFOPLIST_FILE: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

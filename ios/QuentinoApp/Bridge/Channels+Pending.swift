@@ -3,19 +3,12 @@ import UIKit
 import UniformTypeIdentifiers
 
 /**
- Kanály, které na iOS teprve vzniknou, a drobnosti kolem souborů.
+ Obchodní kanály (produkty, Upgates, objednávky, balení) a drobnosti kolem souborů.
 
- Nehotové kanály se registrují schválně — rozhraní pak místo ticha dostane
- větu, co ještě chybí, a v aplikaci je hned vidět, kam sáhnout dřív. Jak které
- služby přibývají, mizí odsud řádky.
+ Původně tu byly i kanály hlásící „tohle na telefonu zatím není"; od doplnění
+ rozboru objednávek, sledování zásilek a balení už žádný takový nezbyl.
  */
 extension Bridge {
-    private func pending(_ channels: [String], _ note: String) {
-        for channel in channels {
-            register(channel) { _ in throw BridgeError.message("\(note) (\(channel))") }
-        }
-    }
-
     func registerShopChannels() {
         // MARK: Katalog produktů
 
@@ -56,23 +49,66 @@ extension Bridge {
             try await Customer.messageText(try Self.int(args.first))
         }
 
-        // Karty objednávek a balení stojí na rozboru potvrzovacích e-mailů
-        // a na stahování stránek dopravců. Na telefonu se to nehodí (je to
-        // práce u počítače), takže se hlásí poctivě, že to tu není.
         // MARK: Objednávka u zprávy
 
-        register("orders:card") { args in await Orders.card(dbId: try Self.int(args.first)) }
-        register("orders:refresh") { args in await Orders.card(dbId: try Self.int(args.first)) }
+        register("orders:card") { args in
+            let withLive = args.count > 1 ? (args[1] as? Bool ?? true) : true
+            return await Orders.card(dbId: try Self.int(args.first), withLive: withLive)
+        }
+        register("orders:refresh") { args in
+            // Ruční obnovení nesmí sáhnout do uložené karty, jinak by tlačítko
+            // u uzavřené objednávky nedělalo nic
+            await Orders.card(dbId: try Self.int(args.first), withLive: true, withRendered: true, force: true)
+        }
         register("orders:badge") { args in await Orders.badge(dbId: try Self.int(args.first)) }
-        register("orders:shipment") { args in await Orders.shipment(dbId: try Self.int(args.first)) }
+        register("orders:shipment") { args in
+            let force = args.count > 1 ? (args[1] as? Bool ?? false) : false
+            return await Orders.shipment(dbId: try Self.int(args.first), force: force)
+        }
 
-        // Balení a ruční opravy hlášek dopravců jsou práce u stolu; vazby zpráv
-        // na objednávky staví na rozboru e-mailů, který na telefonu není.
-        pending([
-            "orderlinks:refresh", "orderlinks:pending", "orderlinks:resolve",
-            "packing:scan", "packing:setItem", "packing:setDone", "packing:reset",
-            "ship:relearn"
-        ], "Balení a vazby na objednávky jsou zatím jen na počítači")
+        // MARK: Vazby zpráv na objednávky
+
+        register("orderlinks:refresh") { _ in OrderLinks.refresh() }
+        register("orderlinks:pending") { args in
+            OrderLinks.pendingCount(accountId: try? Self.int(args.first))
+        }
+        register("orderlinks:resolve") { args in
+            OrderLinks.setResolved(messageId: try Self.int(args.first),
+                                   value: args.count > 1 ? (args[1] as? Bool ?? false) : false)
+            return true
+        }
+
+        // MARK: Balení objednávek
+
+        register("packing:scan") { args in
+            let days = (try? Self.int(args.first)) ?? 7
+            let force = args.count > 1 ? (args[1] as? Bool ?? false) : false
+            return await Packing.scan(days: days, force: force)
+        }
+        register("packing:setItem") { args in
+            Packing.setItem(messageId: try Self.int(args.first),
+                            index: try Self.int(args.count > 1 ? args[1] : nil),
+                            value: args.count > 2 ? (args[2] as? Bool ?? false) : false)
+        }
+        register("packing:setDone") { args in
+            Packing.setDone(messageId: try Self.int(args.first),
+                            value: args.count > 1 ? (args[1] as? Bool ?? false) : false)
+            return true
+        }
+        register("packing:reset") { args in
+            Packing.reset(messageId: try Self.int(args.first))
+            return true
+        }
+
+        // MARK: Hlášky dopravců
+
+        register("ship:relearn") { args in
+            guard let text = args.first as? String, args.count > 1, let phase = args[1] as? String else {
+                throw BridgeError.message("Chybí hláška nebo fáze.")
+            }
+            ShipPhase.relearn(text: text, phase: phase)
+            return true
+        }
     }
 
     func registerFileChannels() {
@@ -85,7 +121,10 @@ extension Bridge {
 
         // Náhled obrázku z disku jako data URI (podpis, poukazy, chat)
         register("files:readAsDataUrl") { args in
-            guard let path = args.first as? String else { throw BridgeError.message("Chybí cesta k souboru.") }
+            guard let raw = args.first as? String else { throw BridgeError.message("Chybí cesta k souboru.") }
+            guard let path = Files.resolve(raw) else {
+                throw BridgeError.message("Soubor už na zařízení není.")
+            }
             let url = URL(fileURLWithPath: path)
             guard let data = try? Data(contentsOf: url) else {
                 throw BridgeError.message("Soubor se nepodařilo přečíst.")
@@ -134,7 +173,7 @@ extension Bridge {
         // odkud jde soubor uložit, poslat dál nebo zobrazit v náhledu.
         for channel in ["files:openAttachment", "files:showInFolder"] {
             register(channel) { args in
-                guard let path = args.first as? String, FileManager.default.fileExists(atPath: path) else {
+                guard let raw = args.first as? String, let path = Files.resolve(raw) else {
                     throw BridgeError.message("Soubor už na zařízení není.")
                 }
                 await Files.share(URL(fileURLWithPath: path))
@@ -144,8 +183,43 @@ extension Bridge {
     }
 }
 
-/// Sdílení souborů a odkládací složka.
+/// Sdílení souborů, odkládací složka a dohledání souborů po přeinstalaci.
 enum Files {
+    /**
+     Cesta k souboru uloženému aplikací.
+
+     iOS dává aplikaci při každé nové instalaci jiný kontejner
+     (`…/Application/<jiné UUID>/…`), takže absolutní cesta uložená v databázi
+     po aktualizaci ukazuje do prázdna — logo v podpisu nebo fotka osoby pak
+     „zmizí", i když soubor pořád existuje. Když na původní cestě nic není,
+     zkusí se stejný soubor v dnešním kontejneru: nejdřív celý zbytek cesty za
+     složkou `Quentino`, pak aspoň jméno souboru ve známých podsložkách.
+
+     Vrací `nil`, jen když soubor opravdu nikde není.
+     */
+    static func resolve(_ path: String) -> String? {
+        guard !path.isEmpty else { return nil }
+        let manager = FileManager.default
+        if manager.fileExists(atPath: path) { return path }
+
+        let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        if let range = path.range(of: "/Quentino/", options: .backwards) {
+            let tail = String(path[range.upperBound...])
+            let candidate = support.appendingPathComponent("Quentino").appendingPathComponent(tail).path
+            if manager.fileExists(atPath: candidate) { return candidate }
+        }
+
+        let name = (path as NSString).lastPathComponent
+        guard !name.isEmpty else { return nil }
+        for folder in ["soubory", "posta", "ig-media", "ig-thumbs", "osoby", "poukazy"] {
+            let candidate = support
+                .appendingPathComponent("Quentino/\(folder)", isDirectory: true)
+                .appendingPathComponent(name).path
+            if manager.fileExists(atPath: candidate) { return candidate }
+        }
+        return nil
+    }
+
     static var scratch: URL {
         let url = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

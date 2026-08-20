@@ -21,6 +21,7 @@ import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { clearTrackingCache } from './ordertrack';
 import { scanOrders, setItemPacked, setOrderDone, resetPacking } from './packing';
 import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderlink';
+import * as ptrans from './ptrans';
 import { customerContext, customerConversation, messageText } from './customer';
 import { relearnPhase } from './shipphase';
 import { createVouchers } from './voucher';
@@ -314,6 +315,36 @@ export function registerIpc() {
     for (const r of rows) out[r.category ?? 'none'] = { cnt: r.cnt, unseen: r.unseen };
     return out;
   });
+
+  // Překlady produktů
+  handle('ptrans:overview', () => ptrans.overview());
+  handle('ptrans:saveSettings', (patch: any) => ptrans.savePtransSettings(patch ?? {}));
+  handle('ptrans:refresh', () => ptrans.refreshFromUrl());
+  handle('ptrans:list', (query: any) => ptrans.listProducts(query ?? {}));
+  handle('ptrans:fields', (code: string, langs?: string[]) => ptrans.productFields(code, langs));
+  handle('ptrans:edit', (code: string, lang: string, field: string, value: string) => {
+    ptrans.editField(code, lang, field, String(value ?? ''));
+    return true;
+  });
+  handle('ptrans:retranslate', (code: string, lang: string, field: string) =>
+    ptrans.retranslateField(code, lang, field));
+  handle('ptrans:run', (input: any) => ptrans.run(input ?? { codes: [] }));
+  handle('ptrans:stop', () => { ptrans.stop(); return true; });
+  handle('ptrans:progress', () => ptrans.progress());
+  handle('ptrans:plan', (codes: string[], langs: string[], options: any) =>
+    ptrans.planWork(codes ?? [], langs ?? [], options ?? {}).length);
+  handle('ptrans:googleTitles', (codes: string[], langs?: string[]) =>
+    ptrans.applyGoogleTitles(codes ?? [], langs));
+  handle('ptrans:templatePreview', (template: string, code: string, lang: string) =>
+    ptrans.previewTemplate(template ?? '', code, lang));
+  handle('ptrans:generateSeo', (code: string, lang: string, kind: string) =>
+    ptrans.generateSeo(code, lang, kind as any));
+  handle('ptrans:seoUrl', (code: string, lang: string) => ptrans.refreshSeoUrl(code, lang));
+  handle('ptrans:exportPreview', (options: any) => ptrans.exportPreview(options ?? {}));
+  handle('ptrans:export', (options: any) => ptrans.exportToFile(options ?? {}));
+  handle('ptrans:importFile', () => ptrans.importFromFile());
+  handle('ptrans:consistency', (lang: string) => ptrans.consistencyCheck(lang));
+  handle('ptrans:suggestPattern', (category: string, lang: string) => ptrans.suggestPattern(category, lang));
 
   // Instagram (vlastní modul)
   registerIgIpc();

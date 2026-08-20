@@ -248,6 +248,47 @@ enum Schema {
       key TEXT PRIMARY KEY
     );
 
+    -- Objednávky u zpráv: uložené hotové karty, párování dotazů na objednávky
+    -- a odškrtávání při balení. Stejné schéma jako na počítači, ať se databáze
+    -- a zálohy dají přenášet oběma směry.
+    CREATE TABLE IF NOT EXISTS packing (
+      message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      packed_json TEXT NOT NULL DEFAULT '[]',
+      done INTEGER NOT NULL DEFAULT 0,
+      done_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS order_cache (
+      message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      json TEXT,
+      at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS order_index (
+      order_number TEXT PRIMARY KEY,
+      customer_email TEXT NOT NULL DEFAULT '',
+      message_pk INTEGER NOT NULL,
+      date TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_index_email ON order_index(customer_email);
+
+    CREATE TABLE IF NOT EXISTS order_link (
+      message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+      order_number TEXT NOT NULL DEFAULT '',
+      order_msg_pk INTEGER,
+      resolved INTEGER NOT NULL DEFAULT 0,
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_link_open ON order_link(resolved);
+
+    CREATE TABLE IF NOT EXISTS ship_phase (
+      skeleton TEXT PRIMARY KEY,
+      phase TEXT NOT NULL,
+      sample TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'ai',
+      at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS products (
       code TEXT PRIMARY KEY,
       title_cz TEXT NOT NULL DEFAULT '',

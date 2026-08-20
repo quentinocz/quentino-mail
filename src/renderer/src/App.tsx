@@ -12,6 +12,7 @@ import OutboxModal from './components/OutboxModal';
 import TooltipLayer from './components/TooltipLayer';
 import DigestModal from './components/DigestModal';
 import PackingModal from './components/PackingModal';
+import ProductsModal from './components/ProductsModal';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
 import type { Workspace } from './components/WorkspaceSwitch';
@@ -40,6 +41,7 @@ function AppInner() {
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [digestOpen, setDigestOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
+  const [productsOpen, setProductsOpen] = useState(false);
   const [orderPending, setOrderPending] = useState(0);
   // Pracovní prostor: pošta nebo Instagram. Pamatuje se mezi spuštěními.
   const [workspace, setWorkspace] = useState<Workspace>(() => {
@@ -364,6 +366,7 @@ function AppInner() {
         quota={quota}
         onOpenDigest={() => { setDrawer(false); setDigestOpen(true); }}
         onOpenPacking={() => { setDrawer(false); setPackingOpen(true); }}
+        onOpenProducts={() => { setDrawer(false); setProductsOpen(true); }}
         orderPending={orderPending}
         onWorkspace={setWorkspace}
         chatUnread={chatUnread}
@@ -428,6 +431,7 @@ function AppInner() {
         </div>
       )}
       {digestOpen && <DigestModal onClose={() => setDigestOpen(false)} />}
+      {productsOpen && <ProductsModal onClose={() => setProductsOpen(false)} />}
       {packingOpen && (
         <PackingModal
           onClose={() => setPackingOpen(false)}

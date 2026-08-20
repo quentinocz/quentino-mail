@@ -153,9 +153,106 @@
     })),
     'ig:thumb': null,
     'ig:drafts': [], 'ig:jobs': [], 'ig:markets': [],
+    'packing:scan': null,   // doplní se níž, až bude karta objednávky sestavená
+    'packing:setItem': [0],
+    'packing:setDone': true,
+    'packing:reset': true,
+    'ptrans:overview': {
+      settings: {
+        sourceLang: 'cz',
+        languages: [
+          { code: 'sk', label: 'Slovenština', enabled: true },
+          { code: 'en', label: 'Angličtina', enabled: true },
+          { code: 'de', label: 'Němčina', enabled: true }
+        ],
+        fields: { title: true, short: true, long: true, seo_title: true, seo_desc: true, seo_url: true,
+          google_title: false, google_desc: false, params: false },
+        prompt: '', glossary: [{ source: 'kšandy', targets: { sk: 'traky', en: 'suspenders' } }],
+        googleTitle: { sk: '{title} {param:Barva} | Quentino' },
+        limits: { seoTitle: 70, seoDesc: 155, googleTitle: 150, googleDesc: 5000 },
+        model: '', concurrency: 2, secondsPerUnit: 11.4
+      },
+      feed: { syncedAt: new Date(Date.now() - 3 * 3600e3).toISOString(), products: 1204 },
+      langs: [
+        { lang: 'sk', todo: 539, total: 7224, byState: { missing: 170, same: 350, source: 19, ok: 6685 } },
+        { lang: 'en', todo: 481, total: 7224, byState: { missing: 169, same: 310, source: 2, ok: 6743 } }
+      ],
+      running: null
+    },
+    'ptrans:list': {
+      total: 137, todo: 137,
+      rows: [
+        { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', image: null,
+          category: 'Kšandy', manufacturer: 'Quentino', availability: 'Skladem', price: '649 CZK', active: true,
+          states: { sk: { total: 6, todo: 6, worst: 'same' }, en: { total: 6, todo: 6, worst: 'same' },
+            de: { total: 6, todo: 6, worst: 'missing' } } },
+        { code: 'MZU01', title: 'Bordó manžetové uzlíky', image: null, category: 'Manžetové knoflíčky',
+          manufacturer: 'Quentino', availability: 'Skladem', price: '199 CZK', active: true,
+          states: { sk: { total: 6, todo: 2, worst: 'missing' }, en: { total: 6, todo: 0, worst: 'ok' },
+            de: { total: 6, todo: 6, worst: 'missing' } } },
+        { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', image: null, category: 'Kravaty',
+          manufacturer: 'Quentino', availability: 'Skladem více než 20 ks', price: '449 CZK', active: true,
+          states: { sk: { total: 6, todo: 1, worst: 'stale' }, en: { total: 6, todo: 0, worst: 'ok' },
+            de: { total: 6, todo: 6, worst: 'missing' } } }
+      ]
+    },
+    'ptrans:fields': [
+      { code: 'PSSK120BR2', lang: 'sk', field: 'title', value: 'Bordó pánské široké kšandy s černou pravou kůží',
+        source: 'Bordó pánské široké kšandy s černou pravou kůží', state: 'same', translated: null,
+        translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'short',
+        value: '<p>Bordó pánské kšandy z kvalitní pruženky…</p>',
+        source: '<p>Bordó pánské kšandy z kvalitní pruženky…</p>', state: 'same', translated: null,
+        translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'long',
+        value: '<p data-start="67">Široké kšandy v bordó odstínu s pravou kůží…</p>',
+        source: '<p data-start="67">Široké kšandy v bordó odstínu s pravou kůží…</p>', state: 'same',
+        translated: null, translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'seo_title', value: '', source: 'Bordó široké kšandy | Quentino',
+        state: 'missing', translated: null, translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'seo_desc', value: '',
+        source: 'Bordó pánské kšandy s pravou kůží, vyrobené v ČR.', state: 'missing', translated: null,
+        translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'seo_url', value: 'bordo-panske-siroke-ksandy',
+        source: 'bordo-panske-siroke-ksandy', state: 'same', translated: null, translatedAt: null,
+        model: '', manual: false }
+    ],
+    'ptrans:plan': 12,
+    'ptrans:consistency': {
+      patterns: [
+        { category: 'Kravaty', lang: 'en', pattern: "Men's {…} tie", samples: 42, matching: 39 },
+        { category: 'Kšandy', lang: 'en', pattern: "Men's {…} suspenders", samples: 31, matching: 31 },
+        { category: 'Motýlci', lang: 'en', pattern: "Men's {…} bow tie", samples: 18, matching: 13 }
+      ],
+      deviations: [
+        { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', translated: 'Burgundy tie for men BULLDOGS',
+          category: 'Kravaty', lang: 'en', pattern: "Men's {…} tie" },
+        { code: 'PMB07', title: 'Černý pánský motýlek', translated: 'Black bow tie mens',
+          category: 'Motýlci', lang: 'en', pattern: "Men's {…} bow tie" }
+      ]
+    },
+    'ptrans:exportPreview': { products: 137, fields: 812 },
     'products:status': { url: '', count: 0, lastSync: null },
     'vouchers:list': []
   };
+  // Balení: dvě objednávky ze stejné karty, jedna rozdělaná a jedna hotová
+  // Stav „Přijata" je ten, který se balí — „Odeslána" si aplikace schovává sama
+  const toPack = (number) => Object.assign({}, answers['orders:card'], {
+    orderNumber: number,
+    live: Object.assign({}, answers['orders:card'].live, { status: 'Přijata' }),
+    tracking: Object.assign({}, answers['orders:card'].tracking, { status: 'Přijata' })
+  });
+  answers['packing:scan'] = {
+    orders: [
+      { messageId: 1, date: new Date(Date.now() - 3 * 3600e3).toISOString(),
+        card: toPack('20260819'), packed: [0], done: false, doneAt: null },
+      { messageId: 2, date: new Date(Date.now() - 26 * 3600e3).toISOString(),
+        card: toPack('20260812'), packed: [], done: false, doneAt: null }
+    ],
+    statuses: ['Přijata'],
+    scannedAt: new Date().toISOString()
+  };
+
   window.api = {
     invoke: function (channel) {
       return Promise.resolve({ ok: true, data: channel in answers ? answers[channel] : null });

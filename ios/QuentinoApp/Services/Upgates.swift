@@ -113,6 +113,53 @@ enum Upgates {
         return out
     }
 
+    /**
+     Živý stav jedné objednávky pro kartu u zprávy.
+
+     Nejdřív se zkusí filtr podle čísla objednávky; některé instalace ho ale
+     nemají povolený, proto je záložní cesta přes adresu zákazníka.
+     */
+    static func orderLive(orderNumber: String, email: String?) async throws -> [String: Any]? {
+        let wanted = stripLeadingZeros(orderNumber)
+        var found: [String: Any]?
+
+        if let data = try? await call("/api/v2/orders?order_number=\(Http.escaped(orderNumber))") {
+            found = (data["orders"] as? [[String: Any]] ?? []).first { raw in
+                stripLeadingZeros(text(raw["order_number"]) ?? "") == wanted
+            }
+        }
+
+        if found == nil, let email, email.contains("@") {
+            let list = try await rawOrders(email: email)
+            found = list.first { raw in
+                stripLeadingZeros(text(raw["order_number"]) ?? "") == wanted
+            }
+        }
+        guard let raw = found else { return nil }
+
+        return [
+            "status": text(raw["status"]) ?? NSNull(),
+            "paid": text(raw["paid_date"]) != nil,
+            "paidDate": text(raw["paid_date"]) ?? NSNull(),
+            "deliveredDate": text(raw["delivered_date"]) ?? NSNull(),
+            "trackingCode": text(raw["tracking_code"]) ?? NSNull(),
+            "trackingUrl": text(raw["tracking_url"]) ?? NSNull(),
+            "adminUrl": text(raw["admin_url"]) ?? NSNull()
+        ]
+    }
+
+    private static func stripLeadingZeros(_ value: String) -> String {
+        var out = value
+        while out.hasPrefix("0"), out.count > 1 { out.removeFirst() }
+        return out
+    }
+
+    private static func text(_ value: Any?) -> String? {
+        guard let value, !(value is NSNull) else { return nil }
+        let string = value as? String ?? String(describing: value)
+        return string.isEmpty ? nil : string
+    }
+
     static func orders(email rawEmail: String) async throws -> [[String: Any]] {
         try await rawOrders(email: rawEmail).map(order)
     }
