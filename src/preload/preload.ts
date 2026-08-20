@@ -45,12 +45,21 @@ const ALLOWED_INVOKE = [
   // Chat
   'chat:overview', 'chat:saveConfig', 'chat:test',
   'chat:conversations', 'chat:messages', 'chat:send', 'chat:sendImage', 'chat:markRead', 'chat:setStatus',
-  'chat:cards', 'chat:searchProducts', 'chat:productInDomain', 'chat:suggest'
+  'chat:cards', 'chat:searchProducts', 'chat:productInDomain', 'chat:suggest',
+  // Překlady produktů
+  'ptrans:overview', 'ptrans:saveSettings', 'ptrans:refresh', 'ptrans:list', 'ptrans:fields',
+  'ptrans:edit', 'ptrans:retranslate', 'ptrans:run', 'ptrans:stop', 'ptrans:progress', 'ptrans:plan',
+  'ptrans:googleTitles', 'ptrans:templatePreview', 'ptrans:generateSeo', 'ptrans:seoUrl',
+  'ptrans:exportPreview', 'ptrans:export', 'ptrans:importFile',
+  'ptrans:consistency', 'ptrans:suggestPattern',
+  // Verze aplikace do hlavičky nastavení
+  'app:version'
 ];
 
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
-  'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open'
+  'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open',
+  'ptrans:progress', 'ptrans:changed'
 ];
 
 contextBridge.exposeInMainWorld('api', {

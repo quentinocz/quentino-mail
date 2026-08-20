@@ -541,6 +541,66 @@ function checkDist() {
   }
 }
 
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Kanály mezi rozhraním a hlavním procesem.
+ *
+ * Nový kanál se přidává na tři místa: obsluha v `src/main`, funkce v
+ * `src/renderer/src/api.ts` a povolení v `src/preload/preload.ts`. Když se
+ * zapomene to třetí, aplikace se přeloží, spustí a teprve po kliknutí hlásí
+ * „Nepovolený kanál" — přesně tak, jak to bylo u překladů produktů. Radši ať
+ * to build zastaví hned.
+ */
+function checkChannels() {
+  const api = fs.readFileSync(path.join(ROOT, 'src/renderer/src/api.ts'), 'utf8');
+  const preload = fs.readFileSync(path.join(ROOT, 'src/preload/preload.ts'), 'utf8');
+
+  const used = [...new Set([...api.matchAll(/call<[^>]*>\('([a-zA-Z:]+)'/g)].map((m) => m[1]))];
+  if (used.length === 0) {
+    warn('Kanály se nepodařilo z api.ts vyčíst — kontrola přeskočena.');
+    return;
+  }
+
+  const allowed = new Set(
+    [...preload.matchAll(/'([a-zA-Z]+:[a-zA-Z]+)'/g)].map((m) => m[1])
+  );
+  const missing = used.filter((channel) => !allowed.has(channel));
+  if (missing.length) {
+    fail(
+      `V preloadu chybí ${missing.length} kanálů: ${missing.slice(0, 6).join(', ')}${missing.length > 6 ? '…' : ''}`,
+      'Doplň je do ALLOWED_INVOKE v src/preload/preload.ts — jinak je rozhraní dostane jako „Nepovolený kanál".'
+    );
+    return;
+  }
+
+  // Druhý směr: kanál, který nikdo v hlavním procesu neobsluhuje
+  const mainSrc = listFiles(path.join(ROOT, 'src/main'), '.ts')
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n');
+  const handled = new Set(
+    [...mainSrc.matchAll(/(?:handle|register)\(\s*'([a-zA-Z:]+)'/g)].map((m) => m[1])
+  );
+  const orphans = used.filter((channel) => !handled.has(channel));
+  if (orphans.length) {
+    warn(`Bez obsluhy v hlavním procesu: ${orphans.join(', ')}`);
+  } else {
+    warn(`Kanálů rozhraní: ${used.length}, všechny povolené i obsloužené.`);
+  }
+}
+
+/** Všechny soubory s příponou pod složkou, včetně podsložek. */
+function listFiles(dir, ext) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listFiles(full, ext));
+    else if (entry.name.endsWith(ext)) out.push(full);
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ */
 
 const [mode, ...rest] = process.argv.slice(2);
@@ -548,12 +608,15 @@ const targetArg = (rest.find((a) => a.startsWith('--target=')) ?? '--target=auto
 
 if (mode === 'env') {
   checkEnv(targetArg);
+  checkChannels();
+} else if (mode === 'channels') {
+  checkChannels();
 } else if (mode === 'dist') {
   checkDist();
 } else if (mode === 'tools') {
   checkNativeToolchain();
 } else {
-  console.error('Použití: node scripts/preflight.mjs env [--target=mac|win|auto] | dist | tools');
+  console.error('Použití: node scripts/preflight.mjs env [--target=mac|win|auto] | dist | tools | channels');
   process.exit(2);
 }
 
@@ -567,6 +630,7 @@ if (problems.length) {
 
 const OK = {
   env: '  ✓ prostředí je připravené',
+  channels: '  ✓ kanály mezi rozhraním a aplikací sedí',
   dist: '  ✓ sestavené soubory jsou kompletní',
   tools: '  ✓ kompilátor pro nativní moduly je k dispozici'
 };
