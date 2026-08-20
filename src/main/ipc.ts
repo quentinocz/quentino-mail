@@ -316,6 +316,13 @@ export function registerIpc() {
     return out;
   });
 
+  // Verze aplikace — do hlavičky nastavení, ať je po vydání vidět, co běží
+  handle('app:version', () => ({
+    version: app.getVersion(),
+    platform: process.platform,
+    electron: process.versions.electron ?? ''
+  }));
+
   // Překlady produktů
   handle('ptrans:overview', () => ptrans.overview());
   handle('ptrans:saveSettings', (patch: any) => ptrans.savePtransSettings(patch ?? {}));

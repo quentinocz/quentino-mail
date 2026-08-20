@@ -81,6 +81,11 @@ export const api = {
     refresh: () => call<FeedStatus>('products:refresh'),
     status: () => call<FeedStatus>('products:status')
   },
+  /** Verze běžící aplikace */
+  app: {
+    version: () => call<{ version: string; platform: string; electron: string }>('app:version')
+  },
+
   /** Překlady produktů — jen na počítači */
   ptrans: {
     overview: () => call<PtransOverview>('ptrans:overview'),

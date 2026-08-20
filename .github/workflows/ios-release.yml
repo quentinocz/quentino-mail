@@ -11,7 +11,8 @@ name: iOS
 
 on:
   push:
-    tags: ['ios-v*']
+    # `v*` sestaví všechno naráz (počítač i telefon), `ios-v*` jen telefon
+    tags: ['v*', 'ios-v*']
   workflow_dispatch:
 
 concurrency:
@@ -33,6 +34,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      # Verze se bere ze značky, ne z package.json — jinak by se aplikace
+      # po každém vydání hlásila pořád stejným číslem (a SideStore by novou
+      # verzi vůbec nenabídl k aktualizaci)
+      - name: Verze podle značky
+        id: verze
+        run: |
+          echo "version=$(node scripts/set-version.mjs)" >> "$GITHUB_OUTPUT"
+          echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       # 1) Rozhraní — tentýž React, jaký běží na počítači.
       #    Nativní moduly Electronu se sem netahají: pro .ipa jsou k ničemu
@@ -65,7 +75,9 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION=${{ steps.verze.outputs.version }} \
+            CURRENT_PROJECT_VERSION=${{ steps.verze.outputs.build }}
 
       - name: Zabalení .ipa
         run: |
@@ -78,6 +90,7 @@ jobs:
       - name: Zdroj pro SideStore
         env:
           TARGET_REPO: ${{ vars.RELEASE_REPO || github.repository }}
+          BUILD_NUMBER: ${{ steps.verze.outputs.build }}
         run: node ios/ci/make-source.mjs QuentinoApp.ipa apps.json
 
       - uses: actions/upload-artifact@v4
@@ -92,7 +105,7 @@ jobs:
       # 3) Vydání do VEŘEJNÉHO repozitáře — SideStore musí .ipa stáhnout
       #    bez přihlášení, takže z privátního repozitáře to nejde.
       - name: Vydání
-        if: startsWith(github.ref, 'refs/tags/ios-v')
+        if: startsWith(github.ref, 'refs/tags/')
         # POZOR: SideStore stahuje .ipa bez přihlášení. Když TARGET_REPO ukazuje
         # na privátní repozitář, vydání sice vznikne, ale zařízení si ho
         # nestáhnou — nastav proměnnou RELEASE_REPO na veřejný repozitář
