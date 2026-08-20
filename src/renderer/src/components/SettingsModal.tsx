@@ -60,6 +60,13 @@ interface Props {
 export default function SettingsModal(p: Props) {
   const toast = useToast();
   const [tab, setTab] = useState<Tab>(p.accounts.length === 0 ? 'accounts' : 'ai');
+  /** Verze běžící aplikace — po vydání je dobré vidět, jestli běží to nové */
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    api.app.version().then(info => setVersion(info.version)).catch(() => {});
+  }, []);
+
   const freshSigConfig = (email = '') => ({
     ...DEFAULT_SIG_CONFIG,
     names: { ...DEFAULT_SIG_CONFIG.names },
@@ -276,6 +283,8 @@ export default function SettingsModal(p: Props) {
       <div className="modal">
         <div className="modal-head">
           <span>Nastavení</span>
+          {/* Po vydání je užitečné vidět, jestli běží to, co se právě sestavilo */}
+          <span className="set-version">{version ? `verze ${version}` : ''}</span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <button className="toolbar-btn" disabled={busy === 'export'}
               onClick={() => { setBackupBox('export'); setBackupPass(''); }}

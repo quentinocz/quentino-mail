@@ -3,6 +3,7 @@ import type { PackingOrder, PackingProgress, OrderCardItem } from '@shared/types
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import { useIsPhone } from '../mobile';
 
 /**
  * Nástroj na balení objednávek.
@@ -124,6 +125,7 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
   const [selected, setSelected] = useState<number | null>(null);
   const [zoom, setZoom] = useState<OrderCardItem | null>(null);
   const [copied, setCopied] = useState(false);
+  const phone = useIsPhone();
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const lastLoad = useRef(0);
 
@@ -195,11 +197,17 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
     return next;
   });
 
-  // Vybraná objednávka musí zůstat ve viditelném seznamu
+  // Vybraná objednávka musí zůstat ve viditelném seznamu. Na telefonu se ale
+  // nic nevybírá samo — je vidět vždy jen jedna část, takže by se rovnou
+  // otevřela objednávka a seznam by uživatel nikdy neviděl.
   useEffect(() => {
     if (visible.length === 0) { setSelected(null); return; }
-    if (selected === null || !visible.some(o => o.messageId === selected)) setSelected(visible[0].messageId);
-  }, [visible, selected]);
+    if (selected !== null && !visible.some(o => o.messageId === selected)) {
+      setSelected(phone ? null : visible[0].messageId);
+      return;
+    }
+    if (selected === null && !phone) setSelected(visible[0].messageId);
+  }, [visible, selected, phone]);
 
   const current = visible.find(o => o.messageId === selected) ?? null;
 
@@ -267,7 +275,8 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal pk-modal">
+      {/* Na telefonu je vidět vždy jen jedna část — seznam, nebo rozepsaná objednávka */}
+      <div className="modal pk-modal" data-pane={selected ? 'detail' : 'list'}>
         <div className="modal-head">
           <div className="modal-title"><Icon name="bag" size={16} /> Balení objednávek</div>
           <span style={{ flex: 1 }} />
@@ -370,6 +379,10 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
             {current && (
               <>
                 <div className="pk-head">
+                  <button className="m-only m-back" onClick={() => setSelected(null)}
+                    aria-label="Zpět na seznam objednávek">
+                    <Icon name="chevLeft" size={20} />
+                  </button>
                   <div>
                     <div className="pk-head-num">{current.card.orderNumber ?? 'Objednávka'}</div>
                     <div className="pk-head-name">{customerName(current)}</div>

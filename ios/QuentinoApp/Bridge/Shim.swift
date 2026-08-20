@@ -11,7 +11,8 @@ extension Bridge {
      Zároveň označí platformu, aby si CSS mohlo sáhnout na dotykové úpravy
      (`html[data-platform="ios"]`) a rozhraní vědělo, že běží na mobilu.
      */
-    static let shim = """
+    static func shim(formFactor: String) -> String {
+        """
     (function () {
       const pending = new Map();
       const listeners = new Map();
@@ -54,12 +55,11 @@ extension Bridge {
 
       const root = document.documentElement;
       root.dataset.platform = 'ios';
-      const setFormFactor = () => {
-        // Telefon dostane zjednodušené rozvržení, tablet to samé co počítač
-        root.dataset.form = Math.min(window.innerWidth, window.innerHeight) < 600 ? 'phone' : 'tablet';
-      };
-      setFormFactor();
-      window.addEventListener('resize', setFormFactor);
+      // O jaké zařízení jde, řekne nativní část. Spočítat si to z rozměrů okna
+      // tady nejde: skript běží dřív, než prohlížeč přečte hlavičku viewport,
+      // takže by vyšla výchozí šířka 980 px a z iPhonu by se stal tablet.
+      root.dataset.form = '\(formFactor)';
     })();
     """
+    }
 }

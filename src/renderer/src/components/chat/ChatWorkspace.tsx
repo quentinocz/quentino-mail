@@ -8,6 +8,8 @@ import { SidebarResizer } from '../../sidebar';
 import ChatMessageView from './ChatMessage';
 import ChatProductPicker from './ChatProductPicker';
 import ChatSettings from './ChatSettings';
+import { Sheet, SheetActions } from '../Sheet';
+import { useIsPhone } from '../../mobile';
 
 const FLAG: Record<string, string> = { cs: '🇨🇿', sk: '🇸🇰', en: '🇬🇧' };
 
@@ -45,7 +47,13 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   const [lightbox, setLightbox] = useState<string | null>(null);
   /** Kdo podepisuje tuhle odpověď; 0 = bez podpisu, null = ještě podle nastavení */
   const [signPerson, setSignPerson] = useState<number | null>(null);
+  /** Na telefonu se akce hlavičky a nástroje odpovědi schovávají do panelů */
+  const [headSheet, setHeadSheet] = useState(false);
+  const [toolSheet, setToolSheet] = useState(false);
+  const [listSheet, setListSheet] = useState(false);
+  const phone = useIsPhone();
   const endRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
 
   const active = useMemo(() => convs.find(c => c.id === activeId) ?? null, [convs, activeId]);
   const ready = overview?.config.ready ?? false;
@@ -94,6 +102,14 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   }, [activeId, loadMessages, loadOverview]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
+
+  // Pole odpovědi roste s textem — jeden řádek, dokud je co psát, nejvýš pět
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box || !phone) return;
+    box.style.height = 'auto';
+    box.style.height = `${Math.min(box.scrollHeight, 132)}px`;
+  }, [reply, phone]);
   useEffect(() => api.on('chat:changed', () => { loadConvs(); loadOverview(); }), [loadConvs, loadOverview]);
 
   const send = async () => {
@@ -192,7 +208,16 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
     <div className="app ch-app" data-pane={activeId ? 'detail' : 'list'}>
       <SidebarResizer />
       <div className="sidebar">
-        <div className="brand">quentino<span> chat</span></div>
+        <div className="ch-brandrow">
+          <div className="brand">quentino<span> chat</span></div>
+          {/* Na telefonu je nastavení pod ozubeným kolečkem — dvě tlačítka přes
+              celou šířku dole braly místo konverzacím */}
+          {phone && (
+            <button className="m-round" onClick={() => setListSheet(true)} aria-label="Nastavení">
+              <Icon name="settings" size={18} />
+            </button>
+          )}
+        </div>
         <WorkspaceSwitch current="chat" onChange={onWorkspace} chatUnread={chatUnread} />
 
         <div className="ig-seg" style={{ margin: '0 10px 8px' }}>
@@ -220,6 +245,8 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
                   {timeAgo(c.lastMessageAt)}
                   {c.status === 'closed' ? ' · uzavřeno' : ''}
                   {c.channel !== 'widget' ? ` · ${c.channel}` : ''}
+                  {/* Poslední slovo má zákazník — tohle je fronta, kterou je potřeba projít */}
+                  {!c.answered && c.status !== 'closed' && <b className="ch-wait"> · čeká na odpověď</b>}
                 </span>
               </span>
               {c.unread > 0 && <span className="count">{c.unread}</span>}
@@ -252,26 +279,32 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
               <button className="m-only m-back" onClick={() => setActiveId(null)} aria-label="Zpět na konverzace">
                 <Icon name="chevLeft" size={20} />
               </button>
-              <div>
+              <div className="ch-head-text">
                 <div className="ch-head-name">
                   {FLAG[active.locale] ?? '🌍'} {label(active)}
                 </div>
-                <div className="ig-muted">
+                <div className="ig-muted ch-head-sub">
                   {[active.email, active.phone].filter(Boolean).join(' · ') || 'bez kontaktu'}
                   {active.leftAt ? ' · zákazník odešel ze stránky' : ''}
                 </div>
               </div>
-              <div className="ig-head-tools">
-                {active.email && (
-                  <button className="btn ghost" data-tip={`Otevře novou zprávu na ${active.email}`}
-                    onClick={() => onComposeEmail(active.email!)}>
-                    <Icon name="mail" size={13} /> Napsat e-mail
-                  </button>
-                )}
-                <button className="btn ghost" onClick={toggleStatus}>
-                  {active.status === 'closed' ? 'Otevřít znovu' : 'Uzavřít'}
+              {phone ? (
+                <button className="m-round" onClick={() => setHeadSheet(true)} aria-label="Další akce">
+                  <Icon name="dots" size={18} />
                 </button>
-              </div>
+              ) : (
+                <div className="ig-head-tools">
+                  {active.email && (
+                    <button className="btn ghost" data-tip={`Otevře novou zprávu na ${active.email}`}
+                      onClick={() => onComposeEmail(active.email!)}>
+                      <Icon name="mail" size={13} /> Napsat e-mail
+                    </button>
+                  )}
+                  <button className="btn ghost" onClick={toggleStatus}>
+                    {active.status === 'closed' ? 'Otevřít znovu' : 'Uzavřít'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="ch-thread">
@@ -281,6 +314,34 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
               <div ref={endRef} />
             </div>
 
+            {phone ? (
+              /* Telefon: jeden řádek — nástroje do panelu, pole roste s textem */
+              <div className="ch-composer phone">
+                {wouldSign && !alreadyInText && signText && (
+                  <div className="ch-sign-strip">Podepíše se: <b>{signText}</b></div>
+                )}
+                <div className="ch-bar">
+                  <button className="m-round" onClick={() => setToolSheet(true)} aria-label="Nástroje odpovědi">
+                    <Icon name="sliders" size={18} />
+                  </button>
+                  <textarea
+                    ref={boxRef}
+                    rows={1}
+                    value={reply}
+                    onChange={e => setReply(e.target.value)}
+                    placeholder="Odpověď…"
+                  />
+                  <button
+                    className="m-round send"
+                    onClick={send}
+                    disabled={!reply.trim() || busy === 'send'}
+                    aria-label="Odeslat"
+                  >
+                    {busy === 'send' ? <span className="spinner-inline" /> : <Icon name="send" size={17} />}
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div className="ch-composer">
               <textarea
                 rows={3}
@@ -337,9 +398,80 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
                 </button>
               </div>
             </div>
+            )}
           </>
         )}
       </div>
+
+      {listSheet && (
+        <Sheet title="Nastavení" onClose={() => setListSheet(false)}>
+          <SheetActions
+            onDone={() => setListSheet(false)}
+            actions={[
+              { icon: 'settings', label: 'Nastavení chatu', hint: 'Napojení, podpisy, kdo odpovídá', onClick: () => setSettingsOpen(true) },
+              { icon: 'user', label: 'Nastavení aplikace', hint: 'Účty, osoby, AI, poukazy', onClick: onOpenSettings }
+            ]}
+          />
+        </Sheet>
+      )}
+
+      {headSheet && active && (
+        <Sheet title={label(active)} onClose={() => setHeadSheet(false)}>
+          <SheetActions
+            onDone={() => setHeadSheet(false)}
+            actions={[
+              ...(active.email ? [{
+                icon: 'mail', label: 'Napsat e-mail', hint: active.email,
+                onClick: () => onComposeEmail(active.email!)
+              }] : []),
+              ...(active.phone ? [{
+                icon: 'phone', label: 'Zavolat', hint: active.phone,
+                onClick: () => { window.location.href = `tel:${active.phone!.replace(/\s/g, '')}`; }
+              }] : []),
+              {
+                icon: active.status === 'closed' ? 'inbox' : 'check',
+                label: active.status === 'closed' ? 'Otevřít znovu' : 'Uzavřít konverzaci',
+                hint: active.status === 'closed' ? undefined : 'Zmizí ze seznamu otevřených',
+                onClick: toggleStatus
+              },
+              { icon: 'settings', label: 'Nastavení chatu', onClick: () => setSettingsOpen(true) }
+            ]}
+          />
+        </Sheet>
+      )}
+
+      {toolSheet && active && (
+        <Sheet title="Nástroje odpovědi" onClose={() => setToolSheet(false)}>
+          <SheetActions
+            onDone={() => setToolSheet(false)}
+            actions={[
+              { icon: 'sparkles', label: 'Navrhnout odpověď', hint: 'Podle průběhu konverzace; rozepsaný text bere jako zadání', busy: busy === 'ai', onClick: suggest },
+              { icon: 'zap', label: 'Vylepšit text', disabled: !reply.trim(), busy: busy === 'improve', onClick: improve },
+              { icon: 'globe', label: 'Přeložit', hint: `Do jazyka zákazníka (${active.locale})`, disabled: !reply.trim(), busy: busy === 'translate', onClick: translate },
+              { icon: 'bag', label: 'Vložit produkt', hint: 'Zákazníkovi se ukáže jako karta', onClick: () => setPicker(true) },
+              { icon: 'image', label: 'Poslat obrázek', hint: 'Odešle se rovnou, bez textu', busy: busy === 'image', onClick: sendImage }
+            ]}
+          />
+          <div className="sheet-section">Podpis</div>
+          <div className="sheet-field">
+            <select value={personId} onChange={e => setSignPerson(Number(e.target.value))}>
+              <option value={0}>Bez podpisu</option>
+              {overview?.persons.map(p => (
+                <option key={p.id} value={p.id}>{p.short}</option>
+              ))}
+            </select>
+            <small>
+              {alreadyInText
+                ? 'Podpis už máš v textu — přidávat se nebude.'
+                : wouldSign
+                  ? `Na konec se přidá: ${signText}`
+                  : signText
+                    ? 'Podepsáno bylo dřív — tahle odpověď podpis mít nebude.'
+                    : 'Bez podpisu.'}
+            </small>
+          </div>
+        </Sheet>
+      )}
 
       {picker && active && (
         <ChatProductPicker

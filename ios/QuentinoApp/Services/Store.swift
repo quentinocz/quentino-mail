@@ -15,7 +15,7 @@ enum Store {
     }
 
     static func setSetting(_ key: String, _ value: String) {
-        try? SQLite.shared.run(
+        _ = try? SQLite.shared.run(
             "INSERT INTO settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [.text(key), .text(value)]
         )

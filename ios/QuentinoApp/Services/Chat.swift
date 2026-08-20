@@ -105,7 +105,7 @@ enum Chat {
         let rows = (try await rest(
             "messages?select=*&conversation_id=eq.\(Http.escaped(conversationId))&order=created_at.asc&limit=500"
         )) as? [[String: Any]] ?? []
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             [
                 "id": row["id"] ?? "",
                 "conversationId": row["conversation_id"] ?? "",
@@ -167,7 +167,7 @@ enum Chat {
             }
         }
 
-        try await rest("messages", method: "POST", body: [
+        _ = try await rest("messages", method: "POST", body: [
             "conversation_id": conversationId, "content": final, "sender": "operator"
         ])
         try await patch(conversationId, ["last_message_at": ISO8601DateFormatter().string(from: Date())])

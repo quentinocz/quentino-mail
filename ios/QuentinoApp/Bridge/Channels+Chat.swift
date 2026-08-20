@@ -82,8 +82,20 @@ extension Bridge {
         }
 
         // Posílání obrázků z telefonu přijde spolu s výběrem souborů
-        register("chat:sendImage") { _ in
-            throw BridgeError.message("Posílání obrázků z mobilu se dodělává.")
+        // Obrázek do chatu: vybere se z knihovny, nahraje do úložiště médií
+        // a odešle jako odkaz — stejně jako z počítače.
+        register("chat:sendImage") { args in
+            guard let conversationId = args.first as? String else {
+                throw BridgeError.message("Chybí konverzace.")
+            }
+            guard let path = await MediaPicker.pickImage() else { return NSNull() }
+            let data = try IgMedia.read(path)
+            let name = (path as NSString).lastPathComponent
+            let uploaded = try await IgMedia.upload(
+                data, key: "chat/\(Int(Date().timeIntervalSince1970))-\(name)", mime: IgMedia.mime(for: path)
+            )
+            let person = args.count > 1 ? args[1] as? Int : nil
+            return try await Chat.send(conversationId, uploaded.publicUrl, personId: person)
         }
     }
 
@@ -98,11 +110,6 @@ extension Bridge {
         }
         register("ai:usage") { _ in AI.usage() }
 
-        // Zbytek AI pracuje nad poštou, přijde spolu s ní
-        for channel in ["ai:summarize", "ai:reply", "ai:translateIncoming", "ai:digest"] {
-            register(channel) { _ in
-                throw BridgeError.message("Tahle funkce pracuje s poštou, která se na mobilu dodělává (\(channel)).")
-            }
-        }
+        // Shrnutí, odpovědi a překlady nad poštou registruje Channels+Mail
     }
 }

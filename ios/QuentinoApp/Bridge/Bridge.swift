@@ -15,6 +15,10 @@ import WebKit
  ní se v rozhraní pozná, co ještě chybí.
  */
 final class Bridge: NSObject, ObservableObject, WKScriptMessageHandler {
+    /// Poslední vytvořený most. Služby běžící na pozadí (fronta publikací,
+    /// synchronizace) díky němu umí dát rozhraní vědět, že se něco změnilo.
+    static private(set) weak var current: Bridge?
+
     private weak var webView: WKWebView?
     private var handlers: [String: Handler] = [:]
 
@@ -24,6 +28,12 @@ final class Bridge: NSObject, ObservableObject, WKScriptMessageHandler {
     override init() {
         super.init()
         registerAll()
+        Bridge.current = self
+    }
+
+    /// Událost do rozhraní odkudkoliv z aplikace, i mimo hlavní vlákno.
+    nonisolated static func notify(_ channel: String, _ payload: [String: Any] = [:]) {
+        Task { @MainActor in Bridge.current?.emit(channel, payload) }
     }
 
     func attach(webView: WKWebView) {
@@ -104,6 +114,8 @@ final class Bridge: NSObject, ObservableObject, WKScriptMessageHandler {
         registerChatChannels()
         registerInstagramChannels()
         registerShopChannels()
+        registerVoucherChannels()
+        registerSyncChannels()
         registerFileChannels()
     }
 }

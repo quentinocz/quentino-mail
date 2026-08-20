@@ -1,7 +1,8 @@
 name: Instalátory
 
 # Build se spustí označením verze (`git tag v1.0.1 && git push --tags`)
-# nebo ručně tlačítkem v záložce Actions.
+# nebo ručně tlačítkem v záložce Actions. Stejná značka spustí i sestavení
+# pro iOS, takže jedním tagem vznikne instalátor pro Windows, macOS i .ipa.
 on:
   push:
     tags: ['v*']
@@ -53,6 +54,11 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Verze podle značky — electron-builder ji bere z package.json a promítne
+      # se do názvu instalátoru i do „O aplikaci"
+      - name: Verze podle značky
+        run: node scripts/set-version.mjs
+
       - name: Instalace závislostí
         run: npm ci
 
@@ -88,11 +94,24 @@ jobs:
           path: instalatory
           merge-multiple: true
 
+      # Stejnou značkou běží i sestavení pro iOS, takže vydání už může
+      # existovat — pak se do něj jen přiloží instalátory.
       - name: Vytvoření vydání
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" instalatory/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Quentino Mail $GITHUB_REF_NAME" \
-            --notes "Instalátory sestavené automaticky. Windows verze je nepodepsaná — SmartScreen ohlásí varování, je potřeba kliknout na *Více informací → Přesto spustit*."
+          set +e
+          for pokus in 1 2 3; do
+            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" instalatory/* --repo "$GITHUB_REPOSITORY" --clobber
+            else
+              gh release create "$GITHUB_REF_NAME" instalatory/* \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "Quentino App $GITHUB_REF_NAME" \
+                --notes "Instalátory a .ipa sestavené automaticky. Windows verze je nepodepsaná — SmartScreen ohlásí varování, je potřeba kliknout na *Více informací → Přesto spustit*."
+            fi
+            if [ $? -eq 0 ]; then echo "Hotovo."; exit 0; fi
+            echo "Pokus $pokus selhal, čekám 20 s…"
+            sleep 20
+          done
+          exit 1

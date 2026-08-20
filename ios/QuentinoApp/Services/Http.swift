@@ -60,9 +60,11 @@ enum Http {
         _ url: String,
         method: String = "GET",
         headers: [String: String] = [:],
-        body: Any? = nil
+        body: Any? = nil,
+        timeout: TimeInterval = 60
     ) async throws -> [String: Any] {
-        (try await json(url, method: method, headers: headers, body: body)) as? [String: Any] ?? [:]
+        (try await json(url, method: method, headers: headers, body: body, timeout: timeout))
+            as? [String: Any] ?? [:]
     }
 
     static func array(

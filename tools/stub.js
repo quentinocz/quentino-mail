@@ -1,0 +1,269 @@
+// Napodobenina nativního mostu — vrací tolik, aby se rozhraní vykreslilo
+(function () {
+  const listeners = new Map();
+  const settings = {
+    hasApiKey: true, secretsLocked: false, brandPrompt: '', draftModel: 'claude-sonnet-5',
+    fastModel: 'claude-haiku-4-5', autoSummarize: true, autoCategorize: true, autoTranslate: true,
+    loadRemoteImages: false, notifyNewMail: true, categoryRules: [], autoSummarizeCategories: [],
+    contactInfo: '', productFeedUrl: '', adminOrderRef: '', voucherLogo: '', defaultPersonId: 0, theme: 'light'
+  };
+  const accounts = [{
+    id: 1, name: 'Quentino', email: 'info@quentino.cz', imapHost: 'imap.example.cz', imapPort: 993,
+    imapSecure: true, smtpHost: 'smtp.example.cz', smtpPort: 465, smtpSecure: true,
+    username: 'info@quentino.cz', signatureHtml: '', sigConfig: null, logoPath: null, color: '#7c5cff'
+  }];
+  const folders = [
+    { path: 'INBOX', name: 'Doručená pošta', specialUse: null, unseen: 3, total: 128 },
+    { path: 'Sent', name: 'Odeslaná pošta', specialUse: '\\Sent', unseen: 0, total: 64 },
+    { path: 'Trash', name: 'Koš', specialUse: '\\Trash', unseen: 0, total: 12 }
+  ];
+  const subjects = [
+    'Dotaz k objednávce 20260819', 'Reklamace — poškozený obal', 'Faktura 2026/0841',
+    'Kdy dorazí zásilka?', 'Děkuji za rychlé vyřízení'
+  ];
+  const messages = Array.from({ length: 12 }, (_, i) => ({
+    id: i + 1, accountId: 1, folder: 'INBOX', uid: 100 + i, messageId: 'm' + i,
+    subject: subjects[i % 5],
+    fromAddr: 'zakaznik' + i + '@seznam.cz',
+    fromName: ['Jana Nováková', 'Petr Svoboda', 'Alfa s.r.o.'][i % 3],
+    toAddr: 'info@quentino.cz', date: new Date(Date.now() - i * 3600e3).toISOString(),
+    snippet: 'Dobrý den, chtěl bych se zeptat na stav mé objednávky, kterou jsem zadal minulý týden…',
+    seen: i > 2, flagged: i === 1, answered: false, hasAttachments: i % 4 === 0,
+    category: ['orders', 'people', 'companies'][i % 3], summary: null, archived: false,
+    threadKey: 't' + i, size: 12345, orderRef: null
+  }));
+  const full = Object.assign({}, messages[0], {
+    cc: '', bodyHtml: '<p>Dobrý den,</p><p>chtěl bych se zeptat na stav objednávky <b>20260819</b>. '
+      + 'Peníze jsem posílal minulé úterý, ale zatím mi nepřišlo potvrzení o odeslání.</p>'
+      + '<p>Předem děkuji za odpověď.</p><p>S pozdravem<br>Jana Nováková</p>',
+    bodyText: 'Dobrý den, chtěl bych se zeptat na stav objednávky 20260819.',
+    attachments: [{ id: 1, filename: 'potvrzeni.pdf', mime: 'application/pdf', size: 84210, path: '/x', cid: null }],
+    detectedLang: null, translationCz: null
+  });
+  const answers = {
+    'settings:get': settings,
+    'accounts:list': accounts,
+    'folders:list': folders,
+    'messages:list': messages,
+    'messages:get': full,
+    'messages:thread': [messages[0]],
+    'stats:categories': { orders: { cnt: 4, unseen: 1 }, people: { cnt: 5, unseen: 2 }, companies: { cnt: 3, unseen: 0 } },
+    'persons:list': [{ id: 1, name: 'Petra', positions: { cz: '', sk: '', en: '' }, displayNames: { cz: 'Petra', sk: '', en: '' }, photoPath: null }],
+    'knowledge:list': [],
+    'outbox:list': [],
+    'quota:get': { used: 2000000000, limit: 10000000000 },
+    'orderlinks:pending': 0,
+    'orderlinks:refresh': { orders: 0, links: 0 },
+    'orders:badge': {
+      orderNumber: '20260819', total: '2\u00a0480 Kč', status: 'Odeslána', tone: 'sent',
+      carrierName: 'Zásilkovna', shipmentStage: 'na cestě'
+    },
+    'orders:card': {
+      orderNumber: '20260819', lang: 'cz', placedAt: '2026-08-12T09:14:00Z',
+      customerEmail: 'zakaznik0@seznam.cz', customerPhone: '+420 777 123 456',
+      billing: { name: 'Jana Nováková', company: null, lines: ['Dlouhá 12', '110 00 Praha 1'], country: 'CZ' },
+      shipping: { name: 'Jana Nováková', company: null, lines: ['Z-Box Praha 1, Dlouhá'], country: 'CZ' },
+      items: [
+        { qty: 1, unit: 'ks', title: 'Kožený pásek Quentino — hnědý', code: 'QP-118', url: null,
+          price: '1\u00a0290 Kč', availability: 'Skladem', variants: ['Délka: 110 cm'],
+          image: null, feedUrl: null, feedPrice: null, matched: false },
+        { qty: 2, unit: 'ks', title: 'Manžetové knoflíčky Onyx', code: 'QM-042', url: null,
+          price: '595 Kč', availability: 'Skladem', variants: [],
+          image: null, feedUrl: null, feedPrice: null, matched: false }
+      ],
+      shipmentName: 'Zásilkovna', shipmentPrice: '79 Kč',
+      paymentName: 'Kartou online', paymentPrice: '0 Kč',
+      total: '2\u00a0480 Kč', historyUrl: null, adminUrl: 'https://example.upgates.cz/order/1', adminSource: 'api',
+      live: {
+        status: 'Odeslána', paid: true, paidDate: '2026-08-12', deliveredDate: null,
+        trackingCode: 'Z 1234 5678', trackingUrl: 'https://tracking.packeta.com/Z12345678',
+        adminUrl: 'https://example.upgates.cz/order/1'
+      },
+      tracking: {
+        source: 'api', status: 'Odeslána', createdAt: '2026-08-12T09:14:00Z', paidDate: '2026-08-12',
+        customerPhone: '+420 777 123 456', carrierId: null, carrierName: 'Zásilkovna',
+        trackingCode: 'Z 1234 5678', trackingUrl: 'https://tracking.packeta.com/Z12345678',
+        shipment: { description: 'Předáno dopravci', at: '2026-08-12T14:02:00Z', phase: 'transit' },
+        shipmentError: null
+      }
+    },
+    'customer:context': {
+      email: 'zakaznik0@seznam.cz', name: 'Jana Nováková', total: 3,
+      messages: [
+        { id: 1, folder: 'INBOX', subject: 'Dotaz k objednávce 20260819', date: '2026-08-19T14:26:00Z',
+          snippet: 'Dobrý den, chtěl bych se zeptat…', seen: false, outgoing: false },
+        { id: 90, folder: 'Sent', subject: 'Re: Potvrzení objednávky', date: '2026-08-13T08:10:00Z',
+          snippet: 'Dobrý den, objednávka byla expedována…', seen: true, outgoing: true }
+      ],
+      orders: []
+    },
+    'chat:overview': {
+      config: { url: 'https://x.supabase.co', hasKey: true, apiBase: 'https://quentino.cz', ready: true,
+        operatorPersonId: 1, signMode: 'first', signSuffix: 'Quentino' },
+      persons: [{ id: 1, name: 'Petra Nováková', short: 'Petra' }, { id: 2, name: 'Tomáš Kraus', short: 'Tomáš' }],
+      unread: 2, waiting: 1
+    },
+    'chat:conversations': [
+      { id: 'c1', sessionId: 'abc123def', status: 'open', name: 'Jana Nováková', email: 'jana@seznam.cz',
+        phone: '+420 777 123 456', locale: 'cs', lastMessageAt: new Date(Date.now() - 4 * 60e3).toISOString(),
+        unread: 2, channel: 'widget', createdAt: new Date(Date.now() - 40 * 60e3).toISOString(),
+        leftAt: null, answered: false },
+      { id: 'c2', sessionId: 'ff8812aa', status: 'open', name: null, email: null, phone: null,
+        locale: 'sk', lastMessageAt: new Date(Date.now() - 55 * 60e3).toISOString(), unread: 0,
+        channel: 'widget', createdAt: new Date(Date.now() - 90 * 60e3).toISOString(),
+        leftAt: new Date(Date.now() - 50 * 60e3).toISOString(), answered: true },
+      { id: 'c3', sessionId: '77aa11bb', status: 'closed', name: 'Peter Kovac', email: 'peter@gmail.com',
+        phone: null, locale: 'en', lastMessageAt: new Date(Date.now() - 26 * 3600e3).toISOString(),
+        unread: 0, channel: 'telegram', createdAt: new Date(Date.now() - 30 * 3600e3).toISOString(),
+        leftAt: null, answered: true }
+    ],
+    'chat:messages': [
+      { id: 'm1', conversationId: 'c1', sender: 'customer',
+        content: 'Dobry den, objednala jsem u vas pasek a chtela bych vedet, jestli uz je odeslany.',
+        contentType: 'text', createdAt: new Date(Date.now() - 30 * 60e3).toISOString(), readAt: null },
+      { id: 'm2', conversationId: 'c1', sender: 'operator',
+        content: 'Dobry den, dekuji za zpravu. Objednavku 20260819 jsme predali Zasilkovne dnes rano.\nPetra, Quentino',
+        contentType: 'text', createdAt: new Date(Date.now() - 22 * 60e3).toISOString(),
+        readAt: new Date(Date.now() - 21 * 60e3).toISOString() },
+      { id: 'm3', conversationId: 'c1', sender: 'customer',
+        content: 'Super, dekuji! A jeste bych se zeptala, jestli mate ten pasek i v cerne barve a v delce 115 cm?',
+        contentType: 'text', createdAt: new Date(Date.now() - 6 * 60e3).toISOString(), readAt: null },
+      { id: 'm4', conversationId: 'c1', sender: 'customer',
+        content: 'Pripadne jestli byste mi mohli poslat foto.',
+        contentType: 'text', createdAt: new Date(Date.now() - 4 * 60e3).toISOString(), readAt: null }
+    ],
+    'chat:markRead': null,
+    'chat:suggest': 'Dobry den, cerny pasek v delce 115 cm mame skladem.',
+    'chat:cards': [],
+    'chat:searchProducts': [],
+    'ig:overview': {
+      accounts: [], expiringSoon: 0,
+      markets: [{ lang: 'CS', label: 'Čeština', note: '', tags: '', color: '#232849', enabled: true }],
+      brand: { context: '', loveOn: false, love: '', tones: [], avoid: '', rules: '', emoji: 'sparse', variants: 2, useKnowledge: false },
+      connection: { hasAppId: false, hasAppSecret: false, appId: '', callbackUrl: '', storage: { url: '', bucket: 'instagram', hasKey: false }, autoSync: true },
+      storageReady: true, queued: 2, failed: 0, hasSource: true
+    },
+    'ig:feed': Array.from({ length: 8 }, (_, i) => ({
+      id: i + 1, igMediaId: 'm' + i, mediaType: i % 3 === 0 ? 'VIDEO' : 'IMAGE',
+      permalink: 'https://instagram.com/p/x' + i,
+      caption: 'Nová kolekce koženého zboží — ručně šité pásky z italské kůže. #quentino',
+      postedAt: new Date(Date.now() - i * 86400e3).toISOString(),
+      likeCount: 120 + i * 7, commentCount: 3 + i, childCount: i % 4 === 0 ? 3 : 0,
+      done: i % 2 === 0 ? ['CS', 'EN'] : ['CS'], pending: i % 3 === 0 ? ['DE'] : []
+    })),
+    'ig:thumb': null,
+    'ig:drafts': [], 'ig:jobs': [], 'ig:markets': [],
+    'packing:scan': null,   // doplní se níž, až bude karta objednávky sestavená
+    'packing:setItem': [0],
+    'packing:setDone': true,
+    'packing:reset': true,
+    'ptrans:overview': {
+      settings: {
+        sourceLang: 'cz',
+        languages: [
+          { code: 'sk', label: 'Slovenština', enabled: true },
+          { code: 'en', label: 'Angličtina', enabled: true },
+          { code: 'de', label: 'Němčina', enabled: true }
+        ],
+        fields: { title: true, short: true, long: true, seo_title: true, seo_desc: true, seo_url: true,
+          google_title: false, google_desc: false, params: false },
+        prompt: '', glossary: [{ source: 'kšandy', targets: { sk: 'traky', en: 'suspenders' } }],
+        googleTitle: { sk: '{title} {param:Barva} | Quentino' },
+        limits: { seoTitle: 70, seoDesc: 155, googleTitle: 150, googleDesc: 5000 },
+        model: '', concurrency: 2, secondsPerUnit: 11.4
+      },
+      feed: { syncedAt: new Date(Date.now() - 3 * 3600e3).toISOString(), products: 1204 },
+      langs: [
+        { lang: 'sk', todo: 539, total: 7224, byState: { missing: 170, same: 350, source: 19, ok: 6685 } },
+        { lang: 'en', todo: 481, total: 7224, byState: { missing: 169, same: 310, source: 2, ok: 6743 } }
+      ],
+      running: null
+    },
+    'ptrans:list': {
+      total: 137, todo: 137,
+      rows: [
+        { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', image: null,
+          category: 'Kšandy', manufacturer: 'Quentino', availability: 'Skladem', price: '649 CZK', active: true,
+          states: { sk: { total: 6, todo: 6, worst: 'same' }, en: { total: 6, todo: 6, worst: 'same' },
+            de: { total: 6, todo: 6, worst: 'missing' } } },
+        { code: 'MZU01', title: 'Bordó manžetové uzlíky', image: null, category: 'Manžetové knoflíčky',
+          manufacturer: 'Quentino', availability: 'Skladem', price: '199 CZK', active: true,
+          states: { sk: { total: 6, todo: 2, worst: 'missing' }, en: { total: 6, todo: 0, worst: 'ok' },
+            de: { total: 6, todo: 6, worst: 'missing' } } },
+        { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', image: null, category: 'Kravaty',
+          manufacturer: 'Quentino', availability: 'Skladem více než 20 ks', price: '449 CZK', active: true,
+          states: { sk: { total: 6, todo: 1, worst: 'stale' }, en: { total: 6, todo: 0, worst: 'ok' },
+            de: { total: 6, todo: 6, worst: 'missing' } } }
+      ]
+    },
+    'ptrans:fields': [
+      { code: 'PSSK120BR2', lang: 'sk', field: 'title', value: 'Bordó pánské široké kšandy s černou pravou kůží',
+        source: 'Bordó pánské široké kšandy s černou pravou kůží', state: 'same', translated: null,
+        translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'short',
+        value: '<p>Bordó pánské kšandy z kvalitní pruženky…</p>',
+        source: '<p>Bordó pánské kšandy z kvalitní pruženky…</p>', state: 'same', translated: null,
+        translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'long',
+        value: '<p data-start="67">Široké kšandy v bordó odstínu s pravou kůží…</p>',
+        source: '<p data-start="67">Široké kšandy v bordó odstínu s pravou kůží…</p>', state: 'same',
+        translated: null, translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'seo_title', value: '', source: 'Bordó široké kšandy | Quentino',
+        state: 'missing', translated: null, translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'seo_desc', value: '',
+        source: 'Bordó pánské kšandy s pravou kůží, vyrobené v ČR.', state: 'missing', translated: null,
+        translatedAt: null, model: '', manual: false },
+      { code: 'PSSK120BR2', lang: 'sk', field: 'seo_url', value: 'bordo-panske-siroke-ksandy',
+        source: 'bordo-panske-siroke-ksandy', state: 'same', translated: null, translatedAt: null,
+        model: '', manual: false }
+    ],
+    'ptrans:plan': 12,
+    'ptrans:consistency': {
+      patterns: [
+        { category: 'Kravaty', lang: 'en', pattern: "Men's {…} tie", samples: 42, matching: 39 },
+        { category: 'Kšandy', lang: 'en', pattern: "Men's {…} suspenders", samples: 31, matching: 31 },
+        { category: 'Motýlci', lang: 'en', pattern: "Men's {…} bow tie", samples: 18, matching: 13 }
+      ],
+      deviations: [
+        { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', translated: 'Burgundy tie for men BULLDOGS',
+          category: 'Kravaty', lang: 'en', pattern: "Men's {…} tie" },
+        { code: 'PMB07', title: 'Černý pánský motýlek', translated: 'Black bow tie mens',
+          category: 'Motýlci', lang: 'en', pattern: "Men's {…} bow tie" }
+      ]
+    },
+    'ptrans:exportPreview': { products: 137, fields: 812 },
+    'products:status': { url: '', count: 0, lastSync: null },
+    'vouchers:list': []
+  };
+  // Balení: dvě objednávky ze stejné karty, jedna rozdělaná a jedna hotová
+  // Stav „Přijata" je ten, který se balí — „Odeslána" si aplikace schovává sama
+  const toPack = (number) => Object.assign({}, answers['orders:card'], {
+    orderNumber: number,
+    live: Object.assign({}, answers['orders:card'].live, { status: 'Přijata' }),
+    tracking: Object.assign({}, answers['orders:card'].tracking, { status: 'Přijata' })
+  });
+  answers['packing:scan'] = {
+    orders: [
+      { messageId: 1, date: new Date(Date.now() - 3 * 3600e3).toISOString(),
+        card: toPack('20260819'), packed: [0], done: false, doneAt: null },
+      { messageId: 2, date: new Date(Date.now() - 26 * 3600e3).toISOString(),
+        card: toPack('20260812'), packed: [], done: false, doneAt: null }
+    ],
+    statuses: ['Přijata'],
+    scannedAt: new Date().toISOString()
+  };
+
+  window.api = {
+    invoke: function (channel) {
+      return Promise.resolve({ ok: true, data: channel in answers ? answers[channel] : null });
+    },
+    on: function (channel, cb) {
+      if (!listeners.has(channel)) listeners.set(channel, new Set());
+      listeners.get(channel).add(cb);
+      return function () { listeners.get(channel).delete(cb); };
+    }
+  };
+  const root = document.documentElement;
+  root.dataset.platform = 'ios';
+  root.dataset.form = 'phone';   // přesně to, co teď posílá nativní obal
+})();

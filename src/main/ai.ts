@@ -51,7 +51,7 @@ export function getAiUsage(): { month: string; calls: number; inputTokens: numbe
   return { month, calls, inputTokens, outputTokens, estUsd: Math.round(estUsd * 100) / 100 };
 }
 
-async function ask(model: string, system: string, user: string, maxTokens = 1024): Promise<string> {
+export async function ask(model: string, system: string, user: string, maxTokens = 1024): Promise<string> {
   // Pozn.: `temperature` novější Claude modely již nepodporují — přesnost řešíme
   // instrukcemi v promptu a korekturním průchodem.
   const res = await client().messages.create({

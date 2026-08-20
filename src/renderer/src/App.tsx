@@ -12,6 +12,7 @@ import OutboxModal from './components/OutboxModal';
 import TooltipLayer from './components/TooltipLayer';
 import DigestModal from './components/DigestModal';
 import PackingModal from './components/PackingModal';
+import ProductsModal from './components/ProductsModal';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
 import type { Workspace } from './components/WorkspaceSwitch';
@@ -40,6 +41,7 @@ function AppInner() {
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [digestOpen, setDigestOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
+  const [productsOpen, setProductsOpen] = useState(false);
   const [orderPending, setOrderPending] = useState(0);
   // Pracovní prostor: pošta nebo Instagram. Pamatuje se mezi spuštěními.
   const [workspace, setWorkspace] = useState<Workspace>(() => {
@@ -321,7 +323,7 @@ function AppInner() {
               <Icon name="menu" size={20} />
             </button>
           )}
-          <div className="m-head-title">{selectedId ? (detail?.subject ?? 'Zpráva') : mobileTitle}</div>
+          <div className="m-head-title">{selectedId ? (detail?.fromName || detail?.fromAddr || 'Zpráva') : mobileTitle}</div>
           {!selectedId && (
             <button
               className="m-head-btn right"
@@ -356,14 +358,15 @@ function AppInner() {
         view={view}
         onSelectView={v => { setView(v); setSelectedId(null); setDetail(null); setDrawer(false); }}
         catStats={catStats}
-        onCompose={() => activeAccount && startCompose({ mode: 'new', accountId: activeAccount.id })}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenOutbox={() => setOutboxOpen(true)}
+        onCompose={() => { setDrawer(false); if (activeAccount) startCompose({ mode: 'new', accountId: activeAccount.id }); }}
+        onOpenSettings={() => { setDrawer(false); setSettingsOpen(true); }}
+        onOpenOutbox={() => { setDrawer(false); setOutboxOpen(true); }}
         onSyncAll={refresh}
         syncing={syncing}
         quota={quota}
-        onOpenDigest={() => setDigestOpen(true)}
-        onOpenPacking={() => setPackingOpen(true)}
+        onOpenDigest={() => { setDrawer(false); setDigestOpen(true); }}
+        onOpenPacking={() => { setDrawer(false); setPackingOpen(true); }}
+        onOpenProducts={() => { setDrawer(false); setProductsOpen(true); }}
         orderPending={orderPending}
         onWorkspace={setWorkspace}
         chatUnread={chatUnread}
@@ -428,6 +431,7 @@ function AppInner() {
         </div>
       )}
       {digestOpen && <DigestModal onClose={() => setDigestOpen(false)} />}
+      {productsOpen && <ProductsModal onClose={() => setProductsOpen(false)} />}
       {packingOpen && (
         <PackingModal
           onClose={() => setPackingOpen(false)}

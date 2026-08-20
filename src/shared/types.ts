@@ -727,3 +727,116 @@ export interface ChatProduct {
   url: string;
   domain: string;
 }
+
+/* ---------- Překlady produktů ---------- */
+
+export type PtransState = 'missing' | 'same' | 'source' | 'ok' | 'stale' | 'manual';
+
+export interface PtransLanguage {
+  code: string;
+  label: string;
+  enabled: boolean;
+}
+
+export interface PtransSettings {
+  sourceLang: string;
+  languages: PtransLanguage[];
+  fields: Record<string, boolean>;
+  prompt: string;
+  glossary: { source: string; targets: Record<string, string> }[];
+  googleTitle: Record<string, string>;
+  limits: { seoTitle: number; seoDesc: number; googleTitle: number; googleDesc: number };
+  model: string;
+  concurrency: number;
+  secondsPerUnit: number;
+}
+
+export interface PtransProduct {
+  code: string;
+  title: string;
+  image: string | null;
+  category: string;
+  manufacturer: string;
+  availability: string;
+  price: string;
+  active: boolean;
+  /** Stav po jazycích — kolik polí čeká z celkového počtu */
+  states: Record<string, { total: number; todo: number; worst: PtransState }>;
+}
+
+export interface PtransField {
+  code: string;
+  lang: string;
+  field: string;
+  /** Co je v feedu */
+  value: string;
+  /** Odpovídající zdrojový text */
+  source: string;
+  state: PtransState;
+  /** Náš překlad, pokud existuje */
+  translated: string | null;
+  translatedAt: string | null;
+  model: string;
+  manual: boolean;
+}
+
+export interface PtransProgress {
+  running: boolean;
+  done: number;
+  total: number;
+  failed: number;
+  /** Odhad zbývajícího času podle naměřené rychlosti */
+  etaSeconds: number | null;
+  secondsPerUnit: number;
+  label: string;
+  errors: string[];
+}
+
+export interface PtransOverview {
+  settings: PtransSettings;
+  feed: { syncedAt: string | null; products: number };
+  langs: { lang: string; todo: number; total: number; byState: Record<string, number> }[];
+  running: PtransProgress | null;
+}
+
+export interface PtransPage {
+  rows: PtransProduct[];
+  total: number;
+  todo: number;
+}
+
+export interface PtransQuery {
+  search?: string;
+  category?: string;
+  manufacturer?: string;
+  lang?: string;
+  state?: PtransState | 'todo' | 'all';
+  field?: string;
+  onlyActive?: boolean;
+  limit?: number;
+  offset?: number;
+  sort?: 'title' | 'todo' | 'code';
+}
+
+export interface PtransPattern {
+  category: string;
+  lang: string;
+  /** Tvar názvu odvozený z hotových překladů, např. „Men's {…} tie" */
+  pattern: string;
+  samples: number;
+  matching: number;
+}
+
+export interface PtransDeviation {
+  code: string;
+  title: string;
+  translated: string;
+  category: string;
+  lang: string;
+  pattern: string;
+}
+
+export interface PtransConsistency {
+  patterns: PtransPattern[];
+  deviations: PtransDeviation[];
+}

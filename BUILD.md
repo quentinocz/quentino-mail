@@ -334,18 +334,43 @@ a mají správný procesor.
 
 ### Jak se to spustí
 
-Označením verze:
+Jedním tagem. Značka `v*` spustí **oba** postupy naráz — instalátory pro Windows
+i macOS a zároveň `.ipa` pro iPhone:
 
 ```bash
-npm version 1.0.1 --no-git-tag-version   # změní číslo v package.json
-git add -A && git commit -m "Verze 1.0.1"
-git tag v1.0.1
-git push && git push --tags
+git add -A && git commit -m "Co je nového"
+git push
+git tag v2.2.0 && git push origin v2.2.0
 ```
 
-Za deset minut jsou instalátory v záložce **Releases**. Bez tagu jde build
-spustit i ručně — záložka **Actions** → *Instalátory* → **Run workflow**; výsledky
-pak visí u běhu jako *Artifacts* a mažou se po 30 dnech.
+Za deset až dvacet minut je v **Releases** vydání `v2.2.0` s `.exe`, `.dmg`,
+`QuentinoApp.ipa` i `apps.json` pro SideStore.
+
+Když je potřeba jen telefon (třeba po opravě překladu Swiftu), použije se značka
+`ios-v*` — ta pustí jenom iOS:
+
+```bash
+git tag ios-v2.2.1 && git push origin ios-v2.2.1
+```
+
+Bez tagu jde build spustit i ručně — záložka **Actions** → *Instalátory* nebo
+*iOS* → **Run workflow**; výsledky pak visí u běhu jako *Artifacts* a mažou se
+po 30 dnech.
+
+### Odkud se bere číslo verze
+
+**Ze značky, nikde jinde se nepíše.** Krok *Verze podle značky* spustí
+`scripts/set-version.mjs`, který ze značky vytáhne trojici čísel a zapíše ji do
+`package.json`; odtud si ji vezme electron-builder (název instalátoru, „O
+aplikaci") i zdroj pro SideStore. iOS ji dostane jako `MARKETING_VERSION` na
+příkazové řádce `xcodebuild`, číslo sestavení je pořadové číslo běhu.
+
+Dřív bylo číslo napsané ručně na dvou místech (`package.json` a
+`ios/project.yml`), takže se aplikace po každém vydání hlásila pořád jako 1.1.0
+a SideStore nepoznal, že je co aktualizovat. Hodnoty v obou souborech zůstávají
+jako záloha pro ruční sestavení; v CI je vždycky přebije značka.
+
+Verze běžící aplikace je vidět v **Nastavení** vedle nadpisu.
 
 ### Co stojí za pozornost
 

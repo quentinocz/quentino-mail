@@ -14,6 +14,8 @@ const [, , ipaPath = 'QuentinoApp.ipa', outPath = 'apps.json'] = process.argv;
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const version = pkg.version;
 const size = fs.existsSync(ipaPath) ? fs.statSync(ipaPath).size : 0;
+// Číslo sestavení: SideStore podle dvojice verze+build pozná, že je co stahovat
+const buildVersion = process.env.BUILD_NUMBER || '1';
 const date = new Date().toISOString().slice(0, 10);
 
 // Kam se vydání nahrálo — repozitář s vydáními může být jiný než ten se zdrojáky
@@ -44,7 +46,7 @@ const source = {
       versions: [
         {
           version,
-          buildVersion: '1',
+          buildVersion,
           date,
           localizedDescription: `Sestaveno automaticky z tagu ${tag}.`,
           downloadURL,

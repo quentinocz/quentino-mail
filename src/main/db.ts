@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { app } from 'electron';
 import { igSchema, igAlters } from './instagram/schema';
+import { SCHEMA as ptransSchema, ALTERS as ptransAlters } from './ptrans/schema';
 
 let db: Database.Database;
 
@@ -218,6 +219,11 @@ function migrate(d: Database.Database) {
       PRIMARY KEY (month, model)
     );
   `);
+  // Překlady produktů: katalog z feedu, jednotlivá pole po jazycích a běhy
+  d.exec(ptransSchema);
+  for (const sql of ptransAlters) {
+    try { d.exec(sql); } catch { /* sloupec už existuje */ }
+  }
   // Instagram: účty, trhy, příspěvky, popisky a fronta publikací
   d.exec(igSchema);
   for (const sql of igAlters) {

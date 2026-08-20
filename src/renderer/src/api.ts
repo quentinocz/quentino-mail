@@ -5,7 +5,8 @@ import type {
   UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, CustomerContext, VoucherSpec,
   VoucherTemplate,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
-  ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct
+  ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
+  PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency
 } from '@shared/types';
 
 declare global {
@@ -79,6 +80,45 @@ export const api = {
     facets: () => call<ProductFacets>('products:facets'),
     refresh: () => call<FeedStatus>('products:refresh'),
     status: () => call<FeedStatus>('products:status')
+  },
+  /** Verze běžící aplikace */
+  app: {
+    version: () => call<{ version: string; platform: string; electron: string }>('app:version')
+  },
+
+  /** Překlady produktů — jen na počítači */
+  ptrans: {
+    overview: () => call<PtransOverview>('ptrans:overview'),
+    saveSettings: (patch: Partial<PtransSettings>) => call<PtransSettings>('ptrans:saveSettings', patch),
+    refresh: () => call<{ products: number; fields: number; removed: number; at: string }>('ptrans:refresh'),
+    list: (query: PtransQuery) => call<PtransPage>('ptrans:list', query),
+    fields: (code: string, langs?: string[]) => call<PtransField[]>('ptrans:fields', code, langs),
+    edit: (code: string, lang: string, field: string, value: string) =>
+      call<boolean>('ptrans:edit', code, lang, field, value),
+    retranslate: (code: string, lang: string, field: string) =>
+      call<string>('ptrans:retranslate', code, lang, field),
+    /** Kolik polí by se přeložilo — pro odhad před spuštěním */
+    plan: (codes: string[], langs: string[], options: { force?: boolean; fields?: string[] } = {}) =>
+      call<number>('ptrans:plan', codes, langs, options),
+    run: (input: { codes: string[]; langs?: string[]; fields?: string[]; force?: boolean }) =>
+      call<{ done: number; failed: number; seconds: number; errors: string[] }>('ptrans:run', input),
+    stop: () => call<boolean>('ptrans:stop'),
+    progress: () => call<PtransProgress | null>('ptrans:progress'),
+    googleTitles: (codes: string[], langs?: string[]) =>
+      call<{ written: number; skipped: number }>('ptrans:googleTitles', codes, langs),
+    templatePreview: (template: string, code: string, lang: string) =>
+      call<string>('ptrans:templatePreview', template, code, lang),
+    generateSeo: (code: string, lang: string, kind: 'seo_title' | 'seo_desc' | 'google_desc') =>
+      call<string>('ptrans:generateSeo', code, lang, kind),
+    seoUrl: (code: string, lang: string) => call<string>('ptrans:seoUrl', code, lang),
+    exportPreview: (options: { langs?: string[]; codes?: string[] } = {}) =>
+      call<{ products: number; fields: number }>('ptrans:exportPreview', options),
+    export: (options: { langs?: string[]; codes?: string[]; mode?: 'slim' | 'full'; includeSource?: boolean } = {}) =>
+      call<{ path: string; products: number; fields: number } | null>('ptrans:export', options),
+    /** Přidá produkty z ručně vybraného XML (novinky, které ještě nejsou ve feedu) */
+    importFile: () => call<{ products: number; fields: number; paired: number; file: string } | null>('ptrans:importFile'),
+    consistency: (lang: string) => call<PtransConsistency>('ptrans:consistency', lang),
+    suggestPattern: (category: string, lang: string) => call<string>('ptrans:suggestPattern', category, lang)
   },
   persons: {
     list: () => call<Person[]>('persons:list'),

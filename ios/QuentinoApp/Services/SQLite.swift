@@ -36,7 +36,7 @@ final class SQLite {
         let dir = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Quentino", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        _ = try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let path = dir.appendingPathComponent("quentino-mail.db").path
 
         if sqlite3_open(path, &handle) != SQLITE_OK {
@@ -47,7 +47,7 @@ final class SQLite {
         exec(Schema.sql)
         for statement in Schema.migrations {
             // Doplňkové sloupce pro starší databáze — chyba „už existuje" je v pořádku
-            try? run(statement)
+            _ = try? run(statement)
         }
     }
 

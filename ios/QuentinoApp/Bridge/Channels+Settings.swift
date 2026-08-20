@@ -135,7 +135,7 @@ enum Settings {
             FROM persons ORDER BY name
             """
         )) ?? []
-        return rows.map { row in
+        return rows.map { row -> [String: Any] in
             [
                 "id": row["id"] ?? 0,
                 "name": row["name"] ?? "",

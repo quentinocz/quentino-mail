@@ -6,6 +6,8 @@ import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
 import OrderBadge, { looksLikeOrder, shopLabel } from './OrderBadge';
+import { Sheet, SheetActions } from './Sheet';
+import { useIsPhone } from '../mobile';
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -131,32 +133,68 @@ export default function MessageList(p: Props) {
     p.onChanged();
   });
 
+  const phone = useIsPhone();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
   const setF = (patch: ListFilters) => p.onFilters({ ...p.filters, ...patch });
+  // Kolik filtrů je zapnutých — číslo u tlačítka, ať je poznat i zavřený stav
+  const activeFilters = [p.filters.unread, p.filters.attachments, p.filters.flagged, p.filters.orderAll]
+    .filter(Boolean).length;
   const shop = shopLabel(p.productFeedUrl);
 
   return (
     <div className="list-pane">
       <div className="list-header">
-        <div className="list-title-row">
-          <div className="list-title">{title}</div>
-          <div className="list-actions">
-            {p.isTrash && (
-              <button className="toolbar-btn" disabled={busy === 'trash'} onClick={emptyTrash}
-                data-tip="Trvale smazat vše v koši" style={{ color: 'var(--danger)' }}>
-                {busy === 'trash' ? <span className="spinner-inline" /> : <Icon name="trash" size={14} />} Vysypat
-              </button>
-            )}
-            <button className={`icon-btn ${p.syncing ? 'spinning' : ''}`} data-tip="Synchronizovat" onClick={p.onRefresh}>
-              <Icon name="refresh" size={15} />
+        {phone ? (
+          /* Na telefonu se všechno vejde do jednoho řádku: hledání zabere
+             zbytek šířky, filtry a řazení jsou za jedním tlačítkem. */
+          <div className="m-searchbar">
+            <input
+              className="search-input"
+              placeholder="Hledat v poště…"
+              value={p.search}
+              onChange={e => p.onSearch(e.target.value)}
+            />
+            <button
+              className={`m-round${activeFilters ? ' on' : ''}`}
+              onClick={() => setFiltersOpen(true)}
+              aria-label="Filtry a řazení"
+            >
+              <Icon name="sliders" size={17} />
+              {activeFilters > 0 && <span className="m-round-badge">{activeFilters}</span>}
+            </button>
+            <button
+              className={`m-round${p.syncing ? ' spinning' : ''}`}
+              onClick={p.onRefresh}
+              aria-label="Synchronizovat"
+            >
+              <Icon name="refresh" size={17} />
             </button>
           </div>
-        </div>
-        <input
-          className="search-input"
-          placeholder="Hledat…"
-          value={p.search}
-          onChange={e => p.onSearch(e.target.value)}
-        />
+        ) : (
+          <div className="list-title-row">
+            <div className="list-title">{title}</div>
+            <div className="list-actions">
+              {p.isTrash && (
+                <button className="toolbar-btn" disabled={busy === 'trash'} onClick={emptyTrash}
+                  data-tip="Trvale smazat vše v koši" style={{ color: 'var(--danger)' }}>
+                  {busy === 'trash' ? <span className="spinner-inline" /> : <Icon name="trash" size={14} />} Vysypat
+                </button>
+              )}
+              <button className={`icon-btn ${p.syncing ? 'spinning' : ''}`} data-tip="Synchronizovat" onClick={p.onRefresh}>
+                <Icon name="refresh" size={15} />
+              </button>
+            </div>
+          </div>
+        )}
+        {!phone && (
+          <input
+            className="search-input"
+            placeholder="Hledat…"
+            value={p.search}
+            onChange={e => p.onSearch(e.target.value)}
+          />
+        )}
         <div className="filter-row">
           {p.view.type === 'orderInbox' && (
             <button className={`filter-chip ${p.filters.orderAll ? 'on' : ''}`}
@@ -181,6 +219,49 @@ export default function MessageList(p: Props) {
           </select>
         </div>
       </div>
+
+      {filtersOpen && (
+        <Sheet title="Filtry a řazení" onClose={() => setFiltersOpen(false)}>
+          <SheetActions
+            onDone={() => setFiltersOpen(false)}
+            actions={[
+              ...(p.view.type === 'orderInbox' ? [{
+                icon: 'archive', label: 'Včetně vyřízených',
+                hint: 'Ukáže i starší zprávy k objednávkám',
+                active: !!p.filters.orderAll, keepOpen: true,
+                onClick: () => setF({ orderAll: !p.filters.orderAll })
+              }] : []),
+              { icon: 'mail', label: 'Jen nepřečtené', active: !!p.filters.unread, keepOpen: true,
+                onClick: () => setF({ unread: !p.filters.unread }) },
+              { icon: 'paperclip', label: 'Jen s přílohou', active: !!p.filters.attachments, keepOpen: true,
+                onClick: () => setF({ attachments: !p.filters.attachments }) },
+              { icon: 'star', label: 'Jen s hvězdičkou', active: !!p.filters.flagged, keepOpen: true,
+                onClick: () => setF({ flagged: !p.filters.flagged }) }
+            ]}
+          />
+          <div className="sheet-section">Řazení</div>
+          <SheetActions
+            onDone={() => setFiltersOpen(false)}
+            actions={SORT_OPTIONS.map(option => ({
+              label: option.label,
+              active: p.sort === option.value,
+              onClick: () => p.onSort(option.value)
+            }))}
+          />
+          {p.isTrash && (
+            <>
+              <div className="sheet-section">Koš</div>
+              <SheetActions
+                onDone={() => setFiltersOpen(false)}
+                actions={[{
+                  icon: 'trash', label: 'Vysypat koš', hint: 'Trvale smaže vše v koši',
+                  danger: true, busy: busy === 'trash', onClick: emptyTrash
+                }]}
+              />
+            </>
+          )}
+        </Sheet>
+      )}
 
       {checked.size > 0 && (
         <div className="bulk-bar">
