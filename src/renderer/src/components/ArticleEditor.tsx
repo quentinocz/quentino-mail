@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ArticleDetail, ArticleBrief, PtransProduct, ArticleProduct } from '@shared/types';
+
+/** Článek vykreslený pro ruční kontrolu odkazů. */
+interface ArticleReview {
+  title: string;
+  html: string;
+  links: {
+    index: number; url: string; text: string; kind: string; status: number | null;
+    note: string; suggestion: string | null; unverified: boolean;
+  }[];
+}
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -674,7 +684,19 @@ export function ArticleTextPanel({ article, langs, busy, onChanged }: {
 
 /* ==================== Odkazy v článku ==================== */
 
-/** Na co článek odkazuje — a jestli to na daném trhu existuje. */
+/**
+ * Odkazy v článku — automatická i ruční kontrola.
+ *
+ * Automatická kontrola umí říct jen to, že adresa nevrací 200. Neumí říct,
+ * jestli odkaz míří tam, kam podle textu mířit má; a když e-shop pod náporem
+ * dotazů neodpoví, vypadá funkční odkaz jako rozbitý. Proto jsou tu vedle
+ * sebe **seznam** a **článek** s očíslovanými odkazy: v článku je vidět
+ * souvislost a kliknutím se cíl otevře v prohlížeči, což je nejrychlejší
+ * způsob, jak si ověřit, že je to opravdu ten produkt.
+ *
+ * Stavy jsou tři, ne dva. „Nepodařilo se ověřit" znamená, že o odkazu nevíme
+ * nic — ne že je vadný. Automatická oprava se u něj proto nenabízí.
+ */
 export function ArticleLinksPanel({ article, langs, onChanged }: {
   article: ArticleDetail;
   langs: Lang[];
@@ -682,12 +704,13 @@ export function ArticleLinksPanel({ article, langs, onChanged }: {
 }) {
   const toast = useToast();
   const [lang, setLang] = useState(article.versions.find(v => v.long)?.lang ?? article.sourceLang);
-  const [links, setLinks] = useState<string[]>([]);
-  const [checks, setChecks] = useState<Record<string, { status: number | null; suggestion: string | null; note: string }>>({});
+  const [review, setReview] = useState<ArticleReview | null>(null);
+  const [mode, setMode] = useState<'list' | 'article'>('list');
   const [checking, setChecking] = useState(false);
+  const [busy, setBusy] = useState('');
 
   const load = useCallback(async () => {
-    try { setLinks(await api.articles.links(article.id, lang)); }
+    try { setReview(await api.articles.review(article.id, lang)); }
     catch (e: any) { toast(e.message, 'error'); }
   }, [article.id, lang, toast]);
 
@@ -697,10 +720,12 @@ export function ArticleLinksPanel({ article, langs, onChanged }: {
     setChecking(true);
     try {
       const rows = await api.articles.check({ articleIds: [article.id], langs: [lang] });
-      const map: typeof checks = {};
-      for (const row of rows) map[row.url] = { status: row.status, suggestion: row.suggestion, note: row.note };
-      setChecks(map);
-      toast(rows.length ? `${rows.length} vadných odkazů` : 'Všechny odkazy fungují');
+      await load();
+      const bad = rows.filter(row => !row.unverified).length;
+      const unknown = rows.length - bad;
+      toast(bad || unknown
+        ? `${bad} vadných${unknown ? `, ${unknown} se nepodařilo ověřit` : ''}`
+        : 'Všechny odkazy fungují');
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
@@ -709,15 +734,33 @@ export function ArticleLinksPanel({ article, langs, onChanged }: {
   };
 
   const fix = async (url: string, to: string) => {
+    setBusy(url);
     try {
       await api.articles.fix(article.id, lang, url, to);
-      setChecks(prev => { const next = { ...prev }; delete next[url]; return next; });
       await load();
       onChanged();
     } catch (e: any) {
       toast(e.message, 'error');
+    } finally {
+      setBusy('');
     }
   };
+
+  const dismiss = async (url: string) => {
+    setBusy(url);
+    try {
+      await api.articles.dismissLink(article.id, lang, url);
+      await load();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const links = review?.links ?? [];
+  const broken = links.filter(link => link.status !== null && !link.unverified);
+  const unknown = links.filter(link => link.unverified);
 
   return (
     <>
@@ -728,38 +771,81 @@ export function ArticleLinksPanel({ article, langs, onChanged }: {
               onClick={() => setLang(item.code)}>{item.code.toUpperCase()}</button>
           ))}
         </div>
-        <span className="ig-muted">{links.length} odkazů v textu</span>
+        <div className="ig-seg">
+          <button className={mode === 'list' ? 'active' : ''} onClick={() => setMode('list')}>Seznam</button>
+          <button className={mode === 'article' ? 'active' : ''} onClick={() => setMode('article')}>V článku</button>
+        </div>
+        <span className="ig-muted">
+          {links.length} odkazů
+          {broken.length ? ` · ${broken.length} vadných` : ''}
+          {unknown.length ? ` · ${unknown.length} neověřených` : ''}
+        </span>
         <span style={{ flex: 1 }} />
         <button className="btn primary" onClick={check} disabled={checking}>
-          {checking ? <span className="spinner-inline" /> : <Icon name="link" size={13} />} Zkontrolovat
+          {checking ? <span className="spinner-inline" /> : <Icon name="link" size={13} />}
+          Zkontrolovat
         </button>
       </div>
 
-      <div className="modal-body ar-links">
-        {links.length === 0 && <div className="ig-muted">Článek zatím neodkazuje nikam.</div>}
-        {links.map(url => {
-          const bad = checks[url];
-          return (
-            <div key={url} className={`ar-link ${bad ? 'bad' : ''}`}>
-              {bad
-                ? <span className="ar-status bad">{bad.status ?? '—'}</span>
-                : <span className="ar-status ok"><Icon name="check" size={12} /></span>}
-              <div className="ar-broken-main">
-                <div className="ar-broken-url">{url}</div>
-                {bad && <div className="ig-muted">{bad.note}</div>}
-                {bad?.suggestion && (
-                  <div className="ar-fix"><Icon name="chevRight" size={12} /> <code>{bad.suggestion}</code></div>
+      {mode === 'article' ? (
+        <div className="modal-body ar-review">
+          <p className="ig-muted">
+            Odkazy jsou v textu očíslované a obarvené podle poslední kontroly. Kliknutím
+            se cíl otevře v prohlížeči — je to nejrychlejší způsob, jak ověřit, že vede
+            tam, kam má.
+          </p>
+          <iframe className="ar-preview" title="Článek s odkazy" sandbox="allow-same-origin allow-popups"
+            srcDoc={`<!doctype html><meta charset="utf-8"><base target="_blank">
+              <style>
+                body{margin:0;padding:18px;background:#fff;font-family:-apple-system,system-ui,sans-serif}
+                a[data-tone]{border-bottom:2px solid transparent}
+                a[data-tone="ok"]{border-color:#2f9e6e}
+                a[data-tone="bad"]{border-color:#e5484d;background:rgba(229,72,77,0.08)}
+                a[data-tone="unknown"]{border-color:#d99a1b;background:rgba(217,154,27,0.10)}
+                sup.lnk{font-size:10px;padding:0 3px;color:#666;font-weight:700}
+              </style>${review?.html ?? ''}`} />
+        </div>
+      ) : (
+        <div className="modal-body ar-links">
+          {links.length === 0 && <div className="ig-muted">Článek zatím neodkazuje nikam.</div>}
+          {links.map(link => {
+            const tone = link.unverified ? 'unknown' : link.status !== null ? 'bad' : 'ok';
+            return (
+              <div key={link.index} className={`ar-link ${tone === 'ok' ? '' : tone}`}>
+                <span className="ar-linknum">{link.index}</span>
+                {tone === 'ok'
+                  ? <span className="ar-status ok"><Icon name="check" size={12} /></span>
+                  : <span className={`ar-status ${tone === 'unknown' ? 'warn' : 'bad'}`}>
+                      {link.status ?? '?'}
+                    </span>}
+                <div className="ar-broken-main">
+                  <div className="ar-broken-url">{link.url}</div>
+                  <div className="ig-muted">
+                    {link.text ? `„${link.text}"` : 'bez textu'}
+                    {link.note ? ` · ${link.note}` : ''}
+                  </div>
+                  {link.suggestion && (
+                    <div className="ar-fix"><Icon name="chevRight" size={12} /> <code>{link.suggestion}</code></div>
+                  )}
+                </div>
+                {link.suggestion && (
+                  <button className="btn ghost" disabled={busy === link.url}
+                    onClick={() => fix(link.url, link.suggestion!)}>
+                    <Icon name="check" size={13} /> Opravit
+                  </button>
+                )}
+                {tone !== 'ok' && (
+                  <button className="btn ghost" disabled={busy === link.url}
+                    data-tip="Odkaz je ve skutečnosti v pořádku — vyřadit ho z hlášení"
+                    onClick={() => dismiss(link.url)}>
+                    <Icon name="x" size={13} /> Je v pořádku
+                  </button>
                 )}
               </div>
-              {bad?.suggestion && (
-                <button className="btn ghost" onClick={() => fix(url, bad.suggestion!)}>
-                  <Icon name="check" size={13} /> Opravit
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }

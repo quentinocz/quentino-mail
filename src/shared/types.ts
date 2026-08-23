@@ -745,7 +745,13 @@ export interface PtransSettings {
   prompt: string;
   glossary: { source: string; targets: Record<string, string> }[];
   googleTitle: Record<string, string>;
-  limits: { seoTitle: number; seoDesc: number; googleTitle: number; googleDesc: number };
+  limits: {
+    seoTitle: number; seoDesc: number;
+    googleTitle: number;
+    /** Kolik z titulku Google v inzerátu zobrazí — sem se cílí */
+    googleTitleVisible: number;
+    googleDesc: number;
+  };
   model: string;
   concurrency: number;
   secondsPerUnit: number;
@@ -1067,6 +1073,8 @@ export interface ArticleLinkCheck {
   status: number | null;
   suggestion: string | null;
   note: string;
+  /** Server neodpověděl — o odkazu nevíme nic, není to totéž co rozbitý */
+  unverified?: boolean;
 }
 
 export interface ArticleUrlPair {

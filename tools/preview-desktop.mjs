@@ -132,6 +132,8 @@ await overflow('články — text'); await snap('12-clanky-text');
 
 await click('.ar-detail-head .ig-seg button', { hasText: 'Odkazy' });
 await overflow('články — odkazy'); await snap('13-clanky-odkazy');
+await click('.pt-filters .ig-seg button', { hasText: 'V článku' });
+await overflow('články — odkazy v textu'); await snap('21-clanky-odkazy-v-textu');
 
 await click('.ar-modal .pt-tabs button', { hasText: 'Odkazy' });
 await overflow('články — kontrola'); await snap('14-clanky-kontrola');

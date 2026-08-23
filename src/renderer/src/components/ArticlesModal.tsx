@@ -320,8 +320,12 @@ function LinkCheckPanel({ langs }: { langs: { code: string; label: string }[] })
 
   const run = async () => {
     try {
-      setRows(await api.articles.check({ langs: pickLangs, images }));
-      toast('Kontrola dokončená');
+      const found = await api.articles.check({ langs: pickLangs, images });
+      setRows(found);
+      const bad = found.filter(row => !row.unverified).length;
+      toast(bad || found.length
+        ? `${bad} vadných odkazů${found.length - bad ? `, ${found.length - bad} se nepodařilo ověřit` : ''}`
+        : 'Všechny odkazy fungují');
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -352,6 +356,7 @@ function LinkCheckPanel({ langs }: { langs: { code: string; label: string }[] })
   };
 
   const withFix = rows.filter(r => r.suggestion).length;
+  const unknown = rows.filter(r => r.unverified).length;
 
   return (
     <>
@@ -372,7 +377,9 @@ function LinkCheckPanel({ langs }: { langs: { code: string; label: string }[] })
           <span>Kontrolovat i obrázky</span>
         </label>
         <span className="ig-muted">
-          Projde odkazy ve všech načtených článcích a u vadných najde, kam dnes patří.
+          {unknown > 0
+            ? `${unknown} odkazů se nepodařilo ověřit — e-shop neodpověděl, nejsou to vady.`
+            : 'Projde odkazy ve všech načtených článcích a u vadných najde, kam dnes patří.'}
         </span>
         <span style={{ flex: 1 }} />
         {withFix > 0 && (
@@ -415,9 +422,9 @@ function LinkCheckPanel({ langs }: { langs: { code: string; label: string }[] })
         )}
 
         {rows.map((row, index) => (
-          <div key={index} className="ar-broken">
-            <span className={`ar-status ${row.status && row.status < 500 ? 'warn' : 'bad'}`}>
-              {row.status ?? '—'}
+          <div key={index} className={`ar-broken ${row.unverified ? 'unknown' : ''}`}>
+            <span className={`ar-status ${row.unverified ? 'warn' : row.status && row.status < 500 ? 'warn' : 'bad'}`}>
+              {row.status ?? '?'}
             </span>
             <div className="ar-broken-main">
               <div className="ar-broken-url">{row.url}</div>
