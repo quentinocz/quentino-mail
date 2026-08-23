@@ -65,6 +65,62 @@ export async function ask(model: string, system: string, user: string, maxTokens
   return block && block.type === 'text' ? block.text.trim() : '';
 }
 
+/**
+ * Dlouhá odpověď (článek) — streamem.
+ *
+ * Jednorázové volání se u desetitisíců tokenů rozbíjí o časové limity a
+ * nedá se u něj ukázat, že se něco děje. Stream řeší obojí: `onChunk` dostane
+ * text průběžně a hlídač pozná, že spojení usnulo, dřív než vyprší celé volání.
+ *
+ * Když model narazí na strop tokenů uprostřed textu, pokračuje se druhým
+ * voláním s tím, co už napsal — jinak by z dlouhého článku zbyla polovina.
+ */
+export async function askLong(
+  model: string,
+  system: string,
+  user: string,
+  options: { maxTokens?: number; onChunk?: (text: string, total: number) => void; endMark?: string } = {}
+): Promise<string> {
+  const maxTokens = options.maxTokens ?? 16000;
+  const c = client();
+
+  const once = async (messages: any[]): Promise<{ text: string; stop: string }> => {
+    let text = '';
+    let lastAt = Date.now();
+    const stream = c.messages.stream({ model, max_tokens: maxTokens, system, messages });
+    const watchdog = setInterval(() => {
+      // Bez tokenu 45 s je spojení mrtvé; čekat na celý timeout nemá smysl
+      if (Date.now() - lastAt > 45_000) { clearInterval(watchdog); stream.abort(); }
+    }, 5_000);
+    try {
+      for await (const chunk of stream) {
+        if (chunk.type === 'content_block_delta' && (chunk as any).delta?.type === 'text_delta') {
+          text += (chunk as any).delta.text;
+          lastAt = Date.now();
+          options.onChunk?.(text, text.length);
+        }
+      }
+    } finally {
+      clearInterval(watchdog);
+    }
+    const final = await stream.finalMessage().catch(() => null);
+    if (final) recordUsage(model, final.usage as any);
+    return { text, stop: final?.stop_reason ?? 'unknown' };
+  };
+
+  let { text, stop } = await once([{ role: 'user', content: user }]);
+  const end = options.endMark;
+  if (stop === 'max_tokens' && (!end || !text.includes(end))) {
+    const cont = await once([
+      { role: 'user', content: user },
+      { role: 'assistant', content: text },
+      { role: 'user', content: `Pokračuj přesně od místa, kde jsi skončil. Nic neopakuj${end ? `; dokončení musí obsahovat ${end}` : ''}.` }
+    ]);
+    text += cont.text;
+  }
+  return text;
+}
+
 /** Druhé kolo: korektura gramatiky, diakritiky, skloňování a plynulosti. */
 async function proofread(model: string, text: string): Promise<string> {
   try {

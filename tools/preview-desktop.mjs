@@ -76,7 +76,9 @@ const overflow = async label => {
   console.log(`${label.padEnd(28)} ${data.length ? 'přetéká: ' + data.join(', ') : '—'}`);
 };
 
-await click('.sidebar .side-item', { hasText: 'Překlady produktů' });
+// Překlady se otevírají z nabídky AI — v panelu už samostatnou položku nemají
+await click('.ig-switch button', { hasText: 'AI' });
+await click('.ws-menu-item', { hasText: 'Překlady produktů' });
 await overflow('překlady — seznam'); await snap('01-preklady-seznam');
 
 await click('.pt-row');
@@ -94,6 +96,44 @@ await click('.pt-tabs button', { hasText: 'Nastavení' });
 await overflow('překlady — nastavení'); await snap('04-preklady-nastaveni');
 await page.evaluate(() => document.querySelector('.pt-settings')?.scrollTo(0, 900));
 await snap('05-preklady-nastaveni-dole');
+
+await click('.pt-tabs button', { hasText: 'Paměť' });
+await overflow('překlady — paměť'); await snap('07-preklady-pamet');
+await page.keyboard.press('Escape');
+await click('.pt-modal .modal-head .icon-btn:last-child');
+
+// Nabídka AI v postranním panelu
+await click('.ig-switch button', { hasText: 'AI' });
+await overflow('nabídka AI'); await snap('08-nabidka-ai');
+
+await click('.ws-menu-item', { hasText: 'Články' });
+await overflow('články — seznam'); await snap('10-clanky-seznam');
+
+await click('.ar-item');
+await overflow('články — zadání'); await snap('11-clanky-zadani');
+
+await click('.ar-detail-head .ig-seg button', { hasText: 'Text' });
+await overflow('články — text'); await snap('12-clanky-text');
+
+await click('.ar-detail-head .ig-seg button', { hasText: 'Odkazy' });
+await overflow('články — odkazy'); await snap('13-clanky-odkazy');
+
+await click('.ar-modal .pt-tabs button', { hasText: 'Odkazy' });
+await overflow('články — kontrola'); await snap('14-clanky-kontrola');
+
+await click('.ar-modal .pt-tabs button', { hasText: 'Mapa adres' });
+await overflow('články — mapa'); await snap('15-clanky-mapa');
+
+await click('.ar-modal .pt-tabs button', { hasText: 'Nastavení' });
+await overflow('články — nastavení'); await snap('16-clanky-nastaveni');
+
+// Pruh s běžícím překladem na pozadí — je vidět i mimo okno překladů
+await click('.ar-modal .modal-head .icon-btn:last-child');
+await page.evaluate(() => window.__emit('ptrans:progress', {
+  running: true, done: 428, total: 1362, failed: 2, etaSeconds: 940,
+  secondsPerUnit: 11.4, label: 'Bordó pánská kravata BULDOČCI → SK', errors: []
+}));
+await overflow('pruh překladu'); await snap('09-pruh-prekladu');
 
 console.log(problems.length ? '\nPROBLÉMY:\n' + problems.slice(0, 10).join('\n') : '\nžádné chyby');
 await browser.close();

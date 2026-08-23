@@ -799,6 +799,39 @@ export interface PtransOverview {
   running: PtransProgress | null;
 }
 
+/** Znalost naučená z hotových překladů — nebo ručně dopsaná. */
+export type PtransMemoryKind = 'term' | 'pattern' | 'example';
+
+export interface PtransMemoryEntry {
+  id?: number;
+  kind: PtransMemoryKind;
+  lang: string;
+  source: string;
+  target: string;
+  category: string;
+  hits: number;
+  confidence: number;
+  origin: 'feed' | 'manual';
+  locked: boolean;
+  updatedAt?: string;
+}
+
+export interface PtransMemoryStat {
+  lang: string;
+  terms: number;
+  patterns: number;
+  examples: number;
+  manual: number;
+}
+
+export interface PtransLearnResult {
+  lang: string;
+  pairs: number;
+  terms: number;
+  patterns: number;
+  examples: number;
+}
+
 export interface PtransPage {
   rows: PtransProduct[];
   total: number;
@@ -839,4 +872,137 @@ export interface PtransDeviation {
 export interface PtransConsistency {
   patterns: PtransPattern[];
   deviations: PtransDeviation[];
+}
+
+/* ==================== Články ==================== */
+
+export interface ArticleLanguage {
+  code: string;
+  label: string;
+  enabled: boolean;
+  /** Doména trhu — z ní se skládají odkazy v článku */
+  domain: string;
+}
+
+export interface ArticleSettings {
+  sourceLang: string;
+  languages: ArticleLanguage[];
+  prompt: string;
+  wordCount: number;
+  model: string;
+  researchTerms: boolean;
+  productPrefix: string;
+  articlePrefix: string;
+}
+
+export interface ArticleBrief {
+  products: string[];
+  productImages: Record<string, string>;
+  includeProductImages: boolean;
+  productLayout: 'block' | 'left' | 'right';
+  productSize: 'small' | 'medium' | 'large';
+  images: { url: string; description: string; size: 'auto' | 'small' | 'medium' | 'full';
+    layout: 'block' | 'left' | 'right'; isListing?: boolean }[];
+  links: { name: string; urls: Record<string, string> }[];
+  titleFixed: boolean;
+  title: string;
+}
+
+export type ArticleVersionState = 'empty' | 'generated' | 'manual' | 'translated' | 'imported';
+
+export interface ArticleVersion {
+  lang: string;
+  title: string;
+  slug: string;
+  short: string;
+  long: string;
+  seo_title: string;
+  seo_desc: string;
+  seo_url: string;
+  state: ArticleVersionState;
+  updatedAt: string | null;
+  /** Viditelná slova — bez HTML značek */
+  words: number;
+}
+
+export interface ArticleRow {
+  id: number;
+  articleId: string | null;
+  topic: string;
+  status: 'draft' | 'ready';
+  sourceLang: string;
+  wordCount: number;
+  langs: string[];
+  prompt: string;
+  brief: ArticleBrief;
+  terms: string;
+  origin: 'new' | 'import';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ArticleListRow extends ArticleRow {
+  /** Název v zdrojovém jazyce — v seznamu se ukazuje přednostně */
+  title: string;
+  versions: { lang: string; state: string; words: number }[];
+}
+
+export interface ArticleDetail extends ArticleRow {
+  versions: ArticleVersion[];
+}
+
+export interface ArticleProgress {
+  running: boolean;
+  done: number;
+  total: number;
+  failed: number;
+  label: string;
+  chars: number;
+  errors: string[];
+}
+
+export interface ArticleCheckProgress {
+  running: boolean;
+  done: number;
+  total: number;
+  broken: number;
+  label: string;
+}
+
+export interface ArticleLinkCheck {
+  id?: number;
+  articleId: number;
+  articleTitle: string;
+  lang: string;
+  url: string;
+  kind: string;
+  status: number | null;
+  suggestion: string | null;
+  note: string;
+}
+
+export interface ArticleUrlPair {
+  fromLang: string;
+  fromPath: string;
+  toLang: string;
+  toPath: string;
+  kind: string;
+  hits: number;
+  locked: number;
+  updatedAt: string | null;
+}
+
+export interface ArticleOverview {
+  settings: ArticleSettings;
+  summary: { total: number; drafts: number; byLang: { lang: string; n: number }[] };
+  running: ArticleProgress | null;
+  checking: ArticleCheckProgress | null;
+  urlmap: number;
+}
+
+export interface ArticleProduct {
+  code: string;
+  title: string;
+  url: string;
+  image: string | null;
 }

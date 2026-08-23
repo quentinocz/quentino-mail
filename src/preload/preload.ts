@@ -52,6 +52,15 @@ const ALLOWED_INVOKE = [
   'ptrans:googleTitles', 'ptrans:templatePreview', 'ptrans:generateSeo', 'ptrans:seoUrl',
   'ptrans:exportPreview', 'ptrans:export', 'ptrans:importFile', 'ptrans:redirectPreview',
   'ptrans:consistency', 'ptrans:suggestPattern',
+  'ptrans:memory', 'ptrans:learn', 'ptrans:saveMemory', 'ptrans:deleteMemory',
+  // Články — psaní, překlad, kontrola odkazů (jen na počítači)
+  'articles:overview', 'articles:saveSettings', 'articles:defaultPrompt', 'articles:list',
+  'articles:get', 'articles:save', 'articles:delete', 'articles:editVersion',
+  'articles:generate', 'articles:translate', 'articles:progress', 'articles:stop',
+  'articles:terms', 'articles:products', 'articles:preview', 'articles:links',
+  'articles:import', 'articles:export', 'articles:check', 'articles:lastCheck',
+  'articles:checkProgress', 'articles:stopCheck', 'articles:fix', 'articles:fixAll',
+  'articles:urlmap', 'articles:learnLinks', 'articles:saveUrlPair', 'articles:deleteUrlPair',
   // Verze aplikace do hlavičky nastavení
   'app:version'
 ];
@@ -59,7 +68,8 @@ const ALLOWED_INVOKE = [
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
   'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open',
-  'ptrans:progress', 'ptrans:changed'
+  'ptrans:progress', 'ptrans:changed',
+  'articles:progress', 'articles:changed', 'articles:check'
 ];
 
 contextBridge.exposeInMainWorld('api', {

@@ -22,6 +22,7 @@ import { clearTrackingCache } from './ordertrack';
 import { scanOrders, setItemPacked, setOrderDone, resetPacking } from './packing';
 import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderlink';
 import * as ptrans from './ptrans';
+import * as articles from './articles';
 import { customerContext, customerConversation, messageText } from './customer';
 import { relearnPhase } from './shipphase';
 import { createVouchers } from './voucher';
@@ -354,6 +355,51 @@ export function registerIpc() {
   handle('ptrans:importFile', () => ptrans.importFromFile());
   handle('ptrans:consistency', (lang: string) => ptrans.consistencyCheck(lang));
   handle('ptrans:suggestPattern', (category: string, lang: string) => ptrans.suggestPattern(category, lang));
+  handle('ptrans:memory', (filter: any) => ({
+    entries: ptrans.listMemory(filter ?? {}),
+    stats: ptrans.memoryStats()
+  }));
+  handle('ptrans:learn', (langs?: string[]) => ptrans.learnMemory(langs));
+  handle('ptrans:saveMemory', (entry: any) => ptrans.editMemory(entry));
+  handle('ptrans:deleteMemory', (id: number) => { ptrans.deleteMemory(id); return true; });
+
+  /* ---------- Články (jen na počítači) ---------- */
+  handle('articles:overview', () => articles.overview());
+  handle('articles:saveSettings', (patch: any) => articles.saveArticleSettings(patch ?? {}));
+  handle('articles:defaultPrompt', () => articles.defaultArticlePrompt());
+  handle('articles:list', (filter: any) => articles.listArticles(filter ?? {}));
+  handle('articles:get', (id: number) => articles.getArticle(id));
+  handle('articles:save', (input: any) => articles.saveArticle(input ?? {}));
+  handle('articles:delete', (id: number) => { articles.deleteArticle(id); return true; });
+  handle('articles:editVersion', (id: number, lang: string, patch: any) =>
+    articles.editVersion(id, lang, patch ?? {}));
+  handle('articles:generate', (input: any) => articles.generateArticle(input));
+  handle('articles:translate', (id: number, langs: string[], force?: boolean) =>
+    articles.translateArticle(id, langs ?? [], !!force));
+  handle('articles:progress', () => articles.articleProgress());
+  handle('articles:stop', () => { articles.stopArticles(); return true; });
+  handle('articles:terms', (topic: string, lang: string, title?: string) =>
+    articles.researchTerms(topic, lang, title ?? ''));
+  handle('articles:products', (codes: string[], lang: string) =>
+    articles.productsForArticle(codes ?? [], lang));
+  handle('articles:preview', (id: number, lang: string) => articles.preview(id, lang));
+  handle('articles:links', (id: number, lang: string) => articles.articleLinks(id, lang));
+  handle('articles:import', () => articles.importFromFile());
+  handle('articles:export', (input: any) => articles.exportToFile(input ?? {}));
+  handle('articles:check', (options: any) => articles.checkLinks(options ?? {}));
+  handle('articles:lastCheck', () => articles.lastCheck());
+  handle('articles:checkProgress', () => articles.checkProgress());
+  handle('articles:stopCheck', () => { articles.stopCheck(); return true; });
+  handle('articles:fix', (id: number, lang: string, from: string, to: string) =>
+    articles.applyFix(id, lang, from, to));
+  handle('articles:fixAll', (ids?: number[]) => articles.applyAllFixes(ids));
+  handle('articles:urlmap', (filter: any) => articles.listUrlMap(filter ?? {}));
+  handle('articles:learnLinks', () => articles.learnLinks());
+  handle('articles:saveUrlPair', (fromLang: string, fromPath: string, toLang: string, toPath: string, kind: string) =>
+    articles.saveUrlPair(fromLang, fromPath, toLang, toPath, kind ?? 'other'));
+  handle('articles:deleteUrlPair', (fromLang: string, fromPath: string, toLang: string) => {
+    articles.deletePair(fromLang, fromPath, toLang); return true;
+  });
 
   // Instagram (vlastní modul)
   registerIgIpc();

@@ -46,6 +46,23 @@ CREATE TABLE IF NOT EXISTS ptrans_fields (
 CREATE INDEX IF NOT EXISTS idx_ptrans_fields_state ON ptrans_fields(lang, state);
 CREATE INDEX IF NOT EXISTS idx_ptrans_fields_code ON ptrans_fields(code);
 
+-- Paměť překladů: co se aplikace naučila z hotových jazykových mutací
+CREATE TABLE IF NOT EXISTS ptrans_memory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  lang TEXT NOT NULL,
+  source TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  hits INTEGER NOT NULL DEFAULT 0,
+  confidence REAL NOT NULL DEFAULT 1,
+  origin TEXT NOT NULL DEFAULT 'feed',
+  locked INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT '',
+  UNIQUE(kind, lang, source, category)
+);
+CREATE INDEX IF NOT EXISTS idx_ptrans_memory_use ON ptrans_memory(kind, lang, category);
+
 CREATE TABLE IF NOT EXISTS ptrans_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at TEXT NOT NULL,
