@@ -398,6 +398,10 @@ export function registerIpc() {
   handle('ptrans:auditOf', (code: string, langs?: string[]) => ptrans.auditOf(code, langs));
   handle('ptrans:worst', (lang: string, limit?: number) => ptrans.worstProducts(lang, limit ?? 60));
   handle('ptrans:auditSummary', () => ptrans.storedSummary());
+
+  /* ---------- doplnění textů ve zdrojovém jazyce ---------- */
+  handle('ptrans:sourceGaps', (codes: string[]) => ptrans.sourceGaps(codes ?? []));
+  handle('ptrans:fillSource', (options: any) => ptrans.fillSourceTexts(options ?? { codes: [] }));
   handle('ptrans:fixIssues', (code: string, lang: string, keys?: string[]) =>
     ptrans.fixIssues(code, lang, keys));
 

@@ -1,7 +1,7 @@
 import { getDb } from '../db';
 import { ask } from '../ai';
 import { getSettings } from '../settings';
-import { getPtransSettings, saveTranslation, productFields, targetLangs } from './store';
+import { getPtransSettings, saveTranslation, productFields, fieldValue, targetLangs } from './store';
 import { getField, tagText } from './xml';
 import { parameterMap, renderTemplate } from './seo';
 import { clamp } from './translate';
@@ -115,11 +115,8 @@ function productBrief(code: string, lang: string, forTitle = false): string {
   ).get(code) as any;
   if (!product) return '';
 
-  const fields = productFields(code, [lang]);
-  const pick = (field: string) => {
-    const row = fields.find(f => f.field === field);
-    return row?.translated || row?.value || '';
-  };
+  // Ve zdrojovém jazyce se pole nesledují, takže se sahá i do původního XML
+  const pick = (field: string) => fieldValue(code, lang, field);
   const params = parameterMap(code, lang);
   const bundle = detectBundle(code);
 

@@ -61,6 +61,7 @@ const ALLOWED_INVOKE = [
   'ptrans:deleteColor', 'ptrans:bundles', 'ptrans:markBundle', 'ptrans:deleteBundleRule',
   // Audit kvality feedu
   'ptrans:audit', 'ptrans:auditOf', 'ptrans:worst', 'ptrans:fixIssues', 'ptrans:auditSummary',
+  'ptrans:sourceGaps', 'ptrans:fillSource',
   // Články — psaní, překlad, kontrola odkazů (jen na počítači)
   'articles:overview', 'articles:saveSettings', 'articles:defaultPrompt', 'articles:list',
   'articles:get', 'articles:save', 'articles:delete', 'articles:editVersion',

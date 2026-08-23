@@ -9,6 +9,7 @@ import { NEEDS_WORK, plain } from './detect';
 import { consistencyHint } from './consistency';
 import { setSeoUrl } from './redirects';
 import { memoryHint, memoryStats, learnFromFeed } from './memory';
+import { planSourceFill, fillSourceOne, SourceField } from './source';
 
 /**
  * Překlad produktových textů.
@@ -302,6 +303,18 @@ export interface RunInput {
   langs?: string[];
   fields?: string[];
   force?: boolean;
+  /**
+   * Před překladem doplnit texty, které chybí ve **zdrojovém** jazyce.
+   *
+   * Bez toho se nedá přeložit něco, co v češtině neexistuje — a v každé
+   * jazykové mutaci pak chybí totéž. Proto je to volba překladu, ne
+   * samostatná akce: pořadí (nejdřív zdroj, pak překlad) je to podstatné.
+   */
+  fillSource?: boolean;
+  /** Která zdrojová pole doplnit; prázdné = všechna, která jde */
+  sourceFields?: SourceField[];
+  /** Přepsat i zdrojové texty, které už existují */
+  forceSource?: boolean;
 }
 
 export interface RunResult {
@@ -336,9 +349,12 @@ export async function run(input: RunInput): Promise<RunResult> {
   const errors: string[] = [];
   let done = 0;
   let failed = 0;
+  // Celek běhu = doplnění zdroje + překlad. Drží se zvlášť, protože po
+  // doplnění se plán překladu přepočítává a `work.length` se mění.
+  let total = work.length;
 
   current = {
-    running: true, done: 0, total: work.length, failed: 0,
+    running: true, done: 0, total, failed: 0,
     etaSeconds: work.length ? speed.eta(work.length, s.concurrency) : 0,
     secondsPerUnit: speed.perUnit, label: '', errors: []
   };
@@ -347,6 +363,57 @@ export async function run(input: RunInput): Promise<RunResult> {
   const runId = (getDb().prepare(
     'INSERT INTO ptrans_runs (started_at, total, note) VALUES (?,?,?)'
   ).run(new Date().toISOString(), work.length, langs.join(',')) as any).lastInsertRowid;
+
+  /*
+   * Nejdřív zdroj, pak překlad.
+   *
+   * Zdrojové texty se doplňují po jednom a sériově: je jich řádově míň než
+   * překladů a každý z nich mění podklad pro všechny jazyky, takže se
+   * nevyplatí to hnát paralelně a riskovat limit API.
+   */
+  const sourceWork = input.fillSource
+    ? planSourceFill({ codes: input.codes, fields: input.sourceFields, force: input.forceSource })
+    : [];
+
+  if (sourceWork.length > 0) {
+    total = work.length + sourceWork.length;
+    current = { ...current, total };
+    for (const target of sourceWork) {
+      if (cancelled) break;
+      current = {
+        ...current,
+        label: `${target.code} — doplňuji ${target.field} v ${s.sourceLang.toUpperCase()}`
+      };
+      emit('ptrans:progress', current);
+
+      const at = Date.now();
+      const result = await fillSourceOne(target.code, target.field);
+      speed.add((Date.now() - at) / 1000);
+      done++;
+      if (result.error) { failed++; errors.push(result.error); }
+
+      current = {
+        ...current,
+        done,
+        failed,
+        etaSeconds: speed.eta(total - done, s.concurrency),
+        secondsPerUnit: speed.perUnit,
+        errors: errors.slice(-5)
+      };
+      emit('ptrans:progress', current);
+    }
+
+    // Zdrojové texty se mezitím změnily, takže plán překladu se musí přepočítat
+    // — jinak by se přeskočila právě ta pole, kvůli kterým se to dělalo
+    if (!cancelled) {
+      const refreshed = planWork(input.codes, langs, { force: input.force, fields: input.fields });
+      work.length = 0;
+      work.push(...refreshed);
+      total = done + work.length;
+      current = { ...current, total };
+      emit('ptrans:progress', current);
+    }
+  }
 
   const queue = [...work];
   const workers = Array.from({ length: Math.max(1, Math.min(6, s.concurrency)) }, async () => {
@@ -364,9 +431,9 @@ export async function run(input: RunInput): Promise<RunResult> {
       current = {
         running: true,
         done,
-        total: work.length,
+        total,
         failed,
-        etaSeconds: speed.eta(work.length - done, s.concurrency),
+        etaSeconds: speed.eta(total - done, s.concurrency),
         secondsPerUnit: Number(speed.perUnit.toFixed(1)),
         label: `${target.code} → ${labelOf(target.lang, s)}`,
         errors: errors.slice(-5)

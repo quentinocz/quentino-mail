@@ -35,7 +35,9 @@ protocols:
 
 mac:
   category: public.app-category.productivity
-  icon: build/icon.png
+  # macOS chce kolem ikony průhledný okraj, Windows kreslí přes celé plátno —
+  # proto dva soubory, oba dělá tools/make-icons.py
+  icon: build/icon-mac.png
   target:
     - target: dmg
       arch: [arm64]

@@ -271,6 +271,18 @@
         model: '', manual: false }
     ],
     'ptrans:plan': 12,
+    'ptrans:sourceGaps': {
+      sourceLang: 'cz',
+      total: 31,
+      fields: [
+        { field: 'seo_title', label: 'SEO titulek', missing: 7 },
+        { field: 'seo_desc', label: 'SEO popis', missing: 12 },
+        { field: 'seo_url', label: 'SEO adresa', missing: 0 },
+        { field: 'google_title', label: 'Google titulek', missing: 9 },
+        { field: 'google_desc', label: 'Google popis', missing: 3 }
+      ]
+    },
+    'ptrans:fillSource': { done: 31, failed: 0, errors: [] },
     'ptrans:redirectPreview': { oldPath: '/p/bordo-panske-siroke-ksandy',
       list: ['/p/bordo-siroke-ksandy', '/p/bordo-panske-siroke-ksandy'] },
     'ptrans:consistency': {

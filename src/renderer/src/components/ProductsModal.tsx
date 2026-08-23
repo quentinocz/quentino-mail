@@ -899,6 +899,16 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
   const [force, setForce] = useState(false);
   const [plan, setPlan] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
+  // Doplnění zdrojových textů. Zapnuté ve výchozím stavu: přeložit se dá jen
+  // to, co existuje, a produkt bez českého SEO titulku by jinak zůstal bez
+  // titulku ve všech jazycích.
+  const [fillSource, setFillSource] = useState(true);
+  const [forceSource, setForceSource] = useState(false);
+  const [sourceFields, setSourceFields] = useState<string[]>([]);
+  const [gaps, setGaps] = useState<{
+    fields: { field: string; label: string; missing: number }[];
+    total: number; sourceLang: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -908,13 +918,36 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
     return () => { cancelled = true; };
   }, [codes, langs, force]);
 
-  const seconds = plan === null ? null : (plan * overview.settings.secondsPerUnit) / Math.max(1, overview.settings.concurrency);
+  useEffect(() => {
+    let cancelled = false;
+    api.ptrans.sourceGaps(codes)
+      .then(data => {
+        if (cancelled) return;
+        setGaps(data);
+        // Předvyplní se jen pole, kde opravdu něco chybí — nabízet doplnění
+        // něčeho, co je kompletní, jen mate
+        setSourceFields(prev => (prev.length ? prev : data.fields.filter(f => f.missing > 0).map(f => f.field)));
+      })
+      .catch(() => { if (!cancelled) setGaps(null); });
+    return () => { cancelled = true; };
+  }, [codes]);
+
+  const sourceCount = forceSource
+    ? (gaps?.fields.filter(f => sourceFields.includes(f.field)).length ?? 0) * codes.length
+    : (gaps?.fields.filter(f => sourceFields.includes(f.field))
+      .reduce((sum, f) => sum + f.missing, 0) ?? 0);
+  const totalUnits = (plan ?? 0) + (fillSource ? sourceCount : 0);
+  const seconds = plan === null ? null
+    : (totalUnits * overview.settings.secondsPerUnit) / Math.max(1, overview.settings.concurrency);
 
   const start = async () => {
     setStarting(true);
     try {
       onStarted();
-      const result = await api.ptrans.run({ codes, langs, force });
+      const result = await api.ptrans.run({
+        codes, langs, force,
+        fillSource, sourceFields: fillSource ? sourceFields : [], forceSource
+      });
       toast(result.failed
         ? `Hotovo: ${result.done - result.failed} přeloženo, ${result.failed} selhalo`
         : `Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`);
@@ -957,10 +990,60 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
             <span>Přeložit znovu i to, co už přeložené je <small>(ručně upravená pole zůstanou)</small></span>
           </label>
 
+          {/*
+            Doplnění zdrojových textů. Je to součást překladu schválně —
+            pořadí rozhoduje: co se doplní v češtině, jde rovnou i do překladu.
+            Jako samostatná akce by to znamenalo pouštět všechno dvakrát.
+          */}
+          <div className="pt-prefill">
+            <label className="pt-switch">
+              <input type="checkbox" checked={fillSource}
+                onChange={e => setFillSource(e.target.checked)} />
+              <span>
+                Nejdřív doplnit chybějící texty v {(gaps?.sourceLang ?? 'cz').toUpperCase()}
+                <small>
+                  {' '}napíší se podle názvu a popisu produktu, pak se rovnou přeloží
+                </small>
+              </span>
+            </label>
+
+            {fillSource && gaps && (
+              <>
+                <div className="pt-prefill-fields">
+                  {gaps.fields.map(item => (
+                    <label key={item.field}
+                      className={`pt-pick ${sourceFields.includes(item.field) ? 'on' : ''}`}>
+                      <input type="checkbox" checked={sourceFields.includes(item.field)}
+                        onChange={() => setSourceFields(prev => prev.includes(item.field)
+                          ? prev.filter(f => f !== item.field)
+                          : [...prev, item.field])} />
+                      {item.label}
+                      <b className={item.missing ? 'miss' : ''}>
+                        {item.missing ? `chybí ${item.missing}×` : 'kompletní'}
+                      </b>
+                    </label>
+                  ))}
+                </div>
+                <label className="pt-switch">
+                  <input type="checkbox" checked={forceSource}
+                    onChange={e => setForceSource(e.target.checked)} />
+                  <span>
+                    Přepsat i ty, které už vyplněné jsou
+                    <small> {' '}napíše je znovu podle současného názvu a popisu</small>
+                  </span>
+                </label>
+              </>
+            )}
+          </div>
+
           <div className="pt-estimate">
             <div>
-              <b>{plan === null ? '…' : plan}</b> položek k překladu
-              <div className="ig-muted">jeden produkt a jazyk = jedno volání modelu</div>
+              <b>{plan === null ? '…' : totalUnits}</b> volání modelu
+              <div className="ig-muted">
+                {fillSource && sourceCount > 0
+                  ? `${sourceCount} na doplnění ${(gaps?.sourceLang ?? 'cz').toUpperCase()} a ${plan ?? 0} na překlad`
+                  : 'jeden produkt a jazyk = jedno volání modelu'}
+              </div>
             </div>
             <div className="pt-estimate-time">
               <b>~{humanTime(seconds)}</b>
@@ -973,7 +1056,8 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
         <div className="modal-foot">
           <button className="btn ghost" onClick={onClose}>Zrušit</button>
           <span style={{ flex: 1 }} />
-          <button className="btn primary" disabled={!plan || starting || langs.length === 0} onClick={start}>
+          <button className="btn primary"
+            disabled={totalUnits === 0 || starting || langs.length === 0} onClick={start}>
             <Icon name="sparkles" size={13} /> Spustit překlad
           </button>
         </div>

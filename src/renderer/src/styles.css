@@ -4236,6 +4236,28 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 .pt-pick.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-dark); }
 .pt-switch { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; font-size: 13px; cursor: pointer; }
 .pt-switch small { display: block; color: var(--text-3); }
+/* Doplnění zdrojových textů — vlastní rámeček, aby bylo vidět, že ty volby
+   patří k sobě a že se dějí *před* překladem. */
+.pt-prefill {
+  margin-top: 14px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.pt-prefill > .pt-switch:first-child { margin-top: 0; }
+.pt-prefill-fields { display: flex; gap: 7px; flex-wrap: wrap; margin: 11px 0 2px; }
+.pt-prefill-fields .pt-pick { padding: 6px 11px; font-size: 12.5px; }
+.pt-prefill-fields .pt-pick b {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-3);
+}
+/* Kde něco chybí, ať je to vidět na první pohled */
+.pt-prefill-fields .pt-pick b.miss { color: var(--warn); }
+.pt-prefill-fields .pt-pick.on b { color: inherit; opacity: .75; }
+.pt-prefill .pt-switch { margin-top: 12px; }
+.pt-prefill .pt-switch small { font-size: 11.5px; }
+
 .pt-estimate {
   display: flex;
   gap: 16px;
