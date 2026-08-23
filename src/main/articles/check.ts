@@ -32,6 +32,8 @@ export interface LinkCheck {
   status: number | null;
   suggestion: string | null;
   note: string;
+  /** Server neodpověděl — o odkazu nevíme nic, není to totéž co rozbitý */
+  unverified?: boolean;
 }
 
 export interface CheckProgress {
@@ -62,31 +64,71 @@ export function stopCheck(): void {
   if (state.running) { cancelled = true; push({ label: 'zastavuji…' }); }
 }
 
-/** Jedna adresa: HEAD, a když ho server nemá rád, ještě GET. */
-async function probe(url: string): Promise<number | null> {
-  const attempt = async (method: 'HEAD' | 'GET') => {
+/**
+ * Ověření jedné adresy.
+ *
+ * Tohle je celé o tom, **nehlásit falešné poplachy**. E-shop je běžný web za
+ * ochranou proti robotům: když na něj přiletí patnáct požadavků během vteřiny,
+ * část jich zahodí nebo zpomalí — a odkaz, který v prohlížeči funguje, se
+ * v přehledu objeví jako rozbitý. To je horší než nic nezkontrolovat, protože
+ * to svádí „opravit" něco, co je v pořádku.
+ *
+ * Proto:
+ *  - hlavička prohlížeče, ne název aplikace (WAF neznámé roboty odmítá),
+ *  - HEAD, a když ho server nemá rád, ještě GET,
+ *  - **opakování se zdržením**, než se odkaz označí za vadný,
+ *  - a hlavně: když server neodpoví ani napodruhé, vrací se `null` jako
+ *    „nepodařilo se ověřit", ne jako „nefunguje".
+ */
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+  + ' (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function probe(url: string, attempts = 3): Promise<number | null> {
+  const once = async (method: 'HEAD' | 'GET') => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12_000);
+    const timer = setTimeout(() => controller.abort(), 20_000);
     try {
       const res = await fetch(url, {
         method,
         redirect: 'follow',
         signal: controller.signal,
-        headers: { 'User-Agent': 'QuentinoApp/1.0 (kontrola odkazů)' }
+        headers: {
+          'User-Agent': BROWSER_UA,
+          'Accept': 'text/html,application/xhtml+xml,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'cs,sk;q=0.9,en;q=0.8'
+        }
       });
       return res.status;
     } finally {
       clearTimeout(timer);
     }
   };
-  try {
-    const head = await attempt('HEAD');
-    // 405 = server HEAD neumí, 403 často blokuje jen HEAD — zkusí se pořádně
-    if (head === 405 || head === 403 || head === 501) return await attempt('GET');
-    return head;
-  } catch {
-    try { return await attempt('GET'); } catch { return null; }
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      let status = await once('HEAD');
+      // 405 = HEAD neumí, 403/401 často blokuje jen HEAD, 429 = přetížení
+      if (status === 405 || status === 501 || status === 403 || status === 401) {
+        status = await once('GET');
+      }
+      // Přetížení není vada odkazu — chvíli počkat a zkusit znovu
+      if (status === 429 || status === 503) {
+        if (attempt < attempts) { await wait(1500 * attempt); continue; }
+        return null;
+      }
+      return status;
+    } catch {
+      try {
+        return await once('GET');
+      } catch {
+        if (attempt < attempts) { await wait(800 * attempt); continue; }
+        return null;
+      }
+    }
   }
+  return null;
 }
 
 /** Kam dnes vede cesta, která nefunguje. */
@@ -150,8 +192,13 @@ export interface CheckOptions {
   langs?: string[];
   /** Kontrolovat i obrázky */
   images?: boolean;
-  /** Kolik adres najednou */
+  /**
+   * Kolik adres najednou. Výchozí 2 — skoro všechny odkazy míří na tentýž
+   * e-shop a víc souběžných dotazů si koleduje o falešné poplachy.
+   */
   concurrency?: number;
+  /** Pauza mezi dotazy v milisekundách */
+  spacingMs?: number;
 }
 
 export async function checkLinks(options: CheckOptions = {}): Promise<LinkCheck[]> {
@@ -198,31 +245,52 @@ export async function checkLinks(options: CheckOptions = {}): Promise<LinkCheck[
   push({});
 
   const results: LinkCheck[] = [];
-  const concurrency = Math.max(1, Math.min(8, options.concurrency ?? 5));
+  /*
+   * Souběh je schválně nízký a mezi požadavky se čeká.
+   *
+   * Skoro všechny odkazy míří na tentýž e-shop. Pustit na něj osm souběžných
+   * dotazů znamená koledovat si o zahazování a hlášku „server neodpověděl"
+   * u odkazů, které fungují. Kontrola tisícovky odkazů tak trvá minuty místo
+   * vteřin — ale výsledku se dá věřit, což je jediné, k čemu je dobrá.
+   */
+  const concurrency = Math.max(1, Math.min(4, options.concurrency ?? 2));
+  const spacing = Math.max(0, options.spacingMs ?? 250);
   let cursor = 0;
 
-  const worker = async () => {
+  const worker = async (index: number) => {
+    // Rozestup na startu, aby první vlna nedorazila naráz
+    await wait(index * spacing);
     while (cursor < urls.length && !cancelled) {
       const url = urls[cursor++];
       const status = await probe(url);
-      const ok = status !== null && status >= 200 && status < 400;
       const entries = targets.get(url)!;
+
+      // Tři různé výsledky, ne dva. „Neověřeno" není „rozbité": server mohl
+      // jen zahodit dotaz kvůli zátěži a označit kvůli tomu funkční odkaz za
+      // vadný je horší, než ho nezkontrolovat vůbec.
+      const ok = status !== null && status >= 200 && status < 400;
+      const unverified = status === null;
+
       if (!ok) {
-        const fix = suggest(url, entries[0].lang);
+        const fix = unverified ? null : suggest(url, entries[0].lang);
         for (const entry of entries) {
           entry.status = status;
           entry.suggestion = fix?.url ?? null;
-          entry.note = fix?.note ?? (status === null ? 'server neodpověděl' : `HTTP ${status}`);
+          entry.note = unverified
+            ? 'nepodařilo se ověřit — server neodpověděl ani po opakování'
+            : (fix?.note ?? `HTTP ${status}`);
+          entry.unverified = unverified;
           results.push(entry);
         }
-        push({ broken: state.broken + entries.length });
+        push({ broken: state.broken + (unverified ? 0 : entries.length) });
       }
       push({ done: state.done + 1, label: url.slice(0, 80) });
+      if (spacing) await wait(spacing);
     }
   };
 
   try {
-    await Promise.all(Array.from({ length: concurrency }, worker));
+    await Promise.all(Array.from({ length: concurrency }, (_, index) => worker(index)));
   } finally {
     push({ running: false, label: cancelled ? 'zastaveno' : 'hotovo' });
   }
@@ -233,12 +301,13 @@ export async function checkLinks(options: CheckOptions = {}): Promise<LinkCheck[
     d.prepare(`DELETE FROM art_links WHERE article_id IN (${ids.map(() => '?').join(',')})`).run(...ids);
   }
   const insert = d.prepare(
-    `INSERT INTO art_links (article_id, lang, url, kind, status, suggestion, note, checked_at)
-     VALUES (?,?,?,?,?,?,?,?)`
+    `INSERT INTO art_links (article_id, lang, url, kind, status, suggestion, note, unverified, checked_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`
   );
   const now = new Date().toISOString();
   for (const item of results) {
-    insert.run(item.articleId, item.lang, item.url, item.kind, item.status, item.suggestion, item.note, now);
+    insert.run(item.articleId, item.lang, item.url, item.kind, item.status,
+      item.suggestion, item.note, item.unverified ? 1 : 0, now);
   }
 
   emit('articles:changed', {});
@@ -249,9 +318,10 @@ export async function checkLinks(options: CheckOptions = {}): Promise<LinkCheck[
 export function lastCheck(): LinkCheck[] {
   return getDb().prepare(
     `SELECT l.id, l.article_id AS articleId, l.lang, l.url, l.kind, l.status, l.suggestion, l.note,
+            l.unverified,
             (SELECT title FROM art_langs v WHERE v.article_id = l.article_id AND v.lang = l.lang) AS articleTitle
-     FROM art_links l ORDER BY l.article_id, l.lang`
-  ).all() as LinkCheck[];
+     FROM art_links l ORDER BY l.unverified, l.article_id, l.lang`
+  ).all().map((row: any) => ({ ...row, unverified: !!row.unverified })) as LinkCheck[];
 }
 
 /**
@@ -282,13 +352,28 @@ export function applyFix(articleId: number, lang: string, from: string, to: stri
   return count;
 }
 
+/**
+ * Odstraní odkaz ze seznamu vad, aniž by se v článku cokoli měnilo.
+ *
+ * Pro případy, kdy kontrola hlásí něco, co ve skutečnosti funguje — třeba
+ * stránku, která robotům odpovídá jinak než prohlížeči. Po ruční kontrole je
+ * tohle způsob, jak takový odkaz odbavit a nemít ho pořád v cestě.
+ */
+export function dismissLink(articleId: number, lang: string, url: string): boolean {
+  getDb().prepare('DELETE FROM art_links WHERE article_id = ? AND lang = ? AND url = ?')
+    .run(articleId, lang, url);
+  emit('articles:changed', { id: articleId });
+  return true;
+}
+
 /** Opraví všechno, co má návrh. Vrací počet skutečně přepsaných odkazů. */
 export function applyAllFixes(articleIds?: number[]): number {
   const d = getDb();
   const marks = articleIds?.length ? `AND article_id IN (${articleIds.map(() => '?').join(',')})` : '';
+  // Neověřené odkazy se hromadně neopravují — u nich se neví, jestli je co opravovat
   const rows = d.prepare(
     `SELECT article_id AS articleId, lang, url, suggestion FROM art_links
-     WHERE suggestion IS NOT NULL AND suggestion != '' ${marks}`
+     WHERE suggestion IS NOT NULL AND suggestion != '' AND unverified = 0 ${marks}`
   ).all(...(articleIds ?? [])) as any[];
 
   let total = 0;

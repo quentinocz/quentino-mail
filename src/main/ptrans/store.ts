@@ -35,7 +35,14 @@ export interface PtransSettings {
   googleTitle: Record<string, string>;
   /** Ruční tvar názvu podle jazyka a kategorie: titleRules['en']['Kravaty'] */
   titleRules?: Record<string, Record<string, string>>;
-  limits: { seoTitle: number; seoDesc: number; googleTitle: number; googleDesc: number };
+  limits: {
+    seoTitle: number; seoDesc: number;
+    /** Technický strop Googlu */
+    googleTitle: number;
+    /** Kolik z titulku Google v inzerátu opravdu zobrazí — sem se cílí */
+    googleTitleVisible: number;
+    googleDesc: number;
+  };
   model: string;
   /** Kolik produktů se překládá najednou */
   concurrency: number;
@@ -60,7 +67,7 @@ const DEFAULTS: PtransSettings = {
   glossary: [],
   googleTitle: {},
   titleRules: {},
-  limits: { seoTitle: 70, seoDesc: 155, googleTitle: 150, googleDesc: 5000 },
+  limits: { seoTitle: 70, seoDesc: 155, googleTitle: 150, googleTitleVisible: 70, googleDesc: 5000 },
   model: '',
   concurrency: 2,
   secondsPerUnit: 12

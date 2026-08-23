@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS art_links (
   status INTEGER,
   suggestion TEXT,
   note TEXT,
+  -- Server neodpověděl: o odkazu nevíme nic. Není to totéž co rozbitý odkaz
+  -- a v přehledu se to musí lišit, jinak by se „opravovalo" něco funkčního.
+  unverified INTEGER NOT NULL DEFAULT 0,
   checked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS art_links_article ON art_links(article_id);
@@ -76,6 +79,7 @@ CREATE TABLE IF NOT EXISTS art_urlmap (
 
 /** Doplňky ke starším databázím. Selhání se ignoruje — sloupec už existuje. */
 export const ALTERS = [
+  `ALTER TABLE art_links ADD COLUMN unverified INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE art_articles ADD COLUMN origin TEXT NOT NULL DEFAULT 'new'`,
   `ALTER TABLE art_articles ADD COLUMN terms TEXT NOT NULL DEFAULT ''`
 ];

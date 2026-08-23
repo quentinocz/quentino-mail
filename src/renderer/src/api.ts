@@ -214,11 +214,21 @@ export const api = {
     preview: (id: number, lang: string) =>
       call<{ title: string; html: string; words: number } | null>('articles:preview', id, lang),
     links: (id: number, lang: string) => call<string[]>('articles:links', id, lang),
+    /** Článek vykreslený s očíslovanými odkazy — pro ruční kontrolu pohledem */
+    review: (id: number, lang: string) => call<{
+      title: string; html: string;
+      links: { index: number; url: string; text: string; kind: string; status: number | null;
+        note: string; suggestion: string | null; unverified: boolean }[];
+    } | null>('articles:review', id, lang),
+    /** Vyřadit odkaz ze seznamu vad — text článku zůstane beze změny */
+    dismissLink: (id: number, lang: string, url: string) =>
+      call<boolean>('articles:dismissLink', id, lang, url),
     import: () => call<{ articles: number; updated: number; versions: number;
       learned: { articles: number; pairs: number; skipped: number }; file: string } | null>('articles:import'),
     export: (input: { ids?: number[]; langs?: string[]; onlyReady?: boolean } = {}) =>
       call<{ path: string; articles: number; versions: number } | null>('articles:export', input),
-    check: (options: { articleIds?: number[]; langs?: string[]; images?: boolean } = {}) =>
+    check: (options: { articleIds?: number[]; langs?: string[]; images?: boolean;
+      concurrency?: number; spacingMs?: number } = {}) =>
       call<ArticleLinkCheck[]>('articles:check', options),
     lastCheck: () => call<ArticleLinkCheck[]>('articles:lastCheck'),
     checkProgress: () => call<ArticleCheckProgress | null>('articles:checkProgress'),

@@ -5051,3 +5051,23 @@ html[data-form-factor="phone"] .pt-detail { display: none; }
 @media (max-width: 1180px) {
   .pg-cols { grid-template-columns: 1fr; }
 }
+
+/* Odkaz, který se nepodařilo ověřit — server neodpověděl. Není to vada, takže
+   ani nevypadá jako vada; jen se pozná, že o něm nic nevíme. */
+.ar-link.unknown, .ar-broken.unknown { border-color: rgba(217, 154, 27, 0.35); }
+.ar-linknum {
+  min-width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.ar-review { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.ar-review p { font-size: 12px; }
+.ar-review .ar-preview { flex: 1; min-height: 320px; }

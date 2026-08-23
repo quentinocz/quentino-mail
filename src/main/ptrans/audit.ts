@@ -51,9 +51,10 @@ const WEIGHT: Record<Severity, number> = { error: 18, warn: 7, info: 2 };
 const LIMITS = {
   titleMin: 20,
   titleMax: 150,
+  /** Kolik z titulku Google v inzerátu zobrazí */
   googleTitleIdeal: 70,
-  /** Nad tímhle už se do viditelné části titulku podstatné nevejde */
-  googleTitleNoisy: 110,
+  /** Nad tímhle se do viditelné části nevejde ani polovina podstatného */
+  googleTitleNoisy: 85,
   seoTitleMin: 25,
   seoTitleMax: 60,
   seoDescMin: 70,
@@ -160,6 +161,12 @@ export function auditProduct(code: string, lang: string): ProductAudit | null {
 
   /* ---------- Google Nákupy ---------- */
 
+  /*
+   * Titulek pro Google se kontroluje podle formátu z auditu feedu:
+   *   Typ produktu + Barva + Vzor/Detail + Značka [+ Velikost]
+   * Nejde jen o délku — pořadí rozhoduje o tom, jestli se nabídka spáruje
+   * s tím, co lidé opravdu píší do vyhledávače.
+   */
   const googleTitle = value('google_title');
   if (!googleTitle) add('google_title.missing', 'error', 'Chybí titulek pro Google Nákupy.', 'google_title', true);
   else {
@@ -167,17 +174,35 @@ export function auditProduct(code: string, lang: string): ProductAudit | null {
       add('google_title.long', 'error',
         `Titulek pro Google má ${googleTitle.length} znaků, limit je ${LIMITS.titleMax}.`, 'google_title', true);
     } else if (googleTitle.length > LIMITS.googleTitleNoisy) {
-      // Práh je schválně vysoko nad tím, kde se titulek v inzerátu ořízne.
-      // Ořezání samo o sobě vada není — vadí až titulek tak dlouhý, že se do
-      // něj podstatné nevejde ani z poloviny. Nižší práh hlásil dvě třetiny
-      // katalogu a mezi tím zanikly skutečné chyby.
-      add('google_title.trim', 'info',
-        `Titulek pro Google má ${googleTitle.length} znaků — v inzerátu se ořízne`
-        + ` asi po ${LIMITS.googleTitleIdeal}, takže podstatné patří na začátek.`,
-        'google_title');
+      add('google_title.trim', 'warn',
+        `Titulek pro Google má ${googleTitle.length} znaků — Google zobrazí jen`
+        + ` prvních ${LIMITS.googleTitleIdeal}, zbytek zákazník neuvidí.`,
+        'google_title', true);
     }
     if (/\b(sleva|akce|výprodej|nejlepší|zdarma|doprava)\b/i.test(googleTitle)) {
       add('google_title.promo', 'error', 'Titulek pro Google obsahuje reklamní text — Google to zamítá.', 'google_title', true);
+    }
+
+    // Barva na prvním místě je nejčastější vada: hledá se „vázací motýlek",
+    // ne „tmavě modrý". Typ výrobku proto patří dopředu.
+    const first = plain(googleTitle).toLowerCase().split(/\s+/).slice(0, 2).join(' ');
+    const colour = colorFor(code, lang) || parameterMap(code, s.sourceLang).barva || '';
+    if (colour && first.startsWith(plain(colour).toLowerCase().split(/\s+/)[0])) {
+      add('google_title.colorfirst', 'warn',
+        'Titulek pro Google začíná barvou. Na prvním místě má být typ produktu — tak ho lidé hledají.',
+        'google_title', true);
+    }
+
+    const brand = (product.manufacturer || '').trim();
+    if (brand && !googleTitle.toLowerCase().includes(brand.toLowerCase())) {
+      add('google_title.nobrand', 'warn',
+        `Titulek pro Google neobsahuje značku „${brand}" — patří na jeho konec.`, 'google_title', true);
+    }
+
+    // „pro tátu a syna" funguje na webu, ale nikdo tak nehledá
+    if (/\b(pro tátu a syna|pro každou příležitost|na míru vašemu|elegantní doplněk)\b/i.test(googleTitle)) {
+      add('google_title.marketing', 'warn',
+        'Titulek pro Google obsahuje marketingový obrat, kterým nikdo nehledá.', 'google_title', true);
     }
   }
 

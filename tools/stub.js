@@ -465,14 +465,32 @@
       'https://www.quentino.cz/p/salvejove-zelena-detska-kravata',
       'https://www.quentino.cz/detske-kravaty/'
     ],
+    'articles:review': {
+      title: 'Co obléct dětem na vysvědčení',
+      html: '<div style="max-width:900px;line-height:1.7"><p>Vysvědčení nebo první školní den — to není jen další ráno. Podívejte se na <a href="https://www.quentino.cz/p/salvejove-zelena-detska-kravata" data-link="1" data-tone="ok" target="_blank">šalvějově zelenou dětskou kravatu<sup class="lnk">1</sup></a>.</p><p>Další kousky najdete v kategorii <a href="https://www.quentino.cz/detske-kravaty/" data-link="2" data-tone="bad" target="_blank">dětské kravaty<sup class="lnk">2</sup></a> a taky mezi <a href="https://www.quentino.cz/p/stara-adresa" data-link="3" data-tone="unknown" target="_blank">novinkami<sup class="lnk">3</sup></a>.</p></div>',
+      links: [
+        { index: 1, url: 'https://www.quentino.cz/p/salvejove-zelena-detska-kravata',
+          text: 'šalvějově zelenou dětskou kravatu', kind: 'product', status: null,
+          note: '', suggestion: null, unverified: false },
+        { index: 2, url: 'https://www.quentino.cz/detske-kravaty/', text: 'dětské kravaty',
+          kind: 'category', status: 404, note: 'HTTP 404',
+          suggestion: 'https://www.quentino.cz/detske/', unverified: false },
+        { index: 3, url: 'https://www.quentino.cz/p/stara-adresa', text: 'novinkami',
+          kind: 'product', status: null,
+          note: 'nepodařilo se ověřit — server neodpověděl ani po opakování',
+          suggestion: null, unverified: true }
+      ]
+    },
+    'articles:dismissLink': true,
     'articles:lastCheck': [
       { id: 1, articleId: 1, articleTitle: 'Co obléct dětem na vysvědčení', lang: 'cz',
         url: 'https://www.quentino.cz/p/stara-adresa-kravaty', kind: 'product', status: 404,
         suggestion: 'https://www.quentino.cz/p/salvejove-zelena-detska-kravata',
         note: 'produkt PKT23 — adresa se změnila, stará vede přes 301' },
       { id: 2, articleId: 1, articleTitle: 'Co obléct dětem na vysvědčení', lang: 'sk',
-        url: 'https://www.quentino.sk/detske-kravaty-stare/', kind: 'category', status: 404,
-        suggestion: null, note: 'HTTP 404' }
+        url: 'https://www.quentino.sk/detske-kravaty-stare/', kind: 'category', status: null,
+        suggestion: null, unverified: true,
+        note: 'nepodařilo se ověřit — server neodpověděl ani po opakování' }
     ],
     'articles:urlmap': [
       { fromLang: 'cz', fromPath: '/kravaty', toLang: 'en', toPath: '/neckties', kind: 'category',

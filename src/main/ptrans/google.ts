@@ -45,20 +45,41 @@ export const GOOGLE_LABELS: Record<GoogleField, string> = {
 /* ---------- titulek a popis modelem ---------- */
 
 /**
- * Pravidla, která Google u titulku odměňuje.
+ * Skladba titulku pro Google Nákupy.
  *
- * Nejsou vymyšlená: vycházejí z toho, co Merchant Center sám doporučuje —
- * podstatné dopředu (titulek se v inzerátu ořízne), atributy, které lidé
- * píší do dotazu (barva, materiál, velikost), žádná reklamní slova a žádné
- * velké psaní. Značka patří na začátek jen tam, kde se podle ní hledá.
+ * Pravidla nejsou vymyšlená — odpovídají auditu feedu, který Quentino dostal
+ * od AdsOne, a tomu, co Merchant Center sám doporučuje:
+ *
+ *     Typ produktu + Barva + Vzor/Detail + Značka [+ Velikost/Balení]
+ *
+ * Podstatné je pořadí. Zákazník hledá „vázací motýlek", ne „tmavě modrý" —
+ * typ výrobku proto patří na první místo, ne barva. Značka jde naopak na
+ * konec: do aukcí ji nese atribut `brand`, v titulku slouží jen k potvrzení.
+ *
+ * Délka cílí na **70 znaků**, protože jen tolik Google v inzerátu zobrazí.
+ * Technický limit je 150, ale co je za sedmdesátkou, čtenář nikdy neuvidí.
+ *
+ * Marketingové obraty se vypouštějí: „pro tátu a syna" na webu funguje, ale
+ * nikdo to takhle do vyhledávače nepíše. U setů se místo toho vypisuje, co
+ * zákazník doopravdy dostane („Set Kravata + Dětská Kravata").
  */
 const TITLE_RULES = (limit: number) =>
-  [`Napiš název produktu pro Google Nákupy. Nejvýš ${limit} znaků.`,
-    'Skladba: druh výrobku + pro koho + rozlišující vlastnosti (barva, materiál, vzor, rozměr) + značka na konci.',
-    'Nejdůležitější slova patří na začátek — v inzerátu se název ořízne asi po 70 znacích.',
-    'Používej slova, kterými produkt hledá zákazník, ne interní názvosloví.',
-    'Zakázáno: velká písmena přes celé slovo, vykřičníky, „nejlepší", „akce", „sleva", cena, doprava,',
-    'informace o dostupnosti a jakýkoli text v závorkách navíc.',
+  [`Napiš název produktu pro Google Nákupy. Cíl je do ${limit} znaků — víc Google v inzerátu nezobrazí.`,
+    '',
+    'ZÁVAZNÉ POŘADÍ SLOV:',
+    '1. Typ produktu (např. „Vázací Motýlek", „Kapesníček do Saka", „Dětská Kravata") — vždy na prvním místě',
+    '2. Barva',
+    '3. Vzor nebo rozlišující detail — jedním slovem („Puntíky", ne „s jemnými puntíky")',
+    '4. Značka na konci',
+    '5. Velikost nebo počet kusů, jen když produkt rozlišují',
+    '',
+    'Piš Velkými Počátečními Písmeny U Podstatných Slov, bez spojek a předložek navíc.',
+    'U dětských produktů musí slovo „Dětský/Dětská" zůstat v typu produktu.',
+    'U setu vypiš, co zákazník dostane („Set Kravata + Dětská Kravata"), ne marketingový obrat.',
+    '',
+    'Zakázáno: barva na prvním místě, marketingové obraty, kterými nikdo nehledá',
+    '(„pro tátu a syna", „pro každou příležitost"), celá slova velkými písmeny, vykřičníky,',
+    '„nejlepší", „akce", „sleva", cena, doprava, dostupnost a text v závorkách.',
     'Nevymýšlej vlastnosti, které nejsou v podkladech.'].join('\n');
 
 const DESC_RULES = (limit: number) =>
@@ -69,8 +90,16 @@ const DESC_RULES = (limit: number) =>
     'Zakázáno: cena, doprava, slevy, odkazy, informace o dostupnosti, srovnání s konkurencí,',
     'velká písmena přes celé slovo a text typu „klikněte zde".'].join('\n');
 
-/** Podklady o produktu, ze kterých model píše. */
-function productBrief(code: string, lang: string): string {
+/**
+ * Podklady o produktu, ze kterých model píše.
+ *
+ * Skladba titulku má pevné pořadí, takže se stavební díly předávají
+ * **rozebrané**, ne jako jedna věta. Model pak neluští z názvu, co je typ a
+ * co barva — dostane obojí zvlášť a jeho úkolem je to jen správně poskládat
+ * a přeložit. Tím se z nejčastější chyby (barva na prvním místě) stane
+ * obtížně udělatelná věc.
+ */
+function productBrief(code: string, lang: string, forTitle = false): string {
   const s = getPtransSettings();
   const d = getDb();
   const product = d.prepare(
@@ -84,15 +113,34 @@ function productBrief(code: string, lang: string): string {
     return row?.translated || row?.value || '';
   };
   const params = parameterMap(code, lang);
+  const bundle = detectBundle(code);
 
-  return [
+  const parts = [
     `Název: ${pick('title') || product.title}`,
     product.manufacturer ? `Značka: ${product.manufacturer}` : '',
-    product.category ? `Kategorie: ${product.category}` : '',
+    product.category ? `Kategorie: ${product.category}` : ''
+  ];
+
+  if (forTitle) {
+    // Rozebrané díly přesně v pořadí, v jakém mají být v titulku
+    parts.push(
+      `— TYP PRODUKTU (na první místo): odvoď z kategorie „${product.category}" a názvu`,
+      params.barva ? `— BARVA: ${params.barva}` : '— BARVA: (není)',
+      params.vzor ? `— VZOR: ${params.vzor}` : '',
+      params.materiál || params.material ? `— MATERIÁL: ${params.materiál ?? params.material}` : '',
+      params.šířka || params.velikost ? `— ROZMĚR: ${params.šířka ?? params.velikost}` : '',
+      `— ZNAČKA (na konec): ${product.manufacturer || 'Quentino'}`,
+      bundle.isBundle ? '— JE TO SET: vypiš, co zákazník dostane, ne marketingový obrat' : ''
+    );
+  }
+
+  parts.push(
     Object.entries(params).map(([name, value]) => `${name}: ${value}`).join(', '),
     tagText(product.raw_xml, 'EAN') ? `EAN: ${tagText(product.raw_xml, 'EAN')}` : '',
-    `Popis: ${plain(pick('long') || pick('short')).slice(0, 1400)}`
-  ].filter(Boolean).join('\n');
+    `Popis: ${plain(pick('long') || pick('short')).slice(0, forTitle ? 500 : 1400)}`
+  );
+
+  return parts.filter(Boolean).join('\n');
 }
 
 /**
@@ -106,11 +154,13 @@ export async function writeGoogleText(code: string, lang: string,
   kind: 'google_title' | 'google_desc'): Promise<string> {
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
+  // U titulku se cílí na viditelných 70 znaků, ne na technických 150 —
+  // co je za sedmdesátkou, zákazník v inzerátu nikdy neuvidí
   const limit = kind === 'google_title'
-    ? Math.min(s.limits.googleTitle || 150, 150)
+    ? Math.min(s.limits.googleTitleVisible || 70, 150)
     : Math.min(s.limits.googleDesc || 5000, 1200);
 
-  const brief = productBrief(code, lang);
+  const brief = productBrief(code, lang, kind === 'google_title');
   if (!brief) throw new Error('Produkt není v databázi.');
 
   const category = (getDb().prepare('SELECT category FROM ptrans_products WHERE code = ?')
