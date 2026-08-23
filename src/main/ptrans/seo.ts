@@ -5,6 +5,7 @@ import { getPtransSettings, saveTranslation, productFields, targetLangs } from '
 import { getField, productParameters, tagText } from './xml';
 import { clamp, slugify } from './translate';
 import { plain } from './detect';
+import { setSeoUrl } from './redirects';
 
 /**
  * Texty pro vyhledávače a Google Nákupy.
@@ -177,11 +178,11 @@ export async function generateSeo(code: string, lang: string, kind: SeoKind): Pr
   return value;
 }
 
-/** Adresa z přeloženého názvu — bez modelu, jen přepis. */
+/** Adresa z přeloženého názvu — bez modelu, jen přepis (a doplnění 301). */
 export function refreshSeoUrl(code: string, lang: string): string {
   const fields = productFields(code, [lang]);
   const title = fields.find(f => f.field === 'title');
   const slug = slugify(title?.translated || title?.value || '');
-  if (slug) saveTranslation(code, lang, 'seo_url', slug, 'přepis');
+  if (slug) setSeoUrl(code, lang, slug, 'přepis');
   return slug;
 }

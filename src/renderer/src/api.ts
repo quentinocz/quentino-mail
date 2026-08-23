@@ -111,6 +111,9 @@ export const api = {
     generateSeo: (code: string, lang: string, kind: 'seo_title' | 'seo_desc' | 'google_desc') =>
       call<string>('ptrans:generateSeo', code, lang, kind),
     seoUrl: (code: string, lang: string) => call<string>('ptrans:seoUrl', code, lang),
+    /** Co se doplní do přesměrování, když se adresa změní */
+    redirectPreview: (code: string, lang: string, slug: string) =>
+      call<{ oldPath: string; list: string[] }>('ptrans:redirectPreview', code, lang, slug),
     exportPreview: (options: { langs?: string[]; codes?: string[] } = {}) =>
       call<{ products: number; fields: number }>('ptrans:exportPreview', options),
     export: (options: { langs?: string[]; codes?: string[]; mode?: 'slim' | 'full'; includeSource?: boolean } = {}) =>

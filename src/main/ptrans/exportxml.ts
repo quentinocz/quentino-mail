@@ -126,9 +126,11 @@ function keepLangs(piece: string, tag: string, keep: Set<string>, alsoTags: stri
   return out;
 }
 
-/** V METAS zůstanou jen klíče pro Google a jen vybrané jazyky. */
+/** V METAS zůstanou jen klíče, které aplikace plní, a jen vybrané jazyky. */
 function slimMetas(piece: string, keep: Set<string>): string {
-  const wanted = ['title_google_merchant', 'description_google_merchant'];
+  // `redirect_301` je tu podstatný: bez něj by se změněná adresa naimportovala
+  // bez přesměrování a stará by začala vracet chybu
+  const wanted = ['title_google_merchant', 'description_google_merchant', 'redirect_301'];
   const kept: string[] = [];
   for (const part of piece.split('<META ').slice(1)) {
     const body = `<META ${part.split('</META>')[0]}</META>`;

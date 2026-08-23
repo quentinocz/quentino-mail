@@ -4231,3 +4231,80 @@ html[data-form-factor="phone"] .pt-detail { display: none; }
 .pt-dev .ig-muted { font-size: 11.5px; }
 /* Verze v hlavičce nastavení — nenápadně vedle názvu */
 .set-version { font-size: 11.5px; color: var(--text-3); margin-left: 8px; }
+
+/* ---------- Detail překladu: zdroj a jazyky vedle sebe ---------- */
+
+.pt-filter { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+.pt-filter > span { color: var(--text-3); }
+.pt-cols-label { font-size: 12px; }
+
+.pt-cols-head,
+.pt-frow-cols {
+  display: grid;
+  /* Zdroj je užší — čte se, nepíše se do něj */
+  grid-template-columns: minmax(180px, 0.8fr) repeat(var(--pt-cols, 2), minmax(210px, 1fr));
+  gap: 10px;
+}
+.pt-cols-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 2px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.pt-frow { padding: 12px 0 4px; border-bottom: 1px solid var(--border); }
+.pt-frow-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.pt-frow-head .ig-muted { font-size: 11.5px; }
+
+.pt-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  min-width: 0;
+}
+/* Stav nese levý proužek — při rolování je vidět bez čtení */
+.pt-cell.missing { border-left: 3px solid #d95151; }
+.pt-cell.same, .pt-cell.source { border-left: 3px solid #d99a2b; }
+.pt-cell.stale { border-left: 3px solid #7c5cff; }
+.pt-cell.manual { border-left: 3px solid #2f7fd6; }
+.pt-cell.ok { border-left: 3px solid #35a06a; }
+.pt-cell.empty { display: grid; place-items: center; border-style: dashed; }
+
+.pt-cell.source { background: var(--bg); border-left: 3px solid var(--border); }
+.pt-cell-source {
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  line-height: 1.5;
+}
+.pt-cell-source .clip {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pt-cell-source .full { display: block; white-space: pre-wrap; max-height: 320px; overflow: auto; }
+
+.pt-cell-top { display: flex; align-items: center; gap: 4px; }
+.pt-cell-foot { display: flex; align-items: center; gap: 6px; }
+.pt-cell-foot .ig-muted { flex: 1; font-size: 11px; }
+.icon-btn.tiny { width: 24px; height: 24px; min-height: 24px; padding: 0; }
+
+.pt-cell .pt-input { margin-top: 0; font-size: 12.5px; }
+.pt-cell .pt-input.tall { min-height: 96px; }

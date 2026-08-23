@@ -7,6 +7,7 @@ import { run, stop, progress, planWork, translateOne } from './translate';
 import { applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl, SeoKind } from './seo';
 import { buildExport, exportPreview, ExportOptions } from './exportxml';
 import { findDeviations, patternOverview, patternFor, derivePattern } from './consistency';
+import { setSeoUrl, previewRedirect } from './redirects';
 
 /**
  * Překlady produktů — vstupní bod pro zbytek aplikace.
@@ -82,8 +83,19 @@ export function overview() {
 
 /** Ruční úprava jednoho pole — od té chvíle na něj překladač nesahá. */
 export function editField(code: string, lang: string, field: string, value: string): void {
-  saveTranslation(code, lang, field, value, 'ruční', true);
+  if (field === 'seo_url') {
+    // Ruční změna adresy je stejná změna jako ta od překladače — musí po ní
+    // zůstat přesměrování ze staré adresy
+    setSeoUrl(code, lang, value, 'ruční', true);
+  } else {
+    saveTranslation(code, lang, field, value, 'ruční', true);
+  }
   emit('ptrans:changed', {});
+}
+
+/** Co se doplní do přesměrování, když se adresa změní na zadanou. */
+export function redirectPreview(code: string, lang: string, slug: string) {
+  return previewRedirect(code, lang, slug);
 }
 
 /** Přeložit jedno pole znovu (tlačítko „přegenerovat" u konkrétního textu). */
