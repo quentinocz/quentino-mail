@@ -4,9 +4,10 @@ import { getSettings } from '../settings';
 import { getDb } from '../db';
 import { getPtransSettings, savePtransSettings, productFields, saveTranslation, targetLangs,
   PtransSettings } from './store';
-import { HTML_FIELDS } from './xml';
+import { HTML_FIELDS, DERIVED_FIELDS } from './xml';
 import { NEEDS_WORK, plain } from './detect';
 import { consistencyHint } from './consistency';
+import { setSeoUrl } from './redirects';
 
 /**
  * Překlad produktových textů.
@@ -222,8 +223,9 @@ export async function translateOne(target: TranslateTarget): Promise<{ saved: nu
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
   const rows = productFields(target.code, [target.lang]);
+  // Adresa a přesměrování se neposílají modelu — skládá je kód
   const wanted = (target.fields?.length ? target.fields : rows.map(r => r.field))
-    .filter(field => field !== 'seo_url');
+    .filter(field => !DERIVED_FIELDS.has(field));
 
   const payload: Record<string, string> = {};
   for (const field of wanted) {
@@ -272,13 +274,15 @@ export async function translateOne(target: TranslateTarget): Promise<{ saved: nu
       saved++;
     }
 
-    // Adresa se odvodí z přeloženého názvu — kód to zvládne přesněji než model
+    // Adresa se odvodí z přeloženého názvu — kód to zvládne přesněji než model.
+    // Zároveň se stará adresa uloží do přesměrování (301), aby odkazy na starou
+    // adresu nekončily na chybové stránce.
     if ((!target.fields || target.fields.includes('seo_url')) && s.fields.seo_url !== false) {
       const title = translated.title || rows.find(r => r.field === 'title')?.translated || '';
       const slug = slugify(title);
       if (slug) {
-        saveTranslation(target.code, target.lang, 'seo_url', slug, model);
-        saved++;
+        const result = setSeoUrl(target.code, target.lang, slug, model);
+        saved += result.redirect ? 2 : 1;
       }
     }
     return { saved };

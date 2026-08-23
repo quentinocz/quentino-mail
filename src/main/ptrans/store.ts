@@ -52,7 +52,7 @@ const DEFAULTS: PtransSettings = {
   ],
   fields: {
     title: true, short: true, long: true,
-    seo_title: true, seo_desc: true, seo_url: true,
+    seo_title: true, seo_desc: true, seo_url: true, redirect: true,
     google_title: false, google_desc: false,
     params: false
   },

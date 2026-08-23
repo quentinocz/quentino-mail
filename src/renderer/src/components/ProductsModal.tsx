@@ -39,11 +39,12 @@ const FIELD_LABEL: Record<string, string> = {
   seo_title: 'SEO titulek',
   seo_desc: 'SEO popis',
   seo_url: 'SEO adresa',
+  redirect: 'Přesměrování 301',
   google_title: 'Google titulek',
   google_desc: 'Google popis'
 };
 
-const FIELD_ORDER = ['title', 'short', 'long', 'seo_title', 'seo_desc', 'seo_url',
+const FIELD_ORDER = ['title', 'short', 'long', 'seo_title', 'seo_desc', 'seo_url', 'redirect',
   'google_title', 'google_desc'];
 
 function fieldLabel(field: string): string {
@@ -86,7 +87,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [active, setActive] = useState<string | null>(null);
   const [fields, setFields] = useState<PtransField[]>([]);
-  const [detailLang, setDetailLang] = useState<string>('');
+  /** Které jazykové sloupce jsou v detailu vidět (výchozí: všechny zapnuté) */
+  const [shownLangs, setShownLangs] = useState<string[]>([]);
   const [busyField, setBusyField] = useState('');
   const [runOpen, setRunOpen] = useState(false);
   const [progress, setProgress] = useState<PtransProgress | null>(null);
@@ -103,7 +105,9 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
       const data = await api.ptrans.overview();
       setOverview(data);
       setProgress(data.running);
-      setDetailLang(prev => prev || data.settings.languages.find(l => l.enabled)?.code || '');
+      setShownLangs(prev => (prev.length
+        ? prev
+        : data.settings.languages.filter(l => l.enabled).map(l => l.code)));
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -251,13 +255,27 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const detailFields = fields
-    .filter(row => row.lang === detailLang)
-    .sort((a, b) => {
-      const ia = FIELD_ORDER.indexOf(a.field);
-      const ib = FIELD_ORDER.indexOf(b.field);
+  /**
+   * Pole se v detailu neseskupují po jazycích, ale po polích: jeden řádek =
+   * jedno pole a v něm zdroj a vedle sebe všechny jazyky. Tak je na první pohled
+   * vidět, co je přeložené a co ne, a nemusí se nikam přepínat.
+   */
+  const fieldRows = useMemo(() => {
+    const keys: string[] = [];
+    for (const row of fields) if (!keys.includes(row.field)) keys.push(row.field);
+    keys.sort((a, b) => {
+      const ia = FIELD_ORDER.indexOf(a);
+      const ib = FIELD_ORDER.indexOf(b);
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
     });
+    return keys.map(field => ({
+      field,
+      source: fields.find(row => row.field === field)?.source ?? '',
+      byLang: Object.fromEntries(
+        fields.filter(row => row.field === field).map(row => [row.lang, row])
+      ) as Record<string, PtransField>
+    }));
+  }, [fields]);
 
   const activeProduct = page.rows.find(row => row.code === active);
 
@@ -306,17 +324,20 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                   placeholder="Hledat název nebo kód" />
               </div>
 
-              <div className="ig-seg">
-                <button className={!query.lang || query.lang === 'all' ? 'active' : ''}
-                  onClick={() => setQuery(q => ({ ...q, lang: 'all', offset: 0 }))}>Vše</button>
-                {langs.map(lang => (
-                  <button key={lang.code} className={query.lang === lang.code ? 'active' : ''}
-                    onClick={() => setQuery(q => ({ ...q, lang: lang.code, offset: 0 }))}>
-                    {lang.code.toUpperCase()}
-                  </button>
-                ))}
-              </div>
+              {/* Filtr, ne přepínač obsahu: „ukaž produkty, kde má práci slovenština" */}
+              <label className="pt-filter">
+                <span>Jazyk</span>
+                <select value={query.lang ?? 'all'}
+                  onChange={e => setQuery(q => ({ ...q, lang: e.target.value, offset: 0 }))}>
+                  <option value="all">všechny jazyky</option>
+                  {langs.map(lang => (
+                    <option key={lang.code} value={lang.code}>{lang.label}</option>
+                  ))}
+                </select>
+              </label>
 
+              <label className="pt-filter">
+                <span>Stav</span>
               <select value={query.state ?? 'todo'}
                 onChange={e => setQuery(q => ({ ...q, state: e.target.value as any, offset: 0 }))}>
                 <option value="todo">Čeká na překlad</option>
@@ -327,14 +348,18 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                 <option value="ok">Hotové</option>
                 <option value="all">Všechny produkty</option>
               </select>
+              </label>
 
-              <select value={query.field ?? ''}
-                onChange={e => setQuery(q => ({ ...q, field: e.target.value || undefined, offset: 0 }))}>
-                <option value="">Všechna pole</option>
-                {FIELD_ORDER.map(field => (
-                  <option key={field} value={field}>{FIELD_LABEL[field]}</option>
-                ))}
-              </select>
+              <label className="pt-filter">
+                <span>Pole</span>
+                <select value={query.field ?? ''}
+                  onChange={e => setQuery(q => ({ ...q, field: e.target.value || undefined, offset: 0 }))}>
+                  <option value="">všechna pole</option>
+                  {FIELD_ORDER.map(field => (
+                    <option key={field} value={field}>{FIELD_LABEL[field]}</option>
+                  ))}
+                </select>
+              </label>
 
               <span style={{ flex: 1 }} />
               <span className="pt-count">
@@ -447,7 +472,9 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                   <div className="pt-empty">
                     <Icon name="fileText" size={24} />
                     <div>Vyber produkt vlevo</div>
-                    <div className="ig-muted">Uvidíš zdroj i překlad vedle sebe a můžeš je upravit.</div>
+                    <div className="ig-muted">
+                      Uvidíš češtinu a vedle ní všechny jazyky najednou — dá se v nich rovnou psát.
+                    </div>
                   </div>
                 )}
                 {active && (
@@ -458,10 +485,16 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                         <div className="ig-muted">{active}{activeProduct?.price ? ` · ${activeProduct.price}` : ''}</div>
                       </div>
                       <span style={{ flex: 1 }} />
-                      <div className="ig-seg">
+                      <span className="ig-muted pt-cols-label">Sloupce:</span>
+                      <div className="ig-seg" data-tip="Které jazyky ukázat vedle zdroje">
                         {langs.map(lang => (
-                          <button key={lang.code} className={detailLang === lang.code ? 'active' : ''}
-                            onClick={() => setDetailLang(lang.code)}>{lang.code.toUpperCase()}</button>
+                          <button key={lang.code}
+                            className={shownLangs.includes(lang.code) ? 'active' : ''}
+                            onClick={() => setShownLangs(prev => (prev.includes(lang.code)
+                              ? prev.filter(code => code !== lang.code)
+                              : langs.map(l => l.code).filter(code => prev.includes(code) || code === lang.code)))}>
+                            {lang.code.toUpperCase()}
+                          </button>
                         ))}
                       </div>
                       <button className="btn ghost" onClick={() => setRunOpen(true)}>
@@ -470,18 +503,36 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                     </div>
 
                     <div className="pt-fields">
-                      {detailFields.map(row => (
-                        <FieldEditor
-                          key={`${row.lang}:${row.field}`}
-                          row={row}
-                          busy={busyField === `${row.lang}:${row.field}`}
-                          onSave={value => saveField(row, value)}
-                          onRetranslate={() => retranslate(row)}
-                          onGenerate={kind => generate(row, kind)}
+                      <div className="pt-cols-head" style={{ '--pt-cols': shownLangs.length } as any}>
+                        <span>Zdroj ({overview?.settings.sourceLang ?? 'cz'})</span>
+                        {shownLangs.map(code => (
+                          <span key={code}>{langs.find(l => l.code === code)?.label ?? code}</span>
+                        ))}
+                      </div>
+                      {fieldRows.map(row => (
+                        <FieldRow
+                          key={row.field}
+                          field={row.field}
+                          source={row.source}
+                          byLang={row.byLang}
+                          langs={shownLangs}
+                          busy={busyField}
+                          onSave={(lang, value) => {
+                            const target = row.byLang[lang];
+                            if (target) saveField(target, value);
+                          }}
+                          onRetranslate={lang => {
+                            const target = row.byLang[lang];
+                            if (target) retranslate(target);
+                          }}
+                          onGenerate={(lang, kind) => {
+                            const target = row.byLang[lang];
+                            if (target) generate(target, kind);
+                          }}
                         />
                       ))}
-                      {detailFields.length === 0 && (
-                        <div className="pt-empty ig-muted">Pro tenhle jazyk se zatím nic nesleduje.</div>
+                      {fieldRows.length === 0 && (
+                        <div className="pt-empty ig-muted">U tohohle produktu se zatím nic nesleduje.</div>
                       )}
                     </div>
                   </>
@@ -522,10 +573,72 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/* ---------- jedno pole ---------- */
+/* ---------- jedno pole ve všech jazycích ---------- */
 
-function FieldEditor({ row, busy, onSave, onRetranslate, onGenerate }: {
+/**
+ * Řádek jednoho pole: vlevo zdroj, vedle něj sloupec na každý jazyk.
+ *
+ * Dřív se jazyk přepínal záložkami a člověk musel klikat, aby zjistil, jestli
+ * je slovenština hotová. Takhle je to vidět naráz a případný rozdíl mezi
+ * jazyky bije do očí.
+ */
+function FieldRow({ field, source, byLang, langs, busy, onSave, onRetranslate, onGenerate }: {
+  field: string;
+  source: string;
+  byLang: Record<string, PtransField>;
+  langs: string[];
+  busy: string;
+  onSave: (lang: string, value: string) => void;
+  onRetranslate: (lang: string) => void;
+  onGenerate: (lang: string, kind: 'seo_title' | 'seo_desc' | 'google_desc') => void;
+}) {
+  const long = field === 'long' || field === 'short' || field === 'google_desc' || field === 'redirect';
+  const [openSource, setOpenSource] = useState(false);
+
+  return (
+    <div className="pt-frow" style={{ '--pt-cols': langs.length } as any}>
+      <div className="pt-frow-head">
+        <span className="pt-field-name">{fieldLabel(field)}</span>
+        {field === 'seo_url' && (
+          <span className="ig-muted">při změně se stará adresa přidá do přesměrování 301</span>
+        )}
+        {field === 'redirect' && (
+          <span className="ig-muted">staré adresy, ze kterých se přesměrovává — každá na svém řádku</span>
+        )}
+      </div>
+
+      <div className="pt-frow-cols">
+        <div className="pt-cell source">
+          <button className="pt-cell-source" onClick={() => setOpenSource(o => !o)}
+            data-tip="Rozbalit celý zdrojový text">
+            <span className={openSource ? 'full' : 'clip'}>{source || <i>prázdné</i>}</span>
+          </button>
+        </div>
+
+        {langs.map(lang => {
+          const row = byLang[lang];
+          if (!row) return <div key={lang} className="pt-cell empty ig-muted">—</div>;
+          return (
+            <LangCell
+              key={lang}
+              row={row}
+              long={long}
+              busy={busy === `${lang}:${field}`}
+              onSave={value => onSave(lang, value)}
+              onRetranslate={() => onRetranslate(lang)}
+              onGenerate={kind => onGenerate(lang, kind)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Jedno pole v jednom jazyce — text, stav a akce nad ním. */
+function LangCell({ row, long, busy, onSave, onRetranslate, onGenerate }: {
   row: PtransField;
+  long: boolean;
   busy: boolean;
   onSave: (value: string) => void;
   onRetranslate: () => void;
@@ -533,55 +646,41 @@ function FieldEditor({ row, busy, onSave, onRetranslate, onGenerate }: {
 }) {
   const current = row.translated ?? row.value;
   const [value, setValue] = useState(current);
-  const [open, setOpen] = useState(false);
   const dirty = value !== current;
-  const long = row.field === 'long' || row.field === 'short' || row.field === 'google_desc';
   const generable = row.field === 'seo_title' || row.field === 'seo_desc' || row.field === 'google_desc';
-  const box = useRef<HTMLTextAreaElement>(null);
+  const derived = row.field === 'seo_url' || row.field === 'redirect';
 
   useEffect(() => { setValue(current); }, [current]);
 
   return (
-    <div className={`pt-field ${row.state}`}>
-      <div className="pt-field-head">
-        <span className="pt-field-name">{fieldLabel(row.field)}</span>
+    <div className={`pt-cell ${row.state}`}>
+      <div className="pt-cell-top">
         <span className={`pt-chip ${STATE_TONE[row.state]}`}>{STATE_LABEL[row.state]}</span>
-        {row.translatedAt && (
-          <span className="ig-muted pt-field-when">
-            {row.model === 'ruční' ? 'upraveno ručně' : `přeloženo ${relTime(row.translatedAt)}`}
-          </span>
-        )}
         <span style={{ flex: 1 }} />
         {generable && (
-          <button className="btn ghost small" disabled={busy}
-            onClick={() => onGenerate(row.field as any)}
-            data-tip="Nechá text napsat znovu podle přeloženého popisu">
-            <Icon name="zap" size={12} /> Napsat znovu
+          <button className="icon-btn tiny" disabled={busy} onClick={() => onGenerate(row.field as any)}
+            data-tip="Napsat text znovu podle přeloženého popisu">
+            <Icon name="zap" size={12} />
           </button>
         )}
-        <button className="btn ghost small" disabled={busy} onClick={onRetranslate}
-          data-tip="Přeloží pole znovu ze zdroje">
-          {busy ? <span className="spinner-inline" /> : <Icon name="refresh" size={12} />} Přeložit
-        </button>
+        {!derived && (
+          <button className="icon-btn tiny" disabled={busy} onClick={onRetranslate}
+            data-tip="Přeložit tohle pole znovu ze zdroje">
+            {busy ? <span className="spinner-inline" /> : <Icon name="refresh" size={12} />}
+          </button>
+        )}
       </div>
 
-      <button className="pt-source" onClick={() => setOpen(o => !o)}>
-        <Icon name="chevDown" size={11}
-          style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }} />
-        <span className="pt-source-text">{row.source || <i>zdroj je prázdný</i>}</span>
-      </button>
-      {open && <div className="pt-source-full">{row.source}</div>}
-
       <textarea
-        ref={box}
         className={long ? 'pt-input tall' : 'pt-input'}
-        rows={long ? 6 : 2}
+        rows={long ? 5 : 2}
         value={value}
         onChange={e => setValue(e.target.value)}
         onBlur={() => { if (dirty) onSave(value); }}
       />
-      <div className="pt-field-foot">
-        <span className="ig-muted">{value.length} znaků</span>
+
+      <div className="pt-cell-foot">
+        <span className="ig-muted">{value.length} zn.</span>
         {dirty && (
           <>
             <button className="btn ghost small" onClick={() => setValue(current)}>Vrátit</button>

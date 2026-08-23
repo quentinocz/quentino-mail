@@ -13,7 +13,10 @@
 export type FieldKey = string;
 
 export const TEXT_FIELDS = ['title', 'short', 'long', 'seo_title', 'seo_desc', 'seo_url',
-  'google_title', 'google_desc'] as const;
+  'redirect', 'google_title', 'google_desc'] as const;
+
+/** Pole, která se nepřekládají — skládá je aplikace sama. */
+export const DERIVED_FIELDS = new Set(['seo_url', 'redirect']);
 
 /** Pole, jejichž obsah je HTML — překlad musí zachovat značky. */
 export const HTML_FIELDS = new Set(['short', 'long']);
@@ -35,6 +38,8 @@ const SPECS: Record<string, FieldSpec> = {
   seo_title: { scope: 'seo', tag: 'SEO_TITLE' },
   seo_desc: { scope: 'seo', tag: 'SEO_META_DESCRIPTION' },
   seo_url: { scope: 'seo', tag: 'SEO_URL' },
+  // Přesměrování starých adres; hodnotou je seznam cest oddělený novými řádky
+  redirect: { scope: 'meta', tag: 'META_VALUE', metaKey: 'redirect_301' },
   google_title: { scope: 'meta', tag: 'META_VALUE', metaKey: 'title_google_merchant' },
   google_desc: { scope: 'meta', tag: 'META_VALUE', metaKey: 'description_google_merchant' }
 };

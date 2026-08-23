@@ -347,6 +347,8 @@ export function registerIpc() {
   handle('ptrans:generateSeo', (code: string, lang: string, kind: string) =>
     ptrans.generateSeo(code, lang, kind as any));
   handle('ptrans:seoUrl', (code: string, lang: string) => ptrans.refreshSeoUrl(code, lang));
+  handle('ptrans:redirectPreview', (code: string, lang: string, slug: string) =>
+    ptrans.redirectPreview(code, lang, slug));
   handle('ptrans:exportPreview', (options: any) => ptrans.exportPreview(options ?? {}));
   handle('ptrans:export', (options: any) => ptrans.exportToFile(options ?? {}));
   handle('ptrans:importFile', () => ptrans.importFromFile());

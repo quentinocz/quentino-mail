@@ -19,6 +19,7 @@ const FIELD_LABELS: [string, string, string][] = [
   ['seo_title', 'SEO titulek', 'Titulek stránky pro vyhledávače'],
   ['seo_desc', 'SEO popis', 'Meta description'],
   ['seo_url', 'SEO adresa', 'Odvodí se z názvu, model se neptá'],
+  ['redirect', 'Přesměrování 301', 'Při změně adresy se stará uloží do redirect_301'],
   ['google_title', 'Google titulek', 'Název pro Google Nákupy'],
   ['google_desc', 'Google popis', 'Popis pro Google Nákupy'],
   ['params', 'Parametry produktu', 'Názvy a hodnoty (Barva → Farba)']
