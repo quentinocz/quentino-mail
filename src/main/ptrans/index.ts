@@ -1,7 +1,8 @@
 import { BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
 import { getSetting } from '../db';
-import { syncFromFeed, ingestFile, getPtransSettings, savePtransSettings, listProducts, productFields,
+import { syncFromFeed, ingestFile, ingestNewOnly, revertToFeed, recomputeStates,
+  getPtransSettings, savePtransSettings, listProducts, productFields,
   saveTranslation, summary, feedInfo, targetLangs, SyncResult } from './store';
 import { run, stop, progress, planWork, translateOne } from './translate';
 import { applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl, SeoKind } from './seo';
@@ -9,6 +10,13 @@ import { buildExport, exportPreview, ExportOptions } from './exportxml';
 import { findDeviations, patternOverview, patternFor, derivePattern } from './consistency';
 import { setSeoUrl, previewRedirect } from './redirects';
 import { listMemory, saveMemory, deleteMemory, learnFromFeed, memoryStats, MemoryEntry, MemoryKind, LearnResult } from './memory';
+import { listColorRules, saveColorRule, deleteColorRule, learnColors, colorCoverage,
+  BASE_COLORS, baseColorOf, ColorRule } from './colors';
+import { listBundleRules, saveBundleRule, deleteBundleRule, teachBundle, detectBundle,
+  bundlePreview, BundleRule } from './bundle';
+import { writeGoogleText, writeGoogleTexts, applyAttributes, googleView,
+  getAttributeRules, saveAttributeRules, GOOGLE_LABELS, AttributeRules, GoogleField } from './google';
+import { runAudit, auditFor, worstProducts, auditProduct, storedSummary, AuditOptions, ProductAudit } from './audit';
 
 /**
  * Překlady produktů — vstupní bod pro zbytek aplikace.
@@ -30,13 +38,51 @@ export function syncFeedXml(xml: string): SyncResult {
   return result;
 }
 
-/** Ruční „načíst znovu" z rozhraní: stáhne feed a přepočítá stavy. */
-export async function refreshFromUrl(): Promise<SyncResult> {
+async function downloadFeed(): Promise<string> {
   const url = (getSetting('productFeedUrl', '') ?? '').trim();
   if (!url) throw new Error('Není vyplněná adresa produktového feedu (Nastavení → Produkty).');
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok) throw new Error(`Feed se nepodařilo stáhnout (HTTP ${res.status})`);
-  return syncFeedXml(await res.text());
+  return res.text();
+}
+
+/**
+ * Stáhne feed znovu a srovná podle něj celou databázi.
+ *
+ * Tohle je ta „velká" varianta: projde všechny produkty, přepočítá stavy a
+ * uklidí, co z e-shopu zmizelo. Používá se, když se export naimportoval do
+ * Upgates a aplikace se má dozvědět, co se doopravdy uložilo.
+ */
+export async function refreshFromUrl(): Promise<SyncResult> {
+  return syncFeedXml(await downloadFeed());
+}
+
+/**
+ * Stáhne feed, ale vezme z něj **jen produkty, které aplikace ještě nezná**.
+ *
+ * Rozdíl proti předchozímu je záměrný: rozpracované produkty se nedotkne.
+ * Když do e-shopu přibylo pět novinek, není důvod kvůli nim sahat na tisíc
+ * ostatních.
+ */
+export async function refreshNewOnly(): Promise<SyncResult> {
+  const result = ingestNewOnly(await downloadFeed());
+  emit('ptrans:changed', {});
+  return result;
+}
+
+/**
+ * Zahodí u vybraných produktů, co aplikace vymyslela, a nechá platit feed.
+ *
+ * Vrací se tím ke stavu, který je právě teď v e-shopu — proto se předtím feed
+ * stáhne znovu, jinak by se aplikace vracela k něčemu zastaralému.
+ */
+export async function revertProducts(codes: string[], keepManual = false):
+  Promise<{ fields: number; products: number }> {
+  if (codes.length === 0) throw new Error('Nejsou vybrané žádné produkty.');
+  await refreshFromUrl();
+  const fields = revertToFeed(codes, { keepManual });
+  emit('ptrans:changed', {});
+  return { fields, products: codes.length };
 }
 
 /**
@@ -95,8 +141,141 @@ export function overview() {
     settings,
     feed: feedInfo(),
     langs: summary(),
-    running: progress()
+    running: progress(),
+    colors: colorCoverage(),
+    googleRules: getAttributeRules()
   };
+}
+
+/* ---------- Google Nákupy ---------- */
+
+/** Naučí se převody odstínů na základní barvy z produktů, které je vyplněné mají. */
+export function learnColorMap() {
+  const result = learnColors();
+  emit('ptrans:changed', {});
+  return result;
+}
+
+/** Ruční převod odstínu — zamkne se, učení ho nepřepíše. */
+export function saveColor(source: string, base: string): ColorRule[] {
+  saveColorRule(source, base, true);
+  emit('ptrans:changed', {});
+  return listColorRules();
+}
+
+/**
+ * Otočení rozhodnutí o setu.
+ *
+ * Kromě uložení u produktu se z toho stane pravidlo pro stejný tvar názvu —
+ * tak se aplikace naučí, které sety u Quentina setem jsou a které ne.
+ */
+export function markBundle(code: string, isBundle: boolean, langs?: string[]): BundleRule | null {
+  const rule = teachBundle(code, isBundle);
+  const s = getPtransSettings();
+  const list = langs?.length ? langs : [s.sourceLang, ...targetLangs(s)];
+  for (const lang of list) {
+    saveTranslation(code, lang, 'google_bundle', isBundle ? 'yes' : 'no', 'ruční', true);
+  }
+  emit('ptrans:changed', {});
+  return rule;
+}
+
+/** Zapíše číselníkové atributy (barva, pohlaví, věk, stav, set) vybraným produktům. */
+export function fillAttributes(codes: string[], langs?: string[], force = false) {
+  const result = applyAttributes(codes, langs, force);
+  emit('ptrans:changed', {});
+  return result;
+}
+
+/** Nechá model napsat titulek nebo popis pro Google u jednoho produktu. */
+export async function writeGoogle(code: string, lang: string,
+  kind: 'google_title' | 'google_desc'): Promise<string> {
+  const value = await writeGoogleText(code, lang, kind);
+  emit('ptrans:changed', {});
+  return value;
+}
+
+/* ---------- audit ---------- */
+
+/**
+ * Projde feed a u každého produktu vypíše, co brání tomu, aby se dobře
+ * dohledal. Výsledek se ukládá, takže se v kartě produktu ukáže hned.
+ */
+export function audit(options: AuditOptions = {}) {
+  const result = runAudit(options);
+  emit('ptrans:changed', {});
+  return result;
+}
+
+/** Uložený výsledek auditu pro jeden produkt. */
+export function auditOf(code: string, langs?: string[]): ProductAudit[] {
+  return auditFor(code, langs);
+}
+
+/**
+ * Spraví vady, které audit označil jako opravitelné.
+ *
+ * Každý druh vady má svůj způsob nápravy a je jich jen několik — číselníky
+ * dopočítá kód, texty napíše model, adresu složí přepis. Vady, které opravit
+ * nejde (chybí obrázek, chybí parametr Materiál), se přeskočí a vrátí se
+ * v `skipped`; ty musí někdo doplnit v e-shopu, aplikace si je nevymyslí.
+ */
+export async function fixIssues(code: string, lang: string, keys?: string[]):
+  Promise<{ fixed: string[]; skipped: string[] }> {
+  const found = auditFor(code, [lang])[0];
+  if (!found) throw new Error('Produkt není v databázi.');
+
+  const wanted = found.issues.filter(issue =>
+    issue.fixable && (!keys?.length || keys.includes(issue.key)));
+
+  const fixed: string[] = [];
+  const skipped = found.issues
+    .filter(issue => !issue.fixable)
+    .map(issue => issue.key);
+
+  // Číselníky se dopočítají všechny naráz — je to jedno volání a levné
+  if (wanted.some(issue => issue.key.startsWith('google_color')
+    || issue.key.startsWith('google_gender') || issue.key.startsWith('google_age')
+    || issue.key.startsWith('google_condition') || issue.key.startsWith('google_bundle')
+    || issue.key.startsWith('identifier'))) {
+    applyAttributes([code], [lang]);
+    for (const issue of wanted) {
+      if (issue.key.startsWith('google_') || issue.key.startsWith('identifier')) {
+        if (!issue.key.startsWith('google_title') && !issue.key.startsWith('google_desc')) {
+          fixed.push(issue.key);
+        }
+      }
+    }
+  }
+
+  for (const issue of wanted) {
+    try {
+      if (issue.key.startsWith('seo_title')) {
+        await generateSeo(code, lang, 'seo_title');
+      } else if (issue.key.startsWith('seo_desc')) {
+        await generateSeo(code, lang, 'seo_desc');
+      } else if (issue.key.startsWith('seo_url')) {
+        refreshSeoUrl(code, lang);
+      } else if (issue.key.startsWith('google_title')) {
+        await writeGoogleText(code, lang, 'google_title');
+      } else if (issue.key.startsWith('google_desc')) {
+        await writeGoogleText(code, lang, 'google_desc');
+      } else if (issue.key === 'title.untranslated') {
+        await retranslateField(code, lang, 'title');
+      } else {
+        continue;
+      }
+      if (!fixed.includes(issue.key)) fixed.push(issue.key);
+    } catch {
+      skipped.push(issue.key);
+    }
+  }
+
+  // Nový stav se rovnou přepočítá, ať karta ukazuje výsledek, ne minulost
+  auditFor(code, [lang]);
+  runAudit({ codes: [code], langs: [lang] });
+  emit('ptrans:changed', {});
+  return { fixed, skipped };
 }
 
 /** Ruční úprava jednoho pole — od té chvíle na něj překladač nesahá. */
@@ -143,10 +322,17 @@ export async function exportToFile(options: ExportOptions = {}): Promise<{ path:
 
 export {
   getPtransSettings, savePtransSettings, listProducts, productFields, summary, targetLangs,
-  derivePattern,
+  derivePattern, recomputeStates,
   run, stop, progress, planWork,
   applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl,
   buildExport, exportPreview,
-  listMemory, deleteMemory, memoryStats
+  listMemory, deleteMemory, memoryStats,
+  listColorRules, deleteColorRule, BASE_COLORS, baseColorOf,
+  listBundleRules, saveBundleRule, deleteBundleRule, detectBundle, bundlePreview,
+  googleView, writeGoogleTexts, saveAttributeRules, getAttributeRules, GOOGLE_LABELS,
+  worstProducts, auditProduct, storedSummary
 };
-export type { SeoKind, ExportOptions, MemoryEntry, MemoryKind, LearnResult };
+export type {
+  SeoKind, ExportOptions, MemoryEntry, MemoryKind, LearnResult,
+  ColorRule, BundleRule, AttributeRules, GoogleField, AuditOptions, ProductAudit
+};

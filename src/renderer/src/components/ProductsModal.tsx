@@ -7,6 +7,9 @@ import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
 import PtransSettingsPanel from './PtransSettings';
+import ProductGoogle from './ProductGoogle';
+import PtransAuditPanel from './PtransAudit';
+import HtmlField from './HtmlField';
 
 /**
  * Překlady produktů.
@@ -76,7 +79,7 @@ function relTime(iso: string | null): string {
 export default function ProductsModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [overview, setOverview] = useState<PtransOverview | null>(null);
-  const [tab, setTab] = useState<'work' | 'consistency' | 'memory' | 'settings'>('work');
+  const [tab, setTab] = useState<'work' | 'audit' | 'consistency' | 'memory' | 'settings'>('work');
 
   const [query, setQuery] = useState<PtransQuery>({ state: 'todo', limit: 60, offset: 0 });
   const [search, setSearch] = useState('');
@@ -91,6 +94,9 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   /** Které jazykové sloupce jsou v detailu vidět (výchozí: všechny zapnuté) */
   const [shownLangs, setShownLangs] = useState<string[]>([]);
   const [busyField, setBusyField] = useState('');
+  // Karta produktu má dvě roviny: texty (co se překládá) a Google (jak se
+  // produkt dohledá). Míchat je do jednoho sloupce by z karty udělalo svitek.
+  const [pane, setPane] = useState<'texts' | 'google'>('texts');
   const [runOpen, setRunOpen] = useState(false);
   const [progress, setProgress] = useState<PtransProgress | null>(null);
 
@@ -172,13 +178,66 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
 
   /* ---------- akce ---------- */
 
+  /**
+   * Stáhne feed a srovná podle něj celou databázi.
+   *
+   * Tohle je ta velká varianta: přepočítá stavy u všech produktů a uklidí, co
+   * z e-shopu zmizelo. Používá se po importu do Upgates, kdy se má aplikace
+   * dozvědět, co se doopravdy uložilo.
+   */
   const refreshFeed = async () => {
     setLoading(true);
     try {
       const result = await api.ptrans.refresh();
-      toast(`Feed načten: ${result.products} produktů`);
+      toast(`Feed srovnán: ${result.products} produktů`
+        + `${result.removed ? `, ${result.removed} zmizelo z e-shopu` : ''}`);
       await loadOverview();
       await loadPage();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Vezme z feedu jen produkty, které aplikace ještě nezná. Rozpracovaných se nedotkne. */
+  const refreshNew = async () => {
+    setLoading(true);
+    try {
+      const result = await api.ptrans.refreshNew();
+      toast(result.products > 0
+        ? `Přibylo ${result.products} nových produktů`
+        : 'Žádné nové produkty — feed nemá nic, co bys ještě neměl.');
+      await loadOverview();
+      await loadPage();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Vrátí vybrané produkty na stav z e-shopu.
+   *
+   * Zahodí, co aplikace vymyslela a co ještě není naimportované. Ptá se
+   * předem — po potvrzení je to nevratné.
+   */
+  const revertSelected = async () => {
+    const codes = [...selected];
+    if (codes.length === 0) { toast('Nejdřív vyber produkty.', 'error'); return; }
+    const keepManual = window.confirm(
+      `Vrátit ${codes.length} produktů na stav, jaký je právě teď ve feedu?\n\n`
+      + 'OK = ruční úpravy zůstanou zachované\nZrušit = zahodit i ruční úpravy'
+    );
+    setLoading(true);
+    try {
+      const result = await api.ptrans.revert(codes, keepManual);
+      toast(`Vráceno ${result.products} produktů (${result.fields} polí)`);
+      setSelected(new Set());
+      await loadOverview();
+      await loadPage();
+      if (active) loadFields(active);
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
@@ -233,11 +292,37 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const exportXml = async () => {
+  /**
+   * Export do XML.
+   *
+   * `state` rozlišuje dvě situace, které se předtím nedaly odlišit:
+   *  - `translated` — jen to, co aplikace vyrobila (výchozí, nejbezpečnější),
+   *  - `current` — **aktuální stav vybraných produktů**, tedy překlad, kde je,
+   *    a hodnota z feedu, kde není. Tohle je varianta pro „vezmi tyhle produkty
+   *    tak, jak jsou teď", i když zrovna žádný nový překlad neproběhl.
+   */
+  const exportXml = async (state: 'translated' | 'current' = 'translated') => {
     try {
       const codes = selected.size > 0 ? [...selected] : undefined;
-      const result = await api.ptrans.export({ codes });
+      if (state === 'current' && !codes) {
+        toast('Pro export v aktuálním stavu vyber produkty.', 'error');
+        return;
+      }
+      const result = await api.ptrans.export({ codes, state });
       if (result) toast(`Uloženo: ${result.products} produktů, ${result.fields} textů`);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  };
+
+  /** Doplní číselníky pro Google (barva, pohlaví, věk, stav, set) vybraným produktům. */
+  const fillGoogle = async () => {
+    if (selected.size === 0) { toast('Nejdřív vyber produkty.', 'error'); return; }
+    try {
+      const result = await api.ptrans.googleFill([...selected]);
+      toast(`Doplněno ${result.written} hodnot u ${selected.size} produktů`);
+      await loadPage();
+      if (active) loadFields(active);
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -291,6 +376,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
           <span style={{ flex: 1 }} />
           <div className="ig-seg pt-tabs">
             <button className={tab === 'work' ? 'active' : ''} onClick={() => setTab('work')}>Produkty</button>
+            <button className={tab === 'audit' ? 'active' : ''}
+              onClick={() => setTab('audit')}>Kvalita</button>
             <button className={tab === 'consistency' ? 'active' : ''}
               onClick={() => setTab('consistency')}>Jednotnost</button>
             <button className={tab === 'memory' ? 'active' : ''}
@@ -301,7 +388,16 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
             data-tip="Přidat produkty z XML souboru — novinky, které ve feedu ještě nejsou">
             <Icon name="upload" size={15} />
           </button>
-          <button className="icon-btn" onClick={refreshFeed} data-tip="Stáhnout feed znovu">
+          {/*
+            Dvě různé věci, proto dvě tlačítka. „Jen nové" se nedotkne
+            rozpracovaných produktů; „srovnat" přepíše stavy podle e-shopu.
+          */}
+          <button className="icon-btn" onClick={refreshNew}
+            data-tip="Donačíst nové produkty — rozpracovaných se to nedotkne">
+            <Icon name="plus" size={15} />
+          </button>
+          <button className="icon-btn" onClick={refreshFeed}
+            data-tip="Srovnat vše podle feedu — přepočítá stavy a uklidí, co z e-shopu zmizelo">
             <Icon name="refresh" size={15} className={loading ? 'spinning' : undefined} />
           </button>
           {/* Během běhu je zavření ve skutečnosti zmenšení — překlad jede dál
@@ -317,7 +413,13 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {tab === 'consistency' ? (
+        {tab === 'audit' ? (
+          <PtransAuditPanel
+            langs={[{ code: overview?.settings.sourceLang ?? 'cz', label: 'Zdroj' },
+              ...langs.map(l => ({ code: l.code, label: l.label }))]}
+            onOpenProduct={code => { setActive(code); setPane('google'); setTab('work'); }}
+          />
+        ) : tab === 'consistency' ? (
           <ConsistencyPanel
             langs={langs.map(l => ({ code: l.code, label: l.label }))}
             onOpenProduct={code => { setActive(code); setTab('work'); }}
@@ -373,6 +475,20 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                   {FIELD_ORDER.map(field => (
                     <option key={field} value={field}>{FIELD_LABEL[field]}</option>
                   ))}
+                </select>
+              </label>
+
+              {/*
+                Režim „pracuju jen s tím, co jsem nahrál". Novinky, které v online
+                feedu ještě nejsou, se mezi tisícem produktů jinak nedají najít.
+              */}
+              <label className="pt-filter">
+                <span>Zdroj</span>
+                <select value={query.origin ?? 'all'}
+                  onChange={e => setQuery(q => ({ ...q, origin: e.target.value as any, offset: 0 }))}>
+                  <option value="all">feed i nahrané</option>
+                  <option value="feed">jen z feedu</option>
+                  <option value="file">jen z nahraného souboru</option>
                 </select>
               </label>
 
@@ -444,18 +560,29 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                           {row.category && <span>{row.category}</span>}
                         </div>
                       </div>
+                      {/*
+                        Jeden jednoznačný signál na jazyk: hotovo, nebo ne.
+                        Dřív tu bylo „5 z 9 polí" a svádělo to počítat procenta —
+                        jenže produkt s pěti přeloženými poli se na e-shopu chová
+                        stejně jako ten bez jediného. Pořád je rozbitý.
+                      */}
                       <div className="pt-chips">
+                        {row.origin === 'file' && (
+                          <span className="pt-chip file" title="Z nahraného souboru — ve feedu ještě není">
+                            nový
+                          </span>
+                        )}
                         {langs.map(lang => {
                           const state = row.states[lang.code];
                           if (!state) return null;
-                          const tone = state.todo > 0 ? STATE_TONE[state.worst] : 'ok';
+                          const done = state.todo === 0;
                           return (
-                            <span key={lang.code} className={`pt-chip ${tone}`}
-                              title={state.todo > 0
-                                ? `${lang.label}: ${state.todo} z ${state.total} polí čeká (${STATE_LABEL[state.worst]})`
-                                : `${lang.label}: hotovo`}>
+                            <span key={lang.code} className={`pt-chip ${done ? 'done' : STATE_TONE[state.worst]}`}
+                              title={done
+                                ? `${lang.label}: přeloženo všechno`
+                                : `${lang.label}: ${STATE_LABEL[state.worst]} — chybí ${state.todo} z ${state.total} polí`}>
+                              {done && <Icon name="check" size={10} />}
                               {lang.code.toUpperCase()}
-                              {state.todo > 0 && <b>{state.todo}</b>}
                             </span>
                           );
                         })}
@@ -500,7 +627,17 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                         <div className="ig-muted">{active}{activeProduct?.price ? ` · ${activeProduct.price}` : ''}</div>
                       </div>
                       <span style={{ flex: 1 }} />
-                      <span className="ig-muted pt-cols-label">Sloupce:</span>
+                      <div className="ig-seg">
+                        <button className={pane === 'texts' ? 'active' : ''}
+                          onClick={() => setPane('texts')}>Texty</button>
+                        <button className={pane === 'google' ? 'active' : ''}
+                          onClick={() => setPane('google')}>Google a SEO</button>
+                      </div>
+                      {/* Výběr sloupců patří k textům. V Google kartě má vlastní
+                          přepínač jazyka hned pod hlavičkou a dva vedle sebe by
+                          si jen konkurovaly. */}
+                      {pane === 'texts' && <span className="ig-muted pt-cols-label">Sloupce:</span>}
+                      {pane === 'texts' && (
                       <div className="ig-seg" data-tip="Které jazyky ukázat vedle zdroje">
                         {langs.map(lang => (
                           <button key={lang.code}
@@ -512,11 +649,22 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                           </button>
                         ))}
                       </div>
-                      <button className="btn ghost" onClick={() => setRunOpen(true)}>
-                        <Icon name="sparkles" size={13} /> Přeložit produkt
-                      </button>
+                      )}
+                      {pane === 'texts' && (
+                        <button className="btn ghost" onClick={() => setRunOpen(true)}>
+                          <Icon name="sparkles" size={13} /> Přeložit produkt
+                        </button>
+                      )}
                     </div>
 
+                    {pane === 'google' ? (
+                      <ProductGoogle
+                        code={active}
+                        langs={[{ code: overview?.settings.sourceLang ?? 'cz', label: 'Zdroj' },
+                          ...langs.map(l => ({ code: l.code, label: l.label }))]}
+                        onChanged={() => { loadFields(active); loadPage(); }}
+                      />
+                    ) : (
                     <div className="pt-fields">
                       <div className="pt-cols-head" style={{ '--pt-cols': shownLangs.length } as any}>
                         <span>Zdroj ({overview?.settings.sourceLang ?? 'cz'})</span>
@@ -550,6 +698,7 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                         <div className="pt-empty ig-muted">U tohohle produktu se zatím nic nesleduje.</div>
                       )}
                     </div>
+                    )}
                   </>
                 )}
               </div>
@@ -561,11 +710,24 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
               </span>
               <span style={{ flex: 1 }} />
               <button className="btn ghost" onClick={googleTitles} disabled={selected.size === 0}
-                data-tip="Poskládá Google titulek ze šablony — bez modelu">
-                <Icon name="bag" size={13} /> Google titulky
+                data-tip="Poskládá Google titulek ze šablony — okamžité, bez modelu">
+                <Icon name="bag" size={13} /> Titulky ze šablony
               </button>
-              <button className="btn ghost" onClick={exportXml}>
-                <Icon name="download" size={13} /> Export XML{selected.size > 0 ? ` (${selected.size})` : ''}
+              <button className="btn ghost" onClick={fillGoogle} disabled={selected.size === 0}
+                data-tip="Barva, pohlaví, věk, stav a set — spočítá se z parametrů a kategorií">
+                <Icon name="zap" size={13} /> Doplnit Google atributy
+              </button>
+              <button className="btn ghost" onClick={revertSelected} disabled={selected.size === 0}
+                data-tip="Zahodit, co aplikace vymyslela, a vrátit se ke stavu ve feedu">
+                <Icon name="refresh" size={13} /> Vrátit na feed
+              </button>
+              <button className="btn ghost" onClick={() => exportXml('current')} disabled={selected.size === 0}
+                data-tip="Vybrané produkty tak, jak jsou teď — překlad, kde je, jinak hodnota z feedu">
+                <Icon name="download" size={13} /> Export v aktuálním stavu
+              </button>
+              <button className="btn ghost" onClick={() => exportXml('translated')}
+                data-tip="Jen to, co aplikace přeložila nebo vygenerovala">
+                <Icon name="download" size={13} /> Export překladů{selected.size > 0 ? ` (${selected.size})` : ''}
               </button>
               <button className="btn primary" disabled={selected.size === 0 || progress?.running}
                 onClick={() => setRunOpen(true)}>
@@ -664,6 +826,9 @@ function LangCell({ row, long, busy, onSave, onRetranslate, onGenerate }: {
   const dirty = value !== current;
   const generable = row.field === 'seo_title' || row.field === 'seo_desc' || row.field === 'google_desc';
   const derived = row.field === 'seo_url' || row.field === 'redirect';
+  // Popisy jsou HTML s inline styly. V holém poli se v nich nedá číst a při
+  // ruční opravě se snadno rozbije značka — a to se pozná až na e-shopu.
+  const html = row.field === 'short' || row.field === 'long';
 
   useEffect(() => { setValue(current); }, [current]);
 
@@ -686,16 +851,29 @@ function LangCell({ row, long, busy, onSave, onRetranslate, onGenerate }: {
         )}
       </div>
 
-      <textarea
-        className={long ? 'pt-input tall' : 'pt-input'}
-        rows={long ? 5 : 2}
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        onBlur={() => { if (dirty) onSave(value); }}
-      />
+      {html ? (
+        <HtmlField
+          value={value}
+          rows={row.field === 'long' ? 12 : 5}
+          onChange={setValue}
+          onSave={() => { if (dirty) onSave(value); }}
+        />
+      ) : (
+        <textarea
+          className={long ? 'pt-input tall' : 'pt-input'}
+          rows={long ? 5 : 2}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onBlur={() => { if (dirty) onSave(value); }}
+        />
+      )}
 
       <div className="pt-cell-foot">
-        <span className="ig-muted">{value.length} zn.</span>
+        <span className="ig-muted">
+          {html
+            ? `${value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length} zn. textu`
+            : `${value.length} zn.`}
+        </span>
         {dirty && (
           <>
             <button className="btn ghost small" onClick={() => setValue(current)}>Vrátit</button>

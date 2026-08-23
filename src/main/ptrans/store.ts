@@ -110,6 +110,13 @@ export interface SyncResult {
 export interface IngestOptions {
   /** `feed` = online feed (uklidí, co zmizelo), `file` = ručně nahraný soubor */
   origin?: 'feed' | 'file';
+  /**
+   * Neuklízet produkty, které v tomhle vstupu nejsou.
+   *
+   * Nutné, když se předává jen výřez feedu (třeba jen novinky) — bez toho by
+   * úklid smazal všechno ostatní jako „zmizelo z feedu".
+   */
+  keepMissing?: boolean;
 }
 
 /**
@@ -132,6 +139,85 @@ export function syncFromFeed(xml: string): SyncResult {
  */
 export function ingestFile(xml: string): SyncResult {
   return ingest(xml, { origin: 'file' });
+}
+
+/**
+ * Načte z feedu **jen produkty, které aplikace ještě nezná**.
+ *
+ * Rozdíl proti běžnému stažení je v tom, čeho se to nedotkne: stávající
+ * produkty zůstanou přesně tak, jak jsou, včetně rozpracovaných překladů a
+ * stavů. Používá se, když do e-shopu přibylo pár novinek a nemá smysl kvůli
+ * nim přepočítávat tisíc produktů, u kterých se nic nezměnilo.
+ */
+export function ingestNewOnly(xml: string): SyncResult {
+  const d = getDb();
+  const known = new Set(
+    (d.prepare('SELECT code FROM ptrans_products').all() as { code: string }[]).map(row => row.code)
+  );
+  const fresh = splitProducts(xml).filter(item => !known.has(item.code));
+  if (fresh.length === 0) {
+    return { products: 0, fields: 0, removed: 0, paired: 0, at: new Date().toISOString() };
+  }
+  // Znovu poskládaný feed jen z novinek projde stejnou cestou jako celý
+  const xmlOfNew = `<PRODUCTS>${fresh.map(item => `<PRODUCT>${item.block}</PRODUCT>`).join('')}</PRODUCTS>`;
+  return ingest(xmlOfNew, { origin: 'feed', keepMissing: true });
+}
+
+/**
+ * Vrátí vybrané produkty do stavu, v jakém jsou právě teď ve feedu.
+ *
+ * Zahodí to, co aplikace u produktu vymyslela a co ještě není v e-shopu —
+ * překlady, vygenerované texty i ruční úpravy. Po tom, co se export
+ * naimportuje do Upgates a feed se znovu stáhne, je tohle způsob, jak srovnat
+ * aplikaci s realitou: co je ve feedu, je pravda.
+ *
+ * Ručně upravená pole se dají uchovat (`keepManual`) — bývá to práce, kterou
+ * nikdo nechce dělat dvakrát.
+ */
+export function revertToFeed(codes: string[], options: { keepManual?: boolean } = {}): number {
+  if (codes.length === 0) return 0;
+  const d = getDb();
+  const marks = codes.map(() => '?').join(',');
+  const guard = options.keepManual ? ' AND manual = 0' : '';
+  const changes = d.prepare(
+    `UPDATE ptrans_fields SET translated = NULL, translated_at = NULL, translated_hash = NULL,
+       model = '', manual = CASE WHEN ? THEN manual ELSE 0 END
+     WHERE code IN (${marks})${guard}`
+  ).run(options.keepManual ? 1 : 0, ...codes).changes;
+
+  // Stavy se musí přepočítat, jinak by pole zůstalo označené jako hotové
+  recomputeStates(codes);
+  return changes;
+}
+
+/** Přepočítá stav polí podle toho, co je ve feedu a co máme uložené. */
+export function recomputeStates(codes?: string[]): number {
+  const d = getDb();
+  const s = getPtransSettings();
+  const where = codes?.length ? ` WHERE code IN (${codes.map(() => '?').join(',')})` : '';
+  const rows = d.prepare(
+    `SELECT code, lang, field, value, source_value, translated, translated_hash, manual
+     FROM ptrans_fields${where}`
+  ).all(...(codes ?? [])) as any[];
+
+  const update = d.prepare('UPDATE ptrans_fields SET state = ? WHERE code = ? AND lang = ? AND field = ?');
+  const run = d.transaction(() => {
+    for (const row of rows) {
+      const ours = !!row.translated && plain(row.translated) === plain(row.value);
+      const state = fieldState({
+        value: row.value,
+        source: row.source_value,
+        sourceLang: s.sourceLang,
+        targetLang: row.lang,
+        translatedHash: ours ? row.translated_hash : null,
+        sourceHash: hashText(row.source_value),
+        manual: row.manual === 1
+      });
+      update.run(state, row.code, row.lang, row.field);
+    }
+  });
+  run();
+  return rows.length;
 }
 
 function ingest(xml: string, options: IngestOptions = {}): SyncResult {
@@ -233,7 +319,7 @@ function ingest(xml: string, options: IngestOptions = {}): SyncResult {
 
   // Ručně nahrané produkty úklid přeskakuje — ve feedu ještě nejsou a smazat
   // je by znamenalo zahodit i jejich překlady
-  const removed = origin === 'feed'
+  const removed = origin === 'feed' && !options.keepMissing
     ? d.prepare("DELETE FROM ptrans_products WHERE seen_at != ? AND origin = 'feed'").run(now).changes
     : 0;
   d.prepare('DELETE FROM ptrans_fields WHERE code NOT IN (SELECT code FROM ptrans_products)').run();
@@ -312,8 +398,20 @@ export interface ProductRow {
   availability: string;
   price: string;
   active: boolean;
+  /** Odkud produkt je: z online feedu, nebo z ručně nahraného souboru */
+  origin: 'feed' | 'file';
   /** Stav po jazycích: kolik polí je hotových a kolik čeká */
   states: Record<string, { total: number; todo: number; worst: FieldState }>;
+  /**
+   * Jazyky, kde je hotové úplně všechno, co se překládat má.
+   *
+   * V seznamu je tohle jediné, co se opravdu hodí vědět. „5 z 9 polí" svádí
+   * k tomu počítat procenta, ale produkt s pěti přeloženými poli se na e-shopu
+   * chová stejně jako ten bez jediného — pořád je rozbitý.
+   */
+  doneLangs: string[];
+  /** Jazyky, kde ještě něco chybí */
+  todoLangs: string[];
 }
 
 const STATE_ORDER: FieldState[] = ['missing', 'same', 'source', 'stale', 'manual', 'ok'];
@@ -327,6 +425,12 @@ export interface ProductQueryInput {
   state?: FieldState | 'todo' | 'all';
   field?: string;
   onlyActive?: boolean;
+  /**
+   * Odkud produkty brát. `file` je režim „pracuju jen s tím, co jsem nahrál" —
+   * novinky, které v online feedu ještě nejsou, se v hromadě tisíce produktů
+   * jinak nedají najít.
+   */
+  origin?: 'all' | 'feed' | 'file';
   limit?: number;
   offset?: number;
   sort?: 'title' | 'todo' | 'code';
@@ -347,6 +451,7 @@ export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; to
   }
   if (query.category) { where.push('p.categories LIKE ?'); params.push(`%${query.category}%`); }
   if (query.manufacturer) { where.push('p.manufacturer = ?'); params.push(query.manufacturer); }
+  if (query.origin && query.origin !== 'all') { where.push('p.origin = ?'); params.push(query.origin); }
 
   const wanted = query.state && query.state !== 'all'
     ? (query.state === 'todo' ? NEEDS_WORK : [query.state])
@@ -384,6 +489,12 @@ export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; to
       if (NEEDS_WORK.includes(entry.state)) bucket.todo += entry.n;
       if (STATE_ORDER.indexOf(entry.state) < STATE_ORDER.indexOf(bucket.worst)) bucket.worst = entry.state;
     }
+    // Hotovo = v daném jazyce nezbývá ani jedno pole. Jazyk, o kterém databáze
+    // ještě nic neví (nesledovaná pole), se nepočítá jako hotový — jen o něm
+    // zatím nic nevíme, což není totéž.
+    const doneLangs = langs.filter(lang => states[lang] && states[lang].todo === 0);
+    const todoLangs = langs.filter(lang => !states[lang] || states[lang].todo > 0);
+
     return {
       code: row.code,
       title: row.title,
@@ -393,7 +504,10 @@ export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; to
       availability: row.availability,
       price: row.price,
       active: row.active === 1,
-      states
+      origin: row.origin === 'file' ? 'file' : 'feed',
+      states,
+      doneLangs,
+      todoLangs
     };
   });
 

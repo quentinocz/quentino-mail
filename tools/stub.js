@@ -173,6 +173,12 @@
         model: '', concurrency: 2, secondsPerUnit: 11.4
       },
       feed: { syncedAt: new Date(Date.now() - 3 * 3600e3).toISOString(), products: 1204 },
+      colors: { shades: 21, mapped: 20, missing: ['Vícebarevné'] },
+      googleRules: {
+        gender: [{ match: 'dámsk', value: 'female' }, { match: 'pánsk', value: 'male' }],
+        age: [{ match: 'dětsk', value: 'kids' }],
+        defaultGender: 'male', defaultAge: 'adult', condition: 'new'
+      },
       langs: [
         { lang: 'sk', todo: 539, total: 7224, byState: { missing: 170, same: 350, source: 19, ok: 6685 } },
         { lang: 'en', todo: 481, total: 7224, byState: { missing: 169, same: 310, source: 2, ok: 6743 } }
@@ -184,14 +190,17 @@
       rows: [
         { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', image: null,
           category: 'Kšandy', manufacturer: 'Quentino', availability: 'Skladem', price: '649 CZK', active: true,
+          origin: 'feed', doneLangs: [], todoLangs: ['sk', 'en', 'de'],
           states: { sk: { total: 6, todo: 6, worst: 'same' }, en: { total: 6, todo: 6, worst: 'same' },
             de: { total: 6, todo: 6, worst: 'missing' } } },
         { code: 'MZU01', title: 'Bordó manžetové uzlíky', image: null, category: 'Manžetové knoflíčky',
           manufacturer: 'Quentino', availability: 'Skladem', price: '199 CZK', active: true,
+          origin: 'file', doneLangs: ['en'], todoLangs: ['sk', 'de'],
           states: { sk: { total: 6, todo: 2, worst: 'missing' }, en: { total: 6, todo: 0, worst: 'ok' },
             de: { total: 6, todo: 6, worst: 'missing' } } },
         { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', image: null, category: 'Kravaty',
           manufacturer: 'Quentino', availability: 'Skladem více než 20 ks', price: '449 CZK', active: true,
+          origin: 'feed', doneLangs: ['en'], todoLangs: ['sk', 'de'],
           states: { sk: { total: 6, todo: 1, worst: 'stale' }, en: { total: 6, todo: 0, worst: 'ok' },
             de: { total: 6, todo: 6, worst: 'missing' } } }
       ]
@@ -278,6 +287,96 @@
       ]
     },
     'ptrans:exportPreview': { products: 137, fields: 812 },
+    'ptrans:google': [
+      { lang: 'cz', bundleReason: 'název spojuje dva výrobky (ksandy + motylek)', bundleLearned: false,
+        fields: [
+          { field: 'google_title', label: 'Titulek', manual: false,
+            value: 'Bordó pánské široké kšandy s pravou kůží | Quentino',
+            feed: 'Bordó pánské široké kšandy s pravou kůží | Quentino',
+            suggested: 'Bordó pánské široké kšandy Bordó 3,5 cm | Quentino' },
+          { field: 'google_desc', label: 'Popis', manual: false,
+            value: 'Bordó pánské kšandy Quentino z kvalitní pruženky, šířka 3,5 cm, kovové klipy a pravá kůže. Vyrobeno v České republice.',
+            feed: 'Bordó pánské kšandy Quentino z kvalitní pruženky, šířka 3,5 cm, kovové klipy a pravá kůže. Vyrobeno v České republice.',
+            suggested: '' },
+          { field: 'google_color', label: 'Barva', value: '', feed: '', suggested: 'Červená', manual: false },
+          { field: 'google_gender', label: 'Pohlaví', value: 'male', feed: 'male', suggested: 'male', manual: false },
+          { field: 'google_age', label: 'Věková skupina', value: '', feed: '', suggested: 'adult', manual: false },
+          { field: 'google_condition', label: 'Stav', value: 'new', feed: 'new', suggested: 'new', manual: false },
+          { field: 'google_bundle', label: 'Set', value: 'yes', feed: '', suggested: 'yes', manual: true },
+          { field: 'google_identifier', label: 'Má čárový kód', value: 'no', feed: 'no', suggested: 'no', manual: false }
+        ] }
+    ],
+    'ptrans:auditOf': [
+      { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', lang: 'cz', score: 62,
+        issues: [
+          { key: 'google_color.missing', severity: 'warn', field: 'google_color', fixable: true,
+            message: 'Chybí barva pro Google. Z parametru vychází „Červená".' },
+          { key: 'google_age.missing', severity: 'warn', field: 'google_age', fixable: true,
+            message: 'Chybí věková skupina (vychází „adult").' },
+          { key: 'seo_desc.short', severity: 'warn', field: 'seo_desc', fixable: true,
+            message: 'Meta popis má 48 znaků, nevyužívá dostupné místo.' },
+          { key: 'param.material', severity: 'info', fixable: false,
+            message: 'Produkt nemá parametr Materiál.' }
+        ] }
+    ],
+    'ptrans:audit': {
+      checked: 3612, averageScore: 88,
+      byLang: [
+        { lang: 'cz', average: 83, errors: 79, warnings: 239 },
+        { lang: 'sk', average: 91, errors: 67, warnings: 63 },
+        { lang: 'en', average: 91, errors: 67, warnings: 29 }
+      ],
+      top: [
+        { key: 'identifier.mismatch', severity: 'warn', count: 200,
+          message: 'Produkt nemá EAN, ale nemá ani nastavené „nemá čárový kód" — Google pak nabídku hůř páruje.' },
+        { key: 'google_color.missing', severity: 'warn', count: 54,
+          message: 'Chybí barva pro Google. Z parametru vychází „Červená".' },
+        { key: 'seo_title.offtopic', severity: 'warn', count: 41,
+          message: 'SEO titulek neobsahuje hlavní slovo z názvu produktu.' },
+        { key: 'google_title.missing', severity: 'error', count: 39,
+          message: 'Chybí titulek pro Google Nákupy.' },
+        { key: 'google_desc.promo', severity: 'error', count: 25,
+          message: 'Popis pro Google obsahuje reklamní text nebo výzvu ke kliknutí.' }
+      ]
+    },
+    'ptrans:worst': [
+      { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', score: 7, errors: 4 },
+      { code: 'PKT23', title: 'Bílá svatební regata s jemnou strukturou a kapesníčkem', score: 7, errors: 4 },
+      { code: 'MZU01', title: 'Bílý pánský kapesníček do saka s tmavě fialovým lemem', score: 24, errors: 3 }
+    ],
+    'ptrans:colors': {
+      rules: [
+        { source: 'modra', base: 'modra', hits: 210, origin: 'feed', locked: false },
+        { source: 'vinova', base: 'cervena', hits: 58, origin: 'feed', locked: false },
+        { source: 'smetanova', base: 'bezova', hits: 31, origin: 'feed', locked: false },
+        { source: 'smaragdova', base: 'zelena', hits: 4, origin: 'manual', locked: true }
+      ],
+      base: [
+        { key: 'cerna', labels: { cz: 'Černá', sk: 'Čierna', en: 'Black', de: 'Schwarz' } },
+        { key: 'modra', labels: { cz: 'Modrá', sk: 'Modrá', en: 'Blue', de: 'Blau' } },
+        { key: 'zelena', labels: { cz: 'Zelená', sk: 'Zelená', en: 'Green', de: 'Grün' } },
+        { key: 'cervena', labels: { cz: 'Červená', sk: 'Červená', en: 'Red', de: 'Rot' } },
+        { key: 'bezova', labels: { cz: 'Béžová', sk: 'Béžová', en: 'Beige', de: 'Beige' } },
+        { key: 'vicebarevna', labels: { cz: 'Vícebarevná', sk: 'Viacfarebná', en: 'Multicolour', de: 'Mehrfarbig' } }
+      ]
+    },
+    'ptrans:bundles': {
+      rules: [
+        { category: 'Pánské sety Motýlek a Kšandy', pattern: 'ksandy motylek', isBundle: true, hits: 30, updatedAt: null },
+        { category: '', pattern: 'motylek kvetinka', isBundle: false, hits: 4, updatedAt: null }
+      ],
+      preview: {
+        total: 1204, bundles: 153,
+        samples: [
+          { code: 'PSSK120BR2', title: 'Stříbrné pánské kšandy s motýlkem',
+            reason: 'název spojuje dva výrobky (ksandy + motylek)' },
+          { code: 'PKT23', title: 'Starorůžový set s květovaným motýlkem pro tátu a syna',
+            reason: 'název obsahuje „set"' }
+        ]
+      }
+    },
+    'ptrans:learnColors': { products: 1192, learned: 19, unknown: [] },
+    'ptrans:auditSummary': null,
     'ptrans:memory': {
       entries: [
         { id: 1, kind: 'term', lang: 'en', source: 'kšandy', target: 'suspenders', category: '',

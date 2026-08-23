@@ -97,6 +97,21 @@ await overflow('překlady — nastavení'); await snap('04-preklady-nastaveni');
 await page.evaluate(() => document.querySelector('.pt-settings')?.scrollTo(0, 900));
 await snap('05-preklady-nastaveni-dole');
 
+// Karta produktu: Google a SEO — nejdřív zpátky na Produkty a vybrat řádek
+await click('.pt-tabs button', { hasText: 'Produkty' });
+await click('.pt-row');
+await click('.pt-detail-head .ig-seg button', { hasText: 'Google a SEO' });
+await overflow('produkt — Google'); await snap('17-produkt-google');
+await click('.pt-detail-head .ig-seg button', { hasText: 'Texty' });
+
+await click('.pt-tabs button', { hasText: 'Kvalita' });
+await overflow('kvalita — audit'); await snap('18-kvalita-audit');
+await click('.pt-filters .ig-seg button', { hasText: 'Barvy' });
+await overflow('kvalita — barvy'); await snap('19-kvalita-barvy');
+await click('.pt-filters .ig-seg button', { hasText: 'Sety' });
+await overflow('kvalita — sety'); await snap('20-kvalita-sety');
+await click('.pt-tabs button', { hasText: 'Produkty' });
+
 await click('.pt-tabs button', { hasText: 'Paměť' });
 await overflow('překlady — paměť'); await snap('07-preklady-pamet');
 await page.keyboard.press('Escape');
