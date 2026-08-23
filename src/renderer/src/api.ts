@@ -220,6 +220,9 @@ export const api = {
       links: { index: number; url: string; text: string; kind: string; status: number | null;
         note: string; suggestion: string | null; unverified: boolean }[];
     } | null>('articles:review', id, lang),
+    /** Vyzkoušet jedinou adresu a vidět syrový výsledek — na ladění */
+    testUrl: (url: string) => call<{ status: number | null; verdict: 'ok' | 'broken' | 'unknown'; note: string }>(
+      'articles:testUrl', url),
     /** Vyřadit odkaz ze seznamu vad — text článku zůstane beze změny */
     dismissLink: (id: number, lang: string, url: string) =>
       call<boolean>('articles:dismissLink', id, lang, url),

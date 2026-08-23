@@ -166,15 +166,17 @@ export function baseColorOf(value: string): string | null {
   }
 
   // Poslední pokus: shoda na kmeni. Čeština mění koncovku podle rodu a čísla
-  // („vícebarevná" / „vícebarevné" / „vícebarevný") a psát všechny tvary do
-  // převodníku by bylo zbytečné — liší se posledním písmenem.
+  // („bílá" / „bílé" / „bílý", „vícebarevná" / „vícebarevné"). Psát všechny
+  // tvary do převodníku by bylo zbytečné — liší se posledním písmenem, takže
+  // se porovnávají kmeny obou stran.
   for (const word of rest.split(' ')) {
-    if (word.length < 5) continue;
+    if (word.length < 4) continue;
     const stem = word.slice(0, -1);
-    const match = BASE_COLORS.find(c => c.key.startsWith(stem))
-      ?? Object.keys(SEED).find(key => key.startsWith(stem));
-    if (typeof match === 'string') return SEED[match];
-    if (match) return match.key;
+    if (stem.length < 3) continue;
+    const base = BASE_COLORS.find(c => c.key.slice(0, -1) === stem || c.key.startsWith(stem));
+    if (base) return base.key;
+    const seeded = Object.keys(SEED).find(key => key.slice(0, -1) === stem || key.startsWith(stem));
+    if (seeded) return SEED[seeded];
   }
   return null;
 }
@@ -255,6 +257,48 @@ function baseFromLabel(label: string, lang: string): string | null {
     if (Object.values(color.labels).some(text => normalize(text) === key)) return color.key;
   }
   return null;
+}
+
+/**
+ * Odstín z názvu produktu — „hořčicově žlutá", ne „žlutá".
+ *
+ * Parametr `Barva` má u Quentina jen základní barvy; skutečný odstín je
+ * v názvu. Pro Google jsou to **dvě různé věci a obě jsou správně**:
+ *
+ *  - `g:color` chce základní barvu, protože podle ní se filtruje,
+ *  - v titulku a popisu naopak patří odstín, protože tak produkt vypadá a
+ *    tak ho zákazník hledá. „Hořčicově žlutý motýlek" je konkrétní věc,
+ *    „žlutý motýlek" je kategorie.
+ *
+ * Bere se souvislý úsek barevných slov na začátku názvu: odstiňující slova
+ * („hořčicově", „tmavě") plus slovo, které se dá zařadit jako barva. Jakmile
+ * přijde něco jiného, hledání končí — „Tmavě modrý vázací pánský motýlek"
+ * tak dá „Tmavě modrý" a ne půlku názvu.
+ */
+export function shadeFromTitle(title: string): string {
+  const words = (title ?? '').trim().split(/\s+/);
+  const shades = SHADES.map(normalize);
+  const taken: string[] = [];
+  let closed = false;
+
+  for (const word of words) {
+    const key = normalize(word);
+    if (!key) break;
+
+    // Příslovce („hořčicově", „světle", „smaragdově") barvu jen upřesňuje a
+    // pokračuje se dál. Poznává se podle koncovky: přídavné jméno končí
+    // dlouhou samohláskou („žluté", „bílá"), příslovce krátkým -e/-ě.
+    const adverb = /[eě]$/.test(word.toLowerCase());
+    const isShade = shades.includes(key) || (adverb && !!baseColorOf(word));
+    const isColor = !isShade && !!baseColorOf(word);
+
+    if (!isShade && !isColor) break;
+    taken.push(word);
+    if (isColor) { closed = true; break; }
+  }
+
+  // Samotné odstiňující slovo bez barvy nedává smysl („Tmavě pánský motýlek")
+  return closed ? taken.join(' ') : '';
 }
 
 /** Barva produktu pro daný jazyk, nebo prázdný řetězec, když se nedá určit. */

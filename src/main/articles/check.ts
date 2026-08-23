@@ -1,8 +1,8 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, net } from 'electron';
 import { getDb } from '../db';
 import { getArticleSettings } from './store';
 import { extractLinks, extractImages, splitUrl, classify, slugOf, langOfUrl,
-  lookupPair, productSlugInLang, LinkKind } from './urlmap';
+  lookupPair, productSlugInLang, decodeUrl, LinkKind } from './urlmap';
 
 /**
  * Kontrola odkazů v článcích.
@@ -85,50 +85,109 @@ const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function probe(url: string, attempts = 3): Promise<number | null> {
-  const once = async (method: 'HEAD' | 'GET') => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20_000);
-    try {
-      const res = await fetch(url, {
-        method,
-        redirect: 'follow',
-        signal: controller.signal,
-        headers: {
-          'User-Agent': BROWSER_UA,
-          'Accept': 'text/html,application/xhtml+xml,image/avif,image/webp,*/*;q=0.8',
-          'Accept-Language': 'cs,sk;q=0.9,en;q=0.8'
-        }
-      });
-      return res.status;
-    } finally {
-      clearTimeout(timer);
+/**
+ * Výsledek jednoho ověření.
+ *
+ * `verdict` je to podstatné a jsou tři možnosti, ne dvě:
+ *   - `ok` — adresa odpověděla, jak má,
+ *   - `broken` — server jednoznačně řekl, že tam nic není (404, 410),
+ *   - `unknown` — **nevíme**. Server odmítl robota (403), byl zahlcený,
+ *     nebo neodpověděl vůbec. To není totéž co rozbitý odkaz.
+ */
+export interface Probe {
+  status: number | null;
+  verdict: 'ok' | 'broken' | 'unknown';
+  note: string;
+}
+
+/**
+ * Ověření adresy přes síťovou vrstvu Chromia (`net.fetch`).
+ *
+ * Node má vlastní klienta a weby za ochranou proti robotům ho poznají na
+ * první pohled — jinak podepsané TLS, jiné pořadí hlaviček, žádné HTTP/2.
+ * Upgates i CDN pak vrátí 403 na adresu, která se v prohlížeči otevře bez
+ * problému. `net.fetch` jede přes tentýž zásobník jako okno aplikace, takže
+ * vypadá jako prohlížeč, respektuje proxy i systémové certifikáty.
+ *
+ * Mimo Electron (zkušební prostředí) se použije obyčejný `fetch`.
+ */
+async function request(url: string, method: 'HEAD' | 'GET', timeoutMs: number): Promise<number> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const init = {
+    method,
+    redirect: 'follow' as const,
+    signal: controller.signal,
+    headers: {
+      'User-Agent': BROWSER_UA,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'cs-CZ,cs;q=0.9,sk;q=0.8,en;q=0.7',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Upgrade-Insecure-Requests': '1'
     }
   };
+  try {
+    const client: any = (net as any)?.fetch ? net : { fetch };
+    const res = await client.fetch(url, init);
+    return res.status;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Co který stav znamená. Rozhoduje o tom, jestli se odkaz nabídne k opravě. */
+function judge(status: number): Probe {
+  if (status >= 200 && status < 400) return { status, verdict: 'ok', note: '' };
+  if (status === 404 || status === 410) {
+    return { status, verdict: 'broken', note: `HTTP ${status} — stránka neexistuje` };
+  }
+  if (status === 401 || status === 403) {
+    // Nejčastější falešný poplach: ochrana proti robotům. V prohlížeči se
+    // adresa otevře, našemu dotazu server odpovědět nechce.
+    return { status, verdict: 'unknown', note: `HTTP ${status} — server odmítl automatický dotaz, v prohlížeči odkaz nejspíš funguje` };
+  }
+  if (status >= 500) {
+    return { status, verdict: 'unknown', note: `HTTP ${status} — chyba na straně serveru, ne v odkazu` };
+  }
+  return { status, verdict: 'broken', note: `HTTP ${status}` };
+}
+
+export async function probe(url: string, attempts = 3, timeoutMs = 20_000): Promise<Probe> {
+  let lastError = '';
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      let status = await once('HEAD');
-      // 405 = HEAD neumí, 403/401 často blokuje jen HEAD, 429 = přetížení
+      let status = await request(url, 'HEAD', timeoutMs);
+      // 405/501 = HEAD neumí; 403/401 často blokuje jen HEAD, ne celou stránku
       if (status === 405 || status === 501 || status === 403 || status === 401) {
-        status = await once('GET');
+        status = await request(url, 'GET', timeoutMs);
       }
-      // Přetížení není vada odkazu — chvíli počkat a zkusit znovu
-      if (status === 429 || status === 503) {
-        if (attempt < attempts) { await wait(1500 * attempt); continue; }
-        return null;
+      // Zahlcení není vada odkazu — počkat a zkusit znovu
+      if ((status === 429 || status === 503) && attempt < attempts) {
+        await wait(1500 * attempt);
+        continue;
       }
-      return status;
-    } catch {
-      try {
-        return await once('GET');
-      } catch {
-        if (attempt < attempts) { await wait(800 * attempt); continue; }
-        return null;
-      }
+      return judge(status);
+    } catch (e: any) {
+      // Skutečný důvod se hodí vědět: jinak se řeší „neodpověděl" u něčeho,
+      // co je ve skutečnosti překlep v doméně nebo propadlý certifikát
+      const code = e?.cause?.code || e?.code || e?.name || '';
+      lastError = code === 'ENOTFOUND' || code === 'EAI_AGAIN' ? 'doménu se nepodařilo přeložit'
+        : code === 'ECONNREFUSED' ? 'server odmítl spojení'
+          : /CERT|TLS|SSL/i.test(String(code)) ? `problém s certifikátem (${code})`
+            : code === 'AbortError' || code === 'TimeoutError' ? 'vypršel čas'
+              : String(code || e?.message || 'spojení selhalo');
+      if (attempt < attempts) { await wait(800 * attempt); continue; }
     }
   }
-  return null;
+  return { status: null, verdict: 'unknown', note: `nepodařilo se ověřit — ${lastError || 'server neodpověděl'}` };
+}
+
+/** Vyzkoušení jediné adresy z rozhraní — když si člověk chce ověřit, co se děje. */
+export async function testUrl(url: string): Promise<Probe> {
+  return probe(url, 2, 15_000);
 }
 
 /** Kam dnes vede cesta, která nefunguje. */
@@ -262,27 +321,21 @@ export async function checkLinks(options: CheckOptions = {}): Promise<LinkCheck[
     await wait(index * spacing);
     while (cursor < urls.length && !cancelled) {
       const url = urls[cursor++];
-      const status = await probe(url);
+      const result = await probe(url);
       const entries = targets.get(url)!;
 
-      // Tři různé výsledky, ne dva. „Neověřeno" není „rozbité": server mohl
-      // jen zahodit dotaz kvůli zátěži a označit kvůli tomu funkční odkaz za
-      // vadný je horší, než ho nezkontrolovat vůbec.
-      const ok = status !== null && status >= 200 && status < 400;
-      const unverified = status === null;
-
-      if (!ok) {
-        const fix = unverified ? null : suggest(url, entries[0].lang);
+      if (result.verdict !== 'ok') {
+        // Náhrada se hledá jen u toho, co je prokazatelně rozbité. U „nevíme"
+        // by to znamenalo přepsat funkční odkaz podle domněnky.
+        const fix = result.verdict === 'broken' ? suggest(url, entries[0].lang) : null;
         for (const entry of entries) {
-          entry.status = status;
+          entry.status = result.status;
           entry.suggestion = fix?.url ?? null;
-          entry.note = unverified
-            ? 'nepodařilo se ověřit — server neodpověděl ani po opakování'
-            : (fix?.note ?? `HTTP ${status}`);
-          entry.unverified = unverified;
+          entry.note = fix?.note ?? result.note;
+          entry.unverified = result.verdict === 'unknown';
           results.push(entry);
         }
-        push({ broken: state.broken + (unverified ? 0 : entries.length) });
+        push({ broken: state.broken + (result.verdict === 'broken' ? entries.length : 0) });
       }
       push({ done: state.done + 1, label: url.slice(0, 80) });
       if (spacing) await wait(spacing);
@@ -336,12 +389,20 @@ export function applyFix(articleId: number, lang: string, from: string, to: stri
     .get(articleId, lang) as any;
   if (!row?.long) return 0;
 
-  const quoted = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Hledá se obojí: adresa tak, jak se posílá na síť, i tak, jak je zapsaná
+  // v HTML (`&` jako `&amp;`). Jinak by oprava u adresy s parametrem tiše
+  // neudělala nic.
+  const encoded = from.replace(/&/g, '&amp;');
+  const forms = [...new Set([from, encoded])];
   let count = 0;
-  const next = row.long.replace(new RegExp(`(["'])${quoted}\\1`, 'g'), (m: string, q: string) => {
-    count++;
-    return `${q}${to}${q}`;
-  });
+  let next = row.long;
+  for (const form of forms) {
+    const quoted = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    next = next.replace(new RegExp(`(["'])${quoted}\\1`, 'g'), (_m: string, q: string) => {
+      count++;
+      return `${q}${to}${q}`;
+    });
+  }
   if (count === 0) return 0;
 
   d.prepare('UPDATE art_langs SET long = ?, updated_at = ? WHERE article_id = ? AND lang = ?')

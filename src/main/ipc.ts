@@ -423,6 +423,7 @@ export function registerIpc() {
   handle('articles:preview', (id: number, lang: string) => articles.preview(id, lang));
   handle('articles:links', (id: number, lang: string) => articles.articleLinks(id, lang));
   handle('articles:review', (id: number, lang: string) => articles.articleReview(id, lang));
+  handle('articles:testUrl', (url: string) => articles.testUrl(url));
   handle('articles:dismissLink', (id: number, lang: string, url: string) =>
     articles.dismissLink(id, lang, url));
   handle('articles:import', () => articles.importFromFile());

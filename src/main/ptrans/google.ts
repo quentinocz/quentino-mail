@@ -6,7 +6,7 @@ import { getField, tagText } from './xml';
 import { parameterMap, renderTemplate } from './seo';
 import { clamp } from './translate';
 import { plain } from './detect';
-import { colorFor } from './colors';
+import { colorFor, shadeFromTitle } from './colors';
 import { detectBundle } from './bundle';
 import { memoryHint } from './memory';
 
@@ -86,9 +86,17 @@ const DESC_RULES = (limit: number) =>
   [`Napiš popis produktu pro Google Nákupy. Nejvýš ${limit} znaků, čistý text bez HTML a bez odrážek.`,
     'První věta říká, co produkt je a pro koho — ta se zobrazuje nejčastěji.',
     'Dál materiál, rozměry, provedení, k jaké příležitosti se hodí a jak se o něj starat.',
+    'Barvu piš tím odstínem, jakým produkt opravdu je („hořčicově žlutá"), ne obecnou barvou.',
     'Piš souvislé věty, ne výčet klíčových slov.',
     'Zakázáno: cena, doprava, slevy, odkazy, informace o dostupnosti, srovnání s konkurencí,',
     'velká písmena přes celé slovo a text typu „klikněte zde".'].join('\n');
+
+/** Odstín a základní barva jsou totéž — pak není co rozlišovat. */
+function normalizeSame(a: string, b: string): boolean {
+  const clean = (value: string) => plain(value ?? '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  return clean(a) === clean(b);
+}
 
 /**
  * Podklady o produktu, ze kterých model píše.
@@ -122,16 +130,32 @@ function productBrief(code: string, lang: string, forTitle = false): string {
   ];
 
   if (forTitle) {
-    // Rozebrané díly přesně v pořadí, v jakém mají být v titulku
+    // Odstín se bere z **přeloženého** názvu, ne z parametru. Parametr má jen
+    // základní barvu („žlutá"), do textu ale patří to, jak produkt doopravdy
+    // vypadá („hořčicově žlutá") — základní barva slouží jen atributu g:color.
+    const localTitle = pick('title') || product.title;
+    const shade = shadeFromTitle(localTitle) || params.barva || '';
+    const base = colorFor(code, lang);
+
     parts.push(
       `— TYP PRODUKTU (na první místo): odvoď z kategorie „${product.category}" a názvu`,
-      params.barva ? `— BARVA: ${params.barva}` : '— BARVA: (není)',
+      shade ? `— BARVA do textu (použij tenhle odstín, ne obecnou barvu): ${shade}` : '— BARVA: (není)',
+      base && normalizeSame(base, shade)
+        ? ''
+        : base ? `— (základní barva „${base}" jde jen do atributu g:color, do titulku ji nedávej)` : '',
       params.vzor ? `— VZOR: ${params.vzor}` : '',
       params.materiál || params.material ? `— MATERIÁL: ${params.materiál ?? params.material}` : '',
       params.šířka || params.velikost ? `— ROZMĚR: ${params.šířka ?? params.velikost}` : '',
       `— ZNAČKA (na konec): ${product.manufacturer || 'Quentino'}`,
       bundle.isBundle ? '— JE TO SET: vypiš, co zákazník dostane, ne marketingový obrat' : ''
     );
+  }
+
+  if (!forTitle) {
+    // I v popisu má být odstín, ne obecná barva — „hořčicově žlutá" je to,
+    // jak produkt vypadá; „žlutá" je jen zařazení do filtru
+    const shade = shadeFromTitle(pick('title') || product.title);
+    if (shade) parts.push(`— ODSTÍN do textu (ne obecná barva): ${shade}`);
   }
 
   parts.push(

@@ -8,8 +8,8 @@ import { buildArticle, wrapTexts, ArticleVersionXml } from './xml';
 import { importArticlesXml } from './importxml';
 import { generateArticle, translateArticle, articleProgress, stopArticles, researchTerms,
   productsForArticle, GenerateInput } from './generate';
-import { checkLinks, lastCheck, applyFix, applyAllFixes, dismissLink, checkProgress, stopCheck, CheckOptions } from './check';
-import { learnUrlMap, listUrlMap, rememberPair, deletePair, extractImages, extractLinks } from './urlmap';
+import { checkLinks, lastCheck, applyFix, applyAllFixes, dismissLink, testUrl, checkProgress, stopCheck, CheckOptions } from './check';
+import { learnUrlMap, listUrlMap, rememberPair, deletePair, extractImages, extractLinks, decodeUrl } from './urlmap';
 
 /**
  * Články — vstupní bod pro zbytek aplikace.
@@ -148,11 +148,14 @@ export function articleReview(id: number, lang: string): {
     /<a\b([^>]*?)\bhref\s*=\s*(["'])([^"']+)\2([^>]*)>([\s\S]*?)<\/a>/gi,
     (_match, before, quote, href, after, inner) => {
       index++;
-      const found = checks.get(href);
+      // V HTML je `&` zapsané jako `&amp;`; kontrola pracuje s adresou tak,
+      // jak se posílá na síť, takže se musí porovnávat rozkódovaná
+      const clean = decodeUrl(href);
+      const found = checks.get(clean);
       const tone = !found ? 'ok' : found.unverified ? 'unknown' : 'bad';
       links.push({
         index,
-        url: href,
+        url: clean,
         text: String(inner).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80),
         kind: found?.kind ?? 'other',
         status: found?.status ?? null,
@@ -190,7 +193,7 @@ export {
   getArticleSettings, saveArticleSettings, defaultArticlePrompt, articleLangs,
   listArticles, getArticle, saveArticle, deleteArticle, rawXml, articleSummary,
   generateArticle, translateArticle, articleProgress, stopArticles, researchTerms, productsForArticle,
-  checkLinks, lastCheck, applyFix, applyAllFixes, dismissLink, checkProgress, stopCheck,
+  checkLinks, lastCheck, applyFix, applyAllFixes, dismissLink, testUrl, checkProgress, stopCheck,
   listUrlMap, deletePair, importArticlesXml
 };
 export type { ArticleSettings, GenerateInput, CheckOptions };
