@@ -3,7 +3,7 @@ import type { ChatConversation, ChatMessage as Msg, ChatOverview } from '@shared
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
-import WorkspaceSwitch, { Workspace } from '../WorkspaceSwitch';
+import WorkspaceSwitch, { Workspace, AiTool } from '../WorkspaceSwitch';
 import { SidebarResizer } from '../../sidebar';
 import ChatMessageView from './ChatMessage';
 import ChatProductPicker from './ChatProductPicker';
@@ -27,13 +27,17 @@ interface Props {
   chatUnread: number;
   /** Napsat zákazníkovi e-mail — přepne do pošty a otevře novou zprávu */
   onComposeEmail: (email: string) => void;
+  /** Otevření nástroje z nabídky AI */
+  onAiTool: (tool: AiTool) => void;
+  /** Který nástroj AI je zrovna otevřený */
+  activeTool?: AiTool;
 }
 
 /**
  * Chat ze zákaznického widgetu. Data jsou tatáž, se kterou pracuje webový
  * admin — aplikace do nich jen píše, takže widget ani nasazený chat se nemění.
  */
-export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread, onComposeEmail }: Props) {
+export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread, onComposeEmail, onAiTool, activeTool }: Props) {
   const toast = useToast();
   const [overview, setOverview] = useState<ChatOverview | null>(null);
   const [convs, setConvs] = useState<ChatConversation[]>([]);
@@ -218,7 +222,8 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
             </button>
           )}
         </div>
-        <WorkspaceSwitch current="chat" onChange={onWorkspace} chatUnread={chatUnread} />
+        <WorkspaceSwitch current="chat" onChange={onWorkspace} chatUnread={chatUnread}
+          onAiTool={onAiTool} activeTool={activeTool} />
 
         <div className="ig-seg" style={{ margin: '0 10px 8px' }}>
           <button className={onlyOpen ? 'active' : ''} onClick={() => setOnlyOpen(true)}>Otevřené</button>

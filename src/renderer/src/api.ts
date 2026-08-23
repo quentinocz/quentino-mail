@@ -6,7 +6,10 @@ import type {
   VoucherTemplate,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
   ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
-  PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency
+  PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
+  PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat, PtransLearnResult,
+  ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
+  ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct
 } from '@shared/types';
 
 declare global {
@@ -121,7 +124,58 @@ export const api = {
     /** Přidá produkty z ručně vybraného XML (novinky, které ještě nejsou ve feedu) */
     importFile: () => call<{ products: number; fields: number; paired: number; file: string } | null>('ptrans:importFile'),
     consistency: (lang: string) => call<PtransConsistency>('ptrans:consistency', lang),
-    suggestPattern: (category: string, lang: string) => call<string>('ptrans:suggestPattern', category, lang)
+    suggestPattern: (category: string, lang: string) => call<string>('ptrans:suggestPattern', category, lang),
+    /** Paměť překladů — co se aplikace naučila z hotových jazykových mutací */
+    memory: (filter: { lang?: string; kind?: PtransMemoryKind; search?: string } = {}) =>
+      call<{ entries: PtransMemoryEntry[]; stats: PtransMemoryStat[] }>('ptrans:memory', filter),
+    learn: (langs?: string[]) => call<PtransLearnResult[]>('ptrans:learn', langs),
+    saveMemory: (entry: PtransMemoryEntry) => call<PtransMemoryEntry[]>('ptrans:saveMemory', entry),
+    deleteMemory: (id: number) => call<boolean>('ptrans:deleteMemory', id)
+  },
+  /** Články pro e-shop — psaní, překlad a kontrola odkazů. Jen na počítači. */
+  articles: {
+    overview: () => call<ArticleOverview>('articles:overview'),
+    saveSettings: (patch: Partial<ArticleSettings>) => call<ArticleSettings>('articles:saveSettings', patch),
+    defaultPrompt: () => call<string>('articles:defaultPrompt'),
+    list: (filter: { search?: string; status?: string } = {}) => call<ArticleListRow[]>('articles:list', filter),
+    get: (id: number) => call<ArticleDetail | null>('articles:get', id),
+    save: (input: Record<string, unknown>) => call<number>('articles:save', input),
+    delete: (id: number) => call<boolean>('articles:delete', id),
+    editVersion: (id: number, lang: string, patch: Record<string, string>) =>
+      call<ArticleDetail | null>('articles:editVersion', id, lang, patch),
+    generate: (input: {
+      articleId?: number; topic: string; title?: string; titleFixed?: boolean; langs: string[];
+      wordCount?: number; brief?: Partial<ArticleBrief>; prompt?: string; force?: boolean;
+    }) => call<{ id: number; langs: string[]; errors: string[] }>('articles:generate', input),
+    translate: (id: number, langs: string[], force = false) =>
+      call<{ langs: string[]; unresolved: { lang: string; url: string }[]; errors: string[] }>(
+        'articles:translate', id, langs, force),
+    progress: () => call<ArticleProgress | null>('articles:progress'),
+    stop: () => call<boolean>('articles:stop'),
+    terms: (topic: string, lang: string, title = '') => call<string>('articles:terms', topic, lang, title),
+    products: (codes: string[], lang: string) => call<ArticleProduct[]>('articles:products', codes, lang),
+    preview: (id: number, lang: string) =>
+      call<{ title: string; html: string; words: number } | null>('articles:preview', id, lang),
+    links: (id: number, lang: string) => call<string[]>('articles:links', id, lang),
+    import: () => call<{ articles: number; updated: number; versions: number;
+      learned: { articles: number; pairs: number; skipped: number }; file: string } | null>('articles:import'),
+    export: (input: { ids?: number[]; langs?: string[]; onlyReady?: boolean } = {}) =>
+      call<{ path: string; articles: number; versions: number } | null>('articles:export', input),
+    check: (options: { articleIds?: number[]; langs?: string[]; images?: boolean } = {}) =>
+      call<ArticleLinkCheck[]>('articles:check', options),
+    lastCheck: () => call<ArticleLinkCheck[]>('articles:lastCheck'),
+    checkProgress: () => call<ArticleCheckProgress | null>('articles:checkProgress'),
+    stopCheck: () => call<boolean>('articles:stopCheck'),
+    fix: (id: number, lang: string, from: string, to: string) =>
+      call<number>('articles:fix', id, lang, from, to),
+    fixAll: (ids?: number[]) => call<number>('articles:fixAll', ids),
+    urlmap: (filter: { fromLang?: string; toLang?: string; kind?: string; search?: string } = {}) =>
+      call<ArticleUrlPair[]>('articles:urlmap', filter),
+    learnLinks: () => call<{ articles: number; pairs: number; skipped: number }>('articles:learnLinks'),
+    saveUrlPair: (fromLang: string, fromPath: string, toLang: string, toPath: string, kind = 'other') =>
+      call<ArticleUrlPair[]>('articles:saveUrlPair', fromLang, fromPath, toLang, toPath, kind),
+    deleteUrlPair: (fromLang: string, fromPath: string, toLang: string) =>
+      call<boolean>('articles:deleteUrlPair', fromLang, fromPath, toLang)
   },
   persons: {
     list: () => call<Person[]>('persons:list'),

@@ -3,7 +3,7 @@ import type { IgOverview } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
-import WorkspaceSwitch, { Workspace } from '../WorkspaceSwitch';
+import WorkspaceSwitch, { Workspace, AiTool } from '../WorkspaceSwitch';
 import { SidebarResizer } from '../../sidebar';
 import { useIsPhone } from '../../mobile';
 import IgFeed from './IgFeed';
@@ -18,13 +18,17 @@ interface Props {
   onOpenSettings: () => void;
   onWorkspace: (w: Workspace) => void;
   chatUnread: number;
+  /** Otevření nástroje z nabídky AI */
+  onAiTool: (tool: AiTool) => void;
+  /** Který nástroj AI je zrovna otevřený */
+  activeTool?: AiTool;
 }
 
 /**
  * Instagramový pracovní prostor. Sdílí s poštou vzhled i postranní panel,
  * ale obsah okna je jiný — pošta a sociální sítě spolu nesoupeří o místo.
  */
-export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUnread }: Props) {
+export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUnread, onAiTool, activeTool }: Props) {
   const toast = useToast();
   const phone = useIsPhone();
   const [view, setView] = useState<IgView>('feed');
@@ -89,7 +93,8 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
       <div className="sidebar">
         <div className="brand">quentino<span> social</span></div>
 
-        <WorkspaceSwitch current="instagram" onChange={onWorkspace} chatUnread={chatUnread} />
+        <WorkspaceSwitch current="instagram" onChange={onWorkspace} chatUnread={chatUnread}
+          onAiTool={onAiTool} activeTool={activeTool} />
 
         <button className="btn-compose" onClick={newPost}>
           {/* Na telefonu je z panelu vodorovný pás — dlouhý popisek by z něj

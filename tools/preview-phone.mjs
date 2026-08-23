@@ -56,9 +56,9 @@ const rows = [];
 for (const device of DEVICES) {
   const page = await browser.newPage({
     viewport: { width: device.width, height: device.height },
-    deviceScaleFactor: 2,
-    isMobile: true,
-    hasTouch: true
+    deviceScaleFactor: device.desktop ? 1 : 2,
+    isMobile: !device.desktop,
+    hasTouch: !device.desktop
   });
   page.on('pageerror', e => problems.push(`${device.name}: chyba stránky: ${e.message}`));
   page.on('console', m => {

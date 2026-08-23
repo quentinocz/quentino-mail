@@ -13,9 +13,11 @@ import TooltipLayer from './components/TooltipLayer';
 import DigestModal from './components/DigestModal';
 import PackingModal from './components/PackingModal';
 import ProductsModal from './components/ProductsModal';
+import ArticlesModal from './components/ArticlesModal';
+import PtransStatusBar from './components/PtransStatusBar';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
-import type { Workspace } from './components/WorkspaceSwitch';
+import type { Workspace, AiTool } from './components/WorkspaceSwitch';
 import { SidebarResizer, useSidebarWidth } from './sidebar';
 import { useIsPhone } from './mobile';
 import MobileTabs from './components/MobileTabs';
@@ -41,7 +43,9 @@ function AppInner() {
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [digestOpen, setDigestOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
-  const [productsOpen, setProductsOpen] = useState(false);
+  // Nástroje pod záložkou AI: překlady a články. Otevírají se přes celé okno,
+  // ale běh (překlad) pokračuje i po zavření — proto je stav tady, ne v panelu.
+  const [aiTool, setAiTool] = useState<AiTool | null>(null);
   const [orderPending, setOrderPending] = useState(0);
   // Pracovní prostor: pošta nebo Instagram. Pamatuje se mezi spuštěními.
   const [workspace, setWorkspace] = useState<Workspace>(() => {
@@ -56,6 +60,14 @@ function AppInner() {
   // Zásuvku i otevřenou zprávu zavře přepnutí prostoru — jinak by se otevřel
   // Chat a pod ním zůstal viset panel složek
   useEffect(() => { setDrawer(false); }, [workspace]);
+
+  // Nabídka AI je ve všech prostorech; Instagram je vlastní prostor, zbytek
+  // jsou okna nad tím, ve kterém zrovna jsi
+  const openAiTool = useCallback((tool: AiTool) => {
+    if (tool === 'instagram') { setWorkspace('instagram'); return; }
+    setDrawer(false);
+    setAiTool(tool);
+  }, []);
 
   // E-mail, který se má otevřít po přepnutí z chatu do pošty
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -249,6 +261,22 @@ function AppInner() {
     setPendingEmail(null);
   }, [workspace, pendingEmail, activeAccountId]);
 
+  /**
+   * Okna nástrojů AI a pruh s průběhem překladu. Jsou stejná ve všech
+   * prostorech — proto se vykreslují z jednoho místa a ne v každé větvi zvlášť.
+   *
+   * Na telefonu nejsou vůbec: překlady ani články se na malé obrazovce dělat
+   * nedají a nativní obal pro ně nemá kanály. Bez téhle pojistky by se hned
+   * po spuštění zeptal na průběh překladu a dostal chybu.
+   */
+  const aiLayer = phone ? null : (
+    <>
+      {aiTool === 'ptrans' && <ProductsModal onClose={() => setAiTool(null)} />}
+      {aiTool === 'articles' && <ArticlesModal onClose={() => setAiTool(null)} />}
+      <PtransStatusBar hidden={aiTool ?? undefined} onOpen={tool => setAiTool(tool)} />
+    </>
+  );
+
   const currentCategory: Category | null = view.type === 'category' ? view.category : null;
 
   if (workspace === 'chat') {
@@ -259,6 +287,8 @@ function AppInner() {
           onWorkspace={setWorkspace}
           chatUnread={chatUnread}
           onComposeEmail={email => { setPendingEmail(email); setWorkspace('mail'); }}
+          onAiTool={openAiTool}
+          activeTool={aiTool ?? undefined}
         />
         {phone && <MobileTabs current="chat" onChange={setWorkspace} chatUnread={chatUnread} />}
         {settingsOpen && (
@@ -269,6 +299,7 @@ function AppInner() {
             onSettingsChanged={() => api.settings.get().then(setSettings).catch(() => {})}
           />
         )}
+        {aiLayer}
         <TooltipLayer />
       </>
     );
@@ -281,6 +312,8 @@ function AppInner() {
           onOpenSettings={() => setSettingsOpen(true)}
           onWorkspace={setWorkspace}
           chatUnread={chatUnread}
+          onAiTool={openAiTool}
+          activeTool={aiTool ?? undefined}
         />
         {phone && <MobileTabs current="instagram" onChange={setWorkspace} chatUnread={chatUnread} />}
         {settingsOpen && (
@@ -291,6 +324,7 @@ function AppInner() {
             onSettingsChanged={() => api.settings.get().then(setSettings).catch(() => {})}
           />
         )}
+        {aiLayer}
         <TooltipLayer />
       </>
     );
@@ -366,10 +400,11 @@ function AppInner() {
         quota={quota}
         onOpenDigest={() => { setDrawer(false); setDigestOpen(true); }}
         onOpenPacking={() => { setDrawer(false); setPackingOpen(true); }}
-        onOpenProducts={() => { setDrawer(false); setProductsOpen(true); }}
         orderPending={orderPending}
         onWorkspace={setWorkspace}
         chatUnread={chatUnread}
+        onAiTool={openAiTool}
+        activeTool={aiTool ?? undefined}
       />
       <MessageList
         messages={messages}
@@ -448,6 +483,7 @@ function AppInner() {
       )}
       {outboxOpen && <OutboxModal onClose={() => setOutboxOpen(false)} />}
       {phone && <MobileTabs current="mail" onChange={setWorkspace} chatUnread={chatUnread} />}
+      {aiLayer}
       <TooltipLayer />
     </div>
   );

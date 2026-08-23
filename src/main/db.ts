@@ -4,6 +4,7 @@ import fs from 'fs';
 import { app } from 'electron';
 import { igSchema, igAlters } from './instagram/schema';
 import { SCHEMA as ptransSchema, ALTERS as ptransAlters } from './ptrans/schema';
+import { SCHEMA as artSchema, ALTERS as artAlters } from './articles/schema';
 
 let db: Database.Database;
 
@@ -222,6 +223,11 @@ function migrate(d: Database.Database) {
   // Překlady produktů: katalog z feedu, jednotlivá pole po jazycích a běhy
   d.exec(ptransSchema);
   for (const sql of ptransAlters) {
+    try { d.exec(sql); } catch { /* sloupec už existuje */ }
+  }
+  // Články: zadání, jazykové verze, kontrola odkazů a mapa adres mezi trhy
+  d.exec(artSchema);
+  for (const sql of artAlters) {
     try { d.exec(sql); } catch { /* sloupec už existuje */ }
   }
   // Instagram: účty, trhy, příspěvky, popisky a fronta publikací

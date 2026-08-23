@@ -1,7 +1,7 @@
 import type { AccountPublic, FolderInfo, Category } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import Icon from './Icon';
-import WorkspaceSwitch, { Workspace } from './WorkspaceSwitch';
+import WorkspaceSwitch, { Workspace, AiTool } from './WorkspaceSwitch';
 
 export type View =
   | { type: 'folder'; folder: string }
@@ -52,6 +52,10 @@ interface Props {
   onWorkspace: (w: Workspace) => void;
   /** Nepřečtené zprávy v chatu */
   chatUnread: number;
+  /** Otevření nástroje z nabídky AI */
+  onAiTool: (tool: AiTool) => void;
+  /** Který nástroj AI je zrovna otevřený */
+  activeTool?: AiTool;
 }
 
 function fmtGB(bytes: number): string {
@@ -67,7 +71,8 @@ export default function Sidebar(p: Props) {
     <div className="sidebar">
       <div className="brand">quentino<span> mail</span></div>
 
-      <WorkspaceSwitch current="mail" onChange={p.onWorkspace} chatUnread={p.chatUnread} />
+      <WorkspaceSwitch current="mail" onChange={p.onWorkspace} chatUnread={p.chatUnread}
+        onAiTool={p.onAiTool} activeTool={p.activeTool} />
 
       <button className="btn-compose" onClick={p.onCompose}><Icon name="pen" size={15} /> Nová zpráva</button>
 

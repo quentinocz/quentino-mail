@@ -278,6 +278,113 @@
       ]
     },
     'ptrans:exportPreview': { products: 137, fields: 812 },
+    'ptrans:memory': {
+      entries: [
+        { id: 1, kind: 'term', lang: 'en', source: 'kšandy', target: 'suspenders', category: '',
+          hits: 96, confidence: 0.97, origin: 'feed', locked: 0 },
+        { id: 2, kind: 'term', lang: 'en', source: 'pánská kravata', target: "men's necktie", category: '',
+          hits: 121, confidence: 0.98, origin: 'feed', locked: 0 },
+        { id: 3, kind: 'term', lang: 'en', source: 'kapesníček', target: "men's pocket square",
+          category: '', hits: 64, confidence: 0.93, origin: 'feed', locked: 0 },
+        { id: 4, kind: 'term', lang: 'en', source: 'motýlek matný', target: 'matte bow tie',
+          category: 'Motýlci', hits: 12, confidence: 1, origin: 'manual', locked: 1 }
+      ],
+      stats: [
+        { lang: 'sk', terms: 503, patterns: 35, examples: 123, manual: 2 },
+        { lang: 'en', terms: 461, patterns: 35, examples: 121, manual: 1 }
+      ]
+    },
+    'ptrans:learn': [{ lang: 'en', pairs: 461, terms: 461, patterns: 35, examples: 121 }],
+    'articles:overview': {
+      settings: {
+        sourceLang: 'cz',
+        languages: [
+          { code: 'cz', label: 'Čeština', enabled: true, domain: 'https://www.quentino.cz' },
+          { code: 'sk', label: 'Slovenština', enabled: true, domain: 'https://www.quentino.sk' },
+          { code: 'en', label: 'Angličtina', enabled: true, domain: 'https://www.wearquentino.com' }
+        ],
+        prompt: 'Jsi zkušený copywriter české rodinné značky Quentino…',
+        wordCount: 900, model: '', researchTerms: true, productPrefix: '/p/', articlePrefix: '/a/'
+      },
+      summary: { total: 25, drafts: 3, byLang: [{ lang: 'cz', n: 25 }, { lang: 'sk', n: 25 }, { lang: 'en', n: 25 }] },
+      running: null, checking: null, urlmap: 348
+    },
+    'articles:list': [
+      { id: 1, articleId: '67', topic: 'Co obléct dětem na vysvědčení a první školní den',
+        status: 'ready', sourceLang: 'cz', wordCount: 1200, langs: ['cz', 'sk', 'en'], prompt: '',
+        brief: { products: ['PKT23'], productImages: {}, includeProductImages: true, productLayout: 'block',
+          productSize: 'medium', images: [], links: [], titleFixed: false, title: '' },
+        terms: '', origin: 'import', createdAt: '', updatedAt: '',
+        versions: [{ lang: 'cz', state: 'imported', words: 1375 }, { lang: 'sk', state: 'translated', words: 1435 },
+          { lang: 'en', state: 'imported', words: 1873 }] },
+      { id: 2, articleId: null, topic: 'Jak vybrat motýlka na svatbu podle barvy obleku',
+        status: 'draft', sourceLang: 'cz', wordCount: 900, langs: ['cz', 'sk'], prompt: '',
+        brief: { products: [], productImages: {}, includeProductImages: true, productLayout: 'block',
+          productSize: 'medium', images: [], links: [], titleFixed: false, title: '' },
+        terms: '', origin: 'new', createdAt: '', updatedAt: '',
+        versions: [{ lang: 'cz', state: 'generated', words: 942 }, { lang: 'sk', state: 'empty', words: 0 }] },
+      { id: 3, articleId: null, topic: '', status: 'draft', sourceLang: 'cz', wordCount: 600,
+        langs: ['cz'], prompt: '',
+        brief: { products: [], productImages: {}, includeProductImages: true, productLayout: 'block',
+          productSize: 'medium', images: [], links: [], titleFixed: false, title: '' },
+        terms: '', origin: 'new', createdAt: '', updatedAt: '', versions: [] }
+    ],
+    'articles:get': {
+      id: 1, articleId: '67', topic: 'Co obléct dětem na vysvědčení a první školní den',
+      status: 'ready', sourceLang: 'cz', wordCount: 1200, langs: ['cz', 'sk', 'en'], prompt: '',
+      brief: {
+        products: ['PKT23'], productImages: {}, includeProductImages: true,
+        productLayout: 'block', productSize: 'medium',
+        images: [{ url: 'https://quentino.s19.cdn-upgates.com/q/priklad.jpg',
+          description: 'Tobias s vysvědčením', size: 'auto', layout: 'block', isListing: true }],
+        links: [{ name: 'Dětské kravaty', urls: { cz: 'https://www.quentino.cz/detske-kravaty/' } }],
+        titleFixed: false, title: 'Co obléct dětem na vysvědčení'
+      },
+      terms: 'HLAVNÍ: co obléct dětem na vysvědčení\nVEDLEJŠÍ: dětská kravata, slavnostní oblečení pro chlapce…',
+      origin: 'import', createdAt: '2026-07-07T16:54:38Z', updatedAt: '2026-08-20T10:00:00Z',
+      versions: [
+        { lang: 'cz', title: 'Co obléct dětem na vysvědčení a první školní den', slug: 'co-oblect-detem',
+          short: 'Jak slavnostně obléct chlapce na vysvědčení nebo první školní den.',
+          long: '<div style="max-width:900px;margin:0 auto;line-height:1.7"><p style="text-align:justify">Vysvědčení nebo první školní den — to není jen další ráno.</p><h2 style="font-size:1.4rem">Proč na tom záleží</h2><p style="text-align:justify">Oblečení je jeden z nejjednodušších způsobů, jak dítěti ukázat, že daný den má váhu.</p><p><a href="https://www.quentino.cz/p/salvejove-zelena-detska-kravata">Šalvějově zelená dětská kravata</a></p></div>',
+          seo_title: 'Co obléct dětem na vysvědčení | Quentino', seo_desc: 'Praktický průvodce slavnostním oblečením pro chlapce.',
+          seo_url: 'co-oblect-detem-na-vysvedceni', state: 'imported', updatedAt: null, words: 1375 },
+        { lang: 'sk', title: 'Čo obliecť deťom na vysvedčenie', slug: 'co-obliect-detom',
+          short: 'Ako slávnostne obliecť chlapca na vysvedčenie.', long: '<p>Slovenská verze…</p>',
+          seo_title: 'Čo obliecť deťom | Quentino', seo_desc: 'Sprievodca slávnostným oblečením.',
+          seo_url: 'co-obliect-detom-na-vysvedcenie', state: 'translated', updatedAt: null, words: 1435 },
+        { lang: 'en', title: 'What to Wear for the First Day of School', slug: 'what-to-wear',
+          short: 'How to dress a boy for a school celebration.', long: '<p>English version…</p>',
+          seo_title: 'What to Wear | Quentino', seo_desc: 'A practical guide.',
+          seo_url: 'what-to-wear-first-day-school', state: 'imported', updatedAt: null, words: 1873 }
+      ]
+    },
+    'articles:products': [
+      { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI',
+        url: 'https://www.quentino.cz/p/bordo-panska-kravata-buldocci', image: null }
+    ],
+    'articles:links': [
+      'https://www.quentino.cz/p/salvejove-zelena-detska-kravata',
+      'https://www.quentino.cz/detske-kravaty/'
+    ],
+    'articles:lastCheck': [
+      { id: 1, articleId: 1, articleTitle: 'Co obléct dětem na vysvědčení', lang: 'cz',
+        url: 'https://www.quentino.cz/p/stara-adresa-kravaty', kind: 'product', status: 404,
+        suggestion: 'https://www.quentino.cz/p/salvejove-zelena-detska-kravata',
+        note: 'produkt PKT23 — adresa se změnila, stará vede přes 301' },
+      { id: 2, articleId: 1, articleTitle: 'Co obléct dětem na vysvědčení', lang: 'sk',
+        url: 'https://www.quentino.sk/detske-kravaty-stare/', kind: 'category', status: 404,
+        suggestion: null, note: 'HTTP 404' }
+    ],
+    'articles:urlmap': [
+      { fromLang: 'cz', fromPath: '/kravaty', toLang: 'en', toPath: '/neckties', kind: 'category',
+        hits: 5, locked: 0, updatedAt: null },
+      { fromLang: 'cz', fromPath: '/staroruzova-kolekce', toLang: 'sk', toPath: '/staroruzova-kolekcia',
+        kind: 'category', hits: 3, locked: 0, updatedAt: null },
+      { fromLang: 'cz', fromPath: '/detske-kravaty', toLang: 'en', toPath: '/kids-neckties',
+        kind: 'category', hits: 1, locked: 1, updatedAt: null }
+    ],
+    'articles:progress': null,
+    'articles:checkProgress': null,
     'products:status': { url: '', count: 0, lastSync: null },
     'vouchers:list': []
   };
@@ -308,6 +415,10 @@
       listeners.get(channel).add(cb);
       return function () { listeners.get(channel).delete(cb); };
     }
+  };
+  // Jen pro náhledy: vyvolá událost, jako by ji poslal hlavní proces
+  window.__emit = function (channel, payload) {
+    (listeners.get(channel) || []).forEach(function (cb) { cb(payload); });
   };
   const root = document.documentElement;
   root.dataset.platform = 'ios';

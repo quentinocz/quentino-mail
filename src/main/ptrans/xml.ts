@@ -47,16 +47,31 @@ const SPECS: Record<string, FieldSpec> = {
 /* ---------- základní pomůcky ---------- */
 
 export function unwrapCdata(raw: string): string {
+  return readValue(raw, false);
+}
+
+/**
+ * Přečte hodnotu prvku: rozbalí CDATA a **jen mimo ni** převede entity.
+ *
+ * Obsah CDATA je doslovný text — v HTML popisu je `&amp;` skutečné `&amp;` a
+ * druhé dekódování by z něj udělalo `&`. Produkt by se tím při každém průchodu
+ * feedem tiše měnil, aniž by to bylo na čem poznat.
+ *
+ * Sekcí CDATA může být víc za sebou: `]]>` uvnitř textu se při zápisu rozdělí
+ * na dvě (viz `encodeValue`), takže se čte po částech, stejně jako to dělá
+ * XML parser.
+ */
+function readValue(raw: string, decode: boolean): string {
   const text = raw.trim();
-  if (!text.includes('<![CDATA[')) return text;
-  // Sekcí může být víc za sebou: `]]>` uvnitř textu se při zápisu rozdělí na dvě
-  // (viz encodeValue), takže se čte stejně, jako to čte XML parser — po částech.
+  if (!text.includes('<![CDATA[')) return (decode ? decodeEntities(text) : text).trim();
+
   let out = '';
   let at = 0;
   while (at < text.length) {
     const start = text.indexOf('<![CDATA[', at);
-    if (start === -1) { out += text.slice(at); break; }
-    out += text.slice(at, start);
+    if (start === -1) { out += decode ? decodeEntities(text.slice(at)) : text.slice(at); break; }
+    const before = text.slice(at, start);
+    out += decode ? decodeEntities(before) : before;
     const end = text.indexOf(']]>', start + 9);
     if (end === -1) { out += text.slice(start + 9); break; }
     out += text.slice(start + 9, end);
@@ -97,7 +112,7 @@ export function tagValue(block: string, name: string): string | null {
 
 export function tagText(block: string, name: string): string {
   const raw = tagValue(block, name);
-  return raw === null ? '' : decodeEntities(unwrapCdata(raw)).trim();
+  return raw === null ? '' : readValue(raw, true);
 }
 
 /* ---------- jazykové části produktu ---------- */
@@ -146,7 +161,7 @@ export function getField(block: string, lang: string, field: FieldKey): string |
     const range = metaRange(block, spec.metaKey!, lang);
     if (!range) return null;
     const raw = block.slice(range[0], range[1]);
-    return raw.startsWith('<META_VALUE') ? '' : decodeEntities(unwrapCdata(raw)).trim();
+    return raw.startsWith('<META_VALUE') ? '' : readValue(raw, true);
   }
 
   const range = scopeRange(block, spec.scope, lang);
@@ -265,7 +280,7 @@ function paramValue(block: string, index: number, part: 'name' | 'value', lang: 
   if (one === undefined) return null;
   const tag = part === 'name' ? 'NAME' : 'VALUE';
   const m = new RegExp(`<${tag} language="${lang}"[^>]*>([\\s\\S]*?)</${tag}>`).exec(one);
-  if (m) return decodeEntities(unwrapCdata(m[1])).trim();
+  if (m) return readValue(m[1], true);
   return new RegExp(`<${tag} language="${lang}"[^>]*/>`).test(one) ? '' : null;
 }
 

@@ -8,6 +8,7 @@ import { applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl, SeoKind
 import { buildExport, exportPreview, ExportOptions } from './exportxml';
 import { findDeviations, patternOverview, patternFor, derivePattern } from './consistency';
 import { setSeoUrl, previewRedirect } from './redirects';
+import { listMemory, saveMemory, deleteMemory, learnFromFeed, memoryStats, MemoryEntry, MemoryKind, LearnResult } from './memory';
 
 /**
  * Překlady produktů — vstupní bod pro zbytek aplikace.
@@ -63,6 +64,23 @@ export function consistencyCheck(lang: string) {
     patterns: patternOverview(lang),
     deviations: findDeviations(lang)
   };
+}
+
+/**
+ * Naučí se slovosled a ustálené výrazy z produktů, které už jsou ve feedu
+ * přeložené. Pouští se ručně z rozhraní — je to práce na pár vteřin, ale mění
+ * to, jak budou vypadat všechny další překlady.
+ */
+export function learnMemory(langs?: string[]): LearnResult[] {
+  const result = learnFromFeed(langs);
+  emit('ptrans:changed', {});
+  return result;
+}
+
+/** Ruční zásah do paměti — zápis se zamkne, aby ho učení nepřepsalo. */
+export function editMemory(entry: MemoryEntry): MemoryEntry[] {
+  saveMemory({ ...entry, origin: 'manual', locked: true });
+  return listMemory({ lang: entry.lang, kind: entry.kind });
 }
 
 /** Nabídne tvar názvu odvozený z hotových překladů v kategorii. */
@@ -128,6 +146,7 @@ export {
   derivePattern,
   run, stop, progress, planWork,
   applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl,
-  buildExport, exportPreview
+  buildExport, exportPreview,
+  listMemory, deleteMemory, memoryStats
 };
-export type { SeoKind, ExportOptions };
+export type { SeoKind, ExportOptions, MemoryEntry, MemoryKind, LearnResult };

@@ -8,6 +8,7 @@ import { HTML_FIELDS, DERIVED_FIELDS } from './xml';
 import { NEEDS_WORK, plain } from './detect';
 import { consistencyHint } from './consistency';
 import { setSeoUrl } from './redirects';
+import { memoryHint, memoryStats, learnFromFeed } from './memory';
 
 /**
  * Překlad produktových textů.
@@ -243,6 +244,8 @@ export async function translateOne(target: TranslateTarget): Promise<{ saved: nu
   const consistency = payload.title || payload.seo_title || payload.google_title
     ? consistencyHint(product?.category ?? '', target.lang)
     : '';
+  // Paměť překladů: ustálené výrazy, které se v tomhle textu opravdu vyskytují
+  const memory = memoryHint(Object.values(payload).join(' \n'), target.lang, product?.category ?? '');
 
   const hint = [
     product?.category ? `Kategorie: ${product.category}` : '',
@@ -251,7 +254,8 @@ export async function translateOne(target: TranslateTarget): Promise<{ saved: nu
     ...wanted.filter(f => FIELD_LABELS[f]).map(f => `- ${f}: ${FIELD_LABELS[f]}`),
     s.limits.seoTitle && payload.seo_title ? `- seo_title nejvýš ${s.limits.seoTitle} znaků` : '',
     s.limits.seoDesc && payload.seo_desc ? `- seo_desc nejvýš ${s.limits.seoDesc} znaků` : '',
-    consistency
+    consistency,
+    memory
   ].filter(Boolean).join('\n');
 
   try {
@@ -317,6 +321,14 @@ export async function run(input: RunInput): Promise<RunResult> {
   const s = getPtransSettings();
   const langs = input.langs?.length ? input.langs : targetLangs(s);
   const work = planWork(input.codes, langs, { force: input.force, fields: input.fields });
+
+  // Než se začne překládat, mrkne se do paměti. Když je prázdná, vytáhne se
+  // teď — z produktů, které jsou ve feedu přeložené, se dá slovosled i
+  // názvosloví přečíst za pár vteřin a zbytek běhu se toho drží. Bez toho by
+  // první velký překlad vznikl bez jakéhokoli vzoru.
+  if (memoryStats().every(row => row.terms === 0)) {
+    try { learnFromFeed(langs); } catch { /* paměť je pomůcka, ne podmínka */ }
+  }
 
   cancelled = false;
   const speed = new Speed(s.secondsPerUnit || 12);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  PtransConsistency, PtransField, PtransOverview, PtransProduct, PtransProgress, PtransQuery, PtransState
+  PtransConsistency, PtransField, PtransOverview, PtransProduct, PtransProgress, PtransQuery, PtransState,
+  PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat
 } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -75,7 +76,7 @@ function relTime(iso: string | null): string {
 export default function ProductsModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [overview, setOverview] = useState<PtransOverview | null>(null);
-  const [tab, setTab] = useState<'work' | 'consistency' | 'settings'>('work');
+  const [tab, setTab] = useState<'work' | 'consistency' | 'memory' | 'settings'>('work');
 
   const [query, setQuery] = useState<PtransQuery>({ state: 'todo', limit: 60, offset: 0 });
   const [search, setSearch] = useState('');
@@ -292,6 +293,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
             <button className={tab === 'work' ? 'active' : ''} onClick={() => setTab('work')}>Produkty</button>
             <button className={tab === 'consistency' ? 'active' : ''}
               onClick={() => setTab('consistency')}>Jednotnost</button>
+            <button className={tab === 'memory' ? 'active' : ''}
+              onClick={() => setTab('memory')}>Paměť</button>
             <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Nastavení</button>
           </div>
           <button className="icon-btn" onClick={importFile}
@@ -301,7 +304,17 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
           <button className="icon-btn" onClick={refreshFeed} data-tip="Stáhnout feed znovu">
             <Icon name="refresh" size={15} className={loading ? 'spinning' : undefined} />
           </button>
-          <button className="icon-btn" onClick={onClose} data-tip="Zavřít"><Icon name="x" size={16} /></button>
+          {/* Během běhu je zavření ve skutečnosti zmenšení — překlad jede dál
+              v hlavním procesu a průběh se přesune do pruhu dole */}
+          {progress?.running && (
+            <button className="btn ghost pt-minimize" onClick={onClose}>
+              <Icon name="minimize" size={13} /> Na pozadí
+            </button>
+          )}
+          <button className="icon-btn" onClick={onClose}
+            data-tip={progress?.running ? 'Zavřít — překlad běží dál na pozadí' : 'Zavřít'}>
+            <Icon name="x" size={16} />
+          </button>
         </div>
 
         {tab === 'consistency' ? (
@@ -309,6 +322,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
             langs={langs.map(l => ({ code: l.code, label: l.label }))}
             onOpenProduct={code => { setActive(code); setTab('work'); }}
           />
+        ) : tab === 'memory' ? (
+          <MemoryPanel langs={langs.map(l => ({ code: l.code, label: l.label }))} />
         ) : tab === 'settings' ? (
           <PtransSettingsPanel
             overview={overview}
@@ -791,6 +806,225 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
 
 
 /* ---------- jednotnost názvů ---------- */
+
+/* ==================== Paměť ==================== */
+
+const KIND_TABS: { id: PtransMemoryKind; label: string; hint: string }[] = [
+  { id: 'term', label: 'Výrazy', hint: 'Slovo nebo spojení, které má vždycky znít stejně — kšandy → traky.' },
+  { id: 'pattern', label: 'Tvary názvů', hint: 'Slovosled v kategorii. ⟨…⟩ jsou místa, kam patří konkrétní slova.' },
+  { id: 'example', label: 'Hotové dvojice', hint: 'Celé názvy, které se modelu ukazují jako vzor.' }
+];
+
+/**
+ * Paměť překladů.
+ *
+ * Část produktů je ve feedu přeložená ručně a je na nich vidět styl, kterým se
+ * to má dělat dál — jak se skládá název, jak se překládají barvy a materiály.
+ * Tlačítko „Naučit se z feedu" to z hotových překladů vytáhne; do každého
+ * dalšího překladu se pak posílá jen ta část paměti, která se týká zrovna
+ * překládaného textu.
+ *
+ * Ruční úprava záznam **zamkne** — další učení ho nepřepíše. To je důležité:
+ * jinak by se špatný, ale častý zvyk z feedu pořád vracel.
+ */
+function MemoryPanel({ langs }: { langs: { code: string; label: string }[] }) {
+  const toast = useToast();
+  const [lang, setLang] = useState(langs[0]?.code ?? '');
+  const [kind, setKind] = useState<PtransMemoryKind>('term');
+  const [search, setSearch] = useState('');
+  const [entries, setEntries] = useState<PtransMemoryEntry[]>([]);
+  const [stats, setStats] = useState<PtransMemoryStat[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [learning, setLearning] = useState(false);
+  const [draft, setDraft] = useState<PtransMemoryEntry | null>(null);
+
+  const load = useCallback(async () => {
+    if (!lang) return;
+    setLoading(true);
+    try {
+      const data = await api.ptrans.memory({ lang, kind, search: search.trim() || undefined });
+      setEntries(data.entries);
+      setStats(data.stats);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [lang, kind, search, toast]);
+
+  useEffect(() => {
+    const timer = setTimeout(load, search ? 250 : 0);
+    return () => clearTimeout(timer);
+  }, [load, search]);
+
+  const learn = async () => {
+    setLearning(true);
+    try {
+      const result = await api.ptrans.learn(langs.map(l => l.code));
+      const summary = result
+        .map(r => `${r.lang.toUpperCase()}: ${r.terms} výrazů, ${r.patterns} tvarů (z ${r.pairs} názvů)`)
+        .join(' · ');
+      toast(summary || 'Zatím není z čeho se učit.');
+      await load();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setLearning(false);
+    }
+  };
+
+  const save = async (entry: PtransMemoryEntry) => {
+    if (!entry.source.trim() || !entry.target.trim()) { toast('Vyplň obě strany.', 'error'); return; }
+    try {
+      await api.ptrans.saveMemory(entry);
+      setDraft(null);
+      await load();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  };
+
+  const remove = async (id?: number) => {
+    if (!id) return;
+    try {
+      await api.ptrans.deleteMemory(id);
+      await load();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  };
+
+  const stat = stats.find(row => row.lang === lang);
+  const tab = KIND_TABS.find(t => t.id === kind)!;
+
+  return (
+    <>
+      <div className="pt-filters">
+        <div className="ig-seg">
+          {langs.map(item => (
+            <button key={item.code} className={lang === item.code ? 'active' : ''}
+              onClick={() => setLang(item.code)}>{item.code.toUpperCase()}</button>
+          ))}
+        </div>
+        <div className="ig-seg">
+          {KIND_TABS.map(item => (
+            <button key={item.id} className={kind === item.id ? 'active' : ''}
+              onClick={() => setKind(item.id)}>{item.label}</button>
+          ))}
+        </div>
+        <div className="ig-search">
+          <Icon name="search" size={14} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Hledat v paměti" />
+        </div>
+        <span style={{ flex: 1 }} />
+        <button className="btn ghost" onClick={() => setDraft({
+          kind, lang, source: '', target: '', category: '', hits: 0, confidence: 1,
+          origin: 'manual', locked: true
+        })}>
+          <Icon name="plus" size={13} /> Přidat
+        </button>
+        <button className="btn primary" onClick={learn} disabled={learning}>
+          {learning ? <span className="spinner-inline" /> : <Icon name="brain" size={14} />}
+          Naučit se z feedu
+        </button>
+      </div>
+
+      <div className="modal-body pt-memory">
+        <div className="pt-mem-head">
+          <p className="ig-muted">{tab.hint}</p>
+          {stat && (
+            <div className="pt-mem-stats">
+              <span><b>{stat.terms}</b> výrazů</span>
+              <span><b>{stat.patterns}</b> tvarů</span>
+              <span><b>{stat.examples}</b> dvojic</span>
+              <span><b>{stat.manual}</b> zamčených</span>
+            </div>
+          )}
+        </div>
+
+        {draft && (
+          <MemoryRow entry={draft} editing onChange={setDraft} onSave={save} onCancel={() => setDraft(null)} />
+        )}
+
+        {loading && entries.length === 0 && <div className="ig-muted">Načítám…</div>}
+        {!loading && entries.length === 0 && !draft && (
+          <div className="pt-mem-empty">
+            <Icon name="brain" size={26} />
+            <b>Paměť je zatím prázdná</b>
+            <p className="ig-muted">
+              Ve feedu už nějaké přeložené produkty jsou — „Naučit se z feedu" z nich
+              vytáhne ustálené výrazy a slovosled a použije je při dalších překladech.
+            </p>
+          </div>
+        )}
+
+        {entries.map(entry => (
+          <MemoryRow key={entry.id} entry={entry} onSave={save} onDelete={() => remove(entry.id)} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+/** Jeden záznam paměti. Klik na text ho otevře k úpravě — a tím i zamkne. */
+function MemoryRow({ entry, editing, onChange, onSave, onCancel, onDelete }: {
+  entry: PtransMemoryEntry;
+  editing?: boolean;
+  onChange?: (entry: PtransMemoryEntry) => void;
+  onSave: (entry: PtransMemoryEntry) => void;
+  onCancel?: () => void;
+  onDelete?: () => void;
+}) {
+  const [open, setOpen] = useState(!!editing);
+  const [local, setLocal] = useState(entry);
+  useEffect(() => { setLocal(entry); }, [entry]);
+
+  const value = editing ? entry : local;
+  const patch = (part: Partial<PtransMemoryEntry>) => {
+    const next = { ...value, ...part };
+    if (editing) onChange?.(next); else setLocal(next);
+  };
+
+  if (!open) {
+    return (
+      <div className="pt-mem-row" onClick={() => setOpen(true)}>
+        <div className="pt-mem-pair">
+          <span className="pt-mem-src">{value.source}</span>
+          <Icon name="chevRight" size={12} />
+          <span className="pt-mem-tgt">{value.target}</span>
+        </div>
+        {value.category && <span className="pt-mem-cat">{value.category}</span>}
+        <span style={{ flex: 1 }} />
+        {value.locked
+          ? <span className="pt-mem-badge manual" data-tip="Ručně upravené — učení to nepřepíše">ruční</span>
+          : <span className="pt-mem-badge" data-tip={`Doloženo ${value.hits}× ve feedu`}>
+              {value.hits}× · {Math.round(value.confidence * 100)} %
+            </span>}
+        <button className="icon-btn" data-tip="Smazat"
+          onClick={e => { e.stopPropagation(); onDelete?.(); }}>
+          <Icon name="trash" size={14} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-mem-row editing">
+      <input value={value.source} placeholder="zdroj (česky)"
+        onChange={e => patch({ source: e.target.value })} />
+      <Icon name="chevRight" size={12} />
+      <input value={value.target} placeholder="překlad"
+        onChange={e => patch({ target: e.target.value })} />
+      <input className="pt-mem-catin" value={value.category} placeholder="kategorie (nepovinné)"
+        onChange={e => patch({ category: e.target.value })} />
+      <span style={{ flex: 1 }} />
+      <button className="btn ghost" onClick={() => { setOpen(false); onCancel?.(); }}>Zpět</button>
+      <button className="btn primary" onClick={() => { onSave(value); setOpen(false); }}>
+        <Icon name="save" size={13} /> Uložit
+      </button>
+    </div>
+  );
+}
 
 /**
  * Kontrola slovosledu.
