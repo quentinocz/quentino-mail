@@ -466,7 +466,6 @@ function AppInner() {
         </div>
       )}
       {digestOpen && <DigestModal onClose={() => setDigestOpen(false)} />}
-      {productsOpen && <ProductsModal onClose={() => setProductsOpen(false)} />}
       {packingOpen && (
         <PackingModal
           onClose={() => setPackingOpen(false)}

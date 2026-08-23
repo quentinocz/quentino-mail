@@ -44,8 +44,6 @@ interface Props {
   quota: { used: number; limit: number } | null;
   onOpenDigest: () => void;
   onOpenPacking: () => void;
-  /** Překlady produktů (jen na počítači) */
-  onOpenProducts: () => void;
   /** Kolik zpráv k objednávkám čeká na odpověď */
   orderPending: number;
   /** Přepnutí pracovního prostoru */
@@ -95,12 +93,6 @@ export default function Sidebar(p: Props) {
         data-tip="Odškrtávací seznam objednávek k zabalení — kusy, varianty, adresy">
         <span className="icon"><Icon name="bag" /></span>
         <span className="label">Balení objednávek</span>
-      </button>
-
-      <button className="side-item" onClick={p.onOpenProducts}
-        data-tip="Překlady produktů do jazykových mutací a texty pro Google">
-        <span className="icon"><Icon name="globe" /></span>
-        <span className="label">Překlady produktů</span>
       </button>
 
       {p.accounts.length > 1 && (
