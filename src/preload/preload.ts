@@ -53,6 +53,14 @@ const ALLOWED_INVOKE = [
   'ptrans:exportPreview', 'ptrans:export', 'ptrans:importFile', 'ptrans:redirectPreview',
   'ptrans:consistency', 'ptrans:suggestPattern',
   'ptrans:memory', 'ptrans:learn', 'ptrans:saveMemory', 'ptrans:deleteMemory',
+  // Feed: srovnat celý, nebo jen donačíst nové; návrat ke stavu z e-shopu
+  'ptrans:refreshNew', 'ptrans:revert',
+  // Google Nákupy: texty modelem, číselníky pravidly, barvy a sety
+  'ptrans:google', 'ptrans:googleWrite', 'ptrans:googleFill', 'ptrans:googleRules',
+  'ptrans:saveGoogleRules', 'ptrans:colors', 'ptrans:learnColors', 'ptrans:saveColor',
+  'ptrans:deleteColor', 'ptrans:bundles', 'ptrans:markBundle', 'ptrans:deleteBundleRule',
+  // Audit kvality feedu
+  'ptrans:audit', 'ptrans:auditOf', 'ptrans:worst', 'ptrans:fixIssues', 'ptrans:auditSummary',
   // Články — psaní, překlad, kontrola odkazů (jen na počítači)
   'articles:overview', 'articles:saveSettings', 'articles:defaultPrompt', 'articles:list',
   'articles:get', 'articles:save', 'articles:delete', 'articles:editVersion',

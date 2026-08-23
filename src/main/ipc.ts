@@ -363,6 +363,44 @@ export function registerIpc() {
   handle('ptrans:saveMemory', (entry: any) => ptrans.editMemory(entry));
   handle('ptrans:deleteMemory', (id: number) => { ptrans.deleteMemory(id); return true; });
 
+  /* ---------- feed: srovnat, nebo jen donačíst nové ---------- */
+  handle('ptrans:refreshNew', () => ptrans.refreshNewOnly());
+  handle('ptrans:revert', (codes: string[], keepManual?: boolean) =>
+    ptrans.revertProducts(codes ?? [], !!keepManual));
+
+  /* ---------- Google Nákupy ---------- */
+  handle('ptrans:google', (code: string, langs?: string[]) => ptrans.googleView(code, langs));
+  handle('ptrans:googleWrite', (code: string, lang: string, kind: string) =>
+    ptrans.writeGoogle(code, lang, kind as any));
+  handle('ptrans:googleFill', (codes: string[], langs?: string[], force?: boolean) =>
+    ptrans.fillAttributes(codes ?? [], langs, !!force));
+  handle('ptrans:googleRules', () => ptrans.getAttributeRules());
+  handle('ptrans:saveGoogleRules', (patch: any) => ptrans.saveAttributeRules(patch ?? {}));
+  handle('ptrans:colors', (search?: string) => ({
+    rules: ptrans.listColorRules(search),
+    base: ptrans.BASE_COLORS
+  }));
+  handle('ptrans:learnColors', () => ptrans.learnColorMap());
+  handle('ptrans:saveColor', (source: string, base: string) => ptrans.saveColor(source, base));
+  handle('ptrans:deleteColor', (source: string) => { ptrans.deleteColorRule(source); return true; });
+  handle('ptrans:bundles', () => ({
+    rules: ptrans.listBundleRules(),
+    preview: ptrans.bundlePreview()
+  }));
+  handle('ptrans:markBundle', (code: string, isBundle: boolean, langs?: string[]) =>
+    ptrans.markBundle(code, isBundle, langs));
+  handle('ptrans:deleteBundleRule', (category: string, pattern: string) => {
+    ptrans.deleteBundleRule(category, pattern); return true;
+  });
+
+  /* ---------- audit feedu ---------- */
+  handle('ptrans:audit', (options: any) => ptrans.audit(options ?? {}));
+  handle('ptrans:auditOf', (code: string, langs?: string[]) => ptrans.auditOf(code, langs));
+  handle('ptrans:worst', (lang: string, limit?: number) => ptrans.worstProducts(lang, limit ?? 60));
+  handle('ptrans:auditSummary', () => ptrans.storedSummary());
+  handle('ptrans:fixIssues', (code: string, lang: string, keys?: string[]) =>
+    ptrans.fixIssues(code, lang, keys));
+
   /* ---------- Články (jen na počítači) ---------- */
   handle('articles:overview', () => articles.overview());
   handle('articles:saveSettings', (patch: any) => articles.saveArticleSettings(patch ?? {}));

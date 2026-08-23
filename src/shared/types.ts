@@ -760,8 +760,91 @@ export interface PtransProduct {
   availability: string;
   price: string;
   active: boolean;
+  /** Z online feedu, nebo z ručně nahraného souboru */
+  origin: 'feed' | 'file';
   /** Stav po jazycích — kolik polí čeká z celkového počtu */
   states: Record<string, { total: number; todo: number; worst: PtransState }>;
+  /** Jazyky, kde je hotové úplně všechno */
+  doneLangs: string[];
+  /** Jazyky, kde ještě něco chybí */
+  todoLangs: string[];
+}
+
+/* ---------- Google Nákupy a audit ---------- */
+
+export type PtransGoogleField = 'google_title' | 'google_desc' | 'google_color' | 'google_gender'
+  | 'google_age' | 'google_condition' | 'google_bundle' | 'google_identifier';
+
+export interface PtransGoogleView {
+  lang: string;
+  fields: {
+    field: PtransGoogleField;
+    label: string;
+    value: string;
+    /** Co je právě teď ve feedu */
+    feed: string;
+    /** Co by aplikace zapsala */
+    suggested: string;
+    manual: boolean;
+  }[];
+  /** Proč vyšel set tak, jak vyšel */
+  bundleReason: string;
+  bundleLearned: boolean;
+}
+
+export interface PtransColorRule {
+  source: string;
+  base: string;
+  hits: number;
+  origin: 'feed' | 'rule' | 'manual';
+  locked: boolean;
+}
+
+export interface PtransBaseColor {
+  key: string;
+  labels: Record<string, string>;
+}
+
+export interface PtransBundleRule {
+  category: string;
+  pattern: string;
+  isBundle: boolean;
+  hits: number;
+  updatedAt: string | null;
+}
+
+export interface PtransAttributeRules {
+  gender: { match: string; value: 'male' | 'female' | 'unisex' }[];
+  age: { match: string; value: 'adult' | 'kids' | 'infant' | 'newborn' | 'toddler' }[];
+  defaultGender: 'male' | 'female' | 'unisex';
+  defaultAge: 'adult' | 'kids' | 'infant' | 'newborn' | 'toddler';
+  condition: 'new' | 'refurbished' | 'used';
+}
+
+export type PtransSeverity = 'error' | 'warn' | 'info';
+
+export interface PtransIssue {
+  key: string;
+  severity: PtransSeverity;
+  message: string;
+  field?: string;
+  /** Aplikace to umí spravit sama */
+  fixable?: boolean;
+}
+
+export interface PtransAudit {
+  code: string;
+  title: string;
+  lang: string;
+  score: number;
+  issues: PtransIssue[];
+}
+
+export interface PtransAuditSummary {
+  checked: number;
+  averageScore: number;
+  byLang: { lang: string; average: number; errors: number; warnings: number }[];
+  top: { key: string; severity: PtransSeverity; message: string; count: number }[];
 }
 
 export interface PtransField {
@@ -797,6 +880,9 @@ export interface PtransOverview {
   feed: { syncedAt: string | null; products: number };
   langs: { lang: string; todo: number; total: number; byState: Record<string, number> }[];
   running: PtransProgress | null;
+  /** Kolik odstínů se umí převést na základní barvu pro Google */
+  colors: { shades: number; mapped: number; missing: string[] };
+  googleRules: PtransAttributeRules;
 }
 
 /** Znalost naučená z hotových překladů — nebo ručně dopsaná. */
@@ -846,6 +932,8 @@ export interface PtransQuery {
   state?: PtransState | 'todo' | 'all';
   field?: string;
   onlyActive?: boolean;
+  /** `file` = pracovat jen s tím, co bylo nahráno ze souboru */
+  origin?: 'all' | 'feed' | 'file';
   limit?: number;
   offset?: number;
   sort?: 'title' | 'todo' | 'code';

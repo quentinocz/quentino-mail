@@ -20,6 +20,19 @@ export interface ExportOptions {
   langs?: string[];
   /** Konkrétní produkty; prázdné = všechny, které mají uložený překlad */
   codes?: string[];
+  /**
+   * Co se vlastně exportuje.
+   *
+   * `translated` (výchozí) bere jen pole, u kterých aplikace něco vyrobila —
+   * na to je export postavený a je to nejbezpečnější.
+   *
+   * `current` bere **aktuální stav produktu**: kde překlad je, použije se, kde
+   * není, vezme se hodnota z feedu. Tohle je režim pro „vyber si produkty a
+   * dej mi je celé, jak jsou teď" — třeba když se překlad složil z paměti a
+   * žádné nové volání modelu neproběhlo, nebo když se ručně dopsala jen barva
+   * a zbytek má zůstat beze změny.
+   */
+  state?: 'translated' | 'current';
   /** `slim` = jen překládané části, `full` = celý produkt z feedu */
   mode?: 'slim' | 'full';
   /** Přidat i zdrojový jazyk (obvykle netřeba a je to zbytečné riziko) */
@@ -44,9 +57,17 @@ export function buildExport(options: ExportOptions = {}): ExportResult {
   const langs = options.langs?.length ? options.langs : targetLangs(s);
   const mode = options.mode ?? 'slim';
 
+  const state = options.state ?? 'translated';
+
   const params: any[] = [...langs];
-  let sql = `SELECT f.code, f.lang, f.field, f.translated FROM ptrans_fields f
-             WHERE f.translated IS NOT NULL AND f.translated != '' AND f.lang IN (${langs.map(() => '?').join(',')})`;
+  // V režimu „aktuální stav" se bere překlad, a když není, hodnota z feedu.
+  // Prázdné pole se nezapisuje ani tak — přepsat text v e-shopu prázdnem by
+  // byla ta nejhorší možná chyba, jakou umí import udělat.
+  const pickSql = state === 'current'
+    ? `COALESCE(NULLIF(f.translated, ''), f.value)`
+    : `f.translated`;
+  let sql = `SELECT f.code, f.lang, f.field, ${pickSql} AS translated FROM ptrans_fields f
+             WHERE ${pickSql} IS NOT NULL AND ${pickSql} != '' AND f.lang IN (${langs.map(() => '?').join(',')})`;
   if (options.fields?.length) {
     sql += ` AND f.field IN (${options.fields.map(() => '?').join(',')})`;
     params.push(...options.fields);
@@ -146,10 +167,17 @@ function slimMetas(piece: string, keep: Set<string>): string {
 export function exportPreview(options: ExportOptions = {}): { products: number; fields: number } {
   const d = getDb();
   const langs = options.langs?.length ? options.langs : targetLangs();
-  const row = d.prepare(
-    `SELECT COUNT(*) AS fields, COUNT(DISTINCT code) AS products FROM ptrans_fields
-     WHERE translated IS NOT NULL AND translated != '' AND lang IN (${langs.map(() => '?').join(',')})`
-  ).get(...langs) as { fields: number; products: number };
+  const pick = options.state === 'current'
+    ? `COALESCE(NULLIF(translated, ''), value)`
+    : 'translated';
+  const params: any[] = [...langs];
+  let sql = `SELECT COUNT(*) AS fields, COUNT(DISTINCT code) AS products FROM ptrans_fields
+     WHERE ${pick} IS NOT NULL AND ${pick} != '' AND lang IN (${langs.map(() => '?').join(',')})`;
+  if (options.codes?.length) {
+    sql += ` AND code IN (${options.codes.map(() => '?').join(',')})`;
+    params.push(...options.codes);
+  }
+  const row = d.prepare(sql).get(...params) as { fields: number; products: number };
   return { products: row.products, fields: row.fields };
 }
 

@@ -4823,3 +4823,231 @@ html[data-form-factor="phone"] .pt-detail { display: none; }
   .ar-side { position: static; border-left: 0; border-top: 1px solid var(--border); }
   .ar-text { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow-y: auto; }
 }
+
+/* ==========================================================================
+   Google Nákupy, audit a HTML editor
+   ========================================================================== */
+
+/* ---------- editor HTML pole ---------- */
+
+.html-field { border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--panel); }
+.html-field.ro { opacity: 0.75; }
+.html-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 5px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.html-bar .icon-btn { width: 24px; height: 24px; }
+.html-mode button { padding: 3px 8px; font-size: 11px; }
+
+/* Náhled ukazuje text tak, jak ho uvidí zákazník — proto se tu inline styly
+   z e-shopu nechávají působit a jen se omezí šířka a velikost obrázků */
+.html-rich {
+  padding: 10px 12px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  outline: none;
+}
+.html-rich:focus { box-shadow: inset 0 0 0 2px var(--accent-soft); }
+.html-rich img { max-width: 100%; height: auto; border-radius: 8px; }
+.html-rich table { max-width: 100%; }
+.html-rich p { margin: 0 0 0.7em; }
+.html-rich h1, .html-rich h2, .html-rich h3 { margin: 0.6em 0 0.3em; }
+.html-rich ul, .html-rich ol { margin: 0 0 0.7em 1.2em; }
+.html-source {
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  resize: none;
+  outline: none;
+}
+
+/* ---------- karta produktu: Google a SEO ---------- */
+
+.pg-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 24px; }
+.pg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.pg-score {
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pg-score.ok { background: rgba(47, 158, 110, 0.12); color: var(--ok); }
+.pg-score.warn { background: rgba(217, 154, 27, 0.14); color: var(--warn); }
+.pg-score.bad { background: rgba(229, 72, 77, 0.12); color: var(--danger); }
+
+.pg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+.pg-col h4 { font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
+.pg-col > p.ig-muted { font-size: 11.5px; margin-bottom: 10px; }
+
+.pg-text { margin-bottom: 14px; }
+.pg-text-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; }
+.pg-text-head .btn { padding: 4px 9px; font-size: 11.5px; }
+.pg-text textarea { width: 100%; font-size: 12.5px; line-height: 1.5; }
+.pg-suggest {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  text-align: left;
+}
+.pg-suggest:hover { color: var(--accent-dark); }
+
+.pg-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.pg-table td { padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.pg-label { color: var(--text-2); width: 40%; }
+.pg-value { font-weight: 600; }
+.pg-empty { color: var(--danger); font-size: 11.5px; }
+.pg-sugg { text-align: right; }
+.pg-sugg button { font-size: 11.5px; color: var(--accent-dark); }
+.pg-sugg button:hover { text-decoration: underline; }
+
+.pg-bundle {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg);
+}
+.pg-bundle-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.pg-bundle p { font-size: 11.5px; margin-bottom: 8px; }
+.pg-bundle .ig-seg { background: var(--panel); }
+.pg-hint { margin-top: 8px; margin-bottom: 0 !important; }
+
+.pg-issues { margin-top: 22px; }
+.pg-issues h4 { font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
+.pg-issue {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  margin-bottom: 5px;
+  font-size: 12.5px;
+}
+.pg-issue.error { border-color: rgba(229, 72, 77, 0.3); }
+.pg-issue.warn { border-color: rgba(217, 154, 27, 0.3); }
+.pg-sev {
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+.pg-issue.error .pg-sev, .pg-sev.error { background: rgba(229, 72, 77, 0.12); color: var(--danger); }
+.pg-issue.warn .pg-sev, .pg-sev.warn { background: rgba(217, 154, 27, 0.14); color: var(--warn); }
+.pg-issue.info .pg-sev, .pg-sev.info { background: var(--bg); color: var(--text-3); }
+.pg-msg { flex: 1; min-width: 0; }
+.pg-issue .btn { padding: 4px 9px; font-size: 11.5px; }
+
+/* ---------- audit feedu ---------- */
+
+.pa-body { gap: 20px; }
+.pa-cards { display: flex; gap: 10px; flex-wrap: wrap; }
+.pa-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 110px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.pa-card b { font-size: 24px; font-variant-numeric: tabular-nums; }
+.pa-card b.ok { color: var(--ok); }
+.pa-card b.warn { color: var(--warn); }
+.pa-card b.bad { color: var(--danger); }
+.pa-card small { font-size: 11px; color: var(--text-3); }
+
+.pa-issue {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.pa-issue:hover { background: var(--bg); }
+.pa-count {
+  min-width: 46px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-2);
+}
+.pa-msg { flex: 1; min-width: 0; }
+
+.pa-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  text-align: left;
+  font-size: 12.5px;
+}
+.pa-row:hover { background: var(--bg); border-color: var(--border); }
+.pa-score {
+  min-width: 34px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pa-score.ok { background: rgba(47, 158, 110, 0.12); color: var(--ok); }
+.pa-score.warn { background: rgba(217, 154, 27, 0.14); color: var(--warn); }
+.pa-score.bad { background: rgba(229, 72, 77, 0.12); color: var(--danger); }
+.pa-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
+.pa-reason { font-size: 11.5px; }
+.pa-errors { color: var(--danger); font-size: 11.5px; font-weight: 600; }
+
+.pa-color, .pa-rule {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  font-size: 12.5px;
+}
+.pa-color:hover, .pa-rule:hover { background: var(--bg); border-color: var(--border); }
+.pa-color.missing { border-color: rgba(217, 154, 27, 0.35); }
+.pa-color select, .pa-rule select { padding: 3px 7px; font-size: 12px; }
+.pa-langs { font-size: 11px; }
+.pa-color .icon-btn, .pa-rule .icon-btn { opacity: 0; }
+.pa-color:hover .icon-btn, .pa-rule:hover .icon-btn { opacity: 1; }
+
+/* Odznak „hotovo" v seznamu produktů — jeden jednoznačný stav na jazyk */
+.pt-chip.done {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(47, 158, 110, 0.12);
+  color: var(--ok);
+  border-color: transparent;
+}
+.pt-chip.file { background: var(--accent-soft); color: var(--accent-dark); border-color: transparent; }
+
+/* Užší okno: dva sloupce Google karty se poskládají pod sebe */
+@media (max-width: 1180px) {
+  .pg-cols { grid-template-columns: 1fr; }
+}

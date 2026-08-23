@@ -8,6 +8,8 @@ import type {
   ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
   PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
   PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat, PtransLearnResult,
+  PtransGoogleView, PtransColorRule, PtransBaseColor, PtransBundleRule, PtransAttributeRules,
+  PtransAudit, PtransAuditSummary,
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct
 } from '@shared/types';
@@ -117,9 +119,17 @@ export const api = {
     /** Co se doplní do přesměrování, když se adresa změní */
     redirectPreview: (code: string, lang: string, slug: string) =>
       call<{ oldPath: string; list: string[] }>('ptrans:redirectPreview', code, lang, slug),
-    exportPreview: (options: { langs?: string[]; codes?: string[] } = {}) =>
+    exportPreview: (options: { langs?: string[]; codes?: string[]; state?: 'translated' | 'current' } = {}) =>
       call<{ products: number; fields: number }>('ptrans:exportPreview', options),
-    export: (options: { langs?: string[]; codes?: string[]; mode?: 'slim' | 'full'; includeSource?: boolean } = {}) =>
+    /**
+     * `state: 'current'` vezme vybrané produkty tak, jak jsou teď — překlad,
+     * kde je, a hodnotu z feedu, kde není. Výchozí `translated` bere jen to,
+     * co aplikace sama vyrobila.
+     */
+    export: (options: {
+      langs?: string[]; codes?: string[]; mode?: 'slim' | 'full';
+      includeSource?: boolean; state?: 'translated' | 'current';
+    } = {}) =>
       call<{ path: string; products: number; fields: number } | null>('ptrans:export', options),
     /** Přidá produkty z ručně vybraného XML (novinky, které ještě nejsou ve feedu) */
     importFile: () => call<{ products: number; fields: number; paired: number; file: string } | null>('ptrans:importFile'),
@@ -130,7 +140,54 @@ export const api = {
       call<{ entries: PtransMemoryEntry[]; stats: PtransMemoryStat[] }>('ptrans:memory', filter),
     learn: (langs?: string[]) => call<PtransLearnResult[]>('ptrans:learn', langs),
     saveMemory: (entry: PtransMemoryEntry) => call<PtransMemoryEntry[]>('ptrans:saveMemory', entry),
-    deleteMemory: (id: number) => call<boolean>('ptrans:deleteMemory', id)
+    deleteMemory: (id: number) => call<boolean>('ptrans:deleteMemory', id),
+
+    /** Stáhne feed a vezme z něj jen produkty, které aplikace ještě nezná */
+    refreshNew: () => call<{ products: number; fields: number; removed: number; at: string }>('ptrans:refreshNew'),
+    /** Zahodí, co aplikace vymyslela, a nechá platit stav z e-shopu */
+    revert: (codes: string[], keepManual = false) =>
+      call<{ fields: number; products: number }>('ptrans:revert', codes, keepManual),
+
+    /** Atributy pro Google Nákupy u jednoho produktu, po jazycích */
+    google: (code: string, langs?: string[]) => call<PtransGoogleView[]>('ptrans:google', code, langs),
+    /** Nechá model napsat titulek nebo popis pro Google */
+    googleWrite: (code: string, lang: string, kind: 'google_title' | 'google_desc') =>
+      call<string>('ptrans:googleWrite', code, lang, kind),
+    /** Zapíše číselníky (barva, pohlaví, věk, stav, set) vybraným produktům */
+    googleFill: (codes: string[], langs?: string[], force = false) =>
+      call<{ written: number; skipped: number }>('ptrans:googleFill', codes, langs, force),
+    googleRules: () => call<PtransAttributeRules>('ptrans:googleRules'),
+    saveGoogleRules: (patch: Partial<PtransAttributeRules>) =>
+      call<PtransAttributeRules>('ptrans:saveGoogleRules', patch),
+
+    colors: (search?: string) =>
+      call<{ rules: PtransColorRule[]; base: PtransBaseColor[] }>('ptrans:colors', search),
+    learnColors: () =>
+      call<{ products: number; learned: number; unknown: string[] }>('ptrans:learnColors'),
+    saveColor: (source: string, base: string) => call<PtransColorRule[]>('ptrans:saveColor', source, base),
+    deleteColor: (source: string) => call<boolean>('ptrans:deleteColor', source),
+
+    bundles: () => call<{
+      rules: PtransBundleRule[];
+      preview: { total: number; bundles: number; samples: { code: string; title: string; reason: string }[] };
+    }>('ptrans:bundles'),
+    /** Otočí rozhodnutí o setu — a naučí se z toho pravidlo */
+    markBundle: (code: string, isBundle: boolean, langs?: string[]) =>
+      call<PtransBundleRule | null>('ptrans:markBundle', code, isBundle, langs),
+    deleteBundleRule: (category: string, pattern: string) =>
+      call<boolean>('ptrans:deleteBundleRule', category, pattern),
+
+    /** Audit kvality feedu — co brání dohledatelnosti produktů */
+    audit: (options: { codes?: string[]; langs?: string[]; includeInactive?: boolean } = {}) =>
+      call<PtransAuditSummary>('ptrans:audit', options),
+    auditOf: (code: string, langs?: string[]) => call<PtransAudit[]>('ptrans:auditOf', code, langs),
+    worst: (lang: string, limit = 60) =>
+      call<{ code: string; title: string; score: number; errors: number }[]>('ptrans:worst', lang, limit),
+    /** Souhrn z posledního auditu, bez nového počítání */
+    auditSummary: () => call<(PtransAuditSummary & { checkedAt: string | null }) | null>('ptrans:auditSummary'),
+    /** Spraví vady, které audit označil jako opravitelné */
+    fixIssues: (code: string, lang: string, keys?: string[]) =>
+      call<{ fixed: string[]; skipped: string[] }>('ptrans:fixIssues', code, lang, keys)
   },
   /** Články pro e-shop — psaní, překlad a kontrola odkazů. Jen na počítači. */
   articles: {

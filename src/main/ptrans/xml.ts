@@ -13,10 +13,25 @@
 export type FieldKey = string;
 
 export const TEXT_FIELDS = ['title', 'short', 'long', 'seo_title', 'seo_desc', 'seo_url',
-  'redirect', 'google_title', 'google_desc'] as const;
+  'redirect', 'google_title', 'google_desc',
+  'google_color', 'google_gender', 'google_age', 'google_condition',
+  'google_bundle', 'google_identifier'] as const;
 
-/** Pole, která se nepřekládají — skládá je aplikace sama. */
-export const DERIVED_FIELDS = new Set(['seo_url', 'redirect']);
+/**
+ * Pole, která se nepřekládají — skládá je aplikace sama.
+ *
+ * Google atributy tu jsou schválně: barva se odvozuje z parametru přes
+ * převodník, pohlaví a věk z kategorie, set z rozpoznávání. Nechat je
+ * překládat modelem by znamenalo dostat pokaždé trochu jinou hodnotu, a
+ * Google u těchhle polí neodpouští — buď zná hodnotu, nebo ji zahodí.
+ */
+export const DERIVED_FIELDS = new Set(['seo_url', 'redirect',
+  'google_color', 'google_gender', 'google_age', 'google_condition',
+  'google_bundle', 'google_identifier']);
+
+/** Google atributy — hodnoty, které se do feedu píší jako `*_google_merchant`. */
+export const GOOGLE_FIELDS = ['google_title', 'google_desc', 'google_color', 'google_gender',
+  'google_age', 'google_condition', 'google_bundle', 'google_identifier'] as const;
 
 /** Pole, jejichž obsah je HTML — překlad musí zachovat značky. */
 export const HTML_FIELDS = new Set(['short', 'long']);
@@ -41,7 +56,16 @@ const SPECS: Record<string, FieldSpec> = {
   // Přesměrování starých adres; hodnotou je seznam cest oddělený novými řádky
   redirect: { scope: 'meta', tag: 'META_VALUE', metaKey: 'redirect_301' },
   google_title: { scope: 'meta', tag: 'META_VALUE', metaKey: 'title_google_merchant' },
-  google_desc: { scope: 'meta', tag: 'META_VALUE', metaKey: 'description_google_merchant' }
+  google_desc: { scope: 'meta', tag: 'META_VALUE', metaKey: 'description_google_merchant' },
+  // Ostatní atributy pro Google Nákupy. Klíče jsou ve feedu už připravené,
+  // u velké části produktů ale prázdné — a prázdný atribut je pro Google
+  // stejný jako žádný.
+  google_color: { scope: 'meta', tag: 'META_VALUE', metaKey: 'color_google_merchant' },
+  google_gender: { scope: 'meta', tag: 'META_VALUE', metaKey: 'gender_google_merchant' },
+  google_age: { scope: 'meta', tag: 'META_VALUE', metaKey: 'age_group_google_merchant' },
+  google_condition: { scope: 'meta', tag: 'META_VALUE', metaKey: 'condition_google_merchant' },
+  google_bundle: { scope: 'meta', tag: 'META_VALUE', metaKey: 'is_bundle_google_merchant' },
+  google_identifier: { scope: 'meta', tag: 'META_VALUE', metaKey: 'identifier_exists_google_merchant' }
 };
 
 /* ---------- základní pomůcky ---------- */

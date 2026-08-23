@@ -63,6 +63,37 @@ CREATE TABLE IF NOT EXISTS ptrans_memory (
 );
 CREATE INDEX IF NOT EXISTS idx_ptrans_memory_use ON ptrans_memory(kind, lang, category);
 
+-- Převodník odstínů na základní barvu pro Google Nákupy
+CREATE TABLE IF NOT EXISTS ptrans_colors (
+  source TEXT PRIMARY KEY,
+  base TEXT NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 0,
+  origin TEXT NOT NULL DEFAULT 'feed',
+  locked INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+
+-- Naučená pravidla, které tvary názvů jsou sety a které ne
+CREATE TABLE IF NOT EXISTS ptrans_bundles (
+  category TEXT NOT NULL DEFAULT '',
+  pattern TEXT NOT NULL,
+  is_bundle INTEGER NOT NULL DEFAULT 0,
+  hits INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (category, pattern)
+);
+
+-- Výsledek posledního auditu: co u produktu vadí a jak moc
+CREATE TABLE IF NOT EXISTS ptrans_audit (
+  code TEXT NOT NULL,
+  lang TEXT NOT NULL,
+  score INTEGER NOT NULL DEFAULT 0,
+  issues TEXT NOT NULL DEFAULT '[]',
+  checked_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (code, lang)
+);
+CREATE INDEX IF NOT EXISTS idx_ptrans_audit_score ON ptrans_audit(lang, score);
+
 CREATE TABLE IF NOT EXISTS ptrans_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at TEXT NOT NULL,
