@@ -141,12 +141,31 @@ export function deletePair(fromLang: string, fromPath: string, toLang: string): 
 
 /* ---------- učení z hotových článků ---------- */
 
+/**
+ * Adresa z atributu do podoby, kterou lze poslat na síť.
+ *
+ * V HTML se `&` píše jako `&amp;`, takže adresa s parametry vypadá v kódu
+ * jako `?a=1&amp;b=2`. Poslat ji takhle znamená ptát se na jinou stránku,
+ * než na kterou odkaz vede — a dostat 404 u odkazu, který funguje. Tohle byl
+ * zdroj falešných hlášení u všech adres s parametrem nebo kotvou.
+ */
+export function decodeUrl(value: string): string {
+  return (value ?? '')
+    .replace(/&amp;/g, '&')
+    .replace(/&#38;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .trim();
+}
+
 /** Odkazy z HTML v pořadí, v jakém jsou v textu. */
 export function extractLinks(html: string): string[] {
   const out: string[] = [];
   const re = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(html ?? ''))) out.push(match[1]);
+  while ((match = re.exec(html ?? ''))) out.push(decodeUrl(match[1]));
   return out;
 }
 
@@ -155,7 +174,7 @@ export function extractImages(html: string): string[] {
   const out: string[] = [];
   const re = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(html ?? ''))) out.push(match[1]);
+  while ((match = re.exec(html ?? ''))) out.push(decodeUrl(match[1]));
   return out;
 }
 

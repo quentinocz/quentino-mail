@@ -67,7 +67,7 @@ const ALLOWED_INVOKE = [
   'articles:generate', 'articles:translate', 'articles:progress', 'articles:stop',
   'articles:terms', 'articles:products', 'articles:preview', 'articles:links',
   'articles:import', 'articles:export', 'articles:check', 'articles:lastCheck',
-  'articles:review', 'articles:dismissLink',
+  'articles:review', 'articles:dismissLink', 'articles:testUrl',
   'articles:checkProgress', 'articles:stopCheck', 'articles:fix', 'articles:fixAll',
   'articles:urlmap', 'articles:learnLinks', 'articles:saveUrlPair', 'articles:deleteUrlPair',
   // Verze aplikace do hlavičky nastavení

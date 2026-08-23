@@ -4,7 +4,7 @@ import { tagText, getField } from './xml';
 import { plain, detectLanguage } from './detect';
 import { parameterMap } from './seo';
 import { attributesFor } from './google';
-import { colorFor } from './colors';
+import { colorFor, shadeFromTitle } from './colors';
 
 /**
  * Audit feedu — pro každý produkt a jazyk.
@@ -185,8 +185,11 @@ export function auditProduct(code: string, lang: string): ProductAudit | null {
 
     // Barva na prvním místě je nejčastější vada: hledá se „vázací motýlek",
     // ne „tmavě modrý". Typ výrobku proto patří dopředu.
+    // Poznat se musí obojí — obecná barva („Žlutý…") i odstín („Hořčicově…"),
+    // protože v titulku je správně odstín, ale ne na prvním místě
     const first = plain(googleTitle).toLowerCase().split(/\s+/).slice(0, 2).join(' ');
-    const colour = colorFor(code, lang) || parameterMap(code, s.sourceLang).barva || '';
+    const shade = shadeFromTitle(title);
+    const colour = shade || colorFor(code, lang) || parameterMap(code, s.sourceLang).barva || '';
     if (colour && first.startsWith(plain(colour).toLowerCase().split(/\s+/)[0])) {
       add('google_title.colorfirst', 'warn',
         'Titulek pro Google začíná barvou. Na prvním místě má být typ produktu — tak ho lidé hledají.',
