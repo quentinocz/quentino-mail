@@ -3547,8 +3547,12 @@ html[data-form-factor="phone"] .toast { max-width: none; }
 /* Hromadný výběr se na telefonu nepoužívá — zabíral celý řádek */
 html[data-form-factor="phone"] .select-hint { display: none; }
 
-/* Chat: seznam konverzací začíná hned, ne až v třetině obrazovky */
-html[data-form-factor="phone"] .ch-app .sidebar { padding-top: 10px; }
+/* Chat: seznam konverzací začíná hned, ne až v třetině obrazovky —
+   ale pod stavovým řádkem. Rozhraní kreslí přes celou obrazovku, takže
+   bez `--safe-top` by hlavička ležela pod výřezem a nešla přečíst. */
+html[data-form-factor="phone"] .ch-app .sidebar {
+  padding-top: calc(var(--safe-top) + 10px);
+}
 html[data-form-factor="phone"] .ch-app .brand { margin-bottom: 8px; }
 
 /* Sociální sítě: do pásu se vejde víc a je vidět, že pokračuje za okraj */
@@ -3943,11 +3947,13 @@ html[data-form-factor="phone"] .ig-tile-badge { font-size: 9.5px; padding: 1px 5
 .sheet-field select { width: 100%; }
 .sheet-field small { color: var(--text-3); font-size: 12px; line-height: 1.4; }
 
+/* Totéž pro vlákno: na telefonu se seznam schová a hlavička konverzace je
+   nejvýš položený prvek na obrazovce. */
 html[data-form-factor="phone"] .ch-head {
   align-items: center;
   gap: 8px;
-  padding: 8px 10px 8px 4px;
-  min-height: 56px;
+  padding: calc(var(--safe-top) + 8px) 10px 8px 4px;
+  min-height: calc(56px + var(--safe-top));
 }
 html[data-form-factor="phone"] .ch-head-text { flex: 1; min-width: 0; }
 html[data-form-factor="phone"] .ch-head-name {

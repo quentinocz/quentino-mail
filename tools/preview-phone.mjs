@@ -129,8 +129,36 @@ for (const device of DEVICES) {
       const chrome = ['.m-head', '.m-tabs', '.list-header', '.read-toolbar', '.composer-foot']
         .map(sel => document.querySelector(sel)?.getBoundingClientRect().height ?? 0)
         .reduce((a, b) => a + b, 0);
+      /*
+       * Co leží pod výřezem.
+       *
+       * Rozhraní kreslí přes celou obrazovku, takže si o odsazení musí
+       * každá nejvýš položená hlavička říct sama přes `--safe-top`. Když
+       * na to jedna zapomene, schová se pod hodinami a nikdo si toho
+       * nevšimne, dokud to neuvidí na skutečném telefonu. Hledá se proto
+       * text a tlačítka, která začínají výš, než kam sahá bezpečná zóna.
+       */
+      const safeTop = parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--safe-top')) || 0;
+      const underNotch = [];
+      if (safeTop > 0) {
+        for (const el of document.querySelectorAll('button, a, input, h1, h2, h3, .brand, [class*="head"]')) {
+          const r = el.getBoundingClientRect();
+          if (r.width < 8 || r.height < 8 || r.bottom <= 0) continue;
+          const style = getComputedStyle(el);
+          if (style.visibility === 'hidden') continue;
+          // Hlavička smí pod výřez sahat **pozadím** — o to právě jde, ať
+          // pruh nezůstane prázdný. Vadí až obsah pod ním. Když má prvek
+          // horní okraj aspoň tak velký jako bezpečná zóna, je to vyřešené.
+          if (parseFloat(style.paddingTop) >= safeTop - 2) continue;
+          if (r.top >= safeTop - 2) continue;
+          const text = (el.textContent ?? '').trim().slice(0, 24);
+          underNotch.push(`${String(el.className || el.tagName).slice(0, 24)}${text ? ` „${text}"` : ''}`);
+        }
+      }
       return {
         spilling: [...new Set(spilling)].slice(0, 4),
+        underNotch: [...new Set(underNotch)].slice(0, 3),
         tabs: onTop('.m-tabs'),
         chrome: Math.round(chrome),
         viewport: window.innerHeight
@@ -211,7 +239,17 @@ for (const r of rows) {
     + (r.spilling.length ? r.spilling.join(', ') : '—')
   );
 }
+
+// Pod výřezem nemá být nic — každá nejvýš položená hlavička si musí říct
+// o odsazení přes `--safe-top`
+const notch = rows.filter(r => r.underNotch?.length);
+if (notch.length) {
+  console.log('\nPOD VÝŘEZEM:');
+  for (const r of notch) console.log(`  ${pad(r.device, 6)}${pad(r.label, 22)}${r.underNotch.join(' · ')}`);
+}
+
 console.log(problems.length ? '\nPROBLÉMY:\n' + problems.slice(0, 14).join('\n') : '\nžádné chyby');
+if (notch.length || problems.length) process.exitCode = 1;
 
 await browser.close();
 server.close();
