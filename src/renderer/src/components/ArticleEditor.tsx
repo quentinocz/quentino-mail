@@ -43,6 +43,9 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
   const [titleFixed, setTitleFixed] = useState(article.brief.titleFixed);
   const [wordCount, setWordCount] = useState(article.wordCount);
   const [pick, setPick] = useState<string[]>(article.langs);
+  // Jak vzniknou jazykové mutace. Výchozí je překlad: články pak mají stejnou
+  // stavbu i odkazy a stojí zlomek toho, co psát každý jazyk zvlášť.
+  const [mode, setMode] = useState<'translate' | 'each'>('translate');
   const [brief, setBrief] = useState<ArticleBrief>(article.brief);
   const [terms, setTerms] = useState(article.terms);
   const [prompt, setPrompt] = useState(article.prompt);
@@ -104,7 +107,7 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
     try {
       await save();
       const result = await api.articles.generate({
-        articleId: article.id, topic, title, titleFixed, langs: pick, wordCount,
+        articleId: article.id, topic, title, titleFixed, langs: pick, wordCount, mode,
         brief: { ...brief, title, titleFixed }, prompt, force
       });
       if (result.errors.length) toast(result.errors.join(' · '), 'error');
@@ -344,6 +347,26 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
                   <span>{lang.label} ({lang.code.toUpperCase()})</span>
                 </label>
               ))}
+
+              {pick.length > 1 && (
+                <div className="ar-mode">
+                  {([
+                    { id: 'translate' as const, label: 'Napsat jednou a přeložit',
+                      hint: 'Stejná stavba i odkazy ve všech jazycích, zlomek ceny' },
+                    { id: 'each' as const, label: 'Každý jazyk zvlášť',
+                      hint: 'Text psaný na míru trhu, ale články si nejsou podobné' }
+                  ]).map(item => (
+                    <label key={item.id} className={`ar-mode-pick ${mode === item.id ? 'on' : ''}`}>
+                      <input type="radio" name="ar-mode" checked={mode === item.id}
+                        onChange={() => setMode(item.id)} />
+                      <span>
+                        <b>{item.label}</b>
+                        <small>{item.hint}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="ar-card">
@@ -364,6 +387,9 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
                   onChange={e => setWordCount(Math.max(150, Number(e.target.value) || 600))} />
                 <small>slov</small>
               </label>
+              <p className="ig-muted ar-len-note">
+                Délka se po napsání změří a text se podle potřeby zkrátí nebo dopíše.
+              </p>
             </section>
 
             <section className="ar-card">

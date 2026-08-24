@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { OrderCard as OrderCardData, OrderAddress, OrderCardItem, ShipPhase } from '@shared/types';
 import { api } from '../api';
 import Icon from './Icon';
+import CallContact from './CallContact';
 
 /** Popisky karty ve třech jazykových mutacích e-shopu. */
 const T = {
@@ -241,7 +242,11 @@ export default function OrderCard({
       {(card.customerEmail || card.customerPhone || card.placedAt) && (
         <div className="oc-contact">
           {card.customerEmail && <span><Icon name="mail" size={11} /> {card.customerEmail}</span>}
-          {card.customerPhone && <span><Icon name="phone" size={11} /> {card.customerPhone}</span>}
+          {/* Telefon z mailu se ukáže rovnou; když v mailu není, dohledá se
+              podle čísla objednávky nebo e-mailu ve feedu objednávek. */}
+          {card.customerPhone
+            ? <span><Icon name="phone" size={11} /> {card.customerPhone}</span>
+            : <CallContact email={card.customerEmail} orderCode={card.orderNumber} compact />}
           {card.placedAt && <span><Icon name="clock" size={11} /> {t.received}: {card.placedAt}</span>}
         </div>
       )}

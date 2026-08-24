@@ -37,6 +37,10 @@ struct WebHost: UIViewRepresentable {
         webView.backgroundColor = .systemBackground
         webView.scrollView.bounces = false
         webView.scrollView.keyboardDismissMode = .interactive
+        // Odsazení pod stavový řádek si počítá rozhraní samo z
+        // `env(safe-area-inset-*)`. Kdyby ho WKWebView přidal ještě jednou
+        // svým vlastním, sečetlo by se to a hlavička by se propadla dolů.
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         #if DEBUG
         if #available(iOS 16.4, *) { webView.isInspectable = true }
         #endif

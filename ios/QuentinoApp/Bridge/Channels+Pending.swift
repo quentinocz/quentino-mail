@@ -66,6 +66,39 @@ extension Bridge {
             return await Orders.shipment(dbId: try Self.int(args.first), force: force)
         }
 
+        // MARK: Feed objednávek
+        //
+        // Kvůli telefonu na zákazníka: potvrzovací e-mail ho většinou nemá,
+        // export objednávek ano. Na telefonu z toho je jedno klepnutí na
+        // „Zavolat" místo hledání v administraci.
+
+        register("orderfeed:list") { _ in
+            ["feeds": OrderFeed.statuses(), "stats": OrderFeed.stats()]
+        }
+        register("orderfeed:save") { args in
+            let saved = OrderFeed.save(args.first as? [[String: Any]] ?? [])
+            return ["feeds": saved, "stats": OrderFeed.stats()]
+        }
+        register("orderfeed:refresh") { args in
+            let result: [[String: Any]]
+            if let id = args.first as? String, !id.isEmpty {
+                result = [["feed": id, "orders": try await OrderFeed.refresh(id: id)]]
+            } else {
+                result = await OrderFeed.refreshDue(force: true)
+            }
+            return ["result": result, "feeds": OrderFeed.statuses(), "stats": OrderFeed.stats()]
+        }
+        register("orderfeed:contact") { args in
+            OrderFeed.contact(args.first as? [String: Any] ?? [:])
+        }
+        register("orderfeed:byEmail") { args in
+            let limit = args.count > 1 ? (args[1] as? Int ?? 12) : 12
+            return OrderFeed.byEmail(args.first as? String ?? "", limit: limit)
+        }
+        register("orderfeed:byCode") { args in
+            OrderFeed.byCode(args.first as? String ?? "") ?? NSNull()
+        }
+
         // MARK: Vazby zpráv na objednávky
 
         register("orderlinks:refresh") { _ in OrderLinks.refresh() }
@@ -113,8 +146,12 @@ extension Bridge {
 
     func registerFileChannels() {
         // Otevření odkazu v prohlížeči
+        // Schémata jsou vyjmenovaná schválně — cokoli jiného by ze stránky
+        // mohlo spustit jinou aplikaci. `tel:` je tu kvůli volání zákazníkovi.
         register("shell:openUrl") { args in
-            guard let text = args.first as? String, text.hasPrefix("https://") else { return false }
+            guard let text = args.first as? String,
+                  text.hasPrefix("https://") || text.hasPrefix("tel:") || text.hasPrefix("mailto:")
+            else { return false }
             await Self.openExternally(text)
             return true
         }

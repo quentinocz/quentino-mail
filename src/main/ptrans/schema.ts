@@ -104,6 +104,38 @@ CREATE TABLE IF NOT EXISTS ptrans_runs (
   seconds REAL NOT NULL DEFAULT 0,
   note TEXT NOT NULL DEFAULT ''
 );
+
+-- Zvolený tvar textu podle jazyka a kategorie.
+--
+-- Když si model není jistý, napíše dvě varianty a uživatel vybere. Výběr se
+-- uloží sem a od té chvíle slouží jako závazná ukázka pro celou kategorii —
+-- rozhodnutí se dělá jednou, ne u každého produktu znovu.
+CREATE TABLE IF NOT EXISTS ptrans_style (
+  lang TEXT NOT NULL,
+  category TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  example TEXT NOT NULL DEFAULT '',
+  rejected TEXT NOT NULL DEFAULT '',
+  hits INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (lang, category, kind)
+);
+
+-- Nerozhodnuté dvojice variant. Běh překladu na odpověď nečeká — uloží
+-- variantu A a jede dál; uživatel rozhodne, až se k tomu dostane.
+CREATE TABLE IF NOT EXISTS ptrans_trials (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL,
+  lang TEXT NOT NULL,
+  field TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT '',
+  variant_a TEXT NOT NULL,
+  variant_b TEXT NOT NULL,
+  chosen TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT '',
+  decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ptrans_trials_open ON ptrans_trials(chosen, lang, category);
 `;
 
 /** Doplňkové sloupce pro databáze založené dřív — chyba „už existuje" je v pořádku. */

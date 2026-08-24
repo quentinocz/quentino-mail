@@ -21,6 +21,7 @@ final class Scheduler {
     private var lastMail = Date.distantPast
     private var lastFeed = Date.distantPast
     private var lastTokens = Date.distantPast
+    private var lastOrders = Date.distantPast
     private var observers: [NSObjectProtocol] = []
 
     private init() { }
@@ -88,6 +89,17 @@ final class Scheduler {
             if Products.isStale() {
                 _ = try? await Products.refresh()
                 Bridge.notify("products:changed")
+            }
+        }
+
+        // Feedy objednávek. Kontroluje se každý průchod, ale stahuje se jen
+        // ten, kterému došel jeho vlastní interval — malý s posledními 24 h
+        // po pár minutách, velké jednou za půl dne.
+        if Date().timeIntervalSince(lastOrders) > 60 {
+            lastOrders = Date()
+            let result = await OrderFeed.refreshDue()
+            if result.contains(where: { ($0["orders"] as? Int ?? 0) > 0 }) {
+                Bridge.notify("orderfeed:changed")
             }
         }
 

@@ -259,6 +259,82 @@ export interface UpgatesOrder {
   adminUrl: string | null;
 }
 
+/* ---------- objednávky z feedu e-shopu ---------- */
+
+export interface ShopOrderItem {
+  title: string;
+  code: string;
+  quantity: number;
+  price: number;
+}
+
+export interface ShopOrder {
+  code: string;
+  /** cz | sk | en — čísla objednávek se mezi trhy opakují */
+  market: string;
+  status: string;
+  paid: boolean;
+  paidDate: string;
+  resolved: boolean;
+  invoice: string;
+  createdAt: string;
+  updatedAt: string;
+  currency: string;
+  total: number;
+  tracking: string;
+  customerId: string;
+  name: string;
+  email: string;
+  /** Už v mezinárodním tvaru, takže na něj jde rovnou zavolat */
+  phone: string;
+  shipment: string;
+  payment: string;
+  items: ShopOrderItem[];
+}
+
+export interface OrderFeed {
+  id: string;
+  label: string;
+  /** Obsahuje tajný klíč — ukládá se šifrovaně */
+  url: string;
+  market: string;
+  everyMinutes: number;
+  /** Feed jen s posledními 24 h — tahá se často, ale nepokrývá historii */
+  recent: boolean;
+  enabled: boolean;
+}
+
+/** Feed pro rozhraní: bez celé adresy, zato se stavem posledního stažení. */
+export interface OrderFeedStatus {
+  id: string;
+  label: string;
+  market: string;
+  recent: boolean;
+  enabled: boolean;
+  everyMinutes: number;
+  urlHint: string;
+  orders: number;
+  newest: string;
+  lastSync: string;
+  lastError: string;
+}
+
+export interface OrderStats {
+  total: number;
+  withPhone: number;
+  markets: { market: string; n: number }[];
+}
+
+/** Kontakt dohledaný k e-mailu nebo číslu objednávky. */
+export interface OrderContact {
+  phone: string;
+  name: string;
+  order: ShopOrder | null;
+  orders: number;
+  /** Podle čeho se to našlo — do rozhraní, ať je vidět, odkud číslo je */
+  via: string;
+}
+
 export interface UpgatesConfig {
   url: string;
   login: string;
@@ -966,6 +1042,43 @@ export interface PtransDeviation {
 export interface PtransConsistency {
   patterns: PtransPattern[];
   deviations: PtransDeviation[];
+}
+
+/** Návrh, jak vybočující název srovnat. Nic se nepřepisuje bez potvrzení. */
+export interface PtransFixProposal {
+  code: string;
+  lang: string;
+  category: string;
+  current: string;
+  suggested: string;
+  pattern: string;
+  /** Čím se návrh liší — pořadí slov, velká písmena, jiný tvar */
+  note: string;
+}
+
+/** Dvojice variant k porovnání — jedna otázka na kategorii, jazyk a druh textu. */
+export interface PtransTrial {
+  id: number;
+  code: string;
+  lang: string;
+  field: string;
+  category: string;
+  variantA: string;
+  variantB: string;
+  chosen: string;
+  createdAt: string;
+  title?: string;
+}
+
+/** Tvar, který si uživatel pro kategorii vybral. */
+export interface PtransStyle {
+  lang: string;
+  category: string;
+  kind: string;
+  example: string;
+  rejected: string;
+  hits: number;
+  updatedAt: string;
 }
 
 /* ==================== Články ==================== */

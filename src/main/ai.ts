@@ -51,7 +51,18 @@ export function getAiUsage(): { month: string; calls: number; inputTokens: numbe
   return { month, calls, inputTokens, outputTokens, estUsd: Math.round(estUsd * 100) / 100 };
 }
 
-export async function ask(model: string, system: string, user: string, maxTokens = 1024): Promise<string> {
+/**
+ * `signal` je tu kvůli zastavení.
+ *
+ * Zastavit dávkovou práci znamenalo jen přestat brát další položky — ta
+ * rozepsaná ale doběhla, a když se zrovna psal dlouhý text, trvalo to
+ * i desítky vteřin. Tlačítko „Zastavit" pak vypadalo, jako by nefungovalo.
+ * Se signálem se rozběhnuté volání přeruší rovnou.
+ */
+export interface AskOptions { signal?: AbortSignal }
+
+export async function ask(model: string, system: string, user: string, maxTokens = 1024,
+                          options: AskOptions = {}): Promise<string> {
   // Pozn.: `temperature` novější Claude modely již nepodporují — přesnost řešíme
   // instrukcemi v promptu a korekturním průchodem.
   const res = await client().messages.create({
@@ -59,7 +70,7 @@ export async function ask(model: string, system: string, user: string, maxTokens
     max_tokens: maxTokens,
     system,
     messages: [{ role: 'user', content: user }]
-  });
+  }, { signal: options.signal });
   recordUsage(model, res.usage as any);
   const block = res.content.find(b => b.type === 'text');
   return block && block.type === 'text' ? block.text.trim() : '';
@@ -79,7 +90,12 @@ export async function askLong(
   model: string,
   system: string,
   user: string,
-  options: { maxTokens?: number; onChunk?: (text: string, total: number) => void; endMark?: string } = {}
+  options: {
+    maxTokens?: number;
+    onChunk?: (text: string, total: number) => void;
+    endMark?: string;
+    signal?: AbortSignal;
+  } = {}
 ): Promise<string> {
   const maxTokens = options.maxTokens ?? 16000;
   const c = client();
@@ -87,11 +103,15 @@ export async function askLong(
   const once = async (messages: any[]): Promise<{ text: string; stop: string }> => {
     let text = '';
     let lastAt = Date.now();
-    const stream = c.messages.stream({ model, max_tokens: maxTokens, system, messages });
+    const stream = c.messages.stream({ model, max_tokens: maxTokens, system, messages },
+      { signal: options.signal });
     const watchdog = setInterval(() => {
       // Bez tokenu 45 s je spojení mrtvé; čekat na celý timeout nemá smysl
       if (Date.now() - lastAt > 45_000) { clearInterval(watchdog); stream.abort(); }
     }, 5_000);
+    // Zastavení musí zabrat hned, i uprostřed dlouhého textu
+    const abortNow = () => stream.abort();
+    options.signal?.addEventListener('abort', abortNow, { once: true });
     try {
       for await (const chunk of stream) {
         if (chunk.type === 'content_block_delta' && (chunk as any).delta?.type === 'text_delta') {
@@ -102,6 +122,7 @@ export async function askLong(
       }
     } finally {
       clearInterval(watchdog);
+      options.signal?.removeEventListener('abort', abortNow);
     }
     const final = await stream.finalMessage().catch(() => null);
     if (final) recordUsage(model, final.usage as any);

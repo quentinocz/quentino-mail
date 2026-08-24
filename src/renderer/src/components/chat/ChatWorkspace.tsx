@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatConversation, ChatMessage as Msg, ChatOverview } from '@shared/types';
+import type { ChatConversation, ChatMessage as Msg, ChatOverview, OrderContact } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
+import CallContact from '../CallContact';
 import WorkspaceSwitch, { Workspace, AiTool } from '../WorkspaceSwitch';
 import { SidebarResizer } from '../../sidebar';
 import ChatMessageView from './ChatMessage';
@@ -44,6 +45,14 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
+  /**
+   * Kontakt dohledaný ve feedu objednávek.
+   *
+   * Ve widgetu chatu vyplní telefon málokdo — zato skoro každý napíše
+   * e-mail nebo číslo objednávky do zprávy. Obojí stačí na to, aby se
+   * telefon našel, takže se hledá i v textu toho, co zákazník napsal.
+   */
+  const [found, setFound] = useState<OrderContact | null>(null);
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState('');
   const [picker, setPicker] = useState(false);
@@ -205,6 +214,20 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   const wouldSign = !!signText && (cfg?.signMode === 'always' || !messages.some(m => m.sender === 'operator'));
   const alreadyInText = !!signText && reply.trimEnd().endsWith(signText);
 
+  useEffect(() => {
+    let cancelled = false;
+    setFound(null);
+    if (!active) return;
+    const said = messages
+      .filter(m => m.sender === 'customer')
+      .map(m => m.content).join(' \n').slice(0, 4000);
+    if (!active.email && !said) return;
+    api.orders.contact({ email: active.email ?? undefined, text: said })
+      .then(result => { if (!cancelled) setFound(result); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [active?.id, active?.email, messages.length]);
+
   const label = (c: ChatConversation) =>
     c.name || c.email || c.phone || `Anonymní #${c.sessionId.slice(0, 6).toUpperCase()}`;
 
@@ -292,6 +315,12 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
                   {[active.email, active.phone].filter(Boolean).join(' · ') || 'bez kontaktu'}
                   {active.leftAt ? ' · zákazník odešel ze stránky' : ''}
                 </div>
+                {/* Telefon, který zákazník ve widgetu nevyplnil, ale je
+                    v jeho objednávce */}
+                {!active.phone && !phone && (
+                  <CallContact email={active.email} text={messages
+                    .filter(m => m.sender === 'customer').map(m => m.content).join(' \n')} compact />
+                )}
               </div>
               {phone ? (
                 <button className="m-round" onClick={() => setHeadSheet(true)} aria-label="Další akce">
@@ -429,9 +458,15 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
                 icon: 'mail', label: 'Napsat e-mail', hint: active.email,
                 onClick: () => onComposeEmail(active.email!)
               }] : []),
-              ...(active.phone ? [{
-                icon: 'phone', label: 'Zavolat', hint: active.phone,
-                onClick: () => { window.location.href = `tel:${active.phone!.replace(/\s/g, '')}`; }
+              ...(active.phone || found?.phone ? [{
+                icon: 'phone',
+                label: 'Zavolat',
+                hint: active.phone
+                  ?? `${found!.phone}${found!.via ? ` · podle ${found!.via}` : ''}`,
+                onClick: () => {
+                  const number = (active.phone ?? found!.phone).replace(/\s/g, '');
+                  window.location.href = `tel:${number}`;
+                }
               }] : []),
               {
                 icon: active.status === 'closed' ? 'inbox' : 'check',

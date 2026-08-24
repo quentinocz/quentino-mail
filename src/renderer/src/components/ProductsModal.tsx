@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PtransConsistency, PtransField, PtransOverview, PtransProduct, PtransProgress, PtransQuery, PtransState,
+  PtransFixProposal, PtransTrial, PtransStyle,
   PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat
 } from '@shared/types';
 import { api } from '../api';
@@ -421,7 +422,15 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
           />
         ) : tab === 'consistency' ? (
           <ConsistencyPanel
-            langs={langs.map(l => ({ code: l.code, label: l.label }))}
+            // Zdrojový jazyk je v seznamu první schválně: nepořádek v českých
+            // názvech se přelije do všech mutací, takže se má řešit dřív než
+            // nesrovnalosti v překladech
+            langs={[
+              { code: overview?.settings.sourceLang ?? 'cz',
+                label: (overview?.settings.sourceLang ?? 'cz').toUpperCase() },
+              ...langs.map(l => ({ code: l.code, label: l.label }))
+            ]}
+            sourceLang={overview?.settings.sourceLang ?? 'cz'}
             onOpenProduct={code => { setActive(code); setTab('work'); }}
           />
         ) : tab === 'memory' ? (
@@ -1295,8 +1304,9 @@ function MemoryRow({ entry, editing, onChange, onSave, onCancel, onDelete }: {
  * jednou zvolit „Men's black tie" a podruhé „Black tie for men". Tady je vidět,
  * jaký tvar v kategorii převládá a co se mu vymyká — a dá se to rovnou spravit.
  */
-function ConsistencyPanel({ langs, onOpenProduct }: {
+function ConsistencyPanel({ langs, sourceLang, onOpenProduct }: {
   langs: { code: string; label: string }[];
+  sourceLang: string;
   onOpenProduct: (code: string) => void;
 }) {
   const toast = useToast();
@@ -1304,12 +1314,24 @@ function ConsistencyPanel({ langs, onOpenProduct }: {
   const [data, setData] = useState<PtransConsistency | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState('');
+  // Návrhy oprav se drží podle kódu produktu: uživatel si jich může nechat
+  // připravit víc a rozhodovat o nich postupně
+  const [fixes, setFixes] = useState<Record<string, PtransFixProposal>>({});
+  const [trials, setTrials] = useState<PtransTrial[]>([]);
+  const [styles, setStyles] = useState<PtransStyle[]>([]);
 
   const load = useCallback(async () => {
     if (!lang) return;
     setLoading(true);
     try {
-      setData(await api.ptrans.consistency(lang));
+      const [consistency, picked] = await Promise.all([
+        api.ptrans.consistency(lang),
+        api.ptrans.trials(lang)
+      ]);
+      setData(consistency);
+      setTrials(picked.trials.filter(t => !t.chosen));
+      setStyles(picked.styles);
+      setFixes({});
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
@@ -1319,10 +1341,54 @@ function ConsistencyPanel({ langs, onOpenProduct }: {
 
   useEffect(() => { load(); }, [load]);
 
-  const fix = async (code: string) => {
+  /** Přeložit znovu jde jen cílový jazyk — zdrojový název není z čeho odvodit. */
+  const retranslate = async (code: string) => {
     setBusy(code);
     try {
       await api.ptrans.retranslate(code, lang, 'title');
+      await load();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const propose = async (code: string) => {
+    setBusy(code);
+    try {
+      const proposal = await api.ptrans.proposeFix(code, lang);
+      if (!proposal) { toast('Návrh nevyšel jinak než původní název — měnit není co.'); return; }
+      setFixes(prev => ({ ...prev, [code]: proposal }));
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const accept = async (code: string) => {
+    const proposal = fixes[code];
+    if (!proposal) return;
+    setBusy(code);
+    try {
+      await api.ptrans.acceptFix(code, lang, proposal.suggested);
+      toast('Název opraven');
+      await load();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const choose = async (id: number, pick: 'a' | 'b') => {
+    setBusy(`trial-${id}`);
+    try {
+      const result = await api.ptrans.chooseVariant(id, pick);
+      toast(result.affected.length > 1
+        ? `Tvar uložen pro kategorii „${result.category}" (${result.affected.length} produktů)`
+        : 'Tvar uložen');
       await load();
     } catch (e: any) {
       toast(e.message, 'error');
@@ -1341,7 +1407,9 @@ function ConsistencyPanel({ langs, onOpenProduct }: {
           ))}
         </div>
         <span className="ig-muted">
-          Tvar názvu se odvozuje z hotových překladů v kategorii. Ruční pravidlo z nastavení má přednost.
+          {lang === sourceLang
+            ? 'Tvar názvu se odvozuje z názvů v kategorii. Nepořádek ve zdroji se přelije do všech jazyků.'
+            : 'Tvar názvu se odvozuje z hotových překladů v kategorii. Ruční pravidlo z nastavení má přednost.'}
         </span>
         <span style={{ flex: 1 }} />
         <button className="btn ghost" onClick={load} disabled={loading}>
@@ -1350,6 +1418,65 @@ function ConsistencyPanel({ langs, onOpenProduct }: {
       </div>
 
       <div className="modal-body pt-consistency">
+        {trials.length > 0 && (
+          <section>
+            <h3>Který tvar se vám líbí víc? ({trials.length})</h3>
+            <p className="ig-muted">
+              Obě varianty jsou správně a liší se jen stavbou. Co vyberete, se uloží jako tvar
+              pro celou kategorii a další texty se podle něj napíšou samy.
+            </p>
+            {trials.map(trial => (
+              <div key={trial.id} className="pt-trial">
+                <div className="pt-trial-head">
+                  <span className="pt-code">{trial.code}</span>
+                  <span className="ig-muted">{trial.category}</span>
+                  {trial.title && <span className="ig-muted pt-trial-src">{trial.title}</span>}
+                  <span style={{ flex: 1 }} />
+                  <button className="icon-btn" data-tip="Nerozhodovat"
+                    onClick={() => api.ptrans.dropTrial(trial.id).then(load)}>
+                    <Icon name="x" size={13} />
+                  </button>
+                </div>
+                <div className="pt-trial-picks">
+                  {(['a', 'b'] as const).map(side => (
+                    <button key={side} className="pt-trial-pick"
+                      disabled={busy === `trial-${trial.id}`}
+                      onClick={() => choose(trial.id, side)}>
+                      <b>{side === 'a' ? trial.variantA : trial.variantB}</b>
+                      <small>{side === 'a' ? 'použito teď' : 'druhá varianta'}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {styles.length > 0 && (
+          <section>
+            <h3>Vybrané tvary ({styles.length})</h3>
+            <table className="pt-table">
+              <thead>
+                <tr><th>Kategorie</th><th>Tvar, podle kterého se píše</th><th /></tr>
+              </thead>
+              <tbody>
+                {styles.map(style => (
+                  <tr key={`${style.lang}-${style.category}-${style.kind}`}>
+                    <td>{style.category}</td>
+                    <td>{style.example}</td>
+                    <td>
+                      <button className="btn ghost small"
+                        onClick={() => api.ptrans.dropStyle(style.lang, style.category, style.kind).then(load)}>
+                        Zapomenout
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
         <section>
           <h3>Tvary názvů podle kategorií</h3>
           <table className="pt-table">
@@ -1385,13 +1512,37 @@ function ConsistencyPanel({ langs, onOpenProduct }: {
                 <div className="ig-muted">
                   <span className="pt-code">{row.code}</span> · {row.category} · očekávaný tvar <code>{row.pattern}</code>
                 </div>
-                <div className="ig-muted">zdroj: {row.title}</div>
+                {lang !== sourceLang && <div className="ig-muted">zdroj: {row.title}</div>}
+                {fixes[row.code] && (
+                  <div className="pt-fix">
+                    <Icon name="chevRight" size={13} />
+                    <div>
+                      <b>{fixes[row.code].suggested}</b>
+                      <small>{fixes[row.code].note}</small>
+                    </div>
+                  </div>
+                )}
               </div>
               <button className="btn ghost" onClick={() => onOpenProduct(row.code)}>Otevřít</button>
-              <button className="btn ghost" disabled={busy === row.code} onClick={() => fix(row.code)}>
-                {busy === row.code ? <span className="spinner-inline" /> : <Icon name="refresh" size={13} />}
-                Přeložit znovu
-              </button>
+              {fixes[row.code] ? (
+                <button className="btn primary" disabled={busy === row.code}
+                  onClick={() => accept(row.code)}>
+                  {busy === row.code ? <span className="spinner-inline" /> : <Icon name="check" size={13} />}
+                  Použít
+                </button>
+              ) : (
+                <button className="btn ghost" disabled={busy === row.code}
+                  onClick={() => propose(row.code)}>
+                  {busy === row.code ? <span className="spinner-inline" /> : <Icon name="sparkles" size={13} />}
+                  Navrhnout opravu
+                </button>
+              )}
+              {lang !== sourceLang && (
+                <button className="btn ghost" disabled={busy === row.code}
+                  onClick={() => retranslate(row.code)}>
+                  <Icon name="refresh" size={13} /> Přeložit znovu
+                </button>
+              )}
             </div>
           ))}
         </section>

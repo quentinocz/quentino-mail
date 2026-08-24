@@ -7,7 +7,10 @@ import { syncFromFeed, ingestFile, ingestNewOnly, revertToFeed, recomputeStates,
 import { run, stop, progress, planWork, translateOne } from './translate';
 import { applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl, SeoKind } from './seo';
 import { buildExport, exportPreview, ExportOptions } from './exportxml';
-import { findDeviations, patternOverview, patternFor, derivePattern } from './consistency';
+import { findDeviations, patternOverview, patternFor, derivePattern,
+  suggestFix, applyFix, FixProposal } from './consistency';
+import { listStyles, forgetStyle, caseStyleFor, feedExamples, LearnedStyle } from './style';
+import { listTrials, countOpenTrials, decideTrial, dismissTrial, affectedByTrial, Trial } from './trials';
 import { setSeoUrl, previewRedirect } from './redirects';
 import { listMemory, saveMemory, deleteMemory, learnFromFeed, memoryStats, MemoryEntry, MemoryKind, LearnResult } from './memory';
 import { listColorRules, saveColorRule, deleteColorRule, learnColors, colorCoverage,
@@ -112,6 +115,54 @@ export function consistencyCheck(lang: string) {
     patterns: patternOverview(lang),
     deviations: findDeviations(lang)
   };
+}
+
+/**
+ * Návrh, jak vybočující název srovnat. Nic se nepřepisuje — vrací se návrh
+ * a čeká se na člověka.
+ */
+export async function proposeFix(code: string, lang: string) {
+  return suggestFix(code, lang);
+}
+
+/** Přijetí návrhu. Zapíše se jako ruční úprava, ať to překlad nepřepíše. */
+export function acceptFix(code: string, lang: string, value: string) {
+  applyFix(code, lang, value);
+  emit('ptrans:changed', {});
+  return true;
+}
+
+/* ---------- vybrané tvary textů ---------- */
+
+/** Dvojice variant, o kterých se ještě nerozhodlo. */
+export function styleTrials(lang?: string) {
+  return { trials: listTrials({ lang }), open: countOpenTrials(), styles: listStyles(lang) };
+}
+
+/**
+ * Rozhodnutí uživatele.
+ *
+ * Vrací se i seznam produktů z téže kategorie, protože hned potom se
+ * nabízí přepsat je podle vybraného tvaru — samotné rozhodnutí by jinak
+ * změnilo jediný produkt a zbytek by zůstal po starém.
+ */
+export function chooseVariant(id: number, pick: 'a' | 'b') {
+  const affected = affectedByTrial(id);
+  const trial = decideTrial(id, pick);
+  emit('ptrans:changed', {});
+  return { trial, affected: affected.codes, category: affected.category, lang: affected.lang };
+}
+
+export function dropTrial(id: number) {
+  dismissTrial(id);
+  emit('ptrans:changed', {});
+  return true;
+}
+
+export function dropStyle(lang: string, category: string, kind: string) {
+  forgetStyle(lang, category, kind);
+  emit('ptrans:changed', {});
+  return true;
 }
 
 /**
@@ -363,10 +414,11 @@ export {
   listBundleRules, saveBundleRule, deleteBundleRule, detectBundle, bundlePreview,
   googleView, writeGoogleTexts, saveAttributeRules, getAttributeRules, GOOGLE_LABELS,
   worstProducts, auditProduct, storedSummary,
-  SOURCE_FIELDS, SOURCE_LABELS
+  SOURCE_FIELDS, SOURCE_LABELS,
+  listStyles, listTrials, countOpenTrials, caseStyleFor, feedExamples
 };
 export type {
   SeoKind, ExportOptions, MemoryEntry, MemoryKind, LearnResult,
   ColorRule, BundleRule, AttributeRules, GoogleField, AuditOptions, ProductAudit,
-  SourceField, SourceFillOptions
+  SourceField, SourceFillOptions, FixProposal, LearnedStyle, Trial
 };

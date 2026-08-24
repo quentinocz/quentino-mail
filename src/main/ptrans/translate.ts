@@ -6,6 +6,7 @@ import { getPtransSettings, savePtransSettings, productFields, saveTranslation, 
   PtransSettings } from './store';
 import { HTML_FIELDS, DERIVED_FIELDS } from './xml';
 import { NEEDS_WORK, plain } from './detect';
+import { languageNote } from './style';
 import { consistencyHint } from './consistency';
 import { setSeoUrl } from './redirects';
 import { memoryHint, memoryStats, learnFromFeed } from './memory';
@@ -54,6 +55,15 @@ function emit(channel: string, payload: unknown) {
 
 let cancelled = false;
 let current: ProgressState | null = null;
+/**
+ * Přerušení rozběhnutých volání.
+ *
+ * Samotný příznak `cancelled` zařídí jen to, že se nezačne nic nového —
+ * požadavky, které už letí, doběhnou. U šesti souběžných překladů to
+ * znamenalo, že se běh po stisku „Zastavit" ještě klidně půl minuty vlekl.
+ * Signál je ukončí okamžitě.
+ */
+let abort: AbortController | null = null;
 
 export function progress(): ProgressState | null {
   return current;
@@ -61,6 +71,16 @@ export function progress(): ProgressState | null {
 
 export function stop(): void {
   cancelled = true;
+  abort?.abort();
+  if (current?.running) {
+    current = { ...current, label: 'zastavuji…' };
+    emit('ptrans:progress', current);
+  }
+}
+
+/** Přerušené volání není chyba překladu — hlásit ho v seznamu chyb by mátlo. */
+function isAborted(error: any): boolean {
+  return cancelled || error?.name === 'AbortError' || /abort/i.test(String(error?.message ?? ''));
 }
 
 /* ---------- odhad zbývajícího času ---------- */
@@ -167,6 +187,9 @@ function buildSystem(s: PtransSettings, targetLang: string): string {
     '- Míry, kódy, čísla a názvy značky nech beze změny.',
     '- Piš přirozeně v cílovém jazyce, ne doslovně. Text má znít, jako by ho psal rodilý mluvčí.',
     '- Nepřekládej do češtiny ani nenech nic v češtině.',
+    // Psaní velkých písmen se mezi jazyky liší a model má sklon přenést
+    // zvyk zdrojového jazyka. V názvech je to hned vidět.
+    languageNote(targetLang),
     glossary ? `\nZávazné názvosloví:\n${glossary}` : '',
     brand ? `\nO značce (pro tón textu):\n${brand}` : '',
     s.prompt.trim() ? `\nVlastní pokyny:\n${s.prompt.trim()}` : '',
@@ -221,7 +244,8 @@ export function slugify(value: string): string {
  * Vrací, kolik polí se opravdu uložilo. Chyba se nevyhazuje výš — jeden
  * nepovedený produkt nesmí zastavit dávku o tisíci kusech.
  */
-export async function translateOne(target: TranslateTarget): Promise<{ saved: number; error?: string }> {
+export async function translateOne(target: TranslateTarget,
+                                   signal?: AbortSignal): Promise<{ saved: number; error?: string }> {
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
   const rows = productFields(target.code, [target.lang]);
@@ -264,7 +288,8 @@ export async function translateOne(target: TranslateTarget): Promise<{ saved: nu
       model,
       buildSystem(s, target.lang),
       `${hint}\n\nTexty k překladu:\n${JSON.stringify(payload, null, 1)}`,
-      Math.min(8000, 1200 + JSON.stringify(payload).length)
+      Math.min(8000, 1200 + JSON.stringify(payload).length),
+      { signal }
     );
     const translated = parseJson(answer);
 
@@ -344,6 +369,7 @@ export async function run(input: RunInput): Promise<RunResult> {
   }
 
   cancelled = false;
+  abort = new AbortController();
   const speed = new Speed(s.secondsPerUnit || 12);
   const started = Date.now();
   const errors: string[] = [];
@@ -387,10 +413,11 @@ export async function run(input: RunInput): Promise<RunResult> {
       emit('ptrans:progress', current);
 
       const at = Date.now();
-      const result = await fillSourceOne(target.code, target.field);
+      const result = await fillSourceOne(target.code, target.field, abort?.signal);
       speed.add((Date.now() - at) / 1000);
       done++;
-      if (result.error) { failed++; errors.push(result.error); }
+      // Přerušené volání není chyba — po zastavení by se jen sypaly hlášky
+      if (result.error && !isAborted(result)) { failed++; errors.push(result.error); }
 
       current = {
         ...current,
@@ -420,11 +447,11 @@ export async function run(input: RunInput): Promise<RunResult> {
     while (queue.length > 0 && !cancelled) {
       const target = queue.shift()!;
       const at = Date.now();
-      const result = await translateOne(target);
+      const result = await translateOne(target, abort?.signal);
       speed.add((Date.now() - at) / 1000);
 
       done++;
-      if (result.error) {
+      if (result.error && !isAborted(result)) {
         failed++;
         errors.push(result.error);
       }

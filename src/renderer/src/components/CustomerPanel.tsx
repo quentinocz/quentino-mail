@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { CustomerContext, OrderRef, OrderCard as OrderCardData } from '@shared/types';
 import { api } from '../api';
 import Icon from './Icon';
+import CallContact from './CallContact';
 import OrderCard from './OrderCard';
 
 /**
@@ -97,6 +98,19 @@ interface Props {
 export default function CustomerPanel(p: Props) {
   const [ctx, setCtx] = useState<CustomerContext | null>(null);
   const [tab, setTab] = useState<'orders' | null>(null);
+  // Jestli se ve feedu objednávek našel telefon. Řídí se tím, jestli má
+  // panel vůbec smysl otevírat.
+  const [hasPhone, setHasPhone] = useState(false);
+
+  useEffect(() => {
+    setHasPhone(false);
+    if (!p.email) return;
+    let cancelled = false;
+    api.orders.contact({ email: p.email })
+      .then(found => { if (!cancelled) setHasPhone(!!found.phone); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [p.email]);
 
   useEffect(() => {
     setCtx(null);
@@ -112,8 +126,10 @@ export default function CustomerPanel(p: Props) {
   const orders = ctx?.orders ?? [];
   const others = msgs.filter(m => m.id !== p.currentMessageId).length;
 
-  // Panel dává smysl jen tam, kde je co ukázat
-  if (!p.orderRef && others === 0 && orders.length === 0) return null;
+  // Panel dává smysl jen tam, kde je co ukázat. Telefon dohledaný ve feedu
+  // je taky důvod — u zákazníka, který píše poprvé, je to jediná věc, kterou
+  // o něm víme, a zároveň ta nejužitečnější.
+  if (!p.orderRef && others === 0 && orders.length === 0 && !hasPhone) return null;
 
   const toggle = (t: 'orders') => setTab(cur => (cur === t ? null : t));
 
@@ -128,6 +144,8 @@ export default function CustomerPanel(p: Props) {
         {p.orderRef && (
           <span className="cp-tag"><Icon name="bag" size={11} /> {p.orderRef.orderNumber}</span>
         )}
+
+        <CallContact email={p.email} orderCode={p.orderRef?.orderNumber} compact />
 
         <span style={{ flex: 1 }} />
 

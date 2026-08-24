@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang } from '@shared/types';
+import { useCallback, useEffect, useState } from 'react';
+import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang,
+  OrderFeed, OrderFeedStatus, OrderStats } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -714,6 +715,8 @@ export default function SettingsModal(p: Props) {
                 </div>
               )}
 
+              <OrderFeedsField />
+
               <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
                 <label><Icon name="settings" size={13} /> Odkaz na objednávku v administraci</label>
                 <input value={settings.adminOrderRef} placeholder="023702:1185"
@@ -906,6 +909,147 @@ export default function SettingsModal(p: Props) {
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * Feedy objednávek z e-shopu.
+ *
+ * Proč zvlášť a ne přes API: export je obyčejná adresa, kterou si člověk
+ * v administraci vyklikne za minutu, a stáhne se celý naráz. API by na
+ * tisíce objednávek znamenalo tisíce dotazů.
+ *
+ * Feedy jsou dva druhy a doplňují se — malý s posledními 24 hodinami se
+ * obnovuje po pár minutách, velké s celou historií jednou denně.
+ *
+ * Adresa nese tajný klíč, proto se po uložení ukazuje jen její konec.
+ */
+function OrderFeedsField() {
+  const toast = useToast();
+  const [feeds, setFeeds] = useState<OrderFeedStatus[]>([]);
+  const [stats, setStats] = useState<OrderStats | null>(null);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState('');
+
+  const load = useCallback(() => {
+    api.orders.feeds().then(data => { setFeeds(data.feeds); setStats(data.stats); }).catch(() => {});
+  }, []);
+  useEffect(load, [load]);
+
+  /**
+   * Adresy se vkládají hromadně, řádek po řádku, ve tvaru „popis <adresa>".
+   * Je to rychlejší než klikat čtyři formuláře a hlavně to odpovídá tomu, jak
+   * si je člověk vypíše z administrace.
+   */
+  const save = async () => {
+    const parsed = draft.split('\n').map(line => line.trim()).filter(Boolean).map((line, index) => {
+      const match = line.match(/^(.*?)\s*(https?:\/\/\S+)$/);
+      const url = match ? match[2] : line;
+      const label = (match?.[1] ?? '').trim() || `Feed ${index + 1}`;
+      // „posledních 24 h" se pozná z popisu — jen ten se vyplatí tahat často
+      const recent = /24\s*h|posledn/i.test(label);
+      return {
+        id: `feed${index + 1}`, label, url,
+        market: '', everyMinutes: recent ? 5 : 720, recent, enabled: true
+      } as OrderFeed;
+    });
+    if (parsed.length === 0) { toast('Vlož aspoň jednu adresu feedu.', 'error'); return; }
+    setBusy('save');
+    try {
+      const data = await api.orders.saveFeeds(parsed);
+      setFeeds(data.feeds);
+      setStats(data.stats);
+      setDraft('');
+      toast(`Uloženo ${parsed.length} feedů`);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const refresh = async (id?: string) => {
+    setBusy(id ?? 'all');
+    try {
+      const data = await api.orders.refreshFeeds(id);
+      setFeeds(data.feeds);
+      setStats(data.stats);
+      const failed = data.result.filter(item => item.error);
+      toast(failed.length
+        ? `${failed.length} feedů selhalo: ${failed[0].error}`
+        : `Staženo ${data.result.reduce((sum, item) => sum + item.orders, 0)} objednávek`,
+        failed.length ? 'error' : undefined);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+      <label><Icon name="download" size={13} /> Feedy objednávek</label>
+      <div className="desc">
+        Z exportu objednávek se bere telefon na zákazníka — díky němu jde u zprávy,
+        v chatu i při balení rovnou zavolat. Vlož adresy z administrace, každou na
+        vlastní řádek, klidně i s popisem: <code>posledních 24h https://…</code>.
+        Feed, který má v popisu „24h" nebo „poslední", se obnovuje každých pár minut,
+        ostatní dvakrát denně.
+      </div>
+
+      {feeds.length > 0 && (
+        <table className="pt-table" style={{ marginBottom: 10 }}>
+          <thead>
+            <tr><th>Feed</th><th>Trh</th><th>Objednávek</th><th>Naposledy</th><th /></tr>
+          </thead>
+          <tbody>
+            {feeds.map(feed => (
+              <tr key={feed.id}>
+                <td>
+                  {feed.label}
+                  <div className="ig-muted" style={{ fontSize: 11 }}>{feed.urlHint}</div>
+                  {feed.lastError && (
+                    <div className="pt-warn" style={{ fontSize: 11 }}>{feed.lastError}</div>
+                  )}
+                </td>
+                <td>{feed.market.toUpperCase()}</td>
+                <td>{feed.orders}</td>
+                <td className="ig-muted" style={{ fontSize: 11.5 }}>
+                  {feed.lastSync ? new Date(feed.lastSync).toLocaleString('cs-CZ') : 'zatím nikdy'}
+                </td>
+                <td>
+                  <button className="btn ghost small" disabled={!!busy}
+                    onClick={() => refresh(feed.id)}>
+                    {busy === feed.id ? <span className="spinner-inline" /> : 'Stáhnout'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {stats && stats.total > 0 && (
+        <div className="ig-muted" style={{ fontSize: 12, marginBottom: 8 }}>
+          Uloženo {stats.total} objednávek, z toho {stats.withPhone} s telefonem
+          {' '}({Math.round(stats.withPhone / stats.total * 100)} %).
+        </div>
+      )}
+
+      <textarea rows={4} value={draft} onChange={e => setDraft(e.target.value)}
+        placeholder={'posledních 24h https://www.priklad.cz/export-orders-XXXX.xml\nCZ vše https://www.priklad.cz/export-orders-YYYY.xml'} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button className="btn primary" disabled={busy === 'save' || !draft.trim()} onClick={save}>
+          {busy === 'save' ? <span className="spinner-inline" /> : null} Uložit feedy
+        </button>
+        <button className="btn ghost" disabled={!!busy || feeds.length === 0}
+          onClick={() => refresh()}>
+          {busy === 'all' ? <span className="spinner-inline" /> : <Icon name="refresh" size={13} />}
+          Stáhnout vše
+        </button>
       </div>
     </div>
   );

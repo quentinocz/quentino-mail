@@ -3,6 +3,7 @@ import { getDb } from './db';
 import { sendNow } from './smtp';
 import { syncAllAccounts } from './imap';
 import { refreshFeed, feedIsStale } from './products';
+import { refreshDueFeeds } from './orderfeed';
 import { runSync } from './appsync';
 import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncSource as syncIgSource } from './instagram/publish';
 import { getSetting } from './db';
@@ -30,6 +31,15 @@ export function startScheduler() {
   };
   setInterval(checkFeed, FEED_CHECK_INTERVAL);
   setTimeout(checkFeed, 10_000);
+  // Feedy objednávek. Kontroluje se každou minutu, ale stahuje se jen ten,
+  // kterému došel jeho vlastní interval — malý feed s posledními 24 h běžně
+  // po pěti minutách, velké jednou denně.
+  const orders = () => refreshDueFeeds().then(result => {
+    if (result.some(item => item.orders > 0)) emit('orderfeed:changed', {});
+  }).catch(() => {});
+  setInterval(orders, 60_000);
+  setTimeout(orders, 15_000);
+
   // Synchronizace mezi zařízeními (sdílená složka) — každou minutu
   setInterval(() => runSync().catch(() => {}), 60_000);
   setTimeout(() => runSync().catch(() => {}), 8_000);
