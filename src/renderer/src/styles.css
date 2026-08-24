@@ -2678,9 +2678,43 @@ button, kbd, label,
 .ig-tile:hover { border-color: var(--accent); box-shadow: var(--shadow); }
 .ig-tile:active { transform: scale(0.995); }
 .ig-tile:disabled { opacity: 0.6; }
-.ig-tile-img { position: relative; aspect-ratio: 1; background: var(--bg); display: grid; place-items: center; }
-.ig-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ig-tile-ph { color: var(--text-3); }
+/*
+ * Náhled příspěvku.
+ *
+ * Poměr stran je pevný a obrázek se do něj **ořízne**. Instagram má obsah na
+ * výšku (Reels 9:16), na šířku i čtvercový; kdyby si dlaždice braly výšku
+ * podle obrázku, řada by se roztáhla podle nejvyšší z nich a ostatní by
+ * zbyly poloprázdné — přesně tak feed vypadal.
+ *
+ * Obrázek je proto úplně vyvázaný z výpočtu výšky (`position: absolute`).
+ * Samotné `aspect-ratio` nestačí: to výšku jen navrhuje, ale obsah ji pořád
+ * může přetlačit.
+ *
+ * 4:5 místo čtverce schválně — u svislého videa je čtvercový ořez tak těsný,
+ * že z něj zmizí i text v obraze.
+ */
+.ig-tile-img {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.ig-tile-img img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ig-tile-ph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
 /* Dva odznaky (Reels + počet položek karuselu) se kladly přes sebe do
    stejného rohu — druhý proto odchází do protějšího. */
 .ig-badge + .ig-badge { right: auto; left: 7px; }
@@ -3941,9 +3975,6 @@ html[data-form-factor="phone"] .ig-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
-/* Obrázek je čtverec a nesmí se roztáhnout podle sousedky s delším
-   popiskem — jinak jsou v řadě dva různě vysoké snímky téhož formátu. */
-html[data-form-factor="phone"] .ig-tile-img { flex: 0 0 auto; }
 html[data-form-factor="phone"] .ig-tile-body { padding: 8px 9px 9px; gap: 5px; }
 html[data-form-factor="phone"] .ig-captions { grid-template-columns: 1fr; }
 

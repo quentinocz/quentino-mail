@@ -144,8 +144,18 @@ await overflow('články — mapa'); await snap('15-clanky-mapa');
 await click('.ar-modal .pt-tabs button', { hasText: 'Nastavení' });
 await overflow('články — nastavení'); await snap('16-clanky-nastaveni');
 
-// Nastavení → AI: feedy objednávek jsou dole, proto se k nim odroluje
+// Feed Instagramu — mřížka dlaždic je sdílená s telefonem, takže se hlídá
+// i tady, jestli se řady nerozjíždějí podle poměru stran obrázků
 await click('.ar-modal .modal-head .icon-btn:last-child');
+await click('.ig-switch button', { hasText: 'AI' });
+await click('.ws-menu-item', { hasText: 'Sociální sítě' });
+await overflow('social — feed'); await snap('24-social-feed');
+console.log('  výšky dlaždic:', await page.evaluate(() =>
+  [...new Set([...document.querySelectorAll('.ig-tile')]
+    .map(el => Math.round(el.getBoundingClientRect().height)))].join(', ')));
+await click('.ig-switch button', { hasText: 'Pošta' });
+
+// Nastavení → AI: feedy objednávek jsou dole, proto se k nim odroluje
 await click('.side-item', { hasText: 'Nastavení' });
 await click('.modal-head button, .tabs button', { hasText: 'AI' });
 await page.evaluate(() => {
