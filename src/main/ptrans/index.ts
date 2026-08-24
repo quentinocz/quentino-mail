@@ -17,6 +17,8 @@ import { listBundleRules, saveBundleRule, deleteBundleRule, teachBundle, detectB
 import { writeGoogleText, writeGoogleTexts, applyAttributes, googleView,
   getAttributeRules, saveAttributeRules, GOOGLE_LABELS, AttributeRules, GoogleField } from './google';
 import { runAudit, auditFor, worstProducts, auditProduct, storedSummary, AuditOptions, ProductAudit } from './audit';
+import { planSourceFill, fillSourceOne, missingByField, SOURCE_FIELDS, SOURCE_LABELS,
+  SourceField, SourceFillOptions } from './source';
 
 /**
  * Překlady produktů — vstupní bod pro zbytek aplikace.
@@ -207,6 +209,36 @@ export function audit(options: AuditOptions = {}) {
   return result;
 }
 
+/**
+ * Kolik zdrojových textů u výběru chybí — podklad pro dialog spuštění.
+ *
+ * Ukazuje se po polích, protože rozhodnutí zní „SEO ano, Google ne", ne
+ * „doplnit 240 věcí".
+ */
+export function sourceGaps(codes: string[]) {
+  return {
+    fields: missingByField(codes),
+    total: planSourceFill({ codes }).length,
+    sourceLang: getPtransSettings().sourceLang
+  };
+}
+
+/** Doplní zdrojové texty bez překladu — pro případ, že jde jen o češtinu. */
+export async function fillSourceTexts(options: SourceFillOptions):
+  Promise<{ done: number; failed: number; errors: string[] }> {
+  const work = planSourceFill(options);
+  const errors: string[] = [];
+  let done = 0;
+  let failed = 0;
+  for (const target of work) {
+    const result = await fillSourceOne(target.code, target.field);
+    if (result.error) { failed++; if (errors.length < 20) errors.push(result.error); }
+    else done++;
+  }
+  emit('ptrans:changed', {});
+  return { done, failed, errors };
+}
+
 /** Uložený výsledek auditu pro jeden produkt. */
 export function auditOf(code: string, langs?: string[]): ProductAudit[] {
   return auditFor(code, langs);
@@ -330,9 +362,11 @@ export {
   listColorRules, deleteColorRule, BASE_COLORS, baseColorOf,
   listBundleRules, saveBundleRule, deleteBundleRule, detectBundle, bundlePreview,
   googleView, writeGoogleTexts, saveAttributeRules, getAttributeRules, GOOGLE_LABELS,
-  worstProducts, auditProduct, storedSummary
+  worstProducts, auditProduct, storedSummary,
+  SOURCE_FIELDS, SOURCE_LABELS
 };
 export type {
   SeoKind, ExportOptions, MemoryEntry, MemoryKind, LearnResult,
-  ColorRule, BundleRule, AttributeRules, GoogleField, AuditOptions, ProductAudit
+  ColorRule, BundleRule, AttributeRules, GoogleField, AuditOptions, ProductAudit,
+  SourceField, SourceFillOptions
 };

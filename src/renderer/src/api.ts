@@ -105,7 +105,14 @@ export const api = {
     /** Kolik polí by se přeložilo — pro odhad před spuštěním */
     plan: (codes: string[], langs: string[], options: { force?: boolean; fields?: string[] } = {}) =>
       call<number>('ptrans:plan', codes, langs, options),
-    run: (input: { codes: string[]; langs?: string[]; fields?: string[]; force?: boolean }) =>
+    /**
+     * `fillSource` doplní před překladem texty, které chybí ve zdrojovém
+     * jazyce — přeložit se dá jen to, co existuje.
+     */
+    run: (input: {
+      codes: string[]; langs?: string[]; fields?: string[]; force?: boolean;
+      fillSource?: boolean; sourceFields?: string[]; forceSource?: boolean;
+    }) =>
       call<{ done: number; failed: number; seconds: number; errors: string[] }>('ptrans:run', input),
     stop: () => call<boolean>('ptrans:stop'),
     progress: () => call<PtransProgress | null>('ptrans:progress'),
@@ -185,6 +192,15 @@ export const api = {
       call<{ code: string; title: string; score: number; errors: number }[]>('ptrans:worst', lang, limit),
     /** Souhrn z posledního auditu, bez nového počítání */
     auditSummary: () => call<(PtransAuditSummary & { checkedAt: string | null }) | null>('ptrans:auditSummary'),
+    /** Kolik zdrojových textů u výběru chybí — po polích */
+    sourceGaps: (codes: string[]) => call<{
+      fields: { field: string; label: string; missing: number }[];
+      total: number;
+      sourceLang: string;
+    }>('ptrans:sourceGaps', codes),
+    /** Doplnit zdrojové texty bez překladu */
+    fillSource: (options: { codes: string[]; fields?: string[]; force?: boolean }) =>
+      call<{ done: number; failed: number; errors: string[] }>('ptrans:fillSource', options),
     /** Spraví vady, které audit označil jako opravitelné */
     fixIssues: (code: string, lang: string, keys?: string[]) =>
       call<{ fixed: string[]; skipped: string[] }>('ptrans:fixIssues', code, lang, keys)

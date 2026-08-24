@@ -560,6 +560,58 @@ export function productFields(code: string, langs?: string[]): FieldRow[] {
 }
 
 /** Uloží překlad jednoho pole a rovnou ho promítne do „hodnoty ve feedu". */
+/**
+ * Hodnota pole tak, jak je právě teď — bez ohledu na to, jestli se sleduje.
+ *
+ * `ptrans_fields` obsahuje jen jazyky, do kterých se překládá, a jen pole
+ * zapnutá v nastavení. Zdrojový jazyk tam řádky nemá vůbec, takže „vezmi
+ * název a popis produktu" by v češtině vrátilo prázdno. Fallback do
+ * původního XML je tím pádem nutný všude, kde se s produktem pracuje jako
+ * s celkem — při psaní SEO textů, u Google atributů i v auditu.
+ */
+export function fieldValue(code: string, lang: string, field: string): string {
+  const d = getDb();
+  const row = d.prepare(
+    'SELECT translated, value FROM ptrans_fields WHERE code = ? AND lang = ? AND field = ?'
+  ).get(code, lang, field) as { translated: string | null; value: string } | undefined;
+  const known = (row?.translated || row?.value || '').trim();
+  if (known) return known;
+
+  const product = d.prepare('SELECT raw_xml FROM ptrans_products WHERE code = ?')
+    .get(code) as { raw_xml: string } | undefined;
+  if (!product) return '';
+  return (getField(product.raw_xml, lang, field) ?? '').trim();
+}
+
+/**
+ * Zapíše zdrojový text i k cílovým jazykům.
+ *
+ * Když se doplní český SEO titulek, musí se to promítnout do `source_value`
+ * u všech jazyků — jinak by překlad pořád vycházel z prázdna a stav pole by
+ * zůstal viset na „chybí zdroj". Volá se hned po doplnění zdrojového textu.
+ */
+export function propagateSource(code: string, field: string, source: string): void {
+  const d = getDb();
+  const s = getPtransSettings();
+  const langs = targetLangs(s);
+  if (langs.length === 0) return;
+
+  const upsert = d.prepare(`
+    INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
+    VALUES (@code, @lang, @field, @value, @source, @state)
+    ON CONFLICT(code, lang, field) DO UPDATE SET source_value = excluded.source_value
+  `);
+  const read = d.prepare(
+    'SELECT value, translated, translated_hash, manual FROM ptrans_fields WHERE code = ? AND lang = ? AND field = ?'
+  );
+
+  for (const lang of langs) {
+    const row = read.get(code, lang, field) as any;
+    upsert.run({ code, lang, field, value: row?.value ?? '', source, state: 'missing' });
+  }
+  recomputeStates([code]);
+}
+
 export function saveTranslation(code: string, lang: string, field: string, value: string,
                                 model: string, manual = false): void {
   const d = getDb();

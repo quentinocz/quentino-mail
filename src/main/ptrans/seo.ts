@@ -1,7 +1,7 @@
 import { getDb } from '../db';
 import { ask } from '../ai';
 import { getSettings } from '../settings';
-import { getPtransSettings, saveTranslation, productFields, targetLangs } from './store';
+import { getPtransSettings, saveTranslation, productFields, fieldValue, targetLangs } from './store';
 import { getField, productParameters, tagText } from './xml';
 import { clamp, slugify } from './translate';
 import { plain } from './detect';
@@ -140,11 +140,9 @@ const RULES: Record<SeoKind, (limit: number) => string> = {
 export async function generateSeo(code: string, lang: string, kind: SeoKind): Promise<string> {
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
-  const fields = productFields(code, [lang]);
-  const pick = (field: string) => {
-    const row = fields.find(f => f.field === field);
-    return row?.translated || row?.value || '';
-  };
+  // `fieldValue` sahá i do původního XML — ve zdrojovém jazyce se pole
+  // nesledují, takže bez toho by model psal z prázdných podkladů
+  const pick = (field: string) => fieldValue(code, lang, field);
 
   const limit = kind === 'seo_title' ? s.limits.seoTitle
     : kind === 'seo_desc' ? s.limits.seoDesc
