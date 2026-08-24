@@ -51,6 +51,7 @@ const ALLOWED_INVOKE = [
   'ptrans:edit', 'ptrans:retranslate', 'ptrans:run', 'ptrans:stop', 'ptrans:progress', 'ptrans:plan',
   'ptrans:googleTitles', 'ptrans:templatePreview', 'ptrans:generateSeo', 'ptrans:seoUrl',
   'ptrans:exportPreview', 'ptrans:export', 'ptrans:importFile', 'ptrans:redirectPreview',
+  'supabase:status', 'supabase:ping',
   'orderfeed:list', 'orderfeed:save', 'orderfeed:refresh',
   'orderfeed:contact', 'orderfeed:byEmail', 'orderfeed:byCode',
   'ptrans:consistency', 'ptrans:suggestPattern',

@@ -93,11 +93,13 @@ final class Scheduler {
             }
         }
 
-        // Projekt chatu na bezplatném tarifu se po pár dnech ticha uspí.
-        // Sáhne se na něj nejvýš jednou za pár hodin a jen když je ticho.
+        // Projekty Supabase na bezplatném tarifu se po pár dnech ticha uspí.
+        // Chat drží vzhůru načítání nepřečtených, ale úložiště médií pro
+        // Instagram se ozve jen při publikaci — a mezi dvěma příspěvky
+        // uplyne klidně týden.
         if Date().timeIntervalSince(lastChatAwake) > 6 * 3600 {
             lastChatAwake = Date()
-            await Chat.keepAwake()
+            await KeepAlive.keepAwake()
         }
 
         // Feedy objednávek. Kontroluje se každý průchod, ale stahuje se jen

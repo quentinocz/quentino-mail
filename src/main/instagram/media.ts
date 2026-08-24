@@ -13,6 +13,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getSecrets } from './store';
+import { markSeen } from '../keepalive';
 
 export interface Uploaded {
   publicUrl: string;
@@ -74,6 +75,9 @@ export async function upload(data: Buffer, key: string, mime: string): Promise<U
     );
   }
   if (!res.ok) throw new Error(`Nahrání média selhalo: ${(await res.text()).slice(0, 200)}`);
+  // Úspěšné nahrání je zároveň doklad, že projekt běží — od téhle chvíle
+  // se na něj nemusí sahat jen kvůli tomu, aby neusnul
+  markSeen(s.storageUrl);
   return {
     key,
     publicUrl: `${s.storageUrl}/storage/v1/object/public/${encodeURIComponent(s.storageBucket)}/${key}`

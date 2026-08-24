@@ -286,6 +286,13 @@
     'ptrans:fillSource': { done: 31, failed: 0, errors: [] },
     'ptrans:redirectPreview': { oldPath: '/p/bordo-panske-siroke-ksandy',
       list: ['/p/bordo-siroke-ksandy', '/p/bordo-panske-siroke-ksandy'] },
+    'supabase:status': [
+      { host: 'xyzchat.supabase.co', uses: ['chat'],
+        lastSeen: '2026-08-24T09:00:00Z', idleDays: 0, warn: false },
+      { host: 'xyzmedia.supabase.co', uses: ['média pro Instagram'],
+        lastSeen: '2026-08-19T12:00:00Z', idleDays: 5, warn: true }
+    ],
+    'supabase:ping': { result: [], status: [] },
     'orderfeed:contact': {
       phone: '+420607043067', name: 'Jana Nováková', orders: 3, via: 'podle e-mailu',
       order: { code: '023687', market: 'cz', status: 'Doručeno', paid: true, paidDate: '2026-08-10',

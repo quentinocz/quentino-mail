@@ -66,6 +66,18 @@ extension Bridge {
             return await Orders.shipment(dbId: try Self.int(args.first), force: force)
         }
 
+        // MARK: Projekty Supabase
+        //
+        // Bezplatný tarif je po pár dnech ticha uspí. Aplikace jich používá
+        // víc (chat, úložiště médií pro Instagram) a můžou to být i dva
+        // různé projekty.
+
+        register("supabase:status") { _ in KeepAlive.status() }
+        register("supabase:ping") { _ in
+            let result = await KeepAlive.keepAwake(force: true)
+            return ["result": result, "status": KeepAlive.status()]
+        }
+
         // MARK: Feed objednávek
         //
         // Kvůli telefonu na zákazníka: potvrzovací e-mail ho většinou nemá,

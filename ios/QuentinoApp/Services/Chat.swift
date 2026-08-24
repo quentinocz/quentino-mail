@@ -25,29 +25,17 @@ enum Chat {
             "operatorPersonId": Int(Store.setting("chatOperatorPersonId", "0") ?? "0") ?? 0,
             "signMode": Store.setting("chatSignMode", "first") ?? "first",
             "signSuffix": Store.setting("chatSignSuffix", "Quentino") ?? "Quentino",
-            "lastSeen": Store.setting("chatLastSeen", "") ?? "",
+            "lastSeen": KeepAlive.lastSeen(url),
             "idleDays": idleDays
         ]
     }
 
-    /**
-     Kolik dní se projekt Supabase neozval.
-
-     Bezplatný tarif ho po několika dnech bez jediného dotazu uspí a chat na
-     webu přestane fungovat. Za běhu aplikace ho drží vzhůru načítání
-     nepřečtených; tohle je pro případ, kdy se aplikace dlouho nespustí.
-     `-1` znamená, že se neozval nikdy.
-     */
-    static var idleDays: Int {
-        guard let at = Store.setting("chatLastSeen", ""), !at.isEmpty,
-              let date = ISO8601DateFormatter().date(from: at) else { return -1 }
-        return Int(Date().timeIntervalSince(date) / 86_400)
-    }
+    /// Kolik dní se projekt neozval. Vede se společně pro všechny projekty
+    /// Supabase — chat a úložiště médií můžou být i tentýž projekt.
+    static var idleDays: Int { KeepAlive.idleDays(url) }
 
     /// Projekt odpověděl — poznamená se čas.
-    static func markSeen() {
-        Store.setSetting("chatLastSeen", ISO8601DateFormatter().string(from: Date()))
-    }
+    static func markSeen() { KeepAlive.markSeen(url) }
 
     static func saveConfig(_ patch: [String: Any]) -> [String: Any] {
         if let value = patch["url"] as? String { Store.setSetting("chatSupabaseUrl", value.trimmedSlash) }
@@ -158,21 +146,6 @@ enum Chat {
         markSeen()
         let unread = list.reduce(0) { $0 + ($1["unread"] as? Int ?? 0) }
         return ["unread": unread, "conversations": list.filter { ($0["unread"] as? Int ?? 0) > 0 }.count]
-    }
-
-    /**
-     Oťukání projektu, aby ho bezplatný tarif neuspal.
-
-     Za běhu aplikace ho drží vzhůru samotné načítání nepřečtených, takže
-     tenhle dotaz obvykle vůbec neproběhne — je to pojistka pro dny, kdy se
-     chat neotevře. Uspaný projekt znamená, že zákazník píše do prázdna.
-     */
-    static func keepAwake() async {
-        guard isReady else { return }
-        let idle = idleDays
-        if idle >= 0 && idle < 1 { return }
-        _ = try? await rest("conversations?select=id&limit=1")
-        markSeen()
     }
 
     // MARK: - Odesílání

@@ -23,6 +23,7 @@ import { scanOrders, setItemPacked, setOrderDone, resetPacking } from './packing
 import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderlink';
 import * as ptrans from './ptrans';
 import * as orderfeed from './orderfeed';
+import * as keepalive from './keepalive';
 import * as articles from './articles';
 import { customerContext, customerConversation, messageText } from './customer';
 import { relearnPhase } from './shipphase';
@@ -368,6 +369,19 @@ export function registerIpc() {
   handle('ptrans:seoUrl', (code: string, lang: string) => ptrans.refreshSeoUrl(code, lang));
   handle('ptrans:redirectPreview', (code: string, lang: string, slug: string) =>
     ptrans.redirectPreview(code, lang, slug));
+  /**
+   * Stav projektů Supabase — kdy se který naposledy ozval.
+   *
+   * Aplikace jich používá víc (chat, úložiště médií pro Instagram) a můžou
+   * to být i dva různé projekty. Bezplatný tarif každý z nich po pár dnech
+   * ticha uspí.
+   */
+  handle('supabase:status', () => keepalive.status());
+  handle('supabase:ping', async () => {
+    const result = await keepalive.keepAwake(true);
+    return { result, status: keepalive.status() };
+  });
+
   /* ---------- objednávky z feedu e-shopu ---------- */
   handle('orderfeed:list', () => ({ feeds: orderfeed.feedStatuses(), stats: orderfeed.orderStats() }));
   handle('orderfeed:save', (feeds: any[]) => {
