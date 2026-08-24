@@ -22,6 +22,7 @@ final class Scheduler {
     private var lastFeed = Date.distantPast
     private var lastTokens = Date.distantPast
     private var lastOrders = Date.distantPast
+    private var lastChatAwake = Date.distantPast
     private var observers: [NSObjectProtocol] = []
 
     private init() { }
@@ -90,6 +91,13 @@ final class Scheduler {
                 _ = try? await Products.refresh()
                 Bridge.notify("products:changed")
             }
+        }
+
+        // Projekt chatu na bezplatném tarifu se po pár dnech ticha uspí.
+        // Sáhne se na něj nejvýš jednou za pár hodin a jen když je ticho.
+        if Date().timeIntervalSince(lastChatAwake) > 6 * 3600 {
+            lastChatAwake = Date()
+            await Chat.keepAwake()
         }
 
         // Feedy objednávek. Kontroluje se každý průchod, ale stahuje se jen

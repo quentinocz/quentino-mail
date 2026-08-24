@@ -46,6 +46,10 @@ function migrate(d: Database.Database) {
       subject TEXT NOT NULL DEFAULT '',
       from_addr TEXT NOT NULL DEFAULT '',
       from_name TEXT NOT NULL DEFAULT '',
+      -- Kam odpovídat, když si to odesílatel přeje jinam než na svou adresu.
+      -- Používají to hromadné rozesílky i formuláře na webu, které jen
+      -- přeposílají zprávu od zákazníka.
+      reply_to TEXT NOT NULL DEFAULT '',
       to_addr TEXT NOT NULL DEFAULT '',
       cc TEXT NOT NULL DEFAULT '',
       date TEXT NOT NULL DEFAULT '',
@@ -317,6 +321,7 @@ function migrate(d: Database.Database) {
   try { d.exec("ALTER TABLE persons ADD COLUMN display_en TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE outbox ADD COLUMN from_name TEXT"); } catch { /* sloupec už existuje */ }
   try { d.exec('ALTER TABLE messages ADD COLUMN size INTEGER NOT NULL DEFAULT 0'); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
 
   // Katalog produktů: kategorie a dostupnost pro prohlížeč produktů v kompozeru.
   // Hodnoty se doplní při nejbližší synchronizaci feedu (feedNeedsCategories()).

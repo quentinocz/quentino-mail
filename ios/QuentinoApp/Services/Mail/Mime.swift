@@ -31,6 +31,8 @@ enum Mime {
         var from: Address?
         var to: [Address] = []
         var cc: [Address] = []
+        /// Kam odesílatel chce odpověď, když ne na svou adresu
+        var replyTo: [Address] = []
         var date: Date?
         var messageId = ""
         var inReplyTo = ""
@@ -51,6 +53,7 @@ enum Mime {
         message.from = addresses(headers["from"] ?? "").first
         message.to = addresses(headers["to"] ?? "")
         message.cc = addresses(headers["cc"] ?? "")
+        message.replyTo = addresses(headers["reply-to"] ?? "")
         message.date = parseDate(headers["date"] ?? "")
         message.messageId = clean(headers["message-id"] ?? "")
         message.inReplyTo = clean(headers["in-reply-to"] ?? "")
@@ -69,6 +72,7 @@ enum Mime {
         message.from = addresses(headers["from"] ?? "").first
         message.to = addresses(headers["to"] ?? "")
         message.cc = addresses(headers["cc"] ?? "")
+        message.replyTo = addresses(headers["reply-to"] ?? "")
         message.date = parseDate(headers["date"] ?? "")
         message.messageId = clean(headers["message-id"] ?? "")
         message.inReplyTo = clean(headers["in-reply-to"] ?? "")

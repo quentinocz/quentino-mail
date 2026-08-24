@@ -472,6 +472,39 @@ input:focus, textarea:focus, select:focus {
   flex-shrink: 0;
 }
 .read-meta .who { flex: 1; min-width: 0; }
+
+/* Upozornění, že odpověď nepůjde odesílateli. Je to překvapivé chování,
+   takže se říká předem — jinak by to člověk zjistil až v odeslané poště. */
+.reply-target {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.reply-target > svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
+.reply-target > span { flex: 1; min-width: 0; }
+.reply-target b { color: var(--accent-dark); word-break: break-all; }
+.reply-target small { color: var(--text-3); }
+.reply-target-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--accent-dark);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.reply-target-phone:hover { text-decoration: underline; }
 .read-meta .name { font-weight: 600; }
 .read-meta .addr { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
 .read-meta .when { font-size: 12px; color: var(--text-3); flex-shrink: 0; }
@@ -1838,6 +1871,26 @@ input:focus, textarea:focus, select:focus {
 .cv-wait { color: var(--warn); font-weight: 700; }
 .cv-open { font-size: 10.5px; color: var(--accent-dark); font-weight: 600; }
 .cv-open:hover { text-decoration: underline; }
+
+/* Dlouhá zpráva se sbalí, ať je z vlákna vidět průběh, ne jedna stěna textu.
+   Konec se vytrácí do ztracena — je tím jasné, že text pokračuje. */
+.cv-text.clipped {
+  position: relative;
+  max-height: 8.4em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+}
+.cv-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent-dark);
+}
+.cv-more:hover { text-decoration: underline; }
 
 /* Objednávka v časové ose */
 .cv-event { display: flex; flex-direction: column; align-items: center; margin: 10px 0; }
@@ -3268,6 +3321,36 @@ html[data-form-factor="phone"] .m-head-btn,
 html[data-form-factor="phone"] .m-head-btn:active { background: var(--accent-soft); }
 html[data-form-factor="phone"] .m-head-btn.right { justify-content: flex-end; }
 
+/* Nadpis jako přepínač složek.
+   Šipka i odznak jsou uvnitř tlačítka, takže se dá trefit celý blok —
+   a je z něj na první pohled poznat, že se dá jít jinam. */
+html[data-form-factor="phone"] .m-head-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: var(--tap);
+  padding: 0 8px;
+  border-radius: 10px;
+  color: var(--text);
+}
+html[data-form-factor="phone"] .m-head-picker:active { background: var(--accent-soft); }
+html[data-form-factor="phone"] .m-head-picker .m-head-title { flex: 0 1 auto; padding: 0; }
+html[data-form-factor="phone"] .m-head-picker svg { flex-shrink: 0; color: var(--text-3); }
+html[data-form-factor="phone"] .m-head-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
 /* Sloupce: vidět je vždy jen jeden */
 html[data-form-factor="phone"] .list-pane,
 html[data-form-factor="phone"] .read-pane,
@@ -3856,8 +3939,12 @@ html[data-form-factor="phone"] .ig-card .btn { width: 100%; justify-content: cen
 /* Dlaždice feedu po dvou — jedna přes celou šířku je zbytečně velká */
 html[data-form-factor="phone"] .ig-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
+/* Obrázek je čtverec a nesmí se roztáhnout podle sousedky s delším
+   popiskem — jinak jsou v řadě dva různě vysoké snímky téhož formátu. */
+html[data-form-factor="phone"] .ig-tile-img { flex: 0 0 auto; }
+html[data-form-factor="phone"] .ig-tile-body { padding: 8px 9px 9px; gap: 5px; }
 html[data-form-factor="phone"] .ig-captions { grid-template-columns: 1fr; }
 
 /* Nastavení: záložky se vejdou po dvou řádcích místo rolování do stran */
@@ -3906,24 +3993,45 @@ html[data-form-factor="phone"] .ig-head {
   gap: 8px;
   align-items: flex-start;
 }
-html[data-form-factor="phone"] .ig-head h2 { font-size: 17px; width: 100%; }
-html[data-form-factor="phone"] .ig-head-tools { width: 100%; flex-wrap: wrap; gap: 8px; }
-/* Hledání a přepínač vedle sebe, ať nezaberou dva řádky */
-html[data-form-factor="phone"] .ig-search { flex: 1 1 140px; }
-html[data-form-factor="phone"] .ig-search input { width: 100%; }
-html[data-form-factor="phone"] .ig-seg { flex: 0 0 auto; }
-html[data-form-factor="phone"] .ig-seg button { padding: 6px 9px; font-size: 12px; }
-html[data-form-factor="phone"] .ig-search input { height: 38px; }
-/* Načtení archivu je vzácná akce — stačí nenápadný odkaz pod tím */
+/* Nadpis jen opakuje záložku, která je v pásu nad ním zvýrazněná — na
+   telefonu je to celý řádek za nic. */
+html[data-form-factor="phone"] .ig-head h2 { display: none; }
+
+/* Mřížka místo zalamovaného flexu: hledání se pak nesmrskne na půl slova
+   a přepínač dostane celou šířku, takže jde trefit palcem. */
+html[data-form-factor="phone"] .ig-head-tools {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+}
+/* Umístění je vypsané schválně. Prvky jdou v kódu v pořadí hledání →
+   přepínač → odkaz, takže při automatickém skládání by odkaz spadl pod
+   přepínač na vlastní řádek a hlavička by zbytečně narostla. */
+html[data-form-factor="phone"] .ig-search { grid-area: 1 / 1; }
+html[data-form-factor="phone"] .ig-search input { width: 100%; height: 38px; }
+html[data-form-factor="phone"] .ig-seg {
+  grid-area: 2 / 1 / 3 / -1;
+  width: 100%;
+}
+html[data-form-factor="phone"] .ig-seg button {
+  flex: 1;
+  padding: 7px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* Načtení archivu je vzácná akce — stačí nenápadný odkaz vedle hledání */
 html[data-form-factor="phone"] .ig-head-tools > .btn.ghost {
-  flex: 0 0 auto;
-  min-height: 30px;
-  padding: 0 6px;
+  grid-area: 1 / 2;
+  min-height: 38px;
+  padding: 0 4px;
   background: none;
   border: 0;
   color: var(--accent-dark);
   font-size: 12.5px;
   text-decoration: underline;
+  white-space: nowrap;
 }
 
 /* Dlaždice: odznaky se nesmí překrývat a popisek stačí dvouřádkový */
@@ -4255,6 +4363,24 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 .pt-eta small { color: var(--text-3); }
 .pt-fail { color: var(--danger); font-weight: 600; }
 
+/* Stav projektu chatu: kdy se naposledy ozval. */
+.chat-alive {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 14px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.chat-alive svg { flex-shrink: 0; margin-top: 2px; color: var(--ok, var(--accent-dark)); }
+.chat-alive small { display: block; margin-top: 3px; color: var(--text-3); font-size: 11.5px; }
+.chat-alive.warn { background: #fff5e0; }
+.chat-alive.warn svg { color: var(--warn); }
+[data-theme="dark"] .chat-alive.warn { background: #3a2f16; }
+
 /* ---------- telefon na zákazníka ---------- */
 
 /* Na počítači číslo, na telefonu tlačítko. Z počítače se volat nedá, takže
@@ -4285,6 +4411,10 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
   text-align: left;
 }
 .call-btn.compact { min-height: 38px; padding: 8px 12px; }
+/* Na telefonu je číslo samo o sobě tlačítko — velké „Zavolat" je nahoře
+   u zákazníka a podruhé o kus níž by vypadalo jako druhá výzva k témuž. */
+.call-line.tappable { gap: 6px; font-size: 13.5px; }
+.call-line.tappable a { min-height: 32px; display: inline-flex; align-items: center; }
 .call-btn svg { flex-shrink: 0; }
 .call-btn b { display: block; font-size: 13.5px; font-weight: 600; }
 .call-btn small { display: block; font-size: 11px; opacity: .82; margin-top: 1px; }

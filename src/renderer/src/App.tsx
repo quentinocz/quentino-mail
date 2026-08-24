@@ -21,6 +21,7 @@ import type { Workspace, AiTool } from './components/WorkspaceSwitch';
 import { SidebarResizer, useSidebarWidth } from './sidebar';
 import { useIsPhone } from './mobile';
 import MobileTabs from './components/MobileTabs';
+import { viewTitle, viewUnread } from './viewtitle';
 
 function AppInner() {
   const toast = useToast();
@@ -330,12 +331,9 @@ function AppInner() {
     );
   }
 
-  // Nadpis mobilní hlavičky podle toho, co je zrovna vidět
-  const mobileTitle = view.type === 'folder'
-    ? (folders.find(f => f.path === view.folder)?.name ?? view.folder)
-    : view.type === 'category'
-      ? ({ orders: 'Objednávky', people: 'Lidé', companies: 'Firmy', other: 'Ostatní' } as Record<string, string>)[view.category] ?? 'Pošta'
-      : view.type === 'archive' ? 'Archiv' : 'K objednávkám';
+  // Nadpis mobilní hlavičky — stejným pravidlem jako v seznamu zpráv
+  const mobileTitle = viewTitle(view, folders);
+  const mobileUnread = viewUnread(view, folders, catStats);
 
   const closeDetail = () => { setSelectedId(null); setDetail(null); };
 
@@ -349,15 +347,28 @@ function AppInner() {
       {phone && (
         <div className="m-head">
           {selectedId ? (
-            <button className="m-head-btn" onClick={closeDetail} aria-label="Zpět na seznam">
-              <Icon name="chevLeft" size={20} /><span>Zpět</span>
-            </button>
+            <>
+              <button className="m-head-btn" onClick={closeDetail} aria-label="Zpět na seznam">
+                <Icon name="chevLeft" size={20} /><span>Zpět</span>
+              </button>
+              <div className="m-head-title">{detail?.fromName || detail?.fromAddr || 'Zpráva'}</div>
+            </>
           ) : (
-            <button className="m-head-btn" onClick={() => setDrawer(true)} aria-label="Složky">
-              <Icon name="menu" size={20} />
+            /*
+              Nadpis je zároveň přepínač složek.
+              
+              Dřív tu byl hamburger a vedle něj text — dvě věci, které dělaly
+              totéž místo v hlavičce a nedávaly najevo, že se dá přepnout jinam.
+              Takhle je z toho jedno tlačítko, které rovnou říká, kde jsem,
+              kolik tu čeká nepřečtených a že se dá jít jinam.
+            */
+            <button className="m-head-picker" onClick={() => setDrawer(true)}
+              aria-label={`${mobileTitle} — otevřít složky`}>
+              <span className="m-head-title">{mobileTitle}</span>
+              {mobileUnread > 0 && <span className="m-head-count">{mobileUnread}</span>}
+              <Icon name="chevDown" size={14} />
             </button>
           )}
-          <div className="m-head-title">{selectedId ? (detail?.fromName || detail?.fromAddr || 'Zpráva') : mobileTitle}</div>
           {!selectedId && (
             <button
               className="m-head-btn right"
@@ -408,6 +419,7 @@ function AppInner() {
       />
       <MessageList
         messages={messages}
+        folders={folders}
         selectedId={selectedId}
         onSelect={openMessage}
         search={search}

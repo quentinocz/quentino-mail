@@ -81,6 +81,8 @@ export interface CustomerMessage {
   answered: boolean;
   /** Potvrzení objednávky z e-shopu */
   isOrderMail: boolean;
+  /** Číslo objednávky z rejstříku, když se ke zprávě podařilo přiřadit */
+  orderNumber?: string | null;
 }
 
 export interface CustomerOrder {
@@ -133,6 +135,24 @@ export interface MessageFull extends MessageHeader {
   attachments: AttachmentInfo[];
   detectedLang: string | null;
   translationCz: string | null;
+  /** Hlavička Reply-To, když ji odesílatel poslal */
+  replyTo?: string;
+  /**
+   * Komu doopravdy odpovědět.
+   *
+   * U zpráv z formuláře na webu je v `From` adresa e-shopu, ne zákazníka —
+   * odpověď by skončila u poskytovatele. Skutečný kontakt je v textu zprávy.
+   */
+  replyTarget?: {
+    address: string;
+    name: string;
+    /** `reply-to` · `formulář` · `odesílatel` — do popisku v rozhraní */
+    source: string;
+    /** Telefon, který zákazník do formuláře napsal */
+    phone: string;
+    /** Který formulář to byl */
+    form: string;
+  };
 }
 
 export interface FolderInfo {
@@ -755,6 +775,16 @@ export interface ChatConfig {
   signMode: 'first' | 'always' | 'off';
   /** Co se píše za jméno — „Petra, Quentino" */
   signSuffix: string;
+  /**
+   * Kdy se naposledy povedlo projekt oťukat.
+   *
+   * Bezplatný tarif Supabase projekt po několika dnech bez jediného dotazu
+   * uspí a chat na webu přestane fungovat. Aplikace ho drží vzhůru, ale jen
+   * když sama běží — proto je to vidět v nastavení.
+   */
+  lastSeen: string;
+  /** Kolik dní je projekt bez ozvání; -1 = zatím se neozval nikdy */
+  idleDays: number;
 }
 
 export interface ChatOverview {

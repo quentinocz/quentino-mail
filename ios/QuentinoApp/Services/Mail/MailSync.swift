@@ -179,8 +179,8 @@ enum MailSync {
                 try SQLite.shared.run(
                     """
                     INSERT INTO messages (account_id, folder, uid, message_id, subject, from_addr, from_name,
-                      to_addr, cc, date, seen, flagged, answered, has_attachments, thread_key, snippet, size)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'',?)
+                      reply_to, to_addr, cc, date, seen, flagged, answered, has_attachments, thread_key, snippet, size)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'',?)
                     ON CONFLICT(account_id, folder, uid) DO UPDATE SET
                       seen = excluded.seen, flagged = excluded.flagged,
                       answered = excluded.answered, size = excluded.size
@@ -191,6 +191,8 @@ enum MailSync {
                         .text(parsed.subject.isEmpty ? "(bez předmětu)" : parsed.subject),
                         .text(parsed.from?.address ?? ""),
                         .text(parsed.from?.name ?? ""),
+                        // Reply-To: když ji odesílatel pošle, odpověď patří tam
+                        .text(parsed.replyTo.map { $0.address }.joined(separator: ", ")),
                         .text(parsed.to.map { $0.address }.joined(separator: ", ")),
                         .text(parsed.cc.map { $0.address }.joined(separator: ", ")),
                         .text(Formats.iso(parsed.date ?? Date())),

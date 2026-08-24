@@ -54,7 +54,8 @@ function OrderEvent({ m, onOpen }: { m: CustomerMessage; onOpen: (id: number) =>
     return () => { cancelled = true; };
   }, [open, card, m.id]);
 
-  const num = (m.subject.match(/(?:č\.|no\.|#)\s*(\d{3,})/i) ?? [])[1];
+  // Číslo z rejstříku má přednost — v předmětu bývá i datum nebo částka
+  const num = m.orderNumber ?? (m.subject.match(/(?:č\.|no\.|#)\s*(\d{3,})/i) ?? [])[1];
   const sum = (m.subject.match(/\b([\d\s.,]+(?:Kč|CZK|€|EUR))/i) ?? [])[1];
 
   return (
@@ -77,6 +78,56 @@ function OrderEvent({ m, onOpen }: { m: CustomerMessage; onOpen: (id: number) =>
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Kolik textu se v bublině ukáže, než se nabídne rozbalení.
+ *
+ * Potvrzení objednávky nebo zpráva s podpisem a patičkou mají klidně dva
+ * tisíce znaků. Ve vlákně z toho vznikla stěna textu, ve které se ostatní
+ * zprávy ztratily — a na telefonu to bylo několik obrazovek rolování na
+ * jednu jedinou zprávu.
+ */
+const BUBBLE_LIMIT = 420;
+
+/** Bublina zprávy. Dlouhý text se sbalí, ať je vidět celý průběh hovoru. */
+function Bubble({ m, q, focus, onOpen }: {
+  m: CustomerMessage;
+  q: string;
+  focus: boolean;
+  onOpen: (id: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const body = (m.text ?? m.snippet ?? '').trim();
+  const long = body.length > BUBBLE_LIMIT;
+  // Krátí se na hranici slova, ne uprostřed — půlka slova vypadá jako chyba
+  const shown = !long || open ? body : body.slice(0, body.lastIndexOf(' ', BUBBLE_LIMIT) + 1 || BUBBLE_LIMIT);
+
+  return (
+    <div className={`cv-row ${m.incoming ? 'in' : 'out'} ${focus ? 'focus' : ''}`}>
+      <div className="cv-bubble">
+        <div className="cv-subject">
+          {m.subject || '(bez předmětu)'}
+          {m.hasAttachments && <Icon name="paperclip" size={11} style={{ marginLeft: 5 }} />}
+        </div>
+        <div className={`cv-text ${long && !open ? 'clipped' : ''}`}>
+          {body ? highlight(shown, q) : <span className="cv-dim">(bez textu)</span>}
+        </div>
+        {long && (
+          <button className="cv-more" onClick={() => setOpen(o => !o)}>
+            <Icon name="chevDown" size={11}
+              style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+            {open ? 'Sbalit' : `Zobrazit celé (${Math.round(body.length / 100) / 10} tis. znaků)`}
+          </button>
+        )}
+        <div className="cv-meta">
+          <span>{time(m.date)}</span>
+          {m.incoming && !m.answered && <span className="cv-wait">čeká na odpověď</span>}
+          <button className="cv-open" onClick={() => onOpen(m.id)}>otevřít</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -201,7 +252,6 @@ export default function ConversationModal(p: Props) {
             const newDay = day !== lastDay;
             lastDay = day;
             const focus = p.focusMessageId === m.id;
-            const body = (m.text ?? m.snippet ?? '').trim();
 
             return (
               <div key={m.id} ref={focus ? focusRef : undefined}>
@@ -209,24 +259,7 @@ export default function ConversationModal(p: Props) {
 
                 {m.isOrderMail
                   ? <OrderEvent m={m} onOpen={p.onOpenMessage} />
-                  : (
-                    <div className={`cv-row ${m.incoming ? 'in' : 'out'} ${focus ? 'focus' : ''}`}>
-                      <div className="cv-bubble">
-                        <div className="cv-subject">
-                          {m.subject || '(bez předmětu)'}
-                          {m.hasAttachments && <Icon name="paperclip" size={11} style={{ marginLeft: 5 }} />}
-                        </div>
-                        <div className="cv-text">
-                          {body ? highlight(body, q) : <span className="cv-dim">(bez textu)</span>}
-                        </div>
-                        <div className="cv-meta">
-                          <span>{time(m.date)}</span>
-                          {m.incoming && !m.answered && <span className="cv-wait">čeká na odpověď</span>}
-                          <button className="cv-open" onClick={() => p.onOpenMessage(m.id)}>otevřít</button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  : <Bubble m={m} q={q} focus={focus} onOpen={p.onOpenMessage} />}
               </div>
             );
           })}

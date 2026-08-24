@@ -1,5 +1,6 @@
 import { getDb } from './db';
 import { shopMatchesSender } from './ordercard';
+import { isRelaySender } from './formmail';
 import type { CustomerContext, CustomerMessage, CustomerOrder } from '../shared/types';
 
 /**
@@ -145,6 +146,9 @@ function ourAddresses(): Set<string> {
   }
 }
 
+/** Předmět, který vypadá na potvrzení objednávky, ať ho posílá kdokoli. */
+const ORDER_SUBJECT = /(objedn[áa]v|potvrzen[íi]|order\b|bestellung)/i;
+
 export function customerContext(emailRaw: string, limit = 60): CustomerContext {
   const email = normEmail(emailRaw);
   if (!email) return { email: '', name: '', messages: [], orders: [] };
@@ -154,10 +158,13 @@ export function customerContext(emailRaw: string, limit = 60): CustomerContext {
   const like = `%${email}%`;
 
   const rows = d.prepare(
-    `SELECT id, date, subject, from_addr, from_name, to_addr, seen, answered, snippet, folder, has_attachments
-     FROM messages
-     WHERE lower(from_addr) LIKE ? OR lower(to_addr) LIKE ? OR lower(cc) LIKE ?
-     ORDER BY date DESC LIMIT ?`
+    `SELECT m.id, m.date, m.subject, m.from_addr, m.from_name, m.to_addr, m.seen, m.answered,
+            m.snippet, m.folder, m.has_attachments,
+            oi.order_number AS order_number
+     FROM messages m
+     LEFT JOIN order_index oi ON oi.message_pk = m.id
+     WHERE lower(m.from_addr) LIKE ? OR lower(m.to_addr) LIKE ? OR lower(m.cc) LIKE ?
+     ORDER BY m.date DESC LIMIT ?`
   ).all(like, like, like, limit) as any[];
 
   const messages: CustomerMessage[] = rows.map(r => ({
@@ -173,7 +180,22 @@ export function customerContext(emailRaw: string, limit = 60): CustomerContext {
     hasAttachments: !!r.has_attachments,
     seen: !!r.seen,
     answered: !!r.answered,
-    isOrderMail: shopMatchesSender(r.from_addr ?? '') && /(objedn[áa]v|order\b)/i.test(r.subject ?? '')
+    /*
+     * Je to potvrzení objednávky?
+     *
+     * Rozhodující je záznam v rejstříku objednávek — ten vzniká z rozboru
+     * potvrzení a je spolehlivý. Původně se soudilo jen podle domény
+     * odesílatele, jenže e-shop rozesílá poštu přes svého poskytovatele
+     * (`system@upgates.com`), takže shoda s doménou e-shopu neplatila a
+     * potvrzení se ve vlákně vypisovala jako obří kus textu místo karty.
+     *
+     * Doména plus předmět zůstávají jako záloha pro zprávy, ke kterým se
+     * rejstřík ještě nedostal.
+     */
+    isOrderMail: !!r.order_number
+      || (shopMatchesSender(r.from_addr ?? '') && /(objedn[áa]v|order\b)/i.test(r.subject ?? ''))
+      || (isRelaySender(r.from_addr ?? '') && ORDER_SUBJECT.test(r.subject ?? '')),
+    orderNumber: r.order_number ?? null
   }));
 
   // Jméno bereme z poslední zprávy, kterou zákazník poslal

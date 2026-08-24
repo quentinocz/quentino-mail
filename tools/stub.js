@@ -99,7 +99,8 @@
     },
     'chat:overview': {
       config: { url: 'https://x.supabase.co', hasKey: true, apiBase: 'https://quentino.cz', ready: true,
-        operatorPersonId: 1, signMode: 'first', signSuffix: 'Quentino' },
+        operatorPersonId: 1, signMode: 'first', signSuffix: 'Quentino',
+        lastSeen: '2026-08-24T09:00:00Z', idleDays: 0 },
       persons: [{ id: 1, name: 'Petra Nováková', short: 'Petra' }, { id: 2, name: 'Tomáš Kraus', short: 'Tomáš' }],
       unread: 2, waiting: 1
     },

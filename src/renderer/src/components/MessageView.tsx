@@ -211,10 +211,26 @@ export default function MessageView(p: Props) {
   // Bez tohohle by se u starých objednávkových mailů panel vůbec neukázal.
   const shop = shopLabel(p.settings?.productFeedUrl ?? null);
   const fromIsShop = !!shop && (d.fromAddr.split('@')[1] ?? '').toLowerCase().includes(shop);
-  const customerEmail = fromIsShop
-    ? (d.toAddr.split(',')[0] ?? '').trim()
-    : d.fromAddr;
-  const customerName = fromIsShop ? '' : d.fromName;
+
+  /*
+   * Komu odpovědět a koho brát jako zákazníka.
+   *
+   * Většinou je to odesílatel, ale ne vždy:
+   *  - u potvrzení objednávky posílá poštu e-shop, takže zákazník je příjemce,
+   *  - u zpráv z formuláře na webu je v `From` adresa poskytovatele e-shopu
+   *    a zákazníkova adresa je až v textu — to řeší `replyTarget`, který
+   *    přichází z hlavního procesu.
+   */
+  const target = d.replyTarget;
+  const viaForm = target?.source === 'formulář';
+  const customerEmail = viaForm && target
+    ? target.address
+    : fromIsShop
+      ? (d.toAddr.split(',')[0] ?? '').trim()
+      : d.fromAddr;
+  const customerName = viaForm && target
+    ? (target.name || '')
+    : fromIsShop ? '' : d.fromName;
 
   const shownSummary = summary ?? d.summary;
   const shownTranslation = translation ?? (d.translationCz ? { lang: d.detectedLang ?? '?', translation: d.translationCz } : null);
@@ -267,7 +283,9 @@ export default function MessageView(p: Props) {
   const replyInit: ComposerInit = {
     mode: 'reply',
     accountId: d.accountId,
-    to: d.fromAddr,
+    // Ne `fromAddr`: u rozesílek si odesílatel přeje odpověď jinam (Reply-To)
+    // a u formulářů na webu je odesílatelem e-shop, ne zákazník
+    to: d.replyTarget?.address || d.fromAddr,
     subject: d.subject.match(/^re:/i) ? d.subject : `Re: ${d.subject}`,
     inReplyTo: d.messageId,
     references: d.messageId,
@@ -399,6 +417,36 @@ export default function MessageView(p: Props) {
               </div>
               <div className="when">{new Date(d.date).toLocaleString('cs-CZ')}</div>
             </div>
+
+            {/*
+              Odpověď nepůjde odesílateli.
+
+              Je to překvapivé chování, takže se to říká předem a je vidět
+              proč — jinak by člověk odeslal a teprve v odeslané poště zjistil,
+              že to šlo někam jinam.
+            */}
+            {target && target.source !== 'odesílatel'
+              && target.address.toLowerCase() !== d.fromAddr.toLowerCase() && (
+              <div className="reply-target">
+                <Icon name="reply" size={12} />
+                <span>
+                  Odpověď půjde na <b>{target.address}</b>
+                  {target.name ? ` (${target.name})` : ''}
+                  <small>
+                    {target.source === 'formulář'
+                      ? ` — adresa ze zprávy${target.form ? `, formulář „${target.form}"` : ''}`
+                      : ' — odesílatel si přeje odpověď sem'}
+                  </small>
+                </span>
+                {target.phone && (
+                  <a className="reply-target-phone"
+                    href={`tel:${target.phone}`}
+                    onClick={e => { e.preventDefault(); api.shell.openUrl(`tel:${target.phone}`); }}>
+                    <Icon name="phone" size={12} /> {target.phone}
+                  </a>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Kontext zákazníka — kdo píše, jeho historie a objednávky */}
