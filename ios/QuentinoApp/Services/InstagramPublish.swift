@@ -176,6 +176,14 @@ actor IgQueue {
                     ("finished_at", .text(Formats.iso()))
                 ])
                 IgStore.updateCaption(id: captionId, status: "published")
+                // Zvlášť i sám fakt, že to na tomhle trhu vyšlo — ten se pak
+                // přenese na ostatní zařízení, aby ho nenabízela znovu
+                IgStore.recordPublished(
+                    sourceMediaId: IgStore.sourceMediaId(captionId: captionId),
+                    lang: caption["lang"] as? String ?? "",
+                    permalink: result.permalink ?? "",
+                    igMediaId: result.igMediaId
+                )
             } else {
                 // Jen Facebook: na Instagramu nic nevzniká, popisek zůstává rozpracovaný
                 IgStore.setJobState(id: jobId, [

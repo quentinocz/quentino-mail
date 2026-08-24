@@ -287,6 +287,26 @@ export function listSourcePosts(limit = 120, offset = 0): IgSourcePost[] {
     byPost.set(s.sid, entry);
   }
 
+  /*
+   * Co vyšlo z jiného zařízení.
+   *
+   * Rozepsané popisky a odeslané práce popisují jen tohle zařízení. Když se
+   * reels publikoval z počítače, telefon by o tom nevěděl a nabízel by ho
+   * k publikaci znovu. `ig_published` je záznam o skutečnosti venku a
+   * synchronizuje se mezi zařízeními.
+   */
+  const published = d.prepare(
+    `SELECT s.id AS sid, pub.lang AS lang FROM ig_published pub
+     JOIN ig_source_posts s ON s.ig_media_id = pub.source_media_id`
+  ).all() as { sid: number; lang: string }[];
+  for (const row of published) {
+    const entry = byPost.get(row.sid) ?? { done: [], pending: [] };
+    if (!entry.done.includes(row.lang)) entry.done.push(row.lang);
+    // Trh, který už vyšel, není rozpracovaný
+    entry.pending = entry.pending.filter(lang => lang !== row.lang);
+    byPost.set(row.sid, entry);
+  }
+
   return rows.map(r => ({
     id: r.id,
     igMediaId: r.ig_media_id,
@@ -431,6 +451,63 @@ export function setJobState(id: number, patch: Record<string, unknown>): void {
   if (keys.length === 0) return;
   const sql = `UPDATE ig_jobs SET ${keys.map(k => `${k} = ?`).join(', ')} WHERE id = ?`;
   getDb().prepare(sql).run(...keys.map(k => patch[k] as any), id);
+}
+
+/* ---------- co už na kterém trhu vyšlo ---------- */
+
+/**
+ * Poznamená, že příspěvek na daném trhu vyšel.
+ *
+ * Ukládá se pod Instagramovým id **zdrojového** příspěvku, protože to je
+ * jediné číslo, které mají všechna zařízení stejné. První zápis vyhrává:
+ * publikace se nedá vzít zpět, takže pozdější pokus jen doplní odkaz, když
+ * ho dřívější záznam neměl.
+ */
+export function recordPublished(entry: {
+  sourceMediaId: string; lang: string; at?: string; permalink?: string; igMediaId?: string;
+}): void {
+  if (!entry.sourceMediaId || !entry.lang) return;
+  getDb().prepare(
+    `INSERT INTO ig_published (source_media_id, lang, at, permalink, ig_media_id)
+     VALUES (?,?,?,?,?)
+     ON CONFLICT(source_media_id, lang) DO UPDATE SET
+       at = CASE WHEN ig_published.at = '' OR excluded.at < ig_published.at
+                 THEN excluded.at ELSE ig_published.at END,
+       permalink = CASE WHEN ig_published.permalink = ''
+                        THEN excluded.permalink ELSE ig_published.permalink END,
+       ig_media_id = CASE WHEN ig_published.ig_media_id = ''
+                          THEN excluded.ig_media_id ELSE ig_published.ig_media_id END`
+  ).run(entry.sourceMediaId, entry.lang.toUpperCase(),
+    entry.at ?? new Date().toISOString(), entry.permalink ?? '', entry.igMediaId ?? '');
+}
+
+/** Zdrojový příspěvek, ke kterému patří popisek — pro zápis do `ig_published`. */
+export function sourceMediaIdForCaption(captionId: number): string {
+  const row = getDb().prepare(
+    `SELECT s.ig_media_id AS mid FROM ig_captions c
+     JOIN ig_posts p ON p.id = c.post_id
+     JOIN ig_source_posts s ON s.id = p.source_post_id
+     WHERE c.id = ?`
+  ).get(captionId) as any;
+  return row?.mid ?? '';
+}
+
+export interface PublishedRow {
+  sourceMediaId: string;
+  lang: string;
+  at: string;
+  permalink: string;
+  igMediaId: string;
+}
+
+export function listPublished(): PublishedRow[] {
+  return (getDb().prepare('SELECT * FROM ig_published').all() as any[]).map(row => ({
+    sourceMediaId: row.source_media_id,
+    lang: row.lang,
+    at: row.at ?? '',
+    permalink: row.permalink ?? '',
+    igMediaId: row.ig_media_id ?? ''
+  }));
 }
 
 export function listJobs(limit = 80): IgJob[] {

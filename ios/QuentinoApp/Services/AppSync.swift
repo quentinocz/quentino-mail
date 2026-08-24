@@ -98,6 +98,9 @@ enum AppSync {
             // 3) Poukazy — šablony i odepsané kódy, po řádcích
             syncVouchers(folder.url)
 
+            // 4) Instagram — co už na kterém trhu vyšlo
+            syncInstagram(folder.url)
+
             let summary = parts.isEmpty ? "vše aktuální" : parts.joined(separator: ", ")
             Store.setSetting("syncLastRun", Formats.iso())
             Store.setSetting("syncLastResult", summary)
@@ -319,6 +322,54 @@ enum AppSync {
         let out: [String: Any] = [
             "templates": (try? SQLite.shared.query("SELECT * FROM voucher_templates")) ?? [],
             "codes": (try? SQLite.shared.query("SELECT * FROM voucher_codes")) ?? []
+        ]
+        _ = try? writeJson(out, to: file)
+    }
+
+    /**
+     Co už na kterém trhu vyšlo.
+
+     Publikace je jednosměrný fakt. Když se reels publikuje na německý trh
+     z počítače, telefon o tom neví a nabízí ho k publikaci znovu. Rozepsané
+     popisky se synchronizovat nedají — ty popisují práci na konkrétním
+     zařízení a slévat je by znamenalo hádat, čí verze je ta správná. Zato
+     „tenhle příspěvek na tomhle trhu vyšel" platí všude stejně.
+
+     Slučuje se proto sjednocením a nikdy se nic neruší; při shodě platí
+     dřívější čas, protože první publikace je ta pravá. Klíčem je
+     Instagramové id zdrojového příspěvku — místní čísla řádků jsou na
+     každém zařízení jiná.
+     */
+    private static func syncInstagram(_ folder: URL) {
+        let file = folder.appendingPathComponent("instagram.json")
+        let remote = readJson(file) as? [String: Any]
+
+        for row in remote?["published"] as? [[String: Any]] ?? [] {
+            guard let media = row["source_media_id"] as? String, !media.isEmpty,
+                  let lang = row["lang"] as? String, !lang.isEmpty else { continue }
+            _ = try? SQLite.shared.run(
+                """
+                INSERT INTO ig_published (source_media_id, lang, at, permalink, ig_media_id)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(source_media_id, lang) DO UPDATE SET
+                  at = CASE WHEN ig_published.at = '' OR excluded.at < ig_published.at
+                            THEN excluded.at ELSE ig_published.at END,
+                  permalink = CASE WHEN ig_published.permalink = ''
+                                   THEN excluded.permalink ELSE ig_published.permalink END,
+                  ig_media_id = CASE WHEN ig_published.ig_media_id = ''
+                                     THEN excluded.ig_media_id ELSE ig_published.ig_media_id END
+                """,
+                [
+                    .text(media), .text(lang.uppercased()),
+                    .text(row["at"] as? String ?? ""),
+                    .text(row["permalink"] as? String ?? ""),
+                    .text(row["ig_media_id"] as? String ?? "")
+                ]
+            )
+        }
+
+        let out: [String: Any] = [
+            "published": (try? SQLite.shared.query("SELECT * FROM ig_published")) ?? []
         ]
         _ = try? writeJson(out, to: file)
     }

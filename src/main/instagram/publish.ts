@@ -165,6 +165,14 @@ export async function runJob(jobId: number): Promise<void> {
         finished_at: new Date().toISOString()
       });
       store.updateCaption(caption.id, { status: 'published' });
+      // Zvlášť se poznamená i sám fakt, že to na tomhle trhu vyšlo — ten se
+      // pak přenese na ostatní zařízení, aby ho nenabízela k publikaci znovu
+      store.recordPublished({
+        sourceMediaId: store.sourceMediaIdForCaption(caption.id),
+        lang: caption.lang,
+        permalink: result.permalink ?? '',
+        igMediaId: result.igMediaId ?? ''
+      });
     } else {
       // Jen Facebook: na Instagramu nic nevzniká, popisek proto zůstává rozpracovaný
       store.setJobState(jobId, { state: 'done', error: null, finished_at: new Date().toISOString() });
