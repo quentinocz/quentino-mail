@@ -9,6 +9,7 @@ import { FolderInfo, MessageFull, MessageHeader, AttachmentInfo } from '../share
 import { autoProcessNewMessages } from './ai';
 import { rememberContact, rememberAddressList } from './contacts';
 import { getCaCertificates } from './systemca';
+import { replyAddress, formContact } from './formmail';
 
 const SYNC_HEADERS_LIMIT = 300; // kolik posledních zpráv na složku synchronizujeme
 
@@ -139,8 +140,8 @@ export async function syncFolder(accountId: number, folder: string): Promise<voi
         const startSeq = Math.max(1, total - SYNC_HEADERS_LIMIT + 1);
         const d = getDb();
         const upsert = d.prepare(`
-          INSERT INTO messages (account_id, folder, uid, message_id, subject, from_addr, from_name, to_addr, cc, date, seen, flagged, answered, has_attachments, thread_key, snippet, size)
-          VALUES (@account_id, @folder, @uid, @message_id, @subject, @from_addr, @from_name, @to_addr, @cc, @date, @seen, @flagged, @answered, @has_attachments, @thread_key, '', @size)
+          INSERT INTO messages (account_id, folder, uid, message_id, subject, from_addr, from_name, reply_to, to_addr, cc, date, seen, flagged, answered, has_attachments, thread_key, snippet, size)
+          VALUES (@account_id, @folder, @uid, @message_id, @subject, @from_addr, @from_name, @reply_to, @to_addr, @cc, @date, @seen, @flagged, @answered, @has_attachments, @thread_key, '', @size)
           ON CONFLICT(account_id, folder, uid) DO UPDATE SET
             seen = excluded.seen, flagged = excluded.flagged, answered = excluded.answered, size = excluded.size
         `);
@@ -171,6 +172,12 @@ export async function syncFolder(accountId: number, folder: string): Promise<voi
             subject: env.subject ?? '(bez předmětu)',
             from_addr: from?.address ?? '',
             from_name: from?.name ?? '',
+            // Hlavička Reply-To: když ji odesílatel pošle, odpověď patří tam.
+            // Bez toho by odpověď na rozesílku šla na „noreply" adresu.
+            // Typy imapflow ji v obálce nevyjmenovávají, i když ji server
+            // posílá, proto to přetypování.
+            reply_to: ((env as any).replyTo ?? [])
+              .map((a: any) => a.address).filter(Boolean).join(', '),
             to_addr: (env.to ?? []).map(a => a.address).filter(Boolean).join(', '),
             cc: (env.cc ?? []).map(a => a.address).filter(Boolean).join(', '),
             date: env.date ? new Date(env.date).toISOString() : new Date().toISOString(),

@@ -188,6 +188,8 @@ enum Schema {
       subject TEXT NOT NULL DEFAULT '',
       from_addr TEXT NOT NULL DEFAULT '',
       from_name TEXT NOT NULL DEFAULT '',
+      -- Kam odpovídat, když si to odesílatel přeje jinam než na svou adresu
+      reply_to TEXT NOT NULL DEFAULT '',
       to_addr TEXT NOT NULL DEFAULT '',
       cc TEXT NOT NULL DEFAULT '',
       date TEXT NOT NULL DEFAULT '',
@@ -352,6 +354,7 @@ enum Schema {
     static let migrations: [String] = [
         "ALTER TABLE ig_accounts ADD COLUMN page_id TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE ig_accounts ADD COLUMN page_name TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE ig_accounts ADD COLUMN share_fb INTEGER NOT NULL DEFAULT 0"
+        "ALTER TABLE ig_accounts ADD COLUMN share_fb INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''"
     ]
 }

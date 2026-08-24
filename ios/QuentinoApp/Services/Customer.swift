@@ -30,13 +30,24 @@ enum Customer {
         }
 
         let columns = withBodies
-            ? "id, account_id, folder, subject, from_addr, from_name, to_addr, date, snippet, seen, body_text"
-            : "id, account_id, folder, subject, from_addr, from_name, to_addr, date, snippet, seen"
+            ? """
+              m.id, m.account_id, m.folder, m.subject, m.from_addr, m.from_name, m.to_addr,
+              m.date, m.snippet, m.seen, m.answered, m.has_attachments, m.body_text
+              """
+            : """
+              m.id, m.account_id, m.folder, m.subject, m.from_addr, m.from_name, m.to_addr,
+              m.date, m.snippet, m.seen, m.answered, m.has_attachments
+              """
+        // Rejstřík objednávek se přidává rovnou k řádku: podle něj se pozná
+        // potvrzení objednávky, které se ve vlákně ukazuje jako karta, ne
+        // jako celý text
         let rows = (try? SQLite.shared.query(
             """
-            SELECT \(columns) FROM messages
-            WHERE lower(from_addr) = ? OR lower(to_addr) LIKE ?
-            ORDER BY date DESC LIMIT 40
+            SELECT \(columns), oi.order_number AS order_number
+            FROM messages m
+            LEFT JOIN order_index oi ON oi.message_pk = m.id
+            WHERE lower(m.from_addr) = ? OR lower(m.to_addr) LIKE ?
+            ORDER BY m.date DESC LIMIT 40
             """,
             [.text(email), .text("%\(email)%")]
         )) ?? []
@@ -55,8 +66,32 @@ enum Customer {
                 "date": row["date"] ?? "",
                 "snippet": row["snippet"] ?? "",
                 "seen": (row["seen"] as? Int ?? 0) == 1,
-                // Odchozí zprávu poznáme podle toho, že adresa je v příjemcích
-                "outgoing": (row["from_addr"] as? String)?.lowercased() != email
+                "answered": (row["answered"] as? Int ?? 0) == 1,
+                "hasAttachments": (row["has_attachments"] as? Int ?? 0) == 1,
+                // Příchozí = od zákazníka. Rozhraní čeká `incoming`, ne
+                // `outgoing` — dokud se to neshodovalo, tvářily se ve vlákně
+                // všechny zprávy jako naše odpovědi.
+                "incoming": (row["from_addr"] as? String)?.lowercased() == email,
+                /*
+                 Je to potvrzení objednávky?
+
+                 Rozhoduje záznam v rejstříku — ten vzniká z rozboru potvrzení
+                 a je spolehlivý. Doména odesílatele sama nestačí: e-shop
+                 rozesílá poštu přes poskytovatele (`system@upgates.com`),
+                 takže shoda s doménou e-shopu neplatí a potvrzení se ve
+                 vlákně vypisovala jako obří kus textu místo karty.
+                 */
+                "isOrderMail": {
+                    if let number = row["order_number"] as? String, !number.isEmpty { return true }
+                    let from = row["from_addr"] as? String ?? ""
+                    let subject = row["subject"] as? String ?? ""
+                    let looksLikeOrder = subject.range(
+                        of: "(objedn[áa]v|potvrzen[íi]|order\\b|bestellung)",
+                        options: [.regularExpression, .caseInsensitive]) != nil
+                    if !looksLikeOrder { return false }
+                    return Orders.shopMatchesSender(from) || FormMail.isRelaySender(from)
+                }(),
+                "orderNumber": row["order_number"] ?? NSNull()
             ]
             if withBodies { item["text"] = row["body_text"] ?? NSNull() }
             return item

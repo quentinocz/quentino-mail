@@ -62,7 +62,11 @@ export default function CallContact({ email, orderCode, text, compact }: {
     setTimeout(() => setCopied(false), 1600);
   };
 
-  if (phone) {
+  // Velké tlačítko patří na telefonu na jedno místo — nahoru k zákazníkovi.
+  // Když je karta objednávky pod ním, opakovalo by se to o kus níž znovu
+  // a obrazovka by vypadala jako dvě výzvy k témuž. `compact` proto i na
+  // telefonu vypíše jen číslo, na které jde klepnout.
+  if (phone && !compact) {
     return (
       <button className={`call-btn ${compact ? 'compact' : ''}`} onClick={call}>
         <Icon name="phone" size={15} />
@@ -79,13 +83,16 @@ export default function CallContact({ email, orderCode, text, compact }: {
   }
 
   return (
-    <span className={`call-line ${compact ? 'compact' : ''}`}>
+    <span className={`call-line ${compact ? 'compact' : ''} ${phone ? 'tappable' : ''}`}>
       <Icon name="phone" size={12} />
       <a href={`tel:${contact.phone}`} onClick={e => { e.preventDefault(); call(); }}>{pretty(contact.phone)}</a>
-      <button className="icon-btn" data-tip={copied ? 'Zkopírováno' : 'Kopírovat číslo'} onClick={copy}>
-        <Icon name={copied ? 'check' : 'copy'} size={12} />
-      </button>
-      {contact.via && <span className="ig-muted">{contact.via}</span>}
+      {/* Kopírování dává smysl u počítače; na telefonu se rovnou volá */}
+      {!phone && (
+        <button className="icon-btn" data-tip={copied ? 'Zkopírováno' : 'Kopírovat číslo'} onClick={copy}>
+          <Icon name={copied ? 'check' : 'copy'} size={12} />
+        </button>
+      )}
+      {contact.via && !phone && <span className="ig-muted">{contact.via}</span>}
     </span>
   );
 }

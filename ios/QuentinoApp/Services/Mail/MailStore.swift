@@ -246,6 +246,18 @@ enum MailStore {
         out["attachments"] = attachments(dbId)
         out["detectedLang"] = row["detected_lang"] ?? NSNull()
         out["translationCz"] = row["translation_cz"] ?? NSNull()
+
+        // Komu odpovědět. U zpráv z formuláře na webu je v `From` adresa
+        // e-shopu, takže se skutečný kontakt hledá v textu — viz `FormMail`.
+        out["replyTo"] = row["reply_to"] ?? ""
+        out["replyTarget"] = FormMail.replyTarget([
+            "fromAddr": row["from_addr"] ?? "",
+            "fromName": row["from_name"] ?? "",
+            "replyTo": row["reply_to"] ?? "",
+            "subject": row["subject"] ?? "",
+            "bodyText": row["body_text"] ?? "",
+            "bodyHtml": row["body_html"] ?? ""
+        ])
         return out
     }
 
