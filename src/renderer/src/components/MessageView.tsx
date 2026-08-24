@@ -438,13 +438,6 @@ export default function MessageView(p: Props) {
                       : ' — odesílatel si přeje odpověď sem'}
                   </small>
                 </span>
-                {target.phone && (
-                  <a className="reply-target-phone"
-                    href={`tel:${target.phone}`}
-                    onClick={e => { e.preventDefault(); api.shell.openUrl(`tel:${target.phone}`); }}>
-                    <Icon name="phone" size={12} /> {target.phone}
-                  </a>
-                )}
               </div>
             )}
           </div>
@@ -454,6 +447,10 @@ export default function MessageView(p: Props) {
             <CustomerPanel
               email={customerEmail}
               fallbackName={customerName}
+              // Telefon má být na obrazovce jednou. Panel zákazníka je to
+              // správné místo — pruh nad ním říká, kam půjde odpověď, a číslo
+              // by se v něm opakovalo hned dvakrát pod sebou.
+              phoneHint={target?.phone}
               currentMessageId={d.id}
               orderRef={d.orderRef}
               onOpenMessage={p.onOpenMessage}

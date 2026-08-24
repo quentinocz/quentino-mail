@@ -102,6 +102,29 @@ export const igSchema = `
     channels TEXT NOT NULL DEFAULT 'ig'
   );
   CREATE INDEX IF NOT EXISTS idx_ig_jobs_due ON ig_jobs(state, scheduled_at);
+
+  -- Co už na kterém trhu vyšlo.
+  --
+  -- Samostatný záznam schválně, i když se to dá odvodit z popisků a odeslaných
+  -- prací. Ty totiž popisují **práci na tomhle zařízení**: kdo si příspěvek
+  -- rozepsal a co odeslal. Když se reels publikuje z počítače, telefon o tom
+  -- neví a nabízí ho k publikaci znovu.
+  --
+  -- Tahle tabulka popisuje **skutečnost venku na Instagramu** — a ta je pro
+  -- všechna zařízení stejná. Proto se dá bezpečně slučovat: publikace je
+  -- jednosměrný fakt, který nikdo nemůže vzít zpět, takže při sloučení
+  -- vždycky vyhrává „vyšlo to".
+  --
+  -- Klíčem je Instagramové id zdrojového příspěvku, ne místní číslo řádku —
+  -- to je na každém zařízení jiné.
+  CREATE TABLE IF NOT EXISTS ig_published (
+    source_media_id TEXT NOT NULL,
+    lang TEXT NOT NULL,
+    at TEXT NOT NULL DEFAULT '',
+    permalink TEXT NOT NULL DEFAULT '',
+    ig_media_id TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (source_media_id, lang)
+  );
 `;
 
 /**

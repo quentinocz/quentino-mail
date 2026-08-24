@@ -29,13 +29,20 @@ function pretty(phone: string): string {
   return `${match[1]} ${match[2].replace(/(\d{3})(?=\d)/g, '$1 ')}`.trim();
 }
 
-export default function CallContact({ email, orderCode, text, compact }: {
+export default function CallContact({ email, orderCode, text, compact, fallback, fallbackVia }: {
   email?: string | null;
   orderCode?: string | null;
   /** Text zprávy — hledá se v něm číslo objednávky, když jinak není za co chytit */
   text?: string | null;
   /** Do řádku mezi ostatní údaje, ne jako samostatný blok */
   compact?: boolean;
+  /**
+   * Číslo, které známe odjinud než z objednávek — typicky ho zákazník napsal
+   * do formuláře na webu. Použije se, když ve feedu objednávek nic není:
+   * u člověka, který píše poprvé, je to jediné číslo, co na něj máme.
+   */
+  fallback?: string | null;
+  fallbackVia?: string;
 }) {
   const phone = useIsPhone();
   const toast = useToast();
@@ -45,6 +52,7 @@ export default function CallContact({ email, orderCode, text, compact }: {
   useEffect(() => {
     let cancelled = false;
     if (!email && !orderCode && !text) { setContact(null); return; }
+    // Chybějící feed objednávek nesmí zahodit číslo z formuláře
     api.orders.contact({ email: email ?? undefined, orderCode: orderCode ?? undefined, text: text ?? undefined })
       .then(found => { if (!cancelled) setContact(found); })
       // Chybějící feed objednávek nesmí nic rozbít — kontakt se prostě nezobrazí
@@ -52,11 +60,15 @@ export default function CallContact({ email, orderCode, text, compact }: {
     return () => { cancelled = true; };
   }, [email, orderCode, text]);
 
-  if (!contact?.phone) return null;
+  // Objednávka má přednost — je to ověřený kontakt. Číslo z formuláře je
+  // záloha pro případ, kdy zákazník ještě nikdy neobjednal.
+  const number = contact?.phone || (fallback ?? '');
+  const via = contact?.phone ? contact.via : (number ? fallbackVia ?? '' : '');
+  if (!number) return null;
 
-  const call = () => api.shell.openUrl(`tel:${contact.phone}`);
+  const call = () => api.shell.openUrl(`tel:${number}`);
   const copy = async () => {
-    await navigator.clipboard.writeText(contact.phone);
+    await navigator.clipboard.writeText(number);
     setCopied(true);
     toast('Číslo zkopírováno');
     setTimeout(() => setCopied(false), 1600);
@@ -76,7 +88,7 @@ export default function CallContact({ email, orderCode, text, compact }: {
           <b>Zavolat</b>
           {/* Jméno se do popisku nedává — tam, kde tlačítko stojí, je vidět
               hned nad ním a dvakrát být nemusí. */}
-          <small>{pretty(contact.phone)}{contact.via ? ` · ${contact.via}` : ''}</small>
+          <small>{pretty(number)}{via ? ` · ${via}` : ''}</small>
         </span>
       </button>
     );
@@ -85,14 +97,14 @@ export default function CallContact({ email, orderCode, text, compact }: {
   return (
     <span className={`call-line ${compact ? 'compact' : ''} ${phone ? 'tappable' : ''}`}>
       <Icon name="phone" size={12} />
-      <a href={`tel:${contact.phone}`} onClick={e => { e.preventDefault(); call(); }}>{pretty(contact.phone)}</a>
+      <a href={`tel:${number}`} onClick={e => { e.preventDefault(); call(); }}>{pretty(number)}</a>
       {/* Kopírování dává smysl u počítače; na telefonu se rovnou volá */}
       {!phone && (
         <button className="icon-btn" data-tip={copied ? 'Zkopírováno' : 'Kopírovat číslo'} onClick={copy}>
           <Icon name={copied ? 'check' : 'copy'} size={12} />
         </button>
       )}
-      {contact.via && !phone && <span className="ig-muted">{contact.via}</span>}
+      {via && !phone && <span className="ig-muted">{via}</span>}
     </span>
   );
 }

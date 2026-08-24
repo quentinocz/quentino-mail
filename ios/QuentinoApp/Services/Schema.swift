@@ -179,6 +179,18 @@ enum Schema {
     );
     CREATE INDEX IF NOT EXISTS idx_ig_jobs_due ON ig_jobs(state, scheduled_at);
 
+    -- Co už na kterém trhu vyšlo. Popisky a odeslané práce popisují práci na
+    -- tomhle zařízení; tahle tabulka popisuje skutečnost venku na Instagramu,
+    -- a ta je pro všechna zařízení stejná — proto se dá bezpečně slučovat.
+    CREATE TABLE IF NOT EXISTS ig_published (
+      source_media_id TEXT NOT NULL,
+      lang TEXT NOT NULL,
+      at TEXT NOT NULL DEFAULT '',
+      permalink TEXT NOT NULL DEFAULT '',
+      ig_media_id TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (source_media_id, lang)
+    );
+
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account_id INTEGER NOT NULL,

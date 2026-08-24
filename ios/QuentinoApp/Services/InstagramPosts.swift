@@ -77,6 +77,27 @@ extension IgStore {
             }
         }
 
+        /*
+         Co vyšlo z jiného zařízení.
+
+         Rozepsané popisky a odeslané práce popisují jen tohle zařízení. Když
+         se reels publikoval z počítače, telefon by o tom nevěděl a nabízel by
+         ho k publikaci znovu. `ig_published` je záznam o skutečnosti venku
+         a synchronizuje se mezi zařízeními.
+         */
+        let published = (try? SQLite.shared.query(
+            """
+            SELECT s.id AS sid, pub.lang AS lang FROM ig_published pub
+            JOIN ig_source_posts s ON s.ig_media_id = pub.source_media_id
+            """
+        )) ?? []
+        for row in published {
+            guard let sid = row["sid"] as? Int, let lang = row["lang"] as? String else { continue }
+            if !(done[sid]?.contains(lang) ?? false) { done[sid, default: []].append(lang) }
+            // Trh, který už vyšel, není rozpracovaný
+            pending[sid] = pending[sid]?.filter { $0 != lang }
+        }
+
         return rows.map { row -> [String: Any] in
             let id = row["id"] as? Int ?? 0
             var children = 0
@@ -191,6 +212,48 @@ extension IgStore {
                 )
             }
         }
+    }
+
+    /**
+     Poznamená, že příspěvek na daném trhu vyšel.
+
+     Ukládá se pod Instagramovým id **zdrojového** příspěvku — to je jediné
+     číslo, které mají všechna zařízení stejné. První zápis vyhrává:
+     publikace se nedá vzít zpět, takže pozdější pokus jen doplní odkaz,
+     když ho dřívější záznam neměl.
+     */
+    static func recordPublished(sourceMediaId: String, lang: String,
+                                permalink: String = "", igMediaId: String = "") {
+        guard !sourceMediaId.isEmpty, !lang.isEmpty else { return }
+        _ = try? SQLite.shared.run(
+            """
+            INSERT INTO ig_published (source_media_id, lang, at, permalink, ig_media_id)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(source_media_id, lang) DO UPDATE SET
+              at = CASE WHEN ig_published.at = '' OR excluded.at < ig_published.at
+                        THEN excluded.at ELSE ig_published.at END,
+              permalink = CASE WHEN ig_published.permalink = ''
+                               THEN excluded.permalink ELSE ig_published.permalink END,
+              ig_media_id = CASE WHEN ig_published.ig_media_id = ''
+                                 THEN excluded.ig_media_id ELSE ig_published.ig_media_id END
+            """,
+            [.text(sourceMediaId), .text(lang.uppercased()), .text(Formats.iso()),
+             .text(permalink), .text(igMediaId)]
+        )
+    }
+
+    /// Zdrojový příspěvek, ke kterému popisek patří — pro zápis do `ig_published`.
+    static func sourceMediaId(captionId: Int) -> String {
+        let rows = (try? SQLite.shared.query(
+            """
+            SELECT s.ig_media_id AS mid FROM ig_captions c
+            JOIN ig_posts p ON p.id = c.post_id
+            JOIN ig_source_posts s ON s.id = p.source_post_id
+            WHERE c.id = ?
+            """,
+            [.int(Int64(captionId))]
+        )) ?? []
+        return rows.first?["mid"] as? String ?? ""
     }
 
     static func updateCaption(id: Int, chosen: Int? = nil, edited: String? = nil, status: String? = nil) {

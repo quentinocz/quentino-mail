@@ -190,6 +190,56 @@ function syncVouchers(dir: string): void {
   fs.renameSync(tmp, file);
 }
 
+/* ---------- Instagram: co už na kterém trhu vyšlo ---------- */
+
+/**
+ * Publikace je jednosměrný fakt.
+ *
+ * Když se reels publikuje na německý trh z počítače, telefon o tom neví a
+ * nabízí ho k publikaci znovu. Rozepsané popisky ani odeslané práce se
+ * synchronizovat nedají — ty popisují práci na konkrétním zařízení a slévat
+ * je by znamenalo hádat, čí verze popisku je ta správná. Zato „tenhle
+ * příspěvek na tomhle trhu vyšel" je tvrzení o skutečnosti venku, které
+ * platí všude stejně.
+ *
+ * Proto se slučuje sjednocením a nikdy se nic neruší: co jedno zařízení ví,
+ * převezmou ostatní. Při shodě platí **dřívější** čas — první publikace je
+ * ta pravá.
+ *
+ * Klíčem je Instagramové id zdrojového příspěvku, protože místní čísla
+ * řádků jsou na každém zařízení jiná.
+ */
+function syncInstagram(dir: string): void {
+  const d = getDb();
+  const file = path.join(dir, 'instagram.json');
+  let remote: any = null;
+  try { remote = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* první běh */ }
+
+  if (remote && Array.isArray(remote.published)) {
+    const upsert = d.prepare(
+      `INSERT INTO ig_published (source_media_id, lang, at, permalink, ig_media_id)
+       VALUES (?,?,?,?,?)
+       ON CONFLICT(source_media_id, lang) DO UPDATE SET
+         at = CASE WHEN ig_published.at = '' OR excluded.at < ig_published.at
+                   THEN excluded.at ELSE ig_published.at END,
+         permalink = CASE WHEN ig_published.permalink = ''
+                          THEN excluded.permalink ELSE ig_published.permalink END,
+         ig_media_id = CASE WHEN ig_published.ig_media_id = ''
+                            THEN excluded.ig_media_id ELSE ig_published.ig_media_id END`
+    );
+    for (const row of remote.published) {
+      if (!row?.source_media_id || !row?.lang) continue;
+      upsert.run(String(row.source_media_id), String(row.lang).toUpperCase(),
+        row.at ?? '', row.permalink ?? '', row.ig_media_id ?? '');
+    }
+  }
+
+  const out = { published: d.prepare('SELECT * FROM ig_published').all() };
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(out), 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 /* ---------- Kontakty (sjednocení) ---------- */
 
 function syncContacts(dir: string): void {
@@ -333,6 +383,13 @@ export async function runSync(): Promise<string> {
       syncVouchers(dir);
     } catch (e: any) {
       parts.push(`poukazy: ${e?.message ?? e}`);
+    }
+
+    // 4) Instagram — co už na kterém trhu vyšlo
+    try {
+      syncInstagram(dir);
+    } catch (e: any) {
+      parts.push(`Instagram: ${e?.message ?? e}`);
     }
 
     // 4) Archiv — oboustranné doplnění

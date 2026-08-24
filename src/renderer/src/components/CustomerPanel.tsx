@@ -93,6 +93,12 @@ interface Props {
   onResolve: (value: boolean) => void;
   /** Otevře celou konverzaci jako chat */
   onOpenConversation: () => void;
+  /**
+   * Telefon vytažený ze zprávy — u dotazu z formuláře na webu ho zákazník
+   * často napíše rovnou do textu. Použije se, když ve feedu objednávek nic
+   * není, protože u člověka, který píše poprvé, je to jediné číslo na něj.
+   */
+  phoneHint?: string;
 }
 
 export default function CustomerPanel(p: Props) {
@@ -105,12 +111,13 @@ export default function CustomerPanel(p: Props) {
   useEffect(() => {
     setHasPhone(false);
     if (!p.email) return;
+    if (p.phoneHint) { setHasPhone(true); return; }
     let cancelled = false;
     api.orders.contact({ email: p.email })
       .then(found => { if (!cancelled) setHasPhone(!!found.phone); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [p.email]);
+  }, [p.email, p.phoneHint]);
 
   useEffect(() => {
     setCtx(null);
@@ -145,7 +152,8 @@ export default function CustomerPanel(p: Props) {
           <span className="cp-tag"><Icon name="bag" size={11} /> {p.orderRef.orderNumber}</span>
         )}
 
-        <CallContact email={p.email} orderCode={p.orderRef?.orderNumber} compact />
+        <CallContact email={p.email} orderCode={p.orderRef?.orderNumber}
+          fallback={p.phoneHint} fallbackVia="ze zprávy" compact />
 
         <span style={{ flex: 1 }} />
 
