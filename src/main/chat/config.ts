@@ -9,6 +9,7 @@
 import { getSetting, setSetting } from '../db';
 import { encrypt, decrypt } from '../secure';
 import type { ChatConfig } from '../../shared/types';
+import * as keepalive from '../keepalive';
 
 export interface ChatSecrets {
   url: string;
@@ -40,22 +41,16 @@ export function getConfig(): ChatConfig {
     operatorPersonId: Number(getSetting('chatOperatorPersonId', '0')) || null,
     signMode: (getSetting('chatSignMode', 'first') as ChatConfig['signMode']),
     signSuffix: getSetting('chatSignSuffix', 'Quentino')!,
-    lastSeen: getSetting('chatLastSeen', '')!,
-    idleDays: idleDays()
+    // Kdy se projekt naposledy ozval, se vede na jednom místě pro všechny
+    // projekty Supabase — chat a úložiště médií můžou být i tentýž projekt
+    lastSeen: keepalive.lastSeen(s.url),
+    idleDays: keepalive.idleDays(s.url)
   };
-}
-
-/** Kolik dní projekt neslyšel ani hlásku. */
-function idleDays(): number {
-  const at = getSetting('chatLastSeen', '')!;
-  if (!at) return -1;
-  const ms = Date.now() - new Date(at).getTime();
-  return Number.isFinite(ms) ? Math.floor(ms / 86_400_000) : -1;
 }
 
 /** Zaznamená, že projekt odpověděl — po každém úspěšném dotazu. */
 export function markSeen(): void {
-  setSetting('chatLastSeen', new Date().toISOString());
+  keepalive.markSeen(getSecrets().url);
 }
 
 export function saveConfig(p: Partial<ChatConfig> & { anonKey?: string }): ChatConfig {

@@ -339,6 +339,22 @@ export interface OrderFeedStatus {
   lastError: string;
 }
 
+/**
+ * Projekt Supabase a jak dlouho je od něj ticho.
+ *
+ * Bezplatný tarif projekt po několika dnech bez jediného dotazu uspí.
+ * Aplikace jich používá víc a můžou být i společné — proto se sledují podle
+ * hostitele a `uses` říká, k čemu všemu ten který slouží.
+ */
+export interface SupabaseStatus {
+  host: string;
+  uses: string[];
+  lastSeen: string;
+  /** -1 = projekt se zatím neozval */
+  idleDays: number;
+  warn: boolean;
+}
+
 export interface OrderStats {
   total: number;
   withPhone: number;

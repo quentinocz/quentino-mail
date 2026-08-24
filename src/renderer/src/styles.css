@@ -4363,23 +4363,28 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 .pt-eta small { color: var(--text-3); }
 .pt-fail { color: var(--danger); font-weight: 600; }
 
-/* Stav projektu chatu: kdy se naposledy ozval. */
-.chat-alive {
+/* Stav projektů Supabase: kdy se který naposledy ozval. */
+.sb-health { margin: 4px 0 16px; }
+.sb-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 4px 0 14px;
+  margin-bottom: 6px;
   padding: 9px 11px;
   border-radius: 10px;
   background: var(--bg);
   font-size: 12.5px;
   line-height: 1.4;
 }
-.chat-alive svg { flex-shrink: 0; margin-top: 2px; color: var(--ok, var(--accent-dark)); }
-.chat-alive small { display: block; margin-top: 3px; color: var(--text-3); font-size: 11.5px; }
-.chat-alive.warn { background: #fff5e0; }
-.chat-alive.warn svg { color: var(--warn); }
-[data-theme="dark"] .chat-alive.warn { background: #3a2f16; }
+.sb-row svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
+.sb-text { min-width: 0; }
+.sb-text b { display: block; font-weight: 600; }
+.sb-text small { display: block; margin-top: 2px; color: var(--text-3); font-size: 11.5px; word-break: break-all; }
+.sb-row.warn { background: #fff5e0; }
+.sb-row.warn svg { color: var(--warn); }
+[data-theme="dark"] .sb-row { background: #241f31; }
+[data-theme="dark"] .sb-row.warn { background: #3a2f16; }
+.sb-note { margin: 0 0 8px; font-size: 11.5px; line-height: 1.45; }
 
 /* ---------- telefon na zákazníka ---------- */
 

@@ -3,6 +3,7 @@ import type { IgOverview } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
+import SupabaseHealth from '../SupabaseHealth';
 import { fmtDate } from './IgShared';
 
 interface Props {
@@ -273,6 +274,10 @@ export default function IgAccounts({ overview, onChanged }: Props) {
               />
             </div>
           </div>
+
+          {/* Úložiště se ozve jen když se publikuje příspěvek — mezi dvěma
+              příspěvky uplyne klidně týden a bezplatný tarif projekt uspí. */}
+          <SupabaseHealth only="média pro Instagram" />
 
           <div className="ig-actions">
             <button className="btn primary" onClick={saveConn} disabled={busy === 'save'}>Uložit</button>

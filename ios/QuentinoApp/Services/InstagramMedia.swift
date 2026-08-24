@@ -90,6 +90,9 @@ enum IgMedia {
             let detail = String(data: body, encoding: .utf8) ?? ""
             throw BridgeError.message("Nahrání média selhalo: \(detail.prefix(200))")
         }
+        // Úspěšné nahrání je zároveň doklad, že projekt běží — od téhle
+        // chvíle se na něj nemusí sahat jen kvůli tomu, aby neusnul
+        KeepAlive.markSeen(secrets.storageUrl)
         return Uploaded(
             publicUrl: "\(secrets.storageUrl)/storage/v1/object/public/\(bucket)/\(key)",
             key: key

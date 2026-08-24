@@ -3,6 +3,7 @@ import type { ChatOverview } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
+import SupabaseHealth from '../SupabaseHealth';
 
 /**
  * Napojení na nasazený chat. Adresa Supabase a veřejný klíč jsou tytéž, které
@@ -86,28 +87,8 @@ export default function ChatSettings({ overview, onClose, onSaved }: {
             <span className="desc">Uloží se do systémové klíčenky, stejně jako hesla k poště.</span>
           </div>
 
-          {/*
-            Bezplatný tarif Supabase projekt po pár dnech ticha uspí a chat na
-            webu přestane fungovat. Aplikace ho za svého běhu drží vzhůru, ale
-            když se týden nespustí, nepomůže to — proto je tady vidět, jak
-            dlouho se projekt neozval.
-          */}
-          {cfg?.ready && (
-            <div className={`chat-alive ${cfg.idleDays >= 4 ? 'warn' : ''}`}>
-              <Icon name={cfg.idleDays >= 4 ? 'zap' : 'check'} size={13} />
-              <span>
-                {cfg.idleDays < 0
-                  ? 'Projekt se zatím neozval — zkus Otestovat spojení.'
-                  : cfg.idleDays === 0
-                    ? 'Projekt se ozval dnes. Aplikace ho za svého běhu drží vzhůru.'
-                    : `Projekt se neozval ${cfg.idleDays} ${cfg.idleDays < 5 ? 'dny' : 'dnů'}.`}
-                <small>
-                  Bezplatný tarif uspí projekt po několika dnech bez jediného dotazu a chat
-                  na webu pak nefunguje. Dokud aplikace běží, ozývá se za tebe sama.
-                </small>
-              </span>
-            </div>
-          )}
+          <SupabaseHealth only="chat" />
+
           <div className="field">
             <label>Adresa nasazeného chatu</label>
             <input value={apiBase} onChange={e => setApiBase(e.target.value)} placeholder="https://chat.quentino.cz" />

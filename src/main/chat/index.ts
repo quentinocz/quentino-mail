@@ -173,30 +173,4 @@ export async function pollUnread(): Promise<void> {
   } catch { /* výpadek sítě se řeší při dalším kole */ }
 }
 
-/**
- * Oťukání projektu Supabase, aby ho bezplatný tarif neuspal.
- *
- * Uspaný projekt znamená, že chat na webu přestane fungovat a probrat ho jde
- * jen ručně v administraci — zákazník mezitím píše do prázdna.
- *
- * Pouští to plánovač jednou za pár hodin, ale jen když se projekt dlouho
- * neozval. Za běhu aplikace ho totiž udržuje vzhůru samotné načítání
- * nepřečtených, takže tenhle dotaz obvykle nikdy neproběhne — je to pojistka
- * pro dny, kdy se chat vůbec neotevře.
- *
- * Co tím **nejde** vyřešit: když se aplikace celý týden nespustí, projekt se
- * uspí tak jako tak. Proto se pamatuje čas posledního ozvání a v nastavení
- * chatu je vidět, jak dlouho je ticho.
- */
-export async function keepSupabaseAwake(): Promise<void> {
-  if (!config.isConfigured()) return;
-  const cfg = config.getConfig();
-  // Kratší ticho není důvod posílat cokoli navíc
-  if (cfg.idleDays >= 0 && cfg.idleDays < 1) return;
-  try {
-    await db.keepAlive();
-    config.markSeen();
-  } catch { /* nedostupný projekt se zkusí zase za pár hodin */ }
-}
-
 export type { ChatConversation };

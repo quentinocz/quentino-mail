@@ -8,7 +8,7 @@ import type {
   ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
   PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
   PtransFixProposal, PtransTrial, PtransStyle,
-  OrderFeed, OrderFeedStatus, OrderContact, OrderStats, ShopOrder,
+  OrderFeed, OrderFeedStatus, OrderContact, OrderStats, ShopOrder, SupabaseStatus,
   PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat, PtransLearnResult,
   PtransGoogleView, PtransColorRule, PtransBaseColor, PtransBundleRule, PtransAttributeRules,
   PtransAudit, PtransAuditSummary,
@@ -319,6 +319,20 @@ export const api = {
     test: () => call<string>('upgates:test'),
     orders: (email: string) => call<UpgatesOrder[]>('upgates:orders', email)
   },
+  /**
+   * Projekty Supabase — chat a úložiště médií pro Instagram.
+   *
+   * Bezplatný tarif je po pár dnech ticha uspí, takže je vidět, kdy se
+   * který naposledy ozval, a jde na ně sáhnout ručně.
+   */
+  supabase: {
+    status: () => call<SupabaseStatus[]>('supabase:status'),
+    ping: () => call<{
+      result: { host: string; uses: string[]; ok: boolean; error?: string }[];
+      status: SupabaseStatus[];
+    }>('supabase:ping')
+  },
+
   orders: {
     /* --- feed objednávek z e-shopu: má úplná data včetně telefonu --- */
     feeds: () => call<{ feeds: OrderFeedStatus[]; stats: OrderStats }>('orderfeed:list'),
