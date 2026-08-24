@@ -173,21 +173,45 @@ const SECRET_SETTING_KEYS = [
   'anthropicApiKey', 'upgatesKey',
   // Instagram a chat: v databázi jsou zašifrované systémovou klíčenkou, která
   // na jiném počítači nefunguje — do zálohy proto patří rozšifrované
-  'igAppSecret', 'igStorageKey', 'igUserToken', 'chatAnonKey'
+  'igAppSecret', 'igStorageKey', 'igUserToken', 'chatAnonKey',
+  // Adresy feedů objednávek nesou tajný klíč, takže se v databázi drží
+  // zašifrované. Bez tohohle zápisu by se do zálohy dostala jen nečitelná
+  // šifra a na druhém zařízení by se feedy tvářily jako nenastavené.
+  'orderFeeds'
 ];
 
 /** Popisky do hlášky po importu. */
 const SECRET_LABELS: Record<string, string> = {
   anthropicApiKey: 'API klíč',
   upgatesKey: 'Upgates klíč',
+  orderFeeds: 'feedy objednávek',
   igAppSecret: 'Meta aplikace',
   igStorageKey: 'úložiště médií',
   igUserToken: 'přístup k Instagramu',
   chatAnonKey: 'klíč k chatu'
 };
 
-/** Provozní hodnoty, které nemá smysl přenášet (razítka synchronizace apod.). */
-const VOLATILE_SETTING_KEYS = ['stateStamp', 'ftsBuilt', 'productFeedSync', 'productFeedSchema', 'appsyncLastRun', 'appsyncLastResult'];
+/**
+ * Provozní hodnoty, které nemá smysl přenášet.
+ *
+ * Jsou to razítka „kdy jsem naposledy něco stáhl" a výsledky posledních běhů.
+ * Přenést je na jiné zařízení by znamenalo, že se tam aplikace bude tvářit
+ * jako čerstvě synchronizovaná a první stažení odloží — přitom nemá nic.
+ */
+const VOLATILE_SETTING_KEYS = [
+  'stateStamp', 'ftsBuilt', 'contactsBackfilled',
+  'productFeedSync', 'productFeedSchema',
+  'syncLastRun', 'syncLastResult',
+  'ptransSyncedAt'
+];
+
+/** Totéž, ale klíčů je celá řada — jeden na každý feed objednávek. */
+const VOLATILE_SETTING_PREFIXES = ['orderFeedSync:', 'orderFeedError:'];
+
+function isVolatile(key: string): boolean {
+  return VOLATILE_SETTING_KEYS.includes(key)
+    || VOLATILE_SETTING_PREFIXES.some(prefix => key.startsWith(prefix));
+}
 
 /** Strop pro vkládané obrázky — záloha má zůstat rozumně velká. */
 const MAX_EMBED_BYTES = 12 * 1024 * 1024;
@@ -259,7 +283,7 @@ export function exportConfig(passphrase?: string): object {
   const settings: Record<string, string> = {};
   const secrets: Record<string, any> = { accountPasswords: {}, igTokens: {} };
   for (const r of d.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]) {
-    if (VOLATILE_SETTING_KEYS.includes(r.key)) continue;
+    if (isVolatile(r.key)) continue;
     if (SECRET_SETTING_KEYS.includes(r.key)) {
       try { secrets[r.key] = r.value ? decrypt(r.value) : ''; } catch { secrets[r.key] = ''; }
       continue;
@@ -351,7 +375,7 @@ export function importConfig(data: any, passphrase?: string): string {
     if (data.version >= 2) {
       // Nová záloha: přenese se celá tabulka nastavení tak, jak byla
       for (const [key, value] of Object.entries(data.settings as Record<string, string>)) {
-        if (VOLATILE_SETTING_KEYS.includes(key)) continue;
+        if (isVolatile(key)) continue;
         setSetting(key, String(value ?? ''));
       }
       const voucherLogo = restoreFile(files, data.voucherLogoFile, 'vouchers');

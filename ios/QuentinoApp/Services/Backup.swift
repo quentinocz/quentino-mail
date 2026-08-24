@@ -17,7 +17,9 @@ import CryptoKit
 enum Backup {
     /// Klíče, které nesou tajemství. V databázi nejsou vůbec — leží v klíčence.
     private static let secretKeys = [
-        "anthropicApiKey", "upgatesKey", "igAppSecret", "igStorageKey", "igUserToken", "chatAnonKey"
+        "anthropicApiKey", "upgatesKey", "igAppSecret", "igStorageKey", "igUserToken", "chatAnonKey",
+        // Adresy feedů objednávek nesou tajný klíč, proto leží v klíčence
+        "orderFeeds"
     ]
 
     private static let secretLabels: [String: String] = [
@@ -26,14 +28,30 @@ enum Backup {
         "igAppSecret": "Meta aplikace",
         "igStorageKey": "úložiště médií",
         "igUserToken": "přístup k Instagramu",
-        "chatAnonKey": "klíč k chatu"
+        "chatAnonKey": "klíč k chatu",
+        "orderFeeds": "feedy objednávek"
     ]
 
-    /// Provozní hodnoty, které nemá smysl přenášet.
+    /**
+     Provozní hodnoty, které nemá smysl přenášet.
+
+     Jsou to razítka „kdy jsem naposledy něco stáhl" a výsledky posledních
+     běhů. Na druhém zařízení by způsobily, že se aplikace tváří jako
+     čerstvě synchronizovaná a první stažení odloží — přitom nemá nic.
+     */
     private static let volatileKeys = [
-        "stateStamp", "ftsBuilt", "productFeedSync", "productFeedSchema",
-        "appsyncLastRun", "appsyncLastResult", "windowState"
+        "stateStamp", "ftsBuilt", "contactsBackfilled", "windowState",
+        "productFeedSync", "productFeedSchema",
+        "syncLastRun", "syncLastResult", "appsyncLastRun", "appsyncLastResult",
+        "ptransSyncedAt"
     ]
+
+    /// Totéž, ale klíčů je celá řada — jeden na každý feed objednávek.
+    private static let volatilePrefixes = ["orderFeedSync:", "orderFeedError:"]
+
+    private static func isVolatile(_ key: String) -> Bool {
+        volatileKeys.contains(key) || volatilePrefixes.contains { key.hasPrefix($0) }
+    }
 
     private static let maxEmbedBytes = 12 * 1024 * 1024
 
@@ -47,7 +65,7 @@ enum Backup {
         var igTokens: [String: String] = [:]
 
         for row in (try? SQLite.shared.query("SELECT key, value FROM settings")) ?? [] {
-            guard let key = row["key"] as? String, !volatileKeys.contains(key) else { continue }
+            guard let key = row["key"] as? String, !isVolatile(key) else { continue }
             settings[key] = row["value"] as? String ?? ""
         }
         for key in secretKeys {
@@ -147,7 +165,7 @@ enum Backup {
 
         // Nastavení — celá tabulka tak, jak byla
         if let settings = data["settings"] as? [String: Any] {
-            for (key, value) in settings where !volatileKeys.contains(key) {
+            for (key, value) in settings where !isVolatile(key) {
                 Store.setSetting(key, value as? String ?? String(describing: value))
             }
             if let logo = materialize(files, data["voucherLogoFile"] as? String) {
