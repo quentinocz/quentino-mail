@@ -15,7 +15,13 @@ struct QuentinoAppApp: App {
     var body: some Scene {
         WindowGroup {
             WebHost(bridge: bridge)
-                .ignoresSafeArea(.container, edges: .bottom)
+                // Rozhraní kreslí přes **celou** obrazovku, i pod stavový
+                // řádek. Když se horní bezpečná zóna nechala mimo webview,
+                // zůstal nad ní tmavý pruh okna — a `env(safe-area-inset-top)`
+                // uvnitř stránky bylo nulové, takže si CSS o odsazení ani
+                // nemělo jak říct. Odsazení řeší rozhraní samo přes
+                // `--safe-top`, tady se musí jen uvolnit místo.
+                .ignoresSafeArea()
                 .preferredColorScheme(nil)   // světlý i tmavý režim řídí systém
                 .onOpenURL { url in bridge.handleDeepLink(url) }
                 .task { Scheduler.shared.start() }

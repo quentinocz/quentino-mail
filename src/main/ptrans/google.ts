@@ -9,6 +9,8 @@ import { plain } from './detect';
 import { colorFor, shadeFromTitle } from './colors';
 import { detectBundle } from './bundle';
 import { memoryHint } from './memory';
+import { titleRules, descRules, styleHint, checkText, fixHint } from './style';
+import { shouldAsk, openTrial } from './trials';
 
 /**
  * Atributy pro Google Nákupy.
@@ -44,52 +46,7 @@ export const GOOGLE_LABELS: Record<GoogleField, string> = {
 
 /* ---------- titulek a popis modelem ---------- */
 
-/**
- * Skladba titulku pro Google Nákupy.
- *
- * Pravidla nejsou vymyšlená — odpovídají auditu feedu, který Quentino dostal
- * od AdsOne, a tomu, co Merchant Center sám doporučuje:
- *
- *     Typ produktu + Barva + Vzor/Detail + Značka [+ Velikost/Balení]
- *
- * Podstatné je pořadí. Zákazník hledá „vázací motýlek", ne „tmavě modrý" —
- * typ výrobku proto patří na první místo, ne barva. Značka jde naopak na
- * konec: do aukcí ji nese atribut `brand`, v titulku slouží jen k potvrzení.
- *
- * Délka cílí na **70 znaků**, protože jen tolik Google v inzerátu zobrazí.
- * Technický limit je 150, ale co je za sedmdesátkou, čtenář nikdy neuvidí.
- *
- * Marketingové obraty se vypouštějí: „pro tátu a syna" na webu funguje, ale
- * nikdo to takhle do vyhledávače nepíše. U setů se místo toho vypisuje, co
- * zákazník doopravdy dostane („Set Kravata + Dětská Kravata").
- */
-const TITLE_RULES = (limit: number) =>
-  [`Napiš název produktu pro Google Nákupy. Cíl je do ${limit} znaků — víc Google v inzerátu nezobrazí.`,
-    '',
-    'ZÁVAZNÉ POŘADÍ SLOV:',
-    '1. Typ produktu (např. „Vázací Motýlek", „Kapesníček do Saka", „Dětská Kravata") — vždy na prvním místě',
-    '2. Barva',
-    '3. Vzor nebo rozlišující detail — jedním slovem („Puntíky", ne „s jemnými puntíky")',
-    '4. Značka na konci',
-    '5. Velikost nebo počet kusů, jen když produkt rozlišují',
-    '',
-    'Piš Velkými Počátečními Písmeny U Podstatných Slov, bez spojek a předložek navíc.',
-    'U dětských produktů musí slovo „Dětský/Dětská" zůstat v typu produktu.',
-    'U setu vypiš, co zákazník dostane („Set Kravata + Dětská Kravata"), ne marketingový obrat.',
-    '',
-    'Zakázáno: barva na prvním místě, marketingové obraty, kterými nikdo nehledá',
-    '(„pro tátu a syna", „pro každou příležitost"), celá slova velkými písmeny, vykřičníky,',
-    '„nejlepší", „akce", „sleva", cena, doprava, dostupnost a text v závorkách.',
-    'Nevymýšlej vlastnosti, které nejsou v podkladech.'].join('\n');
-
-const DESC_RULES = (limit: number) =>
-  [`Napiš popis produktu pro Google Nákupy. Nejvýš ${limit} znaků, čistý text bez HTML a bez odrážek.`,
-    'První věta říká, co produkt je a pro koho — ta se zobrazuje nejčastěji.',
-    'Dál materiál, rozměry, provedení, k jaké příležitosti se hodí a jak se o něj starat.',
-    'Barvu piš tím odstínem, jakým produkt opravdu je („hořčicově žlutá"), ne obecnou barvou.',
-    'Piš souvislé věty, ne výčet klíčových slov.',
-    'Zakázáno: cena, doprava, slevy, odkazy, informace o dostupnosti, srovnání s konkurencí,',
-    'velká písmena přes celé slovo a text typu „klikněte zde".'].join('\n');
+/* Pravidla psaní jsou v `style.ts` — liší se jazyk od jazyka. */
 
 /** Odstín a základní barva jsou totéž — pak není co rozlišovat. */
 function normalizeSame(a: string, b: string): boolean {
@@ -167,12 +124,24 @@ function productBrief(code: string, lang: string, forTitle = false): string {
 /**
  * Nechá model napsat titulek nebo popis pro Google.
  *
- * Do pokynů jde i paměť překladů — tím se drží stejné názvosloví jako ve
- * zbytku jazykové mutace. Bez toho by v titulku pro Google byly „suspenders"
- * a v názvu produktu „braces", a Google by to bral jako dvě různé věci.
+ * Průchod má tři kroky, každý řeší jinou vrstvu chyb:
+ *
+ *  1. **Napsat.** Do pokynů jde jazykově správná skladba (`style.ts`),
+ *     skutečné názvy ze stejné kategorie jako ukázka a paměť překladů, aby
+ *     se drželo stejné názvosloví jako ve zbytku mutace. Bez paměti by
+ *     v Google titulku byly „suspenders" a v názvu produktu „braces" a
+ *     Google by to bral jako dvě různé věci.
+ *  2. **Zkontrolovat a opravit.** Mechanické chyby — velká písmena
+ *     uprostřed názvu, délka, zdvojené slovo, zakázaný obrat — se dají
+ *     poznat kódem. Když se něco najde, model dostane vypsané, co je
+ *     špatně, a píše ještě jednou. Jeden opravný průchod stačí; kdyby
+ *     neuspěl ani ten, lepší je nechat text být než ho přepisovat donekonečna.
+ *  3. **Zeptat se, když je to věc vkusu.** U první položky v kategorii
+ *     vznikne druhá varianta s jiným pořadím a dvojice se odloží uživateli
+ *     k rozhodnutí. Běh se tím nezdrží — použije se první varianta.
  */
 export async function writeGoogleText(code: string, lang: string,
-  kind: 'google_title' | 'google_desc'): Promise<string> {
+  kind: 'google_title' | 'google_desc', signal?: AbortSignal): Promise<string> {
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
   // U titulku se cílí na viditelných 70 znaků, ne na technických 150 —
@@ -184,24 +153,57 @@ export async function writeGoogleText(code: string, lang: string,
   const brief = productBrief(code, lang, kind === 'google_title');
   if (!brief) throw new Error('Produkt není v databázi.');
 
-  const category = (getDb().prepare('SELECT category FROM ptrans_products WHERE code = ?')
-    .get(code) as any)?.category ?? '';
+  const product = getDb().prepare(
+    'SELECT category, manufacturer FROM ptrans_products WHERE code = ?'
+  ).get(code) as any;
+  const category = product?.category ?? '';
+  const brand = product?.manufacturer || 'Quentino';
 
-  const answer = await ask(
-    model,
-    [
-      `Píšeš pro e-shop do Google Nákupů v jazyce s kódem „${lang}". Piš výhradně tímhle jazykem.`,
-      kind === 'google_title' ? TITLE_RULES(limit) : DESC_RULES(limit),
-      memoryHint(brief, lang, category),
-      s.prompt.trim() ? `\nVlastní pokyny:\n${s.prompt.trim()}` : '',
-      '\nVrať POUZE výsledný text, nic dalšího.'
-    ].filter(Boolean).join('\n'),
-    brief,
-    kind === 'google_title' ? 300 : 800
-  );
+  const system = (extra = '') => [
+    `Píšeš pro e-shop do Google Nákupů v jazyce s kódem „${lang}". Piš výhradně tímhle jazykem`,
+    'a gramaticky bez chyby — text jde přímo zákazníkovi, nic se po tobě neupravuje.',
+    kind === 'google_title' ? titleRules(lang, limit) : descRules(lang, limit),
+    styleHint(lang, category, kind),
+    memoryHint(brief, lang, category),
+    s.prompt.trim() ? `\nVlastní pokyny:\n${s.prompt.trim()}` : '',
+    extra,
+    '\nVrať POUZE výsledný text, nic dalšího.'
+  ].filter(Boolean).join('\n');
 
-  const value = clamp(answer.replace(/^["„]+|["“]+$/g, '').replace(/\s+/g, ' ').trim(), limit);
-  if (value) saveTranslation(code, lang, kind, value, model);
+  const tokens = kind === 'google_title' ? 300 : 800;
+  const tidy = (answer: string) =>
+    clamp(answer.replace(/^["\u201e\u201c]+|["\u201c\u201d]+$/g, '').replace(/\s+/g, ' ').trim(), limit);
+
+  let value = tidy(await ask(model, system(), brief, tokens, { signal }));
+
+  // Opravný průchod: jen když je co opravovat a text vůbec vznikl
+  const problems = value ? checkText(value, { lang, kind, limit, brand }) : [];
+  if (value && problems.length > 0) {
+    const second = tidy(await ask(model, system(fixHint(problems)),
+      `${brief}\n\nPředchozí pokus:\n${value}`, tokens, { signal }));
+    // Druhý pokus se bere jen tehdy, když je na tom prokazatelně líp
+    if (second && checkText(second, { lang, kind, limit, brand }).length < problems.length) {
+      value = second;
+    }
+  }
+
+  if (!value) return '';
+  saveTranslation(code, lang, kind, value, model);
+
+  // Otázka na tvar kategorie — jednou za kategorii, jazyk a druh textu
+  if (kind === 'google_title' && shouldAsk(lang, category, kind)) {
+    try {
+      const other = tidy(await ask(model, system(
+        'Napiš JINOU variantu než tuhle — se stejným obsahem, ale jiným pořadím slov:\n'
+        + `    ${value}\n`
+        + 'Musí být stejně správně, jen jinak postavená. Nezhoršuj gramatiku kvůli odlišnosti.'
+      ), brief, tokens, { signal }));
+      if (other && checkText(other, { lang, kind, limit, brand }).length === 0) {
+        openTrial({ code, lang, field: kind, category, variantA: value, variantB: other });
+      }
+    } catch { /* varianta navíc je pomůcka, ne podmínka — chyba tu nesmí shodit běh */ }
+  }
+
   return value;
 }
 

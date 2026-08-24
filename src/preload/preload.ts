@@ -51,7 +51,11 @@ const ALLOWED_INVOKE = [
   'ptrans:edit', 'ptrans:retranslate', 'ptrans:run', 'ptrans:stop', 'ptrans:progress', 'ptrans:plan',
   'ptrans:googleTitles', 'ptrans:templatePreview', 'ptrans:generateSeo', 'ptrans:seoUrl',
   'ptrans:exportPreview', 'ptrans:export', 'ptrans:importFile', 'ptrans:redirectPreview',
+  'orderfeed:list', 'orderfeed:save', 'orderfeed:refresh',
+  'orderfeed:contact', 'orderfeed:byEmail', 'orderfeed:byCode',
   'ptrans:consistency', 'ptrans:suggestPattern',
+  'ptrans:proposeFix', 'ptrans:acceptFix',
+  'ptrans:trials', 'ptrans:chooseVariant', 'ptrans:dropTrial', 'ptrans:dropStyle',
   'ptrans:memory', 'ptrans:learn', 'ptrans:saveMemory', 'ptrans:deleteMemory',
   // Feed: srovnat celý, nebo jen donačíst nové; návrat ke stavu z e-shopu
   'ptrans:refreshNew', 'ptrans:revert',
@@ -79,7 +83,8 @@ const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
   'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open',
   'ptrans:progress', 'ptrans:changed',
-  'articles:progress', 'articles:changed', 'articles:check'
+  'articles:progress', 'articles:changed', 'articles:check',
+  'orderfeed:changed'
 ];
 
 contextBridge.exposeInMainWorld('api', {

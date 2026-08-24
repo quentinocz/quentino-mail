@@ -22,6 +22,7 @@ import { clearTrackingCache } from './ordertrack';
 import { scanOrders, setItemPacked, setOrderDone, resetPacking } from './packing';
 import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderlink';
 import * as ptrans from './ptrans';
+import * as orderfeed from './orderfeed';
 import * as articles from './articles';
 import { customerContext, customerConversation, messageText } from './customer';
 import { relearnPhase } from './shipphase';
@@ -35,6 +36,11 @@ import { getDb } from './db';
 import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { refreshWatchers } from './idle';
+
+/** Zpráva do všech oken — po stažení feedu se musí překreslit, co je otevřené. */
+function emit(channel: string, payload: unknown) {
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload);
+}
 
 /** Záloha zamčená heslem čeká tady, než uživatel heslo doplní. */
 let pendingImport: any = null;
@@ -270,8 +276,20 @@ export function registerIpc() {
     return p;
   });
   handle('quota:get', (accountId) => getMailboxQuota(accountId));
+  /**
+   * Otevření odkazu mimo aplikaci.
+   *
+   * Schémata jsou vyjmenovaná schválně: `shell.openExternal` umí spustit i
+   * `file:` nebo vlastní schéma nějaké nainstalované aplikace, takže
+   * cokoli, co by se sem dostalo ze stránky, by mohlo spustit program.
+   * `tel:` je tu kvůli volání zákazníkovi, `mailto:` kvůli odkazům
+   * v článcích.
+   */
   handle('shell:openUrl', (url: string) => {
-    if (typeof url === 'string' && url.startsWith('https://')) shell.openExternal(url);
+    if (typeof url !== 'string') return false;
+    if (!/^(https:\/\/|tel:|mailto:)/i.test(url)) return false;
+    shell.openExternal(url);
+    return true;
   });
   handle('ai:summarize', (dbId) => summarize(dbId));
   handle('ai:reply', (req) => generateReply(req));
@@ -350,11 +368,36 @@ export function registerIpc() {
   handle('ptrans:seoUrl', (code: string, lang: string) => ptrans.refreshSeoUrl(code, lang));
   handle('ptrans:redirectPreview', (code: string, lang: string, slug: string) =>
     ptrans.redirectPreview(code, lang, slug));
+  /* ---------- objednávky z feedu e-shopu ---------- */
+  handle('orderfeed:list', () => ({ feeds: orderfeed.feedStatuses(), stats: orderfeed.orderStats() }));
+  handle('orderfeed:save', (feeds: any[]) => {
+    orderfeed.saveOrderFeeds(feeds ?? []);
+    return { feeds: orderfeed.feedStatuses(), stats: orderfeed.orderStats() };
+  });
+  handle('orderfeed:refresh', async (id?: string) => {
+    const result = id ? [{ feed: id, orders: (await orderfeed.refreshFeed(id)).orders }]
+      : await orderfeed.refreshDueFeeds(true);
+    emit('orderfeed:changed', {});
+    return { result, feeds: orderfeed.feedStatuses(), stats: orderfeed.orderStats() };
+  });
+  handle('orderfeed:contact', (input: any) => orderfeed.lookupContact(input ?? {}));
+  handle('orderfeed:byEmail', (email: string, limit?: number) =>
+    orderfeed.ordersByEmail(email, limit ?? 12));
+  handle('orderfeed:byCode', (code: string) => orderfeed.orderByCode(code));
+
   handle('ptrans:exportPreview', (options: any) => ptrans.exportPreview(options ?? {}));
   handle('ptrans:export', (options: any) => ptrans.exportToFile(options ?? {}));
   handle('ptrans:importFile', () => ptrans.importFromFile());
   handle('ptrans:consistency', (lang: string) => ptrans.consistencyCheck(lang));
   handle('ptrans:suggestPattern', (category: string, lang: string) => ptrans.suggestPattern(category, lang));
+  handle('ptrans:proposeFix', (code: string, lang: string) => ptrans.proposeFix(code, lang));
+  handle('ptrans:acceptFix', (code: string, lang: string, value: string) =>
+    ptrans.acceptFix(code, lang, value));
+  handle('ptrans:trials', (lang?: string) => ptrans.styleTrials(lang));
+  handle('ptrans:chooseVariant', (id: number, pick: 'a' | 'b') => ptrans.chooseVariant(id, pick));
+  handle('ptrans:dropTrial', (id: number) => ptrans.dropTrial(id));
+  handle('ptrans:dropStyle', (lang: string, category: string, kind: string) =>
+    ptrans.dropStyle(lang, category, kind));
   handle('ptrans:memory', (filter: any) => ({
     entries: ptrans.listMemory(filter ?? {}),
     stats: ptrans.memoryStats()

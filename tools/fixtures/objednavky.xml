@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Vzorek podle skutečného exportu z Upgates. Osobní údaje jsou vymyšlené.
+     Schválně obsahuje i případy, na kterých se rozbor umí zaseknout:
+     telefon s mezerami, chybějící telefon, entitu &amp; v názvu položky,
+     CDATA a stejnou značku NAME u dopravy i platby. -->
+<ORDERS>
+  <ORDER>
+    <HEADER>
+      <CODE>023687</CODE>
+      <STATUS>Doručeno</STATUS>
+      <PAID><PAID_YN>1</PAID_YN><PAID_DATE>2026-08-10</PAID_DATE></PAID>
+      <RESOLVED_YN>1</RESOLVED_YN>
+      <INVOICE_NUMBER>023689</INVOICE_NUMBER>
+      <CREATION_TIME>2026-08-09T17:47:26+02:00</CREATION_TIME>
+      <LAST_UPDATE_TIME>2026-08-24T11:55:12+02:00</LAST_UPDATE_TIME>
+      <CURRENCY>CZK</CURRENCY>
+      <TOTAL_PRICE_WITH_VAT>548</TOTAL_PRICE_WITH_VAT>
+      <TRACING_CODE>NB9574204633L</TRACING_CODE>
+    </HEADER>
+    <CUSTOMER>
+      <CUSTOMER_ID>20571</CUSTOMER_ID>
+      <FIRSTNAME>Jana</FIRSTNAME>
+      <SURNAME>Nováková</SURNAME>
+      <COMMUNICATION>
+        <EMAIL>Jana.Novakova@seznam.cz</EMAIL>
+        <PHONE>+420 607 043 067</PHONE>
+      </COMMUNICATION>
+    </CUSTOMER>
+    <ITEMS>
+      <ITEM>
+        <TITLE><![CDATA[Světle růžové pánské kšandy]]></TITLE>
+        <CODE>PS120SR</CODE><QUANTITY>1</QUANTITY><PRICE_WITH_VAT>479</PRICE_WITH_VAT>
+      </ITEM>
+      <ITEM>
+        <TITLE>Kravata &amp; kapesníček</TITLE>
+        <CODE>SET01</CODE><QUANTITY>2</QUANTITY><PRICE_WITH_VAT>0</PRICE_WITH_VAT>
+      </ITEM>
+    </ITEMS>
+    <SHIPMENT><NAME>Balíkovna</NAME><PRICE_WITH_VAT>69</PRICE_WITH_VAT></SHIPMENT>
+    <PAYMENT><NAME>Bankovní převod</NAME><PRICE_WITH_VAT>0</PRICE_WITH_VAT></PAYMENT>
+  </ORDER>
+  <ORDER>
+    <HEADER>
+      <CODE>023688</CODE>
+      <STATUS>Vyřizuje se</STATUS>
+      <PAID><PAID_YN>0</PAID_YN><PAID_DATE></PAID_DATE></PAID>
+      <RESOLVED_YN>0</RESOLVED_YN>
+      <CREATION_TIME>2026-08-24T09:12:00+02:00</CREATION_TIME>
+      <CURRENCY>CZK</CURRENCY>
+      <TOTAL_PRICE_WITH_VAT>1290</TOTAL_PRICE_WITH_VAT>
+    </HEADER>
+    <CUSTOMER>
+      <CUSTOMER_ID>20572</CUSTOMER_ID>
+      <FIRSTNAME>Petr</FIRSTNAME>
+      <SURNAME>Svoboda</SURNAME>
+      <COMMUNICATION>
+        <EMAIL>petr.svoboda@gmail.com</EMAIL>
+        <PHONE>736112233</PHONE>
+      </COMMUNICATION>
+    </CUSTOMER>
+    <ITEMS>
+      <ITEM><TITLE>Bordó pánské široké kšandy</TITLE><CODE>PSSK120BR2</CODE>
+        <QUANTITY>1</QUANTITY><PRICE_WITH_VAT>1290</PRICE_WITH_VAT></ITEM>
+    </ITEMS>
+    <SHIPMENT><NAME>Zásilkovna</NAME></SHIPMENT>
+    <PAYMENT><NAME>Dobírka</NAME></PAYMENT>
+  </ORDER>
+  <ORDER>
+    <HEADER>
+      <CODE>023689</CODE>
+      <STATUS>Nová</STATUS>
+      <CREATION_TIME>2026-08-24T10:40:00+02:00</CREATION_TIME>
+      <CURRENCY>CZK</CURRENCY>
+      <TOTAL_PRICE_WITH_VAT>399</TOTAL_PRICE_WITH_VAT>
+    </HEADER>
+    <CUSTOMER>
+      <FIRSTNAME>Jana</FIRSTNAME><SURNAME>Nováková</SURNAME>
+      <COMMUNICATION><EMAIL>jana.novakova@seznam.cz</EMAIL><PHONE></PHONE></COMMUNICATION>
+    </CUSTOMER>
+    <ITEMS><ITEM><TITLE>Dárkový poukaz</TITLE><CODE>P50E</CODE>
+      <QUANTITY>1</QUANTITY><PRICE_WITH_VAT>399</PRICE_WITH_VAT></ITEM></ITEMS>
+    <SHIPMENT><NAME>E-mailem</NAME></SHIPMENT>
+    <PAYMENT><NAME>Kartou online</NAME></PAYMENT>
+  </ORDER>
+</ORDERS>

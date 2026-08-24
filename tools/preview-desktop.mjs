@@ -144,8 +144,20 @@ await overflow('články — mapa'); await snap('15-clanky-mapa');
 await click('.ar-modal .pt-tabs button', { hasText: 'Nastavení' });
 await overflow('články — nastavení'); await snap('16-clanky-nastaveni');
 
-// Pruh s běžícím překladem na pozadí — je vidět i mimo okno překladů
+// Nastavení → AI: feedy objednávek jsou dole, proto se k nim odroluje
 await click('.ar-modal .modal-head .icon-btn:last-child');
+await click('.side-item', { hasText: 'Nastavení' });
+await click('.modal-head button, .tabs button', { hasText: 'AI' });
+await page.evaluate(() => {
+  const label = [...document.querySelectorAll('.modal-body label')]
+    .find(el => /Feedy objedn/.test(el.textContent ?? ''));
+  label?.scrollIntoView({ block: 'center' });
+});
+await overflow('nastavení — feedy objednávek'); await snap('22-feedy-objednavek');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(400);
+
+// Pruh s běžícím překladem na pozadí — je vidět i mimo okno překladů
 await page.evaluate(() => window.__emit('ptrans:progress', {
   running: true, done: 428, total: 1362, failed: 2, etaSeconds: 940,
   secondsPerUnit: 11.4, label: 'Bordó pánská kravata BULDOČCI → SK', errors: []

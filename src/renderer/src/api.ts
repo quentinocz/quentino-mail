@@ -7,6 +7,8 @@ import type {
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
   ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
   PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
+  PtransFixProposal, PtransTrial, PtransStyle,
+  OrderFeed, OrderFeedStatus, OrderContact, OrderStats, ShopOrder,
   PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat, PtransLearnResult,
   PtransGoogleView, PtransColorRule, PtransBaseColor, PtransBundleRule, PtransAttributeRules,
   PtransAudit, PtransAuditSummary,
@@ -142,6 +144,20 @@ export const api = {
     importFile: () => call<{ products: number; fields: number; paired: number; file: string } | null>('ptrans:importFile'),
     consistency: (lang: string) => call<PtransConsistency>('ptrans:consistency', lang),
     suggestPattern: (category: string, lang: string) => call<string>('ptrans:suggestPattern', category, lang),
+    /** Návrh, jak vybočující název srovnat. Vrací null, když není co měnit. */
+    proposeFix: (code: string, lang: string) =>
+      call<PtransFixProposal | null>('ptrans:proposeFix', code, lang),
+    acceptFix: (code: string, lang: string, value: string) =>
+      call<boolean>('ptrans:acceptFix', code, lang, value),
+    /** Dvojice variant, o kterých se ještě nerozhodlo, a už vybrané tvary */
+    trials: (lang?: string) =>
+      call<{ trials: PtransTrial[]; open: number; styles: PtransStyle[] }>('ptrans:trials', lang),
+    chooseVariant: (id: number, pick: 'a' | 'b') =>
+      call<{ trial: PtransTrial | null; affected: string[]; category: string; lang: string }>(
+        'ptrans:chooseVariant', id, pick),
+    dropTrial: (id: number) => call<boolean>('ptrans:dropTrial', id),
+    dropStyle: (lang: string, category: string, kind: string) =>
+      call<boolean>('ptrans:dropStyle', lang, category, kind),
     /** Paměť překladů — co se aplikace naučila z hotových jazykových mutací */
     memory: (filter: { lang?: string; kind?: PtransMemoryKind; search?: string } = {}) =>
       call<{ entries: PtransMemoryEntry[]; stats: PtransMemoryStat[] }>('ptrans:memory', filter),
@@ -219,6 +235,8 @@ export const api = {
     generate: (input: {
       articleId?: number; topic: string; title?: string; titleFixed?: boolean; langs: string[];
       wordCount?: number; brief?: Partial<ArticleBrief>; prompt?: string; force?: boolean;
+      /** `translate` = napsat zdrojový a přeložit 1:1, `each` = každý jazyk zvlášť */
+      mode?: 'each' | 'translate';
     }) => call<{ id: number; langs: string[]; errors: string[] }>('articles:generate', input),
     translate: (id: number, langs: string[], force = false) =>
       call<{ langs: string[]; unresolved: { lang: string; url: string }[]; errors: string[] }>(
@@ -302,6 +320,22 @@ export const api = {
     orders: (email: string) => call<UpgatesOrder[]>('upgates:orders', email)
   },
   orders: {
+    /* --- feed objednávek z e-shopu: má úplná data včetně telefonu --- */
+    feeds: () => call<{ feeds: OrderFeedStatus[]; stats: OrderStats }>('orderfeed:list'),
+    saveFeeds: (feeds: OrderFeed[]) =>
+      call<{ feeds: OrderFeedStatus[]; stats: OrderStats }>('orderfeed:save', feeds),
+    /** Bez `id` se stáhnou všechny najednou */
+    refreshFeeds: (id?: string) => call<{
+      result: { feed: string; orders: number; error?: string }[];
+      feeds: OrderFeedStatus[]; stats: OrderStats;
+    }>('orderfeed:refresh', id),
+    /** Telefon a jméno podle e-mailu, čísla objednávky nebo textu zprávy */
+    contact: (input: { email?: string; orderCode?: string; text?: string }) =>
+      call<OrderContact>('orderfeed:contact', input),
+    byEmail: (email: string, limit?: number) => call<ShopOrder[]>('orderfeed:byEmail', email, limit),
+    byCode: (code: string) => call<ShopOrder | null>('orderfeed:byCode', code),
+
+    /* --- objednávka vyčtená z potvrzovacího e-mailu --- */
     /** Přehled objednávky vyčtený z potvrzovacího e-mailu (null = není objednávka) */
     card: (dbId: number, withLive = true) => call<OrderCard | null>('orders:card', dbId, withLive),
     /** Jen číslo, částka a stav — pro odznak v seznamu zpráv */

@@ -6,6 +6,7 @@ import { getField, productParameters, tagText } from './xml';
 import { clamp, slugify } from './translate';
 import { plain } from './detect';
 import { setSeoUrl } from './redirects';
+import { languageNote, styleHint } from './style';
 
 /**
  * Texty pro vyhledávače a Google Nákupy.
@@ -137,7 +138,8 @@ const RULES: Record<SeoKind, (limit: number) => string> = {
  * Podkladem je přeložený název a popis produktu, ne původní čeština — texty pak
  * drží stejné názvosloví jako zbytek jazykové mutace.
  */
-export async function generateSeo(code: string, lang: string, kind: SeoKind): Promise<string> {
+export async function generateSeo(code: string, lang: string, kind: SeoKind,
+                                  signal?: AbortSignal): Promise<string> {
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
   // `fieldValue` sahá i do původního XML — ve zdrojovém jazyce se pole
@@ -164,11 +166,16 @@ export async function generateSeo(code: string, lang: string, kind: SeoKind): Pr
     [
       `Píšeš texty pro e-shop v jazyce s kódem „${lang}". Piš výhradně tímhle jazykem.`,
       RULES[kind](limit),
+      // Bez tohohle model sklouzává do anglického psaní velkých písmen
+      // a do doslovných obratů — česky pak text vypadá jako přeložený
+      languageNote(lang),
+      styleHint(lang, product?.category ?? '', kind),
       s.prompt.trim() ? `\nVlastní pokyny:\n${s.prompt.trim()}` : '',
       '\nVrať POUZE výsledný text, nic dalšího.'
     ].filter(Boolean).join('\n'),
     source,
-    600
+    600,
+    { signal }
   );
 
   const value = clamp(answer.replace(/^["„]|["“]$/g, ''), limit);

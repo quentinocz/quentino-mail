@@ -264,6 +264,34 @@ enum Schema {
       at TEXT NOT NULL
     );
 
+    -- Objednávky z exportních feedů e-shopu. Stejná tabulka jako na počítači:
+    -- kvůli telefonu na zákazníka, který v potvrzovacím e-mailu většinou není.
+    CREATE TABLE IF NOT EXISTS shop_orders (
+      code TEXT NOT NULL,
+      market TEXT NOT NULL DEFAULT 'cz',
+      status TEXT NOT NULL DEFAULT '',
+      paid INTEGER NOT NULL DEFAULT 0,
+      paid_date TEXT NOT NULL DEFAULT '',
+      resolved INTEGER NOT NULL DEFAULT 0,
+      invoice TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      currency TEXT NOT NULL DEFAULT '',
+      total REAL NOT NULL DEFAULT 0,
+      tracking TEXT NOT NULL DEFAULT '',
+      customer_id TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      shipment TEXT NOT NULL DEFAULT '',
+      payment TEXT NOT NULL DEFAULT '',
+      items_json TEXT NOT NULL DEFAULT '[]',
+      seen_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (code, market)
+    );
+    CREATE INDEX IF NOT EXISTS idx_shop_orders_email ON shop_orders(email);
+    CREATE INDEX IF NOT EXISTS idx_shop_orders_code ON shop_orders(code);
+
     CREATE TABLE IF NOT EXISTS order_index (
       order_number TEXT PRIMARY KEY,
       customer_email TEXT NOT NULL DEFAULT '',

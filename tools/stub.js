@@ -285,6 +285,61 @@
     'ptrans:fillSource': { done: 31, failed: 0, errors: [] },
     'ptrans:redirectPreview': { oldPath: '/p/bordo-panske-siroke-ksandy',
       list: ['/p/bordo-siroke-ksandy', '/p/bordo-panske-siroke-ksandy'] },
+    'orderfeed:contact': {
+      phone: '+420607043067', name: 'Jana Nováková', orders: 3, via: 'podle e-mailu',
+      order: { code: '023687', market: 'cz', status: 'Doručeno', paid: true, paidDate: '2026-08-10',
+        resolved: true, invoice: '023689', createdAt: '2026-08-09T17:47:26+02:00',
+        updatedAt: '2026-08-24T11:55:12+02:00', currency: 'CZK', total: 548,
+        tracking: 'NB9574204633L', customerId: '20571', name: 'Jana Nováková',
+        email: 'jana.novakova@seznam.cz', phone: '+420607043067',
+        shipment: 'Balíkovna', payment: 'Bankovní převod',
+        items: [{ title: 'Světle růžové pánské kšandy', code: 'PS120SR', quantity: 1, price: 479 }] }
+    },
+    'orderfeed:list': {
+      stats: { total: 4182, withPhone: 3971, markets: [{ market: 'cz', n: 3410 }, { market: 'sk', n: 612 }, { market: 'en', n: 160 }] },
+      feeds: [
+        { id: 'feed1', label: 'posledních 24h', market: 'cz', recent: true, enabled: true,
+          everyMinutes: 5, urlHint: 'www.quentino.cz/…-iBFIpamZa4', orders: 3410,
+          newest: '2026-08-24T10:40:00+02:00', lastSync: '2026-08-24T11:58:00Z', lastError: '' },
+        { id: 'feed2', label: 'CZ vše', market: 'cz', recent: false, enabled: true,
+          everyMinutes: 720, urlHint: 'www.quentino.cz/…-qNj8D9bR95', orders: 3410,
+          newest: '2026-08-24T10:40:00+02:00', lastSync: '2026-08-24T06:00:00Z', lastError: '' },
+        { id: 'feed3', label: 'SK vše', market: 'sk', recent: false, enabled: true,
+          everyMinutes: 720, urlHint: 'www.quentino.sk/…-KOfIk1SiRF', orders: 612,
+          newest: '2026-08-23T19:12:00+02:00', lastSync: '2026-08-24T06:01:00Z', lastError: '' }
+      ]
+    },
+    'orderfeed:byEmail': [],
+    'orderfeed:byCode': null,
+    'ptrans:trials': {
+      open: 2,
+      trials: [
+        { id: 1, code: 'STUHA07', lang: 'cz', field: 'google_title', category: 'Stuhy',
+          title: 'Barevná dámská stuha s květy', chosen: '', createdAt: '2026-08-24T09:00:00Z',
+          variantA: 'Dámská stuha barevná s květy Quentino',
+          variantB: 'Barevná dámská stuha s květy Quentino' },
+        { id: 2, code: 'PSSK120BR2', lang: 'cz', field: 'google_title', category: 'Široké kšandy',
+          title: 'Bordó pánské široké kšandy s černou kůží', chosen: '',
+          createdAt: '2026-08-24T09:02:00Z',
+          variantA: 'Pánské široké kšandy bordó s černou kůží Quentino',
+          variantB: 'Bordó pánské široké kšandy s černou kůží Quentino' }
+      ],
+      styles: [
+        { lang: 'cz', category: 'Úzké kšandy', kind: 'google_title', hits: 34,
+          example: 'Pánské kšandy světle modré Quentino',
+          rejected: 'Světle modré pánské kšandy Quentino', updatedAt: '2026-08-23T18:00:00Z' }
+      ]
+    },
+    'ptrans:proposeFix': {
+      code: 'PKSBA05', lang: 'cz', category: 'Vzorované kapesníčky do saka',
+      current: 'Černý pánský kapesníček šedo růžovými květy',
+      suggested: 'Černý pánský kapesníček se šedo růžovými květy',
+      pattern: '{…} pánský kapesníček s {…}', note: 'přibylo: se'
+    },
+    'ptrans:acceptFix': true,
+    'ptrans:chooseVariant': { trial: null, affected: ['A', 'B', 'C'], category: 'Stuhy', lang: 'cz' },
+    'ptrans:dropTrial': true,
+    'ptrans:dropStyle': true,
     'ptrans:consistency': {
       patterns: [
         { category: 'Kravaty', lang: 'en', pattern: "Men\'s {…} tie", samples: 42, matching: 39 },

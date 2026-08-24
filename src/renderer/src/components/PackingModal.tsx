@@ -3,6 +3,7 @@ import type { PackingOrder, PackingProgress, OrderCardItem } from '@shared/types
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import CallContact from './CallContact';
 import { useIsPhone } from '../mobile';
 
 /**
@@ -437,8 +438,17 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                       {current.card.customerEmail && (
                         <div className="pk-kv"><span>E-mail</span><b>{current.card.customerEmail}</b></div>
                       )}
-                      {current.card.customerPhone && (
+                      {current.card.customerPhone ? (
                         <div className="pk-kv"><span>Telefon</span><b>{current.card.customerPhone}</b></div>
+                      ) : (
+                        // Při balení je telefon to jediné, čím se dá vyřešit
+                        // nejasná adresa na místě — když ho potvrzovací mail
+                        // nemá, dohledá se ve feedu objednávek
+                        <div className="pk-kv">
+                          <span>Telefon</span>
+                          <b><CallContact email={current.card.customerEmail}
+                            orderCode={current.card.orderNumber} compact /></b>
+                        </div>
                       )}
                       {current.card.tracking?.trackingCode && (
                         <div className="pk-kv"><span>Zásilka</span><b>{current.card.tracking.trackingCode}</b></div>

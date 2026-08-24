@@ -36,6 +36,14 @@ let state: ArticleProgress = {
   running: false, done: 0, total: 0, failed: 0, label: '', chars: 0, errors: []
 };
 let cancelled = false;
+/**
+ * Přerušení rozběhnutého psaní.
+ *
+ * Článek se streamuje po tisících tokenů. Bez signálu se po stisku
+ * „Zastavit" dopisoval celý do konce a teprve pak se běh ukončil — tedy
+ * klidně minutu poté, co uživatel řekl dost.
+ */
+let abort: AbortController | null = null;
 
 function emit(channel: string, payload: unknown) {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload);
@@ -51,7 +59,15 @@ export function articleProgress(): ArticleProgress | null {
 }
 
 export function stopArticles(): void {
-  if (state.running) { cancelled = true; push({ label: 'zastavuji…' }); }
+  if (!state.running) return;
+  cancelled = true;
+  abort?.abort();
+  push({ label: 'zastavuji…' });
+}
+
+/** Přerušení není chyba — po zastavení nemá cenu hlásit, že se něco nepovedlo. */
+function isAborted(error: any): boolean {
+  return cancelled || error?.name === 'AbortError' || /abort/i.test(String(error?.message ?? ''));
 }
 
 function model(): string {
@@ -245,6 +261,34 @@ function linkBlock(brief: ArticleBrief, lang: string): string {
   return lines ? `\nINTERNÍ ODKAZY (zakomponuj přirozeně do textu):\n${lines}` : '';
 }
 
+/**
+ * Rozpis délky.
+ *
+ * Samotná věta „napiš 600 slov" nefunguje — model si počet slov neumí
+ * odpočítat a psal klidně dva a půl tisíce. Co funguje, je **struktura**:
+ * kolik má být sekcí a kolik slov připadá na jednu. Takové zadání se dá
+ * plnit průběžně, a když se přesto netrefí, chytí to kontrola po napsání.
+ */
+function lengthPlan(wordCount: number): string {
+  const sections = Math.max(3, Math.min(8, Math.round(wordCount / 180)));
+  const intro = Math.max(60, Math.round(wordCount * 0.12));
+  const perSection = Math.max(70, Math.round((wordCount - intro) / sections));
+  return [
+    `POŽADOVANÁ DÉLKA: ${wordCount} slov viditelného textu. Tohle je zadání, ne orientační údaj.`,
+    `Rozvrhni si to takhle: úvod ${intro} slov, pak ${sections} sekcí s H2 po zhruba ${perSection} slovech`,
+    'a krátké FAQ na konci. Delší článek není lepší článek — když téma dojde, skonči.',
+    `Odchylka nahoru nejvýš o desetinu, tedy strop je ${Math.round(wordCount * 1.1)} slov.`
+  ].join('\n');
+}
+
+/** Meze, za kterými se článek přepisuje: pod tři čtvrtiny a nad jeden a čtvrt. */
+function lengthOff(words: number, target: number): 'short' | 'long' | null {
+  if (!target) return null;
+  if (words > target * 1.25) return 'long';
+  if (words < target * 0.75) return 'short';
+  return null;
+}
+
 /* ---------- generování ---------- */
 
 export interface GenerateInput {
@@ -258,6 +302,17 @@ export interface GenerateInput {
   prompt?: string;
   /** Přepsat i jazyky, které už napsané jsou */
   force?: boolean;
+  /**
+   * Jak vzniknou jazykové mutace.
+   *
+   * `each` — každý jazyk se píše zvlášť. Text pak sedí na daný trh: jiné
+   *   vyhledávané výrazy, jiné příklady, jiná struktura. Stojí to ale
+   *   tolikrát víc, kolik je jazyků, a články si nejsou podobné.
+   * `translate` — napíše se zdrojový a ostatní z něj vzniknou překladem
+   *   jedna ku jedné. Levnější, rychlejší a všechny mutace mají stejnou
+   *   stavbu i stejné odkazy — což je většinou to, co člověk chce.
+   */
+  mode?: 'each' | 'translate';
 }
 
 export async function generateArticle(input: GenerateInput): Promise<{ id: number; langs: string[]; errors: string[] }> {
@@ -281,9 +336,19 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
   const brand = (getSettings() as any).brandContext ?? '';
 
   cancelled = false;
+  abort = new AbortController();
+
+  // V režimu překladu se modelem píše jen zdrojový jazyk; zbytek se z něj
+  // odvodí až potom, hotovým překladovým průchodem
+  const mode = input.mode ?? 'each';
+  const wanted = mode === 'translate'
+    ? input.langs.filter(lang => lang === article.sourceLang).length
+      ? [article.sourceLang]
+      : [input.langs[0]]
+    : input.langs;
   const todo = input.force
-    ? input.langs
-    : input.langs.filter(lang => !article.versions.find(v => v.lang === lang && v.long));
+    ? wanted
+    : wanted.filter(lang => !article.versions.find(v => v.lang === lang && v.long));
 
   state = { running: true, done: 0, total: todo.length, failed: 0, label: '', chars: 0, errors: [] };
   push({});
@@ -305,7 +370,7 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
       push({ label: `${lang.toUpperCase()} — píšu článek`, chars: 0 });
       const user = [
         `Jazyk obsahu: ${lang.toUpperCase()}`,
-        `POŽADOVANÁ DÉLKA: ${wordCount} až ${wordCount + 250} viditelných slov — povinné.`,
+        lengthPlan(wordCount),
         brand ? `Kontext značky: ${brand}` : '',
         '',
         input.title
@@ -327,10 +392,28 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
         const raw = await askLong(model(), system, user, {
           maxTokens: 16000,
           endMark: '<<<END>>>',
+          signal: abort?.signal,
           onChunk: (_text, chars) => push({ chars })
         });
         const draft = parseDraft(raw);
         if (!draft.title || !draft.long) throw new Error('Model nevrátil použitelný článek.');
+
+        // Doměření. Zadaná délka je zadání, ne přání — když se model netrefí,
+        // dostane text zpátky s úkolem ho zkrátit nebo dopsat. Ověřuje se
+        // stejnou funkcí, jakou pak délku hlásí rozhraní, takže se nemůže
+        // stát, že „prošlo" a v přehledu svítí něco jiného.
+        const off = lengthOff(visibleWords(draft.long), wordCount);
+        if (off && !cancelled) {
+          push({ label: `${lang.toUpperCase()} — ${off === 'long' ? 'zkracuji' : 'dopisuji'} na ${wordCount} slov`, chars: 0 });
+          try {
+            const fixed = await resize(draft.long, wordCount, off, lang);
+            if (fixed) draft.long = fixed;
+          } catch (e: any) {
+            if (isAborted(e)) break;
+            // Nepovedená úprava délky není důvod zahodit hotový článek
+          }
+        }
+
         saveVersion(id, lang, {
           ...draft,
           seo_url: draft.seo_url || slugify(draft.title),
@@ -340,21 +423,79 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
         written.push(lang);
         push({ done: state.done + 1 });
       } catch (e: any) {
+        if (isAborted(e)) break;
         push({ failed: state.failed + 1, errors: [...state.errors, `${lang}: ${e.message}`] });
       }
     }
   } finally {
-    // Článek, který má text ve všech zadaných jazycích, už není rozepsaný —
-    // jinak by ho hromadný export přeskočil a nikdo by nevěděl proč
-    const after = getArticle(id);
-    const complete = !!after && input.langs.every(lang =>
-      after.versions.some(v => v.lang === lang && v.long));
-    if (complete) saveArticle({ id, status: 'ready' });
     push({ running: false, label: cancelled ? 'zastaveno' : 'hotovo' });
-    emit('articles:changed', { id });
   }
 
+  // Zbylé jazyky překladem. Až tady, po dopsání zdroje — dřív by nebylo co
+  // překládat. `translateArticle` si vede vlastní postup, proto se běh
+  // nejdřív ukončí a hned zase spustí.
+  const rest = input.langs.filter(lang => !wanted.includes(lang));
+  if (mode === 'translate' && rest.length > 0 && !cancelled && written.length > 0) {
+    try {
+      const result = await translateArticle(id, rest, input.force);
+      written.push(...result.langs);
+      if (result.errors.length) push({ errors: [...state.errors, ...result.errors] });
+    } catch (e: any) {
+      if (!isAborted(e)) push({ errors: [...state.errors, e.message] });
+    }
+  }
+
+  // Článek, který má text ve všech zadaných jazycích, už není rozepsaný —
+  // jinak by ho hromadný export přeskočil a nikdo by nevěděl proč
+  const after = getArticle(id);
+  const complete = !!after && input.langs.every(lang =>
+    after.versions.some(v => v.lang === lang && v.long));
+  if (complete) saveArticle({ id, status: 'ready' });
+  emit('articles:changed', { id });
+
   return { id, langs: written, errors: state.errors };
+}
+
+/**
+ * Zkrácení nebo dopsání hotového textu na zadanou délku.
+ *
+ * Píše se znovu jen tělo článku, ne název a SEO — ty už jsou v pořádku a
+ * dalším průchodem by se jen zbytečně měnily. HTML se nesmí sáhnout: odkazy,
+ * obrázky a JSON-LD na konci musí zůstat přesně, jak jsou, jinak by se
+ * rozpadlo provázání článků, které se pracně skládalo jinde.
+ */
+async function resize(html: string, target: number, direction: 'short' | 'long', lang: string):
+  Promise<string> {
+  const words = visibleWords(html);
+  const system = [
+    `Upravuješ délku hotového článku v jazyce ${lang.toUpperCase()}.`,
+    direction === 'long'
+      ? `Text má ${words} slov, má mít ${target}. Zkrať ho — vypusť opakování, vatu a odbočky.`
+      : `Text má ${words} slov, má mít ${target}. Rozveď ho — doplň konkrétní detaily k tomu, co už tam je.`,
+    '',
+    'Závazné:',
+    '- Zachovej HTML značky, atributy, odkazy, obrázky i JSON-LD na konci beze změny.',
+    '- Zachovej všechny sekce a jejich nadpisy. Neubírej ani nepřidávej H2.',
+    '- Nepřidávej fakta, která v textu nejsou. Nevymýšlej si.',
+    direction === 'long'
+      ? '- Krať uvnitř odstavců, ne mazáním celých sekcí.'
+      : '- Rozváděj uvnitř odstavců, ne přidáváním nových sekcí.',
+    '',
+    'Vrať POUZE upravené HTML, zakončené <<<END>>>.'
+  ].join('\n');
+
+  const raw = await askLong(model(), system, html, {
+    maxTokens: 16000,
+    endMark: '<<<END>>>',
+    signal: abort?.signal,
+    onChunk: (_text, chars) => push({ chars })
+  });
+  const out = raw.replace('<<<END>>>', '').trim();
+  // Přijme se jen tehdy, když je na tom líp než původní text
+  if (!out || !/</.test(out)) return '';
+  const before = Math.abs(visibleWords(html) - target);
+  const after = Math.abs(visibleWords(out) - target);
+  return after < before ? out : '';
 }
 
 /* ---------- překlad hotového článku ---------- */
@@ -382,6 +523,7 @@ export async function translateArticle(id: number, targets: string[], force = fa
     && (force || !article.versions.find(v => v.lang === lang && v.long)));
 
   cancelled = false;
+  abort = new AbortController();
   state = { running: true, done: 0, total: todo.length, failed: 0, label: '', chars: 0, errors: [] };
   push({});
 
@@ -427,6 +569,7 @@ export async function translateArticle(id: number, targets: string[], force = fa
         const raw = await askLong(model(), system, user, {
           maxTokens: 16000,
           endMark: '<<<END>>>',
+          signal: abort?.signal,
           onChunk: (_text, chars) => push({ chars })
         });
         const draft = parseDraft(raw);
@@ -444,6 +587,7 @@ export async function translateArticle(id: number, targets: string[], force = fa
         done.push(lang);
         push({ done: state.done + 1 });
       } catch (e: any) {
+        if (isAborted(e)) break;
         push({ failed: state.failed + 1, errors: [...state.errors, `${lang}: ${e.message}`] });
       }
     }

@@ -160,6 +160,44 @@ function migrate(d: Database.Database) {
       at TEXT NOT NULL
     );
 
+    -- Objednávky stažené z exportních feedů e-shopu.
+    --
+    -- Až dosud se objednávky skládaly z potvrzovacích e-mailů. To stačí na
+    -- to, co bylo v mailu, ale telefon tam většinou není — a právě ten je
+    -- potřeba, když chce člověk zákazníkovi rovnou zavolat. Feed má úplná
+    -- data a je levný: stáhne se celý a přepíše se, co se změnilo.
+    --
+    -- Klíč je číslo objednávky plus trh. Čísla se totiž mezi doménami
+    -- opakují — objednávka 023687 existuje v CZ i v SK a je pokaždé jiná.
+    CREATE TABLE IF NOT EXISTS shop_orders (
+      code TEXT NOT NULL,
+      market TEXT NOT NULL DEFAULT 'cz',
+      status TEXT NOT NULL DEFAULT '',
+      paid INTEGER NOT NULL DEFAULT 0,
+      paid_date TEXT NOT NULL DEFAULT '',
+      resolved INTEGER NOT NULL DEFAULT 0,
+      invoice TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      currency TEXT NOT NULL DEFAULT '',
+      total REAL NOT NULL DEFAULT 0,
+      tracking TEXT NOT NULL DEFAULT '',
+      customer_id TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      shipment TEXT NOT NULL DEFAULT '',
+      payment TEXT NOT NULL DEFAULT '',
+      items_json TEXT NOT NULL DEFAULT '[]',
+      seen_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (code, market)
+    );
+    -- Hledá se skoro vždycky podle e-mailu zákazníka nebo podle čísla
+    CREATE INDEX IF NOT EXISTS idx_shop_orders_email ON shop_orders(email);
+    CREATE INDEX IF NOT EXISTS idx_shop_orders_code ON shop_orders(code);
+    CREATE INDEX IF NOT EXISTS idx_shop_orders_phone ON shop_orders(phone);
+    CREATE INDEX IF NOT EXISTS idx_shop_orders_created ON shop_orders(created_at DESC);
+
     CREATE TABLE IF NOT EXISTS order_index (
       order_number TEXT PRIMARY KEY,
       customer_email TEXT NOT NULL DEFAULT '',

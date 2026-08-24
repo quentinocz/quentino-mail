@@ -41,9 +41,12 @@ const server = http.createServer((req, res) => {
 await new Promise(r => server.listen(4321, r));
 
 // Nejmenší iPhone, na kterém aplikace poběží, a dnešní běžná velikost
+// `safeTop`/`safeBottom`: Chromium `env(safe-area-inset-*)` neumí nasimulovat,
+// takže se proměnné přebijí ručně. Bez toho by náhled ukazoval telefon bez
+// výřezu a odsazení hlavičky by se nikdy neprověřilo.
 const DEVICES = [
-  { name: 'se', width: 375, height: 667 },   // iPhone SE / 8 — nejtěsnější případ
-  { name: 'i15', width: 393, height: 852 }
+  { name: 'se', width: 375, height: 667, safeTop: 20, safeBottom: 0 },  // iPhone SE / 8 — bez výřezu
+  { name: 'i15', width: 393, height: 852, safeTop: 59, safeBottom: 34 } // s výřezem a proužkem
 ];
 
 // Předinstalovaný Chromium v prostředí nemusí odpovídat verzi Playwrightu
@@ -68,8 +71,16 @@ for (const device of DEVICES) {
     }
   });
 
+  if (device.safeTop || device.safeBottom) {
+    await page.addStyleTag({ content:
+      `:root { --safe-top: ${device.safeTop ?? 0}px; --safe-bottom: ${device.safeBottom ?? 0}px; }` });
+  }
   await page.goto('http://localhost:4321/index.html', { waitUntil: 'load' });
   await page.waitForTimeout(900);
+  if (device.safeTop || device.safeBottom) {
+    await page.addStyleTag({ content:
+      `:root { --safe-top: ${device.safeTop ?? 0}px; --safe-bottom: ${device.safeBottom ?? 0}px; }` });
+  }
 
   const click = async (selector, options = {}) => {
     try { await page.locator(selector, options).first().click({ timeout: 3000 }); }

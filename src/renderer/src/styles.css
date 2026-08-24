@@ -21,6 +21,14 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Bezpečné zóny: výřez, zaoblené rohy a spodní ovládací proužek. Na počítači
+   `env()` vrací nulu, takže se nic neposouvá — a náhled si je může přebít,
+   aby se dalo zkontrolovat, jak to vypadá na telefonu s výřezem. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 html, body, #root { height: 100%; }
 
 body {
@@ -2424,24 +2432,43 @@ button, kbd, label,
   flex-direction: column;
   gap: 2px;
   padding: 5px;
+  /* Nabídka se drží šířky přepínače, ale nesmí být užší, než na kolik se
+     vejde popisek na jeden řádek — jinak se text láme a řádky vypadají
+     rozhozeně. */
+  min-width: 272px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 11px;
   box-shadow: 0 12px 28px rgba(20, 14, 40, 0.16);
 }
-.ws-menu-item {
-  display: flex;
-  align-items: center;
+/* Zapsáno přes `.ig-switch`, a to schválně: položky nabídky jsou `<button>`
+   uvnitř přepínače, takže na ně sedí i pravidlo `.ig-switch button` — a to
+   má vyšší váhu než samotná třída. Tím se sem propsalo `justify-content:
+   center` z přepínače a obsah každého řádku se vystředil podle své vlastní
+   délky. Ikony i popisky proto začínaly pokaždé jinde a nabídka vypadala
+   rozházeně. */
+.ig-switch .ws-menu-item {
+  /* Mřížka, ne flex. Ikony nemají všechny stejnou šířku, takže ve flexu
+     každý popisek začínal jinde. Pevný sloupec to srovná bez ohledu na to,
+     jak široká která ikona je.
+
+     Zarovnává se k hornímu okraji: ikona patří k **názvu**, ne doprostřed
+     dvouřádkového bloku — jinak sedí u každé položky jinak vysoko podle
+     délky popisku pod ní. */
+  display: grid;
+  justify-content: stretch;
+  grid-template-columns: 18px 1fr;
+  align-items: start;
   gap: 9px;
   padding: 7px 9px;
   border-radius: 8px;
   text-align: left;
   color: var(--text);
 }
-.ws-menu-item svg { flex-shrink: 0; color: var(--text-2); }
-.ws-menu-item span { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.ig-switch .ws-menu-item svg { justify-self: center; margin-top: 1px; color: var(--text-2); }
+.ig-switch .ws-menu-item span { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .ws-menu-item b { font-size: 12.5px; font-weight: 600; }
-.ws-menu-item small { font-size: 11px; color: var(--text-3); }
+.ws-menu-item small { font-size: 11px; color: var(--text-3); margin-top: 1px; }
 .ws-menu-item:hover { background: var(--bg); }
 .ws-menu-item:hover svg { color: var(--accent-dark); }
 .ws-menu-item.on { background: var(--accent-soft); }
@@ -3170,9 +3197,6 @@ button, kbd, label,
 .m-only { display: none; }
 
 html[data-form-factor="phone"] {
-  /* Bezpečné zóny: zaoblené rohy, výřez a spodní ovládací proužek */
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --m-head-h: 46px;
   --m-tabs-h: 52px;
   /* Palcem se míří hůř než myší — všechna tlačítka mají aspoň 44 bodů */
@@ -3489,7 +3513,15 @@ html[data-form-factor="tablet"] .side-item {
   min-height: 36px;
 }
 html[data-form-factor="tablet"] .msg-item { padding-top: 10px; padding-bottom: 10px; }
-html[data-form-factor="tablet"] .sidebar { padding-top: env(safe-area-inset-top, 0px); }
+/* Webové rozhraní kreslí přes celou obrazovku včetně stavového řádku — jinak
+   by nad ním zůstal tmavý pruh okna. Místo pro stavový řádek si proto udělá
+   samo rozvržení: odsadí se celá mřížka a pruh se vybarví panelem, takže
+   navazuje na postranní sloupec. Na telefonu totéž řeší hlavička `.m-head`. */
+html[data-form-factor="tablet"] .app {
+  padding-top: var(--safe-top);
+  height: 100dvh;
+  background: var(--panel);
+}
 
 /* Upozornění na zamčenou klíčenku visí nahoře přes celou šířku — na telefonu
    ho posuneme pod hlavičku, ať ji nepřekrývá. */
@@ -4217,6 +4249,40 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 .pt-eta small { color: var(--text-3); }
 .pt-fail { color: var(--danger); font-weight: 600; }
 
+/* ---------- telefon na zákazníka ---------- */
+
+/* Na počítači číslo, na telefonu tlačítko. Z počítače se volat nedá, takže
+   tam dává smysl číslo ukázat a nabídnout zkopírování; na telefonu je čtení
+   čísla zbytečný mezikrok. */
+.call-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+}
+.call-line svg { color: var(--text-3); }
+.call-line a { color: var(--accent-dark); font-weight: 600; text-decoration: none; }
+.call-line a:hover { text-decoration: underline; }
+.call-line .icon-btn { padding: 2px; min-height: 0; }
+.call-line .ig-muted { font-size: 11px; }
+
+.call-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--tap, 44px);
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  text-align: left;
+}
+.call-btn.compact { min-height: 38px; padding: 8px 12px; }
+.call-btn svg { flex-shrink: 0; }
+.call-btn b { display: block; font-size: 13.5px; font-weight: 600; }
+.call-btn small { display: block; font-size: 11px; opacity: .82; margin-top: 1px; }
+
 /* ---------- dialog spuštění ---------- */
 
 .pt-run-overlay { z-index: 120; }
@@ -4361,6 +4427,46 @@ html[data-form-factor="phone"] .pt-detail { display: none; }
 .pt-dev-main { flex: 1; min-width: 0; }
 .pt-dev-title { font-size: 13.5px; font-weight: 600; }
 .pt-dev .ig-muted { font-size: 11.5px; }
+
+/* Navržená oprava pod původním názvem — ať je vidět „z tohohle na tohle" */
+.pt-fix {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+}
+.pt-fix svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
+.pt-fix b { display: block; font-size: 13.5px; color: var(--accent-dark); }
+.pt-fix small { display: block; font-size: 11.5px; color: var(--text-3); margin-top: 1px; }
+
+/* Dvojice variant k výběru. Obě jsou správně, jde jen o to, která se líbí —
+   proto stejně velká tlačítka vedle sebe a žádné doporučení předem. */
+.pt-trial {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.pt-trial-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 11.5px; }
+.pt-trial-src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.pt-trial-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pt-trial-pick {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  text-align: left;
+  background: var(--panel);
+}
+.pt-trial-pick:hover { border-color: var(--accent); background: var(--accent-soft); }
+.pt-trial-pick b { display: block; font-size: 13.5px; line-height: 1.35; }
+.pt-trial-pick small { display: block; margin-top: 3px; font-size: 11px; color: var(--text-3); }
+@media (max-width: 760px) {
+  .pt-trial-picks { grid-template-columns: 1fr; }
+}
 /* Verze v hlavičce nastavení — nenápadně vedle názvu */
 .set-version { font-size: 11.5px; color: var(--text-3); margin-left: 8px; }
 
@@ -4666,6 +4772,25 @@ html[data-form-factor="phone"] .pt-detail { display: none; }
 .ar-len.on b { color: var(--accent-dark); }
 .ar-custom { display: flex; align-items: center; gap: 7px; margin-top: 8px; font-size: 12px; }
 .ar-custom input { width: 80px; }
+.ar-len-note { margin-top: 7px; font-size: 11.5px; line-height: 1.35; }
+
+/* Volba, jak vzniknou jazykové mutace. Ukazuje se až od druhého jazyka —
+   u jednoho není co rozhodovat. */
+.ar-mode { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.ar-mode-pick {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.ar-mode-pick.on { border-color: var(--accent); background: var(--accent-soft); }
+.ar-mode-pick input { margin-top: 2px; }
+.ar-mode-pick b { display: block; font-size: 12.5px; font-weight: 600; }
+.ar-mode-pick small { display: block; margin-top: 2px; font-size: 11px; color: var(--text-3); line-height: 1.3; }
 .ar-custom small { color: var(--text-3); }
 
 /* ---------- produkty a obrázky v zadání ---------- */

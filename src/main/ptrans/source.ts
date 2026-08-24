@@ -75,7 +75,7 @@ export function planSourceFill(options: SourceFillOptions): SourceTarget[] {
 }
 
 /** Doplní jedno pole ve zdrojovém jazyce a rozešle zdroj k cílovým jazykům. */
-export async function fillSourceOne(code: string, field: SourceField):
+export async function fillSourceOne(code: string, field: SourceField, signal?: AbortSignal):
   Promise<{ value: string; error?: string }> {
   const lang = getPtransSettings().sourceLang;
   try {
@@ -83,9 +83,9 @@ export async function fillSourceOne(code: string, field: SourceField):
     if (field === 'seo_url') {
       value = refreshSeoUrl(code, lang);
     } else if (field === 'google_title' || field === 'google_desc') {
-      value = await writeGoogleText(code, lang, field);
+      value = await writeGoogleText(code, lang, field, signal);
     } else {
-      value = await generateSeo(code, lang, field);
+      value = await generateSeo(code, lang, field, signal);
     }
     if (!value) return { value: '', error: `${code}/${SOURCE_LABELS[field]}: model nic nevrátil` };
 
