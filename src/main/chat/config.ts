@@ -39,8 +39,23 @@ export function getConfig(): ChatConfig {
     ready: !!(s.url && s.anonKey),
     operatorPersonId: Number(getSetting('chatOperatorPersonId', '0')) || null,
     signMode: (getSetting('chatSignMode', 'first') as ChatConfig['signMode']),
-    signSuffix: getSetting('chatSignSuffix', 'Quentino')!
+    signSuffix: getSetting('chatSignSuffix', 'Quentino')!,
+    lastSeen: getSetting('chatLastSeen', '')!,
+    idleDays: idleDays()
   };
+}
+
+/** Kolik dní projekt neslyšel ani hlásku. */
+function idleDays(): number {
+  const at = getSetting('chatLastSeen', '')!;
+  if (!at) return -1;
+  const ms = Date.now() - new Date(at).getTime();
+  return Number.isFinite(ms) ? Math.floor(ms / 86_400_000) : -1;
+}
+
+/** Zaznamená, že projekt odpověděl — po každém úspěšném dotazu. */
+export function markSeen(): void {
+  setSetting('chatLastSeen', new Date().toISOString());
 }
 
 export function saveConfig(p: Partial<ChatConfig> & { anonKey?: string }): ChatConfig {

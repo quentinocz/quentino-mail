@@ -213,7 +213,8 @@ for (const device of DEVICES) {
   await click('.modal-head .icon-btn');
 
   await click('.m-tabs button:nth-child(1)');
-  await click('.m-head-btn');
+  // Složky se otevírají klepnutím na název složky v hlavičce
+  await click('.m-head-picker');
   await click('.sidebar .side-item', { hasText: 'Balení' });
   await check('balení — seznam'); await snap('14-baleni-seznam');
   await click('.pk-row');
@@ -222,7 +223,7 @@ for (const device of DEVICES) {
   try { await page.locator('.pk-modal .modal-head .icon-btn').last().click({ timeout: 3000 }); }
   catch { problems.push(`${device.name}: nešlo zavřít balení`); }
   await page.waitForTimeout(400);
-  await click('.m-head-btn');
+  await click('.m-head-picker');
   await click('.sidebar .side-item', { hasText: 'Nastavení' });
   await check('nastavení'); await snap('15-nastaveni');
 

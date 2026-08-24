@@ -7,7 +7,7 @@ import { refreshDueFeeds } from './orderfeed';
 import { runSync } from './appsync';
 import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncSource as syncIgSource } from './instagram/publish';
 import { getSetting } from './db';
-import { pollUnread as pollChatUnread } from './chat';
+import { pollUnread as pollChatUnread, keepSupabaseAwake } from './chat';
 import { OutboxItem } from '../shared/types';
 
 const OUTBOX_INTERVAL = 5_000; // kontrola plánovaných odeslání (krátká kvůli „Zpět" po odeslání)
@@ -31,6 +31,12 @@ export function startScheduler() {
   };
   setInterval(checkFeed, FEED_CHECK_INTERVAL);
   setTimeout(checkFeed, 10_000);
+  // Projekt chatu na bezplatném tarifu se po pár dnech ticha uspí. Za běhu
+  // aplikace ho drží vzhůru načítání nepřečtených; tohle je pojistka pro
+  // dny, kdy se chat vůbec neotevře.
+  setInterval(() => keepSupabaseAwake().catch(() => {}), 6 * 60 * 60_000);
+  setTimeout(() => keepSupabaseAwake().catch(() => {}), 60_000);
+
   // Feedy objednávek. Kontroluje se každou minutu, ale stahuje se jen ten,
   // kterému došel jeho vlastní interval — malý feed s posledními 24 h běžně
   // po pěti minutách, velké jednou denně.

@@ -155,3 +155,22 @@ export async function test(): Promise<string> {
   const rows = await rest('conversations?select=id&limit=1');
   return `Spojení funguje, konverzace se čtou (${(rows ?? []).length ? 'nějaké tam jsou' : 'zatím žádné'}).`;
 }
+
+/**
+ * Oťukání projektu, aby ho Supabase neuspal.
+ *
+ * Bezplatný tarif projekt po několika dnech bez jediného dotazu uspí. Probrat
+ * ho jde jen ručně v administraci a do té doby chat na webu nefunguje —
+ * zákazník napíše a nikam to nedojde.
+ *
+ * Stačí libovolný dotaz, takže se posílá ten nejlacinější: jedno `id`
+ * z konverzací. Vrací se čas, kdy se to povedlo, aby šlo v nastavení ukázat,
+ * jak dlouho je projekt bez ozvání.
+ *
+ * Pozor na hranice toho, co tohle umí: aplikace udrží projekt vzhůru jen
+ * tehdy, když sama běží. Když se týden nespustí, uspání to nezabrání —
+ * proto se v nastavení zároveň píše, kdy naposledy prošlo.
+ */
+export async function keepAlive(): Promise<void> {
+  await rest('conversations?select=id&limit=1');
+}

@@ -775,6 +775,16 @@ export interface ChatConfig {
   signMode: 'first' | 'always' | 'off';
   /** Co se píše za jméno — „Petra, Quentino" */
   signSuffix: string;
+  /**
+   * Kdy se naposledy povedlo projekt oťukat.
+   *
+   * Bezplatný tarif Supabase projekt po několika dnech bez jediného dotazu
+   * uspí a chat na webu přestane fungovat. Aplikace ho drží vzhůru, ale jen
+   * když sama běží — proto je to vidět v nastavení.
+   */
+  lastSeen: string;
+  /** Kolik dní je projekt bez ozvání; -1 = zatím se neozval nikdy */
+  idleDays: number;
 }
 
 export interface ChatOverview {

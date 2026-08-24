@@ -3321,6 +3321,36 @@ html[data-form-factor="phone"] .m-head-btn,
 html[data-form-factor="phone"] .m-head-btn:active { background: var(--accent-soft); }
 html[data-form-factor="phone"] .m-head-btn.right { justify-content: flex-end; }
 
+/* Nadpis jako přepínač složek.
+   Šipka i odznak jsou uvnitř tlačítka, takže se dá trefit celý blok —
+   a je z něj na první pohled poznat, že se dá jít jinam. */
+html[data-form-factor="phone"] .m-head-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: var(--tap);
+  padding: 0 8px;
+  border-radius: 10px;
+  color: var(--text);
+}
+html[data-form-factor="phone"] .m-head-picker:active { background: var(--accent-soft); }
+html[data-form-factor="phone"] .m-head-picker .m-head-title { flex: 0 1 auto; padding: 0; }
+html[data-form-factor="phone"] .m-head-picker svg { flex-shrink: 0; color: var(--text-3); }
+html[data-form-factor="phone"] .m-head-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
 /* Sloupce: vidět je vždy jen jeden */
 html[data-form-factor="phone"] .list-pane,
 html[data-form-factor="phone"] .read-pane,
@@ -4332,6 +4362,24 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 .pt-eta { margin-left: auto; }
 .pt-eta small { color: var(--text-3); }
 .pt-fail { color: var(--danger); font-weight: 600; }
+
+/* Stav projektu chatu: kdy se naposledy ozval. */
+.chat-alive {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 14px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.chat-alive svg { flex-shrink: 0; margin-top: 2px; color: var(--ok, var(--accent-dark)); }
+.chat-alive small { display: block; margin-top: 3px; color: var(--text-3); font-size: 11.5px; }
+.chat-alive.warn { background: #fff5e0; }
+.chat-alive.warn svg { color: var(--warn); }
+[data-theme="dark"] .chat-alive.warn { background: #3a2f16; }
 
 /* ---------- telefon na zákazníka ---------- */
 

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { MessageHeader, Category, MessageSort, ListFilters } from '@shared/types';
+import type { MessageHeader, Category, MessageSort, ListFilters, FolderInfo } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import type { View } from './Sidebar';
+import { viewTitle } from '../viewtitle';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -45,6 +46,8 @@ interface Props {
   syncing: boolean;
   onRefresh: () => void;
   view: View;
+  /** Seznam složek — kvůli názvu složky, jak si ji uživatel pojmenoval */
+  folders?: FolderInfo[];
   category: Category | null;
   hasAccount: boolean;
   accountId: number | null;
@@ -70,12 +73,9 @@ export default function MessageList(p: Props) {
     });
   }, [p.messages]);
 
-  const title =
-    p.view.type === 'orderInbox' ? 'K objednávkám'
-    : p.view.type === 'archive' ? 'Archiv'
-    : p.view.type === 'category' ? CATEGORY_LABELS[p.view.category]
-    : p.view.folder.toUpperCase() === 'INBOX' ? 'Doručená pošta'
-    : p.view.folder.split('/').pop() ?? p.view.folder;
+  // Název se počítá jedním sdíleným pravidlem — dřív ho měl seznam vlastní
+  // a hlavička na telefonu taky, takže se lišily
+  const title = viewTitle(p.view, p.folders ?? []);
 
   const toggle = (id: number) => setChecked(prev => {
     const next = new Set(prev);
