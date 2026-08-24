@@ -354,20 +354,20 @@ function AppInner() {
               <div className="m-head-title">{detail?.fromName || detail?.fromAddr || 'Zpráva'}</div>
             </>
           ) : (
-            /*
-              Nadpis je zároveň přepínač složek.
-              
-              Dřív tu byl hamburger a vedle něj text — dvě věci, které dělaly
-              totéž místo v hlavičce a nedávaly najevo, že se dá přepnout jinam.
-              Takhle je z toho jedno tlačítko, které rovnou říká, kde jsem,
-              kolik tu čeká nepřečtených a že se dá jít jinam.
-            */
-            <button className="m-head-picker" onClick={() => setDrawer(true)}
-              aria-label={`${mobileTitle} — otevřít složky`}>
-              <span className="m-head-title">{mobileTitle}</span>
-              {mobileUnread > 0 && <span className="m-head-count">{mobileUnread}</span>}
-              <Icon name="chevDown" size={14} />
-            </button>
+            <>
+              {/* Ikona složek nalevo je to, co člověk hledá jako první —
+                  a nadpis vedle ní dělá totéž, protože je to větší cíl
+                  a rovnou říká, kde jsem a kolik tu čeká nepřečtených. */}
+              <button className="m-head-btn" onClick={() => setDrawer(true)} aria-label="Složky">
+                <Icon name="menu" size={20} />
+              </button>
+              <button className="m-head-picker" onClick={() => setDrawer(true)}
+                aria-label={`${mobileTitle} — otevřít složky`}>
+                <span className="m-head-title">{mobileTitle}</span>
+                {mobileUnread > 0 && <span className="m-head-count">{mobileUnread}</span>}
+                <Icon name="chevDown" size={14} />
+              </button>
+            </>
           )}
           {!selectedId && (
             <button
