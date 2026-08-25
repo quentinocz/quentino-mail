@@ -84,6 +84,12 @@ await overflow('překlady — seznam'); await snap('01-preklady-seznam');
 await click('.pt-row');
 await overflow('překlady — detail'); await snap('02-preklady-detail');
 
+// Zvětšené okno: s tisícem produktů se v malém dialogu pracuje mizerně
+await click('.pt-modal .modal-head .icon-btn');
+await overflow('překlady — zvětšeno'); await snap('02b-preklady-zvetseno');
+await click('.pt-modal .modal-head .icon-btn');
+await page.waitForTimeout(200);
+
 await click('.pt-detail-head .btn.ghost');
 await overflow('překlady — spuštění'); await snap('03-preklady-spusteni');
 await page.keyboard.press('Escape');

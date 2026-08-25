@@ -4333,6 +4333,14 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
   display: flex;
   flex-direction: column;
 }
+/* Přes celou obrazovku: s tisícem produktů je seznam i detail zoufale úzký */
+.pt-modal.wide {
+  width: 98vw;
+  height: 96vh;
+  max-width: none;
+}
+/* V širokém okně má smysl dát detailu víc místa než seznamu */
+.pt-modal.wide .pt-body { grid-template-columns: minmax(380px, 32%) 1fr; }
 .pt-feed { font-size: 12.5px; color: var(--text-3); margin-left: 10px; }
 .pt-tabs { margin-right: 6px; }
 
@@ -4364,6 +4372,8 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
   color: var(--text-2);
 }
 .pt-check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.pt-perpage { color: var(--text-3); }
+.pt-perpage select { padding: 3px 6px; font-size: 12px; }
 /* Volba s vysvětlivkou pod popiskem — jinak by obojí splynulo na jeden řádek */
 .pt-check span:has(small) { display: flex; flex-direction: column; line-height: 1.3; }
 .pt-check span:has(small) small { color: var(--text-3); font-size: 11.5px; }
@@ -4398,6 +4408,18 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 }
 .pt-row-sub { display: flex; gap: 8px; font-size: 11.5px; color: var(--text-3); }
 .pt-code { font-family: ui-monospace, Menlo, monospace; }
+/* Odkaz do e-shopu. Vidět je pořád — schovaný do najetí myší by ho nikdo
+   nenašel — ale potichu, ať nepřebíjí název produktu. */
+.pt-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent-dark);
+  opacity: 0.65;
+  transition: opacity 0.12s;
+}
+.pt-row:hover .pt-open, .pt-row.active .pt-open { opacity: 1; }
+.pt-open:hover { text-decoration: underline; }
 
 .pt-chips { display: flex; gap: 4px; flex-shrink: 0; }
 .pt-chip {

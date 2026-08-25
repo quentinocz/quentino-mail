@@ -1,5 +1,5 @@
 import { getDb, getSetting, setSetting } from '../db';
-import { splitProducts, tagText, getField, productParameters, paramKey, TEXT_FIELDS } from './xml';
+import { splitProducts, tagText, getField, productParameters, paramKey, productUrl, TEXT_FIELDS } from './xml';
 import { fieldState, hashText, plain, FieldState, NEEDS_WORK } from './detect';
 
 /**
@@ -208,7 +208,7 @@ export function revertToFeed(codes: string[], options: { keepManual?: boolean } 
  *
  * Verze se zvedá při každé změně `fieldState`.
  */
-const STATE_RULES_VERSION = '2';
+const STATE_RULES_VERSION = '3';
 
 export function refreshStatesIfNeeded(): number {
   if (getSetting('ptransStateRules', '') === STATE_RULES_VERSION) return 0;
@@ -429,6 +429,8 @@ export interface ProductRow {
   active: boolean;
   /** Odkud produkt je: z online feedu, nebo z ručně nahraného souboru */
   origin: 'feed' | 'file';
+  /** Odkaz do e-shopu, ať jde produkt otevřít a podívat se, jak vypadá */
+  url: string;
   /** Stav po jazycích: kolik polí je hotových a kolik čeká */
   states: Record<string, { total: number; todo: number; worst: FieldState }>;
   /**
@@ -465,11 +467,13 @@ export interface ProductQueryInput {
   sort?: 'title' | 'todo' | 'code';
 }
 
-export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; total: number; todo: number } {
-  const d = getDb();
-  const s = getPtransSettings();
-  const langs = query.lang && query.lang !== 'all' ? [query.lang] : targetLangs(s);
-
+/**
+ * Podmínka výběru produktů podle filtru — společná pro seznam i pro „vybrat vše".
+ *
+ * Skládá se na jednom místě schválně: kdyby se filtr psal dvakrát, „vybrat vše"
+ * by dřív nebo později vybralo něco jiného, než co je vidět v seznamu.
+ */
+function filterClause(query: ProductQueryInput, langs: string[]): { clause: string; params: any[] } {
   const where: string[] = [];
   const params: any[] = [];
   if (query.onlyActive !== false) where.push('p.active = 1 AND p.archived = 0');
@@ -497,7 +501,16 @@ export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; to
     if (query.field) params.push(query.field);
   }
 
-  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
+}
+
+export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; total: number; todo: number } {
+  const d = getDb();
+  const s = getPtransSettings();
+  const langs = query.lang && query.lang !== 'all' ? [query.lang] : targetLangs(s);
+  const langList = langs.map(() => '?').join(',');
+  const { clause, params } = filterClause(query, langs);
+
   const total = (d.prepare(`SELECT COUNT(*) AS n FROM ptrans_products p ${clause}`).get(...params) as any).n as number;
 
   const order = query.sort === 'code' ? 'p.code' : 'p.title';
@@ -528,6 +541,8 @@ export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; to
       code: row.code,
       title: row.title,
       image: row.image,
+      // Odkaz do trhu, který je zrovna vyfiltrovaný — u „všech jazyků" ten zdrojový
+      url: productUrl(row.raw_xml ?? '', langs.length === 1 ? langs[0] : s.sourceLang, s.sourceLang),
       category: row.category,
       manufacturer: row.manufacturer,
       availability: row.availability,
@@ -547,6 +562,26 @@ export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; to
 
   return { rows: out, total, todo };
 }
+
+/**
+ * Kódy všech produktů, které vyhovují filtru — bez ohledu na stránkování.
+ *
+ * „Vybrat vše na stránce" je málo, když má filtr osm set produktů a stránka
+ * šedesát: hromadná akce se pak musí spouštět čtrnáctkrát. Vrací se jen kódy,
+ * takže je to i pro celý feed pár desítek kilobajtů.
+ */
+export function listCodes(query: ProductQueryInput): string[] {
+  const s = getPtransSettings();
+  const langs = query.lang && query.lang !== 'all' ? [query.lang] : targetLangs(s);
+  const { clause, params } = filterClause(query, langs);
+  const order = query.sort === 'code' ? 'p.code' : 'p.title';
+  return (getDb().prepare(
+    `SELECT p.code FROM ptrans_products p ${clause} ORDER BY ${order} LIMIT ?`
+  ).all(...params, MAX_CODES) as any[]).map(row => row.code as string);
+}
+
+/** Strop, aby se omylem nevybral celý feed do jedné zprávy. */
+const MAX_CODES = 5000;
 
 export interface FieldRow {
   code: string;

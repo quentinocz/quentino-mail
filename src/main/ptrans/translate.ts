@@ -3,9 +3,9 @@ import { ask } from '../ai';
 import { getSettings } from '../settings';
 import { getDb } from '../db';
 import { getPtransSettings, savePtransSettings, productFields, saveTranslation, targetLangs,
-  PtransSettings } from './store';
+  PtransSettings, FieldRow } from './store';
 import { HTML_FIELDS, DERIVED_FIELDS } from './xml';
-import { NEEDS_WORK, plain } from './detect';
+import { NEEDS_WORK, plain, clamp } from './detect';
 import { languageNote } from './style';
 import { consistencyHint } from './consistency';
 import { setSeoUrl } from './redirects';
@@ -185,6 +185,9 @@ function buildSystem(s: PtransSettings, targetLang: string): string {
     '- Zachovej HTML značky, atributy i jejich pořadí. Překládej jen text mezi značkami.',
     '- Zachovej rozdělení do odstavců a odrážek.',
     '- Míry, kódy, čísla a názvy značky nech beze změny.',
+    // Emodži v textu jsou záměr autora, ne překlep. Model je jinak rád
+    // „uklidí" a z textu zmizí, aniž by si toho někdo všiml.
+    '- Emodži i další symboly zachovej přesně tak, jak jsou, a na stejném místě.',
     '- Piš přirozeně v cílovém jazyce, ne doslovně. Text má znít, jako by ho psal rodilý mluvčí.',
     '- Nepřekládej do češtiny ani nenech nic v češtině.',
     // Psaní velkých písmen se mezi jazyky liší a model má sklon přenést
@@ -214,14 +217,6 @@ function parseJson(raw: string): Record<string, string> {
 }
 
 /** Ořízne text na daný počet znaků na hranici slova (SEO titulky a popisy). */
-export function clamp(value: string, limit: number): string {
-  const text = plain(value);
-  if (text.length <= limit) return text;
-  const cut = text.slice(0, limit);
-  const space = cut.lastIndexOf(' ');
-  return (space > limit * 0.6 ? cut.slice(0, space) : cut).trim();
-}
-
 /** Přepis názvu na adresu: bez diakritiky, malá písmena, pomlčky. */
 export function slugify(value: string): string {
   return plain(value)
@@ -233,6 +228,9 @@ export function slugify(value: string): string {
     } as Record<string, string>)[ch.toLowerCase()] ?? ch)
     .replace(/ß/g, 'ss')
     .toLowerCase()
+    // Apostrof se zahazuje, nedělá se z něj pomlčka: „men's" má být
+    // „mens", ne „men-s" s osamocené písmenem uprostřed adresy
+    .replace(/['’`]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 120);
@@ -305,20 +303,54 @@ export async function translateOne(target: TranslateTarget,
     }
 
     // Adresa se odvodí z přeloženého názvu — kód to zvládne přesněji než model.
-    // Zároveň se stará adresa uloží do přesměrování (301), aby odkazy na starou
-    // adresu nekončily na chybové stránce.
-    if ((!target.fields || target.fields.includes('seo_url')) && s.fields.seo_url !== false) {
-      const title = translated.title || rows.find(r => r.field === 'title')?.translated || '';
-      const slug = slugify(title);
-      if (slug) {
-        const result = setSeoUrl(target.code, target.lang, slug, model);
-        saved += result.redirect ? 2 : 1;
-      }
+    // Zároveň se stará adresa uloží do přesměrování (301), aby odkazy na ni
+    // nekončily na chybové stránce.
+    if (s.fields.seo_url !== false) {
+      const result = applySlug(target.code, target.lang, rows, model, translated.title);
+      if (result) saved += result.redirect ? 2 : 1;
     }
     return { saved };
   } catch (e: any) {
     return { saved: 0, error: `${target.code} (${target.lang}): ${e.message}` };
   }
+}
+
+/**
+ * Adresa podle názvu v cílovém jazyce.
+ *
+ * Adresa se přepisuje podle **názvu**, ne podle svého vlastního stavu. Dřív
+ * se odvozovala jen tehdy, když sama vyšla jako „čeká na překlad" — jenže
+ * adresa může být v pořádku (nebo být ve všech jazycích stejná) a název se
+ * přesto právě přeložil. Pak zůstala viset stará, česká adresa.
+ *
+ * Dvě pojistky:
+ *  - **Musí být z čeho.** Když název v cílovém jazyce ještě přeložený není
+ *    (ve feedu je pořád ten český), adresa se nechá být — jinak by se vyrobil
+ *    český slug a k němu zbytečné přesměrování.
+ *  - **Ruční úprava má přednost.** Kdo si adresu přepsal sám, ten ví proč;
+ *    překlad mu ji nepřepíše.
+ *
+ * Vlastní zápis i doplnění 301 dělá `setSeoUrl` — je to jediné místo, kudy se
+ * adresa mění, a přesměrování tak nemůže vynechat.
+ */
+export function applySlug(code: string, lang: string, rows: FieldRow[], model: string,
+                          freshTitle?: string): { slug: string; redirect: string | null } | null {
+  const urlRow = rows.find(row => row.field === 'seo_url');
+  if (urlRow?.manual) return null;
+
+  const titleRow = rows.find(row => row.field === 'title');
+  const localized = freshTitle?.trim()
+    || (titleRow && !NEEDS_WORK.includes(titleRow.state)
+      ? (titleRow.translated || titleRow.value)
+      : '');
+  const slug = slugify(localized ?? '');
+  if (!slug) return null;
+
+  // Stejná adresa = není co měnit ani kam přesměrovávat
+  const current = urlRow?.translated || urlRow?.value || '';
+  if (slug === current.replace(/^\/+|\/+$/g, '').replace(/^p\//, '')) return null;
+
+  return setSeoUrl(code, lang, slug, model);
 }
 
 /* ---------- dávkový běh ---------- */

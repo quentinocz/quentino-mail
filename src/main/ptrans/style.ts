@@ -1,6 +1,6 @@
 import { getDb } from '../db';
 import { getPtransSettings } from './store';
-import { plain } from './detect';
+import { plain, textLength } from './detect';
 
 /**
  * Jak se v daném jazyce píše.
@@ -316,10 +316,12 @@ export function checkText(value: string, options: {
   const text = plain(value).trim();
   if (!text) return [{ code: 'empty', message: 'Text je prázdný.' }];
 
-  if (text.length > options.limit) {
+  // Počítá se po znacích, jak je vidí člověk — emodži je jeden znak, ne dva
+  const length = textLength(text);
+  if (length > options.limit) {
     out.push({
       code: 'long',
-      message: `Je to ${text.length} znaků, vejít se musí do ${options.limit}.`
+      message: `Je to ${length} znaků, vejít se musí do ${options.limit}.`
     });
   }
 

@@ -211,17 +211,17 @@
       rows: [
         { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', image: null,
           category: 'Kšandy', manufacturer: 'Quentino', availability: 'Skladem', price: '649 CZK', active: true,
-          origin: 'feed', doneLangs: [], todoLangs: ['sk', 'en', 'de'],
+          origin: 'feed', url: 'https://www.quentino.cz/p/ukazkovy-produkt', doneLangs: [], todoLangs: ['sk', 'en', 'de'],
           states: { sk: { total: 6, todo: 6, worst: 'same' }, en: { total: 6, todo: 6, worst: 'same' },
             de: { total: 6, todo: 6, worst: 'missing' } } },
         { code: 'MZU01', title: 'Bordó manžetové uzlíky', image: null, category: 'Manžetové knoflíčky',
           manufacturer: 'Quentino', availability: 'Skladem', price: '199 CZK', active: true,
-          origin: 'file', doneLangs: ['en'], todoLangs: ['sk', 'de'],
+          origin: 'file', url: 'https://www.quentino.cz/p/novinka', doneLangs: ['en'], todoLangs: ['sk', 'de'],
           states: { sk: { total: 6, todo: 2, worst: 'missing' }, en: { total: 6, todo: 0, worst: 'ok' },
             de: { total: 6, todo: 6, worst: 'missing' } } },
         { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', image: null, category: 'Kravaty',
           manufacturer: 'Quentino', availability: 'Skladem více než 20 ks', price: '449 CZK', active: true,
-          origin: 'feed', doneLangs: ['en'], todoLangs: ['sk', 'de'],
+          origin: 'feed', url: 'https://www.quentino.cz/p/ukazkovy-produkt', doneLangs: ['en'], todoLangs: ['sk', 'de'],
           states: { sk: { total: 6, todo: 1, worst: 'stale' }, en: { total: 6, todo: 0, worst: 'ok' },
             de: { total: 6, todo: 6, worst: 'missing' } } }
       ]
@@ -629,6 +629,8 @@
   };
   // „Sladit teď" vrací tentýž seznam — v náhledu není s čím se slaďovat
   answers['vouchers:sync'] = answers['vouchers:list'];
+  // „Vybrat všech N" — v náhledu stačí kódy z první stránky
+  answers['ptrans:codes'] = answers['ptrans:list'].rows.map(row => row.code);
 
   // Balení: dvě objednávky ze stejné karty, jedna rozdělaná a jedna hotová
   // Stav „Přijata" je ten, který se balí — „Odeslána" si aplikace schovává sama

@@ -366,6 +366,8 @@ export function registerIpc() {
   handle('ptrans:saveSettings', (patch: any) => ptrans.savePtransSettings(patch ?? {}));
   handle('ptrans:refresh', () => ptrans.refreshFromUrl());
   handle('ptrans:list', (query: any) => ptrans.listProducts(query ?? {}));
+  /** Kódy všech produktů podle filtru — pro „vybrat vše", ne jen aktuální stránku */
+  handle('ptrans:codes', (query: any) => ptrans.listCodes(query ?? {}));
   handle('ptrans:fields', (code: string, langs?: string[]) => ptrans.productFields(code, langs));
   handle('ptrans:edit', (code: string, lang: string, field: string, value: string) => {
     ptrans.editField(code, lang, field, String(value ?? ''));

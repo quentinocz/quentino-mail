@@ -100,6 +100,8 @@ export const api = {
     saveSettings: (patch: Partial<PtransSettings>) => call<PtransSettings>('ptrans:saveSettings', patch),
     refresh: () => call<{ products: number; fields: number; removed: number; at: string }>('ptrans:refresh'),
     list: (query: PtransQuery) => call<PtransPage>('ptrans:list', query),
+    /** Kódy všech produktů podle filtru — pro „vybrat vše" napříč stránkami */
+    codes: (query: PtransQuery) => call<string[]>('ptrans:codes', query),
     fields: (code: string, langs?: string[]) => call<PtransField[]>('ptrans:fields', code, langs),
     edit: (code: string, lang: string, field: string, value: string) =>
       call<boolean>('ptrans:edit', code, lang, field, value),

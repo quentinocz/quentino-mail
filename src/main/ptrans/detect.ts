@@ -144,6 +144,42 @@ export function plain(value: string): string {
     .trim();
 }
 
+/**
+ * Znaky tak, jak je vidí člověk.
+ *
+ * `String.length` počítá kousky UTF-16, ne znaky: emodži je dvojice a rodina
+ * 👩‍👩‍👧‍👦 dokonce jedenáct. Zkrácení podle `length` proto umí useknout emodži
+ * v půlce — z 🎁 zbude půlka dvojice a prohlížeč místo ní ukáže „�". U rodiny
+ * to dopadne zákeřněji: nespadne nic, jen z celé rodiny zbude jedna postava.
+ *
+ * `Intl.Segmenter` umí text rozdělit na znaky, jak je čte člověk. Kdyby
+ * náhodou nebyl (starší běhové prostředí), použijí se aspoň kódové body —
+ * pořád lepší než půlky dvojic.
+ */
+export const graphemes = (() => {
+  const segmenter = typeof Intl?.Segmenter === 'function'
+    ? new Intl.Segmenter('cs', { granularity: 'grapheme' })
+    : null;
+  return (text: string): string[] => segmenter
+    ? Array.from(segmenter.segment(text), part => part.segment)
+    : Array.from(text);
+})();
+
+/** Délka v znacích, jak je počítá člověk (emodži = jeden). */
+export function textLength(value: string): number {
+  return graphemes(plain(value)).length;
+}
+
+/** Zkrácení na daný počet znaků, nejraději na hranici slova. */
+export function clamp(value: string, limit: number): string {
+  const text = plain(value);
+  const parts = graphemes(text);
+  if (parts.length <= limit) return text;
+  const cut = parts.slice(0, limit).join('');
+  const space = cut.lastIndexOf(' ');
+  return (space > limit * 0.6 ? cut.slice(0, space) : cut).trim();
+}
+
 function words(value: string): string[] {
   return value.toLowerCase().match(/[\p{L}]+/gu) ?? [];
 }
@@ -202,6 +238,24 @@ export function fieldState(input: StateInput): FieldState {
   const source = plain(input.source);
 
   if (input.manual) return 'manual';
+
+  /*
+   * Odvozená pole do „čeká na překlad" nepatří vůbec.
+   *
+   * Nikdo je nepřekládá — skládá je aplikace: adresu z názvu, přesměrování
+   * ze změny adresy, Google atributy z parametrů a kategorie. Mají vlastní
+   * běhy, které nekoukají na stav pole, takže je nic nemine.
+   *
+   * A hlavně: prázdno je u nich často **správná** hodnota. Poukázka nemá
+   * barvu, produkt bez čárového kódu nemá `identifier` a přesměrování má jen
+   * ten, komu se někdy změnila adresa. Když se prázdno bralo jako „chybí",
+   * visely tyhle produkty v seznamu napořád a nedalo se s tím nic udělat —
+   * překlad je nevyplní, protože není co překládat.
+   *
+   * Že něco chybí, hlídá Kvalita. Tady se počítá jen to, co překládá model.
+   */
+  if (input.field && DERIVED_FIELDS.has(input.field)) return 'ok';
+
   if (!value) return 'missing';
 
   // Hodnota, která je ve všech jazycích stejná právem: shoda se zdrojem ani

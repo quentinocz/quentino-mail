@@ -919,6 +919,8 @@ export interface PtransProduct {
   active: boolean;
   /** Z online feedu, nebo z ručně nahraného souboru */
   origin: 'feed' | 'file';
+  /** Odkaz do e-shopu, ať jde produkt otevřít a podívat se, jak vypadá */
+  url: string;
   /** Stav po jazycích — kolik polí čeká z celkového počtu */
   states: Record<string, { total: number; todo: number; worst: PtransState }>;
   /** Jazyky, kde je hotové úplně všechno */
