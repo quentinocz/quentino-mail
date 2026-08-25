@@ -4417,6 +4417,10 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 }
 .pt-row-sub { display: flex; gap: 8px; font-size: 11.5px; color: var(--text-3); }
 .pt-code { font-family: ui-monospace, Menlo, monospace; }
+/* Řádek, který už filtru nevyhovuje, ale ještě se neuklidil — ať je poznat,
+   že se to povedlo, a přitom nepřebíjí to, co práci teprve čeká */
+.pt-row.kept { opacity: 0.62; }
+.pt-row.kept:hover, .pt-row.kept.active { opacity: 1; }
 /* Odkaz do e-shopu. Vidět je pořád — schovaný do najetí myší by ho nikdo
    nenašel — ale potichu, ať nepřebíjí název produktu. */
 .pt-open {

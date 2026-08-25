@@ -124,16 +124,59 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     }
   }, [toast]);
 
+  /**
+   * Produkty, které z filtru vypadly, ale mají zůstat vidět.
+   *
+   * Když se ve filtru „čeká na překlad" jeden produkt přeloží, přestane
+   * filtru vyhovovat a zmizel by uprostřed práce: seznam poskočí a člověk
+   * neví, jestli se to povedlo, ani kam se dívat dál. Zůstane proto na svém
+   * místě — jen označený jako hotový — a uklidí se až při dalším hledání
+   * nebo změně filtru.
+   *
+   * Pamatuje se i pořadí, aby se řádek vrátil tam, kde byl, a nepřeskočil
+   * na konec seznamu.
+   */
+  const [kept, setKept] = useState<{ row: PtransProduct; at: number }[]>([]);
+  /** Co je právě vidět — z toho se pozná, co z filtru vypadlo */
+  const shown = useRef<string[]>([]);
+
   const loadPage = useCallback(async () => {
     setLoading(true);
     try {
-      setPage(await api.ptrans.list(query));
+      const fresh = await api.ptrans.list(query);
+      const codes = new Set(fresh.rows.map(row => row.code));
+      const dropped = shown.current.filter(code => !codes.has(code));
+
+      // Čerstvý stav se dotáhne i pro ně — odznaky jazyků musí ukazovat, jak
+      // to dopadlo, ne jak to vypadalo před překladem
+      const extra = dropped.length
+        ? (await api.ptrans.list({
+            ...query, state: 'all', codes: dropped, offset: 0, limit: dropped.length
+          })).rows
+        : [];
+
+      setKept(extra.map(row => ({ row, at: Math.max(0, shown.current.indexOf(row.code)) })));
+      setPage(fresh);
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
       setLoading(false);
     }
   }, [query, toast]);
+
+  /** Seznam k zobrazení: čerstvý výsledek a v něm podržené řádky na svých místech. */
+  const rows = useMemo(() => {
+    const out = [...page.rows];
+    for (const { row, at } of [...kept].sort((a, b) => a.at - b.at)) {
+      out.splice(Math.min(at, out.length), 0, row);
+    }
+    return out;
+  }, [page.rows, kept]);
+  const keptCodes = useMemo(() => new Set(kept.map(item => item.row.code)), [kept]);
+
+  useEffect(() => { shown.current = rows.map(row => row.code); }, [rows]);
+  // Nové hledání nebo jiný filtr znamená čistý stůl — podržené řádky se uklidí
+  useEffect(() => { setKept([]); shown.current = []; }, [query]);
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { loadPage(); }, [loadPage]);
@@ -194,8 +237,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   const selectAllVisible = () => {
     setSelected(prev => {
       const next = new Set(prev);
-      const all = page.rows.every(row => next.has(row.code));
-      for (const row of page.rows) {
+      const all = rows.every(row => next.has(row.code));
+      for (const row of rows) {
         if (all) next.delete(row.code); else next.add(row.code);
       }
       return next;
@@ -559,7 +602,7 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                 <div className="pt-list-head">
                   <label className="pt-check">
                     <input type="checkbox"
-                      checked={page.rows.length > 0 && page.rows.every(row => selected.has(row.code))}
+                      checked={rows.length > 0 && rows.every(row => selected.has(row.code))}
                       onChange={selectAllVisible} />
                     Vybrat stránku
                   </label>
@@ -586,19 +629,19 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                 </div>
 
                 <div className="pt-rows">
-                  {loading && page.rows.length === 0 && (
+                  {loading && rows.length === 0 && (
                     <div className="pt-empty"><span className="spinner-inline" /> Načítám…</div>
                   )}
-                  {!loading && page.rows.length === 0 && (
+                  {!loading && rows.length === 0 && (
                     <div className="pt-empty">
                       <Icon name="check" size={24} />
                       <div>Nic k překladu</div>
                       <div className="ig-muted">V tomhle filtru je všechno hotové.</div>
                     </div>
                   )}
-                  {page.rows.map(row => (
+                  {rows.map(row => (
                     <div key={row.code}
-                      className={`pt-row ${row.code === active ? 'active' : ''}`}
+                      className={`pt-row ${row.code === active ? 'active' : ''} ${keptCodes.has(row.code) ? 'kept' : ''}`}
                       onClick={() => setActive(row.code)}>
                       <input type="checkbox" checked={selected.has(row.code)}
                         onClick={e => e.stopPropagation()}
@@ -628,12 +671,21 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                         stejně jako ten bez jediného. Pořád je rozbitý.
                       */}
                       <div className="pt-chips">
+                        {/* Podržený řádek: filtru už nevyhovuje, ale ještě
+                            neuklízíme — ať je vidět, že se to povedlo.
+                            Odznaky jazyků se u něj vynechají: jsou všechny
+                            hotové (proto vypadl) a jen by ubíraly místo názvu. */}
+                        {keptCodes.has(row.code) && (
+                          <span className="pt-chip done" title="Hotovo — z filtru zmizí při dalším hledání">
+                            <Icon name="check" size={10} /> hotovo
+                          </span>
+                        )}
                         {row.origin === 'file' && (
                           <span className="pt-chip file" title="Z nahraného souboru — ve feedu ještě není">
                             nový
                           </span>
                         )}
-                        {langs.map(lang => {
+                        {(keptCodes.has(row.code) && row.todoLangs.length === 0 ? [] : langs).map(lang => {
                           const state = row.states[lang.code];
                           if (!state) return null;
                           const done = state.todo === 0;
@@ -659,7 +711,7 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                       <Icon name="chevLeft" size={13} /> Předchozí
                     </button>
                     <span className="ig-muted">
-                      {(query.offset ?? 0) + 1}–{Math.min(page.total, (query.offset ?? 0) + page.rows.length)} z {page.total}
+                      {(query.offset ?? 0) + 1}–{Math.min(page.total, (query.offset ?? 0) + rows.length)} z {page.total}
                     </span>
                     <button className="btn ghost"
                       disabled={(query.offset ?? 0) + page.rows.length >= page.total}

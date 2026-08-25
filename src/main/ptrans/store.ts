@@ -462,6 +462,12 @@ export interface ProductQueryInput {
    * jinak nedají najít.
    */
   origin?: 'all' | 'feed' | 'file';
+  /**
+   * Jen tyhle kódy. Používá se, když si rozhraní dotahuje čerstvý stav
+   * produktů, které z filtru zrovna vypadly, ale mají ještě chvíli zůstat
+   * v seznamu vidět.
+   */
+  codes?: string[];
   limit?: number;
   offset?: number;
   sort?: 'title' | 'todo' | 'code';
@@ -485,6 +491,10 @@ function filterClause(query: ProductQueryInput, langs: string[]): { clause: stri
   if (query.category) { where.push('p.categories LIKE ?'); params.push(`%${query.category}%`); }
   if (query.manufacturer) { where.push('p.manufacturer = ?'); params.push(query.manufacturer); }
   if (query.origin && query.origin !== 'all') { where.push('p.origin = ?'); params.push(query.origin); }
+  if (query.codes?.length) {
+    where.push(`p.code IN (${query.codes.map(() => '?').join(',')})`);
+    params.push(...query.codes);
+  }
 
   const wanted = query.state && query.state !== 'all'
     ? (query.state === 'todo' ? NEEDS_WORK : [query.state])

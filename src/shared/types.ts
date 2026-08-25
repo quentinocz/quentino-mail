@@ -1093,6 +1093,8 @@ export interface PtransQuery {
   onlyActive?: boolean;
   /** `file` = pracovat jen s tím, co bylo nahráno ze souboru */
   origin?: 'all' | 'feed' | 'file';
+  /** Jen tyhle kódy — pro dotažení čerstvého stavu konkrétních produktů */
+  codes?: string[];
   limit?: number;
   offset?: number;
   sort?: 'title' | 'todo' | 'code';
