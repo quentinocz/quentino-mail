@@ -4372,6 +4372,15 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
   color: var(--text-2);
 }
 .pt-check { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+/* Pole, které se doplní, ale nepřekládá — varování dřív, než se za to platí */
+.pt-off {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 10.5px;
+  font-weight: 600;
+}
 .pt-perpage { color: var(--text-3); }
 .pt-perpage select { padding: 3px 6px; font-size: 12px; }
 /* Volba s vysvětlivkou pod popiskem — jinak by obojí splynulo na jeden řádek */
