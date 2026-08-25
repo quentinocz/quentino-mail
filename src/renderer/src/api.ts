@@ -118,7 +118,11 @@ export const api = {
       codes: string[]; langs?: string[]; fields?: string[]; force?: boolean;
       fillSource?: boolean; sourceFields?: string[]; forceSource?: boolean;
     }) =>
-      call<{ done: number; failed: number; seconds: number; errors: string[] }>('ptrans:run', input),
+      call<{
+        done: number; failed: number; seconds: number; errors: string[];
+        /** Pole, která se nepřeložila, protože chybí české znění */
+        noSource: number; noSourceFields: string[];
+      }>('ptrans:run', input),
     stop: () => call<boolean>('ptrans:stop'),
     progress: () => call<PtransProgress | null>('ptrans:progress'),
     googleTitles: (codes: string[], langs?: string[]) =>
@@ -213,7 +217,8 @@ export const api = {
     auditSummary: () => call<(PtransAuditSummary & { checkedAt: string | null }) | null>('ptrans:auditSummary'),
     /** Kolik zdrojových textů u výběru chybí — po polích */
     sourceGaps: (codes: string[]) => call<{
-      fields: { field: string; label: string; missing: number }[];
+      /** `translated: false` = pole se doplní, ale do trhů se nepřenese */
+      fields: { field: string; label: string; missing: number; translated: boolean }[];
       total: number;
       sourceLang: string;
     }>('ptrans:sourceGaps', codes),

@@ -103,13 +103,23 @@ export function countMissing(codes: string[], fields?: SourceField[]): number {
   return planSourceFill({ codes, fields }).length;
 }
 
-/** Přehled po polích: kolik produktů z výběru nemá v češtině co. */
-export function missingByField(codes: string[]): { field: SourceField; label: string; missing: number }[] {
+/**
+ * Přehled po polích: kolik produktů z výběru nemá v češtině co.
+ *
+ * Součástí je i `translated` — jestli se pole vůbec překládá. Google texty
+ * jsou ve výchozím nastavení vypnuté, takže se dají doplnit v češtině, ale
+ * do žádného trhu se nedostanou. Bez téhle informace to vypadá, že překlad
+ * Google textů nefunguje; přitom se prostě nesleduje.
+ */
+export function missingByField(codes: string[]):
+  { field: SourceField; label: string; missing: number; translated: boolean }[] {
   const s = getPtransSettings();
   return SOURCE_FIELDS.map(field => ({
     field,
     label: SOURCE_LABELS[field],
-    missing: codes.filter(code => !fieldValue(code, s.sourceLang, field)).length
+    missing: codes.filter(code => !fieldValue(code, s.sourceLang, field)).length,
+    // seo_url se nepřekládá schválně — skládá ho kód z přeloženého názvu
+    translated: field === 'seo_url' ? true : s.fields[field] !== false
   }));
 }
 

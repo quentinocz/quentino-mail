@@ -967,7 +967,7 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
   const [forceSource, setForceSource] = useState(false);
   const [sourceFields, setSourceFields] = useState<string[]>([]);
   const [gaps, setGaps] = useState<{
-    fields: { field: string; label: string; missing: number }[];
+    fields: { field: string; label: string; missing: number; translated: boolean }[];
     total: number; sourceLang: string;
   } | null>(null);
 
@@ -987,7 +987,9 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
         setGaps(data);
         // Předvyplní se jen pole, kde opravdu něco chybí — nabízet doplnění
         // něčeho, co je kompletní, jen mate
-        setSourceFields(prev => (prev.length ? prev : data.fields.filter(f => f.missing > 0).map(f => f.field)));
+        setSourceFields(prev => (prev.length
+          ? prev
+          : data.fields.filter(f => f.missing > 0 && f.translated).map(f => f.field)));
       })
       .catch(() => { if (!cancelled) setGaps(null); });
     return () => { cancelled = true; };
@@ -1009,9 +1011,17 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
         codes, langs, force,
         fillSource, sourceFields: fillSource ? sourceFields : [], forceSource
       });
-      toast(result.failed
-        ? `Hotovo: ${result.done - result.failed} přeloženo, ${result.failed} selhalo`
-        : `Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`);
+      // Pole bez českého znění nejsou chyba, ale ani úspěch: běh doběhne
+      // a v seznamu se nic nezmění. Bez téhle věty to vypadá, že překlad
+      // nefunguje — přitom stačí zapnout doplnění českých textů.
+      if (result.noSource > 0) {
+        toast(`Hotovo, ale ${result.noSource}× chybí české znění`
+          + ` (${result.noSourceFields.join(', ')}) — zapni „Doplnit chybějící české texty".`, 'error');
+      } else {
+        toast(result.failed
+          ? `Hotovo: ${result.done - result.failed} přeloženo, ${result.failed} selhalo`
+          : `Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`);
+      }
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
@@ -1079,6 +1089,14 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
                           ? prev.filter(f => f !== item.field)
                           : [...prev, item.field])} />
                       {item.label}
+                      {/* Vypnuté pole se doplní v češtině, ale do žádného trhu
+                          se nedostane — to je potřeba říct dřív, než se za to
+                          zaplatí modelu */}
+                      {!item.translated && (
+                        <span className="pt-off" data-tip="Pole se nepřekládá — zapni ho v Nastavení">
+                          nepřekládá se
+                        </span>
+                      )}
                       <b className={item.missing ? 'miss' : ''}>
                         {item.missing ? `chybí ${item.missing}×` : 'kompletní'}
                       </b>

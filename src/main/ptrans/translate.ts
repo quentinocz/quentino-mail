@@ -242,8 +242,8 @@ export function slugify(value: string): string {
  * Vrací, kolik polí se opravdu uložilo. Chyba se nevyhazuje výš — jeden
  * nepovedený produkt nesmí zastavit dávku o tisíci kusech.
  */
-export async function translateOne(target: TranslateTarget,
-                                   signal?: AbortSignal): Promise<{ saved: number; error?: string }> {
+export async function translateOne(target: TranslateTarget, signal?: AbortSignal):
+  Promise<{ saved: number; error?: string; noSource?: string[] }> {
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
   const rows = productFields(target.code, [target.lang]);
@@ -251,13 +251,31 @@ export async function translateOne(target: TranslateTarget,
   const wanted = (target.fields?.length ? target.fields : rows.map(r => r.field))
     .filter(field => !DERIVED_FIELDS.has(field));
 
+  /*
+   * Přeložit jde jen to, co ve zdrojovém jazyce existuje.
+   *
+   * Pole bez českého znění se do zadání pro model nedává — nemá co překládat.
+   * Dřív se ale takové pole i tak započítalo jako hotový úkol a běh skončil
+   * hláškou „hotovo, 0 chyb", i když se nezměnilo vůbec nic. Nejčastější
+   * případ je chybějící český SEO titulek: v seznamu svítí „čeká na překlad",
+   * překlad proběhne, a je to pořád stejné. Proto se to teď počítá a nahlásí.
+   */
   const payload: Record<string, string> = {};
+  const noSource: string[] = [];
   for (const field of wanted) {
     const row = rows.find(r => r.field === field);
     const source = row?.source ?? '';
     if (source.trim()) payload[field] = source;
+    else noSource.push(field);
   }
-  if (Object.keys(payload).length === 0) return { saved: 0 };
+  if (Object.keys(payload).length === 0) {
+    return {
+      saved: 0,
+      noSource,
+      error: `${target.code} (${target.lang}): ${noSource.map(f => FIELD_LABELS[f] ?? f).join(', ')}`
+        + ` — chybí text ve zdrojovém jazyce, není co překládat`
+    };
+  }
 
   const product = getDb().prepare('SELECT title, category, manufacturer FROM ptrans_products WHERE code = ?')
     .get(target.code) as { title: string; category: string; manufacturer: string } | undefined;
@@ -309,7 +327,7 @@ export async function translateOne(target: TranslateTarget,
       const result = applySlug(target.code, target.lang, rows, model, translated.title);
       if (result) saved += result.redirect ? 2 : 1;
     }
-    return { saved };
+    return { saved, noSource };
   } catch (e: any) {
     return { saved: 0, error: `${target.code} (${target.lang}): ${e.message}` };
   }
@@ -380,6 +398,15 @@ export interface RunResult {
   seconds: number;
   errors: string[];
   cancelled: boolean;
+  /**
+   * Kolik polí se nepřeložilo proto, že chybí text ve zdrojovém jazyce.
+   *
+   * Není to chyba běhu, ale ani úspěch: běh doběhne a v seznamu se nic
+   * nezmění. Bez tohohle čísla to vypadá, že překlad nefunguje.
+   */
+  noSource: number;
+  /** Kterých polí se to týká — do hlášky „doplň nejdřív české texty" */
+  noSourceFields: string[];
 }
 
 /**
@@ -405,8 +432,10 @@ export async function run(input: RunInput): Promise<RunResult> {
   const speed = new Speed(s.secondsPerUnit || 12);
   const started = Date.now();
   const errors: string[] = [];
+  const noSourceFields: string[] = [];
   let done = 0;
   let failed = 0;
+  let noSource = 0;
   // Celek běhu = doplnění zdroje + překlad. Drží se zvlášť, protože po
   // doplnění se plán překladu přepočítává a `work.length` se mění.
   let total = work.length;
@@ -483,6 +512,10 @@ export async function run(input: RunInput): Promise<RunResult> {
       speed.add((Date.now() - at) / 1000);
 
       done++;
+      for (const field of result.noSource ?? []) {
+        noSource++;
+        if (!noSourceFields.includes(field)) noSourceFields.push(field);
+      }
       if (result.error && !isAborted(result)) {
         failed++;
         errors.push(result.error);
@@ -512,5 +545,10 @@ export async function run(input: RunInput): Promise<RunResult> {
   emit('ptrans:progress', current);
   emit('ptrans:changed', {});
 
-  return { done, failed, seconds, errors: errors.slice(0, 20), cancelled };
+  return {
+    done, failed, seconds, cancelled,
+    errors: errors.slice(0, 20),
+    noSource,
+    noSourceFields: noSourceFields.map(field => FIELD_LABELS[field] ?? field)
+  };
 }
