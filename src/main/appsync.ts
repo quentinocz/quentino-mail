@@ -6,6 +6,8 @@ import { getDb, getSetting, setSetting } from './db';
 import { getSettings, saveSettings, listKnowledge, listPersons } from './settings';
 import { listAccounts } from './accounts';
 import { storeParsedMessage } from './imap';
+import { deviceId, deviceLabel } from './device';
+import { claimAll } from './vouchers';
 
 /**
  * Synchronizace mezi zařízeními přes sdílenou složku (Dropbox, OneDrive, Google Drive,
@@ -45,6 +47,16 @@ export function saveSyncConfig(cfg: { folder?: string | null; enabled?: boolean 
 
 const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9@._-]/g, '_').slice(0, 80);
 const hash = (s: string) => crypto.createHash('md5').update(s).digest('hex').slice(0, 12);
+
+/**
+ * Zápis přes dočasný soubor a přejmenování. Kdyby se psalo rovnou, druhé
+ * zařízení by mohlo číst soubor rozepsaný v půlce a považovat ho za pokažený.
+ */
+function writeJson(file: string, data: unknown): void {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data), 'utf8');
+  fs.renameSync(tmp, file);
+}
 
 /* ---------- Stav (nastavení, znalosti, osoby) ---------- */
 
@@ -120,74 +132,194 @@ function applyState(dir: string, remote: any): void {
   setSetting('stateStamp', remote.updatedAt);
 }
 
-/* ---------- Poukazy: šablony a zásoba kódů (sjednocení) ---------- */
+/* ---------- Poukazy: šablony a zásoba kódů ---------- */
 
 /**
- * Šablony a kódy se neslučují jako „novější stav vyhrává", ale po řádcích:
- *  - šablona: vyhrává novější `updated_at` (i smazání, to je jen příznak),
- *  - kód: použití vyhrává vždycky a platí dřívější čas.
+ * Poukazy se nesynchronizují jedním společným souborem, ale **složkou
+ * deníků**: každé zařízení píše jen do svého `vouchers/<zařízení>.json` a
+ * z ostatních jen čte.
  *
- * Kdyby se přenášel celý stav najednou, dvě zařízení by si navzájem přepsala
- * odepsané kódy a stejný kód by šel ven dvakrát.
+ * Důvod je prozaický. Když do jednoho souboru zapisují všichni, cloud při
+ * souběžném zápisu jednu verzi zahodí (nebo z ní udělá „konfliktní kopii",
+ * které si nikdo nevšimne) — a s ní i to, co měl jen ten jeden. U poukazů to
+ * znamená ztracené informace o vydaných kódech, tedy přesně to, co nesmí.
+ * Do vlastního souboru nemá kdo zapisovat, takže není co ztratit.
+ *
+ * Slučuje se po řádcích, ne „novější stav vyhrává":
+ *  - šablona: vyhrává novější `updated_at` (i smazání, to je jen příznak),
+ *  - vydání kódu: vyhrává vždycky (nikdy se neztratí) a platí dřívější čas,
+ *  - rezervace: vyhrává dřívější; při shodě času rozhodne jméno zařízení,
+ *    aby obě strany došly k témuž závěru, i když se nevidí,
+ *  - vydání dvěma zařízeními: platí to dřívější, to druhé se zapíše jako
+ *    kolize a aplikace na ni upozorní.
+ *
+ * `vouchers.json` ve starém tvaru se pořád čte i píše, aby zařízení se starší
+ * verzí aplikace nezůstalo stranou.
  */
-function syncVouchers(dir: string): void {
+
+interface VoucherJournal {
+  device: string;
+  name: string;
+  updatedAt: string;
+  templates: any[];
+  codes: any[];
+}
+
+/** Jméno zařízení do hlášky o kolizi; když ho neznáme, aspoň zkrácené id. */
+function deviceNames(journals: VoucherJournal[]): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const j of journals) if (j.device) names.set(j.device, j.name || j.device.slice(0, 8));
+  return names;
+}
+
+function readJournals(dir: string): VoucherJournal[] {
+  const out: VoucherJournal[] = [];
+  const folder = path.join(dir, 'vouchers');
+  let files: string[] = [];
+  try { files = fs.readdirSync(folder).filter(f => f.endsWith('.json')); } catch { /* první běh */ }
+  for (const file of files) {
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(folder, file), 'utf8'));
+      if (j && Array.isArray(j.codes)) out.push(j);
+    } catch { /* rozepsaný soubor — přijde příště */ }
+  }
+  // Starý společný soubor: bere se jako další zdroj, aby se nic neztratilo
+  try {
+    const legacy = JSON.parse(fs.readFileSync(path.join(dir, 'vouchers.json'), 'utf8'));
+    if (legacy && (Array.isArray(legacy.codes) || Array.isArray(legacy.templates))) {
+      out.push({ device: '', name: 'starší verze', updatedAt: '', templates: legacy.templates ?? [], codes: legacy.codes ?? [] });
+    }
+  } catch { /* nikdy nebyl */ }
+  return out;
+}
+
+function mergeTemplates(rows: any[]): void {
+  const upsert = getDb().prepare(
+    `INSERT INTO voucher_templates (id, name, value, unit, valid_until, note, lang, code_mode, fixed_code, archived, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name, value = excluded.value, unit = excluded.unit,
+       valid_until = excluded.valid_until, note = excluded.note, lang = excluded.lang,
+       code_mode = excluded.code_mode, fixed_code = excluded.fixed_code,
+       archived = excluded.archived, updated_at = excluded.updated_at
+     WHERE excluded.updated_at > voucher_templates.updated_at`
+  );
+  for (const t of rows) {
+    if (!t?.id || !t?.name) continue;
+    upsert.run(
+      t.id, t.name, t.value ?? '', t.unit ?? 'CZK', t.valid_until ?? '', t.note ?? '',
+      t.lang ?? 'cz', t.code_mode ?? 'fixed', t.fixed_code ?? '', t.archived ?? 0,
+      t.updated_at ?? new Date().toISOString()
+    );
+  }
+}
+
+/** Dřívější rezervace vyhrává; při shodě času rozhodne jméno zařízení. */
+function claimWins(atA: string, byA: string, atB: string, byB: string): boolean {
+  if (!byB) return false;
+  if (!byA) return true;
+  if (atB !== atA) return atB < atA;
+  return byB < byA;
+}
+
+function mergeCodes(rows: any[], names: Map<string, string>): number {
   const d = getDb();
-  const file = path.join(dir, 'vouchers.json');
-  let remote: any = null;
-  try { remote = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* první běh */ }
+  const get = d.prepare('SELECT * FROM voucher_codes WHERE template_id = ? AND code = ?');
+  const ins = d.prepare(
+    `INSERT INTO voucher_codes (template_id, code, used_at, used_for, used_by, claimed_by, claimed_at, used_dup, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`
+  );
+  const upd = d.prepare(
+    `UPDATE voucher_codes SET used_at = ?, used_for = ?, used_by = ?, claimed_by = ?, claimed_at = ?, used_dup = ?
+     WHERE template_id = ? AND code = ?`
+  );
+  let clashes = 0;
 
-  if (remote && Array.isArray(remote.templates)) {
-    const upsert = d.prepare(
-      `INSERT INTO voucher_templates (id, name, value, unit, valid_until, note, lang, code_mode, fixed_code, archived, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(id) DO UPDATE SET
-         name = excluded.name, value = excluded.value, unit = excluded.unit,
-         valid_until = excluded.valid_until, note = excluded.note, lang = excluded.lang,
-         code_mode = excluded.code_mode, fixed_code = excluded.fixed_code,
-         archived = excluded.archived, updated_at = excluded.updated_at
-       WHERE excluded.updated_at > voucher_templates.updated_at`
-    );
-    for (const t of remote.templates) {
-      if (!t?.id || !t?.name) continue;
-      upsert.run(
-        t.id, t.name, t.value ?? '', t.unit ?? 'CZK', t.valid_until ?? '', t.note ?? '',
-        t.lang ?? 'cz', t.code_mode ?? 'fixed', t.fixed_code ?? '', t.archived ?? 0,
-        t.updated_at ?? new Date().toISOString()
+  for (const c of rows) {
+    if (!c?.template_id || !c?.code) continue;
+    const local = get.get(c.template_id, c.code) as any;
+    if (!local) {
+      ins.run(
+        c.template_id, c.code, c.used_at ?? null, c.used_for ?? '', c.used_by ?? '',
+        c.claimed_by ?? '', c.claimed_at ?? '', c.used_dup ?? '', c.created_at ?? new Date().toISOString()
       );
+      if (c.used_dup) clashes++;
+      continue;
+    }
+
+    let usedAt: string | null = local.used_at ?? null;
+    let usedFor: string = local.used_for ?? '';
+    let usedBy: string = local.used_by ?? '';
+    let dup: string = local.used_dup || c.used_dup || '';
+
+    if (c.used_at) {
+      if (!usedAt) {
+        usedAt = c.used_at; usedFor = c.used_for ?? ''; usedBy = c.used_by ?? '';
+      } else if (usedBy && c.used_by && usedBy !== c.used_by) {
+        // Tentýž kód vydala dvě zařízení. Platí dřívější vydání, to druhé se
+        // zapíše jako kolize — člověk musí vědět, že poukaz mají dva lidi.
+        const remoteFirst = c.used_at < usedAt;
+        const loserBy = remoteFirst ? usedBy : c.used_by;
+        const loserAt = remoteFirst ? usedAt : c.used_at;
+        if (remoteFirst) { usedAt = c.used_at; usedFor = c.used_for ?? ''; usedBy = c.used_by; }
+        if (!dup) { dup = `${names.get(loserBy) ?? loserBy.slice(0, 8)}@${loserAt}`; clashes++; }
+      } else if (c.used_at < usedAt) {
+        usedAt = c.used_at; usedFor = c.used_for ?? ''; usedBy = c.used_by || usedBy;
+      }
+    }
+
+    // Rezervace řeší jen dosud nevydané kódy — u vydaného už nemá co rozhodovat
+    let claimBy: string = local.claimed_by ?? '';
+    let claimAt: string = local.claimed_at ?? '';
+    if (!usedAt && claimWins(claimAt, claimBy, c.claimed_at ?? '', c.claimed_by ?? '')) {
+      claimBy = c.claimed_by; claimAt = c.claimed_at ?? '';
+    }
+    if (usedAt) { claimBy = usedBy || claimBy; }
+
+    if (usedAt !== (local.used_at ?? null) || usedFor !== (local.used_for ?? '') ||
+        usedBy !== (local.used_by ?? '') || claimBy !== (local.claimed_by ?? '') ||
+        claimAt !== (local.claimed_at ?? '') || dup !== (local.used_dup ?? '')) {
+      upd.run(usedAt, usedFor, usedBy, claimBy, claimAt, dup, c.template_id, c.code);
     }
   }
+  return clashes;
+}
 
-  if (remote && Array.isArray(remote.codes)) {
-    const upsert = d.prepare(
-      `INSERT INTO voucher_codes (template_id, code, used_at, used_for, created_at)
-       VALUES (?,?,?,?,?)
-       ON CONFLICT(template_id, code) DO UPDATE SET
-         used_at = CASE
-           WHEN voucher_codes.used_at IS NULL THEN excluded.used_at
-           WHEN excluded.used_at IS NULL THEN voucher_codes.used_at
-           WHEN excluded.used_at < voucher_codes.used_at THEN excluded.used_at
-           ELSE voucher_codes.used_at
-         END,
-         used_for = CASE
-           WHEN excluded.used_at IS NOT NULL
-                AND (voucher_codes.used_at IS NULL OR excluded.used_at < voucher_codes.used_at)
-             THEN excluded.used_for
-           ELSE voucher_codes.used_for
-         END`
-    );
-    for (const c of remote.codes) {
-      if (!c?.template_id || !c?.code) continue;
-      upsert.run(c.template_id, c.code, c.used_at ?? null, c.used_for ?? '', c.created_at ?? new Date().toISOString());
+function syncVouchers(dir: string): string | null {
+  const d = getDb();
+  const me = deviceId();
+  const journals = readJournals(dir);
+  const names = deviceNames(journals);
+
+  let clashes = 0;
+  const apply = d.transaction(() => {
+    for (const j of journals) {
+      if (j.device && j.device === me) continue; // vlastní deník nemá co říct
+      mergeTemplates(j.templates ?? []);
+      clashes += mergeCodes(j.codes ?? [], names);
     }
-  }
+  });
+  apply();
 
-  const out = {
-    templates: d.prepare('SELECT * FROM voucher_templates').all(),
-    codes: d.prepare('SELECT * FROM voucher_codes').all()
+  // Rezerva na příště se doplní až po sloučení, ať se nezamlouvá kód, který
+  // si mezitím zamluvil někdo jiný
+  claimAll();
+
+  const out: VoucherJournal = {
+    device: me,
+    name: deviceLabel(),
+    updatedAt: new Date().toISOString(),
+    templates: d.prepare('SELECT * FROM voucher_templates').all() as any[],
+    codes: d.prepare('SELECT * FROM voucher_codes').all() as any[]
   };
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(out), 'utf8');
-  fs.renameSync(tmp, file);
+  const folder = path.join(dir, 'vouchers');
+  fs.mkdirSync(folder, { recursive: true });
+  writeJson(path.join(folder, `${me}.json`), out);
+  // Pro zařízení se starší verzí aplikace — ta o složce deníků nevědí
+  writeJson(path.join(dir, 'vouchers.json'), { templates: out.templates, codes: out.codes });
+
+  if (clashes) emit('vouchers:clash', {});
+  return clashes ? `${clashes}× stejný kód ze dvou zařízení!` : null;
 }
 
 /* ---------- Instagram: co už na kterém trhu vyšlo ---------- */
@@ -378,9 +510,10 @@ export async function runSync(): Promise<string> {
     // 2) Kontakty — sjednocení
     syncContacts(dir);
 
-    // 3) Poukazy — šablony i odepsané kódy, po řádcích
+    // 3) Poukazy — šablony i vydané kódy, po řádcích a přes deníky zařízení
     try {
-      syncVouchers(dir);
+      const clash = syncVouchers(dir);
+      if (clash) parts.push(clash);
     } catch (e: any) {
       parts.push(`poukazy: ${e?.message ?? e}`);
     }

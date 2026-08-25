@@ -77,9 +77,21 @@ enum Schema {
       code TEXT NOT NULL,
       used_at TEXT,
       used_for TEXT NOT NULL DEFAULT '',
+      -- Které zařízení kód vydalo. Kdyby ho omylem vydala dvě, pozná se to
+      -- podle dvou různých zařízení u jednoho kódu a aplikace to nahlásí.
+      used_by TEXT NOT NULL DEFAULT '',
+      -- Rezervace: zařízení si kód zamluví dřív, než ho vydá, a vydává jen
+      -- ze svých zamluvených. Bez toho by dvě zařízení sáhla po tomtéž
+      -- „prvním volném" kódu dřív, než se stihnou domluvit.
+      claimed_by TEXT NOT NULL DEFAULT '',
+      claimed_at TEXT NOT NULL DEFAULT '',
+      -- Kdyby přes všechnu opatrnost jeden kód vydala dvě zařízení, zapíše se
+      -- sem to druhé („zařízení@čas") a aplikace na to upozorní.
+      used_dup TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (template_id, code)
     );
+    CREATE INDEX IF NOT EXISTS idx_voucher_codes_claim ON voucher_codes(template_id, claimed_by, used_at);
     CREATE INDEX IF NOT EXISTS idx_voucher_codes_free ON voucher_codes(template_id, used_at);
 
     CREATE TABLE IF NOT EXISTS ig_accounts (
@@ -367,6 +379,10 @@ enum Schema {
         "ALTER TABLE ig_accounts ADD COLUMN page_id TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE ig_accounts ADD COLUMN page_name TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE ig_accounts ADD COLUMN share_fb INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''"
+        "ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE voucher_codes ADD COLUMN used_by TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE voucher_codes ADD COLUMN claimed_by TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE voucher_codes ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE voucher_codes ADD COLUMN used_dup TEXT NOT NULL DEFAULT ''"
     ]
 }

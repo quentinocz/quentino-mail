@@ -259,7 +259,36 @@ export interface VoucherTemplate {
   fixedCode: string;
   codesTotal: number;
   codesFree: number;
+  /** Kolik volných kódů má zamluvených tohle zařízení (zbytek si drží ostatní) */
+  codesMine: number;
+  /** Kolik kódů vydala dvě zařízení — mělo by být vždycky 0 */
+  codesDup: number;
   updatedAt: string;
+}
+
+/** Jeden kód ze zásoby šablony */
+export interface VoucherCode {
+  code: string;
+  usedAt: string | null;
+  usedFor: string;
+  /** Kdo kód vydal — prázdné u kódů vydaných starší verzí aplikace */
+  usedBy: string;
+  /** Kód si dopředu zamluvilo jiné zařízení, tohle po něm nesáhne */
+  claimedElsewhere: boolean;
+  /** Druhé vydání téhož kódu, pokud se na nějaké přišlo */
+  duplicate: string;
+}
+
+/** Kód, který podle synchronizace vydala dvě zařízení naráz */
+export interface VoucherClash {
+  templateId: string;
+  templateName: string;
+  code: string;
+  /** Vydání, které platí (dřívější) */
+  used: string;
+  usedFor: string;
+  /** To druhé, „zařízení@čas“ */
+  duplicate: string;
 }
 
 /** Objednávka z Upgates API (živá data e-shopu) */

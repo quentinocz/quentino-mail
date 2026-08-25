@@ -13,7 +13,8 @@ import Foundation
 
  - `state.json` — nastavení, znalosti, osoby; vyhrává novější razítko
  - `contacts.json` — našeptávač adres, slučuje se sjednocením
- - `vouchers.json` — šablony a kódy poukazů, slučuje se po řádcích
+ - `vouchers/` — deník každého zařízení zvlášť: šablony a kódy poukazů,
+   slučují se po řádcích (společný soubor by při souběžném zápisu ztrácel data)
 
  Hesla účtů a API klíče se ze zásady nesynchronizují — na to je záloha.
  */
@@ -250,17 +251,95 @@ enum AppSync {
     // MARK: - Poukazy
 
     /**
-     Šablony a kódy se neslučují jako „novější stav vyhrává", ale po řádcích:
-     u šablony vyhrává novější `updated_at` (i smazání, to je jen příznak),
-     u kódu vyhrává použití a platí dřívější čas. Kdyby se přenášel celý stav
-     najednou, dvě zařízení by si navzájem přepsala odepsané kódy a stejný kód
-     by šel ven dvakrát.
+     Poukazy se nesynchronizují jedním společným souborem, ale **složkou
+     deníků**: každé zařízení píše jen do svého `vouchers/<zařízení>.json`
+     a z ostatních jen čte.
+
+     Důvod je prozaický. Když do jednoho souboru zapisují všichni, cloud při
+     souběžném zápisu jednu verzi zahodí (nebo z ní udělá „konfliktní kopii",
+     které si nikdo nevšimne) — a s ní i to, co měl jen ten jeden. U poukazů
+     to znamená ztracené informace o vydaných kódech, tedy přesně to, co
+     nesmí. Do vlastního souboru nemá kdo zapisovat, takže není co ztratit.
+
+     Slučuje se po řádcích, ne „novější stav vyhrává":
+     - šablona: vyhrává novější `updated_at` (i smazání, to je jen příznak),
+     - vydání kódu: vyhrává vždycky (nikdy se neztratí) a platí dřívější čas,
+     - rezervace: vyhrává dřívější; při shodě času rozhodne jméno zařízení,
+       aby obě strany došly k témuž závěru, i když se nevidí,
+     - vydání dvěma zařízeními: platí to dřívější, to druhé se zapíše jako
+       kolize a aplikace na ni upozorní.
+
+     `vouchers.json` ve starém tvaru se pořád čte i píše, aby zařízení se
+     starší verzí aplikace nezůstalo stranou.
      */
     private static func syncVouchers(_ folder: URL) {
-        let file = folder.appendingPathComponent("vouchers.json")
-        let remote = readJson(file) as? [String: Any]
+        let me = Device.id()
+        let journals = readVoucherJournals(folder)
+        var names: [String: String] = [:]
+        for journal in journals {
+            let device = journal["device"] as? String ?? ""
+            if !device.isEmpty {
+                names[device] = (journal["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    ?? String(device.prefix(8))
+            }
+        }
 
-        for template in remote?["templates"] as? [[String: Any]] ?? [] {
+        var clashes = 0
+        _ = try? SQLite.shared.transaction {
+            for journal in journals {
+                if let device = journal["device"] as? String, device == me { continue }
+                mergeVoucherTemplates(journal["templates"] as? [[String: Any]] ?? [])
+                clashes += mergeVoucherCodes(journal["codes"] as? [[String: Any]] ?? [], names: names)
+            }
+        }
+
+        // Rezerva na příště se doplní až po sloučení, ať se nezamlouvá kód,
+        // který si mezitím zamluvil někdo jiný
+        Vouchers.claimAll()
+
+        let templates = (try? SQLite.shared.query("SELECT * FROM voucher_templates")) ?? []
+        let codes = (try? SQLite.shared.query("SELECT * FROM voucher_codes")) ?? []
+        let out: [String: Any] = [
+            "device": me,
+            "name": Device.label(),
+            "updatedAt": Formats.iso(),
+            "templates": templates,
+            "codes": codes
+        ]
+        let mine = folder.appendingPathComponent("vouchers", isDirectory: true)
+        try? FileManager.default.createDirectory(at: mine, withIntermediateDirectories: true)
+        _ = try? writeJson(out, to: mine.appendingPathComponent("\(me).json"))
+        // Pro zařízení se starší verzí aplikace — ta o složce deníků nevědí
+        _ = try? writeJson(["templates": templates, "codes": codes],
+                           to: folder.appendingPathComponent("vouchers.json"))
+
+        if clashes > 0 { Bridge.notify("vouchers:clash") }
+    }
+
+    private static func readVoucherJournals(_ folder: URL) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        let dir = folder.appendingPathComponent("vouchers", isDirectory: true)
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.pathExtension == "json" {
+            // Rozepsaný soubor se nechá být — přijde příště celý
+            if let journal = readJson(file) as? [String: Any], journal["codes"] is [[String: Any]] {
+                out.append(journal)
+            }
+        }
+        // Starý společný soubor: bere se jako další zdroj, aby se nic neztratilo
+        if let legacy = readJson(folder.appendingPathComponent("vouchers.json")) as? [String: Any] {
+            out.append([
+                "device": "",
+                "name": "starší verze",
+                "templates": legacy["templates"] as? [[String: Any]] ?? [],
+                "codes": legacy["codes"] as? [[String: Any]] ?? []
+            ])
+        }
+        return out
+    }
+
+    private static func mergeVoucherTemplates(_ rows: [[String: Any]]) {
+        for template in rows {
             guard let id = template["id"] as? String, let name = template["name"] as? String,
                   !id.isEmpty, !name.isEmpty else { continue }
             _ = try? SQLite.shared.run(
@@ -288,42 +367,112 @@ enum AppSync {
                 ]
             )
         }
+    }
 
-        for code in remote?["codes"] as? [[String: Any]] ?? [] {
-            guard let templateId = code["template_id"] as? String, let value = code["code"] as? String,
+    /// Dřívější rezervace vyhrává; při shodě času rozhodne jméno zařízení.
+    private static func claimWins(_ atA: String, _ byA: String, _ atB: String, _ byB: String) -> Bool {
+        if byB.isEmpty { return false }
+        if byA.isEmpty { return true }
+        if atB != atA { return atB < atA }
+        return byB < byA
+    }
+
+    private static func mergeVoucherCodes(_ rows: [[String: Any]], names: [String: String]) -> Int {
+        var clashes = 0
+        for row in rows {
+            guard let templateId = row["template_id"] as? String, let value = row["code"] as? String,
                   !templateId.isEmpty, !value.isEmpty else { continue }
+
+            let local = (try? SQLite.shared.query(
+                "SELECT * FROM voucher_codes WHERE template_id = ? AND code = ?",
+                [.text(templateId), .text(value)]
+            ))?.first
+
+            let remoteUsedAt = row["used_at"] as? String
+            let remoteUsedBy = row["used_by"] as? String ?? ""
+            let remoteUsedFor = row["used_for"] as? String ?? ""
+            let remoteClaimBy = row["claimed_by"] as? String ?? ""
+            let remoteClaimAt = row["claimed_at"] as? String ?? ""
+            let remoteDup = row["used_dup"] as? String ?? ""
+
+            guard let local else {
+                _ = try? SQLite.shared.run(
+                    """
+                    INSERT INTO voucher_codes (template_id, code, used_at, used_for, used_by,
+                      claimed_by, claimed_at, used_dup, created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    """,
+                    [
+                        .text(templateId), .text(value),
+                        remoteUsedAt.map { SQLite.Value.text($0) } ?? .null,
+                        .text(remoteUsedFor), .text(remoteUsedBy),
+                        .text(remoteClaimBy), .text(remoteClaimAt), .text(remoteDup),
+                        .text(row["created_at"] as? String ?? Formats.iso())
+                    ]
+                )
+                if !remoteDup.isEmpty { clashes += 1 }
+                continue
+            }
+
+            var usedAt = local["used_at"] as? String
+            var usedFor = local["used_for"] as? String ?? ""
+            var usedBy = local["used_by"] as? String ?? ""
+            var dup = (local["used_dup"] as? String ?? "").isEmpty
+                ? remoteDup : (local["used_dup"] as? String ?? "")
+
+            if let remoteUsedAt {
+                if usedAt == nil {
+                    usedAt = remoteUsedAt; usedFor = remoteUsedFor; usedBy = remoteUsedBy
+                } else if !usedBy.isEmpty, !remoteUsedBy.isEmpty, usedBy != remoteUsedBy {
+                    // Tentýž kód vydala dvě zařízení. Platí dřívější vydání, to
+                    // druhé se zapíše jako kolize — člověk musí vědět, že poukaz
+                    // mají dva lidi.
+                    let remoteFirst = remoteUsedAt < usedAt!
+                    let loserBy = remoteFirst ? usedBy : remoteUsedBy
+                    let loserAt = remoteFirst ? usedAt! : remoteUsedAt
+                    if remoteFirst {
+                        usedAt = remoteUsedAt; usedFor = remoteUsedFor; usedBy = remoteUsedBy
+                    }
+                    if dup.isEmpty {
+                        dup = "\(names[loserBy] ?? String(loserBy.prefix(8)))@\(loserAt)"
+                        clashes += 1
+                    }
+                } else if remoteUsedAt < usedAt! {
+                    usedAt = remoteUsedAt; usedFor = remoteUsedFor
+                    if !remoteUsedBy.isEmpty { usedBy = remoteUsedBy }
+                }
+            }
+
+            // Rezervace řeší jen dosud nevydané kódy — u vydaného už nemá co rozhodovat
+            var claimBy = local["claimed_by"] as? String ?? ""
+            var claimAt = local["claimed_at"] as? String ?? ""
+            if usedAt == nil, claimWins(claimAt, claimBy, remoteClaimAt, remoteClaimBy) {
+                claimBy = remoteClaimBy; claimAt = remoteClaimAt
+            }
+            if usedAt != nil, !usedBy.isEmpty { claimBy = usedBy }
+
+            let unchanged = usedAt == (local["used_at"] as? String)
+                && usedFor == (local["used_for"] as? String ?? "")
+                && usedBy == (local["used_by"] as? String ?? "")
+                && claimBy == (local["claimed_by"] as? String ?? "")
+                && claimAt == (local["claimed_at"] as? String ?? "")
+                && dup == (local["used_dup"] as? String ?? "")
+            if unchanged { continue }
+
             _ = try? SQLite.shared.run(
                 """
-                INSERT INTO voucher_codes (template_id, code, used_at, used_for, created_at)
-                VALUES (?,?,?,?,?)
-                ON CONFLICT(template_id, code) DO UPDATE SET
-                  used_at = CASE
-                    WHEN voucher_codes.used_at IS NULL THEN excluded.used_at
-                    WHEN excluded.used_at IS NULL THEN voucher_codes.used_at
-                    WHEN excluded.used_at < voucher_codes.used_at THEN excluded.used_at
-                    ELSE voucher_codes.used_at
-                  END,
-                  used_for = CASE
-                    WHEN excluded.used_at IS NOT NULL
-                         AND (voucher_codes.used_at IS NULL OR excluded.used_at < voucher_codes.used_at)
-                      THEN excluded.used_for
-                    ELSE voucher_codes.used_for
-                  END
+                UPDATE voucher_codes
+                SET used_at = ?, used_for = ?, used_by = ?, claimed_by = ?, claimed_at = ?, used_dup = ?
+                WHERE template_id = ? AND code = ?
                 """,
                 [
-                    .text(templateId), .text(value),
-                    (code["used_at"] as? String).map { SQLite.Value.text($0) } ?? .null,
-                    .text(code["used_for"] as? String ?? ""),
-                    .text(code["created_at"] as? String ?? Formats.iso())
+                    usedAt.map { SQLite.Value.text($0) } ?? .null,
+                    .text(usedFor), .text(usedBy), .text(claimBy), .text(claimAt), .text(dup),
+                    .text(templateId), .text(value)
                 ]
             )
         }
-
-        let out: [String: Any] = [
-            "templates": (try? SQLite.shared.query("SELECT * FROM voucher_templates")) ?? [],
-            "codes": (try? SQLite.shared.query("SELECT * FROM voucher_codes")) ?? []
-        ]
-        _ = try? writeJson(out, to: file)
+        return clashes
     }
 
     /**

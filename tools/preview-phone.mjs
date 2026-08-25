@@ -151,7 +151,17 @@ for (const device of DEVICES) {
           // pruh nezůstane prázdný. Vadí až obsah pod ním. Když má prvek
           // horní okraj aspoň tak velký jako bezpečná zóna, je to vyřešené.
           if (parseFloat(style.paddingTop) >= safeTop - 2) continue;
-          if (r.top >= safeTop - 2) continue;
+          // Co odrolovalo nad okraj rolující plochy, není vidět — hlásit to
+          // jako „pod výřezem" by bylo plané: jen se to schovalo pod hlavičku
+          // vlastního rámu. Bere se proto ten kus, který je skutečně vidět.
+          let visibleTop = r.top;
+          for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+            const how = getComputedStyle(n);
+            if (!/auto|scroll|hidden/.test(how.overflowY + how.overflow)) continue;
+            visibleTop = Math.max(visibleTop, n.getBoundingClientRect().top);
+          }
+          if (visibleTop >= r.bottom) continue;   // odrolované úplně mimo
+          if (visibleTop >= safeTop - 2) continue;
           const text = (el.textContent ?? '').trim().slice(0, 24);
           underNotch.push(`${String(el.className || el.tagName).slice(0, 24)}${text ? ` „${text}"` : ''}`);
         }
@@ -180,11 +190,36 @@ for (const device of DEVICES) {
   await check('akce zprávy (panel)'); await snap('04-akce');
   await page.keyboard.press('Escape'); await page.waitForTimeout(350);
 
+  // Odpověď je ten případ, kde se psaní na telefonu lámalo: hlavička je
+  // předvyplněná, text dlouhý a pod ním ještě podpis
+  await click('.toolbar-btn.primary', { hasText: 'Odpovědět' });
+  await check('odpověď — hlavička sbalená'); await snap('04b-odpoved');
+  await click('.compose-summary');
+  await check('odpověď — hlavička rozbalená'); await snap('04c-odpoved-hlavicka');
+  await click('.compose-collapse');
+  await click('.sig-row .linkish');
+  // Až dolů: dřív tady podpis končil uprostřed a měl vlastní posuvník
+  await page.evaluate(() => {
+    const body = document.querySelector('.composer-body');
+    if (body) body.scrollTop = body.scrollHeight;
+  });
+  await check('odpověď — podpis'); await snap('04d-odpoved-podpis');
+  await click('.composer-head button:last-child');
+  await page.waitForTimeout(300);
+
   await click('.m-head-btn');   // zpět na seznam
   await click('.m-head-btn.right');
   await check('psaní zprávy'); await snap('05-psani');
   await click('.composer-foot .btn.ghost');
   await check('nástroje (panel)'); await snap('06-nastroje');
+
+  // Poukazy: hláška o dvojím vydání kódu je hodně textu na úzký displej
+  await click('button', { hasText: 'Dárkový poukaz' });
+  await check('poukazy — výběr'); await snap('06b-poukazy-vyber');
+  await click('.btn.ghost', { hasText: 'Spravovat šablony' });
+  await check('poukazy — kolize'); await snap('06c-poukazy-kolize');
+  await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+
   await page.keyboard.press('Escape'); await page.waitForTimeout(300);
   await click('.composer-head button:last-child');
 
@@ -226,7 +261,6 @@ for (const device of DEVICES) {
   await click('.m-head-picker');
   await click('.sidebar .side-item', { hasText: 'Nastavení' });
   await check('nastavení'); await snap('15-nastaveni');
-
   await page.close();
 }
 

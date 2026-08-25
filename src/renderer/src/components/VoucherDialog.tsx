@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { MailLang, VoucherSpec, VoucherTemplate } from '@shared/types';
+import type { MailLang, VoucherClash, VoucherCode, VoucherSpec, VoucherTemplate } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -359,6 +359,64 @@ const EMPTY: Partial<VoucherTemplate> & { name: string } = {
   note: '', lang: 'cz', codeMode: 'fixed', fixedCode: ''
 };
 
+/**
+ * Kód, který vydala dvě zařízení naráz.
+ *
+ * Nemělo by nastat — rezervace kódů tomu předchází. Kdyby k tomu přesto
+ * došlo (třeba když se dva počítače dlouho neviděly a zásoba mezitím došla),
+ * je to jediná věc, kterou aplikace sama nespraví: poukaz už je u dvou
+ * zákazníků. Proto se to neschovává do protokolu, ale řekne se to nahlas.
+ */
+/** „iPhone (7e44a732)@2026-08-23T18:02:00Z" → čitelně, ať se to dá přečíst v klidu. */
+function splitDuplicate(value: string): { device: string; when: string } {
+  const at = value.lastIndexOf('@');
+  if (at < 0) return { device: value, when: '' };
+  const time = new Date(value.slice(at + 1));
+  return {
+    device: value.slice(0, at),
+    when: Number.isNaN(time.getTime()) ? value.slice(at + 1)
+      : time.toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  };
+}
+
+function ClashWarning({ clashes, onCleared }: {
+  clashes: VoucherClash[];
+  onCleared: (list: VoucherClash[]) => void;
+}) {
+  if (!clashes.length) return null;
+  return (
+    <div className="vch-clash">
+      <Icon name="alert" size={15} />
+      <div>
+        <b>Pozor: stejný kód šel ven dvakrát</b>
+        {clashes.map(c => {
+          const second = splitDuplicate(c.duplicate);
+          return (
+            <div key={`${c.templateId}:${c.code}`} className="vch-clash-row">
+              <code>{c.code}</code>
+              <span>
+                <b>{c.templateName}</b>
+                <small>
+                  {c.usedFor ? `${c.usedFor} · ` : ''}
+                  podruhé {second.device}{second.when ? ` · ${second.when}` : ''}
+                </small>
+              </span>
+              <button className="btn ghost"
+                onClick={async () => onCleared(await api.vouchers.clearClash(c.templateId, c.code))}>
+                Vyřešeno
+              </button>
+            </div>
+          );
+        })}
+        <span className="desc">
+          Zkontroluj, komu kód odešel — v e-shopu ho nejspíš bude potřeba zneplatnit
+          a jednomu ze zákazníků poslat nový.
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function TemplateManager({ templates, onChanged, onBack }: {
   templates: VoucherTemplate[];
   onChanged: (list: VoucherTemplate[]) => void;
@@ -366,6 +424,15 @@ function TemplateManager({ templates, onChanged, onBack }: {
 }) {
   const toast = useToast();
   const [editing, setEditing] = useState<(Partial<VoucherTemplate> & { name: string }) | null>(null);
+  const [clashes, setClashes] = useState<VoucherClash[]>([]);
+
+  useEffect(() => {
+    api.vouchers.clashes().then(setClashes).catch(() => {});
+    // Kolize se pozná až při synchronizaci — hlášku doplní, i když je dialog otevřený
+    return api.on('vouchers:clash', () => {
+      api.vouchers.clashes().then(setClashes).catch(() => {});
+    });
+  }, []);
 
   const save = async () => {
     if (!editing?.name.trim()) { toast('Vyplň interní název šablony.', 'error'); return; }
@@ -395,11 +462,13 @@ function TemplateManager({ templates, onChanged, onBack }: {
   return (
     <>
       <div className="modal-body">
+        <ClashWarning clashes={clashes} onCleared={setClashes} />
         {!editing && (
           <>
             <div className="desc">
               Šablony i zásoba kódů se synchronizují mezi zařízeními — co nastavíš tady,
-              použiješ i na druhém počítači, a spotřebovaný kód se nikde nenabídne podruhé.
+              použiješ i na druhém počítači. Každé zařízení si navíc kus zásoby zamluví
+              dopředu, takže se stejný kód nemůže rozeslat dvakrát.
             </div>
             {templates.map(t => (
               <div key={t.id} className="vch-tpl">
@@ -409,7 +478,14 @@ function TemplateManager({ templates, onChanged, onBack }: {
                     <span className="vch-tpl-name">{t.name}</span>
                     <span className="vch-tpl-meta">
                       {t.codeMode === 'unique'
-                        ? `${t.codesFree} z ${t.codesTotal} kódů volných`
+                        ? <>
+                            {t.codesFree} z {t.codesTotal} kódů volných
+                            {/* Kolik z nich si drží tohle zařízení je užitečné, ale ne
+                                natolik, aby to na telefonu zabralo další řádek */}
+                            {t.codesMine > 0 && (
+                              <span className="only-desk"> · {t.codesMine} zamluvených tady</span>
+                            )}
+                          </>
                         : `pevný kód ${t.fixedCode || '—'}`}
                       {' · '}platí do {dateLabel(t.validUntil, t.lang)}
                     </span>
@@ -446,7 +522,7 @@ function TemplateForm({ value: t, onChange }: {
   onChange: (v: Partial<VoucherTemplate> & { name: string }) => void;
 }) {
   const toast = useToast();
-  const [codes, setCodes] = useState<{ code: string; usedAt: string | null; usedFor: string }[]>([]);
+  const [codes, setCodes] = useState<VoucherCode[]>([]);
   const [paste, setPaste] = useState('');
   const set = (patch: Partial<VoucherTemplate>) => onChange({ ...t, ...patch } as any);
 
@@ -541,13 +617,18 @@ function TemplateForm({ value: t, onChange }: {
             <button className="btn ghost" onClick={addCodes} disabled={!paste.trim()}>
               <Icon name="plus" size={13} /> Přidat do zásoby
             </button>
-            <span className="desc">Při vložení poukazu se odebere nejstarší volný kód.</span>
+            <span className="desc">
+              Při vložení poukazu se odebere jeden ze zamluvených kódů tohohle zařízení.
+            </span>
           </div>
           {codes.length > 0 && (
             <div className="vch-codes">
               {codes.slice(0, 60).map(c => (
-                <span key={c.code} className={`vch-code ${c.usedAt ? 'used' : ''}`}
-                  data-tip={c.usedAt ? `Použito ${new Date(c.usedAt).toLocaleDateString('cs-CZ')}${c.usedFor ? ` · ${c.usedFor}` : ''}` : 'Volný kód'}>
+                <span key={c.code}
+                  className={`vch-code ${c.usedAt ? 'used' : ''} ${c.duplicate ? 'clash' : ''} ${c.claimedElsewhere ? 'held' : ''}`}
+                  data-tip={c.usedAt
+                    ? `Použito ${new Date(c.usedAt).toLocaleDateString('cs-CZ')}${c.usedFor ? ` · ${c.usedFor}` : ''}${c.duplicate ? ` · pozor, podruhé ${c.duplicate}` : ''}`
+                    : c.claimedElsewhere ? 'Zamluvené jiným zařízením' : 'Volný kód'}>
                   {c.code}
                   {!c.usedAt && t.id && (
                     <button onClick={async () => setCodes(await api.vouchers.deleteCode(t.id!, c.code))}>

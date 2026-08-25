@@ -4,6 +4,7 @@ import type {
   ProductQuery, ProductPage, ProductFacets,
   UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, CustomerContext, VoucherSpec,
   VoucherTemplate,
+  VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
   ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
   PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
@@ -369,14 +370,17 @@ export const api = {
     save: (t: Partial<VoucherTemplate> & { name: string }) => call<VoucherTemplate[]>('vouchers:save', t),
     delete: (id: string) => call<VoucherTemplate[]>('vouchers:delete', id),
     addCodes: (id: string, raw: string) => call<{ added: number; skipped: number }>('vouchers:addCodes', id, raw),
-    codes: (id: string) => call<{ code: string; usedAt: string | null; usedFor: string }[]>('vouchers:codes', id),
-    deleteCode: (id: string, code: string) =>
-      call<{ code: string; usedAt: string | null; usedFor: string }[]>('vouchers:deleteCode', id, code),
+    codes: (id: string) => call<VoucherCode[]>('vouchers:codes', id),
+    deleteCode: (id: string, code: string) => call<VoucherCode[]>('vouchers:deleteCode', id, code),
     /** Vrátí kód zpátky do zásoby (když se e-mail neodeslal) */
     release: (id: string, code: string) => call<void>('vouchers:release', id, code),
     /** Odebere kód a vysází z něj PDF poukaz do přílohy */
     use: (id: string, forWhom: string) =>
-      call<{ code: string; remaining: number; files: string[] }>('vouchers:use', id, forWhom)
+      call<{ code: string; remaining: number; files: string[] }>('vouchers:use', id, forWhom),
+    /** Kódy, které vydala dvě zařízení naráz — normálně prázdné pole */
+    clashes: () => call<VoucherClash[]>('vouchers:clashes'),
+    /** „Vyřešeno" — hláška o kolizi může zmizet */
+    clearClash: (id: string, code: string) => call<VoucherClash[]>('vouchers:clearClash', id, code)
   },
   ship: {
     /** Ruční oprava zařazení hlášky dopravce; aplikace si ji zapamatuje */

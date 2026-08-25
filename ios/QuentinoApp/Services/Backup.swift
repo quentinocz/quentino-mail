@@ -43,7 +43,11 @@ enum Backup {
         "stateStamp", "ftsBuilt", "contactsBackfilled", "windowState",
         "productFeedSync", "productFeedSchema",
         "syncLastRun", "syncLastResult", "appsyncLastRun", "appsyncLastResult",
-        "ptransSyncedAt"
+        "ptransSyncedAt",
+        // Totožnost zařízení do zálohy nepatří: po obnovení na druhém přístroji
+        // by obě zařízení tvrdila, že jsou totéž, psala si do stejného deníku
+        // a sahala si po týchž zamluvených kódech poukazů.
+        "deviceId", "deviceName"
     ]
 
     /// Totéž, ale klíčů je celá řada — jeden na každý feed objednávek.
