@@ -627,6 +627,9 @@
         duplicate: 'iPhone (7e44a732)@2026-08-23T18:02:00Z' }
     ]
   };
+  // „Sladit teď" vrací tentýž seznam — v náhledu není s čím se slaďovat
+  answers['vouchers:sync'] = answers['vouchers:list'];
+
   // Balení: dvě objednávky ze stejné karty, jedna rozdělaná a jedna hotová
   // Stav „Přijata" je ten, který se balí — „Odeslána" si aplikace schovává sama
   const toPack = (number) => Object.assign({}, answers['orders:card'], {

@@ -14,7 +14,7 @@ import {
 } from './settings';
 import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets } from './products';
 import { searchContacts } from './contacts';
-import { getSyncConfig, saveSyncConfig, runSync } from './appsync';
+import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
 import { summarize, generateReply, improveText, translateIncoming, translateText, categorizeUncategorized, getAiUsage, generateDigest } from './ai';
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
@@ -212,15 +212,28 @@ export function registerIpc() {
   // Dárkové poukazy do přílohy
   handle('voucher:create', (spec: any) => createVouchers(spec));
 
-  // Šablony poukazů a zásoba kódů
+  /**
+   * Šablony poukazů a zásoba kódů.
+   *
+   * Po každé změně se rovnou pošle do sdílené složky (`pushVouchersSoon`),
+   * ať se nová šablona nebo ubraný kód objeví na druhém zařízení hned a ne
+   * až s dalším velkým kolem synchronizace.
+   */
+  const changed = <T>(value: T): T => { pushVouchersSoon(); return value; };
   handle('vouchers:list', () => listTemplates());
-  handle('vouchers:save', (t: any) => saveTemplate(t));
-  handle('vouchers:delete', (id: string) => deleteTemplate(id));
-  handle('vouchers:addCodes', (id: string, raw: string) => addCodes(id, raw ?? ''));
+  handle('vouchers:save', (t: any) => changed(saveTemplate(t)));
+  handle('vouchers:delete', (id: string) => changed(deleteTemplate(id)));
+  handle('vouchers:addCodes', (id: string, raw: string) => changed(addCodes(id, raw ?? '')));
   handle('vouchers:codes', (id: string) => listCodes(id));
-  handle('vouchers:deleteCode', (id: string, code: string) => deleteCode(id, code));
-  handle('vouchers:release', (id: string, code: string) => releaseCode(id, code));
+  handle('vouchers:deleteCode', (id: string, code: string) => changed(deleteCode(id, code)));
+  handle('vouchers:release', (id: string, code: string) => changed(releaseCode(id, code)));
   /** Kódy, které podle synchronizace vydala dvě zařízení — normálně prázdné */
+  /**
+   * Sladit poukazy hned. Aplikace to dělá sama každých pár vteřin, ale když
+   * někdo čeká na kódy z druhého zařízení, je lepší mít tlačítko než hádat,
+   * jestli se něco děje. (Rychlost dodání souboru řídí cloud, ne my.)
+   */
+  handle('vouchers:sync', () => { syncVouchersNow(); return listTemplates(); });
   handle('vouchers:clashes', () => listClashes());
   handle('vouchers:clearClash', (id: string, code: string) => clearClash(id, code));
   /** Odebere kód ze šablony a rovnou z něj vysází PDF do přílohy */
@@ -228,9 +241,11 @@ export function registerIpc() {
     const { code, remaining } = takeCode(id, forWhom ?? '');
     try {
       const files = await createVouchers(specFromTemplate(id, code));
+      changed(null); // ubraný kód ať druhé zařízení ví hned
       return { code, remaining, files };
     } catch (e) {
       releaseCode(id, code); // sazba selhala — kód se vrací do zásoby
+      changed(null);
       throw e;
     }
   });

@@ -256,6 +256,40 @@ const used = device => codes(device).filter(c => c.usedAt).map(c => c.code);
   check('„Vyřešeno" hlášku odklidí',
     on('pc', () => vouchers.clearClash(TEMPLATE, victim)).every(c => c.code !== victim));
 
+  console.log('\nrychlá dráha:\n');
+
+  // Poukazy se musí přenést i bez velkého kola synchronizace — právě proto
+  // mají vlastní krátký běh. Kdyby čekaly na `runSync`, čekaly by i na archiv.
+  const journalPath = device =>
+    path.join(FOLDER, 'vouchers', `${idOf(device)}.json`);
+
+  on('pc', () => vouchers.saveTemplate({
+    id: 'tpl-rychla', name: 'Rychlá šablona', value: '150', unit: 'CZK', codeMode: 'unique'
+  }));
+  on('pc', () => vouchers.addCodes('tpl-rychla', 'F1\nF2\nF3'));
+  on('pc', () => appsync.syncVouchersNow());
+  on('phone', () => appsync.syncVouchersNow());
+  check('nová šablona dorazí i bez velkého kola',
+    on('phone', () => vouchers.listTemplates()).some(t => t.id === 'tpl-rychla'));
+
+  const takenFast = on('pc', () => vouchers.takeCode('tpl-rychla', 'zákazník')).code;
+  on('pc', () => appsync.syncVouchersNow());
+  on('phone', () => appsync.syncVouchersNow());
+  check('ubraný kód se pozná i bez velkého kola',
+    on('phone', () => vouchers.listCodes('tpl-rychla'))
+      .find(c => c.code === takenFast)?.usedAt != null);
+  check('počet volných kódů sedí na obou zařízeních',
+    on('pc', () => vouchers.listTemplates().find(t => t.id === 'tpl-rychla')).codesFree
+      === on('phone', () => vouchers.listTemplates().find(t => t.id === 'tpl-rychla')).codesFree);
+
+  // Prázdné kolo nesmí přepisovat soubor — cloud by pak řešil samé nicotné
+  // změny místo těch skutečných
+  const before = fs.statSync(journalPath('pc')).mtimeMs;
+  await new Promise(r => setTimeout(r, 20));
+  on('pc', () => appsync.syncVouchersNow());
+  check('když se nic nezměnilo, deník se nepřepisuje',
+    fs.statSync(journalPath('pc')).mtimeMs === before);
+
   console.log('\ndeníky ve složce:\n');
 
   const journals = fs.readdirSync(path.join(FOLDER, 'vouchers'));

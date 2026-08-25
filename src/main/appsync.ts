@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { execFile } from 'child_process';
 import { app, BrowserWindow } from 'electron';
 import { getDb, getSetting, setSetting } from './db';
 import { getSettings, saveSettings, listKnowledge, listPersons } from './settings';
@@ -42,6 +43,8 @@ export function saveSyncConfig(cfg: { folder?: string | null; enabled?: boolean 
   if (cfg.folder !== undefined) setSetting('syncFolder', cfg.folder ?? '');
   if (cfg.enabled !== undefined) setSetting('syncEnabled', cfg.enabled ? '1' : '0');
   if (!getSetting('stateStamp')) setSetting('stateStamp', new Date().toISOString());
+  // Nová složka se musí začít hlídat, ta stará přestat
+  watchShared();
   return getSyncConfig();
 }
 
@@ -172,11 +175,32 @@ function deviceNames(journals: VoucherJournal[]): Map<string, string> {
   return names;
 }
 
+/**
+ * iCloud umí soubor, do kterého se dlouho nekouklo, z disku uklidit a nechat
+ * po něm jen zástupce `.jméno.json.icloud`. Ten se pod původním jménem vůbec
+ * nenajde — deník druhého zařízení by tak nikdy nedorazil a vypadalo by to,
+ * že se nic nesynchronizuje. Stažení si musí aplikace vyžádat sama; `brctl`
+ * je na to systémový nástroj a když chybí (Windows, jiný cloud), nic se
+ * neděje — zástupci tam prostě nejsou.
+ */
+function fetchEvicted(folder: string, names: string[]): void {
+  if (process.platform !== 'darwin') return;
+  const placeholders = names.filter(f => f.startsWith('.') && f.endsWith('.icloud'));
+  if (!placeholders.length) return;
+  for (const name of placeholders) {
+    try {
+      execFile('brctl', ['download', path.join(folder, name)], () => { /* přijde příště */ });
+    } catch { /* brctl není — zbývá počkat, až si soubor stáhne systém sám */ }
+  }
+}
+
 function readJournals(dir: string): VoucherJournal[] {
   const out: VoucherJournal[] = [];
   const folder = path.join(dir, 'vouchers');
-  let files: string[] = [];
-  try { files = fs.readdirSync(folder).filter(f => f.endsWith('.json')); } catch { /* první běh */ }
+  let entries: string[] = [];
+  try { entries = fs.readdirSync(folder); } catch { /* první běh */ }
+  fetchEvicted(folder, entries);
+  const files = entries.filter(f => f.endsWith('.json') && !f.startsWith('.'));
   for (const file of files) {
     try {
       const j = JSON.parse(fs.readFileSync(path.join(folder, file), 'utf8'));
@@ -193,7 +217,8 @@ function readJournals(dir: string): VoucherJournal[] {
   return out;
 }
 
-function mergeTemplates(rows: any[]): void {
+/** @returns kolik šablon se skutečně změnilo — podle toho se obnovuje obrazovka */
+function mergeTemplates(rows: any[]): number {
   const upsert = getDb().prepare(
     `INSERT INTO voucher_templates (id, name, value, unit, valid_until, note, lang, code_mode, fixed_code, archived, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)
@@ -204,14 +229,16 @@ function mergeTemplates(rows: any[]): void {
        archived = excluded.archived, updated_at = excluded.updated_at
      WHERE excluded.updated_at > voucher_templates.updated_at`
   );
+  let changed = 0;
   for (const t of rows) {
     if (!t?.id || !t?.name) continue;
-    upsert.run(
+    changed += upsert.run(
       t.id, t.name, t.value ?? '', t.unit ?? 'CZK', t.valid_until ?? '', t.note ?? '',
       t.lang ?? 'cz', t.code_mode ?? 'fixed', t.fixed_code ?? '', t.archived ?? 0,
       t.updated_at ?? new Date().toISOString()
-    );
+    ).changes;
   }
+  return changed;
 }
 
 /** Dřívější rezervace vyhrává; při shodě času rozhodne jméno zařízení. */
@@ -222,7 +249,7 @@ function claimWins(atA: string, byA: string, atB: string, byB: string): boolean 
   return byB < byA;
 }
 
-function mergeCodes(rows: any[], names: Map<string, string>): number {
+function mergeCodes(rows: any[], names: Map<string, string>): { clashes: number; changed: number } {
   const d = getDb();
   const get = d.prepare('SELECT * FROM voucher_codes WHERE template_id = ? AND code = ?');
   const ins = d.prepare(
@@ -234,6 +261,7 @@ function mergeCodes(rows: any[], names: Map<string, string>): number {
      WHERE template_id = ? AND code = ?`
   );
   let clashes = 0;
+  let changed = 0;
 
   for (const c of rows) {
     if (!c?.template_id || !c?.code) continue;
@@ -244,6 +272,7 @@ function mergeCodes(rows: any[], names: Map<string, string>): number {
         c.claimed_by ?? '', c.claimed_at ?? '', c.used_dup ?? '', c.created_at ?? new Date().toISOString()
       );
       if (c.used_dup) clashes++;
+      changed++;
       continue;
     }
 
@@ -280,10 +309,22 @@ function mergeCodes(rows: any[], names: Map<string, string>): number {
         usedBy !== (local.used_by ?? '') || claimBy !== (local.claimed_by ?? '') ||
         claimAt !== (local.claimed_at ?? '') || dup !== (local.used_dup ?? '')) {
       upd.run(usedAt, usedFor, usedBy, claimBy, claimAt, dup, c.template_id, c.code);
+      changed++;
     }
   }
-  return clashes;
+  return { clashes, changed };
 }
+
+/**
+ * Otisk toho, co jsme naposledy zapsali do deníku. Bez něj by se soubor
+ * přepisoval při každém kole, i když se nic nezměnilo — a cloud by pak měl
+ * co dělat s prázdnými změnami místo těch skutečných.
+ *
+ * Klíčem je zařízení, ne jen jedna hodnota: v běžném provozu má každé
+ * zařízení vlastní běh aplikace, ale ve zkouškách běží vedle sebe a otisk
+ * jednoho by pak umlčel zápis druhého.
+ */
+const lastJournal = new Map<string, string>();
 
 function syncVouchers(dir: string): string | null {
   const d = getDb();
@@ -292,11 +333,14 @@ function syncVouchers(dir: string): string | null {
   const names = deviceNames(journals);
 
   let clashes = 0;
+  let changed = 0;
   const apply = d.transaction(() => {
     for (const j of journals) {
       if (j.device && j.device === me) continue; // vlastní deník nemá co říct
-      mergeTemplates(j.templates ?? []);
-      clashes += mergeCodes(j.codes ?? [], names);
+      changed += mergeTemplates(j.templates ?? []);
+      const result = mergeCodes(j.codes ?? [], names);
+      clashes += result.clashes;
+      changed += result.changed;
     }
   });
   apply();
@@ -305,21 +349,107 @@ function syncVouchers(dir: string): string | null {
   // si mezitím zamluvil někdo jiný
   claimAll();
 
-  const out: VoucherJournal = {
-    device: me,
-    name: deviceLabel(),
-    updatedAt: new Date().toISOString(),
-    templates: d.prepare('SELECT * FROM voucher_templates').all() as any[],
-    codes: d.prepare('SELECT * FROM voucher_codes').all() as any[]
-  };
-  const folder = path.join(dir, 'vouchers');
-  fs.mkdirSync(folder, { recursive: true });
-  writeJson(path.join(folder, `${me}.json`), out);
-  // Pro zařízení se starší verzí aplikace — ta o složce deníků nevědí
-  writeJson(path.join(dir, 'vouchers.json'), { templates: out.templates, codes: out.codes });
+  const templates = d.prepare('SELECT * FROM voucher_templates').all() as any[];
+  const codes = d.prepare('SELECT * FROM voucher_codes').all() as any[];
+  const body = JSON.stringify({ templates, codes });
+  if (body !== lastJournal.get(me)) {
+    const out: VoucherJournal = {
+      device: me,
+      name: deviceLabel(),
+      updatedAt: new Date().toISOString(),
+      templates,
+      codes
+    };
+    const folder = path.join(dir, 'vouchers');
+    fs.mkdirSync(folder, { recursive: true });
+    writeJson(path.join(folder, `${me}.json`), out);
+    // Pro zařízení se starší verzí aplikace — ta o složce deníků nevědí
+    writeJson(path.join(dir, 'vouchers.json'), { templates, codes });
+    lastJournal.set(me, body);
+  }
 
+  // Otevřená obrazovka s poukazy se dozví, že přibyla šablona nebo ubyl kód,
+  // aniž by ji musel člověk zavřít a otevřít
+  if (changed) emit('vouchers:changed', {});
   if (clashes) emit('vouchers:clash', {});
   return clashes ? `${clashes}× stejný kód ze dvou zařízení!` : null;
+}
+
+/* ---------- Poukazy: rychlá dráha ---------- */
+
+/**
+ * Poukazy samotné, mimo velké kolo synchronizace.
+ *
+ * Velké kolo dělá i archiv, a ten při větší schránce trvá — po tu dobu se
+ * nic jiného nesynchronizuje, protože běh je jeden a hlídá si zámek. Nová
+ * šablona nebo ubraný kód se tak objevily na druhém zařízení klidně za pár
+ * minut. Poukazy proto mají vlastní, krátký běh: přečte cizí deníky, sloučí
+ * a zapíše ten svůj. Je to práce se dvěma malými soubory, takže může běžet
+ * často a hned po každé změně.
+ */
+let vouchersRunning = false;
+
+export function syncVouchersNow(): void {
+  const cfg = getSyncConfig();
+  if (!cfg.enabled || !cfg.folder || vouchersRunning) return;
+  if (!fs.existsSync(cfg.folder)) return;
+  vouchersRunning = true;
+  try { syncVouchers(cfg.folder); } catch { /* zkusí se za chvíli znovu */ }
+  finally { vouchersRunning = false; }
+}
+
+let pushTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Odeslat změnu poukazů co nevidět.
+ *
+ * Odklad je schválně: při vkládání zásoby kódů nebo rychlém klikání by se
+ * jinak soubor přepisoval několikrát za sebou. Půl vteřiny stačí, aby se
+ * z několika změn stal jeden zápis, a je to pořád „hned".
+ */
+export function pushVouchersSoon(): void {
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => { pushTimer = null; syncVouchersNow(); }, 500);
+}
+
+/**
+ * Hlídání sdílené složky.
+ *
+ * Kdyby se jen čekalo na další kolo, změna z druhého zařízení by ležela
+ * ve složce klidně minutu, než by si jí někdo všiml. Systém přitom umí dát
+ * vědět, že se soubor změnil, hned. Na síťové a cloudové složce se na to
+ * nedá spolehnout vždycky, proto to není náhrada pravidelného běhu, ale
+ * zkratka: když ohlášení přijde, sloučí se hned; když nepřijde, doběhne to
+ * v běžném kole.
+ */
+let watcher: fs.FSWatcher | null = null;
+let watchedFolder = '';
+let watchTimer: NodeJS.Timeout | null = null;
+
+export function watchShared(): void {
+  const folder = getSyncConfig().folder ?? '';
+  const dir = folder ? path.join(folder, 'vouchers') : '';
+  if (dir === watchedFolder && watcher) return;
+
+  watcher?.close();
+  watcher = null;
+  watchedFolder = dir;
+  if (!dir) return;
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    watcher = fs.watch(dir, () => {
+      // Cloud soubor často uloží nadvakrát; chvilka počkání z toho udělá
+      // jedno sloučení místo dvou
+      if (watchTimer) clearTimeout(watchTimer);
+      watchTimer = setTimeout(() => { watchTimer = null; syncVouchersNow(); }, 700);
+    });
+    watcher.on('error', () => { watcher?.close(); watcher = null; watchedFolder = ''; });
+  } catch {
+    // Složka hlídat nejde (síťový disk, práva) — zbude pravidelný běh
+    watcher = null;
+    watchedFolder = '';
+  }
 }
 
 /* ---------- Instagram: co už na kterém trhu vyšlo ---------- */

@@ -4,7 +4,7 @@ import { sendNow } from './smtp';
 import { syncAllAccounts } from './imap';
 import { refreshFeed, feedIsStale } from './products';
 import { refreshDueFeeds } from './orderfeed';
-import { runSync } from './appsync';
+import { runSync, syncVouchersNow, watchShared } from './appsync';
 import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncSource as syncIgSource } from './instagram/publish';
 import { getSetting } from './db';
 import { pollUnread as pollChatUnread } from './chat';
@@ -51,6 +51,14 @@ export function startScheduler() {
   // Synchronizace mezi zařízeními (sdílená složka) — každou minutu
   setInterval(() => runSync().catch(() => {}), 60_000);
   setTimeout(() => runSync().catch(() => {}), 8_000);
+
+  // Poukazy zvlášť a mnohem častěji. Velké kolo dělá i archiv, který při
+  // větší schránce trvá, a po tu dobu se nic jiného nesynchronizuje — nová
+  // šablona nebo ubraný kód se pak na druhém zařízení objevily za minuty.
+  // Tohle jsou dva malé soubory, takže se to zvládne po deseti vteřinách.
+  watchShared();
+  setInterval(syncVouchersNow, 10_000);
+  setTimeout(syncVouchersNow, 3_000);
   // Instagram: fronta se odbavuje často, tokeny a synchronizace zdroje zřídka
   setInterval(() => processIgQueue().catch(() => {}), IG_QUEUE_INTERVAL);
   setInterval(() => refreshIgTokens().catch(() => {}), IG_TOKEN_INTERVAL);

@@ -85,6 +85,14 @@ final class Scheduler {
             }
         }
 
+        // Poukazy zvlášť a při každém kole. Velké kolo dělá i archiv, který
+        // při větší schránce trvá, a po tu dobu se nic jiného nesynchronizuje
+        // — nová šablona nebo ubraný kód se pak objevily až za minuty. Tohle
+        // jsou dva malé soubory, takže to jde stihnout pokaždé.
+        if Store.bool("syncEnabled", false) {
+            await Task.detached(priority: .utility) { AppSync.syncVouchersNow() }.value
+        }
+
         if Date().timeIntervalSince(lastFeed) > 3600 {
             lastFeed = Date()
             if Products.isStale() {

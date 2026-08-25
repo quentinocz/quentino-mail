@@ -8,28 +8,48 @@ import Foundation
  */
 extension Bridge {
     func registerVoucherChannels() {
+        /**
+         Po každé změně se poukazy rovnou pošlou do sdílené složky, ať se nová
+         šablona nebo ubraný kód objeví na druhém zařízení hned a ne až
+         s dalším velkým kolem synchronizace.
+         */
+        func changed<T>(_ value: T) -> T {
+            AppSync.pushVouchersSoon()
+            return value
+        }
+
         register("vouchers:list") { _ in Vouchers.templates() }
         register("vouchers:save") { args in
-            try Vouchers.saveTemplate(args.first as? [String: Any] ?? [:])
+            try changed(Vouchers.saveTemplate(args.first as? [String: Any] ?? [:]))
         }
         register("vouchers:delete") { args in
-            Vouchers.deleteTemplate(id: try Self.text(args.first))
+            try changed(Vouchers.deleteTemplate(id: Self.text(args.first)))
         }
         register("vouchers:addCodes") { args in
-            Vouchers.addCodes(
-                templateId: try Self.text(args.first),
+            try changed(Vouchers.addCodes(
+                templateId: Self.text(args.first),
                 raw: args.count > 1 ? (args[1] as? String ?? "") : ""
-            )
+            ))
         }
         register("vouchers:codes") { args in
             Vouchers.codes(templateId: try Self.text(args.first))
         }
         register("vouchers:deleteCode") { args in
-            Vouchers.deleteCode(
-                templateId: try Self.text(args.first),
+            try changed(Vouchers.deleteCode(
+                templateId: Self.text(args.first),
                 code: args.count > 1 ? (args[1] as? String ?? "") : ""
-            )
+            ))
         }
+        /**
+         Sladit poukazy hned. Aplikace to dělá sama každých pár vteřin, ale když
+         někdo čeká na kódy z druhého zařízení, je lepší mít tlačítko než hádat,
+         jestli se něco děje. (Rychlost dodání souboru řídí cloud, ne my.)
+         */
+        register("vouchers:sync") { _ in
+            await Task.detached(priority: .utility) { AppSync.syncVouchersNow() }.value
+            return Vouchers.templates()
+        }
+
         /// Kódy, které podle synchronizace vydala dvě zařízení — normálně prázdné
         register("vouchers:clashes") { _ in Vouchers.clashes() }
         register("vouchers:clearClash") { args in
@@ -43,7 +63,7 @@ extension Bridge {
                 templateId: try Self.text(args.first),
                 code: args.count > 1 ? (args[1] as? String ?? "") : ""
             )
-            return true
+            return changed(true)
         }
 
         /**
@@ -58,9 +78,11 @@ extension Bridge {
             do {
                 let spec = try Vouchers.spec(templateId: templateId, code: taken.code)
                 let files = try await VoucherPdf.create(spec: spec)
-                return ["code": taken.code, "remaining": taken.remaining, "files": files]
+                // Ubraný kód ať druhé zařízení ví hned
+                return changed(["code": taken.code, "remaining": taken.remaining, "files": files])
             } catch {
                 Vouchers.releaseCode(templateId: templateId, code: taken.code)
+                AppSync.pushVouchersSoon()
                 throw error
             }
         }
