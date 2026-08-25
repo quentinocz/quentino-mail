@@ -46,13 +46,15 @@ export default function PtransStatusBar({ hidden, onOpen }: {
   useEffect(() => {
     api.ptrans.progress().then(setPtrans).catch(() => {});
     api.articles.progress().then(setArticles).catch(() => {});
-    const offPtrans = api.on('ptrans:progress', (p: PtransProgress) => {
+    // `p` může přijít i prázdné (běh se zrušil dřív, než vůbec začal) —
+    // sáhnout do něj naslepo by shodilo celé rozhraní kvůli pruhu na okraji
+    const offPtrans = api.on('ptrans:progress', (p: PtransProgress | null) => {
       setPtrans(p);
-      if (!p.running) setStopping(false);
+      if (!p?.running) setStopping(false);
     });
-    const offArticles = api.on('articles:progress', (p: ArticleProgress) => {
+    const offArticles = api.on('articles:progress', (p: ArticleProgress | null) => {
       setArticles(p);
-      if (!p.running) setStopping(false);
+      if (!p?.running) setStopping(false);
     });
     return () => { offPtrans(); offArticles(); };
   }, []);

@@ -84,6 +84,27 @@ await overflow('překlady — seznam'); await snap('01-preklady-seznam');
 await click('.pt-row');
 await overflow('překlady — detail'); await snap('02-preklady-detail');
 
+// Karta otevřeného produktu se musí obnovit sama, jakmile překlad postoupí
+{
+  await click('.pt-row');
+  const before = await page.locator('.pt-cell').first().innerText().catch(() => '');
+  await page.evaluate(() => {
+    // Jako by právě doběhl překlad názvu do slovenštiny
+    const page0 = window.__answers && window.__answers['ptrans:fields'];
+    if (page0) page0.forEach(f => { if (f.field === 'title' && f.lang === 'sk') f.translated = 'ČERSTVĚ PŘELOŽENO'; });
+    window.__emit('ptrans:progress', { running: true, done: 1, total: 2, failed: 0, etaSeconds: 5, secondsPerUnit: 3, label: 'PSSK120BR2 → Slovenština', errors: [] });
+  });
+  await page.waitForTimeout(500);
+  // Překlady jsou v textových polích — `innerText` je nevidí, hodnota ano
+  const after = await page.evaluate(() =>
+    [...document.querySelectorAll('textarea, .rt-editor')].map(el => el.value ?? el.textContent).join(' '));
+  console.log(`${'karta se obnoví sama'.padEnd(28)} ${after.includes('ČERSTVĚ PŘELOŽENO') ? '✓' : '✗'}`);
+  void before;
+  await page.evaluate(() => window.__emit('ptrans:progress',
+    { running: false, done: 2, total: 2, failed: 0, etaSeconds: 0, secondsPerUnit: 3, label: '', errors: [] }));
+  await page.waitForTimeout(200);
+}
+
 // Přeložený produkt nesmí ze seznamu zmizet uprostřed práce — zůstane na
 // místě označený jako hotový a uklidí se až při dalším hledání
 await page.evaluate(() => { window.__translated = 'MZU01'; window.__emit('ptrans:changed', {}); });
