@@ -90,6 +90,9 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** Okno přes celou obrazovku — s tisícem produktů se v malém dialogu pracuje mizerně */
+  const [wide, setWide] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const [fields, setFields] = useState<PtransField[]>([]);
   /** Které jazykové sloupce jsou v detailu vidět (výchozí: všechny zapnuté) */
@@ -164,6 +167,28 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
       if (next.has(code)) next.delete(code); else next.add(code);
       return next;
     });
+  };
+
+  /**
+   * Vybrat všechno, co je ve filtru — ne jen to, co je zrovna vidět.
+   *
+   * Kódy si řekne aplikace, ne prohlížeč: filtr se skládá v databázi a kdyby
+   * si ho rozhraní sestavovalo znovu, dřív nebo později by vybralo něco
+   * jiného, než co je v seznamu.
+   */
+  const selectAllFiltered = async () => {
+    setSelectingAll(true);
+    try {
+      const codes = await api.ptrans.codes(query);
+      setSelected(new Set(codes));
+      toast(codes.length >= page.total
+        ? `Vybráno ${codes.length} produktů`
+        : `Vybráno ${codes.length} produktů (víc se najednou vybrat nedá)`);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setSelectingAll(false);
+    }
   };
 
   const selectAllVisible = () => {
@@ -368,7 +393,7 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal pt-modal">
+      <div className={`modal pt-modal ${wide ? 'wide' : ''}`}>
         <div className="modal-head">
           <div className="modal-title"><Icon name="globe" size={16} /> Překlady produktů</div>
           <span className="pt-feed">
@@ -385,6 +410,10 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
               onClick={() => setTab('memory')}>Paměť</button>
             <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Nastavení</button>
           </div>
+          <button className="icon-btn" onClick={() => setWide(v => !v)}
+            data-tip={wide ? 'Zmenšit okno' : 'Zvětšit okno na celou obrazovku'}>
+            <Icon name={wide ? 'minimize' : 'expand'} size={15} />
+          </button>
           <button className="icon-btn" onClick={importFile}
             data-tip="Přidat produkty z XML souboru — novinky, které ve feedu ještě nejsou">
             <Icon name="upload" size={15} />
@@ -532,7 +561,22 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                     <input type="checkbox"
                       checked={page.rows.length > 0 && page.rows.every(row => selected.has(row.code))}
                       onChange={selectAllVisible} />
-                    Vybrat vše na stránce
+                    Vybrat stránku
+                  </label>
+                  {/* Se stránkou po šedesáti se hromadná akce nad osmi sty
+                      produkty musí spouštět čtrnáctkrát — proto i celý filtr */}
+                  {page.total > page.rows.length && (
+                    <button className="linkish" disabled={selectingAll} onClick={selectAllFiltered}>
+                      {selectingAll ? <span className="spinner-inline" /> : null} Vybrat všech {page.total}
+                    </button>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  <label className="pt-check pt-perpage">
+                    Na stránku
+                    <select value={query.limit ?? 60}
+                      onChange={e => setQuery(q => ({ ...q, limit: Number(e.target.value), offset: 0 }))}>
+                      {[30, 60, 120, 250, 500].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
                   </label>
                   {selected.size > 0 && (
                     <button className="btn ghost" onClick={() => setSelected(new Set())}>
@@ -567,6 +611,14 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                         <div className="pt-row-sub">
                           <span className="pt-code">{row.code}</span>
                           {row.category && <span>{row.category}</span>}
+                          {/* Podívat se, jak produkt na e-shopu doopravdy vypadá,
+                              je při posuzování textů to první, co člověk chce */}
+                          {row.url && (
+                            <button className="pt-open" data-tip="Otevřít produkt v prohlížeči"
+                              onClick={e => { e.stopPropagation(); api.shell.openUrl(row.url); }}>
+                              <Icon name="link" size={11} /> otevřít
+                            </button>
+                          )}
                         </div>
                       </div>
                       {/*

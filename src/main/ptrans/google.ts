@@ -4,8 +4,8 @@ import { getSettings } from '../settings';
 import { getPtransSettings, saveTranslation, productFields, fieldValue, targetLangs } from './store';
 import { getField, tagText } from './xml';
 import { parameterMap, renderTemplate } from './seo';
-import { clamp } from './translate';
-import { plain } from './detect';
+
+import { plain, clamp } from './detect';
 import { colorFor, shadeFromTitle } from './colors';
 import { detectBundle } from './bundle';
 import { memoryHint } from './memory';

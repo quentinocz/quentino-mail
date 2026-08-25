@@ -48,7 +48,7 @@ const ALLOWED_INVOKE = [
   'chat:conversations', 'chat:messages', 'chat:send', 'chat:sendImage', 'chat:markRead', 'chat:setStatus',
   'chat:cards', 'chat:searchProducts', 'chat:productInDomain', 'chat:suggest',
   // Překlady produktů
-  'ptrans:overview', 'ptrans:saveSettings', 'ptrans:refresh', 'ptrans:list', 'ptrans:fields',
+  'ptrans:overview', 'ptrans:saveSettings', 'ptrans:refresh', 'ptrans:list', 'ptrans:codes', 'ptrans:fields',
   'ptrans:edit', 'ptrans:retranslate', 'ptrans:run', 'ptrans:stop', 'ptrans:progress', 'ptrans:plan',
   'ptrans:googleTitles', 'ptrans:templatePreview', 'ptrans:generateSeo', 'ptrans:seoUrl',
   'ptrans:exportPreview', 'ptrans:export', 'ptrans:importFile', 'ptrans:redirectPreview',

@@ -3,9 +3,8 @@ import { ask } from '../ai';
 import { getSettings } from '../settings';
 import { getPtransSettings, saveTranslation, productFields, fieldValue, targetLangs } from './store';
 import { getField, productParameters, tagText } from './xml';
-import { clamp, slugify } from './translate';
-import { plain } from './detect';
-import { setSeoUrl } from './redirects';
+import { applySlug } from './translate';
+import { plain, clamp } from './detect';
 import { languageNote, styleHint } from './style';
 
 /**
@@ -183,11 +182,13 @@ export async function generateSeo(code: string, lang: string, kind: SeoKind,
   return value;
 }
 
-/** Adresa z přeloženého názvu — bez modelu, jen přepis (a doplnění 301). */
+/**
+ * Adresa z přeloženého názvu — bez modelu, jen přepis (a doplnění 301).
+ *
+ * Rozhodování je stejné jako při překladu (`applySlug`): ruční úprava se
+ * nepřepisuje a z názvu, který ještě přeložený není, se adresa nedělá.
+ */
 export function refreshSeoUrl(code: string, lang: string): string {
-  const fields = productFields(code, [lang]);
-  const title = fields.find(f => f.field === 'title');
-  const slug = slugify(title?.translated || title?.value || '');
-  if (slug) setSeoUrl(code, lang, slug, 'přepis');
-  return slug;
+  const result = applySlug(code, lang, productFields(code, [lang]), 'přepis');
+  return result?.slug ?? '';
 }

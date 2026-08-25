@@ -194,6 +194,25 @@ export function getField(block: string, lang: string, field: FieldKey): string |
 }
 
 /**
+ * Odkaz na produkt v e-shopu pro daný jazyk.
+ *
+ * Bere se přímo z feedu (`<URL>` v jazykové části), ne se skládá z domény
+ * a adresy — každý trh má jinou doménu a feed to ví přesně. Když jazyková
+ * část odkaz nemá, vrátí se ten ze zdrojového jazyka; lepší otevřít český
+ * produkt než nic.
+ */
+export function productUrl(block: string, lang: string, sourceLang?: string): string {
+  for (const which of [lang, sourceLang]) {
+    if (!which) continue;
+    const range = scopeRange(block, 'description', which);
+    if (!range) continue;
+    const url = tagText(block.slice(range[0], range[1]), 'URL');
+    if (url && /^https?:\/\//i.test(url)) return url;
+  }
+  return '';
+}
+
+/**
  * Zápis hodnoty do bloku produktu.
  *
  * Když jazyková část chybí (typicky nový jazyk, který ve feedu ještě není),
