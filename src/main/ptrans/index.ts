@@ -1,7 +1,7 @@
 import { BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
 import { getSetting } from '../db';
-import { syncFromFeed, ingestFile, ingestNewOnly, revertToFeed, recomputeStates,
+import { syncFromFeed, ingestFile, ingestNewOnly, revertToFeed, recomputeStates, refreshStatesIfNeeded,
   getPtransSettings, savePtransSettings, listProducts, productFields,
   saveTranslation, summary, feedInfo, targetLangs, SyncResult } from './store';
 import { run, stop, progress, planWork, translateOne } from './translate';
@@ -405,7 +405,7 @@ export async function exportToFile(options: ExportOptions = {}): Promise<{ path:
 
 export {
   getPtransSettings, savePtransSettings, listProducts, productFields, summary, targetLangs,
-  derivePattern, recomputeStates,
+  derivePattern, recomputeStates, refreshStatesIfNeeded,
   run, stop, progress, planWork,
   applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl,
   buildExport, exportPreview,

@@ -197,6 +197,26 @@ export function revertToFeed(codes: string[], options: { keepManual?: boolean } 
   return changes;
 }
 
+/**
+ * Přepočet po změně pravidel.
+ *
+ * Stavy polí leží v databázi hotové, aby se seznam nemusel počítat při každém
+ * otevření. Když se ale změní způsob, jakým se stav určuje, zůstala by tam
+ * stará čísla — a oprava by se navenek vůbec neprojevila. Značka verze říká,
+ * podle jakých pravidel se počítalo naposledy; nesouhlasí-li, přepočítá se
+ * jednou všechno.
+ *
+ * Verze se zvedá při každé změně `fieldState`.
+ */
+const STATE_RULES_VERSION = '2';
+
+export function refreshStatesIfNeeded(): number {
+  if (getSetting('ptransStateRules', '') === STATE_RULES_VERSION) return 0;
+  const changed = recomputeStates();
+  setSetting('ptransStateRules', STATE_RULES_VERSION);
+  return changed;
+}
+
 /** Přepočítá stav polí podle toho, co je ve feedu a co máme uložené. */
 export function recomputeStates(codes?: string[]): number {
   const d = getDb();
@@ -214,6 +234,7 @@ export function recomputeStates(codes?: string[]): number {
       const state = fieldState({
         value: row.value,
         source: row.source_value,
+        field: row.field,
         sourceLang: s.sourceLang,
         targetLang: row.lang,
         translatedHash: ours ? row.translated_hash : null,
@@ -309,6 +330,7 @@ function ingest(xml: string, options: IngestOptions = {}): SyncResult {
           const state: FieldState = fieldState({
             value,
             source,
+            field,
             sourceLang: s.sourceLang,
             targetLang: lang,
             translatedHash: ours ? saved?.translated_hash : null,

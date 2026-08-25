@@ -11,11 +11,20 @@
  *   2. po očištění shodné se zdrojem → nepřeloženo,
  *   3. rozpoznání jazyka → když text vyjde jako zdrojový jazyk, taky nepřeloženo.
  *
+ * Krok 2 má ale výjimku, bez které je celé počítání k ničemu: **některé
+ * hodnoty jsou ve všech jazycích stejné právem**. Google atributy se nepřekládají
+ * (`male`, `adult`, `new`), čárový kód je číslo, „45 cm" je „45 cm" i anglicky.
+ * Když se u nich shoda se zdrojem brala jako „nepřeloženo", stačil jeden takový
+ * údaj a produkt visel v „čeká na překlad" napořád — i s hotovou angličtinou
+ * i slovenštinou. A překlad by to nespravil, protože `male` zůstane `male`.
+ *
  * Rozpoznávání stojí na znacích a slovech, které jazyky **skutečně odlišují**.
  * První verze používala i slova jako „je" nebo „na", která jsou stejná v češtině
  * i slovenštině, a označkovala kvůli nim stovky správných slovenských textů jako
  * české. Radši méně signálů a jistota než horlivost.
  */
+
+import { DERIVED_FIELDS } from './xml';
 
 export type FieldState =
   /** Ve feedu není nic */
@@ -77,6 +86,50 @@ const MARKERS: Record<string, Markers> = {
   }
 };
 
+/**
+ * Hodnoty z pevného slovníku Google Merchantu. Do feedu patří anglicky ve všech
+ * jazykových mutacích — Google jiné nezná a přeložené by zahodil.
+ */
+const NEUTRAL_VALUES = new Set([
+  'male', 'female', 'unisex',
+  'adult', 'kids', 'toddler', 'infant', 'newborn',
+  'new', 'refurbished', 'used',
+  'yes', 'no', 'true', 'false',
+  'in stock', 'out of stock', 'preorder', 'backorder'
+]);
+
+/** Konfekční velikosti — „XL" se nepřekládá. */
+const SIZE_LABELS = /^(x{0,3}s|x{0,3}l|m|uni|one ?size|\d?xl)$/i;
+
+/**
+ * Míra, podíl nebo kód: „38-40", „100 %", „45 cm", čárový kód.
+ *
+ * Jednotky jsou schválně vyjmenované, ne „číslo a pár písmen". Volnější
+ * pravidlo by spolklo i „3 kusy" — a to se přeložit má. Tenhle seznam radši
+ * něco nechytí, než aby tiše zamlčel skutečnou práci.
+ */
+const UNITS = 'cm|mm|m|km|g|kg|ml|l|ks|pcs|eu|uk|us|den|dpi';
+const MEASURE = new RegExp(`^[\\d\\s.,%×x/+·–-]+ ?(${UNITS})?$`, 'i');
+
+/**
+ * Je hodnota stejná ve všech jazycích právem?
+ *
+ * Rozhoduje se podle pole i podle hodnoty. Pole proto, že Google atributy
+ * a adresy si aplikace skládá sama a nikdo je nepřekládá — u nich shoda se
+ * zdrojem nic neznamená. Hodnota proto, že i v běžném poli (typicky
+ * v parametru produktu) se objeví „100 %" nebo „XL", a to je česky i anglicky
+ * totéž.
+ */
+export function isNeutral(field: string | undefined, value: string): boolean {
+  if (field && DERIVED_FIELDS.has(field)) return true;
+  const text = value.trim().toLowerCase();
+  if (!text) return false;
+  if (NEUTRAL_VALUES.has(text)) return true;
+  if (SIZE_LABELS.test(text)) return true;
+  if (MEASURE.test(text)) return true;
+  return false;
+}
+
 /** Text bez HTML, entit a přebytečných mezer — na porovnávání i na rozpoznání. */
 export function plain(value: string): string {
   return value
@@ -136,6 +189,11 @@ export interface StateInput {
   sourceHash?: string;
   /** Pole bylo ručně upraveno v aplikaci */
   manual?: boolean;
+  /**
+   * Které pole to je. Bez něj se u Google atributů a adres nepozná, že shoda
+   * se zdrojem je v pořádku — a produkt by kvůli nim zůstal „čeká na překlad".
+   */
+  field?: string;
 }
 
 /** Stav jednoho pole v jednom jazyce. */
@@ -145,12 +203,20 @@ export function fieldState(input: StateInput): FieldState {
 
   if (input.manual) return 'manual';
   if (!value) return 'missing';
-  if (source && value.toLowerCase() === source.toLowerCase()) return 'same';
+
+  // Hodnota, která je ve všech jazycích stejná právem: shoda se zdrojem ani
+  // rozpoznaný jazyk o ničem nevypovídají. Zbývá jediná skutečná práce —
+  // změnil se zdroj? — a tu řeší otisk níž.
+  const neutral = isNeutral(input.field, value);
+
+  if (!neutral && source && value.toLowerCase() === source.toLowerCase()) return 'same';
 
   if (input.translatedHash) {
     // Přeloženo námi — jediné, co se ještě může pokazit, je změna zdroje
     return input.sourceHash && input.sourceHash !== input.translatedHash ? 'stale' : 'ok';
   }
+
+  if (neutral) return 'ok';
 
   const guess = detectLanguage(input.value, [input.sourceLang, input.targetLang]);
   if (guess === input.sourceLang && guess !== input.targetLang) return 'source';
