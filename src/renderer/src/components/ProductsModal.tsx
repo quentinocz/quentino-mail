@@ -181,7 +181,7 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { loadPage(); }, [loadPage]);
   useEffect(() => api.on('ptrans:progress', (p: PtransProgress) => setProgress(p)), []);
-  useEffect(() => api.on('ptrans:changed', () => { loadPage(); loadOverview(); }), [loadPage, loadOverview]);
+
 
   // Hledání se posílá se zpožděním, ať se při psaní nedotazuje na každé písmeno
   useEffect(() => {
@@ -201,6 +201,44 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     if (!active) { setFields([]); return; }
     loadFields(active);
   }, [active, loadFields]);
+
+  useEffect(() => api.on('ptrans:changed', () => {
+    loadPage();
+    loadOverview();
+    // Otevřená karta musí ukázat, co se právě změnilo — ne stav před tím
+    if (active) loadFields(active);
+  }), [loadPage, loadOverview, active, loadFields]);
+
+  /*
+   * Karta otevřeného produktu se má obnovovat sama.
+   *
+   * Dřív se načetla jen při přepnutí na produkt, takže po překladu bylo nutné
+   * kliknout jinam a zpátky, aby byly nové texty vidět. Sleduje se proto
+   * postup běhu: kdykoli přibude hotová položka, karta se načte znovu.
+   *
+   * Kdy přesně na řadu přišel zrovna tenhle produkt, se z postupu spolehlivě
+   * poznat nedá (popisek se posílá před zpracováním, ne po něm), takže se
+   * čte při každém posunu — je to jeden dotaz do databáze a ten je levný.
+   */
+  const doneAt = useRef(-1);
+  useEffect(() => {
+    if (!active || !progress) return;
+    if (progress.done === doneAt.current) return;
+    doneAt.current = progress.done;
+    loadFields(active);
+  }, [progress, active, loadFields]);
+
+  // Konec běhu: seznam i přehled se srovnají s tím, co se opravdu uložilo
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    const running = !!progress?.running;
+    if (wasRunning.current && !running) {
+      loadPage();
+      loadOverview();
+      if (active) loadFields(active);
+    }
+    wasRunning.current = running;
+  }, [progress, active, loadPage, loadOverview, loadFields]);
 
   /* ---------- výběr ---------- */
 
@@ -1069,10 +1107,15 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
       if (result.noSource > 0) {
         toast(`Hotovo, ale ${result.noSource}× chybí české znění`
           + ` (${result.noSourceFields.join(', ')}) — zapni „Doplnit chybějící české texty".`, 'error');
+      } else if (result.failed) {
+        // Když jeden jazyk vyjde a druhý ne, je to skoro vždycky chvilkové
+        // přetížení API. Aplikace to sama zkusí ještě jednou; co ani pak
+        // neprojde, se musí říct i s důvodem — jinak to vypadá, že se trh
+        // přeskočil bez příčiny.
+        toast(`Hotovo: ${result.done - result.failed} přeloženo, ${result.failed} neprošlo`
+          + (result.errors[0] ? ` — ${result.errors[0]}` : ''), 'error');
       } else {
-        toast(result.failed
-          ? `Hotovo: ${result.done - result.failed} přeloženo, ${result.failed} selhalo`
-          : `Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`);
+        toast(`Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`);
       }
     } catch (e: any) {
       toast(e.message, 'error');

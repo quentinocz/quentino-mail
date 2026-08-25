@@ -433,6 +433,8 @@ export async function run(input: RunInput): Promise<RunResult> {
   const started = Date.now();
   const errors: string[] = [];
   const noSourceFields: string[] = [];
+  /** Cíle, které napoprvé selhaly — dostanou ještě jeden pokus. */
+  const again: TranslateTarget[] = [];
   let done = 0;
   let failed = 0;
   let noSource = 0;
@@ -516,9 +518,13 @@ export async function run(input: RunInput): Promise<RunResult> {
         noSource++;
         if (!noSourceFields.includes(field)) noSourceFields.push(field);
       }
-      if (result.error && !isAborted(result)) {
+      // Chybějící zdrojový text není chyba běhu — hlásí se zvlášť a druhý
+      // pokus by dopadl stejně
+      const missingOnly = (result.noSource?.length ?? 0) > 0 && result.saved === 0;
+      if (result.error && !isAborted(result) && !missingOnly) {
         failed++;
         errors.push(result.error);
+        again.push(target);
       }
       current = {
         running: true,
@@ -534,6 +540,38 @@ export async function run(input: RunInput): Promise<RunResult> {
     }
   });
   await Promise.all(workers);
+
+  /*
+   * Druhý pokus.
+   *
+   * Nejčastější příčina, proč jeden jazyk vyjde a druhý ne, není v datech:
+   * je to chvilkové přetížení API. Když se produkt překládá do dvou jazyků
+   * naráz, sedne si to zrovna na jeden z nich — a výsledek vypadá, jako by
+   * aplikace jeden trh přeskočila.
+   *
+   * Opakuje se proto sériově a s malou pauzou: když je server zahlcený,
+   * další dva souběžné dotazy mu nepomůžou.
+   */
+  if (again.length > 0 && !cancelled) {
+    for (const target of again) {
+      if (cancelled) break;
+      current = {
+        ...current!,
+        label: `${target.code} → ${labelOf(target.lang, s)} — druhý pokus`
+      };
+      emit('ptrans:progress', current);
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      const result = await translateOne(target, abort?.signal);
+      if (result.error && !isAborted(result)) continue;   // ani napodruhé to nevyšlo
+      // Povedlo se — chyba z prvního pokusu se odvolá
+      failed = Math.max(0, failed - 1);
+      const at = errors.findIndex(text => text.startsWith(`${target.code} (${target.lang})`));
+      if (at >= 0) errors.splice(at, 1);
+      current = { ...current!, failed, errors: errors.slice(-5) };
+      emit('ptrans:progress', current);
+    }
+  }
 
   const seconds = (Date.now() - started) / 1000;
   // Naměřená rychlost se pamatuje, aby byl odhad rozumný hned na začátku příště

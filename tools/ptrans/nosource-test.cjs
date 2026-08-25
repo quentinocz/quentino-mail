@@ -62,14 +62,26 @@ shim('db.js', {
 });
 shim('settings.js', { getSettings: () => ({ draftModel: 'x', brandPrompt: '' }), touchState: () => {} });
 
-// Falešný model: vrátí JSON se stejnými klíči, jaké dostane
+/*
+ * Falešný model: vrátí JSON se stejnými klíči, jaké dostane.
+ *
+ * `failOnce` navíc nechá první dotaz na daný jazyk spadnout — přesně jak se
+ * chová přetížené API. Podle toho se pozná, jestli aplikace zkusí znovu.
+ */
 let asked = 0;
+const failedFor = new Set();
+let failOnce = null;
 shim('ai.js', {
   ask: async (model, system, user) => {
     asked++;
+    const lang = /do jazyka „([a-z]{2,5})"/.exec(system)?.[1] ?? '';
+    if (failOnce === lang && !failedFor.has(lang)) {
+      failedFor.add(lang);
+      throw new Error('Overloaded');
+    }
     const payload = JSON.parse(user.slice(user.indexOf('{', user.indexOf('Texty k překladu:'))));
     const out = {};
-    for (const [key, value] of Object.entries(payload)) out[key] = `[sk] ${value}`;
+    for (const [key, value] of Object.entries(payload)) out[key] = `[${lang}] ${value}`;
     return JSON.stringify(out);
   }
 });
@@ -128,8 +140,33 @@ console.log('pole bez českého znění:\n');
   check('a chybějící zdroj přesto připomene',
     (mixed.noSource ?? []).includes('seo_title'), JSON.stringify(mixed.noSource));
 
+  console.log('\nkdyž API jednou selže:\n');
+
+  // Produkt do dvou jazyků naráz. Angličtině se první dotaz nepovede —
+  // přesně tak vypadá chvilkové přetížení a přesně proto dřív jeden trh
+  // zůstal nepřeložený.
+  const TWO = 'PKT23';
+  db.prepare("INSERT INTO ptrans_products (code, title, raw_xml) VALUES (?,?,'')")
+    .run(TWO, 'Bordó pánská kravata');
+  for (const lang of ['sk', 'en']) {
+    db.prepare(
+      `INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
+       VALUES (?,?,?,?,?,?)`
+    ).run(TWO, lang, 'title', 'Bordó pánská kravata', 'Bordó pánská kravata', 'same');
+  }
+
+  failOnce = 'en';
+  const run = await translate.run({ codes: [TWO], langs: ['sk', 'en'], fillSource: false });
+  const value = lang => db.prepare(
+    "SELECT translated FROM ptrans_fields WHERE code = ? AND lang = ? AND field = 'title'"
+  ).get(TWO, lang)?.translated ?? '';
+
+  check('slovenština prošla napoprvé', value('sk').startsWith('[sk]'), value('sk'));
+  check('angličtina se dotáhla druhým pokusem', value('en').startsWith('[en]'), value('en'));
+  check('a běh se netváří jako neúspěšný', run.failed === 0, JSON.stringify(run));
+
   console.log(bad
     ? `\n${bad} věcí nesedí`
-    : '\nchybějící český text se nezamlčí');
+    : '\nchybějící český text se nezamlčí a chvilková chyba API nezůstane');
   process.exit(bad ? 1 : 0);
 })();

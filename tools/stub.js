@@ -650,6 +650,9 @@
     scannedAt: new Date().toISOString()
   };
 
+  // Náhledy si potřebují data upravit za běhu (např. „právě doběhl překlad")
+  window.__answers = answers;
+
   window.api = {
     invoke: function (channel, arg) {
       // Náhledy se střídají podle příspěvku, ať je vidět víc poměrů stran
