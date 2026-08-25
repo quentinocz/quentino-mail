@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, powerMonitor, screen } from 'electron';
+import { app, BrowserWindow, dialog, shell, powerMonitor, screen } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { installSystemCa } from './systemca';
@@ -267,11 +267,34 @@ app.on('open-url', (e, url) => {
 app.whenReady().then(() => {
   installCrashGuards();
   installSystemCa(); // kořeny z Keychainu ještě před prvním síťovým voláním
-  getDb(); // inicializace DB + migrace
-  setHtmlRenderer(renderPage); // dopravci, kteří stav vypisují až JavaScriptem
-  try { backfillContacts(); } catch { /* jednorázové naplnění našeptávače */ }
-  registerIpc();
-  createWindow();
+
+  /*
+   * Start naostro — a hlavně nahlas.
+   *
+   * Kdyby se tady něco zadrhlo (typicky migrace databáze), skončí to jinak
+   * v protokolu, kam se nikdo nedívá: proces běží, okno se neotevře a zvenku
+   * to vypadá, že se aplikace nespustila vůbec. Radši ať se ukáže hláška
+   * s důvodem než prázdná plocha.
+   */
+  try {
+    getDb(); // inicializace DB + migrace
+    setHtmlRenderer(renderPage); // dopravci, kteří stav vypisují až JavaScriptem
+    try { backfillContacts(); } catch { /* jednorázové naplnění našeptávače */ }
+    registerIpc();
+    createWindow();
+  } catch (e: any) {
+    dialog.showErrorBox(
+      'Quentino mail se nepodařilo spustit',
+      [
+        e?.message ?? String(e),
+        '',
+        `Databáze: ${path.join(app.getPath('userData'), 'quentino-mail.db')}`,
+        'Pošli prosím tuhle hlášku dál — podle ní se pozná, co se pokazilo.'
+      ].join('\n')
+    );
+    app.quit();
+    return;
+  }
   startScheduler();
   // úvodní synchronizace na pozadí
   setTimeout(() => syncAllAccounts().catch(() => {}), 1500);
