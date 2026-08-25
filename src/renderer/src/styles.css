@@ -3267,8 +3267,61 @@ button, kbd, label,
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .vch-code.used { opacity: 0.45; text-decoration: line-through; }
+/* Zamluvené jiným zařízením: pořád volné, ale tenhle počítač po něm nesáhne */
+.vch-code.held { opacity: 0.55; border-style: dashed; }
+.vch-code.clash { border-color: var(--danger); color: var(--danger); opacity: 1; }
 .vch-code button { display: flex; color: var(--text-3); }
 .vch-code button:hover { color: var(--danger); }
+
+/* Kód vydaný dvakrát — jediná věc, kterou aplikace sama nespraví, tak ať je vidět */
+.vch-clash {
+  display: flex;
+  gap: 10px;
+  padding: 11px 13px;
+  margin-bottom: 12px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.vch-clash > svg { flex-shrink: 0; margin-top: 1px; color: var(--danger); }
+.vch-clash > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.vch-clash-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 0;
+  border-top: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+}
+.vch-clash-row code {
+  flex-shrink: 0;
+  padding-top: 1px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+}
+.vch-clash-row > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--text-2);
+}
+.vch-clash-row > span b { font-weight: 500; color: var(--text); }
+.vch-clash-row > span small { color: var(--text-3); font-size: 11.5px; }
+.vch-clash-row .btn { flex-shrink: 0; padding: 3px 9px; font-size: 11.5px; }
+
+/* Na telefonu se kód a tlačítko dělí o první řádek a popis jde přes celou
+   šířku — tři sloupce vedle sebe by tu byly samé zlomené slovo */
+html[data-form-factor="phone"] .vch-clash-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+  row-gap: 3px;
+}
+html[data-form-factor="phone"] .vch-clash-row .btn { grid-column: 2; grid-row: 1; }
+html[data-form-factor="phone"] .vch-clash-row > span { grid-column: 1 / -1; }
 
 /* ==========================================================================
    Telefon
@@ -3282,6 +3335,8 @@ button, kbd, label,
    ========================================================================== */
 
 .m-only { display: none; }
+/* Opak `m-only`: doplňující údaj, který se na úzký displej nevejde */
+html[data-form-factor="phone"] .only-desk { display: none; }
 
 html[data-form-factor="phone"] {
   --m-head-h: 46px;

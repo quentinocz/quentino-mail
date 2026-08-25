@@ -202,7 +202,11 @@ const VOLATILE_SETTING_KEYS = [
   'stateStamp', 'ftsBuilt', 'contactsBackfilled',
   'productFeedSync', 'productFeedSchema',
   'syncLastRun', 'syncLastResult',
-  'ptransSyncedAt'
+  'ptransSyncedAt',
+  // Totožnost zařízení do zálohy nepatří: po obnovení na druhém počítači by
+  // obě zařízení tvrdila, že jsou totéž, psala si do stejného deníku a
+  // sahala si po týchž zamluvených kódech poukazů.
+  'deviceId', 'deviceName'
 ];
 
 /** Totéž, ale klíčů je celá řada — jeden na každý feed objednávek. */

@@ -28,7 +28,8 @@ const ALLOWED_INVOKE = [
   'orders:card', 'orders:badge', 'orders:refresh', 'orders:shipment',
   'voucher:create',
   'vouchers:list', 'vouchers:save', 'vouchers:delete', 'vouchers:addCodes',
-  'vouchers:codes', 'vouchers:deleteCode', 'vouchers:release', 'vouchers:use', 'ship:relearn', 'customer:context', 'customer:conversation', 'customer:messageText', 'orderlinks:refresh', 'orderlinks:pending', 'orderlinks:resolve',
+  'vouchers:codes', 'vouchers:deleteCode', 'vouchers:release', 'vouchers:use',
+  'vouchers:clashes', 'vouchers:clearClash', 'ship:relearn', 'customer:context', 'customer:conversation', 'customer:messageText', 'orderlinks:refresh', 'orderlinks:pending', 'orderlinks:resolve',
   'packing:scan', 'packing:setItem', 'packing:setDone', 'packing:reset',
   'messages:exportPdf', 'files:saveTempImage',
   'files:openAttachment', 'files:showInFolder', 'files:pickAttachments', 'files:pickImage', 'files:readAsDataUrl',
@@ -85,7 +86,7 @@ const ALLOWED_EVENTS = [
   'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open',
   'ptrans:progress', 'ptrans:changed',
   'articles:progress', 'articles:changed', 'articles:check',
-  'orderfeed:changed'
+  'orderfeed:changed', 'vouchers:clash'
 ];
 
 contextBridge.exposeInMainWorld('api', {

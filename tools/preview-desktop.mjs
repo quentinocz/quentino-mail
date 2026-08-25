@@ -167,6 +167,23 @@ await overflow('nastavení — feedy objednávek'); await snap('22-feedy-objedna
 await page.keyboard.press('Escape');
 await page.waitForTimeout(400);
 
+// Poukazy: správa šablon je místo, kde se pozná zásoba kódů i to, že jeden
+// kód vydala dvě zařízení — hláška o kolizi je nová a musí být vidět.
+// Nastavení se zavírají křížkem: Escape spolkne rozepsané pole s feedy.
+await click('.modal-head .icon-btn:last-child');
+await page.waitForTimeout(300);
+await click('.btn-compose');
+await click('.toolbar-btn', { hasText: 'Poukaz' });
+await overflow('poukazy — výběr šablony'); await snap('23-poukazy-vyber');
+await click('.modal-foot .btn, .btn.ghost', { hasText: 'Spravovat šablony' });
+await overflow('poukazy — kolize kódu'); await snap('24-poukazy-kolize');
+await click('.vch-tpl-main');
+await overflow('poukazy — zásoba kódů'); await snap('25-poukazy-zasoba');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(400);
+
 // Pruh s běžícím překladem na pozadí — je vidět i mimo okno překladů
 await page.evaluate(() => window.__emit('ptrans:progress', {
   running: true, done: 428, total: 1362, failed: 2, etaSeconds: 940,

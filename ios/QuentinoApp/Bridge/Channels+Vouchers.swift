@@ -30,6 +30,14 @@ extension Bridge {
                 code: args.count > 1 ? (args[1] as? String ?? "") : ""
             )
         }
+        /// Kódy, které podle synchronizace vydala dvě zařízení — normálně prázdné
+        register("vouchers:clashes") { _ in Vouchers.clashes() }
+        register("vouchers:clearClash") { args in
+            Vouchers.clearClash(
+                templateId: try Self.text(args.first),
+                code: args.count > 1 ? (args[1] as? String ?? "") : ""
+            )
+        }
         register("vouchers:release") { args in
             Vouchers.releaseCode(
                 templateId: try Self.text(args.first),

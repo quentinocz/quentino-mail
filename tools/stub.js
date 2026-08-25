@@ -586,7 +586,34 @@
     'articles:progress': null,
     'articles:checkProgress': null,
     'products:status': { url: '', count: 0, lastSync: null },
-    'vouchers:list': []
+    // Poukazy: jedna šablona s pevným kódem, jedna se zásobou — a k tomu
+    // jeden kód, který podle synchronizace vydala dvě zařízení, aby bylo
+    // vidět, jak vypadá hláška o kolizi
+    'vouchers:list': [
+      { id: 'tpl-300', name: 'Omluva za zpožděnou zásilku 300 Kč', value: '300', unit: 'CZK',
+        validUntil: '2027-06-30', note: 'Platí při nákupu nad 1 500 Kč', lang: 'cz',
+        codeMode: 'unique', fixedCode: '', codesTotal: 120, codesFree: 61, codesMine: 20,
+        codesDup: 1, updatedAt: '2026-08-24T09:12:00Z' },
+      { id: 'tpl-doprava', name: 'Doprava zdarma — reklamace', value: '', unit: 'shipping',
+        validUntil: '2026-12-31', note: '', lang: 'cz', codeMode: 'fixed',
+        fixedCode: 'DOPRAVAZDARMA', codesTotal: 0, codesFree: 0, codesMine: 0, codesDup: 0,
+        updatedAt: '2026-08-11T14:40:00Z' }
+    ],
+    'vouchers:codes': [
+      { code: 'Q7H2-4KDA', usedAt: null, usedFor: '', usedBy: '', claimedElsewhere: false, duplicate: '' },
+      { code: 'Q7H2-9XPL', usedAt: null, usedFor: '', usedBy: '', claimedElsewhere: false, duplicate: '' },
+      { code: 'Q7H2-2MRT', usedAt: null, usedFor: '', usedBy: '', claimedElsewhere: true, duplicate: '' },
+      { code: 'Q7H2-8BQZ', usedAt: null, usedFor: '', usedBy: '', claimedElsewhere: true, duplicate: '' },
+      { code: 'Q7H2-1CVN', usedAt: '2026-08-22T10:04:00Z', usedFor: 'novak@seznam.cz',
+        usedBy: 'mac', claimedElsewhere: false, duplicate: '' },
+      { code: 'Q7H2-5RGW', usedAt: '2026-08-23T16:20:00Z', usedFor: 'svobodova@gmail.com',
+        usedBy: 'mac', claimedElsewhere: false, duplicate: 'iPhone (7e44a732)@2026-08-23T18:02:00Z' }
+    ],
+    'vouchers:clashes': [
+      { templateId: 'tpl-300', templateName: 'Omluva za zpožděnou zásilku 300 Kč',
+        code: 'Q7H2-5RGW', used: '2026-08-23T16:20:00Z', usedFor: 'svobodova@gmail.com',
+        duplicate: 'iPhone (7e44a732)@2026-08-23T18:02:00Z' }
+    ]
   };
   // Balení: dvě objednávky ze stejné karty, jedna rozdělaná a jedna hotová
   // Stav „Přijata" je ten, který se balí — „Odeslána" si aplikace schovává sama

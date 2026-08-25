@@ -172,7 +172,12 @@ const PROVOZNI = {
   'orderFeedError:feed2': 'HTTP 500',
   productFeedSync: '2026-08-24T06:00:00Z',
   syncLastResult: 'staženo 12 zpráv',
-  stateStamp: '2026-08-24T12:00:00Z'
+  stateStamp: '2026-08-24T12:00:00Z',
+  // Totožnost zařízení: po obnovení na druhém počítači by obě tvrdila, že
+  // jsou totéž, psala si do stejného deníku a sahala po týchž zamluvených
+  // kódech poukazů — takže by stejný kód mohl jít ven dvakrát
+  deviceId: '11111111-2222-3333-4444-555555555555',
+  deviceName: 'Starý MacBook'
 };
 
 active = 'old';

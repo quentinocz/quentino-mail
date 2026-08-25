@@ -30,7 +30,7 @@ import { relearnPhase } from './shipphase';
 import { createVouchers } from './voucher';
 import {
   listTemplates, saveTemplate, deleteTemplate, addCodes, listCodes, deleteCode,
-  takeCode, releaseCode, specFromTemplate
+  takeCode, releaseCode, specFromTemplate, listClashes, clearClash
 } from './vouchers';
 import { listOutbox, cancelOutbox, processOutbox } from './scheduler';
 import { getDb } from './db';
@@ -220,6 +220,9 @@ export function registerIpc() {
   handle('vouchers:codes', (id: string) => listCodes(id));
   handle('vouchers:deleteCode', (id: string, code: string) => deleteCode(id, code));
   handle('vouchers:release', (id: string, code: string) => releaseCode(id, code));
+  /** Kódy, které podle synchronizace vydala dvě zařízení — normálně prázdné */
+  handle('vouchers:clashes', () => listClashes());
+  handle('vouchers:clearClash', (id: string, code: string) => clearClash(id, code));
   /** Odebere kód ze šablony a rovnou z něj vysází PDF do přílohy */
   handle('vouchers:use', async (id: string, forWhom: string) => {
     const { code, remaining } = takeCode(id, forWhom ?? '');

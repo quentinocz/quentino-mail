@@ -185,6 +185,14 @@ for (const device of DEVICES) {
   await check('psaní zprávy'); await snap('05-psani');
   await click('.composer-foot .btn.ghost');
   await check('nástroje (panel)'); await snap('06-nastroje');
+
+  // Poukazy: hláška o dvojím vydání kódu je hodně textu na úzký displej
+  await click('button', { hasText: 'Dárkový poukaz' });
+  await check('poukazy — výběr'); await snap('06b-poukazy-vyber');
+  await click('.btn.ghost', { hasText: 'Spravovat šablony' });
+  await check('poukazy — kolize'); await snap('06c-poukazy-kolize');
+  await page.keyboard.press('Escape'); await page.waitForTimeout(300);
+
   await page.keyboard.press('Escape'); await page.waitForTimeout(300);
   await click('.composer-head button:last-child');
 
@@ -226,7 +234,6 @@ for (const device of DEVICES) {
   await click('.m-head-picker');
   await click('.sidebar .side-item', { hasText: 'Nastavení' });
   await check('nastavení'); await snap('15-nastaveni');
-
   await page.close();
 }
 
