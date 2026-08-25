@@ -27,7 +27,7 @@ const block = artXml.buildArticle(versions, {
   createdAt: article.createdAt
 });
 const xml = artXml.wrapTexts([block]);
-fs.writeFileSync('/tmp/clanek-export.xml', xml);
+fs.writeFileSync(path.join(os.tmpdir(), 'clanek-export.xml'), xml);
 
 console.log('velikost exportu:', Math.round(xml.length / 1024), 'kB · obrázků:', images.length);
 console.log('ARTICLE_ID v exportu:', artXml.tag(block, 'ARTICLE_ID'));

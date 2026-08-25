@@ -18,10 +18,11 @@
  */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { DatabaseSync } = require('node:sqlite');
 
 const DIST = process.env.PTDIST || path.join(__dirname, '../dist/ptdist/main');
-const FOLDER = '/tmp/vouchers-slozka';
+const FOLDER = path.join(os.tmpdir(), 'vouchers-slozka');
 
 function open(file) {
   fs.rmSync(file, { force: true });
@@ -62,7 +63,7 @@ function schema() {
 }
 
 const SCHEMA = schema();
-const devices = { pc: open('/tmp/vouchers-pc.db'), phone: open('/tmp/vouchers-phone.db') };
+const devices = { pc: open(path.join(os.tmpdir(), 'vouchers-pc.db')), phone: open(path.join(os.tmpdir(), 'vouchers-phone.db')) };
 let active = 'pc';
 for (const db of Object.values(devices)) {
   for (const statement of SCHEMA.split(/;\s*\n/)) {
@@ -82,7 +83,7 @@ require.cache[dbModule] = { id: dbModule, filename: dbModule, loaded: true, expo
   ).run(key, String(value))
 } };
 require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electron', loaded: true,
-  exports: { app: { getPath: () => '/tmp' }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
+  exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
 
 const vouchers = require(path.join(DIST, 'vouchers.js'));
 const appsync = require(path.join(DIST, 'appsync.js'));

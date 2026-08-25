@@ -6,6 +6,7 @@
  * změna stavu → export do XML. Bez jediného tokenu navíc.
  */
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 const { db, store, xml, DIST } = require('./harness.cjs');
 
@@ -56,7 +57,7 @@ const exportxml = require(path.join(DIST, 'ptrans/exportxml.js'));
 
   const built = exportxml.buildExport({ langs: ['sk', 'en'] });
   console.log('\nexport:', built.products, 'produktů,', built.fields, 'polí,', built.xml.length, 'znaků');
-  fs.writeFileSync('/tmp/ptrans-export.xml', built.xml);
+  fs.writeFileSync(path.join(os.tmpdir(), 'ptrans-export.xml'), built.xml);
 
   // Kontrola tvaru: musí to být platné XML se stejnými značkami
   const { XMLParser } = (() => { try { return require('fast-xml-parser'); } catch { return {}; } })();

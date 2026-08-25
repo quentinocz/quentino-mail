@@ -9,6 +9,7 @@
  *   node tools/ptrans/harness.cjs <feed.xml>
  */
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 // V kontejneru se nedá přeložit nativní better-sqlite3 (stažení hlaviček Node
 // je blokované), takže se použije vestavěné node:sqlite a tenká náhrada
@@ -64,7 +65,7 @@ function normalize(value) {
 }
 
 const DIST = process.env.PTDIST || path.join(__dirname, '../../dist/ptdist/main');
-const dbFile = process.env.PTRANS_DB || '/tmp/ptrans-test.db';
+const dbFile = process.env.PTRANS_DB || path.join(os.tmpdir(), 'ptrans-test.db');
 if (!process.env.PTRANS_KEEP) fs.rmSync(dbFile, { force: true });
 const db = open(dbFile);
 db.pragma('journal_mode = WAL');
@@ -88,7 +89,7 @@ require.cache[dbModulePath] = {
 const electronStub = {
   BrowserWindow: { getAllWindows: () => [], getFocusedWindow: () => null },
   dialog: { showSaveDialog: async () => ({ canceled: true }) },
-  app: { getPath: () => '/tmp' }
+  app: { getPath: () => os.tmpdir() }
 };
 require.cache[require.resolve('electron')] = {
   id: 'electron', filename: 'electron', loaded: true, exports: electronStub
