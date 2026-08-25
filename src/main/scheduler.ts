@@ -5,6 +5,7 @@ import { syncAllAccounts } from './imap';
 import { refreshFeed, feedIsStale } from './products';
 import { refreshDueFeeds } from './orderfeed';
 import { runSync, syncVouchersNow, watchShared } from './appsync';
+import { refreshStatesIfNeeded } from './ptrans/store';
 import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncSource as syncIgSource } from './instagram/publish';
 import { getSetting } from './db';
 import { pollUnread as pollChatUnread } from './chat';
@@ -59,6 +60,11 @@ export function startScheduler() {
   watchShared();
   setInterval(syncVouchersNow, 10_000);
   setTimeout(syncVouchersNow, 3_000);
+
+  // Stavy překladů se počítají dopředu a leží v databázi. Když se změní
+  // pravidla, podle kterých se určují, musí se jednou přepočítat — jinak by
+  // oprava zůstala jen v kódu a v seznamu by pořád svítila stará čísla.
+  setTimeout(() => { try { refreshStatesIfNeeded(); } catch { /* projde se s dalším feedem */ } }, 6_000);
   // Instagram: fronta se odbavuje často, tokeny a synchronizace zdroje zřídka
   setInterval(() => processIgQueue().catch(() => {}), IG_QUEUE_INTERVAL);
   setInterval(() => refreshIgTokens().catch(() => {}), IG_TOKEN_INTERVAL);
