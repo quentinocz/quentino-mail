@@ -13,6 +13,7 @@
  *   node tools/backup-test.cjs
  */
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
 
@@ -77,7 +78,7 @@ function realSchema() {
 }
 
 const SCHEMA = realSchema();
-const dbs = { old: open('/tmp/zaloha-stara.db'), fresh: open('/tmp/zaloha-nova.db') };
+const dbs = { old: open(path.join(os.tmpdir(), 'zaloha-stara.db')), fresh: open(path.join(os.tmpdir(), 'zaloha-nova.db')) };
 let active = 'old';
 for (const db of Object.values(dbs)) {
   // Celý blok najednou — `exec` zvládne víc příkazů a nerozbije SQL na
@@ -119,7 +120,7 @@ require.cache[secure] = { id: secure, filename: secure, loaded: true, exports: {
   }
 } };
 require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electron', loaded: true,
-  exports: { app: { getPath: () => '/tmp' }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
+  exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
 
 const settings = require(path.join(DIST, 'settings.js'));
 

@@ -17,11 +17,12 @@
  */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { DatabaseSync } = require('node:sqlite');
 
 const DIST = process.env.PTDIST || path.join(__dirname, '../../dist/ptdist/main');
 
-const file = '/tmp/ptrans-seourl.db';
+const file = path.join(os.tmpdir(), 'ptrans-seourl.db');
 fs.rmSync(file, { force: true });
 const inner = new DatabaseSync(file);
 const norm = v => (v === undefined ? null : typeof v === 'boolean' ? (v ? 1 : 0) : v);
@@ -64,7 +65,7 @@ shim('db.js', {
 shim('ai.js', { ask: async () => '{}' });
 shim('settings.js', { getSettings: () => ({ draftModel: 'test', brandPrompt: '' }), touchState: () => {} });
 require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electron', loaded: true,
-  exports: { app: { getPath: () => '/tmp' }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
+  exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
 
 const store = require(path.join(DIST, 'ptrans/store.js'));
 const { applySlug } = require(path.join(DIST, 'ptrans/translate.js'));
