@@ -84,6 +84,23 @@ await overflow('překlady — seznam'); await snap('01-preklady-seznam');
 await click('.pt-row');
 await overflow('překlady — detail'); await snap('02-preklady-detail');
 
+// Přeložený produkt nesmí ze seznamu zmizet uprostřed práce — zůstane na
+// místě označený jako hotový a uklidí se až při dalším hledání
+await page.evaluate(() => { window.__translated = 'MZU01'; window.__emit('ptrans:changed', {}); });
+await page.waitForTimeout(500);
+await overflow('překlady — po překladu'); await snap('01b-preklady-po-prekladu');
+{
+  const held = await page.locator('.pt-row.kept').count();
+  // Změna filtru je „nové hledání" — podržený řádek se má uklidit
+  await page.selectOption('.pt-filters select >> nth=1', 'all');
+  await page.waitForTimeout(400);
+  const after = await page.locator('.pt-row.kept').count();
+  await page.selectOption('.pt-filters select >> nth=1', 'todo');
+  await page.waitForTimeout(400);
+  console.log(`${'podržený řádek'.padEnd(28)} po překladu: ${held}, po změně filtru: ${after}`
+    + (held === 1 && after === 0 ? ' ✓' : ' ✗'));
+}
+
 // Zvětšené okno: s tisícem produktů se v malém dialogu pracuje mizerně
 await click('.pt-modal .modal-head .icon-btn');
 await overflow('překlady — zvětšeno'); await snap('02b-preklady-zvetseno');

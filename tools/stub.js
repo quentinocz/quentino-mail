@@ -657,6 +657,29 @@
         var list = answers['ig:thumb'] || [];
         return Promise.resolve({ ok: true, data: list[(Number(arg) || 0) % list.length] || null });
       }
+      /*
+       * Překlady: pro náhled se dá nasimulovat, že jeden produkt zrovna
+       * doběhl a z filtru „čeká na překlad" vypadl. `window.__translated`
+       * nastaví náhled; rozhraní ho má nechat na místě a označit jako hotový.
+       */
+      if (channel === 'ptrans:list') {
+        var page = answers['ptrans:list'];
+        var hidden = window.__translated || '';
+        var picked = (arg && arg.codes)
+          ? page.rows.filter(function (r) { return arg.codes.indexOf(r.code) >= 0; })
+          : page.rows.filter(function (r) { return r.code !== hidden; });
+        // Dotažení konkrétních kódů vrací hotový stav, jako po překladu
+        if (arg && arg.codes) {
+          picked = picked.map(function (r) {
+            var states = {};
+            Object.keys(r.states).forEach(function (k) {
+              states[k] = { total: r.states[k].total, todo: 0, worst: 'ok' };
+            });
+            return Object.assign({}, r, { states: states, doneLangs: Object.keys(states), todoLangs: [] });
+          });
+        }
+        return Promise.resolve({ ok: true, data: Object.assign({}, page, { rows: picked }) });
+      }
       return Promise.resolve({ ok: true, data: channel in answers ? answers[channel] : null });
     },
     on: function (channel, cb) {
