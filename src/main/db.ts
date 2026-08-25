@@ -262,7 +262,6 @@ function migrate(d: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (template_id, code)
     );
-    CREATE INDEX IF NOT EXISTS idx_voucher_codes_claim ON voucher_codes(template_id, claimed_by, used_at);
     CREATE INDEX IF NOT EXISTS idx_voucher_codes_free ON voucher_codes(template_id, used_at);
 
     CREATE TABLE IF NOT EXISTS ai_usage (
@@ -338,6 +337,10 @@ function migrate(d: Database.Database) {
   try { d.exec("ALTER TABLE voucher_codes ADD COLUMN claimed_by TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE voucher_codes ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE voucher_codes ADD COLUMN used_dup TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  // Až tady, ne u tabulky: v databázi z minulé verze sloupec `claimed_by`
+  // ještě není a rejstřík nad chybějícím sloupcem shodí celé zakládání —
+  // aplikace by se spustila a neotevřela okno.
+  try { d.exec('CREATE INDEX IF NOT EXISTS idx_voucher_codes_claim ON voucher_codes(template_id, claimed_by, used_at)'); } catch { /* index už existuje */ }
 
   // Katalog produktů: kategorie a dostupnost pro prohlížeč produktů v kompozeru.
   // Hodnoty se doplní při nejbližší synchronizaci feedu (feedNeedsCategories()).

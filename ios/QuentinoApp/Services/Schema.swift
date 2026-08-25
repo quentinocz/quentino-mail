@@ -91,7 +91,6 @@ enum Schema {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (template_id, code)
     );
-    CREATE INDEX IF NOT EXISTS idx_voucher_codes_claim ON voucher_codes(template_id, claimed_by, used_at);
     CREATE INDEX IF NOT EXISTS idx_voucher_codes_free ON voucher_codes(template_id, used_at);
 
     CREATE TABLE IF NOT EXISTS ig_accounts (
@@ -383,6 +382,9 @@ enum Schema {
         "ALTER TABLE voucher_codes ADD COLUMN used_by TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE voucher_codes ADD COLUMN claimed_by TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE voucher_codes ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE voucher_codes ADD COLUMN used_dup TEXT NOT NULL DEFAULT ''"
+        "ALTER TABLE voucher_codes ADD COLUMN used_dup TEXT NOT NULL DEFAULT ''",
+        // Až tady, ne u tabulky: v databázi z minulé verze sloupec `claimed_by`
+        // ještě není a rejstřík nad chybějícím sloupcem by shodil celé zakládání.
+        "CREATE INDEX IF NOT EXISTS idx_voucher_codes_claim ON voucher_codes(template_id, claimed_by, used_at)"
     ]
 }
