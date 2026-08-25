@@ -425,6 +425,7 @@ function TemplateManager({ templates, onChanged, onBack }: {
   const toast = useToast();
   const [editing, setEditing] = useState<(Partial<VoucherTemplate> & { name: string }) | null>(null);
   const [clashes, setClashes] = useState<VoucherClash[]>([]);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     api.vouchers.clashes().then(setClashes).catch(() => {});
@@ -433,6 +434,11 @@ function TemplateManager({ templates, onChanged, onBack }: {
       api.vouchers.clashes().then(setClashes).catch(() => {});
     });
   }, []);
+
+  // Šablona přidaná na druhém zařízení se objeví sama, bez zavírání dialogu
+  useEffect(() => api.on('vouchers:changed', () => {
+    api.vouchers.list().then(onChanged).catch(() => {});
+  }), [onChanged]);
 
   const save = async () => {
     if (!editing?.name.trim()) { toast('Vyplň interní název šablony.', 'error'); return; }
@@ -497,9 +503,22 @@ function TemplateManager({ templates, onChanged, onBack }: {
                 </button>
               </div>
             ))}
-            <button className="btn ghost" onClick={() => setEditing({ ...EMPTY })}>
-              <Icon name="plus" size={13} /> Nová šablona
-            </button>
+            <div className="ig-actions">
+              <button className="btn ghost" onClick={() => setEditing({ ...EMPTY })}>
+                <Icon name="plus" size={13} /> Nová šablona
+              </button>
+              {/* Sladění běží samo každých pár vteřin. Tlačítko je pro chvíli,
+                  kdy člověk čeká na kódy z druhého zařízení a chce vidět, že
+                  se něco děje — dodání souboru řídí cloud, ne aplikace. */}
+              <button className="btn ghost" disabled={syncing} onClick={async () => {
+                setSyncing(true);
+                try { onChanged(await api.vouchers.sync()); toast('Sladěno se sdílenou složkou.'); }
+                catch (e: any) { toast(e.message, 'error'); }
+                finally { setSyncing(false); }
+              }}>
+                {syncing ? <span className="spinner-inline" /> : <Icon name="refresh" size={13} />} Sladit teď
+              </button>
+            </div>
           </>
         )}
 
@@ -526,10 +545,13 @@ function TemplateForm({ value: t, onChange }: {
   const [paste, setPaste] = useState('');
   const set = (patch: Partial<VoucherTemplate>) => onChange({ ...t, ...patch } as any);
 
-  useEffect(() => {
+  const reloadCodes = useCallback(() => {
     if (!t.id) { setCodes([]); return; }
     api.vouchers.codes(t.id).then(setCodes).catch(() => {});
   }, [t.id]);
+  useEffect(reloadCodes, [reloadCodes]);
+  // Kód, který mezitím odešel z druhého zařízení, se tu škrtne sám
+  useEffect(() => api.on('vouchers:changed', reloadCodes), [reloadCodes]);
 
   const addCodes = async () => {
     if (!t.id) { toast('Nejdřív šablonu ulož, pak do ní půjde vložit kódy.', 'error'); return; }

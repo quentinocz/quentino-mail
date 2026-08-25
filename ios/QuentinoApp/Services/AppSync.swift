@@ -272,6 +272,17 @@ enum AppSync {
      `vouchers.json` ve starém tvaru se pořád čte i píše, aby zařízení se
      starší verzí aplikace nezůstalo stranou.
      */
+    /**
+     Otisk toho, co jsme naposledy zapsali do deníku. Bez něj by se soubor
+     přepisoval při každém kole, i když se nic nezměnilo — a cloud by pak měl
+     co dělat s prázdnými změnami místo těch skutečných.
+
+     Klíčem je zařízení, ne jen jedna hodnota: v běžném provozu má každé
+     zařízení vlastní běh aplikace, ale ve zkouškách běží vedle sebe a otisk
+     jednoho by pak umlčel zápis druhého.
+     */
+    private static var lastJournal: [String: String] = [:]
+
     private static func syncVouchers(_ folder: URL) {
         let me = Device.id()
         let journals = readVoucherJournals(folder)
@@ -285,11 +296,14 @@ enum AppSync {
         }
 
         var clashes = 0
+        var changed = 0
         _ = try? SQLite.shared.transaction {
             for journal in journals {
                 if let device = journal["device"] as? String, device == me { continue }
-                mergeVoucherTemplates(journal["templates"] as? [[String: Any]] ?? [])
-                clashes += mergeVoucherCodes(journal["codes"] as? [[String: Any]] ?? [], names: names)
+                changed += mergeVoucherTemplates(journal["templates"] as? [[String: Any]] ?? [])
+                let result = mergeVoucherCodes(journal["codes"] as? [[String: Any]] ?? [], names: names)
+                clashes += result.clashes
+                changed += result.changed
             }
         }
 
@@ -299,21 +313,70 @@ enum AppSync {
 
         let templates = (try? SQLite.shared.query("SELECT * FROM voucher_templates")) ?? []
         let codes = (try? SQLite.shared.query("SELECT * FROM voucher_codes")) ?? []
-        let out: [String: Any] = [
-            "device": me,
-            "name": Device.label(),
-            "updatedAt": Formats.iso(),
-            "templates": templates,
-            "codes": codes
-        ]
-        let mine = folder.appendingPathComponent("vouchers", isDirectory: true)
-        try? FileManager.default.createDirectory(at: mine, withIntermediateDirectories: true)
-        _ = try? writeJson(out, to: mine.appendingPathComponent("\(me).json"))
-        // Pro zařízení se starší verzí aplikace — ta o složce deníků nevědí
-        _ = try? writeJson(["templates": templates, "codes": codes],
-                           to: folder.appendingPathComponent("vouchers.json"))
+        let body = (try? JSONSerialization.data(withJSONObject: ["templates": templates, "codes": codes],
+                                                options: [.sortedKeys])) ?? Data()
+        let stamp = String(decoding: body, as: UTF8.self)
+        if stamp != lastJournal[me] {
+            let out: [String: Any] = [
+                "device": me,
+                "name": Device.label(),
+                "updatedAt": Formats.iso(),
+                "templates": templates,
+                "codes": codes
+            ]
+            let mine = folder.appendingPathComponent("vouchers", isDirectory: true)
+            try? FileManager.default.createDirectory(at: mine, withIntermediateDirectories: true)
+            _ = try? writeJson(out, to: mine.appendingPathComponent("\(me).json"))
+            // Pro zařízení se starší verzí aplikace — ta o složce deníků nevědí
+            _ = try? writeJson(["templates": templates, "codes": codes],
+                               to: folder.appendingPathComponent("vouchers.json"))
+            lastJournal[me] = stamp
+        }
 
+        // Otevřená obrazovka s poukazy se dozví, že přibyla šablona nebo ubyl
+        // kód, aniž by ji musel člověk zavřít a otevřít
+        if changed > 0 { Bridge.notify("vouchers:changed") }
         if clashes > 0 { Bridge.notify("vouchers:clash") }
+    }
+
+    // MARK: - Poukazy: rychlá dráha
+
+    /**
+     Poukazy samotné, mimo velké kolo synchronizace.
+
+     Velké kolo dělá i archiv, a ten při větší schránce trvá — po tu dobu se
+     nic jiného nesynchronizuje, protože běh je jeden a hlídá si zámek. Nová
+     šablona nebo ubraný kód se tak objevily na druhém zařízení klidně za pár
+     minut. Poukazy proto mají vlastní, krátký běh: přečte cizí deníky, sloučí
+     a zapíše ten svůj. Je to práce se dvěma malými soubory, takže může běžet
+     často a hned po každé změně.
+     */
+    private static var vouchersRunning = false
+
+    static func syncVouchersNow() {
+        guard Store.bool("syncEnabled", false), !vouchersRunning else { return }
+        guard let folder = openFolder() else { return }
+        vouchersRunning = true
+        defer { vouchersRunning = false; folder.stop() }
+        syncVouchers(folder.url)
+    }
+
+    /**
+     Odeslat změnu poukazů co nevidět.
+
+     Odklad je schválně: při vkládání zásoby kódů nebo rychlém klepání by se
+     jinak soubor přepisoval několikrát za sebou. Půl vteřiny stačí, aby se
+     z několika změn stal jeden zápis, a je to pořád „hned".
+     */
+    private static var pushTask: Task<Void, Never>?
+
+    static func pushVouchersSoon() {
+        pushTask?.cancel()
+        pushTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+            syncVouchersNow()
+        }
     }
 
     private static func readVoucherJournals(_ folder: URL) -> [[String: Any]] {
@@ -338,11 +401,13 @@ enum AppSync {
         return out
     }
 
-    private static func mergeVoucherTemplates(_ rows: [[String: Any]]) {
+    /// - Returns: kolik šablon se skutečně změnilo — podle toho se obnovuje obrazovka
+    private static func mergeVoucherTemplates(_ rows: [[String: Any]]) -> Int {
+        var changed = 0
         for template in rows {
             guard let id = template["id"] as? String, let name = template["name"] as? String,
                   !id.isEmpty, !name.isEmpty else { continue }
-            _ = try? SQLite.shared.run(
+            changed += (try? SQLite.shared.run(
                 """
                 INSERT INTO voucher_templates (id, name, value, unit, valid_until, note, lang,
                   code_mode, fixed_code, archived, updated_at)
@@ -365,8 +430,9 @@ enum AppSync {
                     .int(Int64(template["archived"] as? Int ?? 0)),
                     .text(template["updated_at"] as? String ?? Formats.iso())
                 ]
-            )
+            ))?.changes ?? 0
         }
+        return changed
     }
 
     /// Dřívější rezervace vyhrává; při shodě času rozhodne jméno zařízení.
@@ -377,8 +443,9 @@ enum AppSync {
         return byB < byA
     }
 
-    private static func mergeVoucherCodes(_ rows: [[String: Any]], names: [String: String]) -> Int {
+    private static func mergeVoucherCodes(_ rows: [[String: Any]], names: [String: String]) -> (clashes: Int, changed: Int) {
         var clashes = 0
+        var changed = 0
         for row in rows {
             guard let templateId = row["template_id"] as? String, let value = row["code"] as? String,
                   !templateId.isEmpty, !value.isEmpty else { continue }
@@ -411,6 +478,7 @@ enum AppSync {
                     ]
                 )
                 if !remoteDup.isEmpty { clashes += 1 }
+                changed += 1
                 continue
             }
 
@@ -471,8 +539,9 @@ enum AppSync {
                     .text(templateId), .text(value)
                 ]
             )
+            changed += 1
         }
-        return clashes
+        return (clashes, changed)
     }
 
     /**

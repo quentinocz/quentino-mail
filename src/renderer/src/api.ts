@@ -377,6 +377,8 @@ export const api = {
     /** Odebere kód a vysází z něj PDF poukaz do přílohy */
     use: (id: string, forWhom: string) =>
       call<{ code: string; remaining: number; files: string[] }>('vouchers:use', id, forWhom),
+    /** Sladí poukazy se sdílenou složkou hned, bez čekání na další kolo */
+    sync: () => call<VoucherTemplate[]>('vouchers:sync'),
     /** Kódy, které vydala dvě zařízení naráz — normálně prázdné pole */
     clashes: () => call<VoucherClash[]>('vouchers:clashes'),
     /** „Vyřešeno" — hláška o kolizi může zmizet */
