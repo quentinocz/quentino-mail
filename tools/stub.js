@@ -10,7 +10,19 @@
   const accounts = [{
     id: 1, name: 'Quentino', email: 'info@quentino.cz', imapHost: 'imap.example.cz', imapPort: 993,
     imapSecure: true, smtpHost: 'smtp.example.cz', smtpPort: 465, smtpSecure: true,
-    username: 'info@quentino.cz', signatureHtml: '', sigConfig: null, logoPath: null, color: '#7c5cff'
+    username: 'info@quentino.cz', logoPath: null, color: '#7c5cff',
+    // Podpis je jeden z důvodů, proč se psaní na telefonu nevešlo na obrazovku
+    // — bez něj by se to na náhledech nepoznalo
+    signatureHtml: [
+      '<div style="font-size:13px;line-height:1.5;color:#444">',
+      '<b>Quentino</b><br>',
+      'Kravaty, motýlky a doplňky, které vydrží<br>',
+      '<a href="https://www.quentino.cz">www.quentino.cz</a> · ',
+      '<a href="mailto:info@quentino.cz">info@quentino.cz</a> · +420 607 043 067<br>',
+      'Quentino s.r.o., Bubenská 1477/1, 170 00 Praha 7, IČO 09876543',
+      '</div>'
+    ].join(''),
+    sigConfig: null
   }];
   const folders = [
     { path: 'INBOX', name: 'Doručená pošta', specialUse: null, unseen: 3, total: 128 },

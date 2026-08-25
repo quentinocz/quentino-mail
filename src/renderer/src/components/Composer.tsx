@@ -204,6 +204,18 @@ export default function Composer(p: Props) {
   const phone = useIsPhone();
   // Šest nástrojů se do lišty na telefonu nevejde — schovají se za jedno tlačítko
   const [toolsOpen, setToolsOpen] = useState(false);
+  /** Panel s překladem — na telefonu je řádek s výběrem jazyka trvale v cestě */
+  const [translateOpen, setTranslateOpen] = useState(false);
+  /**
+   * Hlavička (komu, předmět, podepsán) rozbalená?
+   *
+   * U nové zprávy je potřeba hned — není co jiného vyplňovat. U odpovědi je
+   * všechno předvyplněné, takže na telefonu stačí jeden řádek se souhrnem
+   * a zbytek obrazovky patří textu. Klepnutím se rozbalí.
+   */
+  const [headOpen, setHeadOpen] = useState(p.init.mode === 'new');
+  /** Podpis na telefonu: ukazuje se na vyžádání, ne pořád (a hlavně celý) */
+  const [sigOpen, setSigOpen] = useState(false);
   const [sendAt, setSendAt] = useState('');
   const [translateOut, setTranslateOut] = useState(false);
   const [targetLang, setTargetLang] = useState('');
@@ -573,6 +585,20 @@ export default function Composer(p: Props) {
         </div>
 
         <div className="composer-body">
+          {/* Na telefonu zabírala hlavička třetinu obrazovky, i když u odpovědi
+              není co měnit. Sbalená drží to podstatné na očích — komu to jde
+              a v jakém jazyce — a text má konečně místo. */}
+          {phone && !headOpen && (
+            <button className="compose-summary" onClick={() => setHeadOpen(true)}>
+              <span className="compose-summary-lines">
+                <span><b>Komu</b> {to || 'nikomu zatím'}</span>
+                <span className="compose-summary-subject">{subject || 'bez předmětu'}</span>
+              </span>
+              <span className="compose-summary-lang">{mailLang.toUpperCase()}</span>
+              <Icon name="chevDown" size={15} />
+            </button>
+          )}
+          {(!phone || headOpen) && (<>
           {p.accounts.length > 1 && (
             <div className="compose-row">
               <label>Od</label>
@@ -622,6 +648,13 @@ export default function Composer(p: Props) {
             </div>
           )}
 
+          {phone && (
+            <button className="compose-collapse" onClick={() => setHeadOpen(false)}>
+              <Icon name="chevDown" size={14} /> Sbalit hlavičku
+            </button>
+          )}
+          </>)}
+
           {p.init.mode === 'reply' && (
             <div className="ai-note-box">
               <div className="hint"><Icon name="sparkles" size={13} /> Napiš jen stručně, co chceš sdělit — AI z toho vytvoří slušnou odpověď v duchu Quentina.</div>
@@ -647,13 +680,28 @@ export default function Composer(p: Props) {
             onInsertProduct={() => setBrowserOpen(true)}
           />
 
-          {sigPreview && !sigEdit && (
+          {/* Na telefonu se podpis dřív ukazoval pořád a ještě uříznutý v půlce
+              — vlastní rolování uvnitř rolující stránky. Teď je z něj jeden
+              řádek, a když se rozbalí, je vidět celý. */}
+          {sigPreview && !sigEdit && phone && (
+            <div className="sig-row">
+              <Icon name="pen" size={13} />
+              <span>Podpis se přidá při odeslání</span>
+              <button className="linkish" onClick={() => setSigOpen(v => !v)}>
+                {sigOpen ? 'Skrýt' : 'Zobrazit'}
+              </button>
+              <button className="linkish" onClick={() => setSigEdit(true)}>Upravit</button>
+            </div>
+          )}
+          {sigPreview && !sigEdit && (!phone || sigOpen) && (
             <div className="signature-preview" style={{ position: 'relative' }}>
               <div dangerouslySetInnerHTML={{ __html: sigPreview }} />
-              <button className="btn ghost" style={{ position: 'absolute', top: 4, right: 4, padding: '3px 9px', fontSize: 12 }}
-                onClick={() => setSigEdit(true)}>
-                <Icon name="pen" size={12} /> Upravit podpis
-              </button>
+              {!phone && (
+                <button className="btn ghost" style={{ position: 'absolute', top: 4, right: 4, padding: '3px 9px', fontSize: 12 }}
+                  onClick={() => setSigEdit(true)}>
+                  <Icon name="pen" size={12} /> Upravit podpis
+                </button>
+              )}
             </div>
           )}
           {sigEdit && (
@@ -693,6 +741,7 @@ export default function Composer(p: Props) {
             </div>
           )}
 
+          {!phone && (
           <div className="compose-row compose-translate" style={{ gap: 8 }}>
             <label style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 5 }}>
               <Icon name="globe" size={14} /> Přeložit do
@@ -706,6 +755,7 @@ export default function Composer(p: Props) {
               {busy === 'translate' ? <span className="spinner-inline" /> : 'Přeložit text'}
             </button>
           </div>
+          )}
 
           {foreignLang && (
             <label className="check-row">
@@ -773,10 +823,32 @@ export default function Composer(p: Props) {
                   onClick: () => setVoucherOpen(true) },
                 { icon: 'paperclip', label: 'Přidat přílohu',
                   onClick: () => { api.files.pickAttachments().then(ps => setAttachments(prev => [...prev, ...ps])); } },
+                { icon: 'globe', label: 'Přeložit text', hint: 'Přepíše rozepsanou zprávu do jiného jazyka',
+                  onClick: () => setTranslateOpen(true) },
                 { icon: 'clock', label: scheduleOpen ? 'Zrušit plán odeslání' : 'Naplánovat odeslání',
                   active: scheduleOpen, onClick: () => setScheduleOpen(v => !v) }
               ]}
             />
+          </Sheet>
+        )}
+
+        {/* Překlad měl na telefonu vlastní řádek pod textem a držel si místo
+            i ve chvílích, kdy se nepřekládá — což je skoro pořád */}
+        {translateOpen && (
+          <Sheet title="Přeložit text" onClose={() => setTranslateOpen(false)}>
+            <div className="field">
+              <label>Do jazyka</label>
+              <select value={targetLang} onChange={e => setTargetLang(e.target.value)}>
+                <option value="">— vyber jazyk —</option>
+                {LANGS.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
+              </select>
+              <span className="desc">Přepíše se rozepsaný text, podpis zůstane.</span>
+            </div>
+            <button className="btn primary" style={{ width: '100%' }}
+              disabled={!targetLang || busy === 'translate'}
+              onClick={async () => { await translateBody(); setTranslateOpen(false); }}>
+              {busy === 'translate' ? <span className="spinner-inline" /> : 'Přeložit'}
+            </button>
           </Sheet>
         )}
 

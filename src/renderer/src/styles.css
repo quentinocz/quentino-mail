@@ -4019,6 +4019,93 @@ html[data-form-factor="phone"] .compose-translate select { flex: 1; min-width: 1
 /* Výběr podepsané osoby a poznámka o odesílateli pod sebou */
 html[data-form-factor="phone"] .compose-row > select { width: 100%; }
 
+/* --------------------------------------------------------------------------
+   Psaní zprávy na telefonu: jedna rolující plocha
+
+   Dřív se rolovalo ve dvou vrstvách naráz — stránka a v ní editor, a k tomu
+   ještě podpis s vlastním posuvníkem. Prst nikdy nevěděl, co zrovna posouvá,
+   a hlavička s příjemcem zatím ujela z dohledu. Teď roluje jen `.composer-body`
+   a všechno ostatní roste do výšky.
+   -------------------------------------------------------------------------- */
+
+/* Editor roste s textem, neroluje sám v sobě */
+html[data-form-factor="phone"] .rt-wrap {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+html[data-form-factor="phone"] .rt-editor {
+  overflow: visible;
+  /* Ať je do prázdné zprávy kam klepnout, i když ještě nic nemá */
+  min-height: 44vh;
+}
+/* Formátování zůstává po ruce i uprostřed dlouhého textu */
+html[data-form-factor="phone"] .rt-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* Sbalená hlavička: komu, předmět a jazyk na jednom řádku */
+html[data-form-factor="phone"] .compose-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  text-align: left;
+  color: var(--text);
+}
+.compose-summary-lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.compose-summary-lines > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.compose-summary-lines b { font-weight: 600; color: var(--text-2); margin-right: 5px; font-size: 11.5px; }
+.compose-summary-subject { color: var(--text-2); }
+.compose-summary-lang {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 700;
+}
+html[data-form-factor="phone"] .compose-collapse svg { transform: rotate(180deg); }
+html[data-form-factor="phone"] .compose-collapse {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* Pole pro zadání a tlačítko vedle sebe se na telefon nevejdou — tlačítko
+   přetékalo za okraj a půlka nápisu byla za obrazovkou */
+html[data-form-factor="phone"] .ai-note-row { flex-direction: column; }
+html[data-form-factor="phone"] .ai-note-row .btn { width: 100%; min-height: var(--tap); }
+html[data-form-factor="phone"] .ai-note-box .hint { font-weight: 500; }
+
+/* Podpis: jeden řádek, a když se rozbalí, je vidět celý */
+html[data-form-factor="phone"] .sig-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+html[data-form-factor="phone"] .sig-row > span { flex: 1; min-width: 0; }
+html[data-form-factor="phone"] .signature-preview { max-height: none; overflow: visible; }
+
 /* Sociální sítě: nahoře zbytečná mezera, tlačítka na celou šířku */
 html[data-form-factor="phone"] .ig-main { padding: 12px 12px 16px; }
 html[data-form-factor="phone"] .ig-main > h2:first-child,
