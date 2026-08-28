@@ -1105,7 +1105,16 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
   // titulku ve všech jazycích.
   const [fillSource, setFillSource] = useState(true);
   const [forceSource, setForceSource] = useState(false);
-  const [sourceFields, setSourceFields] = useState<string[]>([]);
+  /*
+   * `null` = všechna pole, která umí aplikace doplnit.
+   *
+   * Schválně ne seznam vybraných polí: ten se plnil až po dotazu do databáze
+   * (u velkého výběru to trvá vteřiny) a kdo mezitím stiskl Přeložit, spustil
+   * běh s prázdným výběrem — tedy bez doplnění. Výchozí stav proto nic
+   * nečeká: doplňuje se všechno, co chybí, a odškrtnutím se to zužuje.
+   */
+  const [sourceFields, setSourceFields] = useState<string[] | null>(null);
+  const picked = (field: string) => sourceFields === null || sourceFields.includes(field);
   const [gaps, setGaps] = useState<{
     fields: { field: string; label: string; missing: number; translated: boolean }[];
     total: number; sourceLang: string;
@@ -1125,30 +1134,24 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
       .then(data => {
         if (cancelled) return;
         setGaps(data);
-        /*
-         * Předvyplní se každé pole, kde opravdu něco chybí.
-         *
-         * Dřív se vynechávala pole, která se nepřekládají (Google titulek
-         * a popis bývají v nastavení vypnuté) — jenže v češtině je e-shop
-         * potřebuje stejně. Vypadalo to, že doplnění nefunguje: bez ručního
-         * zaškrtnutí se nedoplnilo nic, a když se zapnulo „přepsat i ty,
-         * které už vyplněné jsou", najednou se udělalo všechno.
-         */
-        setSourceFields(prev => (prev.length
-          ? prev
-          : data.fields.filter(f => f.missing > 0).map(f => f.field)));
       })
       .catch(() => { if (!cancelled) setGaps(null); });
     return () => { cancelled = true; };
   }, [codes]);
 
   const sourceCount = forceSource
-    ? (gaps?.fields.filter(f => sourceFields.includes(f.field)).length ?? 0) * codes.length
-    : (gaps?.fields.filter(f => sourceFields.includes(f.field))
+    ? (gaps?.fields.filter(f => picked(f.field)).length ?? 0) * codes.length
+    : (gaps?.fields.filter(f => picked(f.field))
       .reduce((sum, f) => sum + f.missing, 0) ?? 0);
   const totalUnits = (plan ?? 0) + (fillSource ? sourceCount : 0);
+  /*
+   * Běh začíná jedním produktem a přidává až po osmi hladkých za sebou,
+   * takže u malého výběru se souběžnost vůbec neuplatní. Dělit rovnou
+   * nastaveným stropem by dávalo odhad, který nemá jak vyjít.
+   */
+  const pace = Math.max(1, Math.min(overview.settings.concurrency, Math.ceil(totalUnits / 8)));
   const seconds = plan === null ? null
-    : (totalUnits * overview.settings.secondsPerUnit) / Math.max(1, overview.settings.concurrency);
+    : (totalUnits * overview.settings.secondsPerUnit) / pace;
 
   const start = async () => {
     setStarting(true);
@@ -1156,7 +1159,10 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
       onStarted();
       const result = await api.ptrans.run({
         codes, langs, force,
-        fillSource, sourceFields: fillSource ? sourceFields : [], forceSource
+        fillSource,
+        // `undefined` = všechna pole; prázdný seznam by znamenal „nic"
+        sourceFields: fillSource ? (sourceFields ?? undefined) : [],
+        forceSource
       });
       // Pole bez českého znění nejsou chyba, ale ani úspěch: běh doběhne
       // a v seznamu se nic nezmění. Bez téhle věty to vypadá, že překlad
@@ -1241,11 +1247,14 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
                 <div className="pt-prefill-fields">
                   {gaps.fields.map(item => (
                     <label key={item.field}
-                      className={`pt-pick ${sourceFields.includes(item.field) ? 'on' : ''}`}>
-                      <input type="checkbox" checked={sourceFields.includes(item.field)}
-                        onChange={() => setSourceFields(prev => prev.includes(item.field)
-                          ? prev.filter(f => f !== item.field)
-                          : [...prev, item.field])} />
+                      className={`pt-pick ${picked(item.field) ? 'on' : ''}`}>
+                      <input type="checkbox" checked={picked(item.field)}
+                        onChange={() => setSourceFields(prev => {
+                          const list = prev ?? gaps.fields.map(f => f.field);
+                          return list.includes(item.field)
+                            ? list.filter(f => f !== item.field)
+                            : [...list, item.field];
+                        })} />
                       {item.label}
                       {/* Vypnuté pole se doplní v češtině, ale do žádného trhu
                           se nedostane — to je potřeba říct dřív, než se za to
@@ -1285,7 +1294,8 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
             <div className="pt-estimate-time">
               <b>~{humanTime(seconds)}</b>
               <div className="ig-muted">
-                podle naměřených {overview.settings.secondsPerUnit} s a {overview.settings.concurrency} souběžných
+                podle naměřených {overview.settings.secondsPerUnit} s
+                {pace > 1 ? ` a ${pace} souběžných` : ' — poběží po jednom produktu'}
               </div>
             </div>
           </div>

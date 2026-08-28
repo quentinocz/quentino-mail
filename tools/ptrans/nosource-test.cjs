@@ -81,6 +81,11 @@ shim('ai.js', {
     asked++;
     if (failNext > 0) { failNext--; throw new Error('Overloaded'); }
 
+    // SEO a Google texty se nepíšou v JSON, ale rovnou textem
+    if (!/Texty k překladu/.test(user)) {
+      return 'Doplněný český text pro e-shop — dost dlouhý na to, aby prošel limity.';
+    }
+
     const payload = JSON.parse(user.slice(user.indexOf('{', user.indexOf('Texty k překladu'))));
     lastMaxTokens = maxTokens;
     // Věrné chování modelu: co se do stropu nevejde, se usekne
@@ -276,6 +281,49 @@ console.log('pole bez českého znění:\n');
     askedLangs.filter(l => l === 'en').length === 2, askedLangs.join(','));
   check('běh se netváří jako neúspěšný', run.failed === 0, JSON.stringify(run));
   check('a nezbylo nic nehotového', (run.stuck ?? []).length === 0, JSON.stringify(run.stuck));
+
+  console.log('\ndoplnění českých textů:\n');
+
+  /*
+   * Výchozí běh musí chybějící české SEO a Google texty napsat sám.
+   *
+   * Rozhraní dřív posílalo seznam polí, který se plnil až po dotazu do
+   * databáze — kdo stiskl Přeložit dřív, spustil běh s prázdným seznamem
+   * a nedoplnilo se nic. Vypadalo to, že volba nefunguje. Nevybrat pole
+   * proto znamená „všechna, co jde", ne „nic".
+   */
+  const GAP = 'PKT94';
+  db.prepare("INSERT INTO ptrans_products (code, title, raw_xml) VALUES (?,?,'')")
+    .run(GAP, 'Hnědá pánská kravata');
+  for (const lang of ['cz', 'sk']) {
+    for (const [name, text] of [
+      ['title', 'Hnědá pánská kravata'],
+      ['long', '<p>Hnědá pánská kravata z bavlny, ručně šitá v Česku.</p>'],
+      ['seo_title', ''],
+      ['seo_desc', ''],
+      ['google_title', ''],
+      ['google_desc', '']
+    ]) {
+      db.prepare(
+        `INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
+         VALUES (?,?,?,?,?,?)`
+      ).run(GAP, lang, name, lang === 'cz' ? text : text, text, text ? 'same' : 'missing');
+    }
+  }
+
+  const czech = field => db.prepare(
+    "SELECT translated, value FROM ptrans_fields WHERE code = ? AND lang = 'cz' AND field = ?"
+  ).get(GAP, field);
+
+  await translate.run({ codes: [GAP], langs: ['sk'], fillSource: true });
+  check('český SEO titulek se doplnil sám',
+    (czech('seo_title')?.translated ?? '').length > 10, JSON.stringify(czech('seo_title')));
+  check('i meta popis',
+    (czech('seo_desc')?.translated ?? '').length > 10, JSON.stringify(czech('seo_desc')));
+  check('i Google titulek, i když se zrovna nepřekládá',
+    (czech('google_title')?.translated ?? '').length > 10, JSON.stringify(czech('google_title')));
+  check('i Google popis',
+    (czech('google_desc')?.translated ?? '').length > 10, JSON.stringify(czech('google_desc')));
 
   console.log('\nprůběh:\n');
 

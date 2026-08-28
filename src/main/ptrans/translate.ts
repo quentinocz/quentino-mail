@@ -855,23 +855,55 @@ export interface RunResult {
    */
   const inFlight = new Map<number, { at: number; units: number }>();
   let ticket = 0;
+
+  /**
+   * Kolik z rozjetých volání je „hotovo".
+   *
+   * Křivka se ke svému dílku blíží, ale nikdy ho nedosáhne — a hlavně se
+   * nikdy nezastaví. Tvrdý strop („nanejvýš 92 %") vypadal při pomalejší
+   * odpovědi stejně jako zaseknutý pruh; tenhle tvar se pořád po kouscích
+   * hýbe, i když volání trvá třikrát déle, než se čekalo.
+   */
   const partial = () => {
     let sum = 0;
     for (const item of inFlight.values()) {
-      const expect = Math.max(2, speed.perUnit * item.units);
-      sum += item.units * Math.min(0.92, (Date.now() - item.at) / 1000 / expect);
+      if (item.units === 0) continue;
+      const expect = Math.max(3, speed.perUnit * item.units);
+      const elapsed = (Date.now() - item.at) / 1000;
+      sum += item.units * 0.97 * (1 - Math.exp(-elapsed / expect));
     }
     return sum;
   };
+
+  /**
+   * Tempo pro odhad zbývajícího času.
+   *
+   * Průměr z minulých volání sám o sobě nestačí: když se zrovna čeká na
+   * odpověď, která trvá dvakrát déle než obvykle, odhad by se zmenšoval,
+   * i když se nic neděje. Rozjeté volání proto tempo zvedá — odhad tak
+   * roste, dokud odpověď nedorazí, místo aby dopočítal k nule a stál.
+   */
+  const pace = () => {
+    let slowest = speed.perUnit;
+    for (const item of inFlight.values()) {
+      const units = Math.max(1, item.units);
+      slowest = Math.max(slowest, (Date.now() - item.at) / 1000 / units);
+    }
+    return slowest;
+  };
+
   const publish = (label?: string) => {
     const soft = Math.min(total, done + partial());
+    const left = Math.max(0, total - soft);
     current = {
       running: true,
       done,
       total,
       failed,
-      bar: total > 0 ? Math.min(1, soft / total) : 0,
-      etaSeconds: speed.eta(Math.max(0, total - soft), lanes),
+      bar: total > 0 ? Math.min(0.999, soft / total) : 0,
+      // Dokud něco běží, nesmí odhad spadnout na nulu — to je stejná lež
+      // jako zaseknutý pruh, jen obráceně
+      etaSeconds: Math.round(Math.max(inFlight.size > 0 ? 1 : 0, (left * pace()) / Math.max(1, lanes))),
       secondsPerUnit: Number(speed.perUnit.toFixed(1)),
       label: label ?? current?.label ?? '',
       errors: errors.slice(-5)
@@ -880,7 +912,7 @@ export interface RunResult {
   };
 
   publish('');
-  const ticker = setInterval(() => { if (current?.running) publish(); }, 700);
+  const ticker = setInterval(() => { if (current?.running) publish(); }, 500);
 
   const runId = (getDb().prepare(
     'INSERT INTO ptrans_runs (started_at, total, note) VALUES (?,?,?)'

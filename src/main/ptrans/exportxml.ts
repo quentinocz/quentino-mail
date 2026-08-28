@@ -54,7 +54,15 @@ const KEEP_SECTIONS = ['CODE', 'DESCRIPTIONS', 'SEO_OPTIMALIZATION', 'METAS', 'P
 export function buildExport(options: ExportOptions = {}): ExportResult {
   const d = getDb();
   const s = getPtransSettings();
-  const langs = options.langs?.length ? options.langs : targetLangs(s);
+  /*
+   * Bez výslovného výběru se exportuje i **zdrojový jazyk**.
+   *
+   * Aplikace v češtině nejen překládá, ale i píše: doplněný SEO titulek,
+   * meta popis, texty pro Google a uklizený popis vznikají v češtině a do
+   * e-shopu se jinak nedostanou. V režimu „jen přeložené" se zapisují pouze
+   * pole, která aplikace opravdu vyrobila, takže se tím nic cizího nepřepíše.
+   */
+  const langs = options.langs?.length ? options.langs : [s.sourceLang, ...targetLangs(s)];
   const mode = options.mode ?? 'slim';
 
   const state = options.state ?? 'translated';
@@ -166,7 +174,9 @@ function slimMetas(piece: string, keep: Set<string>): string {
 /** Kolik produktů a polí by se právě teď vyexportovalo. */
 export function exportPreview(options: ExportOptions = {}): { products: number; fields: number } {
   const d = getDb();
-  const langs = options.langs?.length ? options.langs : targetLangs();
+  const langs = options.langs?.length
+    ? options.langs
+    : [getPtransSettings().sourceLang, ...targetLangs()];
   const pick = options.state === 'current'
     ? `COALESCE(NULLIF(translated, ''), value)`
     : 'translated';
