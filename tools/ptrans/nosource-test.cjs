@@ -69,21 +69,31 @@ shim('settings.js', { getSettings: () => ({ draftModel: 'x', brandPrompt: '' }),
  * chová přetížené API. Podle toho se pozná, jestli aplikace zkusí znovu.
  */
 let asked = 0;
-const failedFor = new Set();
-let failOnce = null;
+let joint = 0;          // dotazů, které nesly víc jazyků najednou
+let failNext = 0;       // kolik nejbližších dotazů má spadnout
 shim('ai.js', {
   ask: async (model, system, user) => {
     asked++;
-    const lang = /do jazyka „([a-z]{2,5})"/.exec(system)?.[1] ?? '';
-    if (failOnce === lang && !failedFor.has(lang)) {
-      failedFor.add(lang);
-      throw new Error('Overloaded');
+    if (failNext > 0) { failNext--; throw new Error('Overloaded'); }
+
+    const payload = JSON.parse(user.slice(user.indexOf('{', user.indexOf('Texty k překladu'))));
+    const many = /do jazyků: (.+)\./.exec(system);
+    if (many) {
+      // Společný dotaz: odpověď je zabalená po jazycích
+      joint++;
+      const out = {};
+      for (const [lang, fields] of Object.entries(payload)) {
+        out[lang] = {};
+        for (const [key, value] of Object.entries(fields)) out[lang][key] = `[${lang}] ${value}`;
+      }
+      return JSON.stringify(out);
     }
-    const payload = JSON.parse(user.slice(user.indexOf('{', user.indexOf('Texty k překladu:'))));
+    const lang = /do jazyka „([a-z]{2,5})"/.exec(system)?.[1] ?? '';
     const out = {};
     for (const [key, value] of Object.entries(payload)) out[key] = `[${lang}] ${value}`;
     return JSON.stringify(out);
-  }
+  },
+  rateLimitedRecently: () => false
 });
 require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electron', loaded: true,
   exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
@@ -140,11 +150,9 @@ console.log('pole bez českého znění:\n');
   check('a chybějící zdroj přesto připomene',
     (mixed.noSource ?? []).includes('seo_title'), JSON.stringify(mixed.noSource));
 
-  console.log('\nkdyž API jednou selže:\n');
+  console.log('\nkdyž všechno klape:\n');
 
-  // Produkt do dvou jazyků naráz. Angličtině se první dotaz nepovede —
-  // přesně tak vypadá chvilkové přetížení a přesně proto dřív jeden trh
-  // zůstal nepřeložený.
+  // Produkt do dvou jazyků naráz — jeden dotaz místo dvou.
   const TWO = 'PKT23';
   db.prepare("INSERT INTO ptrans_products (code, title, raw_xml) VALUES (?,?,'')")
     .run(TWO, 'Bordó pánská kravata');
@@ -155,15 +163,56 @@ console.log('pole bez českého znění:\n');
     ).run(TWO, lang, 'title', 'Bordó pánská kravata', 'Bordó pánská kravata', 'same');
   }
 
-  failOnce = 'en';
-  const run = await translate.run({ codes: [TWO], langs: ['sk', 'en'], fillSource: false });
-  const value = lang => db.prepare(
+  const value = (code, lang) => db.prepare(
     "SELECT translated FROM ptrans_fields WHERE code = ? AND lang = ? AND field = 'title'"
-  ).get(TWO, lang)?.translated ?? '';
+  ).get(code, lang)?.translated ?? '';
 
-  check('slovenština prošla napoprvé', value('sk').startsWith('[sk]'), value('sk'));
-  check('angličtina se dotáhla druhým pokusem', value('en').startsWith('[en]'), value('en'));
+  // Nejdřív bez potíží: dva jazyky mají stát jeden dotaz, ne dva
+  asked = 0; joint = 0;
+  let run = await translate.run({ codes: [TWO], langs: ['sk', 'en'], fillSource: false });
+  check('dva jazyky = jeden dotaz', asked === 1 && joint === 1, `dotazů: ${asked}, společných: ${joint}`);
+  check('a oba trhy jsou přeložené',
+    value(TWO, 'sk').startsWith('[sk]') && value(TWO, 'en').startsWith('[en]'),
+    `${value(TWO, 'sk')} / ${value(TWO, 'en')}`);
+  check('běh je bez chyby', run.failed === 0, JSON.stringify(run));
+
+  console.log('\nkdyž API selže:\n');
+
+  // Druhý produkt, ale společný dotaz spadne. Nesmí to shodit oba trhy —
+  // právě tohle dřív nechávalo jeden jazyk nepřeložený.
+  const HARD = 'PKT99';
+  db.prepare("INSERT INTO ptrans_products (code, title, raw_xml) VALUES (?,?,'')")
+    .run(HARD, 'Modrá pánská kravata');
+  for (const lang of ['sk', 'en']) {
+    db.prepare(
+      `INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
+       VALUES (?,?,?,?,?,?)`
+    ).run(HARD, lang, 'title', 'Modrá pánská kravata', 'Modrá pánská kravata', 'same');
+  }
+
+  asked = 0; joint = 0;
+  failNext = 1;                       // společný dotaz se nepovede
+  run = await translate.run({ codes: [HARD], langs: ['sk', 'en'], fillSource: false });
+  check('po pádu společného dotazu se dotáhne slovenština',
+    value(HARD, 'sk').startsWith('[sk]'), value(HARD, 'sk'));
+  check('i angličtina', value(HARD, 'en').startsWith('[en]'), value(HARD, 'en'));
   check('a běh se netváří jako neúspěšný', run.failed === 0, JSON.stringify(run));
+
+  console.log('\nkdyž selže i opakování:\n');
+
+  const WORST = 'PKT98';
+  db.prepare("INSERT INTO ptrans_products (code, title, raw_xml) VALUES (?,?,'')")
+    .run(WORST, 'Zelená pánská kravata');
+  db.prepare(
+    `INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
+     VALUES (?,?,?,?,?,?)`
+  ).run(WORST, 'sk', 'title', 'Zelená pánská kravata', 'Zelená pánská kravata', 'same');
+
+  failNext = 99;                      // nepovede se nic
+  run = await translate.run({ codes: [WORST], langs: ['sk'], fillSource: false });
+  failNext = 0;
+  check('trvalý výpadek se přizná', run.failed > 0, JSON.stringify(run));
+  check('a je u toho i důvod', /Overloaded/.test(run.errors[0] ?? ''), run.errors[0]);
 
   console.log(bad
     ? `\n${bad} věcí nesedí`

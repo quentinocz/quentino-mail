@@ -10,10 +10,50 @@ function emit(channel: string, payload: unknown) {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload);
 }
 
+let cached: { key: string; api: Anthropic } | null = null;
+
 export function client(): Anthropic {
   const key = getApiKey();
   if (!key) throw new Error('Není nastaven Anthropic API klíč (Nastavení → AI)');
-  return new Anthropic({ apiKey: key });
+  // Klient se drží: nový pro každé volání znamená nové spojení a u dávky
+  // o tisíci produktech je to tisíc zbytečných TLS handshaků
+  if (!cached || cached.key !== key) {
+    cached = { key, api: new Anthropic({ apiKey: key, maxRetries: 0 }) };
+  }
+  return cached.api;
+}
+
+/**
+ * Kdy má smysl to zkusit znovu.
+ *
+ * Rozdíl je zásadní: přetížený server nebo vyčerpaný limit se za chvíli
+ * spraví sám, kdežto špatný klíč nebo neznámý model se opakováním nespraví
+ * nikdy a jen by se čekalo.
+ */
+function retryable(error: any): boolean {
+  const status = error?.status ?? error?.response?.status;
+  if (status === 408 || status === 409 || status === 429) return true;
+  if (typeof status === 'number' && status >= 500) return true;
+  // Spadlé spojení nemá stavový kód
+  const text = String(error?.message ?? error);
+  return /overloaded|timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EPIPE|socket hang up|fetch failed|network/i.test(text);
+}
+
+/** Jak dlouho počkat: nejraději podle serveru, jinak se zdvojnásobuje. */
+function waitFor(error: any, attempt: number): number {
+  const header = error?.headers?.['retry-after'] ?? error?.response?.headers?.get?.('retry-after');
+  const told = Number(header);
+  if (Number.isFinite(told) && told > 0) return Math.min(told * 1000, 60_000);
+  // Náhodný rozptyl schválně: bez něj se všechna souběžná volání probudí
+  // naráz a server dostane přesně tutéž vlnu, která ho zahltila
+  const base = Math.min(1000 * 2 ** attempt, 30_000);
+  return base + Math.random() * base * 0.3;
+}
+
+/** Signál pro dávkové běhy: „server hlásí, že je toho na něj moc". */
+let lastLimit = 0;
+export function rateLimitedRecently(withinMs = 20_000): boolean {
+  return Date.now() - lastLimit < withinMs;
 }
 
 /** Lokální evidence spotřeby tokenů (Anthropic nezveřejňuje zůstatek kreditu přes API). */
@@ -59,21 +99,59 @@ export function getAiUsage(): { month: string; calls: number; inputTokens: numbe
  * i desítky vteřin. Tlačítko „Zastavit" pak vypadalo, jako by nefungovalo.
  * Se signálem se rozběhnuté volání přeruší rovnou.
  */
-export interface AskOptions { signal?: AbortSignal }
+export interface AskOptions {
+  signal?: AbortSignal;
+  /** Kolik pokusů celkem, než se to vzdá (výchozí 5) */
+  attempts?: number;
+}
+
+/** Čekání, které jde přerušit — jinak by „Zastavit" muselo počkat na odklad. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('Zastaveno'));
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    function onAbort() { clearTimeout(timer); reject(new Error('Zastaveno')); }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 export async function ask(model: string, system: string, user: string, maxTokens = 1024,
                           options: AskOptions = {}): Promise<string> {
   // Pozn.: `temperature` novější Claude modely již nepodporují — přesnost řešíme
   // instrukcemi v promptu a korekturním průchodem.
-  const res = await client().messages.create({
-    model,
-    max_tokens: maxTokens,
-    system,
-    messages: [{ role: 'user', content: user }]
-  }, { signal: options.signal });
-  recordUsage(model, res.usage as any);
-  const block = res.content.find(b => b.type === 'text');
-  return block && block.type === 'text' ? block.text.trim() : '';
+  /*
+   * Opakování řešíme sami, ne knihovnou.
+   *
+   * Knihovna to sice umí, ale mlčky a jen dvakrát — u dávky o tisíci
+   * produktech se pak na jednom z nich prostě nepovede a nikdo se nedozví
+   * proč. Tady se dá počkat déle, poslechnout `retry-after` od serveru
+   * a hlavně dát vědět zbytku aplikace, že je server přetížený, aby ubrala
+   * plyn místo přilévání dalších souběžných dotazů.
+   */
+  const attempts = options.attempts ?? 5;
+  let last: any = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const res = await client().messages.create({
+        model,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: 'user', content: user }]
+      }, { signal: options.signal });
+      recordUsage(model, res.usage as any);
+      const block = res.content.find(b => b.type === 'text');
+      return block && block.type === 'text' ? block.text.trim() : '';
+    } catch (e: any) {
+      last = e;
+      // Zastavení uživatelem není chyba serveru — z toho se nezotavuje
+      if (e?.name === 'AbortError' || options.signal?.aborted) throw e;
+      if (!retryable(e) || attempt === attempts - 1) throw e;
+      const status = e?.status ?? e?.response?.status;
+      if (status === 429 || status === 529) lastLimit = Date.now();
+      await sleep(waitFor(e, attempt), options.signal);
+    }
+  }
+  throw last;
 }
 
 /**

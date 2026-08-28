@@ -62,7 +62,7 @@ shim('db.js', {
   getSetting: (key, fallback = null) => (settings.has(key) ? settings.get(key) : fallback),
   setSetting: (key, value) => settings.set(key, String(value))
 });
-shim('ai.js', { ask: async () => '{}' });
+shim('ai.js', { ask: async () => '{}', rateLimitedRecently: () => false });
 shim('settings.js', { getSettings: () => ({ draftModel: 'test', brandPrompt: '' }), touchState: () => {} });
 require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electron', loaded: true,
   exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
