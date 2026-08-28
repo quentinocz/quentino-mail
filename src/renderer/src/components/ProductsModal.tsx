@@ -435,6 +435,48 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /**
+   * Uklidí HTML popisů u vybraných produktů.
+   *
+   * Nevolá model — je to okamžité a zadarmo. Text se nezmění ani o písmeno,
+   * zmizí jen kód, který se do popisu dostal kopírováním z jiného okna a
+   * kvůli kterému se popis nemusí v e-shopu vůbec zobrazit.
+   */
+  const tidySelected = async () => {
+    if (selected.size === 0) { toast('Nejdřív vyber produkty.', 'error'); return; }
+    try {
+      const result = await api.ptrans.tidy([...selected]);
+      if (result.products === 0) {
+        toast('V popisech vybraných produktů není co uklízet.', 'error');
+        return;
+      }
+      toast(`Uklizeno u ${result.products} produktů (${result.fields} popisů,`
+        + ` ${result.saved.toLocaleString('cs-CZ')} znaků balastu pryč)`);
+      await loadPage();
+      if (active) loadFields(active);
+
+      /*
+       * Úklid v aplikaci sám o sobě e-shopu nepomůže — tam popis pořád visí
+       * i s balastem. Proto se rovnou nabídne soubor k importu, a schválně
+       * jen s popisy a jen u uklizených produktů: import tak nemůže sáhnout
+       * na nic jiného. Když uživatel dialog zavře, úklid zůstane uložený
+       * a dá se vyexportovat kdykoli potom.
+       */
+      const saved = await api.ptrans.export({
+        codes: [...selected],
+        langs: [overview?.settings.sourceLang ?? 'cz', ...langs.map(l => l.code)],
+        fields: ['long', 'short'],
+        // `current` = popis tak, jak je teď: uklizený překlad, kde je, a jinak
+        // uklizený text z feedu. Nepřeložené trhy tím dostanou aspoň funkční
+        // HTML, i když text v nich zůstává původní.
+        state: 'current'
+      });
+      if (saved) toast(`Uloženo k importu: ${saved.products} produktů, ${saved.fields} popisů`);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  };
+
   const googleTitles = async () => {
     if (selected.size === 0) { toast('Nejdřív vyber produkty.', 'error'); return; }
     try {
@@ -581,6 +623,7 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                 <option value="same">Zůstala čeština</option>
                 <option value="source">Rozpoznán zdrojový jazyk</option>
                 <option value="stale">Zdroj se změnil</option>
+                <option value="messy">Nepořádek v HTML</option>
                 <option value="ok">Hotové</option>
                 <option value="all">Všechny produkty</option>
               </select>
@@ -868,6 +911,10 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                 data-tip="Barva, pohlaví, věk, stav a set — spočítá se z parametrů a kategorií">
                 <Icon name="zap" size={13} /> Doplnit Google atributy
               </button>
+              <button className="btn ghost" onClick={tidySelected} disabled={selected.size === 0}
+                data-tip="Vyhodí z popisů kód, který tam nepatří (obal z chatu, prázdné <div>) — ve všech jazycích včetně češtiny. Text zůstane stejný.">
+                <Icon name="eraser" size={13} /> Uklidit HTML
+              </button>
               <button className="btn ghost" onClick={revertSelected} disabled={selected.size === 0}
                 data-tip="Zahodit, co aplikace vymyslela, a vrátit se ke stavu ve feedu">
                 <Icon name="refresh" size={13} /> Vrátit na feed
@@ -1115,7 +1162,8 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
         toast(`Hotovo: ${result.done - result.failed} přeloženo, ${result.failed} neprošlo`
           + (result.errors[0] ? ` — ${result.errors[0]}` : ''), 'error');
       } else {
-        toast(`Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`);
+        toast(`Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`
+          + (result.tidied ? ` · cestou uklizeno ${result.tidied} popisů` : ''));
       }
     } catch (e: any) {
       toast(e.message, 'error');

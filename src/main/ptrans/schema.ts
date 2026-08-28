@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS ptrans_fields (
   translated_hash TEXT,
   model TEXT NOT NULL DEFAULT '',
   manual INTEGER NOT NULL DEFAULT 0,
+  -- 1 = v textu je balast po kopírování z cizí stránky (viz ptrans/html.ts).
+  -- Drží se v databázi, aby se dal seznam produktů podle toho filtrovat
+  -- jedním dotazem místo procházení všech popisů při každém otevření.
+  messy INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (code, lang, field)
 );
 CREATE INDEX IF NOT EXISTS idx_ptrans_fields_state ON ptrans_fields(lang, state);
@@ -141,5 +145,6 @@ CREATE INDEX IF NOT EXISTS idx_ptrans_trials_open ON ptrans_trials(chosen, lang,
 /** Doplňkové sloupce pro databáze založené dřív — chyba „už existuje" je v pořádku. */
 export const ALTERS = [
   `ALTER TABLE ptrans_products ADD COLUMN origin TEXT NOT NULL DEFAULT 'feed'`,
-  `ALTER TABLE ptrans_products ADD COLUMN added_at TEXT NOT NULL DEFAULT ''`
+  `ALTER TABLE ptrans_products ADD COLUMN added_at TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE ptrans_fields ADD COLUMN messy INTEGER NOT NULL DEFAULT 0`
 ];

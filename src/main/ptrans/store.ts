@@ -1,6 +1,7 @@
 import { getDb, getSetting, setSetting } from '../db';
 import { splitProducts, tagText, getField, productParameters, paramKey, productUrl, TEXT_FIELDS } from './xml';
 import { fieldState, hashText, plain, FieldState, NEEDS_WORK } from './detect';
+import { needsTidy } from './html';
 
 /**
  * Databáze produktů pro překlady.
@@ -206,15 +207,27 @@ export function revertToFeed(codes: string[], options: { keepManual?: boolean } 
  * podle jakých pravidel se počítalo naposledy; nesouhlasí-li, přepočítá se
  * jednou všechno.
  *
- * Verze se zvedá při každé změně `fieldState`.
+ * Verze se zvedá při každé změně `fieldState` — a taky když přibude něco,
+ * co se při přepočtu ukládá vedle stavu (příznak nepořádku v HTML).
  */
-const STATE_RULES_VERSION = '3';
+const STATE_RULES_VERSION = '4';
 
 export function refreshStatesIfNeeded(): number {
   if (getSetting('ptransStateRules', '') === STATE_RULES_VERSION) return 0;
   const changed = recomputeStates();
   setSetting('ptransStateRules', STATE_RULES_VERSION);
   return changed;
+}
+
+/**
+ * Je v textu balast po kopírování z cizí stránky?
+ *
+ * Kouká se na obě strany — na originál i na text v cílovém jazyce. Balast
+ * v češtině je ten původní; jazykové mutace ho zdědily a v e-shopu rozbíjejí
+ * stránku úplně stejně, takže se hlásí i tam, kde překlad ještě neproběhl.
+ */
+function messyFlag(row: { translated?: string | null; value: string; source_value: string }): boolean {
+  return needsTidy(row.source_value) || needsTidy(row.translated || row.value);
 }
 
 /** Přepočítá stav polí podle toho, co je ve feedu a co máme uložené. */
@@ -227,7 +240,8 @@ export function recomputeStates(codes?: string[]): number {
      FROM ptrans_fields${where}`
   ).all(...(codes ?? [])) as any[];
 
-  const update = d.prepare('UPDATE ptrans_fields SET state = ? WHERE code = ? AND lang = ? AND field = ?');
+  const update = d.prepare(
+    'UPDATE ptrans_fields SET state = ?, messy = ? WHERE code = ? AND lang = ? AND field = ?');
   const run = d.transaction(() => {
     for (const row of rows) {
       const ours = !!row.translated && plain(row.translated) === plain(row.value);
@@ -241,7 +255,17 @@ export function recomputeStates(codes?: string[]): number {
         sourceHash: hashText(row.source_value),
         manual: row.manual === 1
       });
-      update.run(state, row.code, row.lang, row.field);
+      /*
+       * Při té příležitosti i příznak nepořádku v HTML.
+       *
+       * Počítá se tady, a ne při každém dotazu: projít popisy tisíce produktů
+       * trvá skoro vteřinu, což by se při každém překliknutí stránky poznalo.
+       * Kouká se na obě strany — na text v cílovém jazyce i na zdrojový.
+       * Balast v češtině je totiž ten původní; překlad ho jen zdědí, a hledá
+       * se hlavně proto, aby se dal opravit u zdroje.
+       */
+      const messy = messyFlag(row);
+      update.run(state, messy ? 1 : 0, row.code, row.lang, row.field);
     }
   });
   run();
@@ -278,10 +302,11 @@ function ingest(xml: string, options: IngestOptions = {}): SyncResult {
     'SELECT translated, translated_hash, manual FROM ptrans_fields WHERE code = ? AND lang = ? AND field = ?'
   );
   const upsertField = d.prepare(`
-    INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
-    VALUES (@code, @lang, @field, @value, @source_value, @state)
+    INSERT INTO ptrans_fields (code, lang, field, value, source_value, state, messy)
+    VALUES (@code, @lang, @field, @value, @source_value, @state, @messy)
     ON CONFLICT(code, lang, field) DO UPDATE SET
-      value = excluded.value, source_value = excluded.source_value, state = excluded.state
+      value = excluded.value, source_value = excluded.source_value, state = excluded.state,
+      messy = excluded.messy
   `);
 
   const fromFile = new Set(
@@ -338,7 +363,12 @@ function ingest(xml: string, options: IngestOptions = {}): SyncResult {
             manual: saved?.manual === 1
           });
 
-          upsertField.run({ code, lang, field, value, source_value: source, state });
+          upsertField.run({
+            code, lang, field, value, source_value: source, state,
+            // Balast v HTML se pozná rovnou při čtení feedu, ať se dá podle
+            // toho filtrovat bez procházení popisů při každém dotazu
+            messy: messyFlag({ translated: saved?.translated, value, source_value: source }) ? 1 : 0
+          });
           fields++;
         }
       }
@@ -453,7 +483,12 @@ export interface ProductQueryInput {
   manufacturer?: string;
   /** Jen produkty, které mají v tomhle jazyce co dělat */
   lang?: string;
-  state?: FieldState | 'todo' | 'all';
+  /**
+   * `todo` = cokoli, co ještě čeká na práci, `messy` = produkty, kterým se do
+   * popisu dostal balast z cizí stránky (viz `html.ts`) — ten se nepozná podle
+   * stavu pole, protože s překladem nesouvisí.
+   */
+  state?: FieldState | 'todo' | 'messy' | 'all';
   field?: string;
   onlyActive?: boolean;
   /**
@@ -496,12 +531,20 @@ function filterClause(query: ProductQueryInput, langs: string[]): { clause: stri
     params.push(...query.codes);
   }
 
+  const fieldFilter = query.field ? ' AND f.field = ?' : '';
+  const langList = langs.map(() => '?').join(',');
+
+  // Nepořádek v HTML není stav pole — je to vlastnost textu a hlídá se
+  // příznakem, který se počítá při přepočtu stavů
+  if (query.state === 'messy') {
+    where.push(`EXISTS (SELECT 1 FROM ptrans_fields f WHERE f.code = p.code AND f.messy = 1${fieldFilter})`);
+    if (query.field) params.push(query.field);
+    return { clause: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
+  }
+
   const wanted = query.state && query.state !== 'all'
     ? (query.state === 'todo' ? NEEDS_WORK : [query.state])
     : null;
-
-  const fieldFilter = query.field ? ' AND f.field = ?' : '';
-  const langList = langs.map(() => '?').join(',');
 
   // Produkty, které vyhovují filtru stavu (aspoň jedno pole v daném stavu)
   if (wanted) {
@@ -687,19 +730,22 @@ export function saveTranslation(code: string, lang: string, field: string, value
   const source = row?.source_value ?? '';
   d.prepare(`
     INSERT INTO ptrans_fields (code, lang, field, value, source_value, state, translated, translated_at,
-      translated_hash, model, manual)
-    VALUES (@code, @lang, @field, @value, @source, @state, @value, @at, @hash, @model, @manual)
+      translated_hash, model, manual, messy)
+    VALUES (@code, @lang, @field, @value, @source, @state, @value, @at, @hash, @model, @manual, @messy)
     ON CONFLICT(code, lang, field) DO UPDATE SET
       value = excluded.value, state = excluded.state, translated = excluded.translated,
       translated_at = excluded.translated_at, translated_hash = excluded.translated_hash,
-      model = excluded.model, manual = excluded.manual
+      model = excluded.model, manual = excluded.manual, messy = excluded.messy
   `).run({
     code, lang, field, value, source,
     state: manual ? 'manual' : 'ok',
     at: new Date().toISOString(),
     hash: hashText(source),
     model,
-    manual: manual ? 1 : 0
+    manual: manual ? 1 : 0,
+    // Po úklidu musí příznak zhasnout hned, ne až po dalším přepočtu stavů —
+    // jinak by uklizený produkt zůstal ve filtru „nepořádek v HTML" viset
+    messy: messyFlag({ translated: value, value, source_value: source }) ? 1 : 0
   });
 }
 

@@ -481,6 +481,8 @@ export function registerIpc() {
   handle('ptrans:fillSource', (options: any) => ptrans.fillSourceTexts(options ?? { codes: [] }));
   handle('ptrans:fixIssues', (code: string, lang: string, keys?: string[]) =>
     ptrans.fixIssues(code, lang, keys));
+  handle('ptrans:tidy', (codes: string[]) => ptrans.tidyDescriptions(codes ?? []));
+  handle('ptrans:tidyPreview', (code: string) => ptrans.tidyPreview(code));
 
   /* ---------- Články (jen na počítači) ---------- */
   handle('articles:overview', () => articles.overview());
