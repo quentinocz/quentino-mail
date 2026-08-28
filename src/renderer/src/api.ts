@@ -122,6 +122,8 @@ export const api = {
         done: number; failed: number; seconds: number; errors: string[];
         /** Pole, která se nepřeložila, protože chybí české znění */
         noSource: number; noSourceFields: string[];
+        /** Kolik popisů se cestou uklidilo od balastu v HTML */
+        tidied: number;
       }>('ptrans:run', input),
     stop: () => call<boolean>('ptrans:stop'),
     progress: () => call<PtransProgress | null>('ptrans:progress'),
@@ -143,7 +145,7 @@ export const api = {
      * co aplikace sama vyrobila.
      */
     export: (options: {
-      langs?: string[]; codes?: string[]; mode?: 'slim' | 'full';
+      langs?: string[]; codes?: string[]; mode?: 'slim' | 'full'; fields?: string[];
       includeSource?: boolean; state?: 'translated' | 'current';
     } = {}) =>
       call<{ path: string; products: number; fields: number } | null>('ptrans:export', options),
@@ -227,7 +229,15 @@ export const api = {
       call<{ done: number; failed: number; errors: string[] }>('ptrans:fillSource', options),
     /** Spraví vady, které audit označil jako opravitelné */
     fixIssues: (code: string, lang: string, keys?: string[]) =>
-      call<{ fixed: string[]; skipped: string[] }>('ptrans:fixIssues', code, lang, keys)
+      call<{ fixed: string[]; skipped: string[] }>('ptrans:fixIssues', code, lang, keys),
+    /**
+     * Úklid HTML popisů — ve všech jazycích včetně zdrojového, bez modelu.
+     * Text zůstane stejný, ubude jen kód, který do popisu nepatří.
+     */
+    tidy: (codes: string[]) =>
+      call<{ products: number; fields: number; saved: number }>('ptrans:tidy', codes),
+    tidyPreview: (code: string) =>
+      call<{ lang: string; field: string; saved: number }[]>('ptrans:tidyPreview', code)
   },
   /** Články pro e-shop — psaní, překlad a kontrola odkazů. Jen na počítači. */
   articles: {

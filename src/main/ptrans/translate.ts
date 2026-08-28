@@ -5,6 +5,8 @@ import { getDb } from '../db';
 import { getPtransSettings, savePtransSettings, productFields, saveTranslation, targetLangs,
   PtransSettings, FieldRow } from './store';
 import { HTML_FIELDS, DERIVED_FIELDS } from './xml';
+import { tidyHtml } from './html';
+import { tidyProducts } from './tidy';
 import { NEEDS_WORK, plain, clamp } from './detect';
 import { languageNote } from './style';
 import { consistencyHint } from './consistency';
@@ -159,6 +161,25 @@ function labelOf(lang: string, s: PtransSettings): string {
 }
 
 /** Popisky polí pro model — ať ví, co má v ruce. */
+/**
+ * Zdrojový text tak, jak se pošle modelu.
+ *
+ * Popisy vložené kopírováním z jiného okna vlečou s sebou obal cizí stránky
+ * (`<article>`, `class` na půl obrazovky, `data-start`). Modelu to k ničemu
+ * není, ale platí se to a hlavně se tím nafukuje odpověď — v tomhle feedu je
+ * takového balastu **třetina všech znaků v popisech** a nejdelší popis se
+ * kvůli němu do jedné odpovědi vůbec nevešel. Zadání se proto uklidí; text
+ * v něm zůstane do písmene stejný.
+ */
+function forModel(field: string, source: string): string {
+  return HTML_FIELDS.has(field) ? tidyHtml(source) : source;
+}
+
+/** Přeložený text před uložením — balast se do překladu propsat nemá. */
+function fromModel(field: string, value: string): string {
+  return HTML_FIELDS.has(field) ? tidyHtml(value) : plain(value);
+}
+
 const FIELD_LABELS: Record<string, string> = {
   title: 'název produktu (krátký, bez HTML)',
   short: 'krátký popis (HTML)',
@@ -284,7 +305,7 @@ export async function translateOne(target: TranslateTarget, signal?: AbortSignal
   for (const field of wanted) {
     const row = rows.find(r => r.field === field);
     const source = row?.source ?? '';
-    if (source.trim()) payload[field] = source;
+    if (source.trim()) payload[field] = forModel(field, source);
     else noSource.push(field);
   }
   if (Object.keys(payload).length === 0) {
@@ -359,7 +380,7 @@ export async function translateOne(target: TranslateTarget, signal?: AbortSignal
     for (const field of wanted) {
       let value = translated[field];
       if (typeof value !== 'string' || !value.trim()) continue;
-      if (!HTML_FIELDS.has(field)) value = plain(value);
+      value = fromModel(field, value);
       if (field === 'seo_title') value = clamp(value, s.limits.seoTitle);
       if (field === 'seo_desc') value = clamp(value, s.limits.seoDesc);
       saveTranslation(target.code, target.lang, field, value, model);
@@ -526,7 +547,7 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
     const part: Record<string, string> = {};
     for (const field of wanted) {
       const source = rows.find(r => r.field === field)?.source ?? '';
-      if (source.trim()) part[field] = source;
+      if (source.trim()) part[field] = forModel(field, source);
       else noSource.push(field);
     }
     if (Object.keys(part).length) payload[target.lang] = part;
@@ -647,7 +668,7 @@ function saveTranslated(target: TranslateTarget, rows: FieldRow[],
     if (DERIVED_FIELDS.has(field)) continue;
     let value = typeof raw === 'string' ? raw : '';
     if (!value.trim()) continue;
-    if (!HTML_FIELDS.has(field)) value = plain(value);
+    value = fromModel(field, value);
     if (field === 'seo_title') value = clamp(value, s.limits.seoTitle);
     if (field === 'seo_desc') value = clamp(value, s.limits.seoDesc);
     saveTranslation(target.code, target.lang, field, value, model);
@@ -696,6 +717,8 @@ export interface RunResult {
   noSource: number;
   /** Kterých polí se to týká — do hlášky „doplň nejdřív české texty" */
   noSourceFields: string[];
+  /** Kolik popisů se cestou uklidilo (balast v HTML) — jen pro hlášku */
+  tidied: number;
 }
 
 /**
@@ -706,6 +729,17 @@ export async function run(input: RunInput): Promise<RunResult> {
   if (current?.running) throw new Error('Překlad už běží.');
   const s = getPtransSettings();
   const langs = input.langs?.length ? input.langs : targetLangs(s);
+
+  /*
+   * Úklid popisů ještě před sestavením plánu.
+   *
+   * Nestojí to nic (žádné volání modelu, jen přepis textu) a zbytek běhu je
+   * díky tomu levnější i spolehlivější: z popisů zmizí obal cizí stránky,
+   * který tvoří třetinu znaků, a nejdelší popisy se přestanou lámat o strop
+   * odpovědi. Text se přitom nezmění ani o písmeno.
+   */
+  const tidied = tidyProducts(input.codes);
+
   const work = planWork(input.codes, langs, { force: input.force, fields: input.fields });
 
   // Než se začne překládat, mrkne se do paměti. Když je prázdná, vytáhne se
@@ -928,6 +962,7 @@ export async function run(input: RunInput): Promise<RunResult> {
     done, failed, seconds, cancelled,
     errors: errors.slice(0, 20),
     noSource,
-    noSourceFields: noSourceFields.map(field => FIELD_LABELS[field] ?? field)
+    noSourceFields: noSourceFields.map(field => FIELD_LABELS[field] ?? field),
+    tidied: tidied.fields
   };
 }

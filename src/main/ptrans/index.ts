@@ -12,6 +12,7 @@ import { findDeviations, patternOverview, patternFor, derivePattern,
 import { listStyles, forgetStyle, caseStyleFor, feedExamples, LearnedStyle } from './style';
 import { listTrials, countOpenTrials, decideTrial, dismissTrial, affectedByTrial, Trial } from './trials';
 import { setSeoUrl, previewRedirect } from './redirects';
+import { tidyProduct, tidyProducts, messyFields } from './tidy';
 import { listMemory, saveMemory, deleteMemory, learnFromFeed, memoryStats, MemoryEntry, MemoryKind, LearnResult } from './memory';
 import { listColorRules, saveColorRule, deleteColorRule, learnColors, colorCoverage,
   BASE_COLORS, baseColorOf, ColorRule } from './colors';
@@ -331,6 +332,18 @@ export async function fixIssues(code: string, lang: string, keys?: string[]):
     }
   }
 
+  /*
+   * Úklid HTML se nedělá po jazycích ani po polích — balast je v popisu ve
+   * všech mutacích naráz a stejně tak se odstraní. Model se nevolá vůbec,
+   * takže je to okamžité; a hlavně se to musí spustit jen jednou, i když
+   * audit hlásí nepořádek v dlouhém i krátkém popisu zároveň.
+   */
+  const junk = wanted.filter(issue => issue.key.endsWith('.junk'));
+  if (junk.length) {
+    const done = tidyProduct(code).fields > 0;
+    for (const issue of junk) (done ? fixed : skipped).push(issue.key);
+  }
+
   for (const issue of wanted) {
     try {
       if (issue.key.startsWith('seo_title')) {
@@ -343,6 +356,8 @@ export async function fixIssues(code: string, lang: string, keys?: string[]):
         await writeGoogleText(code, lang, 'google_title');
       } else if (issue.key.startsWith('google_desc')) {
         await writeGoogleText(code, lang, 'google_desc');
+      } else if (issue.key.endsWith('.junk')) {
+        continue;   // uklidilo se najednou výš
       } else if (issue.key === 'title.untranslated') {
         await retranslateField(code, lang, 'title');
       } else {
@@ -359,6 +374,26 @@ export async function fixIssues(code: string, lang: string, keys?: string[]):
   runAudit({ codes: [code], langs: [lang] });
   emit('ptrans:changed', {});
   return { fixed, skipped };
+}
+
+/**
+ * Uklidí popisy u vybraných produktů — ve všech jazycích včetně zdrojového.
+ *
+ * Nevolá model, takže je to okamžité a zadarmo. Text zůstane do písmene
+ * stejný; ubude jen kód, který do popisu nepatří.
+ */
+export function tidyDescriptions(codes: string[]) {
+  const result = tidyProducts(codes);
+  if (result.products) {
+    runAudit({ codes });
+    emit('ptrans:changed', {});
+  }
+  return result;
+}
+
+/** Co by u produktu úklid změnil — bez zápisu. */
+export function tidyPreview(code: string) {
+  return messyFields(code);
 }
 
 /** Ruční úprava jednoho pole — od té chvíle na něj překladač nesahá. */

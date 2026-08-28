@@ -1088,7 +1088,8 @@ export interface PtransQuery {
   category?: string;
   manufacturer?: string;
   lang?: string;
-  state?: PtransState | 'todo' | 'all';
+  /** `messy` = produkty s balastem v HTML popisu (obal z chatu, prázdné `<div>`) */
+  state?: PtransState | 'todo' | 'messy' | 'all';
   field?: string;
   onlyActive?: boolean;
   /** `file` = pracovat jen s tím, co bylo nahráno ze souboru */

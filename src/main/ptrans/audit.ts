@@ -5,6 +5,7 @@ import { plain, detectLanguage } from './detect';
 import { parameterMap } from './seo';
 import { attributesFor } from './google';
 import { colorFor, shadeFromTitle } from './colors';
+import { tidyHtml, needsTidy } from './html';
 
 /**
  * Audit feedu — pro každý produkt a jazyk.
@@ -116,6 +117,32 @@ export function auditProduct(code: string, lang: string): ProductAudit | null {
     if (lang !== s.sourceLang && detectLanguage(title, [s.sourceLang, lang]) === s.sourceLang) {
       add('title.untranslated', 'error', 'Název je pořád ve zdrojovém jazyce.', 'title', true);
     }
+  }
+
+  /*
+   * Balast v HTML popisu.
+   *
+   * Popis vložený kopírováním z jiného okna s sebou vleče obal cizí stránky.
+   * Není to kosmetika: e-shop takový kód nemusí zobrazit vůbec (přesně tohle
+   * se stalo u PSSK120SZ3), a při každém překladu se za ten balast platí.
+   * Opravit to jde bez modelu — text se nezmění ani o písmeno.
+   */
+  for (const field of ['long', 'short']) {
+    const raw = value(field);
+    if (!needsTidy(raw)) continue;
+    // Nepřeložený cizojazyčný popis se neuklízí — překlad ho stejně celý
+    // přepíše, a čistý bude, protože zdroj se uklidí taky
+    const row = rows.find(f => f.field === field);
+    if (lang !== s.sourceLang && !row?.translated && !needsTidy(row?.source ?? '')) continue;
+    const junk = raw.length - tidyHtml(raw).length;
+    const foreign = /<article\b|data-turn-id|data-testid|conversation-turn/i.test(raw);
+    add(`${field}.junk`, foreign ? 'error' : 'warn',
+      foreign
+        ? `${field === 'long' ? 'Popis' : 'Krátký popis'} obsahuje obal cizí stránky`
+          + ` (${junk.toLocaleString('cs-CZ')} znaků navíc) — e-shop ho nemusí vůbec zobrazit.`
+        : `${field === 'long' ? 'Popis' : 'Krátký popis'} obsahuje ${junk.toLocaleString('cs-CZ')}`
+          + ' znaků zbytečného kódu.',
+      field, true);
   }
 
   const long = plain(value('long'));
