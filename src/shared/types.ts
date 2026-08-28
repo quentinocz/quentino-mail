@@ -1032,6 +1032,9 @@ export interface PtransProgress {
   secondsPerUnit: number;
   label: string;
   errors: string[];
+  /** Naplnění pruhu 0–1. Počítá se i z rozjetých volání, aby se pruh hýbal
+   *  plynule a ne skokem po celých produktech. */
+  bar: number;
 }
 
 export interface PtransOverview {

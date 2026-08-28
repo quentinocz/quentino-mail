@@ -124,6 +124,8 @@ export const api = {
         noSource: number; noSourceFields: string[];
         /** Kolik popisů se cestou uklidilo od balastu v HTML */
         tidied: number;
+        /** Co po běhu opravdu zbylo nehotové — „PSSK120SZ3 (EN)" */
+        stuck: string[];
       }>('ptrans:run', input),
     stop: () => call<boolean>('ptrans:stop'),
     progress: () => call<PtransProgress | null>('ptrans:progress'),

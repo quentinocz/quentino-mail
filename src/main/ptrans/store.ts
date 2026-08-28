@@ -210,7 +210,7 @@ export function revertToFeed(codes: string[], options: { keepManual?: boolean } 
  * Verze se zvedá při každé změně `fieldState` — a taky když přibude něco,
  * co se při přepočtu ukládá vedle stavu (příznak nepořádku v HTML).
  */
-const STATE_RULES_VERSION = '4';
+const STATE_RULES_VERSION = '5';
 
 export function refreshStatesIfNeeded(): number {
   if (getSetting('ptransStateRules', '') === STATE_RULES_VERSION) return 0;
