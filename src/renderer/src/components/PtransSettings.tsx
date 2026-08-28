@@ -126,10 +126,13 @@ export default function PtransSettingsPanel({ overview, sampleCode, onSaved }: {
               <small>Ve feedu jazyk s pořádnými texty — u Quentina „cz"</small>
             </label>
             <label>
-              <span>Souběžných překladů</span>
+              <span>Souběžných překladů — strop</span>
               <input type="number" min={1} max={6} value={draft.concurrency}
                 onChange={e => patch({ concurrency: Math.max(1, Math.min(6, Number(e.target.value) || 1)) })} />
-              <small>Víc = rychleji, ale větší šance narazit na limit API</small>
+              <small>
+                Běh začíná vždy jedním produktem a přidává, až když osm
+                produktů po sobě projde bez chyby. Tohle je jen strop.
+              </small>
             </label>
           </div>
         </section>

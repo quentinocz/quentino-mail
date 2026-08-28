@@ -12,7 +12,8 @@ import { languageNote } from './style';
 import { consistencyHint } from './consistency';
 import { setSeoUrl } from './redirects';
 import { memoryHint, memoryStats, learnFromFeed } from './memory';
-import { planSourceFill, fillSourceOne, SourceField } from './source';
+import { planSourceFill, fillSourceOne, SourceField, SourceTarget, SOURCE_LABELS } from './source';
+import { applyAttributes } from './google';
 
 /**
  * Překlad produktových textů.
@@ -47,6 +48,8 @@ export interface ProgressState {
   secondsPerUnit: number;
   label: string;
   errors: string[];
+  /** Naplnění pruhu 0–1; počítá se i z rozjetých volání, aby se pruh hýbal */
+  bar: number;
 }
 
 function emit(channel: string, payload: unknown) {
@@ -146,6 +149,29 @@ export function planWork(codes: string[], langs: string[], options: { force?: bo
     }
   }
   return out;
+}
+
+/**
+ * Kolik z toho se vůbec dá přeložit.
+ *
+ * Pole bez textu ve zdrojovém jazyce nikdy nezmizí ze seznamu „čeká na
+ * překlad" — přeložit prázdno nejde. Kdyby se počítalo mezi nedokončené,
+ * hlásil by běh chyby napořád a každý produkt by zbytečně dostal všechny
+ * pokusy. Hlásí se to zvlášť, jako „chybí české znění".
+ */
+export function withSource(targets: TranslateTarget[]): TranslateTarget[] {
+  const d = getDb();
+  const read = d.prepare(
+    'SELECT field FROM ptrans_fields WHERE code = ? AND lang = ? AND trim(source_value) != \'\''
+  );
+  return targets
+    .map(target => {
+      const have = new Set((read.all(target.code, target.lang) as { field: string }[])
+        .map(row => row.field));
+      const fields = (target.fields ?? []).filter(field => have.has(field));
+      return { ...target, fields };
+    })
+    .filter(target => (target.fields?.length ?? 0) > 0);
 }
 
 function categoryOf(code: string): string {
@@ -526,8 +552,8 @@ function packLangs(langs: string[], charsOf: (lang: string) => number): string[]
  * ne podmínka.
  */
 export async function translateProduct(code: string, targets: TranslateTarget[], signal?: AbortSignal):
-  Promise<{ saved: number; errors: string[]; noSource: string[] }> {
-  if (targets.length === 0) return { saved: 0, errors: [], noSource: [] };
+  Promise<{ saved: number; errors: string[]; noSource: string[]; failed: string[] }> {
+  if (targets.length === 0) return { saved: 0, errors: [], noSource: [], failed: [] };
 
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
@@ -553,17 +579,27 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
     if (Object.keys(part).length) payload[target.lang] = part;
   }
   const langs = Object.keys(payload);
-  if (langs.length === 0) return { saved: 0, errors: [], noSource };
+  if (langs.length === 0) return { saved: 0, errors: [], noSource, failed: [] };
 
   let saved = 0;
   const errors: string[] = [];
+  /*
+   * Které trhy to opravdu neprošly.
+   *
+   * Dřív se hlásila chyba za celý produkt: když slovenština vyšla a
+   * angličtina ne, šly do opakování **obě**. Slovenština se tím přeložila
+   * podruhé — zbytečné volání navíc přesně ve chvíli, kdy je API přetížené,
+   * takže se tím pravděpodobnost dalšího pádu ještě zvyšovala. A v souhrnu
+   * to vypadalo na dvojnásobek chyb, než kolik jich doopravdy bylo.
+   */
+  const failed: string[] = [];
 
   for (const batch of packLangs(langs, lang => payloadChars(payload[lang]))) {
     if (batch.length === 1) {
       // Sám jazyk: běžná cesta, která si umí poradit i s dělením polí
       const one = await translateOne(byLangTarget.get(batch[0])!, signal);
       saved += one.saved;
-      if (one.error) errors.push(one.error);
+      if (one.error) { errors.push(one.error); failed.push(batch[0]); }
       continue;
     }
 
@@ -574,6 +610,8 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
       saved += await askBatch(code, part, batch, rowsByLang, byLangTarget, model, s, done, signal);
     } catch (e: any) {
       if (isAborted(e)) throw e;
+      // Pád společného dotazu ještě není chyba překladu — každý trh dostane
+      // vlastní pokus hned pod tímhle a teprve ten rozhodne
       errors.push(`${code}: ${e.message}`);
     }
     // Co se ze společné odpovědi nevrátilo, se dotáhne po jednom
@@ -581,11 +619,16 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
       if (done.has(lang)) continue;
       const one = await translateOne(byLangTarget.get(lang)!, signal);
       saved += one.saved;
-      if (one.error) errors.push(one.error);
+      if (one.error) { errors.push(one.error); failed.push(lang); }
+    }
+    // Když se to po jednom nakonec povedlo, hláška o pádu dávky jen mate
+    if (failed.length === 0) {
+      const at = errors.findIndex(text => text.startsWith(`${code}: `));
+      if (at >= 0) errors.splice(at, 1);
     }
   }
 
-  return { saved, errors: errors.slice(0, 4), noSource };
+  return { saved, errors: errors.slice(0, 4), noSource, failed };
 }
 
 /** Jeden společný dotaz na několik jazyků. Vrací, kolik polí se uložilo. */
@@ -719,13 +762,14 @@ export interface RunResult {
   noSourceFields: string[];
   /** Kolik popisů se cestou uklidilo (balast v HTML) — jen pro hlášku */
   tidied: number;
+  /** Co po běhu opravdu zbylo nehotové — „PSSK120SZ3 (EN)" */
+  stuck: string[];
 }
 
 /**
  * Přeloží vybrané produkty. Průběh chodí do rozhraní událostí `ptrans:progress`,
  * takže je vidět, co se právě děje a kolik zhruba zbývá.
- */
-export async function run(input: RunInput): Promise<RunResult> {
+ */export async function run(input: RunInput): Promise<RunResult> {
   if (current?.running) throw new Error('Překlad už běží.');
   const s = getPtransSettings();
   const langs = input.langs?.length ? input.langs : targetLangs(s);
@@ -740,8 +784,6 @@ export async function run(input: RunInput): Promise<RunResult> {
    */
   const tidied = tidyProducts(input.codes);
 
-  const work = planWork(input.codes, langs, { force: input.force, fields: input.fields });
-
   // Než se začne překládat, mrkne se do paměti. Když je prázdná, vytáhne se
   // teď — z produktů, které jsou ve feedu přeložené, se dá slovosled i
   // názvosloví přečíst za pár vteřin a zbytek běhu se toho drží. Bez toho by
@@ -750,98 +792,35 @@ export async function run(input: RunInput): Promise<RunResult> {
     try { learnFromFeed(langs); } catch { /* paměť je pomůcka, ne podmínka */ }
   }
 
+  /*
+   * Práce se vede po produktech, ne po dvojicích produkt–jazyk.
+   *
+   * U každého produktu se projde celý řetěz: doplnit, co chybí v češtině →
+   * dopočítat číselníky → přeložit do všech trhů → **ověřit, že nezbylo nic
+   * nehotového**. Teprve pak se jde na další. Ověření je to podstatné: běh
+   * se neřídí tím, jestli volání vrátilo chybu, ale tím, co po něm zůstalo
+   * v databázi. Co nesedí, zkusí se u téhož produktu znovu, klidněji.
+   */
+  const plan = new Map<string, { source: SourceTarget[]; work: TranslateTarget[] }>();
+  const sourceFor = (code: string) => (input.fillSource
+    ? planSourceFill({ codes: [code], fields: input.sourceFields, force: input.forceSource })
+    : []);
+  for (const code of input.codes) {
+    const work = planWork([code], langs, { force: input.force, fields: input.fields });
+    const source = sourceFor(code);
+    if (work.length || source.length) plan.set(code, { source, work });
+  }
+
   cancelled = false;
   abort = new AbortController();
   const speed = new Speed(s.secondsPerUnit || 12);
   const started = Date.now();
   const errors: string[] = [];
   const noSourceFields: string[] = [];
-  /** Cíle, které napoprvé selhaly — dostanou ještě jeden pokus. */
-  const again: TranslateTarget[] = [];
   let done = 0;
   let failed = 0;
   let noSource = 0;
-  // Celek běhu = doplnění zdroje + překlad. Drží se zvlášť, protože po
-  // doplnění se plán překladu přepočítává a `work.length` se mění.
-  let total = work.length;
-
-  current = {
-    running: true, done: 0, total, failed: 0,
-    etaSeconds: work.length ? speed.eta(work.length, s.concurrency) : 0,
-    secondsPerUnit: speed.perUnit, label: '', errors: []
-  };
-  emit('ptrans:progress', current);
-
-  const runId = (getDb().prepare(
-    'INSERT INTO ptrans_runs (started_at, total, note) VALUES (?,?,?)'
-  ).run(new Date().toISOString(), work.length, langs.join(',')) as any).lastInsertRowid;
-
-  /*
-   * Nejdřív zdroj, pak překlad.
-   *
-   * Zdrojové texty se doplňují po jednom a sériově: je jich řádově míň než
-   * překladů a každý z nich mění podklad pro všechny jazyky, takže se
-   * nevyplatí to hnát paralelně a riskovat limit API.
-   */
-  const sourceWork = input.fillSource
-    ? planSourceFill({ codes: input.codes, fields: input.sourceFields, force: input.forceSource })
-    : [];
-
-  if (sourceWork.length > 0) {
-    total = work.length + sourceWork.length;
-    current = { ...current, total };
-    for (const target of sourceWork) {
-      if (cancelled) break;
-      current = {
-        ...current,
-        label: `${target.code} — doplňuji ${target.field} v ${s.sourceLang.toUpperCase()}`
-      };
-      emit('ptrans:progress', current);
-
-      const at = Date.now();
-      const result = await fillSourceOne(target.code, target.field, abort?.signal);
-      speed.add((Date.now() - at) / 1000);
-      done++;
-      // Přerušené volání není chyba — po zastavení by se jen sypaly hlášky
-      if (result.error && !isAborted(result)) { failed++; errors.push(result.error); }
-
-      current = {
-        ...current,
-        done,
-        failed,
-        etaSeconds: speed.eta(total - done, s.concurrency),
-        secondsPerUnit: speed.perUnit,
-        errors: errors.slice(-5)
-      };
-      emit('ptrans:progress', current);
-    }
-
-    // Zdrojové texty se mezitím změnily, takže plán překladu se musí přepočítat
-    // — jinak by se přeskočila právě ta pole, kvůli kterým se to dělalo
-    if (!cancelled) {
-      const refreshed = planWork(input.codes, langs, { force: input.force, fields: input.fields });
-      work.length = 0;
-      work.push(...refreshed);
-      total = done + work.length;
-      current = { ...current, total };
-      emit('ptrans:progress', current);
-    }
-  }
-
-  /*
-   * Práce se rozdělí po produktech, ne po dvojicích produkt–jazyk.
-   *
-   * Jeden produkt do tří trhů je jeden dotaz místo tří: zdrojový text
-   * i pravidla se pošlou jednou, spotřeba vstupních tokenů klesne úměrně
-   * počtu jazyků a hlavně je třikrát míň příležitostí narazit na limit.
-   */
-  const byProduct = new Map<string, TranslateTarget[]>();
-  for (const target of work) {
-    const list = byProduct.get(target.code) ?? [];
-    list.push(target);
-    byProduct.set(target.code, list);
-  }
-  const queue = [...byProduct.values()];
+  let total = [...plan.values()].reduce((sum, item) => sum + item.source.length + item.work.length, 0);
 
   /*
    * Kolik dotazů běží naráz se za chodu přizpůsobuje.
@@ -853,33 +832,148 @@ export async function run(input: RunInput): Promise<RunResult> {
    * cyklicky přejížděl.
    */
   const maxLanes = Math.max(1, Math.min(8, s.concurrency));
-  let lanes = maxLanes;
+  /*
+   * Začíná se jedním. Rychlost je až druhá věc.
+   *
+   * Dřív se startovalo naplno a počet se srážel, teprve když něco spadlo —
+   * takže se na limit spolehlivě narazilo hned na začátku každého běhu a
+   * první produkty to odnesly. Teď se jede produkt po produktu a přidá se
+   * až poté, co osm produktů po sobě proběhne bez zádrhelu. Nastavení
+   * „souběžných překladů" je od téhle chvíle strop, ne výchozí tempo.
+   */
+  let lanes = 1;
   let goodRun = 0;
 
-  const workers = Array.from({ length: maxLanes }, async (_unused, lane) => {
-    while (queue.length > 0 && !cancelled) {
-      // Přebytečné pruhy počkají, dokud se limit neuvolní
-      if (lane >= lanes) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        continue;
-      }
-      const group = queue.shift()!;
-      const at = Date.now();
-      const result = await translateProduct(group[0].code, group, abort?.signal).catch(e => {
-        if (isAborted(e)) return { saved: 0, errors: [], noSource: [] };
-        return { saved: 0, errors: [`${group[0].code}: ${e.message}`], noSource: [] };
-      });
-      speed.add((Date.now() - at) / 1000 / group.length);
+  /*
+   * Plynulý pruh.
+   *
+   * Hotové úkoly se počítaly po celých produktech, takže při třech vybraných
+   * produktech pruh skákal po třetinách a mezi skoky se půl minuty nedělo
+   * nic. Rozjeté volání se proto započítává průběžně: podle toho, jak dlouho
+   * už běží, oproti tomu, jak dlouho takové volání obvykle trvá. Nikdy
+   * nedojde až na konec svého dílku — dokončení musí zůstat skutečné.
+   */
+  const inFlight = new Map<number, { at: number; units: number }>();
+  let ticket = 0;
+  const partial = () => {
+    let sum = 0;
+    for (const item of inFlight.values()) {
+      const expect = Math.max(2, speed.perUnit * item.units);
+      sum += item.units * Math.min(0.92, (Date.now() - item.at) / 1000 / expect);
+    }
+    return sum;
+  };
+  const publish = (label?: string) => {
+    const soft = Math.min(total, done + partial());
+    current = {
+      running: true,
+      done,
+      total,
+      failed,
+      bar: total > 0 ? Math.min(1, soft / total) : 0,
+      etaSeconds: speed.eta(Math.max(0, total - soft), lanes),
+      secondsPerUnit: Number(speed.perUnit.toFixed(1)),
+      label: label ?? current?.label ?? '',
+      errors: errors.slice(-5)
+    };
+    emit('ptrans:progress', current);
+  };
 
-      done += group.length;
+  publish('');
+  const ticker = setInterval(() => { if (current?.running) publish(); }, 700);
+
+  const runId = (getDb().prepare(
+    'INSERT INTO ptrans_runs (started_at, total, note) VALUES (?,?,?)'
+  ).run(new Date().toISOString(), total, langs.join(',')) as any).lastInsertRowid;
+
+  /** Kolik pokusů dostane jeden produkt, než se to vzdá. */
+  const ATTEMPTS = 4;
+
+  /** Jeden produkt od začátku do konce — a s ověřením, že opravdu do konce. */
+  const oneProduct = async (code: string, item: { source: SourceTarget[]; work: TranslateTarget[] }) => {
+    /* ---------- 1) čeština: co chybí, se dopíše ---------- */
+    for (const target of item.source) {
+      if (cancelled) break;
+      const id = ++ticket;
+      inFlight.set(id, { at: Date.now(), units: 1 });
+      publish(`${code} — doplňuji ${SOURCE_LABELS[target.field] ?? target.field}`
+        + ` v ${s.sourceLang.toUpperCase()}`);
+      const at = Date.now();
+      const result = await fillSourceOne(code, target.field, abort?.signal);
+      speed.add((Date.now() - at) / 1000);
+      inFlight.delete(id);
+      done++;
+      // Přerušené volání není chyba — po zastavení by se jen sypaly hlášky
+      if (result.error && !isAborted(result)) { failed++; errors.push(result.error); }
+      publish();
+    }
+
+    /*
+     * Číselníky pro Google (barva, pohlaví, věk, stav, set, čárový kód).
+     * Počítají se z parametrů a kategorií, model se nevolá — je to zadarmo
+     * a bez nich Google nabídku potlačí. Proto se to dělá vždycky, ne jen
+     * když si někdo vzpomene na tlačítko.
+     */
+    if (!cancelled) {
+      try { applyAttributes([code], langs); } catch { /* nepodstatné pro překlad */ }
+    }
+
+    /* ---------- 2) překlad, dokud nezbývá nic ---------- */
+    for (let attempt = 1; attempt <= ATTEMPTS && !cancelled; attempt++) {
+      /*
+       * Co zbývá, se čte z databáze — ne z toho, co vrátilo minulé volání.
+       *
+       * I napoprvé: plán vznikl před doplněním českých textů, takže pole,
+       * které právě dostalo český originál, v něm ještě není. Bez tohohle
+       * by se doplnilo v češtině a přeložilo se až o kolo později.
+       */
+      const targets = attempt === 1
+        ? planWork([code], langs, { force: input.force, fields: input.fields })
+        : withSource(planWork([code], langs, { fields: input.fields }));
+      if (attempt === 1 && targets.length !== item.work.length) {
+        total += targets.length - item.work.length;
+      }
+      if (targets.length === 0) break;
+
+      if (attempt > 1) {
+        // Další pokus je klidnější: přetížené API potřebuje čas, ne spěch
+        publish(`${code} — ${attempt - 1}. opakování`);
+        /*
+         * Jak dlouho čekat, rozhoduje příčina, ne počítadlo pokusů.
+         *
+         * Když API opravdu hlásilo limit, má smysl počkat dlouho — vteřiny
+         * navíc jsou levnější než další zamítnutý dotaz. Když šlo o něco
+         * jiného (usekaná odpověď, chyba v JSON), dlouhé čekání nic nespraví
+         * a jen prodlužuje běh.
+         */
+        await new Promise(resolve =>
+          setTimeout(resolve, 600 * attempt + (rateLimitedRecently() ? 6000 * attempt : 0)));
+        if (cancelled) break;
+      }
+
+      const id = ++ticket;
+      const at = Date.now();
+      inFlight.set(id, { at, units: attempt === 1 ? targets.length : 0 });
+      publish(`${code} → ${targets.map(t => labelOf(t.lang, s)).join(', ')}`
+        + (attempt > 1 ? ` (${attempt}. pokus)` : ''));
+
+      const result = await translateProduct(code, targets, abort?.signal).catch(e => {
+        if (isAborted(e)) return { saved: 0, errors: [], noSource: [], failed: [] };
+        return {
+          saved: 0, errors: [`${code}: ${e.message}`], noSource: [],
+          failed: targets.map(t => t.lang)
+        };
+      });
+      speed.add((Date.now() - at) / 1000 / Math.max(1, targets.length));
+      inFlight.delete(id);
+      if (attempt === 1) done += targets.length;
+
       for (const field of result.noSource) {
         noSource++;
         if (!noSourceFields.includes(field)) noSourceFields.push(field);
       }
-      if (result.errors.length) {
-        failed += group.length;
-        errors.push(...result.errors);
-        again.push(...group);
+
+      if (result.failed.length) {
         goodRun = 0;
         if (rateLimitedRecently()) lanes = Math.max(1, Math.floor(lanes / 2));
       } else if (++goodRun >= 8 && lanes < maxLanes && !rateLimitedRecently()) {
@@ -887,66 +981,61 @@ export async function run(input: RunInput): Promise<RunResult> {
         goodRun = 0;
       }
 
-      current = {
-        running: true,
-        done,
-        total,
-        failed,
-        etaSeconds: speed.eta(total - done, lanes),
-        secondsPerUnit: Number(speed.perUnit.toFixed(1)),
-        label: `${group[0].code} → ${group.map(t => labelOf(t.lang, s)).join(', ')}`,
-        errors: errors.slice(-5)
-      };
-      emit('ptrans:progress', current);
+      /*
+       * Poslední slovo má databáze.
+       *
+       * Volání mohlo vrátit chybu a přesto být hotovo (odpověď došla, jen
+       * se cestou něco pokazilo), a stejně tak mohlo projít a část polí
+       * nechat nedotčenou. Rozhoduje proto stav polí, ne návratová hodnota
+       * — jinak se hlásí chyby u produktů, které jsou ve skutečnosti
+       * přeložené.
+       */
+      const left = withSource(planWork([code], langs, { fields: input.fields }));
+      if (left.length === 0) return true;
+
+      // Když se poslední pokus nikam nepohnul a nejde o přetížení, další
+      // kolo to nespraví — příčina je jinde (chybí zdroj, moc dlouhý text)
+      if (result.saved === 0 && result.failed.length === 0 && !rateLimitedRecently()) {
+        if (result.errors.length) errors.push(...result.errors);
+        return false;
+      }
+      if (attempt === ATTEMPTS && result.errors.length) errors.push(...result.errors);
+    }
+
+    return withSource(planWork([code], langs, { fields: input.fields })).length === 0;
+  };
+
+  const queue = [...plan.entries()];
+  const workers = Array.from({ length: maxLanes }, async (_unused, lane) => {
+    while (queue.length > 0 && !cancelled) {
+      // Přebytečné pruhy počkají, dokud se limit neuvolní
+      if (lane >= lanes) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        continue;
+      }
+      const [code, item] = queue.shift()!;
+      await oneProduct(code, item);
+      publish();
     }
   });
   await Promise.all(workers);
 
+  clearInterval(ticker);
+
   /*
-   * Dokud se to nedotáhne.
+   * Kolik toho opravdu zbylo.
    *
-   * Cílem není „zkusit to ještě jednou", ale **nenechat nic nepřeložené**.
-   * Když se něco nepovede, jde to do dalšího kola — a to se opakuje, dokud
-   * kolo něco spraví. Zastaví se teprve tehdy, když už celé kolo nepomůže
-   * (pak je chyba jinde než v přetížení) nebo když člověk běh přeruší.
-   *
-   * Každé kolo je pomalejší a klidnější než to předchozí: sériově, s pauzou,
-   * která roste. Když je server zahlcený, spěch je to poslední, co pomůže.
+   * Nepočítá se, kolikrát něco spadlo — počítá se, co po běhu chybí. Pokus,
+   * který napoprvé selhal a napodruhé prošel, není chyba, a hlásit ho jako
+   * chybu je horší než mlčet: přesně kvůli tomu to vypadalo, že překlad
+   * nefunguje, i když nakonec doběhl celý.
    */
-  const MAX_ROUNDS = 4;
-  for (let round = 1; round <= MAX_ROUNDS && again.length > 0 && !cancelled; round++) {
-    const pending = again.splice(0, again.length);
-    let fixed = 0;
-
-    for (const target of pending) {
-      if (cancelled) break;
-      current = {
-        ...current!,
-        label: `${target.code} → ${labelOf(target.lang, s)} — ${round}. opakování`
-      };
-      emit('ptrans:progress', current);
-      await new Promise(resolve => setTimeout(resolve, 800 * round + (rateLimitedRecently() ? 5000 : 0)));
-
-      const result = await translateOne(target, abort?.signal).catch(e => ({
-        saved: 0, error: isAborted(e) ? '' : `${target.code} (${target.lang}): ${e.message}`
-      }));
-      if (result.error) {
-        again.push(target);   // do dalšího kola
-        continue;
-      }
-      // Povedlo se — chyba z minula se odvolá
-      fixed++;
-      failed = Math.max(0, failed - 1);
-      const at = errors.findIndex(text => text.startsWith(`${target.code} (${target.lang})`)
-        || text.startsWith(`${target.code}:`));
-      if (at >= 0) errors.splice(at, 1);
-      current = { ...current!, failed, errors: errors.slice(-5) };
-      emit('ptrans:progress', current);
-    }
-
-    // Kolo, které nic nespravilo, nemá smysl opakovat — příčina není v zátěži
-    if (fixed === 0) break;
-  }
+  const leftover = cancelled
+    ? []
+    : withSource(planWork(input.codes, langs, { fields: input.fields }));
+  failed = leftover.length;
+  const stuck = new Set(leftover.map(target => `${target.code} (${target.lang})`));
+  const finalErrors = errors.filter(text => [...stuck].some(key => text.startsWith(key.split(' ')[0])));
 
   const seconds = (Date.now() - started) / 1000;
   // Naměřená rychlost se pamatuje, aby byl odhad rozumný hned na začátku příště
@@ -954,15 +1043,17 @@ export async function run(input: RunInput): Promise<RunResult> {
   getDb().prepare('UPDATE ptrans_runs SET finished_at = ?, done = ?, failed = ?, seconds = ? WHERE id = ?')
     .run(new Date().toISOString(), done, failed, seconds, runId);
 
-  current = { ...current!, running: false, etaSeconds: 0, label: '' };
+  current = { ...current!, running: false, done, total, failed, bar: 1, etaSeconds: 0, label: '',
+    errors: finalErrors.slice(-5) };
   emit('ptrans:progress', current);
   emit('ptrans:changed', {});
 
   return {
     done, failed, seconds, cancelled,
-    errors: errors.slice(0, 20),
+    errors: (finalErrors.length ? finalErrors : errors).slice(0, 20),
     noSource,
     noSourceFields: noSourceFields.map(field => FIELD_LABELS[field] ?? field),
-    tidied: tidied.fields
+    tidied: tidied.fields,
+    stuck: leftover.map(target => `${target.code} (${target.lang.toUpperCase()})`).slice(0, 20)
   };
 }

@@ -72,6 +72,10 @@ let asked = 0;
 let joint = 0;          // dotazů, které nesly víc jazyků najednou
 let failNext = 0;       // kolik nejbližších dotazů má spadnout
 let lastMaxTokens = 0;
+/** Kolikrát má spadnout dotaz na konkrétní jazyk — na zkoušku, že se
+ *  neopakuje i to, co už jednou vyšlo. */
+let failLang = { lang: '', times: 0 };
+const askedLangs = [];
 shim('ai.js', {
   ask: async (model, system, user, maxTokens) => {
     asked++;
@@ -83,6 +87,13 @@ shim('ai.js', {
     if (JSON.stringify(payload).length / 2 > maxTokens) {
       const cut = new Error('Odpověď se nevešla do limitu'); cut.truncated = true; throw cut;
     }
+    const single = /do jazyka „([a-z]{2,5})"/.exec(system)?.[1] ?? '';
+    if (single) askedLangs.push(single);
+    if (single && single === failLang.lang && failLang.times > 0) {
+      failLang.times--;
+      throw new Error('Overloaded');
+    }
+
     const many = /do jazyků: (.+)\./.exec(system);
     if (many) {
       // Společný dotaz: odpověď je zabalená po jazycích
@@ -101,8 +112,18 @@ shim('ai.js', {
   },
   rateLimitedRecently: () => false
 });
+/*
+ * Falešné okno, aby šlo číst, co se posílá do rozhraní. Bez něj by průběh
+ * neměl kam odejít a nedal by se zkontrolovat pruh.
+ */
+const sent = [];
+const fakeWindow = { webContents: { send: (channel, payload) => sent.push({ channel, payload }) } };
 require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electron', loaded: true,
-  exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
+  exports: {
+    app: { getPath: () => os.tmpdir() },
+    BrowserWindow: { getAllWindows: () => [fakeWindow] },
+    dialog: {}, net: {}
+  } };
 
 const translate = require(path.join(DIST, 'ptrans/translate.js'));
 
@@ -219,6 +240,68 @@ console.log('pole bez českého znění:\n');
   failNext = 0;
   check('trvalý výpadek se přizná', run.failed > 0, JSON.stringify(run));
   check('a je u toho i důvod', /Overloaded/.test(run.errors[0] ?? ''), run.errors[0]);
+  check('a je řečeno, co konkrétně zbylo',
+    (run.stuck ?? []).some(text => text.startsWith(WORST)), JSON.stringify(run.stuck));
+
+  console.log('\nkdyž neprojde jen jeden trh:\n');
+
+  /*
+   * Slovenština vyjde, angličtina napoprvé spadne.
+   *
+   * Dřív šel do opakování celý produkt: slovenština se přeložila podruhé,
+   * což je zbytečné volání navíc přesně ve chvíli, kdy je API přetížené —
+   * a v souhrnu to vypadalo na dvojnásobek chyb, než kolik jich bylo.
+   */
+  const HALF = 'PKT96';
+  db.prepare("INSERT INTO ptrans_products (code, title, raw_xml) VALUES (?,?,'')")
+    .run(HALF, 'Šedá pánská kravata');
+  for (const lang of ['sk', 'en']) {
+    db.prepare(
+      `INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
+       VALUES (?,?,?,?,?,?)`
+    ).run(HALF, lang, 'title', 'Šedá pánská kravata', 'Šedá pánská kravata', 'same');
+  }
+
+  asked = 0; joint = 0; askedLangs.length = 0;
+  failNext = 1;                      // společný dotaz spadne
+  failLang = { lang: 'en', times: 1 };   // a angličtina napoprvé taky
+  run = await translate.run({ codes: [HALF], langs: ['sk', 'en'], fillSource: false });
+  failLang = { lang: '', times: 0 };
+  check('oba trhy jsou nakonec přeložené',
+    value(HALF, 'sk').startsWith('[sk]') && value(HALF, 'en').startsWith('[en]'),
+    `${value(HALF, 'sk')} / ${value(HALF, 'en')}`);
+  check('slovenština se nepřekládala podruhé',
+    askedLangs.filter(l => l === 'sk').length === 1, askedLangs.join(','));
+  check('a opakoval se jen ten trh, který spadl',
+    askedLangs.filter(l => l === 'en').length === 2, askedLangs.join(','));
+  check('běh se netváří jako neúspěšný', run.failed === 0, JSON.stringify(run));
+  check('a nezbylo nic nehotového', (run.stuck ?? []).length === 0, JSON.stringify(run.stuck));
+
+  console.log('\nprůběh:\n');
+
+  /*
+   * Pruh se dřív hýbal jen po dokončených produktech: u tří vybraných
+   * produktů skákal po třetinách a mezi skoky se půl minuty nedělo nic.
+   * Teď se do něj počítá i rozjeté volání, takže roste průběžně.
+   */
+  const BAR = 'PKT95';
+  db.prepare("INSERT INTO ptrans_products (code, title, raw_xml) VALUES (?,?,'')")
+    .run(BAR, 'Žlutá pánská kravata');
+  for (const lang of ['sk', 'en']) {
+    db.prepare(
+      `INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
+       VALUES (?,?,?,?,?,?)`
+    ).run(BAR, lang, 'title', 'Žlutá pánská kravata', 'Žlutá pánská kravata', 'same');
+  }
+
+  sent.length = 0;
+  run = await translate.run({ codes: [BAR], langs: ['sk', 'en'], fillSource: false });
+  const bars = sent.filter(item => item.channel === 'ptrans:progress').map(item => item.payload.bar);
+  check('pruh se hlásí', bars.length >= 2, JSON.stringify(bars));
+  check('začíná na nule a končí na jedničce',
+    bars[0] === 0 && bars[bars.length - 1] === 1, JSON.stringify(bars));
+  check('a nikdy necouvne',
+    bars.every((value, i) => i === 0 || value >= bars[i - 1]), JSON.stringify(bars));
 
   console.log('\nkdyž je popis obrovský:\n');
 

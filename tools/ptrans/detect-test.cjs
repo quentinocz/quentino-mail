@@ -119,6 +119,42 @@ check('ručně upravená adresa zůstane ruční', handmade === 'manual', `stav:
 
 /* ---------- emodži ---------- */
 
+console.log('\nslovenština se nesmí splést s češtinou:\n');
+
+/*
+ * Skutečné texty z feedu. Slovenský popis mluví o české rodinné značce a je
+ * v něm i jedno české slovo, které tam zůstalo — a přesto je to překlad,
+ * ne originál. Dřív stačilo jediné „ř" nebo slovo „česká" a pole se označilo
+ * jako nepřeložené; produkt pak visel ve filtru napořád.
+ */
+check('slovenský popis s českou značkou zůstává v pořádku',
+  fieldState({
+    value: 'Tmavo staroružový lesklý motýlik s jemným leskom, ručne šitý v ČR. '
+      + 'Česká rodinná značka od 2013. Vhodný na svadbu i ples, šíře 6 cm.',
+    source: 'Objevte tmavě starorůžový lesklý motýlek od Quentino. Stylový doplněk '
+      + 'na svatby, plesy i business. Česká kvalita, ruční výroba.',
+    sourceLang: 'cz', targetLang: 'sk', field: 'seo_desc'
+  }) === 'ok');
+
+check('slovenský popis o české kvalitě taky',
+  fieldState({
+    value: 'Čierna bavlnená kravata so šedo-ružovým kvetinovým vzorom, šíře 8 cm. '
+      + 'Česká rodinná značka od roku 2013, ručne šitá.',
+    source: 'Objevte černou pánskou bavlněnou kravatu s šedo-růžovými květy od Quentino. '
+      + 'Ideální na svatbu i do práce, česká kvalita.',
+    sourceLang: 'cz', targetLang: 'sk', field: 'seo_desc'
+  }) === 'ok');
+
+// A druhá strana: text, který se přeložit zapomněl, se pořád pozná
+check('český text ve slovenském sloupci se pozná',
+  fieldState({
+    value: 'Elegantní pánský kapesníček do saka je vhodný pro svatby, plesy '
+      + 'i business. Vyrobeno z kvalitní bavlny, velikost 25 × 25 cm.',
+    source: 'Elegantní pánský kapesníček do saka je vhodný pro svatby, plesy '
+      + 'i business. Vyrobeno z kvalitní bavlny, velikost 25 × 25 cm. Ruční výroba.',
+    sourceLang: 'cz', targetLang: 'sk', field: 'long'
+  }) === 'source');
+
 console.log('\nemodži:\n');
 
 // Zkrácení podle `String.length` umí useknout emodži v půlce — z 🎁 zbude

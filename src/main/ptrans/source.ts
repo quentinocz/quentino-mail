@@ -54,7 +54,14 @@ export interface SourceFillOptions {
 export function planSourceFill(options: SourceFillOptions): SourceTarget[] {
   const s = getPtransSettings();
   const lang = s.sourceLang;
-  const wanted = (options.fields?.length ? options.fields : [...SOURCE_FIELDS])
+  /*
+   * Prázdný seznam znamená „nic", ne „všechno".
+   *
+   * Dřív se prázdno bralo jako „doplň všechno" a rozhraní přitom hlásilo
+   * nula volání — takže když si člověk odškrtl všechna pole, spustilo se
+   * naopak úplně všechno. Kdo chce všechna pole, pole nepředá vůbec.
+   */
+  const wanted = (options.fields ?? [...SOURCE_FIELDS])
     .filter(field => SOURCE_FIELDS.includes(field));
 
   const out: SourceTarget[] = [];

@@ -56,15 +56,23 @@ interface Markers {
  * (ve feedu bude čeština, tedy doslovná shoda).
  */
 const MARKERS: Record<string, Markers> = {
+  /*
+   * Značky jazyka schválně bez slov o původu.
+   *
+   * „česká", „český", „vyrobeno v ČR" stojí v popisu úplně stejně dobře
+   * slovensky i anglicky — je to údaj o značce, ne o jazyce textu. Dokud
+   * mezi značkami byla, hlásily se poctivě přeložené slovenské popisy jako
+   * „zůstala čeština", protože se v nich mluví o české rodinné značce.
+   */
   cz: {
     chars: 'řěů',
-    words: ['pro', 'jsou', 'více', 'nebo', 'také', 'díky', 'všechny', 'český', 'česká', 'české',
-      'kvalitní', 'vyrobeno', 'vhodný', 'jeho', 'této', 'velikost']
+    words: ['pro', 'jsou', 'více', 'nebo', 'také', 'díky', 'všechny',
+      'kvalitní', 'vyrobeno', 'této', 'velikost', 'ale', 'jako', 'který', 'která']
   },
   sk: {
     chars: 'ľĺŕôä',
-    words: ['pre', 'sú', 'viac', 'alebo', 'tiež', 'vďaka', 'všetky', 'slovenský', 'kvalitný',
-      'vyrobené', 'vhodný', 'jeho', 'tejto', 'veľkosť']
+    words: ['pre', 'sú', 'viac', 'alebo', 'tiež', 'vďaka', 'všetky', 'kvalitný',
+      'vyrobené', 'tejto', 'veľkosť', 'ručne', 'šitý', 'šitá', 'ako', 'ktorý', 'ktorá']
   },
   en: {
     chars: '',
@@ -193,22 +201,40 @@ export function detectLanguage(value: string, candidates: string[]): string | nu
   if (text.length < 12) return null;
   const list = words(text);
 
+  /*
+   * Počítají se **různé** znaky a slova, ne jejich výskyty.
+   *
+   * Jedno slovo „šíře", které v slovenském popisu zůstalo z češtiny, mělo
+   * dřív váhu celého textu: každý výskyt jednoho písmene přidával body, takže
+   * stačilo jediné „ř" a poctivě přeložený slovenský popis se označil jako
+   * čeština. Opakování o jazyku textu nic neříká — rozhoduje, kolik různých
+   * stop po kterém jazyce v textu je.
+   */
   const score: Record<string, number> = {};
+  const unique = new Set(text);
+  const said = new Set(list);
   for (const lang of candidates) {
     const marks = MARKERS[lang];
     if (!marks) continue;
     let points = 0;
-    for (const ch of text) if (marks.chars.includes(ch)) points += 4;
-    for (const word of list) if (marks.words.includes(word)) points += 2;
+    for (const ch of marks.chars) if (unique.has(ch)) points += 4;
+    for (const word of marks.words) if (said.has(word)) points += 2;
     score[lang] = points;
   }
 
   const ranked = Object.entries(score).sort((a, b) => b[1] - a[1]);
   if (ranked.length === 0) return null;
   const [best, points] = ranked[0];
-  const total = ranked.reduce((sum, [, value]) => sum + value, 0);
-  // Slabý nebo rozpolcený výsledek se nepočítá — radši „nevím" než špatný odznak
-  if (points < 4 || points / total < 0.55) return null;
+  const second = ranked[1]?.[1] ?? 0;
+  /*
+   * Rozhoduje se jen tehdy, když je to zřetelné.
+   *
+   * Čeština a slovenština si jsou tak blízké, že jedna stopa navíc nic
+   * neznamená. Chce to aspoň dvě různé stopy a znatelný náskok před druhým
+   * v pořadí — jinak radši „nevím". Špatně nalepený odznak „zůstala čeština"
+   * na hotovém překladu je horší než žádný.
+   */
+  if (points < 6 || points - second < 4) return null;
   return best;
 }
 

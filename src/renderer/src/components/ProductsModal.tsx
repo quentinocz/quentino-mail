@@ -663,7 +663,10 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
             {progress?.running && (
               <div className="pt-progress">
                 <div className="pt-bar">
-                  <span style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
+                  {/* `bar` počítá i s rozjetým voláním, takže se pruh plní
+                      plynule; `done/total` by skákalo po celých produktech */}
+                  <span style={{ width: `${Math.round((progress.bar
+                    ?? (progress.total ? progress.done / progress.total : 0)) * 100)}%` }} />
                 </div>
                 <div className="pt-progress-text">
                   <b>{progress.done}/{progress.total}</b>
@@ -1122,11 +1125,18 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
       .then(data => {
         if (cancelled) return;
         setGaps(data);
-        // Předvyplní se jen pole, kde opravdu něco chybí — nabízet doplnění
-        // něčeho, co je kompletní, jen mate
+        /*
+         * Předvyplní se každé pole, kde opravdu něco chybí.
+         *
+         * Dřív se vynechávala pole, která se nepřekládají (Google titulek
+         * a popis bývají v nastavení vypnuté) — jenže v češtině je e-shop
+         * potřebuje stejně. Vypadalo to, že doplnění nefunguje: bez ručního
+         * zaškrtnutí se nedoplnilo nic, a když se zapnulo „přepsat i ty,
+         * které už vyplněné jsou", najednou se udělalo všechno.
+         */
         setSourceFields(prev => (prev.length
           ? prev
-          : data.fields.filter(f => f.missing > 0 && f.translated).map(f => f.field)));
+          : data.fields.filter(f => f.missing > 0).map(f => f.field)));
       })
       .catch(() => { if (!cancelled) setGaps(null); });
     return () => { cancelled = true; };
@@ -1155,11 +1165,16 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
         toast(`Hotovo, ale ${result.noSource}× chybí české znění`
           + ` (${result.noSourceFields.join(', ')}) — zapni „Doplnit chybějící české texty".`, 'error');
       } else if (result.failed) {
-        // Když jeden jazyk vyjde a druhý ne, je to skoro vždycky chvilkové
-        // přetížení API. Aplikace to sama zkusí ještě jednou; co ani pak
-        // neprojde, se musí říct i s důvodem — jinak to vypadá, že se trh
-        // přeskočil bez příčiny.
-        toast(`Hotovo: ${result.done - result.failed} přeloženo, ${result.failed} neprošlo`
+        /*
+         * Hlásí se jen to, co po běhu **opravdu** zbylo nehotové — ne
+         * kolikrát cestou něco spadlo. Pokus, který napoprvé selhal
+         * a napodruhé prošel, není chyba; hlásit ho jako chybu byl přesně
+         * ten důvod, proč to vypadalo, že překlad nefunguje, i když
+         * nakonec doběhl celý.
+         */
+        toast(`Zbývá ${result.failed} nepřeložených polí`
+          + (result.stuck?.length ? ` (${result.stuck.slice(0, 3).join(', ')}` +
+            `${result.stuck.length > 3 ? ` a další` : ''})` : '')
           + (result.errors[0] ? ` — ${result.errors[0]}` : ''), 'error');
       } else {
         toast(`Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`
