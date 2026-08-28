@@ -130,23 +130,54 @@ export async function ask(model: string, system: string, user: string, maxTokens
    */
   const attempts = options.attempts ?? 5;
   let last: any = null;
+  /*
+   * Strop odpovědi se umí sám snížit.
+   *
+   * Kolik tokenů model unese, se liší podle jeho verze — novější zvládnou
+   * desítky tisíc, starší osm. Ptát se dopředu nejde, tak se řekne, kolik je
+   * potřeba, a když to model odmítne, zkusí se to s polovinou. Lepší než
+   * všem paušálně ubrat kvůli nejstaršímu modelu.
+   */
+  let ceiling = maxTokens;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const res = await client().messages.create({
         model,
-        max_tokens: maxTokens,
+        max_tokens: ceiling,
         system,
         messages: [{ role: 'user', content: user }]
       }, { signal: options.signal });
       recordUsage(model, res.usage as any);
       const block = res.content.find(b => b.type === 'text');
-      return block && block.type === 'text' ? block.text.trim() : '';
+      const text = block && block.type === 'text' ? block.text.trim() : '';
+      /*
+       * Useknutá odpověď se pozná a řekne.
+       *
+       * Když model narazí na strop, vrátí se text bez konce — u JSON je to
+       * rozbitá odpověď a chyba pak vypadá jako „model nevrátil JSON". Volající
+       * z toho takhle pozná, že nemá opakovat totéž, ale rozdělit práci na
+       * menší kusy.
+       */
+      if (res.stop_reason === 'max_tokens') {
+        const cut: any = new Error('Odpověď se nevešla do limitu — je potřeba menší dávka.');
+        cut.truncated = true;
+        cut.partial = text;
+        throw cut;
+      }
+      return text;
     } catch (e: any) {
       last = e;
       // Zastavení uživatelem není chyba serveru — z toho se nezotavuje
       if (e?.name === 'AbortError' || options.signal?.aborted) throw e;
-      if (!retryable(e) || attempt === attempts - 1) throw e;
+      // Useknutá odpověď se opakováním téhož nespraví — musí se zmenšit dávka
+      if (e?.truncated) throw e;
+      // Model na tak velkou odpověď nestačí: zkusí se s polovinou
       const status = e?.status ?? e?.response?.status;
+      if (status === 400 && /max_tokens/i.test(String(e?.message ?? '')) && ceiling > 4096) {
+        ceiling = Math.max(4096, Math.floor(ceiling / 2));
+        continue;
+      }
+      if (!retryable(e) || attempt === attempts - 1) throw e;
       if (status === 429 || status === 529) lastLimit = Date.now();
       await sleep(waitFor(e, attempt), options.signal);
     }

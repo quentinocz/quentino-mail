@@ -71,12 +71,18 @@ shim('settings.js', { getSettings: () => ({ draftModel: 'x', brandPrompt: '' }),
 let asked = 0;
 let joint = 0;          // dotazů, které nesly víc jazyků najednou
 let failNext = 0;       // kolik nejbližších dotazů má spadnout
+let lastMaxTokens = 0;
 shim('ai.js', {
-  ask: async (model, system, user) => {
+  ask: async (model, system, user, maxTokens) => {
     asked++;
     if (failNext > 0) { failNext--; throw new Error('Overloaded'); }
 
     const payload = JSON.parse(user.slice(user.indexOf('{', user.indexOf('Texty k překladu'))));
+    lastMaxTokens = maxTokens;
+    // Věrné chování modelu: co se do stropu nevejde, se usekne
+    if (JSON.stringify(payload).length / 2 > maxTokens) {
+      const cut = new Error('Odpověď se nevešla do limitu'); cut.truncated = true; throw cut;
+    }
     const many = /do jazyků: (.+)\./.exec(system);
     if (many) {
       // Společný dotaz: odpověď je zabalená po jazycích
@@ -214,8 +220,39 @@ console.log('pole bez českého znění:\n');
   check('trvalý výpadek se přizná', run.failed > 0, JSON.stringify(run));
   check('a je u toho i důvod', /Overloaded/.test(run.errors[0] ?? ''), run.errors[0]);
 
+  console.log('\nkdyž je popis obrovský:\n');
+
+  // Popis o třiceti tisících znacích. Tři trhy v jednom dotazu by se do
+  // odpovědi nevešly, takže se dávka musí rozdělit — jinak model odpověď
+  // usekne a nepřeloží se nic.
+  const HUGE = 'PKT97';
+  const longText = '<p>' + 'Kravata z hedvábí. '.repeat(1500) + '</p>';
+  db.prepare("INSERT INTO ptrans_products (code, title, raw_xml) VALUES (?,?,'')")
+    .run(HUGE, 'Obří popis');
+  for (const lang of ['sk', 'en']) {
+    for (const [field, text] of [['title', 'Obří popis'], ['long', longText]]) {
+      db.prepare(
+        `INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
+         VALUES (?,?,?,?,?,?)`
+      ).run(HUGE, lang, field, text, text, 'same');
+    }
+  }
+
+  asked = 0; joint = 0;
+  run = await translate.run({ codes: [HUGE], langs: ['sk', 'en'], fillSource: false });
+  const huge = lang => db.prepare(
+    "SELECT translated FROM ptrans_fields WHERE code = ? AND lang = ? AND field = 'long'"
+  ).get(HUGE, lang)?.translated ?? '';
+
+  check('obří popis se nedává do společného dotazu', joint === 0, `společných: ${joint}`);
+  check('a přesto se přeloží do obou trhů',
+    huge('sk').startsWith('[sk]') && huge('en').startsWith('[en]'),
+    `sk ${huge('sk').length} zn., en ${huge('en').length} zn.`);
+  check('běh je bez chyby', run.failed === 0, JSON.stringify(run));
+  check('strop odpovědi se zvedl podle délky', lastMaxTokens > 8000, `strop: ${lastMaxTokens}`);
+
   console.log(bad
     ? `\n${bad} věcí nesedí`
-    : '\nchybějící český text se nezamlčí a chvilková chyba API nezůstane');
+    : '\nchybějící český text se nezamlčí, chvilková chyba API nezůstane a dlouhý popis projde');
   process.exit(bad ? 1 : 0);
 })();
