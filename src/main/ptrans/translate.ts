@@ -319,11 +319,38 @@ export async function translateOne(target: TranslateTarget, signal?: AbortSignal
   ].filter(Boolean).join('\n');
 
   try {
+    /*
+     * Dlouhý popis se posílá zvlášť.
+     *
+     * Strop odpovědi je konečný a `long` má většinou dva tisíce znaků, ale
+     * občas i třicet tisíc. Takový produkt se dřív nepřeložil **nikdy**:
+     * odpověď se usekla, JSON nešel přečíst a chyba vypadala jako rozmar
+     * modelu. Když se odhad nevejde do rozpočtu, jde nejdřív zbytek polí
+     * a dlouhý popis pak sám za sebe.
+     */
+    const chars = Object.values(payload).reduce((sum, value) => sum + value.length, 0);
+    if (estimate(chars) > OUTPUT_BUDGET && Object.keys(payload).length > 1) {
+      const big = Object.entries(payload).sort((a, b) => b[1].length - a[1].length)[0][0];
+      const rest = Object.fromEntries(Object.entries(payload).filter(([field]) => field !== big));
+      let saved = 0;
+      for (const piece of [rest, { [big]: payload[big] }]) {
+        if (Object.keys(piece).length === 0) continue;
+        const part = await translateOne(
+          { ...target, fields: Object.keys(piece) }, signal
+        );
+        saved += part.saved;
+        if (part.error) return { saved, error: part.error, noSource };
+      }
+      return { saved, noSource };
+    }
+
     const answer = await ask(
       model,
       buildSystem(s, [target.lang]),
       `${hint}\n\nTexty k překladu:\n${JSON.stringify(payload, null, 1)}`,
-      Math.min(8000, 1200 + JSON.stringify(payload).length),
+      // Strop podle odhadu výstupu, ne podle délky vstupu: překlad je zhruba
+      // stejně dlouhý jako zdroj, ale tokenů je zhruba poloviční počet znaků
+      Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.4) + 600),
       { signal }
     );
     const translated = parseJson(answer);
@@ -348,6 +375,20 @@ export async function translateOne(target: TranslateTarget, signal?: AbortSignal
     }
     return { saved, noSource };
   } catch (e: any) {
+    /*
+     * Jedno pole, které se nevejde ani samo, se rozdělit nedá — uvnitř je
+     * HTML a rozpůlit ho by znamenalo rozbít značky. Ať je aspoň jasné,
+     * co s tím: zkrátit popis, nebo použít model s větším stropem.
+     */
+    if (e?.truncated && Object.keys(payload).length === 1) {
+      const field = Object.keys(payload)[0];
+      return {
+        saved: 0,
+        error: `${target.code} (${target.lang}): ${FIELD_LABELS[field] ?? field} má `
+          + `${Object.values(payload)[0].length} znaků a překlad se nevejde do jedné odpovědi. `
+          + `Zkrať text v e-shopu, nebo zvol model s vyšším stropem odpovědi.`
+      };
+    }
     return { saved: 0, error: `${target.code} (${target.lang}): ${e.message}` };
   }
 }
@@ -390,6 +431,66 @@ export function applySlug(code: string, lang: string, rows: FieldRow[], model: s
   return setSeoUrl(code, lang, slug, model);
 }
 
+/*
+ * Kolik toho smí jít do jednoho dotazu.
+ *
+ * Odpověď musí obsahovat překlad všech žádaných jazyků. Popisy produktů
+ * nejsou stejně dlouhé: většina má kolem dvou tisíc znaků, ale najdou se
+ * i třicetitisícové. U těch by tři jazyky v jednom dotazu narazily na strop
+ * odpovědi, model by ji usekl uprostřed a z JSON by nezbylo nic použitelného.
+ *
+ * Dávka se proto skládá podle velikosti, ne podle počtu jazyků: běžný produkt
+ * projde se všemi trhy v jednom dotazu, u dlouhého se jazyky rozdělí a
+ * u opravdu obřího se rozdělí i pole. Rychlost se tím bere jen tam, kde by
+ * jinak dotaz stejně spadl.
+ */
+
+/** Překlad bývá zhruba stejně dlouhý jako zdroj; čeština má ~2 znaky na token. */
+const TOKENS_PER_CHAR = 0.5;
+
+/** Kolik se smí sejít v jedné dávce. Držené nízko schválně: menší dotazy
+ *  jsou rychlejší, míň narážejí na limit a jejich pád stojí míň práce. */
+const OUTPUT_BUDGET = 7000;
+
+/**
+ * Nejvyšší strop pro jeden dotaz.
+ *
+ * Používá se tam, kde dávku dělit dál nejde — jedno pole s třicetitisícovým
+ * popisem se rozpůlit nedá, aniž by se rozbilo HTML uvnitř. Novější modely
+ * takovou odpověď zvládnou; když ne, sníží si `ask` strop sám.
+ */
+const OUTPUT_MAX = 32000;
+
+const estimate = (chars: number) => Math.ceil(chars * TOKENS_PER_CHAR);
+
+/** Kolik znaků nese zadání pro jeden jazyk. */
+function payloadChars(part: Record<string, string>): number {
+  return Object.values(part).reduce((sum, value) => sum + value.length, 0);
+}
+
+/**
+ * Rozdělí jazyky do dávek tak, aby se odpověď na každou vešla do rozpočtu.
+ * Jazyk, který se nevejde ani sám, dostane vlastní dávku — o dělení polí se
+ * pak postará `translateOne`.
+ */
+function packLangs(langs: string[], charsOf: (lang: string) => number): string[][] {
+  const out: string[][] = [];
+  let batch: string[] = [];
+  let sum = 0;
+  for (const lang of langs) {
+    const need = estimate(charsOf(lang));
+    if (batch.length > 0 && sum + need > OUTPUT_BUDGET) {
+      out.push(batch);
+      batch = [];
+      sum = 0;
+    }
+    batch.push(lang);
+    sum += need;
+  }
+  if (batch.length) out.push(batch);
+  return out;
+}
+
 /**
  * Jeden produkt do všech jazyků naráz.
  *
@@ -406,27 +507,20 @@ export function applySlug(code: string, lang: string, rows: FieldRow[], model: s
 export async function translateProduct(code: string, targets: TranslateTarget[], signal?: AbortSignal):
   Promise<{ saved: number; errors: string[]; noSource: string[] }> {
   if (targets.length === 0) return { saved: 0, errors: [], noSource: [] };
-  if (targets.length === 1) {
-    const one = await translateOne(targets[0], signal);
-    return {
-      saved: one.saved,
-      errors: one.error ? [one.error] : [],
-      noSource: one.noSource ?? []
-    };
-  }
 
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
-  const langs = targets.map(t => t.lang);
 
   // Zadání po jazycích. Zdroj je pro všechny stejný, ale která pole se
   // překládají, se mezi jazyky liší — jeden trh může mít hotovo víc.
   const payload: Record<string, Record<string, string>> = {};
   const rowsByLang = new Map<string, FieldRow[]>();
+  const byLangTarget = new Map<string, TranslateTarget>();
   const noSource: string[] = [];
   for (const target of targets) {
     const rows = productFields(code, [target.lang]);
     rowsByLang.set(target.lang, rows);
+    byLangTarget.set(target.lang, target);
     const wanted = (target.fields?.length ? target.fields : rows.map(r => r.field))
       .filter(field => !DERIVED_FIELDS.has(field));
     const part: Record<string, string> = {};
@@ -437,14 +531,59 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
     }
     if (Object.keys(part).length) payload[target.lang] = part;
   }
-  if (Object.keys(payload).length === 0) {
-    return { saved: 0, errors: [], noSource };
+  const langs = Object.keys(payload);
+  if (langs.length === 0) return { saved: 0, errors: [], noSource };
+
+  let saved = 0;
+  const errors: string[] = [];
+
+  for (const batch of packLangs(langs, lang => payloadChars(payload[lang]))) {
+    if (batch.length === 1) {
+      // Sám jazyk: běžná cesta, která si umí poradit i s dělením polí
+      const one = await translateOne(byLangTarget.get(batch[0])!, signal);
+      saved += one.saved;
+      if (one.error) errors.push(one.error);
+      continue;
+    }
+
+    const part: Record<string, Record<string, string>> = {};
+    for (const lang of batch) part[lang] = payload[lang];
+    const done = new Set<string>();
+    try {
+      saved += await askBatch(code, part, batch, rowsByLang, byLangTarget, model, s, done, signal);
+    } catch (e: any) {
+      if (isAborted(e)) throw e;
+      errors.push(`${code}: ${e.message}`);
+    }
+    // Co se ze společné odpovědi nevrátilo, se dotáhne po jednom
+    for (const lang of batch) {
+      if (done.has(lang)) continue;
+      const one = await translateOne(byLangTarget.get(lang)!, signal);
+      saved += one.saved;
+      if (one.error) errors.push(one.error);
+    }
   }
 
+  return { saved, errors: errors.slice(0, 4), noSource };
+}
+
+/** Jeden společný dotaz na několik jazyků. Vrací, kolik polí se uložilo. */
+async function askBatch(
+  code: string,
+  payload: Record<string, Record<string, string>>,
+  langs: string[],
+  rowsByLang: Map<string, FieldRow[]>,
+  byLangTarget: Map<string, TranslateTarget>,
+  model: string,
+  s: PtransSettings,
+  done: Set<string>,
+  signal?: AbortSignal
+): Promise<number> {
   const product = getDb().prepare('SELECT title, category, manufacturer FROM ptrans_products WHERE code = ?')
     .get(code) as { title: string; category: string; manufacturer: string } | undefined;
   const everyField = Array.from(new Set(Object.values(payload).flatMap(part => Object.keys(part))));
   const flat = Object.values(payload).flatMap(part => Object.values(part)).join(' \n');
+  const chars = Object.values(payload).reduce((sum, part) => sum + payloadChars(part), 0);
 
   const hint = [
     product?.category ? `Kategorie: ${product.category}` : '',
@@ -457,41 +596,24 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
     memoryHint(flat, langs[0], product?.category ?? '')
   ].filter(Boolean).join('\n');
 
-  const done = new Set<string>();
+  const answer = await ask(
+    model,
+    buildSystem(s, langs),
+    `${hint}\n\nTexty k překladu po jazycích:\n${JSON.stringify(payload, null, 1)}`,
+    // S rezervou nad odhadem — JSON a uvozovky taky něco zaberou
+    Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.3) + 600),
+    { signal }
+  );
+
+  const byLang = parseByLang(answer, langs);
   let saved = 0;
-  const errors: string[] = [];
-
-  try {
-    const answer = await ask(
-      model,
-      buildSystem(s, Object.keys(payload)),
-      `${hint}\n\nTexty k překladu po jazycích:\n${JSON.stringify(payload, null, 1)}`,
-      // Odpověď nese všechny jazyky, takže strop musí růst s jejich počtem
-      Math.min(16000, 1200 + JSON.stringify(payload).length * 2),
-      { signal }
-    );
-    const byLang = parseByLang(answer, Object.keys(payload));
-    for (const target of targets) {
-      const translated = byLang[target.lang];
-      if (!translated || Object.keys(translated).length === 0) continue;
-      saved += saveTranslated(target, rowsByLang.get(target.lang) ?? [], translated, model);
-      done.add(target.lang);
-    }
-  } catch (e: any) {
-    if (isAborted(e)) throw e;
-    // Společný dotaz nevyšel — každý jazyk dostane ještě svou vlastní šanci
-    errors.push(`${code}: ${e.message}`);
+  for (const lang of langs) {
+    const translated = byLang[lang];
+    if (!translated || Object.keys(translated).length === 0) continue;
+    saved += saveTranslated(byLangTarget.get(lang)!, rowsByLang.get(lang) ?? [], translated, model);
+    done.add(lang);
   }
-
-  // Co se ze společné odpovědi nevrátilo, se dotáhne po jednom
-  for (const target of targets) {
-    if (done.has(target.lang) || !payload[target.lang]) continue;
-    const one = await translateOne(target, signal);
-    saved += one.saved;
-    if (one.error) errors.push(one.error);
-  }
-
-  return { saved, errors: errors.slice(0, 4), noSource };
+  return saved;
 }
 
 /** Odpověď rozdělená po jazycích; přijme i tvar bez obalu, když je jazyk jeden. */
