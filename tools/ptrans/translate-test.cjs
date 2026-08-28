@@ -13,10 +13,28 @@ const { db, store, xml, DIST } = require('./harness.cjs');
 // Falešný model
 const ai = require(path.join(DIST, 'ai.js'));
 let calls = 0;
+ai.rateLimitedRecently = () => false;
 ai.ask = async (model, system, user) => {
   calls++;
-  const payload = JSON.parse(user.slice(user.indexOf('{')));
-  const lang = /jazyka „([a-z]{2,5})"/.exec(system)?.[1] ?? '??';
+  // JSON se hledá až za značkou: v nápovědě nad ním můžou být složené závorky
+  // (ukázky ze šablon a z paměti překladů) a slepé `indexOf('{')` na ně sedne
+  const payload = JSON.parse(user.slice(user.indexOf('{', user.indexOf('Texty k překladu'))));
+
+  // Společný dotaz na víc jazyků: odpověď je zabalená po jazycích
+  const many = /do jazyků: /.test(system);
+  if (many) {
+    const out = {};
+    for (const [lang, fields] of Object.entries(payload)) {
+      out[lang] = {};
+      for (const [key, value] of Object.entries(fields)) {
+        out[lang][key] = String(value).replace(/>([^<]+)</g, (m, text) => `>[${lang}] ${text.trim()}<`);
+        if (!out[lang][key].includes('[')) out[lang][key] = `[${lang}] ${value}`;
+      }
+    }
+    return JSON.stringify(out);
+  }
+
+  const lang = /do jazyka „([a-z]{2,5})"/.exec(system)?.[1] ?? '??';
   const out = {};
   for (const [key, value] of Object.entries(payload)) {
     // HTML se má zachovat — falešný překlad mění jen text uvnitř značek
@@ -33,8 +51,16 @@ const translate = require(path.join(DIST, 'ptrans/translate.js'));
 const exportxml = require(path.join(DIST, 'ptrans/exportxml.js'));
 
 (async () => {
-  const feed = fs.readFileSync('/home/claude/feed.xml', 'utf8');
-  store.syncFromFeed(feed);
+  // Skutečný feed do repozitáře nepatří (je velký a je to obchodní data),
+  // takže se cesta dá předat argumentem. Bez něj se zkouška přeskočí —
+  // je to podrobný průzkum nad reálnými daty, ne kontrola do sestavení.
+  const file = process.argv[2] || process.env.PTRANS_FEED || '/home/claude/feed.xml';
+  if (!fs.existsSync(file)) {
+    console.log(`Feed ${file} není k dispozici — zkouška se přeskakuje.`);
+    console.log('Spusť ji s cestou k feedu: node tools/ptrans/translate-test.cjs feed.xml');
+    process.exit(0);
+  }
+  store.syncFromFeed(fs.readFileSync(file, 'utf8'));
 
   // Tři produkty, u kterých je co dělat
   const todo = store.listProducts({ state: 'todo', limit: 3 });
