@@ -90,7 +90,7 @@ export function titleRules(lang: string, limit: number): string {
     'CO MÁ NÁZEV OBSAHOVAT, V TOMHLE POŘADÍ:',
     '1. Typ produktu i s určujícím přívlastkem („dámská stuha", „pánské kšandy", „dětská kravata") — na začátku',
     '2. Barva — tím odstínem, jaký produkt opravdu má',
-    '3. Vzor nebo rozlišující detail',
+    '3. Vzor nebo rozlišující detail — jen když je v zadání; když tam žádný není, tenhle bod vynech',
     '4. Značka na konci',
     '5. Velikost nebo počet kusů, jen když produkt rozlišují',
     ''
@@ -111,6 +111,9 @@ export function titleRules(lang: string, limit: number): string {
 
   lines.push(...CASE_RULES[style], '');
   lines.push(
+    'NIC SI NEVYMÝŠLEJ. Vzor, materiál, povrch ani motiv nepiš, pokud nejsou v zadání —',
+    'ani když by název zněl líp. Ukázky níž jsou jen pro tvar věty, ne pro obsah:',
+    'vlastnosti z nich nepřebírej, patří jiným produktům.',
     'U dětských produktů musí slovo „dětský/dětská" zůstat u typu produktu.',
     'U setu vypiš, co zákazník dostane („set kravata + dětská kravata"), ne marketingový obrat.',
     '',
@@ -134,6 +137,8 @@ export function descRules(lang: string, limit: number): string {
     lines.push('Hlídej si shodu přívlastků s podstatnými jmény a správné pády — text musí být bez chyb.');
   }
   lines.push(
+    'Piš jen o tom, co je v zadání. Vzor, materiál ani povrch si nedomýšlej —',
+    'radši kratší text než vymyšlená vlastnost.',
     'Zakázáno: cena, doprava, slevy, odkazy, informace o dostupnosti, srovnání s konkurencí,',
     'velká písmena přes celé slovo a text typu „klikněte zde".'
   );
@@ -212,7 +217,8 @@ export function styleHint(lang: string, category: string, kind: string): string 
   const lines: string[] = [''];
   if (examples.length) {
     lines.push(`Takhle se u nás jmenují produkty v kategorii „${category}" — drž stejný rejstřík,`,
-      'slovosled i způsob psaní velkých písmen:');
+      'slovosled i způsob psaní velkých písmen.',
+      'Jsou to jiné produkty: ber si z nich tvar věty, nikdy vlastnosti.');
     for (const example of examples) lines.push(`    ${example}`);
   }
   if (learned) {
@@ -291,6 +297,161 @@ function properNoun(word: string, brand: string): boolean {
   return /^[A-Z0-9]+$/.test(clean) && clean.length <= 4;
 }
 
+/**
+ * Vlastnosti, které se nesmí vymyslet.
+ *
+ * Model dostává k textu ukázky skutečných názvů ze stejné kategorie — kvůli
+ * slovosledu a psaní velkých písmen. Jenže když produkt sám žádný vzor nemá
+ * a pokyn říká „vzor nebo rozlišující detail", sáhne po tom, co má před
+ * sebou: u „Bílé svatební regaty s jemnou strukturou" vznikl titulek
+ * „s geometrickým vzorem", protože tak se jmenuje jiný produkt v kategorii.
+ * Zákazník pak v inzerátu vidí jiné zboží, než mu přijde.
+ *
+ * Hlídají se proto slova, kterými se zboží od sebe liší — vzor, povrch,
+ * materiál. Když takové slovo v textu je a v zadání pro ně není opora,
+ * je to vymyšlený detail. Rodiny drží tvary napříč jazyky, aby slovenský
+ * ani anglický text nespadl do falešného poplachu.
+ */
+const FACT_FAMILIES: { label: string; stems: string[] }[] = [
+  { label: 'geometrický vzor', stems: ['geometr'] },
+  { label: 'ornament', stems: ['ornament'] },
+  { label: 'květinový vzor', stems: ['kvet', 'floral', 'flower'] },
+  // Kmeny musí sednout na všechny pády: „proužky" je po odstranění háčků
+  // „prouzky", ne „pruzky", a „kůží" je „kuzi", ne „kuze"
+  { label: 'proužky', stems: ['pruh', 'prouz', 'stripe'] },
+  { label: 'kostkovaný vzor', stems: ['kostk', 'karov', 'karo', 'check', 'plaid', 'tartan'] },
+  { label: 'puntíky', stems: ['puntik', 'bodk', 'polka'] },
+  { label: 'paisley', stems: ['paisley'] },
+  { label: 'mřížka', stems: ['mrizk', 'mriezk'] },
+  { label: 'struktura', stems: ['struktur', 'textur'] },
+  { label: 'motiv lístků', stems: ['listk', 'leaf', 'leaves'] },
+  { label: 'matný povrch', stems: ['matn', 'matt'] },
+  { label: 'lesk', stems: ['lesk', 'gloss', 'shiny'] },
+  { label: 'hedvábí', stems: ['hedvab', 'hodvab', 'silk'] },
+  { label: 'bavlna', stems: ['bavln', 'cotton'] },
+  { label: 'len', stems: ['lnen', 'linen'] },
+  { label: 'vlna', stems: ['vlnen', 'vlna', 'wool'] },
+  { label: 'kůže', stems: ['kuz', 'koz', 'leather'] },
+  { label: 'samet', stems: ['samet', 'zamat', 'velvet'] },
+  { label: 'žakár', stems: ['zakar', 'jacquard'] },
+  { label: 'pletenina', stems: ['pleten', 'knit'] },
+  { label: 'výšivka', stems: ['vysiv', 'vysit', 'embroid'] },
+  { label: 'krajka', stems: ['krajk', 'cipk', 'lace'] }
+];
+
+/** Text bez diakritiky a malými písmeny — porovnává se napříč jazyky. */
+function bare(text: string): string {
+  return plain(text).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/** Slovo, které v textu na daný kmen začíná — `null`, když tam žádné není. */
+function wordWith(text: string, stem: string): string | null {
+  const found = new RegExp(`(?:^|[^a-z0-9])(${stem}[a-z0-9]*)`).exec(text);
+  return found ? found[1] : null;
+}
+
+function hasStem(text: string, stem: string): boolean {
+  return wordWith(text, stem) !== null;
+}
+
+/**
+ * Text, ve kterém se hledají tvrzení.
+ *
+ * Zápor se vyhazuje: „matný povrch **bez lesku**" o lesku nic netvrdí, a
+ * kdyby se počítal, hlásila by se vymyšlená vlastnost u textu, který říká
+ * pravý opak. Stejně tak „bez vzoru" nebo „without pattern".
+ */
+function claims(text: string): string {
+  return bare(text)
+    // „bez zbytečného lesku" — zápor může mít i pár slov mezi sebou a věcí
+    .replace(/(^|[^a-z])(bez|without|no)\s+(?:[a-z]+\s+){0,2}[a-z]+/g, ' ')
+    /*
+     * „hedvábný lesk" není hedvábí.
+     *
+     * Je to ustálené přirovnání o vzhledu povrchu, ne o materiálu — v popisech
+     * je běžné u kravat, které jsou z polyesteru. Samotný lesk se dál hlídá,
+     * jen se z něj přestane číst složení.
+     */
+    .replace(/(hedvabn|hodvabn|silky|silk)[a-z]*(?=\s+(lesk|vzhled|efekt|sheen|shine|finish|look))/g, ' ');
+}
+
+/**
+ * Vlastnosti, které v textu jsou, ale v zadání pro ně není opora.
+ *
+ * Hlídá se jen jednosměrně: vymyšlená vlastnost je chyba, vynechaná ne.
+ * Do titulku se stejně všechno nevejde a rozhodnout, co vypustit, je práce
+ * pro model — ale přidat produktu vzor, který nemá, je vada.
+ */
+/**
+ * Slovo tak, jak je v původním textu — s háčky a velkými písmeny.
+ *
+ * Porovnává se nad textem bez diakritiky, ale do hlášky pro člověka i pro
+ * model patří to, co v textu opravdu stojí: „geometrickým", ne „geometrickym".
+ */
+function asWritten(text: string, bareWord: string): string {
+  for (const word of plain(text).split(/[^\p{L}\p{N}]+/u)) {
+    if (bare(word) === bareWord) return word;
+  }
+  return bareWord;
+}
+
+/** Které rozlišující vlastnosti text zmiňuje — jako dvojice slovo a rodina. */
+export function familiesIn(text: string): { label: string; word: string }[] {
+  const bag = claims(text);
+  const out: { label: string; word: string }[] = [];
+  for (const family of FACT_FAMILIES) {
+    const word = family.stems.map(stem => wordWith(bag, stem)).find(Boolean);
+    if (word) out.push({ label: family.label, word: asWritten(text, word) });
+  }
+  return out;
+}
+
+/**
+ * Text musí mluvit o tomtéž, čím se produkt jmenuje.
+ *
+ * U REGJ01 se jmenuje „Bílá svatební regata **s jemnou strukturou**", ale
+ * v parametrech má „vzor: Geometrický vzor". Obojí je v e-shopu pravda,
+ * jenže když si každý text vybere jinou stranu, dostane se do Google
+ * titulku „s geometrickým vzorem", zatímco v SEO titulku a na stránce
+ * produktu je struktura. Zákazník klikne na jedno a přijde mu druhé.
+ *
+ * Rozhoduje název: to je to, co má zákazník před očima. Když v něm žádná
+ * rozlišující vlastnost není, nekontroluje se nic — pak je parametr jediné,
+ * z čeho se dá čerpat, a je to tak správně.
+ */
+export function checkTitleMatch(value: string, productTitle: string): TextProblem[] {
+  const named = familiesIn(productTitle);
+  if (named.length === 0) return [];
+  const used = familiesIn(value);
+  if (used.length === 0) return [];
+  if (used.some(one => named.some(other => other.label === one.label))) return [];
+  return [{
+    code: 'mismatch',
+    message: `Píšeš „${used[0].word}", ale produkt se jmenuje „${productTitle.trim()}".`
+      + ` Drž se názvu (${named.map(one => one.word).join(', ')}) — ten má zákazník před očima.`
+      + ' Parametr může říkat něco jiného; rozhoduje název.'
+  }];
+}
+
+export function checkFacts(value: string, source: string): TextProblem[] {
+  const text = claims(value);
+  // U zadání se zápor nevyhazuje: „bez lesku" je pořád zmínka o lesku a text,
+  // který na ni navazuje, si nic nevymýšlí
+  const known = bare(source);
+  const out: TextProblem[] = [];
+  for (const family of FACT_FAMILIES) {
+    const word = family.stems.map(stem => wordWith(text, stem)).find(Boolean);
+    if (!word) continue;
+    if (family.stems.some(stem => hasStem(known, stem))) continue;
+    out.push({
+      code: 'invented',
+      message: `Píšeš „${asWritten(value, word)}" (${family.label}), ale v zadání o tom není ani slovo.`
+        + ' Ber jen vlastnosti, které produkt opravdu má — nic z ukázek.'
+    });
+  }
+  return out;
+}
+
 export interface TextProblem {
   /** Krátký kód pro strojové zpracování */
   code: string;
@@ -311,6 +472,11 @@ export function checkText(value: string, options: {
   kind: 'google_title' | 'google_desc';
   limit: number;
   brand?: string;
+  /** Co o produktu opravdu víme — název, parametry, popis. Podle toho se
+   *  pozná vymyšlená vlastnost. */
+  source?: string;
+  /** Název produktu. Text se od něj nesmí odchýlit v rozlišujícím detailu. */
+  productTitle?: string;
 }): TextProblem[] {
   const out: TextProblem[] = [];
   const text = plain(value).trim();
@@ -344,6 +510,10 @@ export function checkText(value: string, options: {
       break;
     }
   }
+
+  // Vymyšlená vlastnost je horší než překlep — zákazníkovi dorazí jiné zboží
+  if (options.source) out.push(...checkFacts(value, options.source));
+  if (options.productTitle) out.push(...checkTitleMatch(value, options.productTitle));
 
   if (options.kind === 'google_title') {
     const style = caseStyleFor(options.lang);

@@ -5,7 +5,7 @@ import { getPtransSettings, saveTranslation, productFields, fieldValue, targetLa
 import { getField, productParameters, tagText } from './xml';
 import { applySlug } from './translate';
 import { plain, clamp } from './detect';
-import { languageNote, styleHint } from './style';
+import { languageNote, styleHint, checkFacts, fixHint } from './style';
 
 /**
  * Texty pro vyhledávače a Google Nákupy.
@@ -160,6 +160,16 @@ export async function generateSeo(code: string, lang: string, kind: SeoKind,
     Object.entries(parameterMap(code, lang)).map(([name, value]) => `${name}: ${value}`).join(', ')
   ].filter(Boolean).join('\n');
 
+  /*
+   * Co o produktu opravdu víme — proti tomu se kontroluje, že si model
+   * nevymyslel vzor nebo materiál. Bere se i český originál: než se popis
+   * přeloží, byla by v cílovém jazyce prázdno a každé slovo by vyšlo jako
+   * vymyšlené.
+   */
+  const facts = [source, fieldValue(code, s.sourceLang, 'title'),
+    plain(fieldValue(code, s.sourceLang, 'long') || fieldValue(code, s.sourceLang, 'short'))
+  ].filter(Boolean).join(' \n');
+
   const answer = await ask(
     model,
     [
@@ -177,7 +187,30 @@ export async function generateSeo(code: string, lang: string, kind: SeoKind,
     { signal }
   );
 
-  const value = clamp(answer.replace(/^["„]|["“]$/g, ''), limit);
+  let value = clamp(answer.replace(/^["„]|["“]$/g, ''), limit);
+
+  /*
+   * Vymyšlená vlastnost se nepřepisuje ručně — pošle se zpátky modelu.
+   *
+   * Stalo se to u „Bílé svatební regaty s jemnou strukturou": v jednom textu
+   * zůstala struktura, ve druhém z ní byl „geometrický vzor" podle jiného
+   * produktu v kategorii. Jeden opravný průchod stačí; když ani ten nepomůže,
+   * platí ten z obou textů, který si nevymýšlí.
+   */
+  const invented = value ? checkFacts(value, facts) : [];
+  if (invented.length > 0) {
+    const second = clamp((await ask(
+      model,
+      [`Píšeš texty pro e-shop v jazyce s kódem „${lang}". Piš výhradně tímhle jazykem.`,
+        RULES[kind](limit), languageNote(lang), fixHint(invented),
+        '\nVrať POUZE výsledný text, nic dalšího.'].join('\n'),
+      `${source}\n\nPředchozí pokus:\n${value}`,
+      600,
+      { signal }
+    )).replace(/^["„]|["“]$/g, ''), limit);
+    if (second && checkFacts(second, facts).length === 0) value = second;
+  }
+
   if (value) saveTranslation(code, lang, kind, value, model);
   return value;
 }
