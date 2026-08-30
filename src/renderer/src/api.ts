@@ -127,6 +127,8 @@ export const api = {
         tidied: number;
         /** Co po běhu opravdu zbylo nehotové — „PSSK120SZ3 (EN)" */
         stuck: string[];
+        /** Kolik polí mělo český text, o kterém cílové jazyky nevěděly */
+        aligned: number;
       }>('ptrans:run', input),
     stop: () => call<boolean>('ptrans:stop'),
     progress: () => call<PtransProgress | null>('ptrans:progress'),

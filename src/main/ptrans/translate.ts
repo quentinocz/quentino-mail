@@ -3,7 +3,7 @@ import { ask, rateLimitedRecently } from '../ai';
 import { getSettings } from '../settings';
 import { getDb } from '../db';
 import { getPtransSettings, savePtransSettings, productFields, saveTranslation, targetLangs,
-  PtransSettings, FieldRow } from './store';
+  alignSources, PtransSettings, FieldRow } from './store';
 import { HTML_FIELDS, DERIVED_FIELDS } from './xml';
 import { tidyHtml } from './html';
 import { tidyProducts } from './tidy';
@@ -764,6 +764,8 @@ export interface RunResult {
   tidied: number;
   /** Co po běhu opravdu zbylo nehotové — „PSSK120SZ3 (EN)" */
   stuck: string[];
+  /** Kolik polí mělo český text, o kterém cílové jazyky nevěděly */
+  aligned: number;
 }
 
 /**
@@ -783,6 +785,17 @@ export interface RunResult {
    * odpovědi. Text se přitom nezmění ani o písmeno.
    */
   const tidied = tidyProducts(input.codes);
+
+  /*
+   * Srovnání zdrojů ještě před plánem.
+   *
+   * Český text může existovat, aniž o něm cílové jazyky vědí — vznikl
+   * v aplikaci a v e-shopu zatím není, nebo se pole zapnulo v nastavení až
+   * po posledním načtení feedu. Navenek to vypadá nesmyslně: doplnění hlásí
+   * „kompletní" a překlad „chybí zdroj", a další běh s tím nehne. Zkopírovat
+   * to, co už máme, nestojí nic — tak ať se to udělá samo.
+   */
+  const aligned = alignSources(input.codes);
 
   // Než se začne překládat, mrkne se do paměti. Když je prázdná, vytáhne se
   // teď — z produktů, které jsou ve feedu přeložené, se dá slovosled i
@@ -1086,6 +1099,7 @@ export interface RunResult {
     noSource,
     noSourceFields: noSourceFields.map(field => FIELD_LABELS[field] ?? field),
     tidied: tidied.fields,
+    aligned,
     stuck: leftover.map(target => `${target.code} (${target.lang.toUpperCase()})`).slice(0, 20)
   };
 }

@@ -1,5 +1,5 @@
 import { getDb } from '../db';
-import { getPtransSettings, fieldValue, propagateSource, targetLangs } from './store';
+import { getPtransSettings, fieldValue, sourceText, propagateSource, targetLangs } from './store';
 import { generateSeo, refreshSeoUrl } from './seo';
 import { writeGoogleText } from './google';
 import { plain } from './detect';
@@ -66,15 +66,22 @@ export function planSourceFill(options: SourceFillOptions): SourceTarget[] {
 
   const out: SourceTarget[] = [];
   for (const code of options.codes) {
-    const title = fieldValue(code, lang, 'title');
-    const body = plain(fieldValue(code, lang, 'long') || fieldValue(code, lang, 'short'));
+    /*
+     * Rozhoduje `sourceText`, ne hodnota uložená u pole.
+     *
+     * Obojí vypadá stejně, ale počítá se to jinak — a rozdíl je vidět
+     * přesně tam, kde to nejvíc vadí: pole se hlásilo jako „kompletní"
+     * a překlad u něj přitom neměl z čeho vycházet.
+     */
+    const title = sourceText(code, 'title');
+    const body = plain(sourceText(code, 'long') || sourceText(code, 'short'));
     if (!title && !body) continue;
 
     for (const field of wanted) {
       // Bez popisu nemá smysl psát popisné texty; titulek se poskládá i ze
       // samotného názvu a parametrů
       if (!body && (field === 'seo_desc' || field === 'google_desc')) continue;
-      if (!options.force && fieldValue(code, lang, field)) continue;
+      if (!options.force && sourceText(code, field)) continue;
       out.push({ code, field });
     }
   }
@@ -124,7 +131,7 @@ export function missingByField(codes: string[]):
   return SOURCE_FIELDS.map(field => ({
     field,
     label: SOURCE_LABELS[field],
-    missing: codes.filter(code => !fieldValue(code, s.sourceLang, field)).length,
+    missing: codes.filter(code => !sourceText(code, field, s)).length,
     // seo_url se nepřekládá schválně — skládá ho kód z přeloženého názvu
     translated: field === 'seo_url' ? true : s.fields[field] !== false
   }));
