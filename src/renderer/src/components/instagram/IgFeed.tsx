@@ -82,7 +82,12 @@ export default function IgFeed({ overview, onOpenPost, onSyncAll }: Props) {
             <button className={filter === 'todo' ? 'active' : ''} onClick={() => setFilter('todo')}>Chybí trhy</button>
             <button className={filter === 'done' ? 'active' : ''} onClick={() => setFilter('done')}>Hotové</button>
           </div>
-          <button className="btn ghost" onClick={onSyncAll}>Načíst celý archiv</button>
+          {/* Na telefonu zůstane jen ikona — podtržený odkaz mezi tlačítky
+              vypadal jako cizí prvek z webu a bral celý řádek */}
+          <button className="btn ghost ig-archive" onClick={onSyncAll}
+            data-tip="Stáhne historii účtu, ne jen nové příspěvky" aria-label="Načíst celý archiv">
+            <Icon name="download" size={14} /><span>Načíst celý archiv</span>
+          </button>
         </div>
       </div>
 

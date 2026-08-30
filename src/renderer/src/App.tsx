@@ -8,6 +8,7 @@ import MessageList from './components/MessageList';
 import MessageView from './components/MessageView';
 import Composer, { ComposerInit, UndoInfo } from './components/Composer';
 import SettingsModal from './components/SettingsModal';
+import MailboxCleanup from './components/MailboxCleanup';
 import OutboxModal from './components/OutboxModal';
 import TooltipLayer from './components/TooltipLayer';
 import DigestModal from './components/DigestModal';
@@ -42,6 +43,7 @@ function AppInner() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [catStats, setCatStats] = useState<Record<string, { cnt: number; unseen: number }>>({});
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [digestOpen, setDigestOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
   // Nástroje pod záložkou AI: překlady a články. Otevírají se přes celé okno,
@@ -409,6 +411,7 @@ function AppInner() {
         onSyncAll={refresh}
         syncing={syncing}
         quota={quota}
+        onCleanup={() => setCleanupOpen(true)}
         onOpenDigest={() => { setDrawer(false); setDigestOpen(true); }}
         onOpenPacking={() => { setDrawer(false); setPackingOpen(true); }}
         orderPending={orderPending}
@@ -493,6 +496,17 @@ function AppInner() {
         />
       )}
       {outboxOpen && <OutboxModal onClose={() => setOutboxOpen(false)} />}
+      {cleanupOpen && activeAccountId !== null && (
+        <MailboxCleanup
+          accountId={activeAccountId}
+          quota={quota}
+          onClose={() => {
+            setCleanupOpen(false);
+            // Po úklidu se obsazení musí přepočítat, jinak ukazuje minulost
+            api.quota.get(activeAccountId).then(setQuota).catch(() => {});
+          }}
+        />
+      )}
       {phone && <MobileTabs current="mail" onChange={setWorkspace} chatUnread={chatUnread} />}
       {aiLayer}
       <TooltipLayer />

@@ -1298,3 +1298,35 @@ export interface ArticleProduct {
   url: string;
   image: string | null;
 }
+
+/* ---------- Úklid schránky na serveru ---------- */
+
+/** Jedna zpráva, kterou by šlo stáhnout k sobě a uvolnit tím místo na serveru. */
+export interface CleanupItem {
+  folder: string;
+  uid: number;
+  subject: string;
+  from: string;
+  date: string;
+  /** Velikost na serveru v bajtech — podle ní se řadí, co uvolní nejvíc */
+  size: number;
+  attachments: boolean;
+}
+
+export interface CleanupScan {
+  /** Největší napřed; delší seznamy se ořezávají, `count` platí za všechny */
+  items: CleanupItem[];
+  count: number;
+  bytes: number;
+  folders: string[];
+  /** Koš se neuklízí, ale vysypat ho je uvolnění zadarmo */
+  trash: { folder: string; count: number } | null;
+}
+
+export interface CleanupProgress {
+  phase: 'scan' | 'save' | 'delete' | 'done';
+  folder?: string;
+  done?: number;
+  total?: number;
+  subject?: string;
+}

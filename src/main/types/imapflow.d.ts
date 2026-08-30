@@ -70,6 +70,11 @@ declare module 'imapflow' {
       query: { uid?: boolean; flags?: boolean; envelope?: boolean; source?: boolean },
       options?: { uid?: boolean }
     ): Promise<FetchMessageObject | false>;
+    /** Hledání na serveru. Vrací UID (s `{ uid: true }`), jinak pořadová čísla. */
+    search(
+      query: { before?: Date; since?: Date; larger?: number; smaller?: number; seen?: boolean; flagged?: boolean },
+      options?: { uid?: boolean }
+    ): Promise<number[] | false>;
     messageFlagsAdd(range: string | number[], flags: string[], options?: { uid?: boolean }): Promise<boolean>;
     messageFlagsRemove(range: string | number[], flags: string[], options?: { uid?: boolean }): Promise<boolean>;
     messageMove(range: string | number[], destination: string, options?: { uid?: boolean }): Promise<any>;

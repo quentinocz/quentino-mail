@@ -15,6 +15,7 @@ import {
 import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets } from './products';
 import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
+import { scanOld, freeUp } from './cleanup';
 import { summarize, generateReply, improveText, translateIncoming, translateText, categorizeUncategorized, getAiUsage, generateDigest } from './ai';
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
@@ -295,6 +296,10 @@ export function registerIpc() {
     return p;
   });
   handle('quota:get', (accountId) => getMailboxQuota(accountId));
+  /* Úklid schránky: najít staré velké zprávy a stáhnout je k sobě ze serveru */
+  handle('mail:cleanupScan', (accountId: number, olderThanDays: number, minSizeKb: number) =>
+    scanOld(accountId, olderThanDays ?? 365, minSizeKb ?? 0));
+  handle('mail:cleanupRun', (accountId: number, items: any[]) => freeUp(accountId, items ?? []));
   /**
    * Otevření odkazu mimo aplikaci.
    *

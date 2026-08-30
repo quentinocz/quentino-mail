@@ -42,6 +42,8 @@ interface Props {
   onSyncAll: () => void;
   syncing: boolean;
   quota: { used: number; limit: number } | null;
+  /** Otevře úklid schránky — z ukazatele obsazení */
+  onCleanup: () => void;
   onOpenDigest: () => void;
   onOpenPacking: () => void;
   /** Kolik zpráv k objednávkám čeká na odpověď */
@@ -154,13 +156,20 @@ export default function Sidebar(p: Props) {
       <div className="sidebar-footer">
         {p.quota && (() => {
           const pct = Math.min(100, Math.round((p.quota.used / p.quota.limit) * 100));
+          // Ukazatel je zároveň cesta k úklidu: když schránka dochází, první
+          // otázka je „co s tím", ne „kolik zbývá"
           return (
-            <div className="quota-box" data-tip={`Obsazení schránky na serveru: ${fmtGB(p.quota.used)} z ${fmtGB(p.quota.limit)}`}>
+            <button className="quota-box" onClick={p.onCleanup}
+              data-tip={`Obsazení schránky na serveru: ${fmtGB(p.quota.used)} z ${fmtGB(p.quota.limit)}`
+                + ' — klikni pro uvolnění místa'}>
               <div className="quota-bar">
                 <div className={pct > 90 ? 'crit' : pct > 70 ? 'warn' : ''} style={{ width: `${pct}%` }} />
               </div>
-              Server: {pct} % ({fmtGB(p.quota.used)} / {fmtGB(p.quota.limit)})
-            </div>
+              <span className="quota-text">
+                Server: {pct} % ({fmtGB(p.quota.used)} / {fmtGB(p.quota.limit)})
+                <Icon name="chevRight" size={13} />
+              </span>
+            </button>
           );
         })()}
         <button className="side-item" onClick={p.onSyncAll} disabled={p.syncing}>

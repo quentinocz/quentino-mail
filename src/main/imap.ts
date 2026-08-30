@@ -32,7 +32,8 @@ function silenceSocketErrors(client: ImapFlow): void {
   client.on('error', () => { /* spojení je mrtvé, další pokus si otevře nové */ });
 }
 
-async function withClient<T>(accountId: number, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+/** Připojení k účtu na dobu jednoho úkolu. Vystrčené ven kvůli úklidu schránky. */
+export async function withClient<T>(accountId: number, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
   const acc = getAccountWithPassword(accountId);
   if (!acc) throw new Error('Účet nenalezen');
   const client = new ImapFlow({

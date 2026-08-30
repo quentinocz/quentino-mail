@@ -225,7 +225,10 @@ for (const device of DEVICES) {
 
   await click('.m-tabs button:nth-child(3)');
   await check('social'); await snap('07-social');
-  await click('.side-item', { hasText: 'Účty' });
+  // Účty a značka jsou nově pod „…" — pás pilulek se na telefon nevešel
+  await click('.ig-topbar .m-round');
+  await check('social — panel'); await snap('07b-social-panel');
+  await click('.sheet-action', { hasText: 'Účty a připojení' });
   await check('social — účty'); await snap('08-social-ucty');
 
   await click('.m-tabs button:nth-child(2)');

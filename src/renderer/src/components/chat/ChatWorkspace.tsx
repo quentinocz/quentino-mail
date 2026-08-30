@@ -6,7 +6,7 @@ import Icon from '../Icon';
 import CallContact from '../CallContact';
 import WorkspaceSwitch, { Workspace, AiTool } from '../WorkspaceSwitch';
 import { SidebarResizer } from '../../sidebar';
-import ChatMessageView from './ChatMessage';
+import ChatMessageView, { looksHome } from './ChatMessage';
 import ChatProductPicker from './ChatProductPicker';
 import ChatSettings from './ChatSettings';
 import { Sheet, SheetActions } from '../Sheet';
@@ -20,6 +20,31 @@ function timeAgo(iso: string): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} min`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} h`;
   return new Date(iso).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' });
+}
+
+/** „Dnes", „Včera", jinak datum — oddělovač dnů ve vlákně. */
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = new Date();
+  const zero = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  if (day === zero) return 'Dnes';
+  if (day === zero - 86_400_000) return 'Včera';
+  return d.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'long', year:
+    d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
+}
+
+/**
+ * Patří dvě zprávy do jednoho shluku?
+ *
+ * Stejný odesílatel a nanejvýš pět minut mezi nimi. Pak se skládají těsně
+ * pod sebe a čas se píše jen u té poslední — tři časy pod třemi větami
+ * od téhož člověka jsou k ničemu.
+ */
+function sameBurst(a: Msg, b: Msg): boolean {
+  if (a.sender !== b.sender) return false;
+  if (a.sender === 'system' || b.sender === 'system') return false;
+  return Math.abs(new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) < 5 * 60_000;
 }
 
 interface Props {
@@ -62,6 +87,14 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   const [signPerson, setSignPerson] = useState<number | null>(null);
   /** Na telefonu se akce hlavičky a nástroje odpovědi schovávají do panelů */
   const [headSheet, setHeadSheet] = useState(false);
+  /*
+   * Hromadný překlad příchozích zpráv.
+   *
+   * Jednotlivá nabídka pod bublinou stačí, dokud přijde jedna cizí zpráva.
+   * Když se ale píše celá konverzace anglicky, je klikání na každou bublinu
+   * otrava — tohle přeloží všechny naráz a nechá to zapnuté i pro další.
+   */
+  const [translateAll, setTranslateAll] = useState(false);
   const [toolSheet, setToolSheet] = useState(false);
   const [listSheet, setListSheet] = useState(false);
   const phone = useIsPhone();
@@ -334,6 +367,13 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
                       <Icon name="mail" size={13} /> Napsat e-mail
                     </button>
                   )}
+                  {messages.some(m => m.sender === 'customer' && !looksHome(m.content)) && (
+                    <button className={`btn ghost ${translateAll ? 'on' : ''}`}
+                      onClick={() => setTranslateAll(v => !v)}
+                      data-tip="Přeloží zprávy od zákazníka do češtiny — i ty, které teprve přijdou">
+                      <Icon name="globe" size={13} /> {translateAll ? 'Překládám' : 'Přeložit'}
+                    </button>
+                  )}
                   <button className="btn ghost" onClick={toggleStatus}>
                     {active.status === 'closed' ? 'Otevřít znovu' : 'Uzavřít'}
                   </button>
@@ -342,9 +382,27 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
             </div>
 
             <div className="ch-thread">
-              {messages.map(m => (
-                <ChatMessageView key={m.id} m={m} onOpenImage={setLightbox} />
-              ))}
+              {messages.map((m, i) => {
+                const prev = messages[i - 1];
+                const next = messages[i + 1];
+                const day = dayLabel(m.createdAt);
+                return (
+                  <div key={m.id} className="ch-seq">
+                    {(!prev || dayLabel(prev.createdAt) !== day) && (
+                      <div className="ch-day"><span>{day}</span></div>
+                    )}
+                    <ChatMessageView
+                      m={m}
+                      onOpenImage={setLightbox}
+                      /* Čas se píše jen u poslední zprávy ve shluku — u chatu,
+                         kde přijdou tři věty po sobě, jsou tři časy pod sebou
+                         jen šum */
+                      tail={!next || !sameBurst(m, next)}
+                      autoTranslate={translateAll}
+                    />
+                  </div>
+                );
+              })}
               <div ref={endRef} />
             </div>
 
@@ -474,6 +532,12 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
                 hint: active.status === 'closed' ? undefined : 'Zmizí ze seznamu otevřených',
                 onClick: toggleStatus
               },
+              ...(messages.some(m => m.sender === 'customer' && !looksHome(m.content)) ? [{
+                icon: 'globe',
+                label: translateAll ? 'Nepřekládat příchozí' : 'Přeložit příchozí do češtiny',
+                hint: translateAll ? undefined : 'Přeloží zprávy od zákazníka i ty další',
+                onClick: () => setTranslateAll(v => !v)
+              }] : []),
               { icon: 'settings', label: 'Nastavení chatu', onClick: () => setSettingsOpen(true) }
             ]}
           />

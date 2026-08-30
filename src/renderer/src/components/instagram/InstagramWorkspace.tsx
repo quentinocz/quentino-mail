@@ -6,6 +6,7 @@ import Icon from '../Icon';
 import WorkspaceSwitch, { Workspace, AiTool } from '../WorkspaceSwitch';
 import { SidebarResizer } from '../../sidebar';
 import { useIsPhone } from '../../mobile';
+import { Sheet, SheetActions } from '../Sheet';
 import IgFeed from './IgFeed';
 import IgCompose from './IgCompose';
 import IgQueue from './IgQueue';
@@ -35,6 +36,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
   const [overview, setOverview] = useState<IgOverview | null>(null);
   const [postId, setPostId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [moreSheet, setMoreSheet] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +88,98 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
   );
 
   const needsSetup = overview && (!overview.connection.hasAppId || !overview.storageReady || !overview.hasSource);
+  const setupHint = !overview?.connection.hasAppId
+    ? 'Chybí Meta aplikace'
+    : !overview?.storageReady
+      ? 'Chybí úložiště médií'
+      : 'Není připojený zdrojový účet';
+
+  /*
+   * Na telefonu se z postranního panelu dělal vodorovný pás pilulek. Pět
+   * položek se do šířky nevejde, takže poslední dvě zůstaly za okrajem a
+   * nic nenaznačovalo, že tam jsou — a hlavní akce („Nový příspěvek")
+   * soutěžila o místo s přepínáním obrazovek, i když je to něco úplně
+   * jiného. Proto tři obrazovky do přepínače na celou šířku, nastavení
+   * pod tlačítko „…" a psaní nového příspěvku do plovoucího tlačítka
+   * u palce.
+   */
+  const tab = (v: IgView, label: string, count?: number) => (
+    <button className={view === v ? 'active' : ''} onClick={() => setView(v)}>
+      {label}
+      {count ? <span className="ig-nav-count">{count}</span> : null}
+    </button>
+  );
+
+  if (phone) {
+    return (
+      <div className="app ig-app ig-phone">
+        <div className="ig-topbar">
+          <div className="ig-nav">
+            {tab('feed', 'Feed')}
+            {tab('compose', 'Rozpracované')}
+            {tab('queue', 'Fronta', (overview?.queued ?? 0) + (overview?.failed ?? 0))}
+          </div>
+          <button
+            className={`m-round ${needsSetup ? 'warn' : ''} ${view === 'accounts' || view === 'brand' ? 'on' : ''}`}
+            onClick={() => setMoreSheet(true)}
+            aria-label="Účty, značka a nastavení">
+            <Icon name="dots" size={18} />
+          </button>
+        </div>
+
+        <div className="ig-main">
+          {view === 'feed' && overview && (
+            <IgFeed overview={overview} onOpenPost={openPost} onSyncAll={() => sync(true)} />
+          )}
+          {view === 'compose' && overview && (
+            <IgCompose overview={overview} postId={postId} onPostId={setPostId}
+              onGoQueue={() => setView('queue')} />
+          )}
+          {view === 'queue' && overview && <IgQueue overview={overview} onOpenPost={openPost} />}
+          {view === 'accounts' && overview && <IgAccounts overview={overview} onChanged={load} />}
+          {view === 'brand' && overview && <IgBrand overview={overview} onChanged={load} />}
+        </div>
+
+        {/* Nový příspěvek je to, kvůli čemu se sem chodí — patří pod palec.
+            Nad nastavením účtů by ale jen překážel, tam se nic nepíše. */}
+        {(view === 'feed' || view === 'queue') && (
+          <button className="ig-fab" onClick={newPost} aria-label="Nový příspěvek">
+            <Icon name="plus" size={24} />
+          </button>
+        )}
+
+        {moreSheet && (
+          <Sheet title="Social" onClose={() => setMoreSheet(false)}>
+            <SheetActions
+              onDone={() => setMoreSheet(false)}
+              actions={[
+                {
+                  icon: 'users',
+                  label: 'Účty a připojení',
+                  hint: needsSetup ? setupHint : undefined,
+                  active: view === 'accounts',
+                  onClick: () => setView('accounts')
+                },
+                {
+                  icon: 'sparkles',
+                  label: 'Značka a trhy',
+                  active: view === 'brand',
+                  onClick: () => setView('brand')
+                },
+                {
+                  icon: 'refresh',
+                  label: syncing ? 'Načítám…' : 'Načíst nové příspěvky',
+                  busy: syncing,
+                  onClick: () => sync(false)
+                },
+                { icon: 'settings', label: 'Nastavení', onClick: onOpenSettings }
+              ]}
+            />
+          </Sheet>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="app ig-app">
@@ -115,11 +209,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
           {needsSetup && (
             <button className="ig-setup-hint" onClick={() => setView('accounts')}>
               <Icon name="zap" size={13} />
-              {!overview?.connection.hasAppId
-                ? 'Chybí Meta aplikace'
-                : !overview?.storageReady
-                  ? 'Chybí úložiště médií'
-                  : 'Není připojený zdrojový účet'}
+              {setupHint}
             </button>
           )}
         </div>
