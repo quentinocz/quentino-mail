@@ -149,6 +149,26 @@
         content: 'Sorry, one more thing — do you ship to Germany and how long does it usually take?',
         contentType: 'text', createdAt: new Date(Date.now() - 2 * 60e3).toISOString(), readAt: null }
     ],
+    'quota:get': { used: 7.4 * 1024 ** 3, limit: 10 * 1024 ** 3 },
+    'mail:cleanupScan': {
+      count: 214,
+      bytes: 3.4 * 1024 ** 3,
+      folders: ['INBOX', 'INBOX.Sent'],
+      trash: { folder: 'INBOX.Trash', count: 318 },
+      items: [
+        { folder: 'INBOX', uid: 8812, subject: 'Fwd: Podklady k reklamaci — fotky', from: 'zakaznik@seznam.cz',
+          date: new Date('2024-03-11').toISOString(), size: 24.6 * 1024 ** 2, attachments: true },
+        { folder: 'INBOX.Sent', uid: 4410, subject: 'Grafika pro nový katalog (finální)', from: 'studio@tiskarna.cz',
+          date: new Date('2024-05-02').toISOString(), size: 18.2 * 1024 ** 2, attachments: true },
+        { folder: 'INBOX', uid: 8110, subject: 'Faktury 2024 Q1 — souhrn', from: 'ucetni@firma.cz',
+          date: new Date('2024-04-18').toISOString(), size: 9.8 * 1024 ** 2, attachments: true },
+        { folder: 'INBOX', uid: 7720, subject: 'Nabídka koženek — vzorník', from: 'obchod@kuze.cz',
+          date: new Date('2024-02-27').toISOString(), size: 6.1 * 1024 ** 2, attachments: true },
+        { folder: 'INBOX.Sent', uid: 4090, subject: 'Re: Objednávka 20240119 — potvrzení', from: 'petra@quentino.cz',
+          date: new Date('2024-01-20').toISOString(), size: 1.4 * 1024 ** 2, attachments: false }
+      ]
+    },
+    'mail:cleanupRun': { done: 5, failed: 0, freed: 60 * 1024 ** 2, errors: [] },
     'chat:markRead': null,
     'chat:suggest': 'Dobry den, cerny pasek v delce 115 cm mame skladem.',
     'chat:cards': [],

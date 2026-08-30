@@ -14,7 +14,8 @@ import type {
   PtransGoogleView, PtransColorRule, PtransBaseColor, PtransBundleRule, PtransAttributeRules,
   PtransAudit, PtransAuditSummary,
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
-  ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct
+  ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
+  CleanupItem, CleanupScan
 } from '@shared/types';
 
 declare global {
@@ -432,7 +433,17 @@ export const api = {
     export: (fileName: string, html: string) => call<string | null>('messages:exportPdf', fileName, html)
   },
   quota: {
-    get: (accountId: number) => call<{ used: number; limit: number } | null>('quota:get', accountId)
+    get: (accountId: number) => call<{ used: number; limit: number } | null>('quota:get', accountId),
+    /**
+     * Úklid schránky: najde na serveru staré velké zprávy. Nic nemaže —
+     * jen řekne, co by šlo uvolnit.
+     */
+    scan: (accountId: number, olderThanDays: number, minSizeKb: number) =>
+      call<CleanupScan>('mail:cleanupScan', accountId, olderThanDays, minSizeKb),
+    /** Stáhne vybrané zprávy k sobě a teprve pak je smaže ze serveru. */
+    clean: (accountId: number, items: CleanupItem[]) =>
+      call<{ done: number; failed: number; freed: number; errors: string[] }>(
+        'mail:cleanupRun', accountId, items)
   },
   shell: {
     openUrl: (url: string) => call<void>('shell:openUrl', url)

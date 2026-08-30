@@ -228,10 +228,21 @@ await page.waitForTimeout(300);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(400);
 
+// Uvolnění místa ve schránce — otevírá se z ukazatele obsazení v panelu.
+// Nejdřív se musí zavřít rozepsaná zpráva, jinak ji Escape jen nechá být.
+await click('.composer-foot .btn', { hasText: 'Zavřít' });
+await page.waitForTimeout(400);
+await click('.quota-box');
+await page.waitForTimeout(200);
+await click('.cl-filters .btn');
+await overflow('uvolnění místa'); await snap('26-uvolnit-misto');
+await click('.modal-foot .btn.ghost', { hasText: 'Zavřít' });
+await page.waitForTimeout(300);
+
 // Pruh s běžícím překladem na pozadí — je vidět i mimo okno překladů
 await page.evaluate(() => window.__emit('ptrans:progress', {
   running: true, done: 428, total: 1362, failed: 2, etaSeconds: 940,
-  secondsPerUnit: 11.4, label: 'Bordó pánská kravata BULDOČCI → SK', errors: []
+  secondsPerUnit: 11.4, bar: 428 / 1362, label: 'Bordó pánská kravata BULDOČCI → SK', errors: []
 }));
 await overflow('pruh překladu'); await snap('09-pruh-prekladu');
 
