@@ -210,13 +210,37 @@ export function revertToFeed(codes: string[], options: { keepManual?: boolean } 
  * Verze se zvedá při každé změně `fieldState` — a taky když přibude něco,
  * co se při přepočtu ukládá vedle stavu (příznak nepořádku v HTML).
  */
-const STATE_RULES_VERSION = '5';
+const STATE_RULES_VERSION = '6';
 
 export function refreshStatesIfNeeded(): number {
   if (getSetting('ptransStateRules', '') === STATE_RULES_VERSION) return 0;
+  repairSourceValues();
   const changed = recomputeStates();
   setSetting('ptransStateRules', STATE_RULES_VERSION);
   return changed;
+}
+
+/**
+ * Náprava polí, která uvízla mezi dvěma stavy.
+ *
+ * Když aplikace doplnila český text a pak se znovu načetl feed, `source_value`
+ * u cílových jazyků se přepsalo prázdnem z feedu — text v e-shopu totiž pořád
+ * není, dokud se neimportuje export. Pole se tím dostalo do slepé uličky:
+ * přeložit nejde (chybí zdroj) a doplnit se nemá (uložený text už existuje).
+ *
+ * Nové načtení feedu tohle řeší samo, ale databáze, které v tom stavu už jsou,
+ * by se nespravily do dalšího stažení. Proto jednorázový úklid.
+ */
+export function repairSourceValues(): number {
+  const d = getDb();
+  const lang = getPtransSettings().sourceLang;
+  const own = `SELECT s.translated FROM ptrans_fields s
+    WHERE s.code = ptrans_fields.code AND s.field = ptrans_fields.field
+      AND s.lang = ? AND trim(coalesce(s.translated, '')) != ''`;
+  return d.prepare(
+    `UPDATE ptrans_fields SET source_value = (${own})
+     WHERE lang != ? AND trim(source_value) = '' AND EXISTS (${own})`
+  ).run(lang, lang, lang).changes as number;
 }
 
 /**
@@ -318,7 +342,30 @@ function ingest(xml: string, options: IngestOptions = {}): SyncResult {
   const run = d.transaction(() => {
     for (const { code, block } of products) {
       if (origin === 'feed' && fromFile.has(code)) paired++;
-      const sourceOf = (field: string) => getField(block, s.sourceLang, field) ?? '';
+
+      /*
+       * Zdrojový text: co je ve feedu, a když tam nic není, co jsme si napsali sami.
+       *
+       * Tohle je jádro jedné tiché pasti. Aplikace umí doplnit chybějící český
+       * SEO titulek nebo texty pro Google — uloží je k sobě a rozešle je jako
+       * zdroj k cílovým jazykům. Jenže v e-shopu pořád nejsou, dokud se
+       * neimportuje export. Při dalším načtení feedu se `source_value`
+       * přepsalo tím, co je ve feedu, tedy prázdnem — a překlad najednou
+       * neměl z čeho vycházet. Zároveň zůstal uložený český text, takže
+       * doplnění hlásilo „kompletní" a nic nedoplnilo. Pole tak uvízlo mezi
+       * dvěma stavy: přeložit nejde (chybí zdroj) a doplnit se nemá (už to
+       * prý je). Přesně tohle se stalo u REGJ01 a REGJ02.
+       *
+       * Feed má přednost — když v něm hodnota je, platí ta. Naše se použije
+       * jen tam, kde by jinak bylo prázdno.
+       */
+      const sourceOf = (field: string) => {
+        const fromFeed = getField(block, s.sourceLang, field) ?? '';
+        if (fromFeed.trim()) return fromFeed;
+        const own = readField.get(code, s.sourceLang, field) as
+          { translated: string | null } | undefined;
+        return own?.translated?.trim() ? own.translated : fromFeed;
+      };
       const title = sourceOf('title');
       const sourceHash = hashText([sourceOf('title'), sourceOf('short'), sourceOf('long')].join('\n'));
 
@@ -346,7 +393,7 @@ function ingest(xml: string, options: IngestOptions = {}): SyncResult {
       for (const lang of langs) {
         for (const field of keys) {
           const value = getField(block, lang, field) ?? '';
-          const source = getField(block, s.sourceLang, field) ?? '';
+          const source = sourceOf(field);
           const saved = readField.get(code, lang, field) as
             { translated: string | null; translated_hash: string | null; manual: number } | undefined;
 
