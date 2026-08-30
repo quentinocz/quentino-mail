@@ -3,7 +3,8 @@ import { getPtransSettings, targetLangs, productFields } from './store';
 import { tagText, getField } from './xml';
 import { plain, detectLanguage } from './detect';
 import { parameterMap } from './seo';
-import { attributesFor } from './google';
+import { attributesFor, factSource } from './google';
+import { checkFacts, checkTitleMatch } from './style';
 import { colorFor, shadeFromTitle } from './colors';
 import { tidyHtml, needsTidy } from './html';
 
@@ -47,6 +48,13 @@ export interface ProductAudit {
 }
 
 const WEIGHT: Record<Severity, number> = { error: 18, warn: 7, info: 2 };
+
+const GOOGLE_TEXT_LABEL: Record<string, string> = {
+  google_title: 'Titulek pro Google',
+  google_desc: 'Popis pro Google',
+  seo_title: 'SEO titulek',
+  seo_desc: 'Meta popis'
+};
 
 /** Doporučené délky. Vycházejí z toho, co se v inzerátu a ve výsledku vejde. */
 const LIMITS = {
@@ -252,6 +260,26 @@ export function auditProduct(code: string, lang: string): ProductAudit | null {
     }
   }
 
+  /*
+   * Vymyšlené vlastnosti v hotových textech.
+   *
+   * Model dostává k psaní ukázky názvů ze stejné kategorie kvůli slovosledu
+   * a občas si z nich vypůjčí i obsah — u „regaty s jemnou strukturou" se
+   * tak v titulku objevil „geometrický vzor" podle úplně jiného produktu.
+   * Zákazník pak v inzerátu vidí jiné zboží, než mu přijde, a je z toho
+   * vrácení. Kontroluje se to i tady, protože texty vznikly i dřív, než se
+   * hlídání zavedlo.
+   */
+  const facts = factSource(code, lang);
+  for (const field of ['google_title', 'google_desc', 'seo_title', 'seo_desc']) {
+    const text = value(field);
+    if (!text) continue;
+    const wrong = [...checkFacts(text, facts), ...checkTitleMatch(text, title)];
+    if (wrong.length === 0) continue;
+    add(`${field}.${wrong[0].code}`, 'error',
+      `${GOOGLE_TEXT_LABEL[field] ?? field}: ${wrong[0].message}`, field, true);
+  }
+
   const attrs = attributesFor(code, lang);
   if (!value('google_color')) {
     const derived = colorFor(code, lang);
@@ -290,6 +318,23 @@ export function auditProduct(code: string, lang: string): ProductAudit | null {
     }
     if (!product.manufacturer) add('brand.missing', 'warn', 'Chybí značka výrobce.');
     const params = parameterMap(code, s.sourceLang);
+    /*
+     * Rozpor přímo ve feedu: název říká něco jiného než parametr.
+     *
+     * „Bílá svatební regata **s jemnou strukturou**" má v parametrech
+     * „vzor: Geometrický vzor". Obojí je v e-shopu pravda a texty se pak
+     * podle toho, co si vyberou, rozejdou — v titulku pro Google je vzor,
+     * na stránce produktu struktura. Spravit se to dá jen v e-shopu, proto
+     * je to upozornění, ne oprava na jedno kliknutí.
+     */
+    if (params.vzor) {
+      const clash = checkTitleMatch(params.vzor, product.title);
+      if (clash.length > 0) {
+        add('param.vzor.clash', 'warn',
+          `Parametr Vzor („${params.vzor}") neodpovídá názvu („${product.title}"). `
+          + 'Sjednoť to v e-shopu — jinak každý text popisuje zboží jinak.');
+      }
+    }
     if (!params.barva) add('param.color', 'warn', 'Produkt nemá parametr Barva — z čeho pak brát barvu pro Google.');
     if (!params.materiál && !params.material) {
       add('param.material', 'info', 'Produkt nemá parametr Materiál.');

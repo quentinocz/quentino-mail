@@ -9,7 +9,8 @@ import { plain, clamp } from './detect';
 import { colorFor, shadeFromTitle } from './colors';
 import { detectBundle } from './bundle';
 import { memoryHint } from './memory';
-import { titleRules, descRules, styleHint, checkText, fixHint } from './style';
+import { titleRules, descRules, styleHint, checkText, checkFacts, familiesIn, fixHint,
+  TextProblem } from './style';
 import { shouldAsk, openTrial } from './trials';
 
 /**
@@ -64,6 +65,29 @@ function normalizeSame(a: string, b: string): boolean {
  * a přeložit. Tím se z nejčastější chyby (barva na prvním místě) stane
  * obtížně udělatelná věc.
  */
+/**
+ * Řádky o vzoru — a co dělat, když si název a parametr odporují.
+ *
+ * REGJ01 se jmenuje „Bílá svatební regata **s jemnou strukturou**", ale
+ * v parametrech má „vzor: Geometrický vzor". Obojí je ve feedu pravda.
+ * Když se modelu předhodí obojí bez určení pořadí, jednou si vybere jedno
+ * a podruhé druhé — a z Google titulku a názvu produktu se stanou dvě různá
+ * zboží. Rozhoduje název: to má zákazník před očima na stránce i v košíku.
+ */
+function patternSlot(title: string, pattern: string): string[] {
+  if (!pattern) return [];
+  const named = familiesIn(title);
+  const fromParam = familiesIn(pattern);
+  const clash = named.length > 0 && fromParam.length > 0
+    && !fromParam.some(one => named.some(other => other.label === one.label));
+  if (!clash) return [`— VZOR: ${pattern}`];
+  return [
+    `— VZOR podle parametru: ${pattern} — ALE do textu ho nedávej.`,
+    `  Název produktu říká „${named.map(one => one.word).join(', ')}" a ten platí:`,
+    '  zákazník ho vidí na stránce produktu, takže musí sedět i v titulku.'
+  ];
+}
+
 function productBrief(code: string, lang: string, forTitle = false): string {
   const s = getPtransSettings();
   const d = getDb();
@@ -83,11 +107,12 @@ function productBrief(code: string, lang: string, forTitle = false): string {
     product.category ? `Kategorie: ${product.category}` : ''
   ];
 
+  const localTitle = pick('title') || product.title;
+
   if (forTitle) {
     // Odstín se bere z **přeloženého** názvu, ne z parametru. Parametr má jen
     // základní barvu („žlutá"), do textu ale patří to, jak produkt doopravdy
     // vypadá („hořčicově žlutá") — základní barva slouží jen atributu g:color.
-    const localTitle = pick('title') || product.title;
     const shade = shadeFromTitle(localTitle) || params.barva || '';
     const base = colorFor(code, lang);
 
@@ -97,7 +122,7 @@ function productBrief(code: string, lang: string, forTitle = false): string {
       base && normalizeSame(base, shade)
         ? ''
         : base ? `— (základní barva „${base}" jde jen do atributu g:color, do titulku ji nedávej)` : '',
-      params.vzor ? `— VZOR: ${params.vzor}` : '',
+      ...patternSlot(localTitle, params.vzor ?? ''),
       params.materiál || params.material ? `— MATERIÁL: ${params.materiál ?? params.material}` : '',
       params.šířka || params.velikost ? `— ROZMĚR: ${params.šířka ?? params.velikost}` : '',
       `— ZNAČKA (na konec): ${product.manufacturer || 'Quentino'}`,
@@ -119,6 +144,44 @@ function productBrief(code: string, lang: string, forTitle = false): string {
   );
 
   return parts.filter(Boolean).join('\n');
+}
+
+/**
+ * Titulek poskládaný ze šablony, ne modelem.
+ *
+ * Záchranná varianta: šablona bere hodnoty přímo z feedu, takže si nemůže
+ * nic vymyslet. Když šablona nastavená není, vrátí prázdno a rozhodne se
+ * jinak.
+ */
+function fromTemplate(code: string, lang: string): string {
+  const s = getPtransSettings();
+  const template = (s.googleTitle[lang] || s.googleTitle.all || '').trim();
+  if (!template) return '';
+  try { return renderTemplate(template, { code, lang }); } catch { return ''; }
+}
+
+/**
+ * Všechno, co o produktu doopravdy víme — v obou jazycích.
+ *
+ * Slouží ke kontrole vymyšlených vlastností, ne modelu. Bere se i český
+ * originál: když se popis do cílového jazyka teprve překládá, byla by
+ * v cílovém jazyce prázdno a každé slovo o vzoru by vyšlo jako vymyšlené.
+ * A bere se **celý** popis, ne oříznutý jako v zadání — vlastnost zmíněná
+ * až v poslední větě je pořád pravda.
+ */
+export function factSource(code: string, lang: string): string {
+  const s = getPtransSettings();
+  const d = getDb();
+  const product = d.prepare(
+    'SELECT title, category, categories, manufacturer FROM ptrans_products WHERE code = ?'
+  ).get(code) as any;
+  const langs = lang === s.sourceLang ? [lang] : [lang, s.sourceLang];
+  const parts: string[] = [product?.title ?? '', product?.category ?? '', product?.categories ?? ''];
+  for (const one of langs) {
+    for (const field of ['title', 'short', 'long']) parts.push(fieldValue(code, one, field));
+    parts.push(Object.entries(parameterMap(code, one)).map(([k, v]) => `${k} ${v}`).join(' '));
+  }
+  return parts.filter(Boolean).join(' \n');
 }
 
 /**
@@ -174,17 +237,48 @@ export async function writeGoogleText(code: string, lang: string,
   const tidy = (answer: string) =>
     clamp(answer.replace(/^["\u201e\u201c]+|["\u201c\u201d]+$/g, '').replace(/\s+/g, ' ').trim(), limit);
 
+  const source = factSource(code, lang);
+  const productTitle = fieldValue(code, lang, 'title');
+  const check = (text: string) => checkText(text, { lang, kind, limit, brand, source, productTitle });
+  // Vymyšlená vlastnost i rozpor s názvem váží stejně: v obou případech
+  // dorazí zákazníkovi něco jiného, než na co klikl
+  const invented = (list: TextProblem[]) =>
+    list.filter(p => p.code === 'invented' || p.code === 'mismatch').length;
+
   let value = tidy(await ask(model, system(), brief, tokens, { signal }));
 
   // Opravný průchod: jen když je co opravovat a text vůbec vznikl
-  const problems = value ? checkText(value, { lang, kind, limit, brand }) : [];
+  let problems = value ? check(value) : [];
   if (value && problems.length > 0) {
     const second = tidy(await ask(model, system(fixHint(problems)),
       `${brief}\n\nPředchozí pokus:\n${value}`, tokens, { signal }));
-    // Druhý pokus se bere jen tehdy, když je na tom prokazatelně líp
-    if (second && checkText(second, { lang, kind, limit, brand }).length < problems.length) {
+    const after = second ? check(second) : [];
+    /*
+     * Vymyšlená vlastnost váží víc než kosmetika.
+     *
+     * Dřív se druhý pokus bral jen tehdy, když měl míň chyb celkem — takže
+     * text, který přestal produktu přidávat vzor navíc, ale za to měl velké
+     * písmeno uprostřed, prohrál. Zákazníkovi ale vadí zboží popsané jinak,
+     * ne velké písmeno.
+     */
+    if (second && (invented(after) < invented(problems)
+      || (invented(after) === invented(problems) && after.length < problems.length))) {
       value = second;
+      problems = after;
     }
+  }
+
+  /*
+   * Když si model vymýšlí i napodruhé.
+   *
+   * U titulku se dá poskládat náhrada ze šablony — ta bere hodnoty přímo
+   * z feedu, takže si vymyslet nemůže nic. U popisu se text nechá být:
+   * zahodit celý popis kvůli jednomu spornému slovu by bylo horší než ho
+   * mít, a Kvalita na něj upozorní i s tím konkrétním slovem.
+   */
+  if (value && kind === 'google_title' && invented(problems) > 0) {
+    const fallback = fromTemplate(code, lang);
+    if (fallback && checkFacts(fallback, source).length === 0) value = tidy(fallback);
   }
 
   if (!value) return '';
