@@ -15,7 +15,8 @@ import type {
   PtransAudit, PtransAuditSummary,
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
-  CleanupItem, CleanupScan
+  CleanupItem, CleanupScan,
+  ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, LabelLayout
 } from '@shared/types';
 
 declare global {
@@ -434,6 +435,56 @@ export const api = {
   pdf: {
     export: (fileName: string, html: string) => call<string | null>('messages:exportPdf', fileName, html)
   },
+  /** Katalog produktů — varianty, zásoby, štítky. */
+  catalog: {
+    detail: (code: string) => call<ProductDetail | null>('catalog:detail', code),
+    /** Co se skrývá pod načteným kódem (EAN, kód produktu i varianty, QR). */
+    scan: (raw: string) => call<ScanHit | null>('catalog:scan', raw),
+    /** Napovídání do naskladnění podle názvu i kódu — i s variantami produktu. */
+    suggest: (query: string, limit = 8) => call<CatalogSuggestion[]>('catalog:suggest', query, limit),
+    refreshStock: () => call<{ products: number; variants: number; at: string }>('catalog:refreshStock'),
+    stockAt: () => call<string | null>('catalog:stockAt'),
+    labelItems: (codes: string[], perItem = 1) =>
+      call<{ code: string; title: string; label: string; count: number }[]>('labels:items', codes, perItem),
+    labelPreview: (items: any[], layout: Partial<LabelLayout>) =>
+      call<string>('labels:preview', items, layout),
+    labelPdf: (items: any[], layout: Partial<LabelLayout>) =>
+      call<{ path: string; labels: number; pages: number } | null>('labels:pdf', items, layout)
+  },
+
+  /** Naskladnění — naskladnění zboží. */
+  stockin: {
+    list: () => call<StockinSession[]>('stockin:list'),
+    create: (title?: string) => call<StockinSession>('stockin:create', title),
+    open: (id: string) => call<{ session: StockinSession | null; items: StockinItem[] }>('stockin:open', id),
+    scan: (id: string, raw: string, qty = 1) =>
+      call<{ added: boolean; item?: StockinItem; unknown?: string }>('stockin:scan', id, raw, qty),
+    qty: (id: string, code: string, qty: number) => call<boolean>('stockin:qty', id, code, qty),
+    rename: (id: string, title: string, note?: string) => call<boolean>('stockin:rename', id, title, note),
+    remove: (id: string) => call<boolean>('stockin:delete', id),
+    plan: (id: string) => call<StockinPlanRow[]>('stockin:plan', id),
+    /** Otevře okno administrace a nasype do něj položky. Uložení tiskne člověk. */
+    sendWindow: (id: string) =>
+      call<{ added: number; skipped: StockinPlanRow[]; needsLogin: boolean }>('stockin:sendWindow', id),
+    sendApi: (id: string) =>
+      call<{ written: number; failed: { code: string; error: string }[] }>('stockin:sendApi', id),
+    apiCheck: () => call<{ can: boolean; detail: string }>('stockin:apiCheck'),
+    confirm: (id: string) => call<boolean>('stockin:confirm', id)
+  },
+
+  /**
+   * Čtečka kódů fotoaparátem — jen v aplikaci na telefonu.
+   *
+   * Hledáček zůstane otevřený a kódy chodí po jednom událostí `scan:code`;
+   * rozhraní na každý odpoví krátkou větou, která se ukáže přímo v hledáčku.
+   */
+  scan: {
+    available: () => call<boolean>('scan:available'),
+    start: () => call<boolean>('scan:start'),
+    stop: () => call<boolean>('scan:stop'),
+    feedback: (text: string, ok = true) => call<boolean>('scan:feedback', text, ok)
+  },
+
   quota: {
     get: (accountId: number) => call<{ used: number; limit: number } | null>('quota:get', accountId),
     /**

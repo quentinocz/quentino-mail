@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
 import { SIDE_COMPACT, useSidebarWidth } from '../sidebar';
+import { useIsPhone } from '../mobile';
 
 export type Workspace = 'mail' | 'chat' | 'instagram';
 
 /** Co se skrývá pod „AI" — nástroje, které pracují s modelem nad e-shopem. */
-export type AiTool = 'instagram' | 'ptrans' | 'articles';
+export type AiTool = 'instagram' | 'catalog' | 'ptrans' | 'articles';
 
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
@@ -13,10 +14,16 @@ const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[]
   { id: 'ai', icon: 'sparkles', label: 'AI', tip: 'Sociální sítě, překlady produktů a články' }
 ];
 
-const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string }[] = [
+/**
+ * `desktopOnly` — nástroje, které na telefonu nemají co dělat: nativní obal
+ * pro ně nemá kanály a na malé obrazovce se stejně nedají obsloužit. Dřív se
+ * v nabídce ukazovaly i tam a klepnutí neudělalo nic; teď se prostě nenabízejí.
+ */
+const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string; desktopOnly?: boolean }[] = [
   { id: 'instagram', icon: 'image', label: 'Sociální sítě', hint: 'Instagram a Facebook ve všech trzích' },
-  { id: 'ptrans', icon: 'globe', label: 'Překlady produktů', hint: 'Jazykové mutace z produktového feedu' },
-  { id: 'articles', icon: 'fileText', label: 'Články', hint: 'Psaní a překlad článků pro e-shop' }
+  { id: 'catalog', icon: 'bag', label: 'Katalog', hint: 'Produkty a zásoby, naskladnění zboží, štítky s kódem' },
+  { id: 'ptrans', icon: 'globe', label: 'Překlady produktů', hint: 'Jazykové mutace z produktového feedu', desktopOnly: true },
+  { id: 'articles', icon: 'fileText', label: 'Články', hint: 'Psaní a překlad článků pro e-shop', desktopOnly: true }
 ];
 
 /**
@@ -38,6 +45,8 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
   activeTool?: AiTool;
 }) {
   const compact = useSidebarWidth() < SIDE_COMPACT;
+  const phone = useIsPhone();
+  const tools = AI_TOOLS.filter(tool => !(phone && tool.desktopOnly));
   const [menu, setMenu] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -82,7 +91,7 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
 
       {menu && (
         <div className="ws-menu">
-          {AI_TOOLS.map(tool => (
+          {tools.map(tool => (
             <button
               key={tool.id}
               className={`ws-menu-item ${(tool.id === 'instagram' ? current === 'instagram' : activeTool === tool.id) ? 'on' : ''}`}

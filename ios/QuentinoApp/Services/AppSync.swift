@@ -102,6 +102,9 @@ enum AppSync {
             // 4) Instagram — co už na kterém trhu vyšlo
             syncInstagram(folder.url)
 
+            // 5) Naskladnění — rozpracované naskladnění z telefonu na počítač
+            syncStockin(folder.url)
+
             let summary = parts.isEmpty ? "vše aktuální" : parts.joined(separator: ", ")
             Store.setSetting("syncLastRun", Formats.iso())
             Store.setSetting("syncLastResult", summary)
@@ -590,6 +593,21 @@ enum AppSync {
             "published": (try? SQLite.shared.query("SELECT * FROM ig_published")) ?? []
         ]
         _ = try? writeJson(out, to: file)
+    }
+
+    /**
+     Rozpracované naskladnění z telefonu se musí objevit na počítači.
+
+     Zboží se počítá u regálu s telefonem v ruce, ale do e-shopu se zapisuje
+     z počítače — okno administrace je jen tam. Naskladnění proto putuje stejnou
+     sdílenou složkou jako poukazy a slučuje se po řádcích, takže je jedno,
+     kdo co přidal dřív.
+     */
+    private static func syncStockin(_ folder: URL) {
+        let file = folder.appendingPathComponent("stockin.json")
+        if let remote = readJson(file) as? [String: Any] { Stockin.merge(remote) }
+        _ = try? writeJson(Stockin.export(), to: file)
+        Bridge.notify("stockin:changed")
     }
 
     // MARK: - Soubory

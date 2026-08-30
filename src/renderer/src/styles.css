@@ -4069,7 +4069,7 @@ html[data-form-factor="phone"] .compose-row > select { width: 100%; }
 
    Dřív se rolovalo ve dvou vrstvách naráz — stránka a v ní editor, a k tomu
    ještě podpis s vlastním posuvníkem. Prst nikdy nevěděl, co zrovna posouvá,
-   a hlavička s příjemcem zatím ujela z dohledu. Teď roluje jen `.composer-body`
+   a hlavička s naskladněním zatím ujela z dohledu. Teď roluje jen `.composer-body`
    a všechno ostatní roste do výšky.
    -------------------------------------------------------------------------- */
 
@@ -5788,3 +5788,449 @@ html[data-form-factor="phone"] .ig-grid { padding-bottom: 76px; }
 html[data-form-factor="phone"] .cl-filters label { flex: 1 1 100%; }
 html[data-form-factor="phone"] .cl-filters .btn { width: 100%; justify-content: center; }
 html[data-form-factor="phone"] .cl-list { max-height: none; }
+
+/* ---------- Katalog, naskladnění a štítky ---------- */
+
+/* Katalog je mřížka obrázků — širší okno než ostatní, jinak by se do řady
+   vešly dva produkty a listovalo by se donekonečna */
+.kat-modal { width: min(1120px, 96vw); height: min(88vh, 900px); }
+.kat-modal .modal-head { gap: 12px; }
+
+.kat-tabs { display: flex; gap: 2px; background: var(--bg); border-radius: 9px; padding: 3px; }
+.kat-tabs button {
+  padding: 6px 13px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.kat-tabs button.on { background: var(--panel); color: var(--accent-dark); box-shadow: var(--shadow); }
+
+.kat-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.kat-filters .ig-search input { width: 260px; }
+.kat-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+.kat-check input { width: auto; }
+
+.kat-body { flex: 1; min-height: 0; }
+
+.kat-grid {
+  display: grid;
+  /* Karty se přizpůsobí šířce okna, ne pevnému počtu sloupců — na širokém
+     monitoru je jich šest, na půlce obrazovky tři, a nikde nezbyde díra */
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 14px;
+}
+.kat-grid .empty-state { grid-column: 1 / -1; }
+
+.kat-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.kat-card:hover { border-color: #d9d2ec; box-shadow: var(--shadow); }
+.kat-card.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+.kat-open { flex: 1; display: flex; flex-direction: column; text-align: left; padding: 0; }
+.kat-img {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.kat-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.kat-ph { color: var(--text-3); }
+.kat-ph.big { width: 120px; height: 120px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); border-radius: 10px; flex: 0 0 auto; }
+
+/* Zásoba je na obrázku, ne pod ním: při rychlém přejíždění mřížky je to
+   jediné číslo, které se hledá */
+.kat-stock {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text-2);
+}
+.kat-stock.ok { color: var(--ok); }
+.kat-stock.low { color: var(--warn); }
+.kat-stock.out { color: var(--danger); }
+.kat-stock.none { color: var(--text-3); }
+
+/* Dva řádky vždycky, i když název stačí na jeden: jinak by karty v řadě
+   měly různou výšku a zaškrtávátko pod nimi by se rozházelo */
+.kat-name {
+  padding: 8px 10px 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  min-height: calc(2 * 1.3em + 10px);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.kat-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 10px 8px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.kat-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+.kat-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.kat-pick input { width: auto; }
+
+/* ---------- detail produktu ---------- */
+
+/* Detail leží nad katalogem přes celou obrazovku. Musí být `fixed`: jako
+   `absolute` se vztahoval k překryvu, který o výřez neví, a na telefonu
+   začínal jeho nadpis pod hodinami. */
+.kat-sheet {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 20, 34, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 20px;
+}
+.kat-sheet-in {
+  background: var(--panel);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  width: min(620px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.kat-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.kat-sheet-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.kat-sheet-body h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
+.kat-sheet-top { display: flex; gap: 16px; }
+.kat-sheet-top img { width: 140px; height: 140px; object-fit: cover; border-radius: 10px; flex: 0 0 auto; }
+.kat-sheet-top > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.kat-kv { display: flex; gap: 8px; font-size: 12.5px; }
+.kat-kv span { color: var(--text-3); min-width: 90px; }
+.kat-when { font-size: 11.5px; margin-top: 4px; }
+
+.kat-vars { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; }
+.kat-var {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.kat-var:last-child { border-bottom: 0; }
+.kat-var-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.kat-var .kat-stock { position: static; background: transparent; padding: 0; }
+.kat-links { display: flex; gap: 8px; }
+
+/* ---------- naskladnění ---------- */
+
+.kat-lead { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.55; }
+.kat-lead .ig-muted { font-size: 12px; }
+
+.kat-sessions { display: flex; flex-direction: column; gap: 6px; }
+.kat-session {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+}
+.kat-session:hover { background: var(--bg); }
+.kat-session-open { flex: 1; min-width: 0; text-align: left; }
+.kat-session .ig-muted { font-size: 11.5px; }
+
+/* Hlavička otevřené naskladnění: název se přepisuje a smazání je dvoukrokové */
+.kat-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px 0;
+}
+.kat-title-in {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 14px;
+  border-color: transparent;
+  background: transparent;
+}
+.kat-title-in:hover { border-color: var(--border); }
+.kat-title-in:focus { border-color: var(--accent); background: var(--panel); }
+
+/* Po vložení do administrace: uložit tam musí člověk, tohle se ho na to ptá */
+.kat-confirm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 1px solid #ddd2ff;
+  font-size: 12.5px;
+}
+.kat-confirm > div { flex: 1; min-width: 200px; }
+.kat-confirm .ig-muted { font-size: 11.5px; line-height: 1.45; }
+
+.kat-badge {
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+.kat-badge.done { background: #dcf2e7; color: #1d7a4f; }
+.kat-badge.warn { background: #fdf0d8; color: #96660b; }
+
+/* Pole pro čtečku je nahoře a přes celou šířku: čtečka píše jako klávesnice
+   a musí mít kam, aniž by se do pole klikalo */
+.kat-scanbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.kat-scan { flex: 1; min-width: 0; font-size: 15px; padding: 10px 12px; }
+.kat-qty { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); }
+.kat-qty input { width: 62px; }
+
+.kat-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.kat-line-main { flex: 1; min-width: 0; }
+.kat-line-main .ig-muted { font-size: 11.5px; }
+.kat-line-qty { display: flex; align-items: center; gap: 4px; }
+.kat-line-qty button {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 16px;
+  line-height: 1;
+}
+.kat-line-qty button:hover { background: var(--accent-soft); }
+/* Počet se přepisuje, ne jen naklikává — u dvaceti kusů je mačkání plus trest */
+.kat-line-qty input {
+  width: 56px;
+  padding: 5px 6px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- napovídání podle názvu ---------- */
+
+.kat-hits {
+  margin: 0 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 46vh;
+  overflow-y: auto;
+  background: var(--panel);
+}
+.kat-hit { border-bottom: 1px solid var(--border); }
+.kat-hit:last-child { border-bottom: 0; }
+.kat-hit-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 11px;
+}
+.kat-hit-main:hover { background: var(--bg); }
+.kat-hit-main img,
+.kat-hit-main .kat-ph {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.kat-hit-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.kat-hit-text b { font-size: 13px; }
+.kat-hit-text small { font-size: 11.5px; color: var(--text-3); }
+.kat-hit-vars { display: flex; flex-direction: column; background: var(--bg); }
+.kat-hit-vars button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 7px 11px 7px 59px;
+  font-size: 12.5px;
+  border-top: 1px solid var(--border);
+}
+.kat-hit-vars button:hover { background: var(--accent-soft); }
+.kat-hit-vars b { flex: 1; min-width: 0; }
+.kat-hit-vars .kat-stock { position: static; background: transparent; padding: 0; }
+
+.kat-plan { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.kat-plan h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
+.kat-plan-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12.5px;
+}
+/* Zásoba se od načtení pohnula — jediné, kvůli čemu se má člověk zastavit */
+.kat-plan-row.moved { background: #fdf0d8; }
+.kat-plan-row small { color: var(--warn); }
+.kat-phone-note { font-size: 11.5px; text-align: right; max-width: 260px; line-height: 1.4; }
+
+/* ---------- štítky ---------- */
+
+.kat-label-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.kat-num { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--text-2); }
+.kat-num input { width: 84px; }
+.kat-num small { color: var(--text-3); }
+
+/* Rozměr štítku se říká dopředu — a když se QR nevejde, řekne se to taky */
+.kat-fit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.kat-fit.warn { color: #96660b; }
+.kat-fit.bad { color: var(--danger); }
+
+/* Náhled je tentýž dokument, jaký půjde do tisku — proto celý arch A4
+   zmenšený, ne výřez: co je vidět, to se vytiskne */
+.kat-preview {
+  --kat-zoom: 0.62;
+  align-self: center;
+  width: calc(210mm * var(--kat-zoom));
+  height: calc(297mm * var(--kat-zoom));
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.kat-preview iframe {
+  width: 210mm;
+  height: 297mm;
+  border: 0;
+  transform: scale(var(--kat-zoom));
+  transform-origin: top left;
+}
+
+[data-theme="dark"] .kat-stock { background: rgba(31, 28, 40, 0.9); }
+[data-theme="dark"] .kat-card:hover { border-color: #3f3956; }
+[data-theme="dark"] .kat-session:hover { background: #262230; }
+[data-theme="dark"] .kat-confirm { border-color: #3f3563; }
+[data-theme="dark"] .kat-fit.warn { color: #e6b64c; }
+[data-theme="dark"] .kat-line-qty button { background: #2b2738; }
+[data-theme="dark"] .kat-hit-main:hover { background: #262230; }
+[data-theme="dark"] .kat-hit-vars { background: #221e2c; }
+[data-theme="dark"] .kat-plan-row { background: #262230; }
+[data-theme="dark"] .kat-plan-row.moved { background: #3a3020; }
+[data-theme="dark"] .kat-badge.done { background: #1e3a2c; color: #6fd3a2; }
+[data-theme="dark"] .kat-badge.warn { background: #3a3020; color: #e6b64c; }
+
+/* ---------- telefon ---------- */
+
+/* Přes celou obrazovku i s výřezem se stará obecné pravidlo pro `.modal` —
+   tady zbývá jen to, co je vlastní katalogu */
+html[data-form-factor="phone"] .kat-modal .modal-head { flex-wrap: wrap; padding: 12px 14px; }
+html[data-form-factor="phone"] .kat-tabs { order: 3; width: 100%; }
+html[data-form-factor="phone"] .kat-tabs button { flex: 1; }
+html[data-form-factor="phone"] .kat-filters { padding: 10px 14px; gap: 8px; }
+html[data-form-factor="phone"] .kat-filters .ig-search { flex: 1 1 100%; }
+html[data-form-factor="phone"] .kat-filters .ig-search input { width: 100%; }
+html[data-form-factor="phone"] .kat-filters select { flex: 1; min-width: 0; }
+html[data-form-factor="phone"] .kat-filters .btn { flex: 1 1 100%; justify-content: center; }
+html[data-form-factor="phone"] .modal-body.kat-body { padding: 14px; }
+html[data-form-factor="phone"] .kat-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+html[data-form-factor="phone"] .kat-sheet {
+  padding: var(--safe-top) 0 var(--safe-bottom);
+  background: var(--panel);
+}
+html[data-form-factor="phone"] .kat-sheet-in { border-radius: 0; height: 100%; width: 100%; }
+html[data-form-factor="phone"] .kat-sheet-top { flex-direction: column; }
+html[data-form-factor="phone"] .kat-sheet-top img { width: 100%; height: 220px; }
+/* Pole pro čtečku palcem — proto přes celou šířku a počet pod ním */
+html[data-form-factor="phone"] .kat-scanbar { flex-wrap: wrap; padding: 10px 14px; }
+html[data-form-factor="phone"] .kat-scan { flex: 1 1 100%; order: 2; font-size: 16px; }
+/* Nejdřív počet, pak přidání — ve stejném pořadí, v jakém to člověk dělá */
+html[data-form-factor="phone"] .kat-qty { order: 3; }
+html[data-form-factor="phone"] .kat-scanbar .btn { order: 4; margin-left: auto; }
+html[data-form-factor="phone"] .kat-plan-row { grid-template-columns: 1fr; gap: 2px; }
+html[data-form-factor="phone"] .kat-hits { margin: 0 14px; max-height: 50vh; }
+/* Číselné pole musí mít aspoň 16 px, jinak si systém obrazovku přiblíží */
+html[data-form-factor="phone"] .kat-line-qty input,
+html[data-form-factor="phone"] .kat-qty input { font-size: 16px; }
+html[data-form-factor="phone"] .kat-line-qty button { width: 36px; height: 36px; }
+html[data-form-factor="phone"] .kat-modal .modal-foot { flex-wrap: wrap; padding: 12px 14px; }
+html[data-form-factor="phone"] .kat-phone-note { max-width: none; text-align: left; flex: 1 1 100%; }
+/* Arch se na telefon nevejde ani zmenšený na dvě třetiny */
+html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }

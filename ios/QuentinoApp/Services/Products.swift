@@ -14,24 +14,24 @@ enum Products {
 
     // MARK: - Čtení XML
 
-    private static func tag(_ block: String, _ name: String) -> String? {
+    static func tag(_ block: String, _ name: String) -> String? {
         match(block, "<\(name)>([\\s\\S]*?)</\(name)>")
     }
 
     /// Některé texty Upgates exportuje s jazykovým atributem, jiné bez něj.
-    private static func tagAny(_ block: String, _ name: String, preferred: String = "cz") -> String? {
+    static func tagAny(_ block: String, _ name: String, preferred: String = "cz") -> String? {
         match(block, "<\(name) language=\"\(preferred)\"[^>]*>([\\s\\S]*?)</\(name)>")
             ?? match(block, "<\(name)(?:\\s[^>]*)?>([\\s\\S]*?)</\(name)>")
     }
 
-    private static func match(_ text: String, _ pattern: String) -> String? {
+    static func match(_ text: String, _ pattern: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern),
               let found = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let range = Range(found.range(at: 1), in: text) else { return nil }
         return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func matches(_ text: String, _ pattern: String) -> [[String]] {
+    static func matches(_ text: String, _ pattern: String) -> [[String]] {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         return regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).map { found in
             (0..<found.numberOfRanges).map { index in
@@ -40,7 +40,7 @@ enum Products {
         }
     }
 
-    private static func clean(_ text: String) -> String {
+    static func clean(_ text: String) -> String {
         text
             .replacingOccurrences(of: "<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>", with: "$1", options: [.regularExpression])
             .replacingOccurrences(of: "&amp;", with: "&")
@@ -53,7 +53,7 @@ enum Products {
     }
 
     /// Z „1 299,00" nebo „649.00" udělá číslo pro řazení podle ceny.
-    private static func number(_ raw: String?) -> Double? {
+    static func number(_ raw: String?) -> Double? {
         guard let raw else { return nil }
         let normalized = raw
             .replacingOccurrences(of: "&nbsp;", with: "")
@@ -82,6 +82,7 @@ enum Products {
     @discardableResult
     static func importFeed(_ xml: String) throws -> Int {
         var rows: [[String: SQLite.Value]] = []
+        var variants: [[String: SQLite.Value]] = []
 
         for piece in xml.components(separatedBy: "<PRODUCT>").dropFirst() {
             let block = piece.components(separatedBy: "</PRODUCT>").first ?? piece
@@ -89,7 +90,13 @@ enum Products {
             if (tag(block, "ARCHIVED_YN") ?? "0") == "1" { continue }
             guard let code = tag(block, "CODE"), !code.isEmpty else { continue }
 
-            var row: [String: SQLite.Value] = ["code": .text(code)]
+            var row: [String: SQLite.Value] = [
+                "code": .text(code),
+                // Čárový kód a vnitřní číslo produktu: bez PRODUCT_ID se do
+                // naskladňování v Upgates zapsat nedá, formulář kód nepoužívá
+                "ean": .text(clean(tag(block, "EAN") ?? "")),
+                "product_id": .text(tag(block, "PRODUCT_ID") ?? "")
+            ]
             for language in languages {
                 row["title_\(language)"] = .text("")
                 row["url_\(language)"] = .text("")
@@ -139,7 +146,10 @@ enum Products {
                 if case .text(let value) = row["title_\(language)"] ?? .null { return !value.isEmpty }
                 return false
             }
-            if hasTitle { rows.append(row) }
+            if hasTitle {
+                rows.append(row)
+                variants.append(contentsOf: Catalog.parseVariants(block, productCode: code))
+            }
         }
 
         guard !rows.isEmpty else {
@@ -148,7 +158,7 @@ enum Products {
 
         let columns = ["code", "title_cz", "url_cz", "price_cz", "title_sk", "url_sk", "price_sk",
                        "title_en", "url_en", "price_en", "image", "category", "categories",
-                       "manufacturer", "availability", "stock", "price_num"]
+                       "manufacturer", "availability", "stock", "price_num", "ean", "product_id"]
         let placeholders = columns.map { _ in "?" }.joined(separator: ",")
 
         try SQLite.shared.transaction {
@@ -159,6 +169,7 @@ enum Products {
                     columns.map { row[$0] ?? .null }
                 )
             }
+            try Catalog.replaceVariants(variants)
         }
         Store.setSetting("productFeedSync", Formats.iso())
         Store.setSetting("productFeedSchema", "2")
@@ -201,7 +212,7 @@ enum Products {
 
     // MARK: - Hledání
 
-    private static func product(_ row: [String: Any]) -> [String: Any] {
+    static func shape(_ row: [String: Any]) -> [String: Any] {
         func byLanguage(_ prefix: String) -> [String: Any] {
             Dictionary(uniqueKeysWithValues: languages.map { ($0, row["\(prefix)_\($0)"] as? String ?? "") })
         }
@@ -267,7 +278,7 @@ enum Products {
             params + [.int(Int64(limit)), .int(Int64(offset))]
         )) ?? []
 
-        return ["items": rows.map(product), "total": total, "offset": offset, "limit": limit]
+        return ["items": rows.map(shape), "total": total, "offset": offset, "limit": limit]
     }
 
     static func search(_ query: String, limit: Int = 20) -> [[String: Any]] {

@@ -97,6 +97,9 @@ enum Settings {
             "autoSummarizeCategories": Store.json("autoSummarizeCategories", []),
             "contactInfo": Store.setting("contactInfo", "") ?? "",
             "productFeedUrl": Store.setting("productFeedUrl", "") ?? "",
+            // Malý export jen se zásobami; obnovuje se po dvou hodinách,
+            // zatímco celý katalog jednou denně
+            "stockFeedUrl": Store.setting("stockFeedUrl", "") ?? "",
             "adminOrderRef": Store.setting("adminOrderRef", "") ?? "",
             "voucherLogo": Store.setting("voucherLogo", "") ?? "",
             "defaultPersonId": Int(Store.setting("defaultPersonId", "0") ?? "0") ?? 0,
@@ -110,7 +113,7 @@ enum Settings {
             Secrets.set("anthropicApiKey", key)
         }
         for key in ["brandPrompt", "draftModel", "fastModel", "contactInfo",
-                    "productFeedUrl", "adminOrderRef", "voucherLogo", "theme"] {
+                    "productFeedUrl", "stockFeedUrl", "adminOrderRef", "voucherLogo", "theme"] {
             if let value = patch[key] as? String { Store.setSetting(key, value) }
         }
         for key in ["autoSummarize", "autoCategorize", "autoTranslate", "loadRemoteImages", "notifyNewMail"] {

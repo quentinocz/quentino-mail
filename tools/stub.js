@@ -622,6 +622,111 @@
     'articles:progress': null,
     'articles:checkProgress': null,
     'products:status': { url: '', count: 0, lastSync: null },
+    /*
+     * Katalog: pár produktů s obrázkem, jeden z nich s variantami a s nulou
+     * skladem — na náhledu má být vidět i to, jak vypadá vyprodaná varianta.
+     * Obrázky jsou vložené jako data URI, protože náhledový server nemá síť.
+     */
+    'products:list': { total: 84, offset: 0, limit: 60, items: (function () {
+      var names = ['Kšandy Slim tmavě modré', 'Kravata Regent bordó', 'Motýlek Pino šedý',
+        'Kapesníček do saka', 'Manžetové knoflíčky Onyx', 'Kravata Milano proužek',
+        'Šle dětské červené', 'Motýlek samovazačka', 'Kravatová spona Classic',
+        'Kšandy kožené hnědé', 'Kravata pletená khaki', 'Set kravata a kapesníček'];
+      var tones = ['#7c5cff', '#2b5faa', '#b45c14', '#1d7a4f', '#a03a52', '#4a4458'];
+      return names.map(function (name, i) {
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240">'
+          + '<rect width="240" height="240" fill="' + tones[i % tones.length] + '"/>'
+          + '<circle cx="120" cy="96" r="46" fill="rgba(255,255,255,.22)"/>'
+          + '<rect x="52" y="160" width="136" height="16" rx="8" fill="rgba(255,255,255,.28)"/></svg>';
+        return {
+          code: ['PS120SM', 'REGJ01', 'MOT14', 'KAP07', 'MKO02', 'MIL33',
+            'DSL09', 'MOTS21', 'SPO05', 'PSK41', 'PLK18', 'SET77'][i],
+          image: 'data:image/svg+xml;utf8,' + encodeURIComponent(svg),
+          title: { cz: name, sk: name, en: name },
+          url: { cz: 'https://www.quentino.cz/p/x', sk: '', en: '' },
+          price: { cz: [690, 590, 490, 290, 890, 620, 450, 540, 390, 990, 640, 1190][i] + ' Kč', sk: '', en: '' },
+          category: ['Kšandy', 'Kravaty', 'Motýlky', 'Kapesníčky', 'Manžetové knoflíčky'][i % 5],
+          availability: 'Skladem',
+          stock: [4, 0, 12, 2, 7, 0, 3, 25, 9, 1, 6, 14][i]
+        };
+      });
+    })() },
+    'products:facets': { total: 84, categories: [
+      { name: 'Kravaty', count: 31 }, { name: 'Motýlky', count: 22 },
+      { name: 'Kšandy', count: 14 }, { name: 'Kapesníčky', count: 11 },
+      { name: 'Manžetové knoflíčky', count: 6 }
+    ] },
+    'catalog:stockAt': new Date(Date.now() - 42 * 60e3).toISOString(),
+    'catalog:detail': {
+      code: 'PS120SM',
+      ean: '',
+      image: 'data:image/svg+xml;utf8,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240">'
+        + '<rect width="240" height="240" fill="#7c5cff"/>'
+        + '<circle cx="120" cy="96" r="46" fill="rgba(255,255,255,.22)"/></svg>'),
+      title: { cz: 'Kšandy Slim tmavě modré', sk: '', en: '' },
+      url: { cz: 'https://www.quentino.cz/p/ps120sm', sk: '', en: '' },
+      price: { cz: '690 Kč', sk: '', en: '' },
+      category: 'Kšandy', availability: 'Skladem', stock: 4,
+      stockAt: new Date(Date.now() - 42 * 60e3).toISOString(),
+      variants: [
+        { code: 'PS120SM-100', productCode: 'PS120SM', label: 'Délka: 100cm', ean: '',
+          availability: 'Vyprodáno', stock: 0, price: '690 Kč', main: false },
+        { code: 'PS120SM-110', productCode: 'PS120SM', label: 'Délka: 110cm', ean: '',
+          availability: 'Skladem', stock: 1, price: '690 Kč', main: true },
+        { code: 'PS120SM-120', productCode: 'PS120SM', label: 'Délka: 120cm', ean: '',
+          availability: 'Skladem', stock: 3, price: '690 Kč', main: false }
+      ]
+    },
+    // Naskladnění: jedno rozpracované z telefonu, jedno už odeslané
+    'stockin:list': [
+      { id: 'ph-a1', title: 'Naskladnění 30. 8. 2026', note: '', device: 'iPhone', state: 'open',
+        createdAt: '2026-08-30T07:10:00Z', updatedAt: new Date(Date.now() - 12 * 60e3).toISOString(),
+        sentAt: null, lines: 3, pieces: 11 },
+      { id: 'mac-9', title: 'Doplnění kravat', note: '', device: 'MacBook', state: 'sent',
+        createdAt: '2026-08-27T09:00:00Z', updatedAt: '2026-08-27T09:41:00Z',
+        sentAt: '2026-08-27T09:41:00Z', lines: 7, pieces: 34 }
+    ],
+    'stockin:open': { session: null, items: [
+      { code: 'PS120SM-120', productCode: 'PS120SM', title: 'Kšandy Slim tmavě modré',
+        label: 'Délka: 120cm', qty: 6, stockBefore: 3, addedAt: '2026-08-30T07:12:00Z' },
+      { code: 'REGJ01', productCode: 'REGJ01', title: 'Kravata Regent bordó',
+        label: '', qty: 4, stockBefore: 0, addedAt: '2026-08-30T07:14:00Z' },
+      { code: 'MOT14', productCode: 'MOT14', title: 'Motýlek Pino šedý',
+        label: '', qty: 1, stockBefore: 12, addedAt: '2026-08-30T07:15:00Z' }
+    ] },
+    'stockin:plan': [
+      { code: 'PS120SM-120', title: 'Kšandy Slim tmavě modré', label: 'Délka: 120cm', qty: 6,
+        productId: '101', variantId: '9002', stockNow: 3, stockBefore: 3, moved: false },
+      // Tenhle se mezitím prodal — kvůli tomuhle řádku se má člověk zastavit
+      { code: 'REGJ01', title: 'Kravata Regent bordó', label: '', qty: 4,
+        productId: '102', variantId: '', stockNow: 1, stockBefore: 0, moved: true },
+      { code: 'MOT14', title: 'Motýlek Pino šedý', label: '', qty: 1,
+        productId: '', variantId: '', stockNow: 12, stockBefore: 12, moved: false }
+    ],
+    // Napovídání podle názvu — u produktu s variantami se vybírá varianta
+    'catalog:suggest': [
+      { code: 'PS120SM', title: 'Kšandy Slim tmavě modré', image: null, stock: 4, price: '690 Kč',
+        variants: [
+          { code: 'PS120SM-100', productCode: 'PS120SM', label: 'Délka: 100cm', ean: '',
+            availability: 'Vyprodáno', stock: 0, price: '690 Kč', main: false },
+          { code: 'PS120SM-110', productCode: 'PS120SM', label: 'Délka: 110cm', ean: '',
+            availability: 'Skladem', stock: 1, price: '690 Kč', main: true },
+          { code: 'PS120SM-120', productCode: 'PS120SM', label: 'Délka: 120cm', ean: '',
+            availability: 'Skladem', stock: 3, price: '690 Kč', main: false }
+        ] },
+      { code: 'PSK41', title: 'Kšandy kožené hnědé', image: null, stock: 1, price: '990 Kč', variants: [] },
+      { code: 'DSL09', title: 'Šle dětské červené', image: null, stock: 3, price: '450 Kč', variants: [] }
+    ],
+    // Čtečka fotoaparátem je jen v aplikaci na telefonu; náhled běží
+    // v prohlížeči, takže tlačítko schválně nesvítí
+    'scan:available': false,
+    'labels:items': [
+      { code: 'PS120SM-100', title: 'Kšandy Slim tmavě modré', label: 'Délka: 100cm', count: 1 },
+      { code: 'PS120SM-110', title: 'Kšandy Slim tmavě modré', label: 'Délka: 110cm', count: 1 },
+      { code: 'PS120SM-120', title: 'Kšandy Slim tmavě modré', label: 'Délka: 120cm', count: 1 },
+      { code: 'REGJ01', title: 'Kravata Regent bordó', label: '', count: 1 }
+    ],
     // Poukazy: jedna šablona s pevným kódem, jedna se zásobou — a k tomu
     // jeden kód, který podle synchronizace vydala dvě zařízení, aby bylo
     // vidět, jak vypadá hláška o kolizi
@@ -706,6 +811,39 @@
           });
         }
         return Promise.resolve({ ok: true, data: Object.assign({}, page, { rows: picked }) });
+      }
+      /*
+       * Náhled štítků staví hlavní proces (kreslí skutečné QR). Pro náhled
+       * rozhraní stačí stejná mřížka s černým čtvercem místo kódu — jde
+       * o to, jestli se arch vejde do okna, ne jak vypadá QR.
+       */
+      if (channel === 'labels:preview') {
+        var items = arguments[1] || [];
+        var layout = arguments[2] || {};
+        var cols = layout.cols || 4, rows = layout.rows || 8;
+        var cells = '';
+        for (var i = 0; i < Math.min(items.length, cols * rows); i++) {
+          cells += '<div class="cell"><div class="qr"></div><div class="code">'
+            + items[i].code + '</div>'
+            + (layout.withTitle ? '<div class="name">' + (items[i].label || items[i].title) + '</div>' : '')
+            + '</div>';
+        }
+        var html = '<!doctype html><meta charset="utf-8"><style>'
+          + '*{box-sizing:border-box}body{margin:0;font-family:-apple-system,sans-serif}'
+          + '.page{width:210mm;height:297mm;padding:' + (layout.marginTop || 10) + 'mm '
+          + (layout.marginSide || 8) + 'mm;display:grid;'
+          + 'grid-template-columns:repeat(' + cols + ',1fr);grid-template-rows:repeat(' + rows + ',1fr);'
+          + 'gap:' + (layout.gap || 3) + 'mm}'
+          + '.cell{display:flex;flex-direction:column;align-items:center;justify-content:center;'
+          + 'gap:1mm;overflow:hidden;padding:1mm'
+          + (layout.cutLines ? ';border:.2mm dashed #bbb' : '') + '}'
+          + '.qr{width:' + (layout.qr || 18) + 'mm;height:' + (layout.qr || 18) + 'mm;background:'
+          + 'repeating-conic-gradient(#000 0 25%,#fff 0 50%) 0 0/4mm 4mm}'
+          + '.code{font-family:ui-monospace,Menlo,monospace;font-size:' + (layout.fontSize || 9)
+          + 'pt;font-weight:700;letter-spacing:.04em;text-align:center;word-break:break-all}'
+          + '.name{font-size:' + Math.max(5, (layout.fontSize || 9) - 2) + 'pt;color:#444;text-align:center}'
+          + '</style><div class="page">' + cells + '</div>';
+        return Promise.resolve({ ok: true, data: html });
       }
       return Promise.resolve({ ok: true, data: channel in answers ? answers[channel] : null });
     },

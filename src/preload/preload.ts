@@ -77,6 +77,13 @@ const ALLOWED_INVOKE = [
   'articles:review', 'articles:dismissLink', 'articles:testUrl',
   'articles:checkProgress', 'articles:stopCheck', 'articles:fix', 'articles:fixAll',
   'articles:urlmap', 'articles:learnLinks', 'articles:saveUrlPair', 'articles:deleteUrlPair',
+  // Katalog, štítky a naskladnění (naskladnění) — jen na počítači
+  'catalog:detail', 'catalog:scan', 'catalog:suggest', 'catalog:refreshStock', 'catalog:stockAt',
+  'labels:items', 'labels:preview', 'labels:pdf',
+  'stockin:list', 'stockin:create', 'stockin:open', 'stockin:scan', 'stockin:qty',
+  'stockin:rename', 'stockin:delete', 'stockin:plan', 'stockin:sendWindow',
+  'stockin:sendApi', 'stockin:apiCheck', 'stockin:confirm',
+  'scan:available', 'scan:start', 'scan:stop', 'scan:feedback',
   // Verze aplikace do hlavičky nastavení
   'app:version'
 ];
@@ -86,7 +93,8 @@ const ALLOWED_EVENTS = [
   'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open',
   'ptrans:progress', 'ptrans:changed',
   'articles:progress', 'articles:changed', 'articles:check',
-  'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress'
+  'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
+  'stockin:changed', 'stockin:progress', 'scan:code', 'scan:closed'
 ];
 
 contextBridge.exposeInMainWorld('api', {

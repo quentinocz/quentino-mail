@@ -41,6 +41,7 @@ export function getSettings(): Settings {
     autoSummarizeCategories: JSON.parse(getSetting('autoSummarizeCategories', '[]')!),
     contactInfo: getSetting('contactInfo', '')!,
     productFeedUrl: getSetting('productFeedUrl', '')!,
+    stockFeedUrl: getSetting('stockFeedUrl', '')!,
     adminOrderRef: getSetting('adminOrderRef', '')!,
     voucherLogo: getSetting('voucherLogo', '')!,
     notifyNewMail: getSetting('notifyNewMail', '1') === '1',
@@ -67,6 +68,7 @@ export function saveSettings(s: Partial<Settings>) {
   if (s.autoSummarizeCategories !== undefined) setSetting('autoSummarizeCategories', JSON.stringify(s.autoSummarizeCategories));
   if (s.contactInfo !== undefined) setSetting('contactInfo', s.contactInfo);
   if (s.productFeedUrl !== undefined) setSetting('productFeedUrl', s.productFeedUrl);
+  if (s.stockFeedUrl !== undefined) setSetting('stockFeedUrl', s.stockFeedUrl);
   if (s.adminOrderRef !== undefined) setSetting('adminOrderRef', s.adminOrderRef.trim());
   if (s.voucherLogo !== undefined) setSetting('voucherLogo', s.voucherLogo);
   if (s.notifyNewMail !== undefined) setSetting('notifyNewMail', s.notifyNewMail ? '1' : '0');

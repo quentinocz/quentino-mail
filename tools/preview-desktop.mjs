@@ -239,6 +239,46 @@ await overflow('uvolnění místa'); await snap('26-uvolnit-misto');
 await click('.modal-foot .btn.ghost', { hasText: 'Zavřít' });
 await page.waitForTimeout(300);
 
+// Katalog: mřížka s obrázky a zásobou, detail s variantami, naskladnění a štítky.
+// Tři záložky nad jedním seznamem — kontroluje se hlavně to, že se arch
+// štítků vejde vedle ovládání a mřížka nezůstane s dírou v řadě.
+await click('.ig-switch button', { hasText: 'AI' });
+await click('.ws-menu-item', { hasText: 'Katalog' });
+await overflow('katalog — produkty'); await snap('27-katalog');
+console.log('  karet v řadě:', await page.evaluate(() => {
+  const cards = [...document.querySelectorAll('.kat-card')];
+  const top = cards[0]?.getBoundingClientRect().top;
+  return cards.filter(el => Math.abs(el.getBoundingClientRect().top - top) < 2).length;
+}));
+await click('.kat-open');
+await overflow('katalog — detail s variantami'); await snap('28-katalog-detail');
+await click('.kat-sheet-head .icon-btn');
+
+await click('.kat-tabs button', { hasText: 'Naskladnění' });
+await overflow('naskladnění — seznam'); await snap('29-naskladneni');
+await click('.kat-session');
+await overflow('naskladnění — řádky'); await snap('30-naskladneni-radky');
+await click('.modal-foot .btn.ghost', { hasText: 'Zkontrolovat' });
+await overflow('naskladnění — co se zapíše'); await snap('31-naskladneni-plan');
+
+// Hledání podle názvu s rozbalenými variantami — bez něj by se kód musel
+// psát po paměti pokaždé, když štítek chybí
+await page.fill('.kat-scan', 'kšandy');
+await page.waitForTimeout(500);
+await click('.kat-hit-main');
+await overflow('naskladnění — našeptávač'); await snap('31b-naseptavac');
+
+// Štítky se sázejí z vybraných produktů — nejdřív se tedy dva zaškrtnou
+await click('.kat-tabs button', { hasText: 'Produkty' });
+await page.evaluate(() => {
+  [...document.querySelectorAll('.kat-pick input')].slice(0, 2).forEach(el => el.click());
+});
+await page.waitForTimeout(300);
+await click('.kat-tabs button', { hasText: 'Štítky' });
+await overflow('štítky — rozvržení a náhled'); await snap('32-stitky');
+await click('.modal-head .icon-btn');
+await page.waitForTimeout(300);
+
 // Pruh s běžícím překladem na pozadí — je vidět i mimo okno překladů
 await page.evaluate(() => window.__emit('ptrans:progress', {
   running: true, done: 428, total: 1362, failed: 2, etaSeconds: 940,

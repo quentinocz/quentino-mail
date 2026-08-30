@@ -69,7 +69,8 @@ targets:
           Z knihovny se vybírají fotky a videa pro příspěvky na Instagram
           a přílohy e-mailů. Nic se nikam neposílá bez tvého potvrzení.
         NSCameraUsageDescription: >-
-          Vyfocení přílohy nebo obrázku do příspěvku přímo v aplikaci.
+          Vyfocení přílohy nebo obrázku do příspěvku a čtení čárových a QR
+          kódů ze štítků při naskladňování zboží.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UIBackgroundModes:

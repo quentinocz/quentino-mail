@@ -140,6 +140,50 @@ function migrate(d: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_products_title ON products(title_cz);
 
+    -- Varianty produktu (velikost, délka, barva). Mají vlastní kód i vlastní
+    -- sklad: „skladem 3 ks" u produktu neříká nic o tom, jestli je skladem
+    -- zrovna ta velikost, kterou zákazník chce.
+    CREATE TABLE IF NOT EXISTS product_variants (
+      code TEXT PRIMARY KEY,
+      product_code TEXT NOT NULL,
+      variant_id TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL DEFAULT '',
+      ean TEXT NOT NULL DEFAULT '',
+      availability TEXT NOT NULL DEFAULT '',
+      stock INTEGER,
+      price TEXT NOT NULL DEFAULT '',
+      main INTEGER NOT NULL DEFAULT 0,
+      sort INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_variants_product ON product_variants(product_code);
+
+    -- Naskladnění: co se právě naskladňuje. Řádky jsou samostatně, aby se dala
+    -- rozpracované naskladnění slučovat mezi zařízeními (telefon → počítač).
+    CREATE TABLE IF NOT EXISTS stockin (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      device TEXT NOT NULL DEFAULT '',
+      state TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      sent_at TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS stockin_items (
+      session_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      product_code TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL DEFAULT '',
+      qty INTEGER NOT NULL DEFAULT 0,
+      -- Zásoba v okamžiku načtení: po odeslání je z čeho poznat, že se
+      -- mezitím prodalo, a nepřepsat tím sklad naslepo
+      stock_before INTEGER,
+      added_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (session_id, code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_stockin_items ON stockin_items(session_id);
+
     CREATE TABLE IF NOT EXISTS contacts (
       email TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT '',
@@ -350,6 +394,16 @@ function migrate(d: Database.Database) {
   try { d.exec("ALTER TABLE products ADD COLUMN availability TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec('ALTER TABLE products ADD COLUMN stock INTEGER'); } catch { /* sloupec už existuje */ }
   try { d.exec('ALTER TABLE products ADD COLUMN price_num REAL'); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE products ADD COLUMN ean TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE products ADD COLUMN product_id TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  /*
+   * Kdy dorazila čerstvá zásoba z rychlého feedu.
+   *
+   * Není to totéž co načtení katalogu: celý feed s obrázky a popisy se stahuje
+   * jednou za den, zásoba každé dvě hodiny. Plést to dohromady by znamenalo
+   * tvrdit „skladem" podle čísla starého půl dne.
+   */
+  try { d.exec("ALTER TABLE products ADD COLUMN stock_at TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)'); } catch { /* index už existuje */ }
 }
 

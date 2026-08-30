@@ -363,6 +363,48 @@ enum Schema {
     );
     CREATE INDEX IF NOT EXISTS idx_products_title ON products(title_cz);
 
+    -- Varianty produktu (velikost, délka, barva). Mají vlastní kód i vlastní
+    -- sklad: „skladem 3 ks" u produktu neříká nic o tom, jestli je skladem
+    -- zrovna ta délka, kterou zákazník chce.
+    CREATE TABLE IF NOT EXISTS product_variants (
+      code TEXT PRIMARY KEY,
+      product_code TEXT NOT NULL,
+      variant_id TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL DEFAULT '',
+      ean TEXT NOT NULL DEFAULT '',
+      availability TEXT NOT NULL DEFAULT '',
+      stock INTEGER,
+      price TEXT NOT NULL DEFAULT '',
+      main INTEGER NOT NULL DEFAULT 0,
+      sort INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_variants_product ON product_variants(product_code);
+
+    -- Naskladnění: co se právě naskladňuje. Řádky jsou samostatně, aby se dala
+    -- rozpracované naskladnění slučovat mezi zařízeními (telefon → počítač).
+    CREATE TABLE IF NOT EXISTS stockin (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      device TEXT NOT NULL DEFAULT '',
+      state TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      sent_at TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS stockin_items (
+      session_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      product_code TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      label TEXT NOT NULL DEFAULT '',
+      qty INTEGER NOT NULL DEFAULT 0,
+      stock_before INTEGER,
+      added_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (session_id, code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_stockin_items ON stockin_items(session_id);
+
     CREATE TABLE IF NOT EXISTS ai_usage (
       month TEXT NOT NULL,
       model TEXT NOT NULL,
@@ -385,6 +427,10 @@ enum Schema {
         "ALTER TABLE voucher_codes ADD COLUMN used_dup TEXT NOT NULL DEFAULT ''",
         // Až tady, ne u tabulky: v databázi z minulé verze sloupec `claimed_by`
         // ještě není a rejstřík nad chybějícím sloupcem by shodil celé zakládání.
-        "CREATE INDEX IF NOT EXISTS idx_voucher_codes_claim ON voucher_codes(template_id, claimed_by, used_at)"
+        "CREATE INDEX IF NOT EXISTS idx_voucher_codes_claim ON voucher_codes(template_id, claimed_by, used_at)",
+        // Katalog: čárový kód, vnitřní číslo produktu a čas poslední zásoby
+        "ALTER TABLE products ADD COLUMN ean TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE products ADD COLUMN product_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE products ADD COLUMN stock_at TEXT NOT NULL DEFAULT ''"
     ]
 }
