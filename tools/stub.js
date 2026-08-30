@@ -143,7 +143,11 @@
         contentType: 'text', createdAt: new Date(Date.now() - 6 * 60e3).toISOString(), readAt: null },
       { id: 'm4', conversationId: 'c1', sender: 'customer',
         content: 'Pripadne jestli byste mi mohli poslat foto.',
-        contentType: 'text', createdAt: new Date(Date.now() - 4 * 60e3).toISOString(), readAt: null }
+        contentType: 'text', createdAt: new Date(Date.now() - 4 * 60e3).toISOString(), readAt: null },
+      // Cizojazyčná zpráva — u ní se pod bublinou nabízí překlad do češtiny
+      { id: 'm5', conversationId: 'c1', sender: 'customer',
+        content: 'Sorry, one more thing — do you ship to Germany and how long does it usually take?',
+        contentType: 'text', createdAt: new Date(Date.now() - 2 * 60e3).toISOString(), readAt: null }
     ],
     'chat:markRead': null,
     'chat:suggest': 'Dobry den, cerny pasek v delce 115 cm mame skladem.',
