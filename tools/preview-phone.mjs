@@ -261,6 +261,29 @@ for (const device of DEVICES) {
   try { await page.locator('.pk-modal .modal-head .icon-btn').last().click({ timeout: 3000 }); }
   catch { problems.push(`${device.name}: nešlo zavřít balení`); }
   await page.waitForTimeout(400);
+  // Katalog: na telefonu je to hlavně naskladnění u regálu — pole pro čtečku
+  // musí být palcem dosažitelné a mřížka produktů čitelná po dvou
+  await click('.m-head-picker');
+  await click('.sidebar .side-item', { hasText: 'Katalog a naskladnění' });
+  await check('katalog — produkty'); await snap('16-katalog');
+  await click('.kat-open');
+  await check('katalog — detail'); await snap('17-katalog-detail');
+  await click('.kat-sheet-head .icon-btn');
+  await click('.kat-tabs button', { hasText: 'Naskladnění' });
+  await check('naskladnění — seznam'); await snap('18-naskladneni');
+  await click('.kat-session-open');
+  await check('naskladnění — řádky'); await snap('19-naskladneni-radky');
+  await click('.modal-foot .btn.ghost', { hasText: 'Zkontrolovat' });
+  await check('naskladnění — co se zapíše'); await snap('20-naskladneni-plan');
+  // Hledání podle názvu: štítek občas chybí a kód se po paměti nepíše
+  await page.fill('.kat-scan', 'kšandy');
+  await page.waitForTimeout(500);
+  await check('naskladnění — našeptávač'); await snap('21-naseptavac');
+  await click('.kat-hit-main');
+  await check('naskladnění — varianty'); await snap('22-naseptavac-varianty');
+  await click('.modal-head .icon-btn');
+  await page.waitForTimeout(300);
+
   await click('.m-head-picker');
   await click('.sidebar .side-item', { hasText: 'Nastavení' });
   await check('nastavení'); await snap('15-nastaveni');

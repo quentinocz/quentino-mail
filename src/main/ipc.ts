@@ -12,10 +12,15 @@ import {
   getSettings, saveSettings, listKnowledge, saveKnowledge, deleteKnowledge,
   listPersons, savePerson, deletePerson, exportConfig, importConfig, configNeedsPassphrase
 } from './settings';
-import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets } from './products';
+import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets,
+  productDetail, findByCode, suggestForStockin, refreshStock, stockSyncedAt } from './products';
 import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
 import { scanOld, freeUp } from './cleanup';
+import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renameSession,
+  deleteSession, planOf, emitChanged as emitStockin } from './stockin';
+import { sendViaWindow, sendViaApi, apiCanWriteStock, confirmSent } from './upstock';
+import { labelItems, labelsToPdf, labelPreview, DEFAULT_LAYOUT } from './labels';
 import { summarize, generateReply, improveText, translateIncoming, translateText, categorizeUncategorized, getAiUsage, generateDigest } from './ai';
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
@@ -296,6 +301,55 @@ export function registerIpc() {
     return p;
   });
   handle('quota:get', (accountId) => getMailboxQuota(accountId));
+
+  /* ---------- Katalog: varianty, zásoby, štítky ---------- */
+  handle('catalog:detail', (code: string) => productDetail(code));
+  handle('catalog:scan', (raw: string) => findByCode(raw));
+  handle('catalog:suggest', (query: string, limit?: number) => suggestForStockin(query ?? '', limit ?? 8));
+  handle('catalog:refreshStock', async () => {
+    const out = await refreshStock();
+    emit('products:changed', {});
+    return out;
+  });
+  handle('catalog:stockAt', () => stockSyncedAt());
+  handle('labels:preview', (items: any[], layout: any) =>
+    labelPreview(items ?? [], { ...DEFAULT_LAYOUT, ...(layout ?? {}) }));
+  handle('labels:items', (codes: string[], perItem?: number) => labelItems(codes ?? [], perItem ?? 1));
+  handle('labels:pdf', (items: any[], layout: any) =>
+    labelsToPdf(items ?? [], { ...DEFAULT_LAYOUT, ...(layout ?? {}) }));
+
+  /* ---------- Naskladnění ---------- */
+  handle('stockin:list', () => listSessions());
+  handle('stockin:create', (title?: string) => { const s = createSession(title ?? ''); emitStockin(); return s; });
+  handle('stockin:open', (id: string) => ({ session: sessionOf(id), items: itemsOf(id) }));
+  handle('stockin:scan', (id: string, raw: string, qty?: number) => {
+    const out = addScan(id, raw, qty ?? 1);
+    if (out.added) emitStockin();
+    return out;
+  });
+  handle('stockin:qty', (id: string, code: string, qty: number) => { setQty(id, code, qty); emitStockin(); return true; });
+  handle('stockin:rename', (id: string, title: string, note?: string) => {
+    renameSession(id, title, note ?? ''); emitStockin(); return true;
+  });
+  handle('stockin:delete', (id: string) => { deleteSession(id); emitStockin(); return true; });
+  handle('stockin:plan', (id: string) => planOf(id));
+  handle('stockin:sendWindow', (id: string) => sendViaWindow(id));
+  handle('stockin:sendApi', (id: string) => sendViaApi(id));
+  handle('stockin:apiCheck', () => apiCanWriteStock());
+  handle('stockin:confirm', (id: string) => { confirmSent(id); return true; });
+
+  /*
+   * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka
+   * klávesnicová a kódy padají rovnou do pole. Kanály tu přesto jsou, aby
+   * rozhraní bylo v obou obalech stejné a nemuselo se ptát, kde běží.
+   */
+  handle('scan:available', () => false);
+  handle('scan:start', () => {
+    throw new Error('Čtení kódů fotoaparátem funguje v aplikaci na telefonu. '
+      + 'Tady stačí načíst kód čtečkou do pole — chová se jako klávesnice.');
+  });
+  handle('scan:stop', () => true);
+  handle('scan:feedback', () => true);
   /* Úklid schránky: najít staré velké zprávy a stáhnout je k sobě ze serveru */
   handle('mail:cleanupScan', (accountId: number, olderThanDays: number, minSizeKb: number) =>
     scanOld(accountId, olderThanDays ?? 365, minSizeKb ?? 0));

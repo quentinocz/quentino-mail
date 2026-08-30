@@ -15,6 +15,7 @@ import DigestModal from './components/DigestModal';
 import PackingModal from './components/PackingModal';
 import ProductsModal from './components/ProductsModal';
 import ArticlesModal from './components/ArticlesModal';
+import CatalogModal from './components/CatalogModal';
 import PtransStatusBar from './components/PtransStatusBar';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
@@ -268,15 +269,22 @@ function AppInner() {
    * Okna nástrojů AI a pruh s průběhem překladu. Jsou stejná ve všech
    * prostorech — proto se vykreslují z jednoho místa a ne v každé větvi zvlášť.
    *
-   * Na telefonu nejsou vůbec: překlady ani články se na malé obrazovce dělat
-   * nedají a nativní obal pro ně nemá kanály. Bez téhle pojistky by se hned
-   * po spuštění zeptal na průběh překladu a dostal chybu.
+   * Překlady a články jsou jen na počítači: na malé obrazovce se dělat nedají
+   * a nativní obal pro ně nemá kanály. Bez téhle pojistky by se hned po
+   * spuštění zeptal na průběh překladu a dostal chybu.
+   *
+   * Katalog je naopak i na telefonu — naskladnění se dělá u regálu, ne u stolu.
    */
-  const aiLayer = phone ? null : (
+  const aiLayer = (
     <>
-      {aiTool === 'ptrans' && <ProductsModal onClose={() => setAiTool(null)} />}
-      {aiTool === 'articles' && <ArticlesModal onClose={() => setAiTool(null)} />}
-      <PtransStatusBar hidden={aiTool ?? undefined} onOpen={tool => setAiTool(tool)} />
+      {aiTool === 'catalog' && <CatalogModal onClose={() => setAiTool(null)} />}
+      {!phone && (
+        <>
+          {aiTool === 'ptrans' && <ProductsModal onClose={() => setAiTool(null)} />}
+          {aiTool === 'articles' && <ArticlesModal onClose={() => setAiTool(null)} />}
+          <PtransStatusBar hidden={aiTool ?? undefined} onOpen={tool => setAiTool(tool)} />
+        </>
+      )}
     </>
   );
 

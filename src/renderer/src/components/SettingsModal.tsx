@@ -769,6 +769,28 @@ export default function SettingsModal(p: Props) {
                   {busy === 'feed' ? <span className="spinner-inline" /> : <Icon name="refresh" size={14} />} Aktualizovat feed teď
                 </button>
               </div>
+
+              <div className="field">
+                <label><Icon name="layers" size={13} /> Rychlý feed se zásobami (XML)</label>
+                <input value={settings.stockFeedUrl}
+                  placeholder="https://…/export-small-products-….xml"
+                  onChange={e => setSettings(s => s ? { ...s, stockFeedUrl: e.target.value } : s)} />
+                <div className="desc">
+                  {/* Proč dva feedy: velký zná obrázky a popisy, ale je z včerejška.
+                      Malý zná jen kódy, ceny a zásoby — zato je z posledních dvou hodin. */}
+                  Malý export jen s kódy, dostupností, cenami a variantami. Velký katalog se
+                  obnovuje jednou denně, tenhle po dvou hodinách — skladová množství v Katalogu
+                  a při naskladňování se berou z něj.
+                </div>
+                <button className="btn ghost" style={{ alignSelf: 'flex-start' }} disabled={busy === 'stock'}
+                  onClick={() => run('stock', async () => {
+                    await api.settings.save({ stockFeedUrl: settings.stockFeedUrl });
+                    const out = await api.catalog.refreshStock();
+                    toast(`Zásoby aktuální — ${out.products} produktů, ${out.variants} variant.`);
+                  })}>
+                  {busy === 'stock' ? <span className="spinner-inline" /> : <Icon name="refresh" size={14} />} Stáhnout zásoby teď
+                </button>
+              </div>
               <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy === 'saveAi'} onClick={saveAi}>
                 Uložit nastavení AI
               </button>

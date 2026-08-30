@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron';
 import { getDb } from './db';
 import { sendNow } from './smtp';
 import { syncAllAccounts } from './imap';
-import { refreshFeed, feedIsStale } from './products';
+import { refreshFeed, feedIsStale, refreshStock } from './products';
 import { refreshDueFeeds } from './orderfeed';
 import { runSync, syncVouchersNow, watchShared } from './appsync';
 import { refreshStatesIfNeeded } from './ptrans/store';
@@ -32,6 +32,21 @@ export function startScheduler() {
     if (feedIsStale()) refreshFeed().then(() => emit('products:changed', {})).catch(() => {});
   };
   setInterval(checkFeed, FEED_CHECK_INTERVAL);
+
+  /*
+   * Zásoby zvlášť a častěji než celý katalog.
+   *
+   * Malý export z Upgates se obnovuje po dvou hodinách a nese jen kódy,
+   * dostupnost, ceny a varianty — stáhnout ho stojí zlomek toho, co celý
+   * feed s popisy. „Skladem 4 ks" má být čerstvé; jak produkt vypadá, se
+   * za den nezmění.
+   */
+  const stock = () => {
+    if (!getSetting('stockFeedUrl', '')) return;
+    refreshStock().then(() => emit('products:changed', {})).catch(() => { /* zkusí se za dvě hodiny */ });
+  };
+  setTimeout(stock, 20_000);
+  setInterval(stock, 2 * 3600_000);
   setTimeout(checkFeed, 10_000);
   // Projekty Supabase na bezplatném tarifu se po pár dnech ticha uspí.
   // Chat drží vzhůru načítání nepřečtených, ale úložiště médií pro Instagram

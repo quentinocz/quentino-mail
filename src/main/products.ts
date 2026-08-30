@@ -1,5 +1,6 @@
 import { getDb, getSetting, setSetting } from './db';
-import { ProductHit, FeedStatus, MailLang, ProductQuery, ProductPage, ProductFacets } from '../shared/types';
+import { ProductHit, FeedStatus, MailLang, ProductQuery, ProductPage, ProductFacets,
+  ProductVariant, ProductDetail, ScanHit, CatalogSuggestion } from '../shared/types';
 import { syncFeedXml } from './ptrans';
 
 /**
@@ -66,8 +67,61 @@ function parseCategories(block: string): { primary: string; all: string[] } {
 }
 
 /** Naparsuje Upgates XML feed a nahradí lokální katalog produktů. */
+/**
+ * Varianty produktu z bloku feedu.
+ *
+ * Varianta má vlastní kód, vlastní zásobu a vlastní cenu — a hlavně vlastní
+ * název složený z parametrů („Délka: 120cm"). Bez toho se v katalogu nedá
+ * odpovědět na jedinou otázku, na kterou se u telefonu odpovídá pořád:
+ * „a máte to ve sto dvaceti?"
+ */
+function parseVariants(block: string, productCode: string): any[] {
+  const wrap = block.match(/<VARIANTS>([\s\S]*?)<\/VARIANTS>/);
+  if (!wrap) return [];
+  const out: any[] = [];
+  let sort = 0;
+  for (const part of wrap[1].split('<VARIANT>').slice(1)) {
+    const vb = part.split('</VARIANT>')[0];
+    const code = tag(vb, 'CODE');
+    if (!code) continue;
+    if ((tag(vb, 'ACTIVE_YN') ?? '1') !== '1') continue;
+
+    // Popisek: „Délka: 120cm" — z parametrů, které variantu odlišují
+    const label: string[] = [];
+    const params = vb.match(/<PARAMETERS>([\s\S]*?)<\/PARAMETERS>/);
+    if (params) {
+      for (const pb of params[1].split('<PARAMETER>').slice(1)) {
+        const one = pb.split('</PARAMETER>')[0];
+        const name = clean(tagAny(one, 'NAME') ?? '');
+        const value = clean(tagAny(one, 'VALUE') ?? '');
+        if (value) label.push(name ? `${name}: ${value}` : value);
+      }
+    }
+
+    const priceBlock = /<PRICE language="cz">([\s\S]*?)<\/PRICE>/.exec(vb)?.[1] ?? '';
+    const value = tag(priceBlock, 'PRICE_SALE') || tag(priceBlock, 'PRICE_WITH_VAT');
+    const cur = tag(priceBlock, 'CURRENCY') ?? '';
+    const stock = toNumber(tag(vb, 'STOCK'));
+
+    out.push({
+      code,
+      product_code: productCode,
+      variant_id: tag(vb, 'VARIANT_ID') ?? '',
+      label: label.join(' · '),
+      ean: clean(tag(vb, 'EAN') ?? ''),
+      availability: clean(tag(vb, 'AVAILABILITY') ?? ''),
+      stock: stock === null ? null : Math.round(stock),
+      price: value ? `${value} ${CURRENCY_SYMBOL[cur] ?? cur}`.trim() : '',
+      main: tag(vb, 'MAIN_YN') === '1' ? 1 : 0,
+      sort: sort++
+    });
+  }
+  return out;
+}
+
 export function importFeedXml(xml: string): number {
   const rows: any[] = [];
+  const variants: any[] = [];
   const blocks = xml.split('<PRODUCT>');
   for (let i = 1; i < blocks.length; i++) {
     const block = blocks[i].split('</PRODUCT>')[0];
@@ -77,7 +131,8 @@ export function importFeedXml(xml: string): number {
     if (!code) continue;
 
     const row: Record<string, string | number | null> = {
-      code, image: null,
+      code, image: null, ean: clean(tag(block, 'EAN') ?? ''),
+      product_id: tag(block, 'PRODUCT_ID') ?? '',
       title_cz: '', url_cz: '', price_cz: '',
       title_sk: '', url_sk: '', price_sk: '',
       title_en: '', url_en: '', price_en: '',
@@ -131,7 +186,10 @@ export function importFeedXml(xml: string): number {
     const stock = toNumber(tag(block, 'STOCK'));
     row.stock = stock === null ? null : Math.round(stock);
 
-    if (row.title_cz || row.title_en || row.title_sk) rows.push(row);
+    if (row.title_cz || row.title_en || row.title_sk) {
+      rows.push(row);
+      variants.push(...parseVariants(block, code));
+    }
   }
 
   if (rows.length === 0) throw new Error('Feed neobsahuje žádné aktivní produkty — zkontroluj URL.');
@@ -141,11 +199,19 @@ export function importFeedXml(xml: string): number {
     d.prepare('DELETE FROM products').run();
     const ins = d.prepare(
       `INSERT OR REPLACE INTO products (code, title_cz, url_cz, price_cz, title_sk, url_sk, price_sk, title_en, url_en, price_en, image,
-                                        category, categories, manufacturer, availability, stock, price_num)
+                                        category, categories, manufacturer, availability, stock, price_num, ean, product_id)
        VALUES (@code, @title_cz, @url_cz, @price_cz, @title_sk, @url_sk, @price_sk, @title_en, @url_en, @price_en, @image,
-               @category, @categories, @manufacturer, @availability, @stock, @price_num)`
+               @category, @categories, @manufacturer, @availability, @stock, @price_num, @ean, @product_id)`
     );
     for (const r of rows) ins.run(r);
+
+    d.prepare('DELETE FROM product_variants').run();
+    const insVariant = d.prepare(
+      `INSERT OR REPLACE INTO product_variants
+         (code, product_code, variant_id, label, ean, availability, stock, price, main, sort)
+       VALUES (@code, @product_code, @variant_id, @label, @ean, @availability, @stock, @price, @main, @sort)`
+    );
+    for (const v of variants) insVariant.run(v);
   });
   replaceAll();
   setSetting('productFeedSync', new Date().toISOString());
@@ -170,6 +236,86 @@ export async function refreshFeed(): Promise<FeedStatus> {
     console.error('Překladová databáze se nenaplnila:', e);
   }
   return feedStatus();
+}
+
+/* ---------- rychlý feed: jen zásoby a ceny ---------- */
+
+/**
+ * Zásoba se nedá číst z velkého feedu.
+ *
+ * Celý katalog s popisy a obrázky má přes dvacet megabajtů a obnovuje se
+ * jednou za den — číslo „skladem 4 ks" z něj je tedy klidně půl dne staré.
+ * Upgates umí vedle toho malý export jen s kódy, dostupností, cenami a
+ * variantami; ten se obnovuje po dvou hodinách. Katalog proto stojí na obou:
+ * jak produkt vypadá, ví z velkého, kolik ho je, z malého.
+ */
+export async function refreshStock(): Promise<{ products: number; variants: number; at: string }> {
+  const url = (getSetting('stockFeedUrl', '') ?? '').trim();
+  if (!url) throw new Error('Není vyplněná adresa rychlého skladového feedu (Nastavení → Produkty).');
+
+  const res = await fetch(url, { redirect: 'follow' });
+  if (!res.ok) throw new Error(`Skladový feed: HTTP ${res.status}`);
+  const xml = await res.text();
+  return applyStockXml(xml);
+}
+
+/** Zapíše zásoby z malého feedu. Oddělené kvůli zkoušce bez sítě. */
+export function applyStockXml(xml: string): { products: number; variants: number; at: string } {
+  const at = new Date().toISOString();
+  const d = getDb();
+
+  const upProduct = d.prepare(
+    `UPDATE products SET stock = @stock, availability = @availability, stock_at = @at WHERE code = @code`
+  );
+  const upVariant = d.prepare(
+    `UPDATE product_variants SET stock = @stock, availability = @availability WHERE code = @code`
+  );
+
+  let products = 0;
+  let variants = 0;
+  const run = d.transaction(() => {
+    for (const raw of xml.split('<PRODUCT>').slice(1)) {
+      const block = raw.split('</PRODUCT>')[0];
+      const code = tag(block, 'CODE');
+      if (!code) continue;
+
+      // Varianty se musí odečíst dřív, než se z bloku vyzobne zásoba produktu:
+      // uvnitř VARIANTS je taky STOCK a bez oddělení by se první z nich
+      // připsal celému produktu
+      const wrap = block.match(/<VARIANTS>([\s\S]*?)<\/VARIANTS>/);
+      const head = wrap ? block.slice(0, block.indexOf('<VARIANTS>')) : block;
+      if (wrap) {
+        for (const part of wrap[1].split('<VARIANT>').slice(1)) {
+          const vb = part.split('</VARIANT>')[0];
+          const vcode = tag(vb, 'CODE');
+          if (!vcode) continue;
+          const stock = toNumber(tag(vb, 'STOCK'));
+          variants += upVariant.run({
+            code: vcode,
+            stock: stock === null ? null : Math.round(stock),
+            availability: clean(tag(vb, 'AVAILABILITY') ?? '')
+          }).changes;
+        }
+      }
+
+      const stock = toNumber(tag(head, 'STOCK'));
+      products += upProduct.run({
+        code,
+        stock: stock === null ? null : Math.round(stock),
+        availability: clean(tag(head, 'AVAILABILITY') ?? ''),
+        at
+      }).changes;
+    }
+  });
+  run();
+
+  setSetting('stockFeedSync', at);
+  return { products, variants, at };
+}
+
+/** Kdy naposledy dorazila čerstvá zásoba — do hlavičky katalogu. */
+export function stockSyncedAt(): string | null {
+  return getSetting('stockFeedSync', '') || null;
 }
 
 export function feedStatus(): FeedStatus {
@@ -261,6 +407,154 @@ export function productFacets(): ProductFacets {
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'cs'));
   return { categories, total: rows.length };
+}
+
+/** Varianty jednoho produktu — velikost, délka, barva a jejich zásoby. */
+export function productVariants(code: string): ProductVariant[] {
+  const rows = getDb().prepare(
+    'SELECT * FROM product_variants WHERE product_code = ? ORDER BY sort, code'
+  ).all(code) as any[];
+  return rows.map(r => ({
+    code: r.code,
+    productCode: r.product_code,
+    label: r.label ?? '',
+    ean: r.ean ?? '',
+    availability: r.availability ?? '',
+    stock: r.stock ?? null,
+    price: r.price ?? '',
+    main: r.main === 1
+  }));
+}
+
+/** Karta produktu do katalogu: co víme z feedu plus varianty. */
+export function productDetail(code: string): ProductDetail | null {
+  const row = getDb().prepare('SELECT * FROM products WHERE code = ?').get(code) as any;
+  if (!row) return null;
+  return {
+    ...mapRow(row),
+    ean: row.ean ?? '',
+    stockAt: row.stock_at || null,
+    variants: productVariants(code)
+  };
+}
+
+/**
+ * Najde produkt nebo variantu podle toho, co přišlo ze čtečky.
+ *
+ * Čtečka pošle jeden řetězec a neřekne, co to je. Může to být EAN, kód
+ * produktu, kód varianty — nebo celá adresa z QR kódu, který jsme sami
+ * vytiskli. Hledá se proto ve všech čtyřech podobách a **vrací se přesná
+ * shoda, nebo nic**: u naskladnění je „asi to bude tenhle" horší než „nenašel
+ * jsem to", protože se přičte zásoba cizímu zboží.
+ *
+ * Dvě pravidla, obě zaplacená skutečnými daty z katalogu:
+ *
+ *  1. **Kód má přednost před EANem.** V e-shopu je jediný vyplněný EAN a je
+ *     v něm omylem kód *jiného* produktu (DMJ03 má v EANu „DKJ03"). Kdyby se
+ *     hledalo v obou polích naráz, načtení DKJ03 by naskladnilo DMJ03.
+ *  2. **Když se na EAN chytí víc věcí, nevrací se žádná.** Duplicitní EAN
+ *     není v e-shopech nic zvláštního a hádat, který z nich to je, se nesmí.
+ */
+export function findByCode(raw: string): ScanHit | null {
+  const text = (raw ?? '').trim();
+  if (!text) return null;
+  // Z QR kódu vlastní výroby: „quentino:PS120SM" nebo adresa produktu
+  const code = text.replace(/^quentino:/i, '').replace(/^.*\/p\//, '').trim();
+  if (!code) return null;
+  const d = getDb();
+
+  const variantHit = (variant: any): ScanHit => {
+    const parent = productDetail(variant.product_code);
+    return {
+      code: variant.code,
+      productCode: variant.product_code,
+      title: parent?.title.cz || variant.product_code,
+      label: variant.label ?? '',
+      image: parent?.image ?? null,
+      stock: variant.stock ?? null,
+      availability: variant.availability ?? '',
+      isVariant: true
+    };
+  };
+  const productHit = (product: any): ScanHit => ({
+    code: product.code,
+    productCode: product.code,
+    title: product.title_cz || product.title_en || product.code,
+    label: '',
+    image: product.image ?? null,
+    stock: product.stock ?? null,
+    availability: product.availability ?? '',
+    isVariant: false
+  });
+
+  // 1) kód varianty — na štítku je právě tenhle
+  const byVariantCode = d.prepare(
+    'SELECT * FROM product_variants WHERE code = ? COLLATE NOCASE LIMIT 1'
+  ).get(code) as any;
+  if (byVariantCode) return variantHit(byVariantCode);
+
+  // 2) kód produktu
+  const byProductCode = d.prepare(
+    'SELECT * FROM products WHERE code = ? COLLATE NOCASE LIMIT 1'
+  ).get(code) as any;
+  if (byProductCode) return productHit(byProductCode);
+
+  // 3) teprve pak EAN, a jen když je jednoznačný
+  const byEan = [
+    ...(d.prepare("SELECT * FROM product_variants WHERE ean != '' AND ean = ? LIMIT 2").all(code) as any[])
+      .map(one => ({ kind: 'variant' as const, row: one })),
+    ...(d.prepare("SELECT * FROM products WHERE ean != '' AND ean = ? LIMIT 2").all(code) as any[])
+      .map(one => ({ kind: 'product' as const, row: one }))
+  ];
+  if (byEan.length !== 1) return null;
+  return byEan[0].kind === 'variant' ? variantHit(byEan[0].row) : productHit(byEan[0].row);
+}
+
+/**
+ * Napovídání do naskladnění — hledá se i podle názvu, ne jen podle kódu.
+ *
+ * U regálu se stane, že štítek chybí nebo je nečitelný. Psát kód po paměti
+ * je pak sázka do loterie, kdežto „kšandy modré" člověk napíše bez váhání.
+ * Vrací se produkt i s variantami, protože naskladňuje se konkrétní délka,
+ * ne „kšandy" — a rozhraní se pak zeptá, která to je.
+ */
+export function suggestForStockin(query: string, limit = 8): CatalogSuggestion[] {
+  const text = (query ?? '').trim();
+  if (text.length < 2) return [];
+
+  /*
+   * Hledá se bez ohledu na háčky a čárky.
+   *
+   * SQL `LIKE` porovnává znak po znaku, takže „ksandy" nenajde „Kšandy" —
+   * a u regálu nikdo nepřepíná klávesnici kvůli jednomu slovu. Katalog má
+   * dvanáct set řádků, což je na projití v paměti nic, takže se sáhne pro
+   * všechny a filtruje se tady.
+   */
+  const words = fold(text).split(/\s+/).filter(Boolean).slice(0, 5);
+  const rows = getDb().prepare(
+    'SELECT code, title_cz, title_en, image, stock, price_cz FROM products'
+  ).all() as any[];
+
+  const out: CatalogSuggestion[] = [];
+  for (const row of rows) {
+    const hay = fold(`${row.code} ${row.title_cz ?? ''} ${row.title_en ?? ''}`);
+    if (!words.every(word => hay.includes(word))) continue;
+    out.push({
+      code: row.code,
+      title: row.title_cz || row.title_en || row.code,
+      image: row.image ?? null,
+      stock: row.stock ?? null,
+      price: row.price_cz ?? '',
+      variants: productVariants(row.code)
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** Malá písmena bez diakritiky — jediná podoba, ve které se dá porovnávat. */
+function fold(text: string): string {
+  return (text ?? '').normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase();
 }
 
 export function searchProducts(query: string, limit = 20): ProductHit[] {

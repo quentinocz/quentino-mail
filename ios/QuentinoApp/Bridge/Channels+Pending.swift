@@ -22,6 +22,91 @@ extension Bridge {
         register("products:status") { _ in Products.status() }
         register("products:refresh") { _ in try await Products.refresh() }
 
+        // MARK: Katalog, varianty a zásoby
+        //
+        // Štítky ani zápis do administrace tu nejsou: tisk PDF a okno
+        // s naskladňováním v Upgates existují jen na počítači. Telefon
+        // naskladnění připraví, počítač ji zapíše — rozhraní to tak i ukazuje.
+
+        register("catalog:detail") { args in Catalog.detail(args.first as? String ?? "") }
+        register("catalog:scan") { args in Catalog.find(args.first as? String ?? "") }
+        register("catalog:suggest") { args in
+            Catalog.suggest(args.first as? String ?? "",
+                            limit: args.count > 1 ? (args[1] as? Int ?? 8) : 8)
+        }
+        register("catalog:stockAt") { _ in Catalog.stockSyncedAt() }
+        register("catalog:refreshStock") { _ in try await Catalog.refreshStock() }
+
+        // MARK: Naskladnění
+
+        register("stockin:list") { _ in Stockin.list() }
+        register("stockin:create") { args in Stockin.create(args.first as? String ?? "") }
+        register("stockin:open") { args in
+            let id = args.first as? String ?? ""
+            return ["session": Stockin.session(id), "items": Stockin.items(id)]
+        }
+        register("stockin:scan") { args in
+            let out = Stockin.scan(
+                args.first as? String ?? "",
+                args.count > 1 ? (args[1] as? String ?? "") : "",
+                qty: args.count > 2 ? (args[2] as? Int ?? 1) : 1
+            )
+            if out["added"] as? Bool == true { Bridge.notify("stockin:changed") }
+            return out
+        }
+        register("stockin:qty") { args in
+            Stockin.setQty(args.first as? String ?? "",
+                           args.count > 1 ? (args[1] as? String ?? "") : "",
+                           args.count > 2 ? (args[2] as? Int ?? 0) : 0)
+            Bridge.notify("stockin:changed")
+            return true
+        }
+        register("stockin:rename") { args in
+            Stockin.rename(args.first as? String ?? "",
+                           title: args.count > 1 ? (args[1] as? String ?? "") : "",
+                           note: args.count > 2 ? (args[2] as? String ?? "") : "")
+            Bridge.notify("stockin:changed")
+            return true
+        }
+        register("stockin:delete") { args in
+            Stockin.remove(args.first as? String ?? "")
+            Bridge.notify("stockin:changed")
+            return true
+        }
+        register("stockin:plan") { args in Stockin.plan(args.first as? String ?? "") }
+
+        // MARK: Čtečka kódů fotoaparátem
+        //
+        // Hledáček zůstane otevřený a kódy chodí do rozhraní po jednom
+        // událostí `scan:code`; rozhraní pošle zpátky větu, která se ukáže
+        // rovnou nad tlačítkem v hledáčku.
+
+        register("scan:available") { _ in await CodeScanner.available() }
+        register("scan:start") { _ in try await CodeScanner.start() }
+        register("scan:stop") { _ in await CodeScanner.stop(); return true }
+        register("scan:feedback") { args in
+            let text = args.first as? String ?? ""
+            let ok = args.count > 1 ? (args[1] as? Bool ?? true) : true
+            await CodeScanner.feedback(text, ok: ok)
+            return true
+        }
+        /*
+         Zapisuje se z počítače, ne odsud. Kdyby kanál chyběl úplně, dostalo
+         by rozhraní neurčité „neznámý kanál"; takhle se dozví proč.
+         */
+        register("stockin:sendWindow") { _ in
+            throw BridgeError.message("Naskladnění se do Upgates zapisuje z počítače — "
+                + "naskladnění se tam objeví po synchronizaci.")
+        }
+        register("stockin:sendApi") { _ in
+            throw BridgeError.message("Naskladnění se do Upgates zapisuje z počítače.")
+        }
+        register("stockin:confirm") { args in
+            Stockin.markSent(args.first as? String ?? "")
+            Bridge.notify("stockin:changed")
+            return true
+        }
+
         register("contacts:search") { args in
             Customer.search(contacts: args.first as? String ?? "")
         }

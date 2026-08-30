@@ -20,6 +20,8 @@ final class Scheduler {
     private var lastSync = Date.distantPast
     private var lastMail = Date.distantPast
     private var lastFeed = Date.distantPast
+    /// Rychlý feed jen se zásobami — jezdí častěji než celý katalog
+    private var lastStock = Date.distantPast
     private var lastTokens = Date.distantPast
     private var lastOrders = Date.distantPast
     private var lastChatAwake = Date.distantPast
@@ -99,6 +101,20 @@ final class Scheduler {
                 _ = try? await Products.refresh()
                 Bridge.notify("products:changed")
             }
+        }
+
+        /*
+         Zásoby zvlášť a častěji než celý katalog.
+
+         Malý export z Upgates se obnovuje po dvou hodinách a nese jen kódy,
+         dostupnost, ceny a varianty — stáhnout ho stojí zlomek toho, co celý
+         feed s popisy. „Skladem 4 ks" má být čerstvé; jak produkt vypadá, se
+         za den nezmění.
+         */
+        if !(Store.setting("stockFeedUrl", "") ?? "").isEmpty,
+           Date().timeIntervalSince(lastStock) > 2 * 3600 {
+            lastStock = Date()
+            _ = try? await Catalog.refreshStock()
         }
 
         // Projekty Supabase na bezplatném tarifu se po pár dnech ticha uspí.

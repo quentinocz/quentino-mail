@@ -5,6 +5,7 @@ import { execFile } from 'child_process';
 import { app, BrowserWindow } from 'electron';
 import { getDb, getSetting, setSetting } from './db';
 import { getSettings, saveSettings, listKnowledge, listPersons } from './settings';
+import { mergeStockin, stockinExport } from './stockin';
 import { listAccounts } from './accounts';
 import { storeParsedMessage } from './imap';
 import { deviceId, deviceLabel } from './device';
@@ -502,6 +503,28 @@ function syncInstagram(dir: string): void {
   fs.renameSync(tmp, file);
 }
 
+/* ---------- Naskladnění (sloučení po řádcích) ---------- */
+
+/**
+ * Rozpracované naskladnění z telefonu se musí objevit na počítači.
+ *
+ * Zboží se počítá u regálu s telefonem v ruce, ale do e-shopu se zapisuje
+ * z počítače — okno administrace je jen tam. Naskladnění proto putuje stejnou
+ * sdílenou složkou jako poukazy a slučuje se po řádcích, takže je jedno,
+ * kdo co přidal dřív.
+ */
+function syncStockin(dir: string): void {
+  const file = path.join(dir, 'stockin.json');
+  let remote: any = null;
+  try { remote = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* první běh */ }
+  if (remote) mergeStockin(remote);
+
+  const out = stockinExport();
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(out), 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 /* ---------- Kontakty (sjednocení) ---------- */
 
 function syncContacts(dir: string): void {
@@ -653,6 +676,14 @@ export async function runSync(): Promise<string> {
       syncInstagram(dir);
     } catch (e: any) {
       parts.push(`Instagram: ${e?.message ?? e}`);
+    }
+
+    // 5) Naskladnění — rozpracované naskladnění z telefonu na počítač
+    try {
+      syncStockin(dir);
+      emit('stockin:changed', {});
+    } catch (e: any) {
+      parts.push(`naskladnění: ${e?.message ?? e}`);
     }
 
     // 4) Archiv — oboustranné doplnění

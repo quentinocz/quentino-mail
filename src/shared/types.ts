@@ -214,6 +214,11 @@ export interface Settings {
   /** URL produktového XML feedu (Upgates export) */
   productFeedUrl: string;
   /**
+   * Rychlý feed jen se zásobami a cenami. Velký katalog se obnovuje jednou
+   * denně, tenhle po dvou hodinách — proto se z něj berou skladová množství.
+   */
+  stockFeedUrl: string;
+  /**
    * Kalibrace odkazu do administrace ve tvaru „cislo_objednavky:ID".
    * Adresa v administraci nese vnitřní ID, ne číslo objednávky; obě řady
    * rostou po jedné, takže z jedné známé dvojice se dopočítají ostatní.
@@ -1329,4 +1334,111 @@ export interface CleanupProgress {
   done?: number;
   total?: number;
   subject?: string;
+}
+
+/* ---------- Katalog: varianty, sklad, čtečka ---------- */
+
+/** Varianta produktu — vlastní kód, vlastní zásoba. */
+export interface ProductVariant {
+  code: string;
+  productCode: string;
+  /** „Délka: 120cm" — z parametrů, které variantu odlišují */
+  label: string;
+  ean: string;
+  availability: string;
+  stock: number | null;
+  price: string;
+  main: boolean;
+}
+
+export interface ProductDetail extends ProductHit {
+  ean: string;
+  /** Kdy dorazila zásoba z rychlého feedu (ne kdy se načetl katalog) */
+  stockAt: string | null;
+  variants: ProductVariant[];
+}
+
+/** Napovídání do naskladnění: produkt i s variantami, aby šlo vybrat konkrétní. */
+export interface CatalogSuggestion {
+  code: string;
+  title: string;
+  image: string | null;
+  stock: number | null;
+  price: string;
+  variants: ProductVariant[];
+}
+
+/** Co se našlo pod načteným kódem — produkt, nebo konkrétní varianta. */
+export interface ScanHit {
+  code: string;
+  productCode: string;
+  title: string;
+  label: string;
+  image: string | null;
+  stock: number | null;
+  availability: string;
+  isVariant: boolean;
+}
+
+/* ---------- Naskladnění (naskladnění) ---------- */
+
+export interface StockinSession {
+  id: string;
+  title: string;
+  note: string;
+  /** Zařízení, na kterém naskladnění vznikla — u regálu se hodí vědět */
+  device: string;
+  state: 'open' | 'sent';
+  createdAt: string;
+  updatedAt: string;
+  sentAt: string | null;
+  /** Kolik různých položek a kolik kusů celkem */
+  lines: number;
+  pieces: number;
+}
+
+export interface StockinItem {
+  code: string;
+  productCode: string;
+  title: string;
+  label: string;
+  qty: number;
+  /** Zásoba v okamžiku načtení — podle ní se pozná, že se mezitím prodalo */
+  stockBefore: number | null;
+  addedAt: string;
+}
+
+/** Řádek připravený k zápisu do e-shopu. */
+export interface StockinPlanRow {
+  code: string;
+  title: string;
+  label: string;
+  qty: number;
+  /** Vnitřní čísla z feedu — bez nich Upgates zápis nepřijme */
+  productId: string;
+  variantId: string;
+  stockNow: number | null;
+  stockBefore: number | null;
+  /** Zásoba se od načtení změnila */
+  moved: boolean;
+}
+
+/** Nastavení tisku štítků s kódem. */
+export interface LabelLayout {
+  /** Sloupců a řádků na stránku A4 */
+  cols: number;
+  rows: number;
+  /** Okraje stránky v milimetrech */
+  marginTop: number;
+  marginSide: number;
+  /** Mezera mezi štítky v milimetrech */
+  gap: number;
+  /** Velikost QR kódu v milimetrech */
+  qr: number;
+  /** Velikost textu pod kódem v bodech */
+  fontSize: number;
+  /** Tisknout i název produktu, ne jen kód */
+  withTitle: boolean;
+  /** Tenká linka kolem každého štítku — pomůcka při stříhání */
+  cutLines: boolean;
 }

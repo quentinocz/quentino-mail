@@ -97,6 +97,18 @@ export default function Sidebar(p: Props) {
         <span className="label">Balení objednávek</span>
       </button>
 
+      {/*
+        * Katalog je i v nabídce AI, ale ta se na telefonu neukazuje —
+        * přepínač prostorů tam nahradila spodní lišta. Naskladnění se přitom
+        * dělá právě s telefonem v ruce, tak má vlastní řádek tady.
+        */}
+      <button className={`side-item ${p.activeTool === 'catalog' ? 'active' : ''}`}
+        onClick={() => p.onAiTool('catalog')}
+        data-tip="Produkty a zásoby, naskladnění zboží, štítky s kódem">
+        <span className="icon"><Icon name="layers" /></span>
+        <span className="label">Katalog a naskladnění</span>
+      </button>
+
       {p.accounts.length > 1 && (
         <div className="account-switcher">
           <div className="side-section">Účty</div>
