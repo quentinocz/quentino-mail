@@ -37,8 +37,23 @@ echo "· balíček načten"
 # merge umí u některých souborů nechat starou verzi a typecheck to odhalí až
 # na konci — to je přesně ta situace, kvůli které vznikl tenhle skript.
 git merge -X theirs --no-edit prichozi-balicek
-git checkout prichozi-balicek -- src tools scripts
+# Po jedné cestě, ne najednou: kdyby některá v balíčku nebyla, `checkout`
+# skončí chybou a nepřepíše ani ty ostatní.
+for CESTA in src tools scripts ios package.json package-lock.json; do
+  git checkout prichozi-balicek -- "$CESTA" 2>/dev/null || true
+done
 echo "· sloučeno"
+
+# Balíček může přinést novou závislost. Dokud se nedoinstaluje, typecheck
+# spadne na „Cannot find module" a vypadá to jako chyba v kódu — přitom
+# jen chybí složka v node_modules. Instaluje se proto vždy, když se seznam
+# závislostí od minula pohnul.
+# Porovnává se se zálohou proti pracovnímu stromu, ne proti HEAD:
+# vynucený `checkout` výš přepíše soubory ještě před commitem.
+if ! git diff --quiet "$ZALOHA" -- package.json package-lock.json; then
+  echo "· přibyla nebo se změnila závislost, instaluji"
+  npm install
+fi
 
 npm run typecheck
 
