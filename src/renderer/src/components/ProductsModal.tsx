@@ -1184,7 +1184,8 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
           + (result.errors[0] ? ` — ${result.errors[0]}` : ''), 'error');
       } else {
         toast(`Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`
-          + (result.tidied ? ` · cestou uklizeno ${result.tidied} popisů` : ''));
+          + (result.tidied ? ` · cestou uklizeno ${result.tidied} popisů` : '')
+          + (result.aligned ? ` · srovnáno ${result.aligned} zdrojů` : ''));
       }
     } catch (e: any) {
       toast(e.message, 'error');

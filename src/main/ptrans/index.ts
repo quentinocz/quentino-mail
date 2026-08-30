@@ -3,7 +3,7 @@ import fs from 'fs';
 import { getSetting } from '../db';
 import { syncFromFeed, ingestFile, ingestNewOnly, revertToFeed, recomputeStates, refreshStatesIfNeeded, listCodes,
   getPtransSettings, savePtransSettings, listProducts, productFields,
-  saveTranslation, summary, feedInfo, targetLangs, SyncResult } from './store';
+  saveTranslation, summary, feedInfo, targetLangs, alignSources, SyncResult } from './store';
 import { run, stop, progress, planWork, translateOne } from './translate';
 import { applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl, SeoKind } from './seo';
 import { buildExport, exportPreview, ExportOptions } from './exportxml';
@@ -268,6 +268,14 @@ export function audit(options: AuditOptions = {}) {
  * „doplnit 240 věcí".
  */
 export function sourceGaps(codes: string[]) {
+  /*
+   * Srovnání zdrojů se dělá hned při otevření dialogu.
+   *
+   * Nic negeneruje a nic nestojí — jen rozešle český text k cílovým jazykům
+   * tam, kde o něm nevědí. Bez toho dialog hlásí „kompletní" a karta u téhož
+   * pole „prázdné" a „chybí"; obojí je pravda a dohromady to nedává smysl.
+   */
+  if (alignSources(codes) > 0) emit('ptrans:changed', {});
   return {
     fields: missingByField(codes),
     total: planSourceFill({ codes }).length,

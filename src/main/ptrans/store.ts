@@ -726,6 +726,76 @@ export function productFields(code: string, langs?: string[]): FieldRow[] {
  * původního XML je tím pádem nutný všude, kde se s produktem pracuje jako
  * s celkem — při psaní SEO textů, u Google atributů i v auditu.
  */
+/**
+ * Zdrojový text pole tak, jak s ním má počítat překlad.
+ *
+ * Pořadí je stejné jako při načítání feedu: **co je ve feedu, platí**;
+ * kde je ve feedu prázdno, nastoupí to, co si aplikace napsala sama a co
+ * v e-shopu bude až po importu exportu.
+ *
+ * Používá se všude, kde se rozhoduje „chybí to, nebo ne" — dřív se to na
+ * dvou místech počítalo dvěma způsoby a rozhraní pak hlásilo „kompletní"
+ * u pole, ze kterého překlad neměl z čeho vycházet.
+ */
+export function sourceText(code: string, field: string, s = getPtransSettings()): string {
+  const d = getDb();
+  const product = d.prepare('SELECT raw_xml FROM ptrans_products WHERE code = ?')
+    .get(code) as { raw_xml: string } | undefined;
+  const feed = product ? (getField(product.raw_xml, s.sourceLang, field) ?? '').trim() : '';
+  if (feed) return feed;
+  const row = d.prepare(
+    'SELECT translated, value FROM ptrans_fields WHERE code = ? AND lang = ? AND field = ?'
+  ).get(code, s.sourceLang, field) as { translated: string | null; value: string } | undefined;
+  return (row?.translated || row?.value || '').trim();
+}
+
+/**
+ * Rozešle zdrojové texty k cílovým jazykům, kde chybí.
+ *
+ * Pole se umí dostat do stavu, ve kterém český text existuje, ale cílové
+ * jazyky o něm nevědí — jejich `source_value` je prázdné. Stane se to
+ * pokaždé, když text vznikl v aplikaci (a v e-shopu ještě není), nebo když
+ * se pole zapnulo v nastavení až po posledním načtení feedu. Navenek to
+ * vypadá nesmyslně: doplnění hlásí „kompletní" a překlad „chybí zdroj".
+ *
+ * Srovnání nic negeneruje a nic nestojí — jen zkopíruje, co už máme.
+ * Proto se dělá při každém běhu, ne jako zvláštní tlačítko.
+ */
+export function alignSources(codes: string[]): number {
+  const d = getDb();
+  const s = getPtransSettings();
+  const langs = targetLangs(s);
+  if (langs.length === 0) return 0;
+
+  const tracked = TEXT_FIELDS.filter(field => s.fields[field] !== false);
+  const stored = d.prepare(
+    `SELECT lang, source_value FROM ptrans_fields WHERE code = ? AND field = ? AND lang IN (${langs.map(() => '?').join(',')})`
+  );
+
+  let fixed = 0;
+  for (const code of codes) {
+    for (const field of tracked) {
+      const want = sourceText(code, field, s);
+      if (!want) continue;
+      /*
+       * Doplňuje se jen tam, kde zdroj **chybí** — ne tam, kde je jiný.
+       *
+       * Rozdíl by se totiž našel i po úklidu HTML: u pole zůstane uložený
+       * uklizený originál, kdežto ve feedu je pořád ten s balastem. Přepsat
+       * ho zpátky by znamenalo, že se všechny hotové překlady označí jako
+       * zastaralé a přeloží se znovu — za změnu, která se textu nedotkla.
+       * Co je jinak než ve feedu, srovná načtení feedu; tady jde o prázdno.
+       */
+      const rows = stored.all(code, field, ...langs) as { lang: string; source_value: string }[];
+      const gap = rows.length < langs.length || rows.some(row => !(row.source_value ?? '').trim());
+      if (!gap) continue;
+      propagateSource(code, field, want);
+      fixed++;
+    }
+  }
+  return fixed;
+}
+
 export function fieldValue(code: string, lang: string, field: string): string {
   const d = getDb();
   const row = d.prepare(
