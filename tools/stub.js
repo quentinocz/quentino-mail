@@ -132,7 +132,20 @@
         phone: null, locale: 'en', lastMessageAt: new Date(Date.now() - 26 * 3600e3).toISOString(),
         unread: 0, channel: 'telegram', createdAt: new Date(Date.now() - 30 * 3600e3).toISOString(),
         leftAt: null, answered: true }
-    ],
+    ].concat(Array.from({ length: 60 }, function (_, i) {
+      // Dlouhý seznam: „Vše" jich u skutečného provozu vrací desítky a právě
+      // na tom se ukázalo, že se řádky ve flex sloupci smršťují
+      return {
+        id: 'x' + i, sessionId: 'sess' + i, status: i % 3 === 0 ? 'closed' : 'open',
+        name: i % 4 === 0 ? null : 'Zákazník ' + i,
+        email: i % 4 === 0 ? null : 'z' + i + '@seznam.cz', phone: null,
+        locale: ['cs', 'sk', 'en'][i % 3],
+        lastMessageAt: new Date(Date.now() - (i + 2) * 3600e3).toISOString(),
+        unread: i % 7 === 0 ? 1 : 0, channel: 'widget',
+        createdAt: new Date(Date.now() - (i + 3) * 3600e3).toISOString(),
+        leftAt: null, answered: i % 5 !== 0
+      };
+    })),
     'chat:messages': [
       { id: 'm1', conversationId: 'c1', sender: 'customer',
         content: 'Dobry den, objednala jsem u vas pasek a chtela bych vedet, jestli uz je odeslany.',
