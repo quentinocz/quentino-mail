@@ -6336,3 +6336,31 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .pull-hint svg.ready { transform: rotate(180deg); color: var(--accent); }
 
 [data-theme="dark"] .swipe-front { background: var(--panel); }
+
+/* Volba formátu štítků — tři karty vedle sebe, ať je vidět, čím se liší */
+.kat-formats { display: flex; gap: 8px; flex-wrap: wrap; }
+.kat-formats button {
+  flex: 1 1 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.kat-formats button b { font-size: 12.5px; }
+.kat-formats button small { font-size: 11px; color: var(--text-3); }
+.kat-formats button:hover { background: var(--bg); }
+.kat-formats button.on { border-color: var(--accent); background: var(--accent-soft); }
+.kat-formats button.on b { color: var(--accent-dark); }
+.kat-note code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  background: var(--panel);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+[data-theme="dark"] .kat-formats button { background: #262230; }
+[data-theme="dark"] .kat-formats button.on { background: var(--accent-soft); }

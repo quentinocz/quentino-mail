@@ -657,6 +657,13 @@
       { name: 'Manžetové knoflíčky', count: 6 }
     ] },
     'catalog:stockAt': new Date(Date.now() - 42 * 60e3).toISOString(),
+    // Rozvaha pro roli 50 × 30 mm při 203 dpi
+    'labels:roll': {
+      magnification: 5, qrMm: 15.6, qrDots: 125, widthDots: 399, heightDots: 240,
+      qrX: 137, qrY: 12, codeY: 145, codeH: 28, nameY: 178, nameH: 21,
+      shrunk: true, tooSmall: false
+    },
+    'catalog:codes': ['PS120SM', 'REGJ01', 'MOT14', 'KAP07', 'MKO02', 'MIL33'],
     'catalog:detail': {
       code: 'PS120SM',
       ean: '',

@@ -16,7 +16,8 @@ import type {
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
   CleanupItem, CleanupScan,
-  ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, LabelLayout
+  ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, LabelLayout,
+  RollLabel, ZplPlan
 } from '@shared/types';
 
 declare global {
@@ -449,7 +450,14 @@ export const api = {
     labelPreview: (items: any[], layout: Partial<LabelLayout>) =>
       call<string>('labels:preview', items, layout),
     labelPdf: (items: any[], layout: Partial<LabelLayout>) =>
-      call<{ path: string; labels: number; pages: number } | null>('labels:pdf', items, layout)
+      call<{ path: string; labels: number; pages: number } | null>('labels:pdf', items, layout),
+    /** Kódy všech produktů podle filtru — pro „vybrat vše" napříč stránkami */
+    codes: (query: ProductQuery) => call<string[]>('catalog:codes', query),
+    /** Co se na štítek z role vejde — rozměry v bodech i skutečná velikost QR */
+    rollPlan: (roll: Partial<RollLabel>) => call<ZplPlan>('labels:roll', roll),
+    /** Vývoz pro štítkovou tiskárnu: ZPL pro Zebru, CSV pro šablonu */
+    exportLabels: (kind: 'zpl' | 'csv', items: any[], roll: Partial<RollLabel>) =>
+      call<{ path: string; labels: number } | null>('labels:export', kind, items, roll)
   },
 
   /** Naskladnění — naskladnění zboží. */
