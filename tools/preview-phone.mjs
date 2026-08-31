@@ -310,6 +310,29 @@ for (const device of DEVICES) {
   await check('balení — seznam'); await snap('14-baleni-seznam');
   await click('.pk-row');
   await check('balení — objednávka'); await snap('15-baleni-detail');
+  /*
+   * Balení se čtečkou: hledáček je nativní pruh nahoře, rozhraní si pod ním
+   * musí udělat místo. V náhledu tam zůstane prázdno — kontroluje se právě to,
+   * že se seznam položek vejde pod něj a nezůstane schovaný za spodní lištou.
+   */
+  await page.locator('.pk-modal .modal-head .icon-btn').last().click();
+  await page.waitForTimeout(400);
+  // Čtečka se ptá při otevření okna, takže se odpověď přepíše mezi otevřeními
+  await page.evaluate(() => {
+    window.__answers['scan:available'] = true;
+    window.__answers['scan:start'] = { panel: 267 };
+  });
+  await click('.m-tabs button:nth-child(3)');
+  await click('.sheet-action', { hasText: 'Balení objednávek' });
+  await page.waitForTimeout(600);
+  await click('.pk-row');
+  await page.locator('.pk-modal .modal-head .icon-btn').first().click();
+  await page.waitForTimeout(500);
+  await page.evaluate(() => window.__emit?.('scan:code', { text: 'QM-042' }));
+  await page.waitForTimeout(400);
+  await check('balení — čtečka'); await snap('15b-baleni-ctecka');
+  await page.locator('.pk-modal .modal-head .icon-btn').first().click();
+  await page.waitForTimeout(300);
   // V hlavičce balení jsou dvě ikony (obnovit, zavřít) — zavírá ta poslední
   try { await page.locator('.pk-modal .modal-head .icon-btn').last().click({ timeout: 3000 }); }
   catch { problems.push(`${device.name}: nešlo zavřít balení`); }

@@ -59,6 +59,14 @@ function totalPieces(items: OrderCardItem[]): number {
   return items.reduce((s, i) => s + (i.qty || 1), 0);
 }
 
+/** Kolik kusů z objednávky už je v krabici — ne kolik položek */
+function packedPieces(o: PackingOrder): number {
+  return o.card.items.reduce((s, it, i) => {
+    const qty = Math.max(1, it.qty || 1);
+    return s + Math.min(qty, o.counts?.[String(i)] ?? 0);
+  }, 0);
+}
+
 function customerName(o: PackingOrder): string {
   return o.card.shipping?.name || o.card.billing?.name || o.card.customerEmail || '—';
 }
@@ -66,19 +74,29 @@ function customerName(o: PackingOrder): string {
 // ---------- položka k odškrtnutí ----------
 
 function PackItem({
-  item, index, checked, onToggle, onZoom
+  item, index, count, onAdd, onReset, onZoom, flash
 }: {
-  item: OrderCardItem; index: number; checked: boolean;
-  onToggle: () => void; onZoom: (it: OrderCardItem) => void;
+  item: OrderCardItem; index: number; count: number;
+  onAdd: () => void; onReset: () => void; onZoom: (it: OrderCardItem) => void;
+  /** Krátké zvýraznění po načtení kódu — ať je vidět, co se právě odškrtlo */
+  flash: boolean;
 }) {
   const [broken, setBroken] = useState(false);
-  const many = (item.qty || 1) > 1;
+  const qty = Math.max(1, item.qty || 1);
+  const many = qty > 1;
+  const checked = count >= qty;
   const showImg = !!item.image && !broken;
 
   return (
-    <div className={`pk-item ${checked ? 'checked' : ''} ${many ? 'many' : ''}`}>
-      <button className="pk-check" onClick={onToggle} aria-pressed={checked}
-        data-tip={checked ? 'Zrušit odškrtnutí' : 'Odškrtnout jako zabalené'}>
+    <div className={`pk-item ${checked ? 'checked' : ''} ${many ? 'many' : ''} ${flash ? 'flash' : ''}`}
+      data-index={index}>
+      {/*
+        Ťuknutí přidá jeden kus, ne celou položku. U „3 ks" je právě tohle to
+        jediné, co se při balení počítá — a když je hotovo, dalším ťuknutím se
+        položka vynuluje, kdyby se člověk překlikl.
+      */}
+      <button className="pk-check" onClick={checked ? onReset : onAdd} aria-pressed={checked}
+        data-tip={checked ? 'Zrušit odškrtnutí' : many ? `Přidat kus (${count}/${qty})` : 'Odškrtnout jako zabalené'}>
         {checked ? <Icon name="check" size={17} /> : <span className="pk-check-num">{index + 1}</span>}
       </button>
 
@@ -90,7 +108,7 @@ function PackItem({
           : <Icon name="image" size={22} />}
       </button>
 
-      <div className="pk-item-main" onClick={onToggle}>
+      <div className="pk-item-main" onClick={checked ? onReset : onAdd}>
         <div className="pk-item-title">{item.title}</div>
         <div className="pk-item-meta">
           {item.code && <span className="pk-code">{item.code}</span>}
@@ -98,8 +116,9 @@ function PackItem({
         </div>
       </div>
 
-      <div className={`pk-qty ${many ? 'warn' : ''}`}>
-        <span className="pk-qty-num">{item.qty}</span>
+      {/* U víc kusů je vidět i to, kolik jich už je v krabici — jinak stačí počet */}
+      <div className={`pk-qty ${many ? 'warn' : ''} ${many && checked ? 'full' : ''}`}>
+        <span className="pk-qty-num">{many ? `${count}/${qty}` : qty}</span>
         <span className="pk-qty-unit">{item.unit || 'ks'}</span>
       </div>
     </div>
@@ -129,6 +148,16 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
   const phone = useIsPhone();
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const lastLoad = useRef(0);
+
+  /* ---------- čtečka fotoaparátem (jen telefon) ---------- */
+  const [hasCamera, setHasCamera] = useState(false);
+  /** Kolik bodů shora zabírá hledáček — o to se rozhraní posune dolů */
+  const [panelH, setPanelH] = useState(0);
+  /** Upozornění „ještě 2 ks" a hlášky ze čtečky */
+  const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+  /** Naposledy odškrtnutá položka — krátce se zvýrazní */
+  const [flash, setFlash] = useState<{ id: number; index: number } | null>(null);
+  const selectedRef = useRef<number | null>(null);
 
   const load = useCallback(async (d: number, force = false) => {
     setLoading(true);
@@ -215,14 +244,62 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
   const patch = (id: number, fn: (o: PackingOrder) => PackingOrder) =>
     setOrders(prev => prev.map(o => (o.messageId === id ? fn(o) : o)));
 
-  const toggleItem = useCallback(async (id: number, index: number) => {
+  const patchState = (id: number, st: { packed: number[]; counts: Record<string, number> }) =>
+    patch(id, x => ({ ...x, packed: st.packed, counts: st.counts }));
+
+  const countOf = (o: PackingOrder, index: number) => o.counts?.[String(index)] ?? 0;
+
+  /**
+   * Hláška nad seznamem — upozornění, že položky je v objednávce víc kusů,
+   * a odpovědi čtečky. Na telefonu se totéž pošle i do hledáčku, protože kdo
+   * míří fotoaparátem na štítek, se na obrazovku pod ním nedívá.
+   */
+  const say = useCallback((text: string, ok: boolean) => {
+    setNote({ text, ok });
+    if (!ok) navigator.vibrate?.(60);
+    api.scan.feedback(text, ok).catch(() => { /* čtečka nemusí být otevřená */ });
+  }, []);
+
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(null), note.ok ? 2600 : 4000);
+    return () => clearTimeout(t);
+  }, [note]);
+
+  useEffect(() => {
+    if (!flash) return;
+    // Při skenování bývá seznam delší než okno — odškrtnutá položka musí být vidět
+    document.querySelector(`.pk-items .pk-item[data-index="${flash.index}"]`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const t = setTimeout(() => setFlash(null), 900);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  /** Přidá jeden kus položky — a řekne, kolik jich ještě chybí. */
+  const addPiece = useCallback(async (id: number, index: number) => {
     const o = orders.find(x => x.messageId === id);
     if (!o) return;
-    const value = !o.packed.includes(index);
-    patch(id, x => ({ ...x, packed: value ? [...x.packed, index] : x.packed.filter(i => i !== index) }));
-    try { await api.packing.setItem(id, index, value); }
+    const item = o.card.items[index];
+    const qty = Math.max(1, item?.qty || 1);
+    const next = Math.min(qty, countOf(o, index) + 1);
+    try {
+      const st = await api.packing.setCount(id, index, next);
+      patchState(id, st);
+      setFlash({ id, index });
+      if (qty > 1) {
+        const missing = qty - next;
+        say(missing > 0
+          ? `${item.title} — ${next}/${qty} ks, ještě ${missing}`
+          : `${item.title} — všech ${qty} ks hotovo`, missing === 0);
+      }
+    } catch (e: any) { toast(e.message, 'error'); }
+  }, [orders, say, toast]);
+
+  /** Vynuluje položku — ťuknutí na hotovou položku, kdyby se člověk překlikl. */
+  const resetPiece = useCallback(async (id: number, index: number) => {
+    try { patchState(id, await api.packing.setCount(id, index, 0)); }
     catch (e: any) { toast(e.message, 'error'); }
-  }, [orders, toast]);
+  }, [toast]);
 
   const markDone = async (id: number, value: boolean) => {
     patch(id, x => ({ ...x, done: value, doneAt: value ? new Date().toISOString() : null }));
@@ -237,7 +314,7 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
   };
 
   const resetOrder = async (id: number) => {
-    patch(id, x => ({ ...x, packed: [], done: false, doneAt: null }));
+    patch(id, x => ({ ...x, packed: [], counts: {}, done: false, doneAt: null }));
     try { await api.packing.reset(id); } catch { /* nevadí, přepíše se příštím odškrtnutím */ }
   };
 
@@ -265,22 +342,94 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
       }
       if (current && /^[1-9]$/.test(e.key)) {
         const i = Number(e.key) - 1;
-        if (i < current.card.items.length) { e.preventDefault(); void toggleItem(current.messageId, i); }
+        if (i < current.card.items.length) { e.preventDefault(); void addPiece(current.messageId, i); }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, selected, current, zoom, onClose, toggleItem]);
+  }, [visible, selected, current, zoom, onClose, addPiece]);
 
   const allPacked = !!current && current.card.items.every((_, i) => current.packed.includes(i));
+
+  /* ---------- čtení kódů fotoaparátem ---------- */
+
+  useEffect(() => { api.scan.available().then(setHasCamera).catch(() => setHasCamera(false)); }, []);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+
+  /*
+   * Hledáček zůstane otevřený a kódy chodí po jednom. Načte se dvojí:
+   * číslo z faktury, kterým se otevře objednávka, a kódy produktů, kterými se
+   * odškrtávají kusy. Rozlišit se to předem nedá — faktura i štítek jsou QR —
+   * takže se nejdřív zkusí položka v otevřené objednávce a teprve když tam
+   * kód není, hledá se objednávka. Odpověď jde zpátky do hledáčku: kdo míří
+   * telefonem na štítek, se na obrazovku pod ním nedívá.
+   */
+  useEffect(() => {
+    if (!panelH) return;
+
+    const off = api.on('scan:code', async (payload: any) => {
+      const text = String(payload?.text ?? '').trim();
+      if (!text) return;
+
+      const id = selectedRef.current;
+      if (id !== null) {
+        const hit = await api.packing.scanItem(id, text).catch(() => null);
+        if (hit?.ok) {
+          setFlash({ id, index: hit.index ?? -1 });
+          patch(id, x => ({
+            ...x,
+            counts: { ...x.counts, [String(hit.index)]: hit.count ?? 0 },
+            packed: (hit.count ?? 0) >= (hit.qty ?? 1)
+              ? [...new Set([...x.packed, hit.index!])].sort((a, b) => a - b)
+              : x.packed.filter(i => i !== hit.index)
+          }));
+          say(hit.message, (hit.needMore ?? 0) === 0);
+          return;
+        }
+        if (hit && hit.reason === 'already') { say(hit.message, false); return; }
+      }
+
+      const found = await api.packing.findOrder(text).catch(() => null);
+      if (found) {
+        setSelected(found.messageId);
+        selectedRef.current = found.messageId;
+        say(`Objednávka ${found.orderNumber ?? ''} otevřena`, true);
+        return;
+      }
+      say(id === null ? `Objednávka ${text} se nenašla` : `Kód ${text} v objednávce není`, false);
+    });
+
+    const offClosed = api.on('scan:closed', () => setPanelH(0));
+    return () => { off(); offClosed(); };
+  }, [panelH, say]);
+
+  const toggleCamera = async () => {
+    if (panelH) { await api.scan.stop().catch(() => {}); setPanelH(0); return; }
+    try {
+      // Hledáček jen nahoře — pod ním musí zůstat vidět seznam položek
+      const out = await api.scan.start({ panel: true, qty: false });
+      setPanelH(Number(out?.panel) || 0);
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
+
+  // Okno se zavírá i s otevřeným hledáčkem — ten by jinak zůstal viset nad ním
+  useEffect(() => () => { void api.scan.stop().catch(() => {}); }, []);
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       {/* Na telefonu je vidět vždy jen jedna část — seznam, nebo rozepsaná objednávka */}
-      <div className="modal pk-modal" data-pane={selected ? 'detail' : 'list'}>
+      <div className="modal pk-modal" data-pane={selected ? 'detail' : 'list'}
+        data-scan={panelH ? 'on' : undefined}
+        style={panelH ? { paddingTop: panelH } : undefined}>
         <div className="modal-head">
           <div className="modal-title"><Icon name="bag" size={16} /> Balení objednávek</div>
           <span style={{ flex: 1 }} />
+          {hasCamera && (
+            <button className={`icon-btn ${panelH ? 'on' : ''}`} onClick={toggleCamera}
+              data-tip={panelH ? 'Zavřít čtečku' : 'Skenovat faktury a kódy produktů'}>
+              <Icon name="camera" size={15} />
+            </button>
+          )}
           <button className="icon-btn" disabled={loading} data-tip="Načíst znovu včetně stavů"
             onClick={() => load(days, true)}>
             <Icon name="refresh" size={15} className={loading ? 'spinning' : undefined} />
@@ -349,7 +498,7 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
             )}
             {visible.map(o => {
               const items = o.card.items;
-              const packedCount = items.filter((_, i) => o.packed.includes(i)).length;
+              const packedCount = packedPieces(o);
               const many = items.some(i => (i.qty || 1) > 1);
               const status = o.card.tracking?.status ?? o.card.live?.status ?? null;
               return (
@@ -366,7 +515,9 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                   <div className="pk-row-bot">
                     <span>{items.length} pol. · {totalPieces(items)} ks</span>
                     {many && <span className="pk-row-many" data-tip="Obsahuje více kusů jedné položky">víc kusů</span>}
-                    {packedCount > 0 && !o.done && <span className="pk-row-prog">{packedCount}/{items.length}</span>}
+                    {packedCount > 0 && !o.done && (
+                      <span className="pk-row-prog">{packedCount}/{totalPieces(items)} ks</span>
+                    )}
                     <span style={{ flex: 1 }} />
                     {status && <span className="pk-row-status">{status}</span>}
                   </div>
@@ -390,22 +541,36 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                   </div>
                   <span style={{ flex: 1 }} />
                   <div className="pk-head-right">
+                    {/* Počítá se v kusech: u „3 ks" je odškrtnutá položka pořád jen třetina práce */}
                     <div className="pk-head-count">
-                      {current.card.items.filter((_, i) => current.packed.includes(i)).length}
-                      {' / '}{current.card.items.length} zabaleno
+                      {packedPieces(current)}{' / '}{totalPieces(current.card.items)} ks
                     </div>
                     <div className="pk-bar">
-                      <span style={{ width: `${(current.packed.length / Math.max(1, current.card.items.length)) * 100}%` }} />
+                      <span style={{ width: `${(packedPieces(current) / Math.max(1, totalPieces(current.card.items))) * 100}%` }} />
                     </div>
                   </div>
                 </div>
+
+                {/*
+                  Upozornění na kusy navíc. Při balení je nejdražší chyba
+                  poslat jeden kus místo tří — hláška proto sedí nad seznamem,
+                  ne dole v rohu, a u chybějících kusů je červená.
+                */}
+                {note && (
+                  <div className={`pk-note ${note.ok ? '' : 'warn'}`} onClick={() => setNote(null)}>
+                    <Icon name={note.ok ? 'check' : 'alert'} size={14} />
+                    <span>{note.text}</span>
+                  </div>
+                )}
 
                 <div className="pk-scroll">
                   <div className="pk-items">
                     {current.card.items.map((it, i) => (
                       <PackItem key={`${it.code ?? it.title}-${i}`} item={it} index={i}
-                        checked={current.packed.includes(i)}
-                        onToggle={() => toggleItem(current.messageId, i)}
+                        count={countOf(current, i)}
+                        onAdd={() => addPiece(current.messageId, i)}
+                        onReset={() => resetPiece(current.messageId, i)}
+                        flash={flash?.id === current.messageId && flash.index === i}
                         onZoom={setZoom} />
                     ))}
                   </div>
@@ -483,7 +648,9 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                       </button>
                     : <button className={`btn primary ${allPacked ? '' : 'pk-btn-wait'}`}
                         onClick={() => markDone(current.messageId, true)}>
-                        <Icon name="check" size={13} /> {allPacked ? 'Zabaleno' : `Zabaleno (zbývá ${current.card.items.length - current.packed.length})`}
+                        <Icon name="check" size={13} /> {allPacked
+                          ? 'Zabaleno'
+                          : `Zabaleno (zbývá ${totalPieces(current.card.items) - packedPieces(current)} ks)`}
                       </button>}
                 </div>
               </>

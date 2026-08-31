@@ -82,7 +82,13 @@ extension Bridge {
         // rovnou nad tlačítkem v hledáčku.
 
         register("scan:available") { _ in await CodeScanner.available() }
-        register("scan:start") { _ in try await CodeScanner.start() }
+        register("scan:start") { args in
+            let opts = args.first as? [String: Any] ?? [:]
+            return try await CodeScanner.start(
+                panel: opts["panel"] as? Bool ?? false,
+                qty: opts["qty"] as? Bool ?? true
+            )
+        }
         register("scan:stop") { _ in await CodeScanner.stop(); return true }
         register("scan:feedback") { args in
             let text = args.first as? String ?? ""
@@ -223,6 +229,18 @@ extension Bridge {
             Packing.setItem(messageId: try Self.int(args.first),
                             index: try Self.int(args.count > 1 ? args[1] : nil),
                             value: args.count > 2 ? (args[2] as? Bool ?? false) : false)
+        }
+        register("packing:setCount") { args in
+            Packing.setCount(messageId: try Self.int(args.first),
+                             index: try Self.int(args.count > 1 ? args[1] : nil),
+                             count: (try? Self.int(args.count > 2 ? args[2] : nil)) ?? 0)
+        }
+        register("packing:scanItem") { args in
+            Packing.scanItem(messageId: try Self.int(args.first),
+                             raw: args.count > 1 ? (args[1] as? String ?? "") : "")
+        }
+        register("packing:findOrder") { args in
+            Packing.findOrder(args.first as? String ?? "") ?? NSNull()
         }
         register("packing:setDone") { args in
             Packing.setDone(messageId: try Self.int(args.first),

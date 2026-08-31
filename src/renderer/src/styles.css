@@ -1427,6 +1427,8 @@ input:focus, textarea:focus, select:focus {
 /* ---------- Balení objednávek ---------- */
 
 .pk-modal { width: min(1240px, 96vw); height: min(880px, 92vh); display: flex; flex-direction: column; }
+/* Hledáček se otevírá nahoře nad rozhraním — okno mu uhne, ne skokem */
+.pk-modal { transition: padding-top 0.22s ease; }
 
 .pk-filters {
   display: flex;
@@ -1603,6 +1605,50 @@ input:focus, textarea:focus, select:focus {
 .pk-qty-unit { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
 .pk-qty.warn { background: #f7c948; color: #4a3403; box-shadow: 0 0 0 3px rgba(247, 201, 72, 0.25); }
 .pk-qty.warn .pk-qty-unit { color: #6b4c08; }
+/* Dokud kusy chybí, je počet žlutý; jakmile jsou všechny, zezelená */
+.pk-qty.warn.full { background: #d7f2e3; color: #14603c; box-shadow: 0 0 0 3px rgba(45, 168, 110, 0.18); }
+.pk-qty.warn.full .pk-qty-unit { color: #2b6f4e; }
+/* U víc kusů je „2/3" delší než holé číslo — ať se pole nezúží pod text */
+.pk-item.many .pk-qty { min-width: 62px; }
+.pk-item.many .pk-qty-num { font-size: 16px; }
+
+/*
+ * Krátké zvýraznění po načtení kódu. Kdo míří telefonem na štítek, potřebuje
+ * vidět, který řádek se právě pohnul — bez toho se sken od překliku nepozná.
+ */
+.pk-item.flash { box-shadow: 0 0 0 2px var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .pk-item.flash { animation: pkFlash 0.9s ease-out; }
+}
+@keyframes pkFlash {
+  from { box-shadow: 0 0 0 4px rgba(99, 91, 255, 0.45); }
+  to { box-shadow: 0 0 0 2px rgba(99, 91, 255, 0); }
+}
+
+/*
+ * Upozornění nad seznamem. Při balení je nejdražší chyba poslat jeden kus
+ * místo tří, takže hláška sedí v cestě očí — ne dole v rohu jako běžný toast.
+ */
+.pk-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #e8f7ef;
+  color: #14603c;
+  border: 1px solid #bfe6d2;
+  cursor: pointer;
+}
+.pk-note.warn {
+  background: #fff4d6;
+  color: #6b4c08;
+  border-color: #f0d492;
+}
+.pk-note svg { flex-shrink: 0; }
 
 .pk-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 14px; }
 .pk-panel { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: #fbfafd; }
@@ -2082,6 +2128,8 @@ button, kbd, label,
 [data-theme="dark"] .pk-item { background: #241f31; border-color: var(--border); }
 [data-theme="dark"] .pk-item.many { background: #2b2418; border-color: #4d4227; }
 [data-theme="dark"] .pk-item.checked { background: #1c2b23; border-color: #2c4a3c; }
+[data-theme="dark"] .pk-note { background: #1c2b23; color: #a8e0c4; border-color: #2c4a3c; }
+[data-theme="dark"] .pk-note.warn { background: #332a12; color: #f0d492; border-color: #5a4713; }
 [data-theme="dark"] .pk-check { background: #2b2738; border-color: var(--border); }
 [data-theme="dark"] .pk-photo { background: #fff; border-color: var(--border); }
 [data-theme="dark"] .pk-code, [data-theme="dark"] .pk-qty, [data-theme="dark"] .pk-hint kbd { background: #2b2738; color: var(--text-2); }
@@ -4352,6 +4400,13 @@ html[data-form-factor="phone"] .ch-app .brand { padding: 4px 12px 8px; }
 
 /* Klávesové zkratky na dotyku nedávají smysl a braly dva řádky */
 html[data-form-factor="phone"] .pk-hint { display: none; }
+/*
+ * S otevřeným hledáčkem ubere obrazovka třetinu výšky. Filtry ani adresa se
+ * při odškrtávání nečtou — schovají se, ať zbyde místo na seznam položek,
+ * který je jediné, proti čemu se v tu chvíli míří.
+ */
+.pk-modal[data-scan="on"] .pk-filters,
+.pk-modal[data-scan="on"] .pk-panels { display: none; }
 /* Jedna část přes celou obrazovku místo dvou sloupců pod sebou */
 html[data-form-factor="phone"] .pk-modal[data-pane="list"] .pk-detail { display: none; }
 html[data-form-factor="phone"] .pk-modal[data-pane="detail"] .pk-list { display: none; }

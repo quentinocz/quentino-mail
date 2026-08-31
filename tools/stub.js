@@ -199,7 +199,11 @@
     ],
     'ig:drafts': [], 'ig:jobs': [], 'ig:markets': [],
     'packing:scan': null,   // doplní se níž, až bude karta objednávky sestavená
-    'packing:setItem': [0],
+    'packing:setItem': { packed: [0], counts: { '0': 1 }, done: false, doneAt: null },
+    'packing:setCount': { packed: [0], counts: { '0': 1 }, done: false, doneAt: null },
+    'packing:scanItem': { ok: true, index: 1, code: 'QM-042', title: 'Manžetové knoflíčky Onyx',
+      count: 1, qty: 2, needMore: 1, message: 'Manžetové knoflíčky Onyx — 1/2 ks, ještě 1' },
+    'packing:findOrder': null,
     'packing:setDone': true,
     'packing:reset': true,
     'ptrans:overview': {
@@ -777,10 +781,12 @@
   });
   answers['packing:scan'] = {
     orders: [
+      // Rozdělaná: pásek hotový, z manžetových knoflíčků jeden ze dvou —
+      // právě na tomhle je vidět, že se počítá po kusech, ne po položkách
       { messageId: 1, date: new Date(Date.now() - 3 * 3600e3).toISOString(),
-        card: toPack('20260819'), packed: [0], done: false, doneAt: null },
+        card: toPack('20260819'), packed: [0], counts: { '0': 1, '1': 1 }, done: false, doneAt: null },
       { messageId: 2, date: new Date(Date.now() - 26 * 3600e3).toISOString(),
-        card: toPack('20260812'), packed: [], done: false, doneAt: null }
+        card: toPack('20260812'), packed: [], counts: {}, done: false, doneAt: null }
     ],
     statuses: ['Přijata'],
     scannedAt: new Date().toISOString()

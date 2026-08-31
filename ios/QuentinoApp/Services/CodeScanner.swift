@@ -26,7 +26,11 @@ import VisionKit
      vedle sebe víc a hledáček by si vybral ten, který uvidí dřív. Rámeček
      říká, kam mířit, a `regionOfInterest` zařídí, že se mimo něj nečte —
      takže „načetlo to sousední kód" nemá jak nastat.
-  5. **Počet se nastavuje předem.** V krabici je šest kusů, ale pípne se
+  5. **Při balení je hledáček menší a nahoře.** Odškrtává se proti seznamu
+     položek, a ten musí zůstat vidět — celoobrazovkový hledáček by ho zakryl
+     a po každém kusu by se musel zavírat. V režimu `panel` proto sedí jen
+     v horní části okna nad rozhraním a to si dole udělá místo.
+  6. **Počet se nastavuje předem.** V krabici je šest kusů, ale pípne se
      jednou — proto je pod větou „− 6 +" a říká, **kolik kusů přidá další
      načtení**. Nastavit to jednou je rychlejší než po každém pípnutí
      opravovat řádek v seznamu. Držení tlačítka počítá dál, ať se u dvaceti
@@ -41,22 +45,55 @@ enum CodeScanner {
 
     private static var controller: ScannerController?
 
-    /// Otevře hledáček. Kódy chodí do rozhraní událostí `scan:code`.
-    static func start() throws -> Bool {
+    /// Kolik bodů shora zabere hledáček v režimu panelu — bez horního okraje.
+    private static let panelBody: CGFloat = 208
+
+    /**
+     Otevře hledáček. Kódy chodí do rozhraní událostí `scan:code`.
+
+     - Parameter panel: hledáček jen v horní části okna, rozhraní pod ním
+       zůstane vidět a ovladatelné (balení objednávek).
+     - Parameter qty: počítadlo kusů pod hláškou (naskladnění). Při balení se
+       přidává po jednom, počítadlo by tam jen překáželo.
+     - Returns: `panel` = kolik bodů shora si má rozhraní nechat volných.
+       Nula znamená celoobrazovkový hledáček.
+     */
+    static func start(panel: Bool = false, qty: Bool = true) throws -> [String: Any] {
         guard available() else {
             throw BridgeError.message("Tenhle telefon čtečku kódů z fotoaparátu nepodporuje — "
                 + "kód se dá napsat rukou.")
         }
-        if controller != nil { return true }
         guard let host = MediaPicker.topViewController() else {
             throw BridgeError.message("Nedá se otevřít fotoaparát.")
         }
+        if let open = controller { return ["panel": open.reservedHeight] }
 
-        let scanner = ScannerController()
+        let scanner = ScannerController(panel: panel, showsQty: qty)
         controller = scanner
-        scanner.modalPresentationStyle = .fullScreen
-        host.present(scanner, animated: true)
-        return true
+
+        guard panel else {
+            scanner.modalPresentationStyle = .fullScreen
+            host.present(scanner, animated: true)
+            return ["panel": 0]
+        }
+
+        /*
+         Panel není samostatná obrazovka, ale patro nad rozhraním: přidá se
+         jako potomek hostitele a přilepí se nahoru. Kdyby se prezentoval
+         modálně, WKWebView pod ním by přestal brát dotyky a odškrtávat by
+         nešlo — a právě o to při balení jde.
+         */
+        let inset = host.view.safeAreaInsets.top
+        let height = inset + panelBody
+        // Musí se nastavit dřív, než se sáhne na `view` — tím se spustí
+        // `viewDidLoad`, a ten už s odsazením pod stavovým řádkem počítá
+        scanner.topInset = inset
+        host.addChild(scanner)
+        scanner.view.frame = CGRect(x: 0, y: 0, width: host.view.bounds.width, height: height)
+        scanner.view.autoresizingMask = [.flexibleWidth]
+        host.view.addSubview(scanner.view)
+        scanner.didMove(toParent: host)
+        return ["panel": Int(height)]
     }
 
     static func stop() {
@@ -83,6 +120,21 @@ private final class ScannerController: UIViewController {
     private let banner = UILabel()
     private var lastCode = ""
     private var lastAt = Date.distantPast
+
+    /// Menší hledáček přilepený nahoru, pod ním zůstane rozhraní
+    let panel: Bool
+    private let showsQty: Bool
+    /// Výška stavového řádku — v panelu se pod něj nesmí nic schovat
+    var topInset: CGFloat = 0
+    var reservedHeight: Int { panel ? Int(view.bounds.height) : 0 }
+
+    init(panel: Bool, showsQty: Bool) {
+        self.panel = panel
+        self.showsQty = showsQty && !panel
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("nepoužívá se") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -113,25 +165,45 @@ private final class ScannerController: UIViewController {
         banner.numberOfLines = 2
         banner.textAlignment = .center
         banner.textColor = .white
-        banner.font = .systemFont(ofSize: 15, weight: .semibold)
         banner.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         banner.layer.cornerRadius = 12
         banner.layer.masksToBounds = true
-        banner.text = " Kód do rámečku · níž nastav počet kusů "
+        banner.text = panel ? " Kód do rámečku " : " Kód do rámečku · níž nastav počet kusů "
+        banner.font = .systemFont(ofSize: panel ? 13 : 15, weight: .semibold)
         view.addSubview(banner)
 
         let close = UIButton(type: .system)
         close.translatesAutoresizingMaskIntoConstraints = false
         close.setTitle("Hotovo", for: .normal)
         close.setTitleColor(.white, for: .normal)
-        close.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        close.titleLabel?.font = .systemFont(ofSize: panel ? 14 : 17, weight: .semibold)
         close.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        close.layer.cornerRadius = 22
+        close.layer.cornerRadius = panel ? 15 : 22
         close.addTarget(self, action: #selector(done), for: .touchUpInside)
         view.addSubview(close)
 
         makeReticle()
-        makeQtyBar()
+        if showsQty { makeQtyBar() }
+
+        /*
+         Panel má jen tři patra: hlášku dole, rámeček uprostřed a „Hotovo"
+         vpravo nahoře vedle něj. Počítadlo kusů tu není — při balení se
+         přidává po jednom kusu, jak se který naskenuje.
+         */
+        if panel {
+            NSLayoutConstraint.activate([
+                banner.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 10),
+                banner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                banner.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.94),
+                banner.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
+                banner.heightAnchor.constraint(greaterThanOrEqualToConstant: 34),
+                close.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
+                close.topAnchor.constraint(equalTo: view.topAnchor, constant: topInset + 8),
+                close.widthAnchor.constraint(equalToConstant: 84),
+                close.heightAnchor.constraint(equalToConstant: 30)
+            ])
+            return
+        }
 
         NSLayoutConstraint.activate([
             banner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -179,12 +251,21 @@ private final class ScannerController: UIViewController {
      */
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        let side = min(view.bounds.width * 0.72, 300)
-        let rect = CGRect(
-            x: (view.bounds.width - side) / 2,
-            y: view.bounds.midY - side / 2 - 40,
-            width: side, height: side
-        )
+
+        /*
+         V panelu je místa málo: rámeček se odvozuje od jeho výšky, ne od šířky
+         okna, a sedí hned pod horním okrajem — pod ním zbývá pruh na hlášku.
+         */
+        let side = panel
+            ? min(view.bounds.height - topInset - 60, view.bounds.width * 0.55)
+            : min(view.bounds.width * 0.72, 300)
+        let rect = panel
+            ? CGRect(x: (view.bounds.width - side) / 2, y: topInset + 12, width: side, height: side)
+            : CGRect(
+                x: (view.bounds.width - side) / 2,
+                y: view.bounds.midY - side / 2 - 40,
+                width: side, height: side
+            )
         reticle.frame = rect
         dimming.frame = view.bounds
 
@@ -198,7 +279,7 @@ private final class ScannerController: UIViewController {
         view.bringSubviewToFront(dimming)
         view.bringSubviewToFront(reticle)
         view.bringSubviewToFront(banner)
-        view.bringSubviewToFront(qtyBar)
+        if showsQty { view.bringSubviewToFront(qtyBar) }
         for sub in view.subviews where sub is UIButton { view.bringSubviewToFront(sub) }
     }
 
@@ -293,6 +374,7 @@ private final class ScannerController: UIViewController {
      a telefon by nepřetržitě drnčel.
      */
     func setCount(_ value: Int) {
+        guard showsQty else { return }
         qtyLabel.text = String(max(1, value))
     }
 
@@ -308,7 +390,14 @@ private final class ScannerController: UIViewController {
         repeatTimer = nil
         scanner?.stopScanning()
         CodeScanner.forget()
-        dismiss(animated: true)
+        if panel {
+            // Panel je patro nad rozhraním, ne obrazovka — odchází se odebráním
+            willMove(toParent: nil)
+            view.removeFromSuperview()
+            removeFromParent()
+        } else {
+            dismiss(animated: true)
+        }
         Bridge.notify("scan:closed")
     }
 }

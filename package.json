@@ -13,7 +13,7 @@
     "postinstall": "node scripts/postinstall.mjs",
     "clean": "node scripts/clean.mjs",
     "check": "node scripts/preflight.mjs env",
-    "typecheck": "tsc -p tsconfig.main.json --outDir dist/ptdist && tsc -p src/renderer/tsconfig.json --noEmit && node scripts/preflight.mjs channels && node tools/migrate-test.cjs && node tools/ptrans/detect-test.cjs && node tools/ptrans/seourl-test.cjs && node tools/ptrans/nosource-test.cjs && node tools/ptrans/tidy-test.cjs && node tools/ptrans/source-test.cjs && node tools/ptrans/facts-test.cjs && node tools/catalog-test.cjs && node tools/upstock-test.cjs && node tools/zpl-test.cjs",
+    "typecheck": "tsc -p tsconfig.main.json --outDir dist/ptdist && tsc -p src/renderer/tsconfig.json --noEmit && node scripts/preflight.mjs channels && node tools/migrate-test.cjs && node tools/ptrans/detect-test.cjs && node tools/ptrans/seourl-test.cjs && node tools/ptrans/nosource-test.cjs && node tools/ptrans/tidy-test.cjs && node tools/ptrans/source-test.cjs && node tools/ptrans/facts-test.cjs && node tools/catalog-test.cjs && node tools/upstock-test.cjs && node tools/zpl-test.cjs && node tools/packing-test.cjs",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build": "npm run clean && npm run build:main && npm run build:renderer",
