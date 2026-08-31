@@ -1428,6 +1428,54 @@ export interface StockinPlanRow {
   moved: boolean;
 }
 
+/**
+ * Nastavení pro štítkovou tiskárnu (role, ne archy).
+ *
+ * Rozměr je v milimetrech a rozlišení v dpi, protože právě tak to má
+ * tiskárna napsané na krabici — přepočet na body si udělá aplikace.
+ */
+export interface RollLabel {
+  widthMm: number;
+  heightMm: number;
+  /** 203 dpi je běžná, 300 dpi mívají dražší modely */
+  dpi: 203 | 300;
+  /** Velikost QR v milimetrech; zbytek štítku patří textu */
+  qrMm: number;
+  /** Výška písma pod kódem v milimetrech */
+  textMm: number;
+  /** Tisknout i název produktu */
+  withTitle: boolean;
+}
+
+/** Do čeho se štítky vyvezou. */
+export type LabelFormat = 'pdf' | 'zpl' | 'csv';
+
+/**
+ * Co se na štítek z role vejde a kam se to položí.
+ *
+ * Jeden výpočet pro rozhraní i pro sazbu — rozhraní ukazuje `qrMm` dopředu,
+ * sazba používá souřadnice. Dvě kopie by se rozešly a text by přetekl.
+ */
+export interface ZplPlan {
+  /** Zvětšení QR modulu; ZPL bere 1 až 10 */
+  magnification: number;
+  /** Jak velké QR z toho doopravdy vyjde */
+  qrMm: number;
+  qrDots: number;
+  widthDots: number;
+  heightDots: number;
+  qrX: number;
+  qrY: number;
+  codeY: number;
+  codeH: number;
+  nameY: number;
+  nameH: number;
+  /** QR i s textem se do štítku nevešly a muselo se zmenšit */
+  shrunk: boolean;
+  /** Ani po zmenšení není QR na co číst */
+  tooSmall: boolean;
+}
+
 /** Nastavení tisku štítků s kódem. */
 export interface LabelLayout {
   /** Sloupců a řádků na stránku A4 */

@@ -404,6 +404,26 @@ export function listProducts(q: ProductQuery = {}): ProductPage {
 }
 
 /** Seznam kategorií s počty — levý filtr v prohlížeči produktů. */
+/**
+ * Kódy všech produktů podle filtru — pro „vybrat vše" napříč stránkami.
+ *
+ * Stránka jich ukazuje šedesát, ale štítky se tisknou pro celou kategorii.
+ * Vrací se jen kódy, ne celé produkty: dvanáct set řádků s obrázky a popisy
+ * by přes hranici procesů putovalo zbytečně, když se z nich stejně použije
+ * jediný sloupec.
+ */
+export function productCodes(q: ProductQuery = {}, cap = 2000): string[] {
+  const page = listProducts({ ...q, limit: 1, offset: 0 });
+  const rows: string[] = [];
+  const step = 200;
+  for (let offset = 0; offset < Math.min(page.total, cap); offset += step) {
+    const chunk = listProducts({ ...q, limit: step, offset });
+    rows.push(...chunk.items.map(one => one.code));
+    if (chunk.items.length === 0) break;
+  }
+  return rows;
+}
+
 export function productFacets(): ProductFacets {
   const d = getDb();
   const rows = d.prepare("SELECT categories, category FROM products").all() as any[];

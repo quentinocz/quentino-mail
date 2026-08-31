@@ -3,7 +3,7 @@ import path from 'path';
 import { app, BrowserWindow, dialog } from 'electron';
 import QRCode from 'qrcode';
 import { getDb } from './db';
-import { LabelLayout } from '../shared/types';
+import { LabelLayout, RollLabel, ZplPlan } from '../shared/types';
 import { labelGeometry } from '../shared/labels';
 
 /**
@@ -190,4 +190,171 @@ export async function labelsToPdf(items: LabelItem[], layout: LabelLayout):
   } finally {
     if (!win.isDestroyed()) win.destroy();
   }
+}
+
+/* ---------- štítkové tiskárny (role, ne archy) ---------- */
+
+/**
+ * Proč dva různé vývozy a ne jeden.
+ *
+ * **Zebra** rozumí ZPL — prostému textu, který se dá poslat na tiskárnu tak,
+ * jak je. Štítek se v něm popíše celý: kam přijde QR, jak velké, co se pod
+ * něj napíše. Proto pro ni umíme vygenerovat hotový soubor.
+ *
+ * **Brother** takhle univerzální textový jazyk nemá. Modely P-touch i QL se
+ * ovládají binárním protokolem, který se u každé řady liší, a obrázek se do
+ * nich posílá jako rastr; obvyklá cesta je proto P-touch Editor, kde si
+ * člověk štítek jednou nakreslí a data do něj **naslučuje z tabulky**.
+ * Vyvážíme tedy CSV v podobě, kterou Editor (a stejně tak ZebraDesigner)
+ * umí načíst. Předstírat, že „umíme tisknout na Brother", by znamenalo
+ * napsat ovladač pro každou řadu zvlášť.
+ */
+
+export const DEFAULT_ROLL: RollLabel = {
+  widthMm: 50,
+  heightMm: 30,
+  dpi: 203,
+  qrMm: 18,
+  textMm: 3.5,
+  withTitle: false
+};
+
+/** Body na milimetr — 203 dpi je 8 bodů, 300 dpi necelých 12. */
+function dots(mm: number, dpi: number): number {
+  return Math.round((mm * dpi) / 25.4);
+}
+
+/**
+ * `^` a `~` jsou v ZPL řídicí znaky.
+ *
+ * Kódy produktů je neobsahují, ale vyvezený soubor jde na tiskárnu bez
+ * dalšího čtení — a jeden takový znak v datech by z něj udělal příkaz.
+ */
+function zplSafe(text: string): string {
+  return String(text ?? '').replace(/[\^~]/g, '-').replace(/[\r\n]+/g, ' ').trim();
+}
+
+/**
+ * Kolik se toho na štítek vejde — a kam se to položí.
+ *
+ * Jeden výpočet pro rozvahu i pro sazbu. Když je počítal každý zvlášť,
+ * rozešly se: rozvaha si na text nechávala jinou rezervu, než jakou sazba
+ * doopravdy potřebovala, a na malém štítku text přetekl přes spodní okraj.
+ *
+ * QR se navíc v ZPL neškáluje na milimetry, ale násobkem modulu — a modul je
+ * celé číslo bodů. Skutečná velikost proto skáče po krocích a je poctivější
+ * ji spočítat a ukázat, než slíbit 18 mm a vytisknout 15.
+ */
+export function zplPlan(roll: RollLabel): ZplPlan {
+  const dpi = roll.dpi;
+  const widthDots = dots(roll.widthMm, dpi);
+  const heightDots = dots(roll.heightMm, dpi);
+
+  const top = dots(1.5, dpi);
+  const gap = dots(1, dpi);
+  const codeH = dots(roll.textMm, dpi);
+  const nameGap = dots(0.6, dpi);
+  const nameH = roll.withTitle ? Math.max(dots(2.2, dpi), Math.round(codeH * 0.75)) : 0;
+  const bottomPad = dots(0.8, dpi);
+  const textBlock = gap + codeH + (roll.withTitle ? nameGap + nameH : 0) + bottomPad;
+
+  // Nejmenší QR verze má 21 modulů; s rezervou na delší kódy počítáme s 25
+  const MODULES = 25;
+  const room = Math.min(widthDots - dots(3, dpi), heightDots - top - textBlock);
+  const wanted = dots(roll.qrMm, dpi);
+  const magnification = Math.max(1, Math.min(10, Math.floor(Math.min(wanted, room) / MODULES)));
+  const qrDots = magnification * MODULES;
+  const qrMm = Math.round((qrDots * 25.4 / dpi) * 10) / 10;
+
+  const codeY = top + qrDots + gap;
+  return {
+    magnification,
+    qrDots,
+    qrMm,
+    widthDots,
+    heightDots,
+    qrX: Math.max(0, Math.round((widthDots - qrDots) / 2)),
+    qrY: top,
+    codeY,
+    codeH,
+    nameY: codeY + codeH + nameGap,
+    nameH,
+    shrunk: qrDots < wanted - 1,
+    // Pod deset milimetrů běžná čtečka na kód o osmi znacích nestačí
+    tooSmall: qrMm < 10 || qrDots > room
+  };
+}
+
+/**
+ * ZPL pro Zebru — jeden štítek na položku, `^PQ` na počet kusů.
+ *
+ * Souřadnice se počítají od levého horního rohu v bodech a berou se
+ * z rozvahy, aby se sazba s tím, co rozhraní ukazuje, nemohla rozejít.
+ */
+export function zplLabels(items: LabelItem[], roll: RollLabel): string {
+  const plan = zplPlan(roll);
+  const out: string[] = [];
+
+  for (const item of items) {
+    const code = zplSafe(item.code);
+    const name = zplSafe(item.label || item.title).slice(0, 40);
+
+    out.push([
+      '^XA',
+      `^PW${plan.widthDots}`,
+      `^LL${plan.heightDots}`,
+      '^LH0,0',
+      '^CI28',                                   // UTF-8, jinak by háčky vyšly jako otazníky
+      `^FO${plan.qrX},${plan.qrY}^BQN,2,${plan.magnification}^FDLA,${code}^FS`,
+      // Kód pod QR: ^FB zarovná na střed přes celou šířku štítku
+      `^FO0,${plan.codeY}^A0N,${plan.codeH},${Math.round(plan.codeH * 0.6)}`
+      + `^FB${plan.widthDots},1,0,C,0^FD${code}^FS`,
+      ...(roll.withTitle && name
+        ? [`^FO0,${plan.nameY}^A0N,${plan.nameH},${Math.round(plan.nameH * 0.6)}`
+          + `^FB${plan.widthDots},1,0,C,0^FD${name}^FS`]
+        : []),
+      `^PQ${Math.max(1, item.count)}`,
+      '^XZ'
+    ].join('\n'));
+  }
+
+  return out.join('\n') + '\n';
+}
+
+/**
+ * CSV pro P-touch Editor a ZebraDesigner.
+ *
+ * Středník a BOM, protože obojí se otevírá i v Excelu a ten bez nich rozhází
+ * sloupce i diakritiku. Jeden řádek na štítek — a `pocet` zvlášť, aby si
+ * v šabloně šlo nastavit, kolikrát se má vytisknout.
+ */
+export function labelsCsv(items: LabelItem[]): string {
+  const cell = (value: string) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const lines = [['kod', 'nazev', 'varianta', 'pocet'].join(';')];
+  for (const item of items) {
+    lines.push([
+      cell(item.code), cell(item.title), cell(item.label), String(Math.max(1, item.count))
+    ].join(';'));
+  }
+  return '﻿' + lines.join('\r\n') + '\r\n';
+}
+
+/** Uloží vývoz pro štítkovou tiskárnu tam, kam uživatel řekne. */
+export async function labelsExport(kind: 'zpl' | 'csv', items: LabelItem[], roll: RollLabel):
+  Promise<{ path: string; labels: number } | null> {
+  const total = items.reduce((sum, one) => sum + Math.max(1, one.count), 0);
+  if (total === 0) throw new Error('Není co tisknout — nejdřív vyber produkty.');
+
+  const body = kind === 'zpl' ? zplLabels(items, roll) : labelsCsv(items);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+    defaultPath: path.join(app.getPath('downloads'), `stitky-${stamp}.${kind}`),
+    filters: kind === 'zpl'
+      ? [{ name: 'ZPL pro Zebru', extensions: ['zpl', 'txt'] }]
+      : [{ name: 'CSV pro šablonu štítku', extensions: ['csv'] }]
+  });
+  if (res.canceled || !res.filePath) return null;
+
+  fs.writeFileSync(res.filePath, body, 'utf8');
+  return { path: res.filePath, labels: total };
 }

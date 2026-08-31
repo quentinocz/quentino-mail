@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ProductHit, ProductDetail, StockinSession, StockinItem, StockinPlanRow, LabelLayout,
-  CatalogSuggestion
+  CatalogSuggestion, RollLabel, LabelFormat, ZplPlan
 } from '@shared/types';
 import { labelGeometry } from '@shared/labels';
 import { api } from '../api';
@@ -108,6 +108,28 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
       setStockAt(out.at);
       toast(`Zásoby aktuální — ${out.products} produktů, ${out.variants} variant.`);
       load();
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Vybrat všechno, co odpovídá filtru — ne jen to, co je vidět.
+   *
+   * Kódy se dotahují z databáze, protože stránka jich drží šedesát. Načtený
+   * výběr se s tím dosavadním sloučí: kdo si napřed naklikal pár kusů a pak
+   * přidá celou kategorii, o ty první nepřijde.
+   */
+  const pickAll = async () => {
+    setBusy(true);
+    try {
+      const codes = await api.catalog.codes({
+        query, category: category || undefined, inStockOnly: inStock, sort: 'title'
+      });
+      setPicked(prev => new Set([...prev, ...codes]));
+      toast(`Vybráno ${codes.length} produktů.`);
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
@@ -224,8 +246,29 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
             </div>
 
             <div className="modal-foot">
-              <span className="ig-muted">{total} produktů</span>
+              <span className="ig-muted">
+                {total} produktů{picked.size > 0 ? ` · vybráno ${picked.size}` : ''}
+              </span>
               <span style={{ flex: 1 }} />
+              {/*
+                * Štítky se tisknou po kategoriích, ne po jednom. Stránka jich
+                * ukazuje šedesát, filtr jich může mít stovky — obojí musí jít
+                * vybrat jedním klepnutím.
+                */}
+              {!phone && (
+                <>
+                  <button className="btn ghost" onClick={() =>
+                    setPicked(prev => new Set([...prev, ...items.map(one => one.code)]))}>
+                    Vybrat stránku
+                  </button>
+                  <button className="btn ghost" disabled={busy || total === 0} onClick={pickAll}>
+                    Vybrat vše ({total})
+                  </button>
+                  {picked.size > 0 && (
+                    <button className="btn ghost" onClick={() => setPicked(new Set())}>Zrušit výběr</button>
+                  )}
+                </>
+              )}
               <button className="btn ghost" disabled={offset === 0}
                 onClick={() => setOffset(Math.max(0, offset - 60))}>Předchozí</button>
               <button className="btn ghost" disabled={offset + 60 >= total}
@@ -791,9 +834,36 @@ function savedLayout(): LabelLayout {
   }
 }
 
+const ROLL_KEY = 'quentino-labels-roll';
+
+const BASE_ROLL: RollLabel = {
+  widthMm: 50, heightMm: 30, dpi: 203, qrMm: 18, textMm: 3.5, withTitle: false
+};
+
+function savedRoll(): RollLabel {
+  try {
+    const raw = localStorage.getItem(ROLL_KEY);
+    return raw ? { ...BASE_ROLL, ...JSON.parse(raw) } : BASE_ROLL;
+  } catch {
+    return BASE_ROLL;
+  }
+}
+
 function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
   const toast = useToast();
   const [layout, setLayout] = useState<LabelLayout>(savedLayout);
+  /*
+   * Do čeho se tiskne.
+   *
+   * A4 je archy do obyčejné tiskárny. Zebra rozumí ZPL a dostane hotový
+   * soubor. Brother univerzální textový jazyk nemá — každá řada se ovládá
+   * jiným binárním protokolem — takže se pro něj vyváží CSV, které si
+   * P-touch Editor naslučuje do vlastní šablony. Stejně to bere
+   * i ZebraDesigner.
+   */
+  const [format, setFormat] = useState<LabelFormat>('pdf');
+  const [roll, setRoll] = useState<RollLabel>(savedRoll);
+  const [plan, setPlan] = useState<ZplPlan | null>(null);
   const [perItem, setPerItem] = useState(1);
   const [items, setItems] = useState<{ code: string; title: string; label: string; count: number }[]>([]);
   const [html, setHtml] = useState('');
@@ -808,7 +878,18 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
     api.catalog.labelPreview(items, layout).then(setHtml).catch(() => {});
   }, [items, layout]);
 
+  useEffect(() => {
+    if (format !== 'zpl') return;
+    api.catalog.rollPlan(roll).then(setPlan).catch(() => setPlan(null));
+  }, [format, roll]);
+
   const geom = labelGeometry(layout);
+
+  const setRollValue = (patch: Partial<RollLabel>) => setRoll(prev => {
+    const next = { ...prev, ...patch };
+    try { localStorage.setItem(ROLL_KEY, JSON.stringify(next)); } catch { /* nevadí */ }
+    return next;
+  });
 
   const set = (patch: Partial<LabelLayout>) => setLayout(prev => {
     const next = { ...prev, ...patch };
@@ -820,11 +901,16 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
 
   const print = async () => {
     try {
-      const out = await api.catalog.labelPdf(items, layout);
-      if (out) {
-        toast(`Uloženo: ${plural(out.labels, 'štítek', 'štítky', 'štítků')} na `
-          + plural(out.pages, 'straně', 'stranách', 'stranách') + '.');
+      if (format === 'pdf') {
+        const out = await api.catalog.labelPdf(items, layout);
+        if (out) {
+          toast(`Uloženo: ${plural(out.labels, 'štítek', 'štítky', 'štítků')} na `
+            + plural(out.pages, 'straně', 'stranách', 'stranách') + '.');
+        }
+        return;
       }
+      const out = await api.catalog.exportLabels(format, items, roll);
+      if (out) toast(`Uloženo: ${plural(out.labels, 'štítek', 'štítky', 'štítků')}.`);
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -853,53 +939,173 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
           </div>
         ) : (
           <>
-            <div className="kat-label-form">
-              {num('Sloupců', 'cols', 1, 8)}
-              {num('Řádků', 'rows', 1, 14)}
-              {num('QR', 'qr', 8, 60, 'mm')}
-              {num('Mezera', 'gap', 0, 20, 'mm')}
-              {num('Okraj shora', 'marginTop', 0, 30, 'mm')}
-              {num('Okraj po stranách', 'marginSide', 0, 30, 'mm')}
-              {num('Písmo', 'fontSize', 5, 16, 'pt')}
-              <label className="kat-num">
-                <span>Kusů na produkt</span>
-                <input type="number" min={1} max={50} value={perItem}
-                  onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
-              </label>
-              <label className="kat-check">
-                <input type="checkbox" checked={layout.withTitle}
-                  onChange={e => set({ withTitle: e.target.checked })} />
-                psát i název
-              </label>
-              <label className="kat-check">
-                <input type="checkbox" checked={layout.cutLines}
-                  onChange={e => set({ cutLines: e.target.checked })} />
-                linky na střih
-              </label>
+            <div className="kat-formats">
+              <button className={format === 'pdf' ? 'on' : ''} onClick={() => setFormat('pdf')}>
+                <b>Archy A4</b><small>obyčejná tiskárna, PDF</small>
+              </button>
+              <button className={format === 'zpl' ? 'on' : ''} onClick={() => setFormat('zpl')}>
+                <b>Zebra (ZPL)</b><small>soubor rovnou na tiskárnu</small>
+              </button>
+              <button className={format === 'csv' ? 'on' : ''} onClick={() => setFormat('csv')}>
+                <b>CSV do šablony</b><small>Brother P-touch, ZebraDesigner</small>
+              </button>
             </div>
 
-            {/*
-              * Rozměr štítku se počítá dopředu a říká se nahlas. Do políčka
-              * 46 × 25 mm se QR o 22 mm i s kódem a názvem nevejde — dřív se
-              * to prostě ořízlo a přišlo se na to až po vytištění archu.
-              */}
-            <div className={`kat-fit ${geom.tooSmall ? 'bad' : geom.shrunk ? 'warn' : ''}`}>
-              <b>Štítek {geom.cellW} × {geom.cellH} mm</b>
-              <span>· {perPage} na stránku</span>
-              {geom.tooSmall && (
-                <span>· QR vyšlo na {geom.qr} mm — na to čtečka nestačí.
-                  Uber řádky nebo sloupce, případně vypni název.</span>
-              )}
-              {!geom.tooSmall && geom.shrunk && (
-                <span>· QR se zmenšilo na {geom.qr} mm, aby se vešlo i s textem.</span>
-              )}
-            </div>
+            {format === 'pdf' && (
+              <>
+                <div className="kat-label-form">
+                  {num('Sloupců', 'cols', 1, 8)}
+                  {num('Řádků', 'rows', 1, 14)}
+                  {num('QR', 'qr', 8, 60, 'mm')}
+                  {num('Mezera', 'gap', 0, 20, 'mm')}
+                  {num('Okraj shora', 'marginTop', 0, 30, 'mm')}
+                  {num('Okraj po stranách', 'marginSide', 0, 30, 'mm')}
+                  {num('Písmo', 'fontSize', 5, 16, 'pt')}
+                  <label className="kat-num">
+                    <span>Kusů na produkt</span>
+                    <input type="number" min={1} max={50} value={perItem}
+                      onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
+                  </label>
+                  <label className="kat-check">
+                    <input type="checkbox" checked={layout.withTitle}
+                      onChange={e => set({ withTitle: e.target.checked })} />
+                    psát i název
+                  </label>
+                  <label className="kat-check">
+                    <input type="checkbox" checked={layout.cutLines}
+                      onChange={e => set({ cutLines: e.target.checked })} />
+                    linky na střih
+                  </label>
+                </div>
+
+                {/*
+                  * Rozměr štítku se počítá dopředu a říká se nahlas. Do políčka
+                  * 46 × 25 mm se QR o 22 mm i s kódem a názvem nevejde — dřív se
+                  * to prostě ořízlo a přišlo se na to až po vytištění archu.
+                  */}
+                <div className={`kat-fit ${geom.tooSmall ? 'bad' : geom.shrunk ? 'warn' : ''}`}>
+                  <b>Štítek {geom.cellW} × {geom.cellH} mm</b>
+                  <span>· {perPage} na stránku</span>
+                  {geom.tooSmall && (
+                    <span>· QR vyšlo na {geom.qr} mm — na to čtečka nestačí.
+                      Uber řádky nebo sloupce, případně vypni název.</span>
+                  )}
+                  {!geom.tooSmall && geom.shrunk && (
+                    <span>· QR se zmenšilo na {geom.qr} mm, aby se vešlo i s textem.</span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {format === 'zpl' && (
+              <>
+                <div className="kat-label-form">
+                  <label className="kat-num">
+                    <span>Šířka štítku</span>
+                    <input type="number" min={15} max={150} value={roll.widthMm}
+                      onChange={e => setRollValue({ widthMm: Math.max(15, Number(e.target.value) || 15) })} />
+                    <small>mm</small>
+                  </label>
+                  <label className="kat-num">
+                    <span>Výška štítku</span>
+                    <input type="number" min={10} max={150} value={roll.heightMm}
+                      onChange={e => setRollValue({ heightMm: Math.max(10, Number(e.target.value) || 10) })} />
+                    <small>mm</small>
+                  </label>
+                  <label className="kat-num">
+                    <span>Rozlišení</span>
+                    <select value={roll.dpi}
+                      onChange={e => setRollValue({ dpi: Number(e.target.value) === 300 ? 300 : 203 })}>
+                      <option value={203}>203 dpi</option>
+                      <option value={300}>300 dpi</option>
+                    </select>
+                  </label>
+                  <label className="kat-num">
+                    <span>QR</span>
+                    <input type="number" min={8} max={60} value={roll.qrMm}
+                      onChange={e => setRollValue({ qrMm: Math.max(8, Number(e.target.value) || 8) })} />
+                    <small>mm</small>
+                  </label>
+                  <label className="kat-num">
+                    <span>Písmo</span>
+                    <input type="number" min={2} max={10} step={0.5} value={roll.textMm}
+                      onChange={e => setRollValue({ textMm: Math.max(2, Number(e.target.value) || 2) })} />
+                    <small>mm</small>
+                  </label>
+                  <label className="kat-num">
+                    <span>Kusů na produkt</span>
+                    <input type="number" min={1} max={50} value={perItem}
+                      onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
+                  </label>
+                  <label className="kat-check">
+                    <input type="checkbox" checked={roll.withTitle}
+                      onChange={e => setRollValue({ withTitle: e.target.checked })} />
+                    psát i název
+                  </label>
+                </div>
+
+                {plan && (
+                  <div className={`kat-fit ${plan.tooSmall ? 'bad' : plan.shrunk ? 'warn' : ''}`}>
+                    <b>QR {plan.qrMm} mm</b>
+                    <span>· {plan.widthDots} × {plan.heightDots} bodů při {roll.dpi} dpi</span>
+                    {plan.tooSmall && (
+                      <span>· na to čtečka nestačí. Vezmi větší štítek, zmenši písmo
+                        nebo vypni název.</span>
+                    )}
+                    {!plan.tooSmall && plan.shrunk && (
+                      <span>· zmenšeno, aby zbylo místo na text. ZPL neškáluje po
+                        milimetrech, ale po celých bodech mřížky.</span>
+                    )}
+                  </div>
+                )}
+
+                <div className="kat-note">
+                  <div>
+                    <b>Soubor jde na tiskárnu, jak je.</b>
+                    <div className="ig-muted">
+                      Uložený <code>.zpl</code> se pošle na Zebru přímo — přes její webové rozhraní,
+                      sdílenou tiskárnu, nebo z terminálu <code>lpr -o raw</code>. Nic se
+                      nepřevádí, takže co je v souboru, to se vytiskne.
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {format === 'csv' && (
+              <>
+                <div className="kat-label-form">
+                  <label className="kat-num">
+                    <span>Kusů na produkt</span>
+                    <input type="number" min={1} max={50} value={perItem}
+                      onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
+                  </label>
+                </div>
+                <div className="kat-note">
+                  <div>
+                    <b>Pro Brother a pro vlastní šablony.</b>
+                    <div className="ig-muted">
+                      Brother nemá jazyk, který by šel poslat na tiskárnu jako text —
+                      P-touch i QL se ovládají binárně a u každé řady jinak. Obvyklá
+                      cesta je proto nakreslit si štítek jednou v P-touch Editoru
+                      a data do něj naslučovat z tabulky. Tohle CSV je přesně na to:
+                      sloupce <code>kod</code>, <code>nazev</code>, <code>varianta</code>,
+                      <code> pocet</code>. Stejně ho vezme i ZebraDesigner.
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Náhled je tentýž dokument, jaký půjde do PDF — ne přiblížení
-                ani schéma. Co je vidět, to se vytiskne. */}
-            <div className="kat-preview">
-              <iframe title="Náhled štítků" srcDoc={html} />
-            </div>
+                ani schéma. Co je vidět, to se vytiskne. Rolové formáty náhled
+                nemají: štítek vysází tiskárna, ne my, a nakreslený obrázek by
+                sliboval přesnost, kterou nemáme jak zaručit. */}
+            {format === 'pdf' && (
+              <div className="kat-preview">
+                <iframe title="Náhled štítků" srcDoc={html} />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -907,13 +1113,17 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
       <div className="modal-foot">
         <span className="ig-muted">
           {codes.length === 0 ? 'Nic není vybráno'
-            : `${plural(totalLabels, 'štítek', 'štítky', 'štítků')} · ${perPage} na stránku · `
-              + plural(Math.ceil(totalLabels / perPage), 'strana', 'strany', 'stran')}
+            : format === 'pdf'
+              ? `${plural(totalLabels, 'štítek', 'štítky', 'štítků')} · ${perPage} na stránku · `
+                + plural(Math.ceil(totalLabels / perPage), 'strana', 'strany', 'stran')
+              : `${plural(totalLabels, 'štítek', 'štítky', 'štítků')} `
+                + `z ${plural(codes.length, 'produktu', 'produktů', 'produktů')}`}
         </span>
         <span style={{ flex: 1 }} />
         {codes.length > 0 && <button className="btn ghost" onClick={onClear}>Zrušit výběr</button>}
         <button className="btn primary" onClick={print} disabled={items.length === 0}>
-          <Icon name="download" size={13} /> Uložit PDF
+          <Icon name="download" size={13} />
+          {format === 'pdf' ? 'Uložit PDF' : format === 'zpl' ? 'Uložit ZPL' : 'Uložit CSV'}
         </button>
       </div>
     </>

@@ -276,6 +276,19 @@ await page.evaluate(() => {
 await page.waitForTimeout(300);
 await click('.kat-tabs button', { hasText: 'Štítky' });
 await overflow('štítky — rozvržení a náhled'); await snap('32-stitky');
+
+// Vývoz pro štítkovou tiskárnu: Zebra dostane hotový soubor, Brother CSV
+// do vlastní šablony — jazyk, který by šel poslat rovnou, totiž nemá
+await click('.kat-formats button', { hasText: 'Zebra' });
+await overflow('štítky — Zebra'); await snap('33-stitky-zebra');
+await click('.kat-formats button', { hasText: 'CSV' });
+await overflow('štítky — CSV'); await snap('34-stitky-csv');
+await click('.kat-formats button', { hasText: 'Archy A4' });
+
+// Hromadný výběr: stránka jich ukazuje šedesát, filtr může mít stovky
+await click('.kat-tabs button', { hasText: 'Produkty' });
+await click('.modal-foot .btn.ghost', { hasText: 'Vybrat vše' });
+await overflow('katalog — vybráno vše'); await snap('35-vybrat-vse');
 await click('.modal-head .icon-btn');
 await page.waitForTimeout(300);
 

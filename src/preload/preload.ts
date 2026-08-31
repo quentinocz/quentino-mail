@@ -77,9 +77,10 @@ const ALLOWED_INVOKE = [
   'articles:review', 'articles:dismissLink', 'articles:testUrl',
   'articles:checkProgress', 'articles:stopCheck', 'articles:fix', 'articles:fixAll',
   'articles:urlmap', 'articles:learnLinks', 'articles:saveUrlPair', 'articles:deleteUrlPair',
-  // Katalog, štítky a naskladnění (naskladnění) — jen na počítači
+  // Katalog, štítky a naskladnění — jen na počítači
   'catalog:detail', 'catalog:scan', 'catalog:suggest', 'catalog:refreshStock', 'catalog:stockAt',
-  'labels:items', 'labels:preview', 'labels:pdf',
+  'labels:items', 'labels:preview', 'labels:pdf', 'labels:roll', 'labels:export',
+  'catalog:codes',
   'stockin:list', 'stockin:create', 'stockin:open', 'stockin:scan', 'stockin:qty',
   'stockin:rename', 'stockin:delete', 'stockin:plan', 'stockin:sendWindow',
   'stockin:sendApi', 'stockin:apiCheck', 'stockin:confirm',

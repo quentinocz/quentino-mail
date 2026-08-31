@@ -13,14 +13,15 @@ import {
   listPersons, savePerson, deletePerson, exportConfig, importConfig, configNeedsPassphrase
 } from './settings';
 import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets,
-  productDetail, findByCode, suggestForStockin, refreshStock, stockSyncedAt } from './products';
+  productDetail, findByCode, suggestForStockin, productCodes, refreshStock, stockSyncedAt } from './products';
 import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
 import { scanOld, freeUp } from './cleanup';
 import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renameSession,
   deleteSession, planOf, emitChanged as emitStockin } from './stockin';
 import { sendViaWindow, sendViaApi, apiCanWriteStock, confirmSent } from './upstock';
-import { labelItems, labelsToPdf, labelPreview, DEFAULT_LAYOUT } from './labels';
+import { labelItems, labelsToPdf, labelPreview, labelsExport, zplPlan,
+  DEFAULT_LAYOUT, DEFAULT_ROLL } from './labels';
 import { summarize, generateReply, improveText, translateIncoming, translateText, categorizeUncategorized, getAiUsage, generateDigest } from './ai';
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
@@ -306,6 +307,7 @@ export function registerIpc() {
   handle('catalog:detail', (code: string) => productDetail(code));
   handle('catalog:scan', (raw: string) => findByCode(raw));
   handle('catalog:suggest', (query: string, limit?: number) => suggestForStockin(query ?? '', limit ?? 8));
+  handle('catalog:codes', (query: any) => productCodes(query ?? {}));
   handle('catalog:refreshStock', async () => {
     const out = await refreshStock();
     emit('products:changed', {});
@@ -317,6 +319,9 @@ export function registerIpc() {
   handle('labels:items', (codes: string[], perItem?: number) => labelItems(codes ?? [], perItem ?? 1));
   handle('labels:pdf', (items: any[], layout: any) =>
     labelsToPdf(items ?? [], { ...DEFAULT_LAYOUT, ...(layout ?? {}) }));
+  handle('labels:roll', (roll: any) => zplPlan({ ...DEFAULT_ROLL, ...(roll ?? {}) }));
+  handle('labels:export', (kind: 'zpl' | 'csv', items: any[], roll: any) =>
+    labelsExport(kind === 'csv' ? 'csv' : 'zpl', items ?? [], { ...DEFAULT_ROLL, ...(roll ?? {}) }));
 
   /* ---------- Naskladnění ---------- */
   handle('stockin:list', () => listSessions());
