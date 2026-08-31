@@ -215,7 +215,13 @@ export function importFeedXml(xml: string): number {
   });
   replaceAll();
   setSetting('productFeedSync', new Date().toISOString());
-  setSetting('productFeedSchema', '2');
+  /*
+   * Číslo podoby katalogu. Zvedá se pokaždé, když import začne plnit něco,
+   * co dřív neexistovalo — jinak by se u toho, kdo už katalog jednou stažený
+   * má, nové sloupce ani tabulky nikdy nenaplnily a v aplikaci by prostě
+   * chyběly. Naposledy kvůli variantám, EANům a vnitřním číslům produktů.
+   */
+  setSetting('productFeedSchema', '3');
   return rows.length;
 }
 
@@ -321,10 +327,12 @@ export function stockSyncedAt(): string | null {
 export function feedStatus(): FeedStatus {
   const d = getDb();
   const row = d.prepare('SELECT COUNT(*) AS cnt FROM products').get() as { cnt: number };
+  const vars = d.prepare('SELECT COUNT(*) AS cnt FROM product_variants').get() as { cnt: number };
   return {
     url: getSetting('productFeedUrl', DEFAULT_FEED_URL)!,
     count: row.cnt,
-    lastSync: getSetting('productFeedSync')
+    lastSync: getSetting('productFeedSync'),
+    variants: vars.cnt
   };
 }
 
@@ -333,8 +341,9 @@ export function feedIsStale(): boolean {
   const st = feedStatus();
   if (st.count === 0) return true;
   if (!st.lastSync) return true;
-  // Katalog stažený starší verzí aplikace nemá kategorie ani dostupnost
-  if (getSetting('productFeedSchema') !== '2') return true;
+  // Katalog stažený starší verzí aplikace nemá kategorie, dostupnost ani
+  // varianty — a bez nového stažení by se varianty nikde neobjevily
+  if (getSetting('productFeedSchema') !== '3') return true;
   return Date.now() - new Date(st.lastSync).getTime() > 20 * 3600 * 1000;
 }
 

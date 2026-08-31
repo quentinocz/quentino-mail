@@ -103,6 +103,24 @@ check('varianty se rozpoznaly', detail.variants.length, 2);
 check('popisek varianty je z parametru', detail.variants[1].label, 'Délka: 120cm');
 check('zásoba produktu není zásoba první varianty', detail.stock, 7);
 
+/*
+ * Katalog stažený starší verzí se musí stáhnout znovu.
+ *
+ * Tohle je ta past, která se v aplikaci projevila jako „varianty se
+ * nedetekují": tabulka variant vznikla prázdná, katalog v databázi už byl
+ * a nic ho nepřimělo stáhnout se znovu — takže varianty zůstaly nikde.
+ * Číslo podoby katalogu je jediná pojistka a musí se s každou takovou
+ * změnou zvednout.
+ */
+console.log('\nkatalog z minulé verze:\n');
+const nowSchema = require('/home/claude/qm/tools/ptrans/harness.cjs')
+  .db.prepare("SELECT value FROM settings WHERE key = 'productFeedSchema'").get();
+check('import si poznamenal podobu katalogu', !!nowSchema, true);
+db.prepare("UPDATE settings SET value = '2' WHERE key = 'productFeedSchema'").run();
+check('starší podoba se pozná jako zastaralá', products.feedIsStale(), true);
+db.prepare("UPDATE settings SET value = ? WHERE key = 'productFeedSchema'").run(nowSchema.value);
+check('a čerstvá už ne', products.feedIsStale(), false);
+
 /* ---------- rychlý feed: jen zásoby ---------- */
 
 const SMALL_FEED = `<PRODUCTS>

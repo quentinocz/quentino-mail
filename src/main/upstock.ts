@@ -83,35 +83,142 @@ export async function sendViaWindow(sessionId: string):
 
     emit('stockin:progress', { done: added + skipped.length, total: rows.length, code: row.code });
 
-    const ok = await win.webContents.executeJavaScript(`
-      (function () {
-        // Voláme to, co volá sama stránka po výběru z našeptávače
-        return new Promise(function (done) {
-          if (typeof $ === 'undefined') { done(false); return; }
-          $.ajax({
-            url: ${JSON.stringify(STOCKING_PATH)} + '?do=addOperationStockingUp',
-            data: {
-              product_id: ${JSON.stringify(row.productId)},
-              option_set_id: ${JSON.stringify(row.variantId || '')},
-              quantity: ${JSON.stringify(String(row.qty))}
-            },
-            success: function (payload) {
-              try { $.nette.success(payload); } catch (e) { /* jen překreslení */ }
-              try { $('body').trigger('datagridAjaxCompleteInit', ['productsBulkOperationsGrid']); } catch (e) {}
-              done(true);
-            },
-            error: function () { done(false); }
-          });
-        });
-      })()
-    `, true).catch(() => false);
+    /*
+     * Varianta: číslo z feedu tady neplatí.
+     *
+     * Ve feedu má varianta `VARIANT_ID`, administrace ale pracuje s číslem
+     * „sady voleb" (`option_set_id`) a jsou to dvě různé věci. Proto se
+     * seznam variant vytáhne ze samotné administrace (`getVariants`) a
+     * varianta se v něm najde podle kódu — podle toho jediného, co mají obě
+     * strany společné.
+     */
+    let optionSet: string | null = null;
+    if (row.variantId || row.label) {
+      optionSet = await optionSetFor(win, row);
+      if (!optionSet) { skipped.push(row); continue; }
+    }
 
-    if (ok) added++;
+    const before = await gridCount(win);
+    const ok = await addOne(win, row, optionSet);
+    const after = await gridCount(win);
+
+    // Za přidané se počítá jen to, o co se seznam v administraci opravdu
+    // rozrostl. „HTTP 200" ještě neznamená, že tam řádek přibyl.
+    if (ok && after > before) added++;
     else skipped.push(row);
   }
 
   emit('stockin:progress', { done: rows.length, total: rows.length, code: '' });
   return { added, skipped, needsLogin: false };
+}
+
+/**
+ * Jedna položka do formuláře — přesně tím, co dělá stránka sama.
+ *
+ * Nejdřív `getProductForStocking`, který produkt načte a **vrátí platné
+ * `option_set_id`**, a teprve pak `addOperationStockingUp`. První verze
+ * volala jen to druhé, a rovnou s číslem varianty z feedu: okno se otevřelo,
+ * ale do formuláře nepřibylo nic.
+ *
+ * Počet se nepředává jen parametrem — stránka ho čte z vlastního políčka
+ * `#product_preview_count`, takže se vyplní obojí.
+ */
+async function addOne(win: BrowserWindow, row: StockinPlanRow, optionSet: string | null): Promise<boolean> {
+  return win.webContents.executeJavaScript(`
+    (function () {
+      return new Promise(function (done) {
+        if (typeof $ === 'undefined') { done(false); return; }
+        var base = ${JSON.stringify(STOCKING_PATH)};
+        var productId = ${JSON.stringify(row.productId)};
+        var optionSet = ${JSON.stringify(optionSet ?? '')};
+        var quantity = ${JSON.stringify(String(row.qty))};
+
+        try { $('#product_preview_count').val(quantity); } catch (e) { /* políčko nemusí být */ }
+
+        $.ajax({
+          url: base + '?do=getProductForStocking',
+          data: { product_id: productId, option_set_id: optionSet },
+          success: function (payload) {
+            try { $.nette.success(payload); } catch (e) { /* jen překreslení */ }
+            var resolved = (payload && payload.option_set_id != null) ? payload.option_set_id : optionSet;
+            /*
+             * Produkt má varianty, ale nevíme kterou. Stránka by na tomhle
+             * místě otevřela dialog „Vyberte variantu produktu" — a hádat za
+             * člověka znamená naskladnit cizí velikost. Radši se nepřidá nic
+             * a řádek se vrátí jako nedodělaný.
+             */
+            if (payload && payload.option_set_yn && !(Number(resolved) > 0)) { done(false); return; }
+            $.ajax({
+              url: base + '?do=addOperationStockingUp',
+              data: { product_id: productId, option_set_id: resolved, quantity: quantity },
+              success: function (second) {
+                try { $.nette.success(second); } catch (e) {}
+                try { $('body').trigger('datagridAjaxCompleteInit', ['productsBulkOperationsGrid']); } catch (e) {}
+                done(true);
+              },
+              error: function () { done(false); }
+            });
+          },
+          error: function () { done(false); }
+        });
+      });
+    })()
+  `, true).catch(() => false);
+}
+
+/**
+ * Číslo sady voleb pro variantu — vytažené z administrace, ne z feedu.
+ *
+ * `getVariants` vrátí obsah dialogu „Vyberte variantu produktu"; v jeho
+ * řádcích je `input`, jehož `value` je právě `option_set_id`. Hledá se řádek,
+ * jehož text obsahuje kód varianty, a když ten nesedí, tak její popisek
+ * („Délka: 120cm"). Když nesedí nic jednoznačně, **nevrací se nic** —
+ * uhodnout, která varianta to je, znamená naskladnit cizí velikost.
+ */
+async function optionSetFor(win: BrowserWindow, row: StockinPlanRow): Promise<string | null> {
+  const found = await win.webContents.executeJavaScript(`
+    (function () {
+      return new Promise(function (done) {
+        if (typeof $ === 'undefined') { done(''); return; }
+        $.ajax({
+          url: ${JSON.stringify(STOCKING_PATH)} + '?do=getVariants',
+          data: { product_id: ${JSON.stringify(row.productId)} },
+          type: 'get',
+          success: function (payload) {
+            try { $.nette.success(payload); } catch (e) { done(''); return; }
+            var code = ${JSON.stringify(row.code)}.toLowerCase();
+            var label = ${JSON.stringify(row.label ?? '')}.toLowerCase();
+            var byCode = [], byLabel = [];
+            $('#optionSetDialog tbody tr').each(function () {
+              var value = $(this).find('input').first().attr('value');
+              if (!value) return;
+              var text = ($(this).text() || '').toLowerCase();
+              if (code && text.indexOf(code) >= 0) byCode.push(String(value));
+              else if (label && text.indexOf(label) >= 0) byLabel.push(String(value));
+            });
+            try { $('#optionSetDialog').dialog('close'); } catch (e) { /* nemusí být otevřený */ }
+            var hits = byCode.length ? byCode : byLabel;
+            done(hits.length === 1 ? hits[0] : '');
+          },
+          error: function () { done(''); }
+        });
+      });
+    })()
+  `, true).catch(() => '');
+  return found ? String(found) : null;
+}
+
+/** Kolik řádků má seznam položek — podle toho se pozná, že další opravdu přibyl. */
+async function gridCount(win: BrowserWindow): Promise<number> {
+  const value = await win.webContents.executeJavaScript(`
+    (function () {
+      var grid = document.querySelector('#grid-productsBulkOperationsGrid');
+      var count = grid && grid.getAttribute('data-data_count');
+      if (count !== null && count !== undefined && count !== '') return Number(count);
+      return document.querySelectorAll('#snippet-productsBulkOperationsGrid-rows tbody tr').length;
+    })()
+  `, true).catch(() => 0);
+  return Number(value) || 0;
 }
 
 /** Počká, až v okně bude stránka naskladňování (uživatel se mezitím přihlásí). */
@@ -228,3 +335,12 @@ export async function sendViaApi(sessionId: string):
   if (written > 0 && failed.length === 0) confirmSent(sessionId);
   return { written, failed };
 }
+
+/**
+ * Vstup pro zkoušku.
+ *
+ * Vkládání do administrace se bez přihlášeného e-shopu vyzkoušet nedá, ale
+ * to, co se do okna posílá, ano — a přesně tam byla chyba, kvůli které se
+ * formulář neplnil. Zkouška si proto sáhne na jednotlivé kroky.
+ */
+export const __test = { addOne, optionSetFor, gridCount };
