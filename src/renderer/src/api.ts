@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, PackingState, PackingHit, PackingOrder, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -440,7 +440,7 @@ export const api = {
      * Objednávka podle načteného čísla — i taková, která je dávno mimo seznam
      * k balení. Faktura a objednávka mají různá čísla, překlad jde přes feed.
      */
-    openOrder: (code: string) => call<PackingOrder | null>('packing:openOrder', code),
+    openOrder: (code: string) => call<PackingLookup>('packing:openOrder', code),
     setDone: (dbId: number, value: boolean) => call<void>('packing:setDone', dbId, value),
     reset: (dbId: number) => call<void>('packing:reset', dbId)
   },

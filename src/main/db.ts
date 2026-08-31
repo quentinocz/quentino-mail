@@ -202,6 +202,29 @@ function migrate(d: Database.Database) {
       done_at TEXT
     );
 
+    /*
+     * Odškrtávání u objednávek, ke kterým nemáme e-mail.
+     *
+     * Balení dosud stálo na potvrzovacím mailu — jenže načtená faktura bývá
+     * i půl roku stará a takový mail už ve schránce být nemusí. Feed
+     * objednávek má přitom všechno, co je k balení potřeba, včetně kódů
+     * variant. Stav odškrtání se proto u těchhle objednávek vede tady, ne
+     * v tabulce packing, kde je klíčem zpráva.
+     *
+     * Vlastní id je tu kvůli rozhraní: to pracuje s číslem, ne s dvojicí
+     * kód + trh, a záporná hodnota mu říká, že objednávka je z feedu.
+     */
+    CREATE TABLE IF NOT EXISTS packing_shop (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL,
+      market TEXT NOT NULL DEFAULT '',
+      packed_json TEXT NOT NULL DEFAULT '[]',
+      counts_json TEXT NOT NULL DEFAULT '{}',
+      done INTEGER NOT NULL DEFAULT 0,
+      done_at TEXT,
+      UNIQUE (code, market)
+    );
+
     CREATE TABLE IF NOT EXISTS order_cache (
       message_pk INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
       json TEXT,

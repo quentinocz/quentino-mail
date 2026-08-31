@@ -532,7 +532,32 @@ export interface PackingOrder {
   doneAt: string | null;
   /** Stav z feedu e-shopu — u starších objednávek to jediné aktuální */
   shop?: PackingShopState | null;
+  /**
+   * Odkud jsou podklady: `mail` = potvrzovací e-mail (má navíc adresu),
+   * `feed` = objednávka z feedu e-shopu, ke které mail nemáme.
+   */
+  source?: 'mail' | 'feed';
 }
+
+/** Výsledek hledání objednávky podle načteného čísla */
+export type PackingLookup =
+  | {
+      ok: true;
+      order: PackingOrder;
+      /**
+       * Druhé čtení téhož čísla. Číslo faktury jedné objednávky může být
+       * číslem jiné objednávky — otevře se ta z faktury, ale o druhé se musí
+       * vědět, jinak by se tiše balila špatná.
+       */
+      also?: { orderNumber: string; note: string };
+    }
+  | {
+      ok: false;
+      /** Kde to skončilo: číslo ve feedu není, nebo k němu nejsou položky */
+      reason: 'noNumber' | 'notInFeed' | 'noItems';
+      message: string;
+      also?: undefined;
+    };
 
 /** Stav odškrtání jedné objednávky */
 export interface PackingState {

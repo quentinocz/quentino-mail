@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PackingOrder, PackingProgress, OrderCardItem } from '@shared/types';
+import type { PackingLookup, PackingOrder, PackingProgress, OrderCardItem } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -155,6 +155,11 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
    * hned, jak by se objevila.
    */
   const [pinned, setPinned] = useState<number | null>(null);
+  /** Číslo objednávky nebo faktury napsané rukou — a čtečkou na počítači */
+  const [lookup, setLookup] = useState('');
+  const [looking, setLooking] = useState(false);
+  /** Číslo šlo přečíst dvěma způsoby — druhá možnost k otevření */
+  const [also, setAlso] = useState<{ orderNumber: string; note: string } | null>(null);
   const [zoom, setZoom] = useState<OrderCardItem | null>(null);
   const [copied, setCopied] = useState(false);
   const phone = useIsPhone();
@@ -386,6 +391,7 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
     // Hláška od předchozí objednávky by nad tou novou jen mátla
     setNote(null);
     setFlash(null);
+    setAlso(null);
     setOrders(prev => {
       const rest = prev.filter(o => o.messageId !== found.messageId);
       return [found, ...rest];
@@ -439,14 +445,35 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
         if (hit && hit.reason === 'already') { say(hit.message, false); return; }
       }
 
-      const found = await api.packing.openOrder(text).catch(() => null);
-      if (found) { openFound(found); return; }
-      say(id === null ? `Objednávka ${text} se nenašla` : `Kód ${text} v objednávce není`, false);
+      const out = await api.packing.openOrder(text).catch(() => null);
+      if (out?.ok) { openFound(out.order); setAlso(out.also ?? null); return; }
+      // Hláška z hledání říká, kde to skončilo — na feedu, nebo na položkách
+      say(out?.message ?? `Kód ${text} v objednávce není`, false);
     });
 
     const offClosed = api.on('scan:closed', () => setPanelH(0));
     return () => { off(); offClosed(); };
   }, [panelH, say, openFound]);
+
+  /**
+   * Hledání rukou — a na počítači i čtečkou, ta se chová jako klávesnice.
+   *
+   * Bez pole by šlo číslo zadat jedině fotoaparátem, takže na počítači vůbec.
+   */
+  const findByNumber = useCallback(async (text: string) => {
+    const value = text.trim();
+    if (!value || looking) return;
+    setLooking(true);
+    try {
+      const out = await api.packing.openOrder(value);
+      if (out.ok) { openFound(out.order); setAlso(out.also ?? null); setLookup(''); }
+      else say(out.message, false);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setLooking(false);
+    }
+  }, [looking, openFound, say, toast]);
 
   const toggleCamera = async () => {
     if (panelH) { await api.scan.stop().catch(() => {}); setPanelH(0); return; }
@@ -518,6 +545,18 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
           <button className={`filter-chip ${hidePacked ? 'on' : ''}`} onClick={() => setHidePacked(v => !v)}>
             Skrýt zabalené
           </button>
+          {/*
+            Číslo z faktury nebo objednávky. Na počítači je to jediná cesta,
+            jak objednávku najít — čtečka se chová jako klávesnice a kód sem
+            spadne i s Enterem.
+          */}
+          <form className="pk-find" onSubmit={e => { e.preventDefault(); void findByNumber(lookup); }}>
+            <Icon name="search" size={13} />
+            <input value={lookup} onChange={e => setLookup(e.target.value)}
+              inputMode="numeric" placeholder="číslo objednávky / faktury"
+              aria-label="Najít objednávku podle čísla objednávky nebo faktury" />
+            {looking && <span className="spinner-inline" />}
+          </form>
           <span style={{ flex: 1 }} />
           <span className="pk-count">
             {loading && progress
@@ -597,6 +636,21 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                 </div>
 
                 {/*
+                  Číslo faktury jedné objednávky bývá číslem jiné objednávky.
+                  Otevřela se ta z faktury — ale ta druhá musí být na dosah,
+                  jinak by se tiše balila špatná.
+                */}
+                {also && (
+                  <div className="pk-note warn pk-also">
+                    <Icon name="alert" size={14} />
+                    <span>{also.note}</span>
+                    <button className="oc-btn" onClick={() => void findByNumber(also.orderNumber)}>
+                      Otevřít {also.orderNumber}
+                    </button>
+                  </div>
+                )}
+
+                {/*
                   Starší objednávka. Načtená faktura může být i půl roku stará
                   a z potvrzovacího mailu to nepoznat — proto se stav bere
                   z feedu e-shopu a u konečného (doručeno, storno) se řekne
@@ -645,7 +699,15 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                       <div className="pk-panel-head"><Icon name="pin" size={12} /> Doručovací adresa</div>
                       {(() => {
                         const a = current.card.shipping ?? current.card.billing;
-                        if (!a) return <div className="pk-dim">neuvedena</div>;
+                        if (!a || a.lines.length === 0) {
+                          return (
+                            <div className="pk-dim">
+                              {current.source === 'feed'
+                                ? 've feedu není — otevři e-mail k objednávce'
+                                : 'neuvedena'}
+                            </div>
+                          );
+                        }
                         return (
                           <div className="pk-addr">
                             <b>{a.name}</b>
