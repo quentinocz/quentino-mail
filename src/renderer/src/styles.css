@@ -1668,6 +1668,31 @@ input:focus, textarea:focus, select:focus {
   border: 1px solid #f2c2c2;
 }
 .pk-old svg { flex-shrink: 0; margin-top: 1px; }
+
+/* Pole na číslo z faktury — na počítači jediná cesta, jak objednávku najít */
+.pk-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--bg-1);
+}
+.pk-find svg { color: var(--text-3); flex-shrink: 0; }
+.pk-find input {
+  width: 168px;
+  border: 0;
+  outline: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+.pk-find:focus-within { border-color: var(--accent); }
+.pk-also { align-items: center; }
+.pk-also .oc-btn { margin-left: auto; flex-shrink: 0; }
 .pk-old-sub { margin-top: 2px; font-size: 12px; opacity: 0.85; }
 
 .pk-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 14px; }
@@ -4436,6 +4461,8 @@ html[data-form-factor="phone"] .pk-filters { padding: 8px 10px; gap: 6px; row-ga
 html[data-form-factor="phone"] .pk-seg { flex: 1 1 100%; }
 html[data-form-factor="phone"] .pk-seg-btn { flex: 1; padding: 7px 4px; font-size: 12.5px; }
 html[data-form-factor="phone"] .pk-count { flex: 1 1 100%; text-align: left; }
+html[data-form-factor="phone"] .pk-find { flex: 1 1 100%; height: var(--tap); border-radius: 12px; }
+html[data-form-factor="phone"] .pk-find input { width: 100%; font-size: 16px; }
 html[data-form-factor="phone"] .pk-head { gap: 8px; padding: 10px 12px; }
 html[data-form-factor="phone"] .pk-item { padding: 10px 12px; gap: 10px; }
 html[data-form-factor="phone"] .pk-photo { width: 54px; height: 54px; }

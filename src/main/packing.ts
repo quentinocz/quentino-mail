@@ -4,7 +4,8 @@ import { buildOrderCard, shopMatchesSender } from './ordercard';
 import { isFinalStatus } from './ordertrack';
 import { findByCode } from './products';
 import type {
-  OrderCard, PackingHit, PackingOrder, PackingScan, PackingShopState, PackingState
+  OrderCard, OrderCardItem, PackingHit, PackingLookup, PackingOrder,
+  PackingScan, PackingShopState, PackingState
 } from '../shared/types';
 
 /**
@@ -74,10 +75,23 @@ function writeCache(id: number, card: OrderCard | null) {
   ).run(id, card ? JSON.stringify(card) : null, new Date().toISOString());
 }
 
+/**
+ * Objednávka z feedu, ne z pošty.
+ *
+ * Rozhraní pracuje s jedním číslem, ne s dvojicí zpráva/objednávka. Záporné
+ * číslo proto znamená „tohle je řádek v `packing_shop`" — jeden pohled na
+ * hodnotu stačí, aby bylo jasné, odkud se čte a kam se zapisuje.
+ */
+function isShopId(id: number): boolean {
+  return id < 0;
+}
+
 function readPacked(id: number): PackingState {
   const row = getDb().prepare(
-    'SELECT packed_json, counts_json, done, done_at FROM packing WHERE message_pk = ?'
-  ).get(id) as any;
+    isShopId(id)
+      ? 'SELECT packed_json, counts_json, done, done_at FROM packing_shop WHERE id = ?'
+      : 'SELECT packed_json, counts_json, done, done_at FROM packing WHERE message_pk = ?'
+  ).get(isShopId(id) ? -id : id) as any;
   if (!row) return { packed: [], counts: {}, done: false, doneAt: null };
 
   let packed: number[] = [];
@@ -100,6 +114,12 @@ function readPacked(id: number): PackingState {
 
 /** Karta objednávky z uložených podkladů — bez ohledu na stáří, jen kvůli počtům. */
 function cardOf(id: number): OrderCard | null {
+  if (isShopId(id)) {
+    const row = getDb().prepare('SELECT code, market FROM packing_shop WHERE id = ?').get(-id) as any;
+    if (!row) return null;
+    const order = shopOrderOf(String(row.code), String(row.market ?? ''));
+    return order ? cardFromFeed(order) : null;
+  }
   const row = getDb().prepare('SELECT json FROM order_cache WHERE message_pk = ?').get(id) as any;
   if (!row?.json) return null;
   try { return JSON.parse(row.json) as OrderCard; } catch { return null; }
@@ -112,12 +132,21 @@ function qtyOf(id: number, index: number): number {
 }
 
 function save(id: number, state: PackingState) {
+  const packed = JSON.stringify(state.packed);
+  const counts = JSON.stringify(state.counts);
+  if (isShopId(id)) {
+    // Řádek už existuje — zakládá se při otevření objednávky, aby vůbec bylo id
+    getDb().prepare(
+      `UPDATE packing_shop SET packed_json = ?, counts_json = ?, done = ?, done_at = ?
+       WHERE id = ?`
+    ).run(packed, counts, state.done ? 1 : 0, state.doneAt, -id);
+    return;
+  }
   getDb().prepare(
     `INSERT INTO packing (message_pk, packed_json, counts_json, done, done_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(message_pk) DO UPDATE SET packed_json = excluded.packed_json,
        counts_json = excluded.counts_json, done = excluded.done, done_at = excluded.done_at`
-  ).run(id, JSON.stringify(state.packed), JSON.stringify(state.counts),
-    state.done ? 1 : 0, state.doneAt);
+  ).run(id, packed, counts, state.done ? 1 : 0, state.doneAt);
 }
 
 /**
@@ -207,6 +236,25 @@ export function scanItem(messageId: number, raw: string): PackingHit {
 }
 
 /**
+ * Objednávka z feedu podle čísla.
+ *
+ * Vodicí nuly se mezi doklady liší — na faktuře „022605", ve variabilním
+ * symbolu „22605". Porovnává se proto i tvar bez nul na obou stranách, jinak
+ * by se stejné číslo napsané jinak nenašlo.
+ */
+function shopOrderOf(code: string, market?: string): any | null {
+  const forms = numberForms(code);
+  if (forms.length === 0) return null;
+  const rows = getDb().prepare(
+    `SELECT * FROM shop_orders WHERE code = ? OR ltrim(code, '0') = ?
+     ORDER BY created_at DESC LIMIT 8`
+  ).all(forms[0], forms[forms.length - 1]) as any[];
+  if (rows.length === 0) return null;
+  if (market) return rows.find(r => String(r.market ?? '') === market) ?? rows[0];
+  return rows[0];
+}
+
+/**
  * Stav objednávky z feedu e-shopu.
  *
  * U starší objednávky je feed to jediné, co je aktuální: potvrzovací mail
@@ -215,12 +263,7 @@ export function scanItem(messageId: number, raw: string): PackingHit {
  * začne balit něco, co se balit nemá.
  */
 function shopStateFor(orderNumber: string | null | undefined): PackingShopState | null {
-  const num = (orderNumber ?? '').replace(/\D+/g, '');
-  if (!num) return null;
-  const row = getDb().prepare(
-    `SELECT code, invoice, status, created_at, updated_at FROM shop_orders
-     WHERE code = ? OR code = ? ORDER BY created_at DESC LIMIT 1`
-  ).get(num, num.replace(/^0+/, '')) as any;
+  const row = shopOrderOf(orderNumber ?? '');
   if (!row) return null;
 
   return {
@@ -238,28 +281,6 @@ function numberForms(value: string): string[] {
   if (!digits) return [];
   const bare = digits.replace(/^0+/, '');
   return bare && bare !== digits ? [digits, bare] : [digits];
-}
-
-/**
- * Číslo z QR na faktuře přeložené na čísla objednávek, pod kterými ji hledat.
- *
- * Faktura a objednávka mají v e-shopu různá čísla, takže se překlad dělá vždy
- * přes feed objednávek — tam stojí faktura vedle svého čísla objednávky.
- * Načtené číslo se zkouší i samo o sobě, kdyby se náhodou skenovalo přímo
- * číslo objednávky.
- */
-function orderNumbersFor(raw: string): string[] {
-  const forms = numberForms(raw);
-  if (forms.length === 0) return [];
-
-  const out = new Set(forms);
-  const rows = getDb().prepare(
-    `SELECT code FROM shop_orders WHERE invoice != '' AND (invoice = ? OR invoice = ?)
-     ORDER BY created_at DESC LIMIT 20`
-  ).all(forms[0], forms[forms.length - 1]) as any[];
-  for (const row of rows) for (const form of numberForms(String(row.code ?? ''))) out.add(form);
-
-  return [...out];
 }
 
 /**
@@ -301,21 +322,98 @@ function messageForNumbers(numbers: string[]): Candidate | null {
 }
 
 /**
- * Otevře objednávku podle načteného čísla — i takovou, která je dávno mimo
- * seznam k balení.
+ * Karta objednávky sestavená z feedu e-shopu.
  *
- * Vrací rovnou celou objednávku i s kartou a stavem odškrtání, aby ji rozhraní
- * mohlo přidat do seznamu, i když do zvoleného období nepatří. `shop` nese stav
- * z feedu; u konečného stavu (doručeno, storno) se v rozhraní ukáže výstraha,
- * že jde o starší objednávku.
+ * Feed nese u položek rovnou **kód varianty** — přesně ten, co je na štítku —
+ * takže se proti němu odškrtává líp než proti mailu, kde bývá kód produktu
+ * a varianta jen jako věta. Název, varianta a obrázek se doplní z katalogu;
+ * adresu feed nemá, ta zůstane prázdná.
  */
-export async function openOrder(raw: string): Promise<PackingOrder | null> {
-  const numbers = orderNumbersFor(raw);
-  if (numbers.length === 0) return null;
+function cardFromFeed(row: any): OrderCard {
+  const market = String(row.market ?? 'cz');
+  const currency = String(row.currency ?? '');
 
-  const found = messageForNumbers(numbers);
-  if (!found) return null;
+  let items: { title: string; code: string; quantity: number; price: number }[] = [];
+  try { items = JSON.parse(row.items_json ?? '[]') ?? []; } catch { /* poškozený řádek = prázdno */ }
 
+  const cardItems: OrderCardItem[] = items.map(item => {
+    const hit = item.code ? findByCode(item.code) : null;
+    return {
+      qty: Math.max(1, Number(item.quantity) || 1),
+      unit: 'ks',
+      title: hit?.title || item.title || item.code || '—',
+      code: item.code || null,
+      url: null,
+      price: item.price ? `${item.price} ${currency}`.trim() : '',
+      availability: hit?.availability ?? null,
+      variants: hit?.label ? [hit.label] : [],
+      image: hit?.image ?? null,
+      feedUrl: null,
+      feedPrice: null,
+      matched: !!hit
+    };
+  });
+
+  const status = String(row.status ?? '') || null;
+  return {
+    orderNumber: String(row.code ?? ''),
+    lang: (market === 'sk' || market === 'en' ? market : 'cz') as OrderCard['lang'],
+    placedAt: row.created_at || null,
+    customerEmail: row.email || null,
+    customerPhone: row.phone || null,
+    billing: null,
+    shipping: row.name ? { name: String(row.name), company: null, lines: [], country: null } : null,
+    items: cardItems,
+    shipmentName: row.shipment || null,
+    shipmentPrice: null,
+    paymentName: row.payment || null,
+    paymentPrice: null,
+    total: row.total ? `${row.total} ${currency}`.trim() : null,
+    historyUrl: null,
+    adminUrl: null,
+    adminSource: null,
+    live: null,
+    tracking: {
+      source: 'api',
+      status,
+      createdAt: row.created_at || null,
+      paidDate: row.paid_date || null,
+      customerPhone: row.phone || null,
+      carrierId: null,
+      carrierName: null,
+      trackingCode: row.tracking || null,
+      trackingUrl: null,
+      shipment: null,
+      shipmentError: null
+    }
+  };
+}
+
+/** Číslo, pod kterým rozhraní vede objednávku z feedu — řádek se založí, když chybí. */
+function shopIdFor(code: string, market: string): number {
+  const d = getDb();
+  d.prepare('INSERT OR IGNORE INTO packing_shop (code, market) VALUES (?, ?)').run(code, market);
+  const row = d.prepare('SELECT id FROM packing_shop WHERE code = ? AND market = ?')
+    .get(code, market) as any;
+  return -Number(row.id);
+}
+
+/** Objednávka postavená na feedu — použije se, když k ní není potvrzovací mail. */
+function orderFromFeed(row: any): PackingOrder {
+  const id = shopIdFor(String(row.code ?? ''), String(row.market ?? ''));
+  const state = readPacked(id);
+  return {
+    messageId: id,
+    date: row.created_at || '',
+    card: cardFromFeed(row),
+    packed: state.packed, counts: state.counts, done: state.done, doneAt: state.doneAt,
+    source: 'feed',
+    shop: shopStateFor(String(row.code ?? ''))
+  };
+}
+
+/** Objednávka postavená na potvrzovacím mailu — má navíc adresu. */
+async function orderFromMail(found: Candidate): Promise<PackingOrder | null> {
   let card = cardOf(found.id);
   if (!card) {
     try { card = await buildOrderCard(found.id, true); } catch { card = null; }
@@ -327,10 +425,107 @@ export async function openOrder(raw: string): Promise<PackingOrder | null> {
   return {
     messageId: found.id, date: found.date, card,
     packed: state.packed, counts: state.counts, done: state.done, doneAt: state.doneAt,
+    source: 'mail',
     shop: shopStateFor(card.orderNumber)
   };
 }
 
+/**
+ * Krátký přehled feedu do hlášky, když se číslo nenajde.
+ *
+ * Rozsah dat řekne obojí, na čem hledání stojí: jak daleko feed sahá do
+ * historie a jestli není starý. Bez toho by „nenašlo se" nešlo rozlišit od
+ * „feed se týden nestáhl".
+ */
+function feedReach(): string {
+  const row = getDb().prepare(
+    `SELECT COUNT(*) AS n, MIN(created_at) AS oldest, MAX(created_at) AS newest FROM shop_orders`
+  ).get() as any;
+  const n = Number(row?.n ?? 0);
+  if (n === 0) return 'feed objednávek je zatím prázdný, načti ho v nastavení';
+  const oldest = String(row?.oldest ?? '').slice(0, 10);
+  const newest = String(row?.newest ?? '').slice(0, 10);
+  return oldest && newest
+    ? `feed má ${n} objednávek (${oldest} až ${newest})`
+    : `feed má ${n} objednávek`;
+}
+
+/**
+ * Otevře objednávku podle načteného čísla — i takovou, která je dávno mimo
+ * seznam k balení.
+ *
+ * Pořadí je dané tím, co je na papíře: na faktuře je **číslo faktury**, takže
+ * se nejdřív přeloží přes feed na číslo objednávky. Teprve když načtené číslo
+ * žádná faktura nemá, bere se jako číslo objednávky — jinak by se u čísla,
+ * které je zároveň fakturou jedné a objednávkou druhé, otevřela ta nesprávná.
+ * Když nastane obojí, druhá možnost se vrátí v `also` a rozhraní ji nabídne.
+ *
+ * Podklady se berou z mailu, když existuje (má navíc adresu), jinak z feedu —
+ * ten má u položek rovnou kód varianty, takže se proti němu dá odškrtávat taky.
+ */
+export async function openOrder(raw: string): Promise<PackingLookup> {
+  const asked = numberForms(raw);
+  if (asked.length === 0) {
+    return { ok: false, reason: 'noNumber', message: 'To není číslo objednávky ani faktury' };
+  }
+  const shown = asked[0];
+
+  // 1) číslo jako faktura — to je to, co je na dokladu vytištěné
+  const byInvoice = getDb().prepare(
+    `SELECT * FROM shop_orders WHERE invoice != '' AND (invoice = ? OR ltrim(invoice, '0') = ?)
+     ORDER BY created_at DESC LIMIT 4`
+  ).all(asked[0], asked[asked.length - 1]) as any[];
+
+  // 2) číslo jako číslo objednávky
+  const byCode = shopOrderOf(shown);
+
+  const primary = byInvoice[0] ?? byCode;
+  if (!primary) {
+    return {
+      ok: false, reason: 'notInFeed',
+      message: `Faktura ani objednávka ${shown} ve feedu není — ${feedReach()}`
+    };
+  }
+
+  const code = String(primary.code ?? '');
+  const order = await open(primary);
+  if (!order) {
+    return {
+      ok: false, reason: 'noItems',
+      message: `Objednávka ${code} nemá ve feedu položky a e-mail k ní nenajdu`
+    };
+  }
+
+  /*
+   * Číslo faktury jedné objednávky může být číslem jiné objednávky. Otevře se
+   * ta z faktury, ale o druhé se musí vědět — jinak by se tiše balila špatná.
+   */
+  let also: PackingLookup['also'];
+  if (byInvoice[0] && byCode && String(byCode.code ?? '') !== code) {
+    also = {
+      orderNumber: String(byCode.code ?? ''),
+      note: `Číslo ${shown} je faktura objednávky ${code}, ale existuje i objednávka ${byCode.code}`
+    };
+  }
+
+  return { ok: true, order, also };
+}
+
+/** Podklady k objednávce: nejdřív mail (má adresu), jinak feed. */
+async function open(row: any): Promise<PackingOrder | null> {
+  const numbers = numberForms(String(row.code ?? ''));
+  const found = numbers.length > 0 ? messageForNumbers(numbers) : null;
+  if (found) {
+    const fromMail = await orderFromMail(found);
+    if (fromMail) return fromMail;
+  }
+
+  let items: unknown[] = [];
+  try { items = JSON.parse(row.items_json ?? '[]') ?? []; } catch { /* prázdno */ }
+  return items.length > 0 ? orderFromFeed(row) : null;
+}
+
+/** Jen pro zkoušky — jednotlivé kroky hledání objednávky se jinak nedají chytit. */
 /** Označí celou objednávku jako zabalenou (nebo označení zruší). */
 export function setOrderDone(messageId: number, value: boolean): void {
   const state = readPacked(messageId);
@@ -341,11 +536,18 @@ export function setOrderDone(messageId: number, value: boolean): void {
 
 /** Vynuluje odškrtání u objednávky. */
 export function resetPacking(messageId: number): void {
+  if (isShopId(messageId)) {
+    getDb().prepare(
+      `UPDATE packing_shop SET packed_json = '[]', counts_json = '{}', done = 0, done_at = NULL
+       WHERE id = ?`
+    ).run(-messageId);
+    return;
+  }
   getDb().prepare('DELETE FROM packing WHERE message_pk = ?').run(messageId);
 }
 
 /** Jen pro zkoušky — jednotlivé kroky hledání objednávky se jinak nedají chytit. */
-export const __test = { orderNumbersFor, messageForNumbers, shopStateFor };
+export const __test = { messageForNumbers, shopStateFor, shopOrderOf, cardFromFeed };
 
 /**
  * Projde e-maily za zvolené období a sestaví seznam objednávek k balení.
@@ -380,7 +582,7 @@ export async function scanOrders(days: number, force = false): Promise<PackingSc
     orders.push({
       messageId: c.id, date: c.date, card,
       packed: p.packed, counts: p.counts, done: p.done, doneAt: p.doneAt,
-      shop: shopStateFor(card.orderNumber)
+      source: 'mail', shop: shopStateFor(card.orderNumber)
     });
   }
 

@@ -240,7 +240,7 @@ extension Bridge {
                              raw: args.count > 1 ? (args[1] as? String ?? "") : "")
         }
         register("packing:openOrder") { args in
-            await Packing.openOrder(args.first as? String ?? "") ?? NSNull()
+            await Packing.openOrder(args.first as? String ?? "")
         }
         register("packing:setDone") { args in
             Packing.setDone(messageId: try Self.int(args.first),

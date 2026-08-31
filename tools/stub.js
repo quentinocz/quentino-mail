@@ -797,14 +797,23 @@
 
   // Stará doručená objednávka, jakou vrátí načtení faktury — kvůli výstraze
   answers['packing:openOrder'] = {
-    messageId: 3, date: new Date(Date.now() - 190 * 24 * 3600e3).toISOString(),
-    card: Object.assign({}, answers['orders:card'], {
-      orderNumber: '021900',
-      live: Object.assign({}, answers['orders:card'].live, { status: 'Doručeno' }),
-      tracking: Object.assign({}, answers['orders:card'].tracking, { status: 'Doručeno' })
-    }),
-    packed: [], counts: {}, done: false, doneAt: null,
-    shop: { code: '021900', invoice: '998700', status: 'Doručeno', at: '2026-02-14', final: true }
+    ok: true,
+    order: {
+      messageId: -4, date: new Date(Date.now() - 190 * 24 * 3600e3).toISOString(),
+      card: Object.assign({}, answers['orders:card'], {
+        orderNumber: '021900',
+        shipping: null,
+        live: null,
+        tracking: Object.assign({}, answers['orders:card'].tracking, { status: 'Doručeno' })
+      }),
+      packed: [], counts: {}, done: false, doneAt: null, source: 'feed',
+      shop: { code: '021900', invoice: '998700', status: 'Doručeno', at: '2026-02-14', final: true }
+    },
+    // Číslo z faktury bývá zároveň číslem jiné objednávky — ta druhá musí být na dosah
+    also: {
+      orderNumber: '022605',
+      note: 'Číslo 998700 je faktura objednávky 021900, ale existuje i objednávka 022605'
+    }
   };
 
   // Náhledy si potřebují data upravit za běhu (např. „právě doběhl překlad")
