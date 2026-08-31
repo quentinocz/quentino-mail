@@ -76,8 +76,8 @@ const overflow = async label => {
   console.log(`${label.padEnd(28)} ${data.length ? 'přetéká: ' + data.join(', ') : '—'}`);
 };
 
-// Překlady se otevírají z nabídky AI — v panelu už samostatnou položku nemají
-await click('.ig-switch button', { hasText: 'AI' });
+// Překlady se otevírají z nabídky Funkce — v panelu už samostatnou položku nemají
+await click('.ig-switch button', { hasText: 'Funkce' });
 await click('.ws-menu-item', { hasText: 'Překlady produktů' });
 await overflow('překlady — seznam'); await snap('01-preklady-seznam');
 
@@ -162,8 +162,8 @@ await page.keyboard.press('Escape');
 await click('.pt-modal .modal-head .icon-btn:last-child');
 
 // Nabídka AI v postranním panelu
-await click('.ig-switch button', { hasText: 'AI' });
-await overflow('nabídka AI'); await snap('08-nabidka-ai');
+await click('.ig-switch button', { hasText: 'Funkce' });
+await overflow('nabídka Funkce'); await snap('08-nabidka-funkci');
 
 await click('.ws-menu-item', { hasText: 'Články' });
 await overflow('články — seznam'); await snap('10-clanky-seznam');
@@ -191,7 +191,7 @@ await overflow('články — nastavení'); await snap('16-clanky-nastaveni');
 // Feed Instagramu — mřížka dlaždic je sdílená s telefonem, takže se hlídá
 // i tady, jestli se řady nerozjíždějí podle poměru stran obrázků
 await click('.ar-modal .modal-head .icon-btn:last-child');
-await click('.ig-switch button', { hasText: 'AI' });
+await click('.ig-switch button', { hasText: 'Funkce' });
 await click('.ws-menu-item', { hasText: 'Sociální sítě' });
 await overflow('social — feed'); await snap('24-social-feed');
 console.log('  výšky dlaždic:', await page.evaluate(() =>
@@ -242,8 +242,8 @@ await page.waitForTimeout(300);
 // Katalog: mřížka s obrázky a zásobou, detail s variantami, naskladnění a štítky.
 // Tři záložky nad jedním seznamem — kontroluje se hlavně to, že se arch
 // štítků vejde vedle ovládání a mřížka nezůstane s dírou v řadě.
-await click('.ig-switch button', { hasText: 'AI' });
-await click('.ws-menu-item', { hasText: 'Katalog' });
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Katalog a naskladnění' });
 await overflow('katalog — produkty'); await snap('27-katalog');
 console.log('  karet v řadě:', await page.evaluate(() => {
   const cards = [...document.querySelectorAll('.kat-card')];

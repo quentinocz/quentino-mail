@@ -5,7 +5,7 @@ import { ToastProvider, useToast } from './toast';
 import Sidebar, { View } from './components/Sidebar';
 import Icon from './components/Icon';
 import MessageList from './components/MessageList';
-import MessageView from './components/MessageView';
+import MessageView, { replyInitFor } from './components/MessageView';
 import Composer, { ComposerInit, UndoInfo } from './components/Composer';
 import SettingsModal from './components/SettingsModal';
 import MailboxCleanup from './components/MailboxCleanup';
@@ -22,6 +22,7 @@ import ChatWorkspace from './components/chat/ChatWorkspace';
 import type { Workspace, AiTool } from './components/WorkspaceSwitch';
 import { SidebarResizer, useSidebarWidth } from './sidebar';
 import { useIsPhone } from './mobile';
+import { useEdgeBack } from './gestures';
 import MobileTabs from './components/MobileTabs';
 import { viewTitle, viewUnread } from './viewtitle';
 
@@ -68,10 +69,27 @@ function AppInner() {
   // Nabídka AI je ve všech prostorech; Instagram je vlastní prostor, zbytek
   // jsou okna nad tím, ve kterém zrovna jsi
   const openAiTool = useCallback((tool: AiTool) => {
-    if (tool === 'instagram') { setWorkspace('instagram'); return; }
     setDrawer(false);
+    // Sociální sítě jsou vlastní prostor, přehled dne a balení mají vlastní
+    // okna; zbytek se otevírá přes `aiTool`
+    if (tool === 'instagram') { setWorkspace('instagram'); return; }
+    if (tool === 'digest') { setDigestOpen(true); return; }
+    if (tool === 'packing') { setPackingOpen(true); return; }
     setAiTool(tool);
   }, []);
+
+  /*
+   * Tah od levého okraje = zpět.
+   *
+   * Na telefonu se prochází jeden sloupec za druhým a tlačítko „Zpět" je
+   * v horním rohu, kam palec nedosáhne. Systémové aplikace to řeší tahem
+   * od kraje, tak ať se to tady nemusí učit jinak.
+   */
+  useEdgeBack(() => {
+    if (drawer) { setDrawer(false); return; }
+    setSelectedId(null);
+    setDetail(null);
+  }, phone && (drawer || selectedId !== null));
 
   // E-mail, který se má otevřít po přepnutí z chatu do pošty
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -258,6 +276,20 @@ function AppInner() {
 
   const startCompose = useCallback((init: ComposerInit) => setComposer(init), []);
 
+  /*
+   * Odpověď rovnou ze seznamu (tah přes řádek na telefonu). Zpráva se musí
+   * dotáhnout celá — bez těla by odpověď přišla o citaci a bez `messageId`
+   * by vypadla z vlákna.
+   */
+  const replyToMessage = useCallback(async (dbId: number) => {
+    try {
+      const full = await api.messages.get(dbId);
+      setComposer(replyInitFor(full));
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  }, [toast]);
+
   // Přišlo z chatu: jakmile je pošta připravená, otevře se nová zpráva na zákazníka
   useEffect(() => {
     if (workspace !== 'mail' || !pendingEmail || !activeAccountId) return;
@@ -278,6 +310,19 @@ function AppInner() {
   const aiLayer = (
     <>
       {aiTool === 'catalog' && <CatalogModal onClose={() => setAiTool(null)} />}
+      {/* Přehled dne a balení se otevírají z nabídky Funkce, která je ve všech
+          prostorech — proto se kreslí tady, ne jen v poště */}
+      {digestOpen && <DigestModal onClose={() => setDigestOpen(false)} />}
+      {packingOpen && (
+        <PackingModal
+          onClose={() => setPackingOpen(false)}
+          onOpenMessage={id => {
+            setPackingOpen(false);
+            setWorkspace('mail');
+            openMessage(id);
+          }}
+        />
+      )}
       {!phone && (
         <>
           {aiTool === 'ptrans' && <ProductsModal onClose={() => setAiTool(null)} />}
@@ -420,8 +465,6 @@ function AppInner() {
         syncing={syncing}
         quota={quota}
         onCleanup={() => setCleanupOpen(true)}
-        onOpenDigest={() => { setDrawer(false); setDigestOpen(true); }}
-        onOpenPacking={() => { setDrawer(false); setPackingOpen(true); }}
         orderPending={orderPending}
         onWorkspace={setWorkspace}
         chatUnread={chatUnread}
@@ -449,6 +492,7 @@ function AppInner() {
         productFeedUrl={settings?.productFeedUrl ?? null}
         onChanged={() => { loadMessages(); loadStats(); }}
         onCloseDetail={() => { setSelectedId(null); setDetail(null); }}
+        onReply={replyToMessage}
       />
       <MessageView
         detail={detail}
@@ -487,13 +531,6 @@ function AppInner() {
             setUndoSend(null);
           }}>Zpět</button>
         </div>
-      )}
-      {digestOpen && <DigestModal onClose={() => setDigestOpen(false)} />}
-      {packingOpen && (
-        <PackingModal
-          onClose={() => setPackingOpen(false)}
-          onOpenMessage={id => { setPackingOpen(false); openMessage(id); }}
-        />
       )}
       {settingsOpen && (
         <SettingsModal

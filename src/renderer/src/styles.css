@@ -2438,9 +2438,9 @@ button, kbd, label,
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
-  padding: 6px 4px;
+  padding: 6px 2px;
   border-radius: 7px;
   font-size: 12.5px;
   font-weight: 600;
@@ -2534,7 +2534,9 @@ button, kbd, label,
 .ws-menu-item.on { background: var(--accent-soft); }
 .ws-menu-item.on svg, .ws-menu-item.on b { color: var(--accent-dark); }
 /* Šipka jen naznačuje, že se něco rozbalí — nesmí brát místo popisku */
-.ig-switch .ws-caret { opacity: 0.55; margin-left: -2px; }
+/* Šipka u „Funkce" je jen ozdoba, ale ubírá z místa, které popisek potřebuje.
+   Delší slovo než „AI" se s ní do třetiny panelu nevešlo a zbylo z něj „Fu…". */
+.ig-switch .ws-caret { display: none; }
 
 /* Pruh s průběhem překladu na pozadí — drží se dole, přes celou šířku okna */
 .pt-statusbar {
@@ -3544,7 +3546,35 @@ html[data-form-factor="phone"] .m-scrim {
 @keyframes m-fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* Přepínač prostorů v panelu je na telefonu zbytečný — je dole */
-html[data-form-factor="phone"] .ig-switch { display: none; }
+/* Na telefonu z přepínače zbývá jen „Funkce" — mezi prostory se přepíná
+   spodní lištou, ale katalog, balení a přehled dne jinou cestu nemají.
+   Mřížka na tři díly by z jediného tlačítka udělala třetinový sloupec,
+   proto se tady rozvržení mění na prostý blok přes celou šířku zásuvky. */
+html[data-form-factor="phone"] .ig-switch {
+  display: block;
+  padding: 0;
+  background: transparent;
+  margin: 0 10px 10px;
+}
+html[data-form-factor="phone"] .ig-switch button {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  background: var(--bg);
+  font-size: 14px;
+}
+html[data-form-factor="phone"] .ws-menu {
+  position: static;
+  box-shadow: none;
+  margin-top: 6px;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--border);
+}
+html[data-form-factor="phone"] .ws-menu-item { padding: 11px 12px; }
+html[data-form-factor="phone"] .ws-menu-item b { font-size: 14px; }
+html[data-form-factor="phone"] .ws-menu-item small { font-size: 12px; }
 
 /* ---------- Spodní přepínač ---------- */
 
@@ -6251,3 +6281,58 @@ html[data-form-factor="phone"] .kat-modal .modal-foot { flex-wrap: wrap; padding
 html[data-form-factor="phone"] .kat-phone-note { max-width: none; text-align: left; flex: 1 1 100%; }
 /* Arch se na telefon nevejde ani zmenšený na dvě třetiny */
 html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
+
+/* ---------- Dotyková gesta na telefonu ---------- */
+
+.swipe-row { position: relative; overflow: hidden; }
+.swipe-front {
+  position: relative;
+  z-index: 1;
+  background: var(--panel);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
+  will-change: transform;
+}
+/* Tlačítka leží pod řádkem a odkrývají se tahem — nevyjíždějí zpod něj,
+   takže se při tahu nic nepřekresluje kromě posunu */
+.swipe-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+}
+.swipe-side.left { left: 0; }
+.swipe-side.right { right: 0; }
+.swipe-act {
+  width: 82px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  color: #fff;
+  background: var(--accent);
+}
+.swipe-act.danger { background: var(--danger); }
+.swipe-act.warn { background: var(--warn); }
+.swipe-act.ok { background: var(--ok); }
+
+/* Pruh nad seznamem při tažení dolů. Roste s prstem, ať je vidět, že to
+   reaguje, a text se změní až ve chvíli, kdy puštění opravdu synchronizuje. */
+.pull-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.pull-hint svg { transition: transform 0.2s, color 0.2s; }
+.pull-hint svg.ready { transform: rotate(180deg); color: var(--accent); }
+
+[data-theme="dark"] .swipe-front { background: var(--panel); }

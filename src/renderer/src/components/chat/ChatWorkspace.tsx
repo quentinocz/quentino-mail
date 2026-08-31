@@ -3,6 +3,7 @@ import type { ChatConversation, ChatMessage as Msg, ChatOverview, OrderContact }
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
+import { SwipeRow, useEdgeBack } from '../../gestures';
 import CallContact from '../CallContact';
 import WorkspaceSwitch, { Workspace, AiTool } from '../WorkspaceSwitch';
 import { SidebarResizer } from '../../sidebar';
@@ -131,6 +132,9 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { loadConvs(); }, [loadConvs]);
+
+  /* Tah od levého okraje vrátí z vlákna na seznam — stejně jako v poště */
+  useEdgeBack(() => setActiveId(null), phone && activeId !== null);
 
   // Nové zprávy chodí bez upozornění, proto se seznam i vlákno občas přečtou znovu
   useEffect(() => {
@@ -294,8 +298,30 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
           )}
           {ready && convs.length === 0 && <div className="ig-muted" style={{ padding: '10px 12px' }}>Žádné konverzace.</div>}
           {convs.map(c => (
-            <button
+            /*
+             * Tah přes konverzaci: přečteno a uzavřít. Uzavření je to, co se
+             * v chatu dělá pořád — vyřízený dotaz má z fronty zmizet, ne se
+             * kvůli tomu otevírat.
+             */
+            <SwipeRow
               key={c.id}
+              left={[{
+                key: 'read', label: c.unread > 0 ? 'Přečteno' : 'Otevřít', icon: 'mailOpen',
+                run: () => (c.unread > 0
+                  ? api.chat.markRead(c.id).then(loadConvs).catch(() => {})
+                  : setActiveId(c.id))
+              }]}
+              right={[{
+                key: 'status',
+                label: c.status === 'closed' ? 'Otevřít' : 'Uzavřít',
+                icon: c.status === 'closed' ? 'inbox' : 'check',
+                tone: c.status === 'closed' ? undefined : 'ok',
+                run: () => api.chat
+                  .setStatus(c.id, c.status === 'closed' ? 'open' : 'closed')
+                  .then(loadConvs).catch(() => {})
+              }]}
+            >
+            <button
               className={`ch-conv ${c.id === activeId ? 'active' : ''}`}
               onClick={() => setActiveId(c.id)}
             >
@@ -312,6 +338,7 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
               </span>
               {c.unread > 0 && <span className="count">{c.unread}</span>}
             </button>
+            </SwipeRow>
           ))}
         </div>
 

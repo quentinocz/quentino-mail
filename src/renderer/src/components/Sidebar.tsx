@@ -44,8 +44,6 @@ interface Props {
   quota: { used: number; limit: number } | null;
   /** Otevře úklid schránky — z ukazatele obsazení */
   onCleanup: () => void;
-  onOpenDigest: () => void;
-  onOpenPacking: () => void;
   /** Kolik zpráv k objednávkám čeká na odpověď */
   orderPending: number;
   /** Přepnutí pracovního prostoru */
@@ -77,11 +75,6 @@ export default function Sidebar(p: Props) {
       <button className="btn-compose" onClick={p.onCompose}><Icon name="pen" size={15} /> Nová zpráva</button>
 
       <div className="side-scroll">
-      <button className="side-item" onClick={p.onOpenDigest}
-        data-tip="AI shrne poštu za posledních 24 hodin — co je urgentní a co čeká na odpověď">
-        <span className="icon"><Icon name="sunrise" /></span>
-        <span className="label">Přehled dne</span>
-      </button>
 
       <button className={`side-item ${p.view.type === 'orderInbox' ? 'active' : ''}`}
         onClick={() => p.onSelectView({ type: 'orderInbox' })}
@@ -91,23 +84,6 @@ export default function Sidebar(p: Props) {
         {p.orderPending > 0 && <span className="count">{p.orderPending}</span>}
       </button>
 
-      <button className="side-item" onClick={p.onOpenPacking}
-        data-tip="Odškrtávací seznam objednávek k zabalení — kusy, varianty, adresy">
-        <span className="icon"><Icon name="bag" /></span>
-        <span className="label">Balení objednávek</span>
-      </button>
-
-      {/*
-        * Katalog je i v nabídce AI, ale ta se na telefonu neukazuje —
-        * přepínač prostorů tam nahradila spodní lišta. Naskladnění se přitom
-        * dělá právě s telefonem v ruce, tak má vlastní řádek tady.
-        */}
-      <button className={`side-item ${p.activeTool === 'catalog' ? 'active' : ''}`}
-        onClick={() => p.onAiTool('catalog')}
-        data-tip="Produkty a zásoby, naskladnění zboží, štítky s kódem">
-        <span className="icon"><Icon name="layers" /></span>
-        <span className="label">Katalog a naskladnění</span>
-      </button>
 
       {p.accounts.length > 1 && (
         <div className="account-switcher">
