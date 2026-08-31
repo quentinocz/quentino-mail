@@ -350,6 +350,7 @@ export function registerIpc() {
   });
   handle('scan:stop', () => true);
   handle('scan:feedback', () => true);
+  handle('scan:count', () => true);
   /* Úklid schránky: najít staré velké zprávy a stáhnout je k sobě ze serveru */
   handle('mail:cleanupScan', (accountId: number, olderThanDays: number, minSizeKb: number) =>
     scanOld(accountId, olderThanDays ?? 365, minSizeKb ?? 0));

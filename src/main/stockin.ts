@@ -33,7 +33,8 @@ export function listSessions(): StockinSession[] {
   const rows = getDb().prepare(
     `SELECT s.*, (SELECT COUNT(*) FROM stockin_items i WHERE i.session_id = s.id) AS lines,
             (SELECT COALESCE(SUM(qty), 0) FROM stockin_items i WHERE i.session_id = s.id) AS pieces
-     FROM stockin s ORDER BY (s.state = 'open') DESC, s.updated_at DESC LIMIT 60`
+     FROM stockin s WHERE s.state != 'deleted'
+     ORDER BY (s.state = 'open') DESC, s.updated_at DESC LIMIT 60`
   ).all() as any[];
   return rows.map(mapSession);
 }
@@ -67,7 +68,7 @@ export function sessionOf(id: string): StockinSession | null {
   const row = getDb().prepare(
     `SELECT s.*, (SELECT COUNT(*) FROM stockin_items i WHERE i.session_id = s.id) AS lines,
             (SELECT COALESCE(SUM(qty), 0) FROM stockin_items i WHERE i.session_id = s.id) AS pieces
-     FROM stockin s WHERE s.id = ?`
+     FROM stockin s WHERE s.id = ? AND s.state != 'deleted'`
   ).get(id) as any;
   return row ? mapSession(row) : null;
 }
@@ -130,10 +131,26 @@ export function renameSession(id: string, title: string, note = ''): void {
     .run(title, note, now(), id);
 }
 
+/**
+ * Smazání se musí dozvědět i druhé zařízení.
+ *
+ * Řádek se proto nezahodí, jen se označí za smazaný a takový zůstane
+ * ve sdíleném souboru. Kdyby se smazal doopravdy, druhé zařízení by ho
+ * při nejbližší synchronizaci poslalo zpátky — přesně to se dělo: co se
+ * smazalo na telefonu, do minuty se zase objevilo.
+ *
+ * Náhrobky se po dvou měsících uklidí; do té doby už se nemá co vracet.
+ */
 export function deleteSession(id: string): void {
   const d = getDb();
   d.prepare('DELETE FROM stockin_items WHERE session_id = ?').run(id);
-  d.prepare('DELETE FROM stockin WHERE id = ?').run(id);
+  d.prepare("UPDATE stockin SET state = 'deleted', updated_at = ? WHERE id = ?").run(now(), id);
+  purgeTombstones();
+}
+
+function purgeTombstones(): void {
+  const cutoff = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  getDb().prepare("DELETE FROM stockin WHERE state = 'deleted' AND updated_at < ?").run(cutoff);
 }
 
 /** Označí naskladnění za odeslanou — už se do ní nepřidává a nesynchronizuje se zpět. */
@@ -186,10 +203,22 @@ export function planOf(id: string): StockinPlanRow[] {
 /**
  * Sloučení naskladnění ze sdílené složky.
  *
- * Slučuje se po řádcích a **počet se bere jako vyšší z obou stran**, ne jako
- * součet: kdyby se sčítalo, každá další synchronizace by počet nafoukla.
- * Odeslané naskladnění se nikdy nevrací do stavu „rozpracované" — jednou
- * zapsané zboží se nemá naskladnit podruhé.
+ * **Vyhrává novější verze celého naskladnění, ne jednotlivé řádky.**
+ *
+ * Původně se slučovalo po řádcích a počet se bral jako vyšší z obou stran,
+ * aby se opakovanou synchronizací nic nenafouklo. Jenže tím se nedalo počet
+ * snížit ani řádek smazat: soubor z minulého kola hodnotu vždycky vrátil.
+ * Projevilo se to i na jediném zařízení — opravený počet se do minuty vrátil
+ * na původní, protože ho vzkřísil soubor, který to samé zařízení předtím
+ * zapsalo.
+ *
+ * Naskladnění se dělá po sobě, ne najednou: začne se u regálu na telefonu
+ * a dokončí na počítači. Novější strana proto přebírá i seznam řádků —
+ * včetně toho, co z něj zmizelo.
+ *
+ * Dvě věci jsou konečné bez ohledu na čas: **smazané** a **zapsané**. Stačí,
+ * aby to řeklo jedno zařízení; jednou zapsané zboží se nemá naskladnit
+ * podruhé a smazané se nemá vracet.
  */
 export function mergeStockin(remote: any): void {
   if (!remote || !Array.isArray(remote.sessions)) return;
@@ -201,21 +230,35 @@ export function mergeStockin(remote: any): void {
      ON CONFLICT(id) DO UPDATE SET
        title = CASE WHEN excluded.updated_at > stockin.updated_at THEN excluded.title ELSE stockin.title END,
        note = CASE WHEN excluded.updated_at > stockin.updated_at THEN excluded.note ELSE stockin.note END,
-       state = CASE WHEN excluded.state = 'sent' THEN 'sent' ELSE stockin.state END,
+       state = CASE
+         WHEN stockin.state = 'deleted' OR excluded.state = 'deleted' THEN 'deleted'
+         WHEN excluded.state = 'sent' THEN 'sent'
+         ELSE stockin.state END,
        sent_at = CASE WHEN stockin.sent_at = '' THEN excluded.sent_at ELSE stockin.sent_at END,
        updated_at = MAX(stockin.updated_at, excluded.updated_at)`
   );
-  const upsertItem = d.prepare(
-    `INSERT INTO stockin_items (session_id, code, product_code, title, label, qty, stock_before, added_at)
-     VALUES (@session_id, @code, @product_code, @title, @label, @qty, @stock_before, @added_at)
-     ON CONFLICT(session_id, code) DO UPDATE SET
-       qty = MAX(stockin_items.qty, excluded.qty),
-       title = CASE WHEN stockin_items.title = '' THEN excluded.title ELSE stockin_items.title END,
-       label = CASE WHEN stockin_items.label = '' THEN excluded.label ELSE stockin_items.label END,
-       stock_before = COALESCE(stockin_items.stock_before, excluded.stock_before)`
+  const insertItem = d.prepare(
+    `INSERT OR REPLACE INTO stockin_items
+       (session_id, code, product_code, title, label, qty, stock_before, added_at)
+     VALUES (@session_id, @code, @product_code, @title, @label, @qty, @stock_before, @added_at)`
   );
 
   const run = d.transaction(() => {
+    /*
+     * Nejdřív se zjistí, čí verze je novější — porovnává se se stavem *před*
+     * zápisem hlavičky, protože ta si po sloučení odnese pozdější čas z obou
+     * stran a rozdíl by zmizel.
+     */
+    const takeover = new Set<string>();
+    for (const s of remote.sessions) {
+      if (!s?.id) continue;
+      const id = String(s.id);
+      const mine = d.prepare('SELECT updated_at, state FROM stockin WHERE id = ?').get(id) as any;
+      const theirs = s.updated_at ?? '';
+      if (mine?.state === 'deleted') continue;
+      if (!mine || theirs > (mine.updated_at ?? '')) takeover.add(id);
+    }
+
     for (const s of remote.sessions) {
       if (!s?.id) continue;
       upsertSession.run({
@@ -223,16 +266,25 @@ export function mergeStockin(remote: any): void {
         title: s.title ?? '',
         note: s.note ?? '',
         device: s.device ?? '',
-        state: s.state === 'sent' ? 'sent' : 'open',
+        state: s.state === 'sent' || s.state === 'deleted' ? s.state : 'open',
         created_at: s.created_at ?? now(),
         updated_at: s.updated_at ?? now(),
         sent_at: s.sent_at ?? ''
       });
     }
+
+    // Přebírané naskladnění dostane cizí seznam řádků celý — a to znamená
+    // i to, že řádky, které v něm nejsou, tady zmizí
+    for (const id of takeover) {
+      d.prepare('DELETE FROM stockin_items WHERE session_id = ?').run(id);
+    }
+
     for (const i of remote.items ?? []) {
       if (!i?.session_id || !i?.code) continue;
-      upsertItem.run({
-        session_id: String(i.session_id),
+      const id = String(i.session_id);
+      if (!takeover.has(id)) continue;
+      insertItem.run({
+        session_id: id,
         code: String(i.code),
         product_code: i.product_code ?? '',
         title: i.title ?? '',
@@ -242,6 +294,11 @@ export function mergeStockin(remote: any): void {
         added_at: i.added_at ?? now()
       });
     }
+
+    // Řádky smazaného naskladnění se nevracejí — ani z druhé strany
+    d.prepare(
+      "DELETE FROM stockin_items WHERE session_id IN (SELECT id FROM stockin WHERE state = 'deleted')"
+    ).run();
   });
   run();
 }
@@ -251,8 +308,8 @@ export function stockinExport(): { sessions: any[]; items: any[] } {
   const d = getDb();
   const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const sessions = d.prepare(
-    'SELECT * FROM stockin WHERE state = ? OR updated_at > ? ORDER BY updated_at DESC LIMIT 60'
-  ).all('open', cutoff) as any[];
+    "SELECT * FROM stockin WHERE state = 'open' OR updated_at > ? ORDER BY updated_at DESC LIMIT 120"
+  ).all(cutoff) as any[];
   const ids = sessions.map(s => s.id);
   const items = ids.length
     ? d.prepare(

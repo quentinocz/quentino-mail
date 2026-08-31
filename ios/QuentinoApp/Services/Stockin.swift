@@ -44,14 +44,15 @@ enum Stockin {
 
     static func list() -> [[String: Any]] {
         let rows = (try? SQLite.shared.query(
-            counted + " ORDER BY (s.state = 'open') DESC, s.updated_at DESC LIMIT 60"
+            counted + " WHERE s.state != 'deleted' ORDER BY (s.state = 'open') DESC, s.updated_at DESC LIMIT 60"
         )) ?? []
         return rows.map(shape)
     }
 
     static func session(_ id: String) -> Any {
-        guard let row = (try? SQLite.shared.query(counted + " WHERE s.id = ?", [.text(id)]))?.first
-        else { return NSNull() }
+        guard let row = (try? SQLite.shared.query(
+            counted + " WHERE s.id = ? AND s.state != 'deleted'", [.text(id)]
+        ))?.first else { return NSNull() }
         return shape(row)
     }
 
@@ -148,9 +149,22 @@ enum Stockin {
                                [.text(title), .text(note), .text(Formats.iso()), .text(id)])
     }
 
+    /**
+     Smazání se musí dozvědět i druhé zařízení.
+
+     Řádek se proto nezahodí, jen se označí za smazaný a takový zůstane
+     ve sdíleném souboru. Kdyby se smazal doopravdy, počítač by ho při
+     nejbližší synchronizaci poslal zpátky — přesně to se dělo: co se smazalo
+     na telefonu, do minuty se zase objevilo. Náhrobky se po dvou měsících
+     uklidí, to už se nemá co vracet.
+     */
     static func remove(_ id: String) {
         try? SQLite.shared.run("DELETE FROM stockin_items WHERE session_id = ?", [.text(id)])
-        try? SQLite.shared.run("DELETE FROM stockin WHERE id = ?", [.text(id)])
+        try? SQLite.shared.run("UPDATE stockin SET state = 'deleted', updated_at = ? WHERE id = ?",
+                               [.text(Formats.iso()), .text(id)])
+        let cutoff = Formats.iso(Date().addingTimeInterval(-60 * 86_400))
+        try? SQLite.shared.run("DELETE FROM stockin WHERE state = 'deleted' AND updated_at < ?",
+                               [.text(cutoff)])
     }
 
     static func markSent(_ id: String) {
@@ -202,14 +216,43 @@ enum Stockin {
     /**
      Sloučení naskladnění ze sdílené složky.
 
-     Počet se bere jako **vyšší z obou stran**, ne jako součet: kdyby se
-     sčítalo, každá další synchronizace by počet nafoukla. Odeslané naskladnění
-     se nikdy nevrací do stavu „rozpracované" — jednou zapsané zboží se nemá
-     naskladnit podruhé.
+     **Vyhrává novější verze celého naskladnění, ne jednotlivé řádky.**
+
+     Původně se slučovalo po řádcích a počet se bral jako vyšší z obou stran,
+     aby se opakovanou synchronizací nic nenafouklo. Jenže tím se nedalo počet
+     snížit ani řádek smazat: soubor z minulého kola hodnotu vždycky vrátil.
+     Projevilo se to i na jediném zařízení — opravený počet se do minuty vrátil
+     na původní, protože ho vzkřísil soubor, který to samé zařízení předtím
+     zapsalo.
+
+     Naskladnění se dělá po sobě, ne najednou: začne se u regálu na telefonu
+     a dokončí na počítači. Novější strana proto přebírá i seznam řádků —
+     včetně toho, co z něj zmizelo.
+
+     Dvě věci jsou konečné bez ohledu na čas: **smazané** a **zapsané**.
      */
     static func merge(_ remote: [String: Any]) {
-        for row in remote["sessions"] as? [[String: Any]] ?? [] {
+        let sessions = remote["sessions"] as? [[String: Any]] ?? []
+
+        /*
+         Nejdřív se zjistí, čí verze je novější — porovnává se se stavem
+         *před* zápisem hlavičky, protože ta si po sloučení odnese pozdější
+         čas z obou stran a rozdíl by zmizel.
+         */
+        var takeover = Set<String>()
+        for row in sessions {
             guard let id = row["id"] as? String, !id.isEmpty else { continue }
+            let mine = (try? SQLite.shared.query(
+                "SELECT updated_at, state FROM stockin WHERE id = ?", [.text(id)]
+            ))?.first
+            if (mine?["state"] as? String) == "deleted" { continue }
+            let theirs = row["updated_at"] as? String ?? ""
+            if mine == nil || theirs > (mine?["updated_at"] as? String ?? "") { takeover.insert(id) }
+        }
+
+        for row in sessions {
+            guard let id = row["id"] as? String, !id.isEmpty else { continue }
+            let state = row["state"] as? String ?? "open"
             try? SQLite.shared.run(
                 """
                 INSERT INTO stockin (id, title, note, device, state, created_at, updated_at, sent_at)
@@ -217,7 +260,10 @@ enum Stockin {
                 ON CONFLICT(id) DO UPDATE SET
                   title = CASE WHEN excluded.updated_at > stockin.updated_at THEN excluded.title ELSE stockin.title END,
                   note = CASE WHEN excluded.updated_at > stockin.updated_at THEN excluded.note ELSE stockin.note END,
-                  state = CASE WHEN excluded.state = 'sent' THEN 'sent' ELSE stockin.state END,
+                  state = CASE
+                    WHEN stockin.state = 'deleted' OR excluded.state = 'deleted' THEN 'deleted'
+                    WHEN excluded.state = 'sent' THEN 'sent'
+                    ELSE stockin.state END,
                   sent_at = CASE WHEN stockin.sent_at = '' THEN excluded.sent_at ELSE stockin.sent_at END,
                   updated_at = MAX(stockin.updated_at, excluded.updated_at)
                 """,
@@ -226,7 +272,7 @@ enum Stockin {
                     .text(row["title"] as? String ?? ""),
                     .text(row["note"] as? String ?? ""),
                     .text(row["device"] as? String ?? ""),
-                    .text((row["state"] as? String) == "sent" ? "sent" : "open"),
+                    .text(["sent", "deleted"].contains(state) ? state : "open"),
                     .text(row["created_at"] as? String ?? Formats.iso()),
                     .text(row["updated_at"] as? String ?? Formats.iso()),
                     .text(row["sent_at"] as? String ?? "")
@@ -234,19 +280,21 @@ enum Stockin {
             )
         }
 
+        // Přebírané naskladnění dostane cizí seznam řádků celý — a to znamená
+        // i to, že řádky, které v něm nejsou, tady zmizí
+        for id in takeover {
+            try? SQLite.shared.run("DELETE FROM stockin_items WHERE session_id = ?", [.text(id)])
+        }
+
         for row in remote["items"] as? [[String: Any]] ?? [] {
-            guard let session = row["session_id"] as? String, !session.isEmpty,
+            guard let session = row["session_id"] as? String, takeover.contains(session),
                   let code = row["code"] as? String, !code.isEmpty else { continue }
             let stock = row["stock_before"] as? Int
             try? SQLite.shared.run(
                 """
-                INSERT INTO stockin_items (session_id, code, product_code, title, label, qty, stock_before, added_at)
+                INSERT OR REPLACE INTO stockin_items
+                  (session_id, code, product_code, title, label, qty, stock_before, added_at)
                 VALUES (?,?,?,?,?,?,?,?)
-                ON CONFLICT(session_id, code) DO UPDATE SET
-                  qty = MAX(stockin_items.qty, excluded.qty),
-                  title = CASE WHEN stockin_items.title = '' THEN excluded.title ELSE stockin_items.title END,
-                  label = CASE WHEN stockin_items.label = '' THEN excluded.label ELSE stockin_items.label END,
-                  stock_before = COALESCE(stockin_items.stock_before, excluded.stock_before)
                 """,
                 [
                     .text(session), .text(code),
@@ -259,13 +307,19 @@ enum Stockin {
                 ]
             )
         }
+
+        // Řádky smazaného naskladnění se nevracejí — ani z druhé strany
+        try? SQLite.shared.run(
+            "DELETE FROM stockin_items WHERE session_id IN (SELECT id FROM stockin WHERE state = 'deleted')"
+        )
     }
 
-    /// Co se má poslat do sdílené složky — jen rozpracované a nedávno odeslané.
+    /// Co se má poslat do sdílené složky — rozpracované, nedávno odeslané
+    /// a **náhrobky po smazaných**, jinak by se smazané vracelo zpátky.
     static func export() -> [String: Any] {
         let cutoff = Formats.iso(Date().addingTimeInterval(-30 * 86_400))
         let sessions = (try? SQLite.shared.query(
-            "SELECT * FROM stockin WHERE state = 'open' OR updated_at > ? ORDER BY updated_at DESC LIMIT 60",
+            "SELECT * FROM stockin WHERE state = 'open' OR updated_at > ? ORDER BY updated_at DESC LIMIT 120",
             [.text(cutoff)]
         )) ?? []
         let ids = sessions.compactMap { $0["id"] as? String }

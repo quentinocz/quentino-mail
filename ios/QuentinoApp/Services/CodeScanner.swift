@@ -22,10 +22,11 @@ import VisionKit
   3. **Zpětná vazba je v hledáčku, ne v aplikaci pod ním.** Rozhraní pošle
      zpátky jednu větu („Kšandy Slim · 120cm — celkem 6 ks") a ta se ukáže
      rovnou nad tlačítkem. Kdo drží telefon nad krabicí, se nedívá jinam.
-  4. **Počet se opraví na místě.** V krabici je šest kusů, ale pípne se
-     jednou — proto je pod větou i „− 6 +" a kvůli počtu se nemusí zavírat
-     fotoaparát. Držení tlačítka počítá dál, ať se u dvaceti kusů neťuká
-     dvacetkrát. Klávesnice tu schválně není: zakryla by hledáček.
+  4. **Počet se nastavuje předem.** V krabici je šest kusů, ale pípne se
+     jednou — proto je pod větou „− 6 +" a říká, **kolik kusů přidá další
+     načtení**. Nastavit to jednou je rychlejší než po každém pípnutí
+     opravovat řádek v seznamu. Držení tlačítka počítá dál, ať se u dvaceti
+     kusů neťuká dvacetkrát; klávesnice tu schválně není, zakryla by hledáček.
  */
 @MainActor
 enum CodeScanner {
@@ -60,9 +61,13 @@ enum CodeScanner {
     }
 
     /// Krátká věta pod hledáček — co se právě přičetlo.
-    /// `qty` menší než nula počítadlo schová: u neznámého kódu není co počítat.
-    static func feedback(_ text: String, ok: Bool, qty: Int) {
-        controller?.show(text, ok: ok, qty: qty)
+    static func feedback(_ text: String, ok: Bool) {
+        controller?.show(text, ok: ok)
+    }
+
+    /// Kolik kusů přidá další načtení — číslo v počítadle.
+    static func count(_ value: Int) {
+        controller?.setCount(value)
     }
 
     static func forget() { controller = nil }
@@ -108,7 +113,7 @@ private final class ScannerController: UIViewController {
         banner.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         banner.layer.cornerRadius = 12
         banner.layer.masksToBounds = true
-        banner.text = " Namiř na kód na štítku "
+        banner.text = " Namiř na kód na štítku · níž nastav počet kusů "
         view.addSubview(banner)
 
         let close = UIButton(type: .system)
@@ -151,8 +156,6 @@ private final class ScannerController: UIViewController {
         qtyBar.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         qtyBar.layer.cornerRadius = 26
         qtyBar.layer.masksToBounds = true
-        // Ukáže se, až je co počítat — prázdné počítadlo nad hledáčkem plete
-        qtyBar.isHidden = true
 
         qtyLabel.textColor = .white
         qtyLabel.textAlignment = .center
@@ -202,17 +205,19 @@ private final class ScannerController: UIViewController {
         }
     }
 
-    func show(_ text: String, ok: Bool, qty: Int) {
+    func show(_ text: String, ok: Bool) {
         banner.text = " \(text) "
         banner.backgroundColor = (ok ? UIColor.systemGreen : UIColor.systemRed).withAlphaComponent(0.85)
-        qtyBar.isHidden = qty < 0
-        if qty >= 0 { qtyLabel.text = String(qty) }
-        /*
-         Haptika patří k načtení kódu, ne k počítání. Při držení tlačítka
-         chodí zprávy osmkrát za vteřinu a telefon by nepřetržitě drnčel;
-         `qty < 0` proto znamená „tohle je odpověď na kód".
-         */
         if !ok { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+    }
+
+    /*
+     Počítadlo se mění mimo načítání kódů, takže se ho netýká ani hláška,
+     ani haptika — při držení tlačítka chodí zprávy osmkrát za vteřinu
+     a telefon by nepřetržitě drnčel.
+     */
+    func setCount(_ value: Int) {
+        qtyLabel.text = String(max(1, value))
     }
 
     /// Kód se načetl — potvrdit hmatem, ať se člověk nemusí dívat.

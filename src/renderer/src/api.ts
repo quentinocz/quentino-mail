@@ -482,8 +482,9 @@ export const api = {
     available: () => call<boolean>('scan:available'),
     start: () => call<boolean>('scan:start'),
     stop: () => call<boolean>('scan:stop'),
-    /** `qty` menší než nula schová počítadlo — u neznámého kódu není co počítat. */
-    feedback: (text: string, ok = true, qty = -1) => call<boolean>('scan:feedback', text, ok, qty)
+    feedback: (text: string, ok = true) => call<boolean>('scan:feedback', text, ok),
+    /** Kolik kusů přidá další načtení — číslo v počítadle hledáčku. */
+    count: (n: number) => call<boolean>('scan:count', n)
   },
 
   quota: {
