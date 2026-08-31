@@ -3546,35 +3546,12 @@ html[data-form-factor="phone"] .m-scrim {
 @keyframes m-fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* Přepínač prostorů v panelu je na telefonu zbytečný — je dole */
-/* Na telefonu z přepínače zbývá jen „Funkce" — mezi prostory se přepíná
-   spodní lištou, ale katalog, balení a přehled dne jinou cestu nemají.
-   Mřížka na tři díly by z jediného tlačítka udělala třetinový sloupec,
-   proto se tady rozvržení mění na prostý blok přes celou šířku zásuvky. */
-html[data-form-factor="phone"] .ig-switch {
-  display: block;
-  padding: 0;
-  background: transparent;
-  margin: 0 10px 10px;
-}
-html[data-form-factor="phone"] .ig-switch button {
-  width: 100%;
-  justify-content: flex-start;
-  gap: 10px;
-  padding: 11px 12px;
-  background: var(--bg);
-  font-size: 14px;
-}
-html[data-form-factor="phone"] .ws-menu {
-  position: static;
-  box-shadow: none;
-  margin-top: 6px;
-  min-width: 0;
-  width: 100%;
-  border: 1px solid var(--border);
-}
-html[data-form-factor="phone"] .ws-menu-item { padding: 11px 12px; }
-html[data-form-factor="phone"] .ws-menu-item b { font-size: 14px; }
-html[data-form-factor="phone"] .ws-menu-item small { font-size: 12px; }
+/* V zásuvce přepínač není: mezi prostory se přepíná spodní lištou a Funkce
+   mají vlastní tlačítko v hlavičce pošty, hned vedle složek */
+html[data-form-factor="phone"] .ig-switch { display: none; }
+
+/* Funkce mají místo ve spodní liště a otevírají se panelem odspodu —
+   tam, kde je palec, a ne schované v zásuvce pod složkami */
 
 /* ---------- Spodní přepínač ---------- */
 
@@ -6289,8 +6266,10 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   position: relative;
   z-index: 1;
   background: var(--panel);
-  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
   will-change: transform;
+  /* Svisle patří rolování prohlížeči, vodorovně gestu — bez tohohle se
+     prohlížeč pere s tahem a pohyb dostane škytavku */
+  touch-action: pan-y;
 }
 /* Tlačítka leží pod řádkem a odkrývají se tahem — nevyjíždějí zpod něj,
    takže se při tahu nic nepřekresluje kromě posunu */

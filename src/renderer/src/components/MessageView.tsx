@@ -42,6 +42,8 @@ function fmtSize(n: number): string {
 }
 
 interface Props {
+  /** Kořen čtecí části — po něm posouvá tah od kraje displeje */
+  paneRef?: React.MutableRefObject<HTMLDivElement | null>;
   detail: MessageFull | null;
   selectedId: number | null;
   account: AccountPublic | null;
@@ -210,7 +212,7 @@ export default function MessageView(p: Props) {
 
   if (!p.selectedId) {
     return (
-      <div className="read-pane">
+      <div className="read-pane" ref={p.paneRef}>
         <div className="empty-state" style={{ marginTop: '30vh' }}>
           <div className="big"><Icon name="mailOpen" size={36} /></div>
           Vyber zprávu ze seznamu
@@ -221,7 +223,7 @@ export default function MessageView(p: Props) {
 
   if (!d) {
     return (
-      <div className="read-pane">
+      <div className="read-pane" ref={p.paneRef}>
         <div className="empty-state" style={{ marginTop: '30vh' }}>
           <span className="spinner-inline" /> Načítám zprávu…
         </div>
@@ -321,7 +323,7 @@ export default function MessageView(p: Props) {
   });
 
   return (
-    <div className="read-pane">
+    <div className="read-pane" ref={p.paneRef}>
       {convOpen && (
         <ConversationModal
           email={customerEmail}
