@@ -922,7 +922,8 @@ export default function SettingsModal(p: Props) {
                 znamenal placený vývojářský účet u Applu, tohle je zdarma a bez registrace:
                 na telefon si nainstaluješ aplikaci <b>ntfy</b> z App Storu, přihlásíš ji
                 k tématu níž a od té chvíle ti chodí upozornění z ní.
-                Ven jde <b>odesílatel a předmět</b>, ne text zprávy.
+                Ven jde <b>odesílatel a předmět</b>, ne text zprávy. Klepnutí na
+                upozornění otevře v aplikaci rovnou tu zprávu nebo konverzaci.
               </div>
 
               <label className="check-row">

@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 /**
  Vstupní bod aplikace.
@@ -16,14 +17,35 @@ import UIKit
  pozdější registrace skončí výjimkou. V čistém SwiftUI na to není háček, tak
  se sem přidává tenhle jeden.
  */
-final class AppDelegate: NSObject, UIApplicationDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         Background.register()
         Notify.requestPermission()
+        UNUserNotificationCenter.current().delegate = self
         return true
+    }
+
+    /**
+     Klepnutí na vlastní notifikaci otevře zprávu, ne jen aplikaci.
+
+     Adresa se otevře přes systém, i když míří do nás samotných — vrátí se pak
+     `onOpenURL` ve `WindowGroup`, kde už ji zpracovává `Bridge.handleDeepLink`.
+     Kdyby si ji delegát zpracoval sám, musel by si držet odkaz na most
+     a řešit, že rozhraní ještě nemusí být načtené.
+     */
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if let text = response.notification.request.content.userInfo["link"] as? String,
+           let url = URL(string: text) {
+            UIApplication.shared.open(url)
+        }
+        completionHandler()
     }
 
     /// Odchod na pozadí je poslední chvíle, kdy si jde říct o další probuzení.

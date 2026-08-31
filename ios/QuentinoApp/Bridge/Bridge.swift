@@ -93,12 +93,60 @@ final class Bridge: NSObject, ObservableObject, WKScriptMessageHandler {
 
     // MARK: - Odkazy zvenčí (návrat z přihlášení k Metě)
 
+    /**
+     Otevření aplikace odkazem.
+
+     Původně sem chodil jen návrat z přihlášení k Metě, takže se každý odkaz
+     bral jako jeho. Teď vede stejnou cestou i klepnutí na upozornění z ntfy —
+     rozlišuje se podle prvního dílu adresy. Co není pošta ani chat, jde dál
+     na Metu, aby se přihlášení nerozbilo.
+     */
     func handleDeepLink(_ url: URL) {
         guard url.scheme == "quentino-mail" else { return }
+        let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let query = { (name: String) in
+            parts?.queryItems?.first { $0.name == name }?.value
+        }
+
+        switch url.host {
+        case "mail":
+            openMail(messageId: query("mid") ?? "")
+            return
+        case "chat":
+            let id = query("id") ?? ""
+            Task { await emit("chat:open", ["id": id]) }
+            return
+        default:
+            break
+        }
+
         Task {
             let result = (try? await Instagram.shared.handleCallback(url: url)) ?? ["error": "Přihlášení se nepodařilo dokončit."]
             await emit("ig:connected", result)
         }
+    }
+
+    /**
+     Zpráva se hledá podle hlavičky `Message-ID`, ne podle čísla řádku.
+
+     Čísla řádků má každé zařízení svoje, takže odkaz vyrobený na počítači by
+     v telefonu ukázal na úplně jinou zprávu. `Message-ID` je pro danou zprávu
+     stejné všude.
+
+     Upozornění posílá počítač ve chvíli, kdy zprávu stáhl on — v telefonu tedy
+     ještě být nemusí. Pak se otevře aspoň pošta a rozhraní řekne proč.
+     */
+    private func openMail(messageId: String) {
+        let rows = (try? SQLite.shared.query(
+            "SELECT id, account_id FROM messages WHERE message_id = ? LIMIT 1",
+            [.text(messageId)]
+        )) ?? []
+
+        var payload: [String: Any] = ["pending": true]
+        if let row = rows.first, let id = row["id"] as? Int {
+            payload = ["id": id, "accountId": row["account_id"] as? Int ?? 0]
+        }
+        Task { await emit("mail:open", payload) }
     }
 
     // MARK: - Registrace kanálů

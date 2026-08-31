@@ -38,12 +38,19 @@ enum Notify {
 
     // MARK: - Lokální notifikace
 
-    /// Ukáže notifikaci z téhle aplikace. Bez sítě a bez cizí služby.
-    static func showLocal(title: String, body: String, id: String) {
+    /**
+     Ukáže notifikaci z téhle aplikace. Bez sítě a bez cizí služby.
+
+     `link` je adresa ve vlastním schématu aplikace; po klepnutí ji otevře
+     `AppDelegate` a rozhraní na ni skočí. Bez něj by klepnutí jen spustilo
+     aplikaci a hledat zprávu by musel člověk sám.
+     */
+    static func showLocal(title: String, body: String, id: String, link: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        if let link { content.userInfo = ["link": link] }
 
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
@@ -106,7 +113,7 @@ enum Notify {
         let last = Int(Store.setting("notifyLastMailId", "0") ?? "0") ?? 0
         let rows = (try? SQLite.shared.query(
             """
-            SELECT id, from_name, from_addr, subject FROM messages
+            SELECT id, message_id, from_name, from_addr, subject FROM messages
             WHERE folder = 'INBOX' AND seen = 0 AND id > ?
             ORDER BY id DESC LIMIT 5
             """,
@@ -139,6 +146,16 @@ enum Notify {
             body = lines.map { "\($0.0): \($0.1)" }.joined(separator: "\n")
         }
 
-        showLocal(title: title, body: body, id: "mail-\(newest)")
+        /*
+         Odkaz jen u jedné zprávy. U několika naráz by ukázal na jednu z nich
+         a zbytek by vypadal jako přeskočený — tam stačí otevřít poštu.
+         */
+        var link = "quentino-mail://mail"
+        if rows.count == 1, let mid = rows[0]["message_id"] as? String, !mid.isEmpty,
+           let escaped = mid.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
+            link = "quentino-mail://mail?mid=\(escaped)"
+        }
+
+        showLocal(title: title, body: body, id: "mail-\(newest)", link: link)
     }
 }

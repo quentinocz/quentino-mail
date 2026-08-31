@@ -85,7 +85,27 @@ check('lomítko navíc na konci serveru nevadí',
   notify.topicUrl('https://ntfy.example.com/', 'quentino-abc'),
   'https://ntfy.example.com/quentino-abc');
 
-/* ---------- 3. SQL pro Supabase ---------- */
+/* ---------- 3. odkazy do aplikace ---------- */
+
+console.log('\nOdkazy');
+
+/*
+ * Zpráva se v odkazu určuje hlavičkou Message-ID, ne číslem řádku v databázi:
+ * čísla má každé zařízení svoje, takže odkaz z počítače by v telefonu ukázal
+ * na cizí zprávu. Message-ID obsahuje špičaté závorky a zavináč, které se
+ * musí zakódovat, jinak se adresa rozpadne.
+ */
+check('odkaz na zprávu podle Message-ID',
+  notify.mailLink('<abc.123@mail.example.com>'),
+  'quentino-mail://mail?mid=%3Cabc.123%40mail.example.com%3E');
+
+check('bez Message-ID se otevře aspoň pošta', notify.mailLink(null), 'quentino-mail://mail');
+check('prázdná hlavička se bere jako chybějící', notify.mailLink('   '), 'quentino-mail://mail');
+
+check('odkaz na konverzaci',
+  notify.chatLink('7f3a-4b2c'), 'quentino-mail://chat?id=7f3a-4b2c');
+
+/* ---------- 4. SQL pro Supabase ---------- */
 
 console.log('\nSQL pro Supabase');
 
@@ -107,6 +127,8 @@ ok('upozorňuje se jen na zákazníka', sql.includes("new.sender is distinct fro
 ok('posílá se na kořen serveru, ne na adresu tématu',
   sql.includes("url := 'https://ntfy.sh'") && !sql.includes("url := 'https://ntfy.sh/quentino"));
 ok('téma je v těle', sql.includes("'topic', 'quentino-tajne'"));
+ok('klepnutí otevře konverzaci v aplikaci',
+  sql.includes("'click', 'quentino-mail://chat?id=' || new.conversation_id"));
 
 /*
  * pg_net si zakládá vlastní schéma `net`, takže se mu nesmí předepisovat, kam
@@ -131,7 +153,7 @@ check('vlastní server se do SQL propíše',
   /url := '([^']+)'/.exec(notify.chatWebhookSql('https://ntfy.example.com/', 'x'))[1],
   'https://ntfy.example.com');
 
-/* ---------- 4. přepínače ---------- */
+/* ---------- 5. přepínače ---------- */
 
 console.log('\nPřepínače');
 
@@ -156,7 +178,7 @@ set('notifyPhone', '1');
 set('notifyTopic', '');
 check('bez tématu není kam poslat', notify.wantsNotify('mail'), false);
 
-/* ---------- 5. uložení ---------- */
+/* ---------- 6. uložení ---------- */
 
 console.log('\nUložení');
 

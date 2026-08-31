@@ -70,6 +70,16 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   const [convs, setConvs] = useState<ChatConversation[]>([]);
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  /*
+   * Odkaz z notifikace otevře rovnou tuhle konverzaci. Nemusí být v načteném
+   * seznamu — zpráva mohla přijít do konverzace, kterou filtr schovává —
+   * takže se seznam po otevření natáhne znovu.
+   */
+  useEffect(() => api.on('chat:open', (p: any) => {
+    const id = String(p?.id ?? '').trim();
+    if (id) setActiveId(id);
+  }), []);
   const [messages, setMessages] = useState<Msg[]>([]);
   /**
    * Kontakt dohledaný ve feedu objednávek.

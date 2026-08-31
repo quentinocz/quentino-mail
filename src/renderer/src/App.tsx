@@ -255,14 +255,24 @@ function AppInner() {
     }
   }, [toast]);
 
-  // Kliknutí na systémové upozornění otevře přímo tu zprávu
+  /*
+   * Kliknutí na upozornění otevře přímo tu zprávu — na počítači ze systémové
+   * notifikace, na telefonu z ntfy přes odkaz `quentino-mail://mail?mid=…`.
+   *
+   * Zpráva v telefonu být nemusí: upozornění posílá počítač ve chvíli, kdy ji
+   * stáhl on. Pak se aspoň otevře pošta a řekne se proč, ať klepnutí nevypadá
+   * jako by nic neudělalo.
+   */
   useEffect(() => api.on('mail:open', (p: any) => {
-    if (!p?.id) return;
     setWorkspace('mail');
-    if (p.accountId) setActiveAccountId(p.accountId);
+    if (p?.accountId) setActiveAccountId(p.accountId);
     setView({ type: 'folder', folder: 'INBOX' });
-    openMessage(p.id);
-  }), [openMessage]);
+    if (p?.id) openMessage(p.id);
+    else if (p?.pending) toast('Tuhle zprávu tady ještě nemám — načte se při synchronizaci.');
+  }), [openMessage, toast]);
+
+  // Totéž pro chat: odkaz z notifikace otevře konkrétní konverzaci
+  useEffect(() => api.on('chat:open', () => setWorkspace('chat')), []);
 
   const refresh = useCallback(async () => {
     if (!activeAccountId) return;
