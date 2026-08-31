@@ -6,12 +6,19 @@ import { useIsPhone } from '../mobile';
 export type Workspace = 'mail' | 'chat' | 'instagram';
 
 /** Co se skrývá pod „AI" — nástroje, které pracují s modelem nad e-shopem. */
-export type AiTool = 'instagram' | 'catalog' | 'ptrans' | 'articles';
+/**
+ * Co se skrývá pod „Funkce" — všechno, co není pošta, chat ani sociální sítě.
+ *
+ * Dřív to byla nabídka „AI" jen pro nástroje nad modelem a zbytek (přehled
+ * dne, balení, katalog) měl vlastní řádky v panelu složek. Byly to dvě různá
+ * místa pro tutéž věc a v poště přebývala tlačítka, která s poštou nesouvisí.
+ */
+export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles';
 
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
   { id: 'chat', icon: 'chat', label: 'Chat', tip: 'Chat ze zákaznického widgetu na e-shopu' },
-  { id: 'ai', icon: 'sparkles', label: 'AI', tip: 'Sociální sítě, překlady produktů a články' }
+  { id: 'ai', icon: 'sliders', label: 'Funkce', tip: 'Přehled dne, balení, katalog, sociální sítě, překlady a články' }
 ];
 
 /**
@@ -20,8 +27,10 @@ const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[]
  * v nabídce ukazovaly i tam a klepnutí neudělalo nic; teď se prostě nenabízejí.
  */
 const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string; desktopOnly?: boolean }[] = [
+  { id: 'digest', icon: 'sunrise', label: 'Přehled dne', hint: 'Co za posledních 24 hodin čeká na odpověď' },
+  { id: 'packing', icon: 'bag', label: 'Balení objednávek', hint: 'Odškrtávací seznam — kusy, varianty, adresy' },
+  { id: 'catalog', icon: 'layers', label: 'Katalog a naskladnění', hint: 'Produkty a zásoby, příjem zboží, štítky s kódem' },
   { id: 'instagram', icon: 'image', label: 'Sociální sítě', hint: 'Instagram a Facebook ve všech trzích' },
-  { id: 'catalog', icon: 'bag', label: 'Katalog', hint: 'Produkty a zásoby, naskladnění zboží, štítky s kódem' },
   { id: 'ptrans', icon: 'globe', label: 'Překlady produktů', hint: 'Jazykové mutace z produktového feedu', desktopOnly: true },
   { id: 'articles', icon: 'fileText', label: 'Články', hint: 'Psaní a překlad článků pro e-shop', desktopOnly: true }
 ];
@@ -47,6 +56,12 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
   const compact = useSidebarWidth() < SIDE_COMPACT;
   const phone = useIsPhone();
   const tools = AI_TOOLS.filter(tool => !(phone && tool.desktopOnly));
+  /*
+   * Na telefonu se mezi prostory přepíná spodní lištou, takže z přepínače
+   * zbývá jen „Funkce" — bez něj by se na telefon nedalo dostat do katalogu,
+   * balení ani přehledu dne.
+   */
+  const tabs = phone ? TABS.filter(t => t.id === 'ai') : TABS;
   const [menu, setMenu] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -69,7 +84,7 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
 
   return (
     <div className={`ig-switch ${compact ? 'compact' : ''}`} ref={box}>
-      {TABS.map(t => (
+      {tabs.map(t => (
         <button
           key={t.id}
           className={t.id === 'ai' ? (aiActive ? 'active' : '') : (current === t.id ? 'active' : '')}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MessageHeader, Category, MessageSort, ListFilters, FolderInfo } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import type { View } from './Sidebar';
@@ -6,6 +6,7 @@ import { viewTitle } from '../viewtitle';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import { SwipeRow, usePullToRefresh, type SwipeAction } from '../gestures';
 import OrderBadge, { looksLikeOrder, shopLabel } from './OrderBadge';
 import { Sheet, SheetActions } from './Sheet';
 import { useIsPhone } from '../mobile';
@@ -56,12 +57,51 @@ interface Props {
   productFeedUrl: string | null;
   onChanged: () => void;
   onCloseDetail: () => void;
+  /** Odpověď z tahu přes řádek — na telefonu se tím ušetří otevírání zprávy */
+  onReply?: (dbId: number) => void;
 }
 
 export default function MessageList(p: Props) {
   const toast = useToast();
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const pull = usePullToRefresh(listRef, p.onRefresh, !p.syncing);
+
+  /**
+   * Tlačítka pod řádkem zprávy.
+   *
+   * Doprava se odkryje to, co se dělá často a dá se vzít zpět (přečteno,
+   * hvězdička, odpověď); doleva to, co zprávu ze seznamu odklidí. Smazání
+   * má `confirm`, takže ho dlouhý tah nespustí — na to se musí klepnout.
+   */
+  const rowActions = (m: MessageHeader): { left: SwipeAction[]; right: SwipeAction[] } => ({
+    left: [
+      {
+        key: 'seen', label: m.seen ? 'Nepřečteno' : 'Přečteno',
+        icon: m.seen ? 'mail' : 'mailOpen',
+        run: () => api.messages.setFlag(m.id, 'seen', !m.seen).then(p.onChanged).catch(() => {})
+      },
+      {
+        key: 'flag', label: m.flagged ? 'Zrušit' : 'Hvězdička', icon: 'star', tone: 'warn',
+        run: () => api.messages.setFlag(m.id, 'flagged', !m.flagged).then(p.onChanged).catch(() => {})
+      },
+      ...(p.onReply ? [{
+        key: 'reply', label: 'Odpověď', icon: 'reply', tone: 'ok' as const,
+        run: () => p.onReply!(m.id)
+      }] : [])
+    ],
+    right: [
+      {
+        key: 'archive', label: 'Archiv', icon: 'archive',
+        run: () => api.messages.archive(m.id).then(p.onChanged).catch(e => toast(e.message, 'error'))
+      },
+      {
+        key: 'del', label: 'Smazat', icon: 'trash', tone: 'danger', confirm: true,
+        run: () => api.messages.delete(m.id).then(p.onChanged).catch(e => toast(e.message, 'error'))
+      }
+    ]
+  });
 
   // Reset výběru při změně pohledu; jinak jen pročistit o zmizelé zprávy
   useEffect(() => { setChecked(new Set()); }, [p.view]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -305,7 +345,15 @@ export default function MessageList(p: Props) {
         </div>
       )}
 
-      <div className="msg-list">
+      <div className="msg-list" ref={listRef}>
+        {/* Tažení dolů nad začátkem seznamu synchronizuje — stejně jako
+            v systémové poště. Pruh roste s prstem, ať je vidět, že to reaguje. */}
+        {pull > 0 && (
+          <div className="pull-hint" style={{ height: pull }}>
+            <Icon name="refresh" size={16} className={pull > 55 ? 'ready' : ''} />
+            <span>{pull > 55 ? 'Pusť a synchronizuje se' : 'Táhni dolů'}</span>
+          </div>
+        )}
         {!p.hasAccount && (
           <div className="empty-state">
             <div className="big"><Icon name="mail" size={36} /></div>
@@ -324,8 +372,10 @@ export default function MessageList(p: Props) {
           // U objednávek nahrazuje odznak objednávky štítek kategorie — jinak by
           // vedle sebe stálo „Objednávky" a „Objednávka" a řádek by byl přeplácaný
           const isOrder = looksLikeOrder(m, shop);
+          const acts = rowActions(m);
           return (
-          <div key={m.id} className={`msg-item ${m.id === p.selectedId ? 'selected' : ''} ${!m.seen ? 'unread' : ''} ${checked.has(m.id) ? 'checked' : ''}`}>
+          <SwipeRow key={m.id} left={acts.left} right={acts.right}>
+          <div className={`msg-item ${m.id === p.selectedId ? 'selected' : ''} ${!m.seen ? 'unread' : ''} ${checked.has(m.id) ? 'checked' : ''}`}>
             <input
               type="checkbox"
               className="msg-check"
@@ -370,6 +420,7 @@ export default function MessageList(p: Props) {
                 : m.snippet && <div className="snippet">{m.snippet}</div>}
             </div>
           </div>
+          </SwipeRow>
           );
         })}
       </div>

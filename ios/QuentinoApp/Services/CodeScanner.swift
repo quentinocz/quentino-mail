@@ -22,7 +22,11 @@ import VisionKit
   3. **Zpětná vazba je v hledáčku, ne v aplikaci pod ním.** Rozhraní pošle
      zpátky jednu větu („Kšandy Slim · 120cm — celkem 6 ks") a ta se ukáže
      rovnou nad tlačítkem. Kdo drží telefon nad krabicí, se nedívá jinam.
-  4. **Počet se nastavuje předem.** V krabici je šest kusů, ale pípne se
+  4. **Čte se jen z rámečku uprostřed.** V krabici i na regálu bývá štítků
+     vedle sebe víc a hledáček by si vybral ten, který uvidí dřív. Rámeček
+     říká, kam mířit, a `regionOfInterest` zařídí, že se mimo něj nečte —
+     takže „načetlo to sousední kód" nemá jak nastat.
+  5. **Počet se nastavuje předem.** V krabici je šest kusů, ale pípne se
      jednou — proto je pod větou „− 6 +" a říká, **kolik kusů přidá další
      načtení**. Nastavit to jednou je rychlejší než po každém pípnutí
      opravovat řádek v seznamu. Držení tlačítka počítá dál, ať se u dvaceti
@@ -113,7 +117,7 @@ private final class ScannerController: UIViewController {
         banner.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         banner.layer.cornerRadius = 12
         banner.layer.masksToBounds = true
-        banner.text = " Namiř na kód na štítku · níž nastav počet kusů "
+        banner.text = " Kód do rámečku · níž nastav počet kusů "
         view.addSubview(banner)
 
         let close = UIButton(type: .system)
@@ -126,6 +130,7 @@ private final class ScannerController: UIViewController {
         close.addTarget(self, action: #selector(done), for: .touchUpInside)
         view.addSubview(close)
 
+        makeReticle()
         makeQtyBar()
 
         NSLayoutConstraint.activate([
@@ -141,6 +146,60 @@ private final class ScannerController: UIViewController {
             close.heightAnchor.constraint(equalToConstant: 44),
             close.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -24)
         ])
+    }
+
+    // MARK: Míření
+
+    private let dimming = UIView()
+    private let hole = CAShapeLayer()
+    private let reticle = UIView()
+
+    private func makeReticle() {
+        dimming.isUserInteractionEnabled = false
+        dimming.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        dimming.layer.mask = hole
+        view.addSubview(dimming)
+
+        reticle.isUserInteractionEnabled = false
+        reticle.layer.borderColor = UIColor.white.cgColor
+        reticle.layer.borderWidth = 2
+        reticle.layer.cornerRadius = 16
+        view.addSubview(reticle)
+
+        // Hláška a tlačítka patří nad ztmavení, ne pod něj
+        view.bringSubviewToFront(banner)
+    }
+
+    /**
+     Rámeček se počítá až podle skutečné velikosti okna.
+
+     `regionOfInterest` je v souřadnicích hledáčku, takže se musí nastavit
+     po rozvržení — před ním má okno ještě nulové rozměry a čtečka by hledala
+     v prázdnu.
+     */
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let side = min(view.bounds.width * 0.72, 300)
+        let rect = CGRect(
+            x: (view.bounds.width - side) / 2,
+            y: view.bounds.midY - side / 2 - 40,
+            width: side, height: side
+        )
+        reticle.frame = rect
+        dimming.frame = view.bounds
+
+        let path = UIBezierPath(rect: view.bounds)
+        path.append(UIBezierPath(roundedRect: rect, cornerRadius: 16).reversing())
+        hole.path = path.cgPath
+        hole.fillRule = .evenOdd
+
+        scanner?.regionOfInterest = rect
+
+        view.bringSubviewToFront(dimming)
+        view.bringSubviewToFront(reticle)
+        view.bringSubviewToFront(banner)
+        view.bringSubviewToFront(qtyBar)
+        for sub in view.subviews where sub is UIButton { view.bringSubviewToFront(sub) }
     }
 
     // MARK: Počet bez zavírání hledáčku

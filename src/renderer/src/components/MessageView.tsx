@@ -52,6 +52,28 @@ interface Props {
   onOpenMessage: (id: number) => void;
 }
 
+/**
+ * Odpověď na zprávu — jedno místo pro celou aplikaci.
+ *
+ * Používá to okno zprávy i tah přes řádek v seznamu. Dvě kopie by se dřív
+ * nebo později rozešly a odpověď ze seznamu by přišla o citaci nebo o vlákno.
+ */
+export function replyInitFor(d: MessageFull, shownLang: string | null = null): ComposerInit {
+  return {
+    mode: 'reply',
+    accountId: d.accountId,
+    // Ne `fromAddr`: u rozesílek si odesílatel přeje odpověď jinam (Reply-To)
+    // a u formulářů na webu je odesílatelem e-shop, ne zákazník
+    to: d.replyTarget?.address || d.fromAddr,
+    subject: d.subject.match(/^re:/i) ? d.subject : `Re: ${d.subject}`,
+    inReplyTo: d.messageId,
+    references: d.messageId,
+    replyToDbId: d.id,
+    quotedText: d.bodyText ?? '',
+    originalLang: shownLang ?? d.detectedLang ?? null
+  };
+}
+
 export default function MessageView(p: Props) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
@@ -280,19 +302,7 @@ export default function MessageView(p: Props) {
     if (saved) toast('PDF uloženo.');
   });
 
-  const replyInit: ComposerInit = {
-    mode: 'reply',
-    accountId: d.accountId,
-    // Ne `fromAddr`: u rozesílek si odesílatel přeje odpověď jinam (Reply-To)
-    // a u formulářů na webu je odesílatelem e-shop, ne zákazník
-    to: d.replyTarget?.address || d.fromAddr,
-    subject: d.subject.match(/^re:/i) ? d.subject : `Re: ${d.subject}`,
-    inReplyTo: d.messageId,
-    references: d.messageId,
-    replyToDbId: d.id,
-    quotedText: d.bodyText ?? '',
-    originalLang: shownTranslation?.lang ?? d.detectedLang ?? null
-  };
+  const replyInit: ComposerInit = replyInitFor(d, shownTranslation?.lang ?? null);
 
   const reply = () => p.onCompose(replyInit);
 

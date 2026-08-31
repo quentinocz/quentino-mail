@@ -93,6 +93,34 @@ for (const device of DEVICES) {
     await page.screenshot({ path: path.join(SHOTS, `${device.name}-${name}.png`) });
   };
 
+  /*
+   * Gesta se v náhledu musí opravdu provést, ne jen předpokládat — tah přes
+   * řádek je kód, který se nedá zkontrolovat okem na statickém obrázku.
+   * Dotyky se posílají jako skutečné události, takže projdou stejnou cestou
+   * jako prst na displeji.
+   */
+  const swipe = async (selector, dx, dy = 0) => {
+    await page.evaluate(({ selector, dx, dy }) => {
+      const el = document.querySelector(selector);
+      if (!el) throw new Error('není co táhnout: ' + selector);
+      const r = el.getBoundingClientRect();
+      const x0 = Math.max(2, r.left + Math.min(40, r.width / 2));
+      const y0 = r.top + Math.min(40, r.height / 2);
+      const send = (type, x, y) => {
+        const list = [new Touch({ identifier: 1, target: el, clientX: x, clientY: y })];
+        const done = type === 'touchend';
+        el.dispatchEvent(new TouchEvent(type, {
+          bubbles: true, cancelable: true,
+          touches: done ? [] : list, targetTouches: done ? [] : list, changedTouches: list
+        }));
+      };
+      send('touchstart', x0, y0);
+      for (let i = 1; i <= 8; i++) send('touchmove', x0 + (dx * i) / 8, y0 + (dy * i) / 8);
+      send('touchend', x0 + dx, y0 + dy);
+    }, { selector, dx, dy });
+    await page.waitForTimeout(400);
+  };
+
   const check = async (label) => {
     const data = await page.evaluate(() => {
       // Co přetéká vodorovně ven z okna — nejčastější zdroj „rozbitého" pocitu
@@ -179,6 +207,28 @@ for (const device of DEVICES) {
 
   await check('pošta — seznam'); await snap('01-seznam');
 
+  // Tah přes zprávu odkryje akce — doleva to, co zprávu odklidí,
+  // doprava to, co se dá vzít zpět
+  await swipe('.msg-item', -150);
+  console.log('  odsun doleva:', await page.evaluate(() =>
+    getComputedStyle(document.querySelector('.swipe-front')).transform));
+  await check('pošta — tah přes zprávu'); await snap('01c-tah-zprava');
+  // Zavřít se musí tahem zpátky; klepnutí vedle by otevřelo jinou zprávu
+  await swipe('.msg-item', 220);
+  await page.waitForTimeout(250);
+  await swipe('.msg-item', 200);
+  console.log('  odsun doprava:', await page.evaluate(() =>
+    getComputedStyle(document.querySelector('.swipe-front')).transform));
+  await check('pošta — tah doprava'); await snap('01d-tah-doprava');
+  await swipe('.msg-item', -300);
+  await page.waitForTimeout(250);
+  console.log('  po zavření:', await page.evaluate(() =>
+    getComputedStyle(document.querySelector('.swipe-front')).transform));
+
+  // Tažení dolů nad začátkem seznamu = synchronizace
+  await swipe('.msg-list', 0, 120);
+  await page.waitForTimeout(150);
+
   await click('.m-round[aria-label="Filtry a řazení"]');
   await check('filtry (panel)'); await snap('02-filtry');
   await page.keyboard.press('Escape'); await page.waitForTimeout(350);
@@ -252,8 +302,12 @@ for (const device of DEVICES) {
 
   await click('.m-tabs button:nth-child(1)');
   // Složky se otevírají klepnutím na název složky v hlavičce
+  // Balení, přehled dne i katalog jsou v nabídce Funkce; v panelu složek
+  // pro ně samostatné řádky nejsou
   await click('.m-head-picker');
-  await click('.sidebar .side-item', { hasText: 'Balení' });
+  await click('.sidebar .ig-switch button');
+  await check('funkce (panel)'); await snap('13b-funkce');
+  await click('.sidebar .ws-menu-item', { hasText: 'Balení objednávek' });
   await check('balení — seznam'); await snap('14-baleni-seznam');
   await click('.pk-row');
   await check('balení — objednávka'); await snap('15-baleni-detail');
@@ -264,7 +318,8 @@ for (const device of DEVICES) {
   // Katalog: na telefonu je to hlavně naskladnění u regálu — pole pro čtečku
   // musí být palcem dosažitelné a mřížka produktů čitelná po dvou
   await click('.m-head-picker');
-  await click('.sidebar .side-item', { hasText: 'Katalog a naskladnění' });
+  await click('.sidebar .ig-switch button');
+  await click('.sidebar .ws-menu-item', { hasText: 'Katalog a naskladnění' });
   await check('katalog — produkty'); await snap('16-katalog');
   await click('.kat-open');
   await check('katalog — detail'); await snap('17-katalog-detail');
