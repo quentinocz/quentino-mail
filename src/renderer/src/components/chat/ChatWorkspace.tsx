@@ -70,6 +70,16 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   const [convs, setConvs] = useState<ChatConversation[]>([]);
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  /*
+   * Odkaz z notifikace otevře rovnou tuhle konverzaci. Nemusí být v načteném
+   * seznamu — zpráva mohla přijít do konverzace, kterou filtr schovává —
+   * takže se seznam po otevření natáhne znovu.
+   */
+  useEffect(() => api.on('chat:open', (p: any) => {
+    const id = String(p?.id ?? '').trim();
+    if (id) setActiveId(id);
+  }), []);
   const [messages, setMessages] = useState<Msg[]>([]);
   /**
    * Kontakt dohledaný ve feedu objednávek.
@@ -267,8 +277,14 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
     return () => { cancelled = true; };
   }, [active?.id, active?.email, messages.length]);
 
+  /*
+   * `sessionId` v databázi chybět může (starší konverzace, jiný kanál než
+   * widget) a `null.slice()` by shodilo celý seznam. Jméno konverzace za to
+   * nestojí — bez něj je to prostě „Anonymní".
+   */
   const label = (c: ChatConversation) =>
-    c.name || c.email || c.phone || `Anonymní #${c.sessionId.slice(0, 6).toUpperCase()}`;
+    c.name || c.email || c.phone
+    || `Anonymní${c.sessionId ? ` #${c.sessionId.slice(0, 6).toUpperCase()}` : ''}`;
 
   return (
     <div className="app ch-app" data-pane={activeId ? 'detail' : 'list'}>
@@ -287,7 +303,9 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
         <WorkspaceSwitch current="chat" onChange={onWorkspace} chatUnread={chatUnread}
           onAiTool={onAiTool} activeTool={activeTool} />
 
-        <div className="ig-seg" style={{ margin: '0 10px 8px' }}>
+        {/* Vlastní třída, ne jen `ig-seg`: ta má na telefonu pravidla šitá na
+            hlavičku Instagramu a v postranním sloupci přetékala z okraje */}
+        <div className="ig-seg ch-seg">
           <button className={onlyOpen ? 'active' : ''} onClick={() => setOnlyOpen(true)}>Otevřené</button>
           <button className={!onlyOpen ? 'active' : ''} onClick={() => setOnlyOpen(false)}>Vše</button>
         </div>

@@ -47,6 +47,25 @@ export function makeTopic(): string {
   return out;
 }
 
+/**
+ * Odkaz, který notifikaci propojí s aplikací.
+ *
+ * `quentino-mail://` je vlastní schéma aplikace (registruje ho `project.yml`),
+ * takže klepnutí v ntfy skočí rovnou na zprávu místo aby jen otevřelo appku.
+ *
+ * Zpráva se neurčuje číslem řádku v databázi — to má každé zařízení svoje
+ * a odkaz z počítače by v telefonu ukázal na cizí zprávu. Používá se hlavička
+ * `Message-ID`, která je pro danou zprávu stejná všude.
+ */
+export function mailLink(messageId: string | null | undefined): string {
+  const id = (messageId ?? '').trim();
+  return id ? `quentino-mail://mail?mid=${encodeURIComponent(id)}` : 'quentino-mail://mail';
+}
+
+export function chatLink(conversationId: string): string {
+  return `quentino-mail://chat?id=${encodeURIComponent(conversationId)}`;
+}
+
 /** Adresa tématu — do ní se posílá a v aplikaci ntfy se na ni člověk přihlásí. */
 export function topicUrl(server: string, topic: string): string {
   const base = (server || DEFAULT_NTFY_SERVER).trim().replace(/\/+$/, '');
@@ -212,7 +231,9 @@ begin
       'title', coalesce(who, 'Zákazník'),
       'message', left(coalesce(new.content, 'Nová zpráva v chatu'), 200),
       'tags', jsonb_build_array('speech_balloon'),
-      'priority', 4
+      'priority', 4,
+      -- Klepnutí v ntfy otevře rovnou tuhle konverzaci v aplikaci
+      'click', 'quentino-mail://chat?id=' || new.conversation_id
     )
   );
   return new;

@@ -16,7 +16,7 @@ import { getCaCertificates } from './systemca';
 import { getDb } from './db';
 import { getSettings } from './settings';
 import { syncFolder } from './imap';
-import { mailNotification, notifyPhone, wantsNotify } from './notify';
+import { mailLink, mailNotification, notifyPhone, wantsNotify } from './notify';
 
 interface Watcher {
   accountId: number;
@@ -48,7 +48,7 @@ function newestId(accountId: number): number {
 
 function notifyAbout(accountId: number, sinceId: number): void {
   const rows = getDb().prepare(
-    `SELECT id, from_name, from_addr, subject FROM messages
+    `SELECT id, message_id, from_name, from_addr, subject FROM messages
      WHERE account_id = ? AND folder = 'INBOX' AND id > ? AND seen = 0
      ORDER BY id DESC LIMIT 5`
   ).all(accountId, sinceId) as any[];
@@ -64,7 +64,12 @@ function notifyAbout(accountId: number, sinceId: number): void {
     const { title, message } = mailNotification(rows.map(r => ({
       fromName: r.from_name, fromAddr: r.from_addr, subject: r.subject
     })));
-    void notifyPhone('mail', title, message).catch(() => { /* nevadí */ });
+    /*
+     * Odkaz jen u jedné zprávy. U několika naráz by ukázal na jednu z nich
+     * a zbytek by vypadal jako přeskočený — tam stačí otevřít poštu.
+     */
+    const click = rows.length === 1 ? mailLink(rows[0].message_id) : mailLink(null);
+    void notifyPhone('mail', title, message, { click }).catch(() => { /* nevadí */ });
   }
 
   if (!getSettings().notifyNewMail) return;

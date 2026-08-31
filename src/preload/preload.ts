@@ -93,7 +93,7 @@ const ALLOWED_INVOKE = [
 
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
-  'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open',
+  'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
   'ptrans:progress', 'ptrans:changed',
   'articles:progress', 'articles:changed', 'articles:check',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',

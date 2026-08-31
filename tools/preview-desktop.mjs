@@ -197,6 +197,18 @@ await overflow('social — feed'); await snap('24-social-feed');
 console.log('  výšky dlaždic:', await page.evaluate(() =>
   [...new Set([...document.querySelectorAll('.ig-tile')]
     .map(el => Math.round(el.getBoundingClientRect().height)))].join(', ')));
+/*
+ * Chat: dlouhý seznam konverzací. Právě na něm se ukázalo, že se řádky ve
+ * flex sloupci smršťují do proužků, a přepínač Otevřené/Vše musí mít obě
+ * půlky stejně široké.
+ */
+await click('.ig-switch button', { hasText: 'Chat' });
+await page.waitForTimeout(600);
+await overflow('chat — dlouhý seznam'); await snap('24b-chat-seznam');
+await click('.ch-seg button', { hasText: 'Vše' });
+await page.waitForTimeout(400);
+await overflow('chat — vše'); await snap('24c-chat-vse');
+
 await click('.ig-switch button', { hasText: 'Pošta' });
 
 // Nastavení → AI: feedy objednávek jsou dole, proto se k nim odroluje
