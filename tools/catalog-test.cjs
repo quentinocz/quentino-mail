@@ -113,8 +113,8 @@ check('zásoba produktu není zásoba první varianty', detail.stock, 7);
  * změnou zvednout.
  */
 console.log('\nkatalog z minulé verze:\n');
-const nowSchema = require('/home/claude/qm/tools/ptrans/harness.cjs')
-  .db.prepare("SELECT value FROM settings WHERE key = 'productFeedSchema'").get();
+const nowSchema = db
+  .prepare("SELECT value FROM settings WHERE key = 'productFeedSchema'").get();
 check('import si poznamenal podobu katalogu', !!nowSchema, true);
 db.prepare("UPDATE settings SET value = '2' WHERE key = 'productFeedSchema'").run();
 check('starší podoba se pozná jako zastaralá', products.feedIsStale(), true);
