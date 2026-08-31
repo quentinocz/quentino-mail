@@ -108,6 +108,25 @@ ok('posílá se na kořen serveru, ne na adresu tématu',
   sql.includes("url := 'https://ntfy.sh'") && !sql.includes("url := 'https://ntfy.sh/quentino"));
 ok('téma je v těle', sql.includes("'topic', 'quentino-tajne'"));
 
+/*
+ * pg_net si zakládá vlastní schéma `net`, takže se mu nesmí předepisovat, kam
+ * se má nainstalovat — `with schema …` by spuštění shodilo hned na prvním
+ * řádku. Zjistilo se to až čtením dokumentace, tak ať se to nevrátí.
+ */
+ok('rozšíření se instaluje bez určení schématu',
+  /create extension if not exists pg_net;/.test(sql) && !/pg_net with schema/.test(sql));
+ok('http_post se volá plným jménem', sql.includes('net.http_post('));
+
+/*
+ * Jediné DROP v celém skriptu smí být trigger téhož jména — kvůli tomu, aby
+ * šel skript spustit znovu. Cokoli dalšího by v cizí databázi mohlo bolet.
+ */
+const drops = sql.split('\n').filter(line => /^\s*drop /i.test(line));
+check('maže se jen vlastní trigger', drops,
+  ['drop trigger if exists chat_message_notify on public.messages;']);
+ok('nic se nemaže z tabulek',
+  !/\bdelete\s+from\b|\btruncate\b|\balter\s+table\b|\bdrop\s+table\b/i.test(sql));
+
 check('vlastní server se do SQL propíše',
   /url := '([^']+)'/.exec(notify.chatWebhookSql('https://ntfy.example.com/', 'x'))[1],
   'https://ntfy.example.com');

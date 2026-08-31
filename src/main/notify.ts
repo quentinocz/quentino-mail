@@ -162,16 +162,33 @@ export function chatWebhookSql(server: string, topic: string): string {
   // uvnitř bere ntfy jen tam. Na `/téma` by celé tělo považoval za text zprávy.
   const url = (server || DEFAULT_NTFY_SERVER).trim().replace(/\/+$/, '');
   return `-- Upozornění na nové zprávy v chatu, rovnou ze Supabase.
+--
 -- Vlož celé do SQL editoru projektu (Database → SQL Editor) a spusť.
 -- Stačí jednou; opakované spuštění nic nerozbije.
+--
+-- BEZPEČNOST: nesahá se na žádnou tabulku, řádek ani sloupec — nic se nemaže
+-- ani nepřepisuje. Editor přesto ohlásí „destruktivní operaci", protože v kódu
+-- je slovo DROP; týká se jediného řádku níž a ten jen uklízí po předchozím
+-- spuštění téhož skriptu. Co se opravdu stane: nainstaluje se rozšíření pro
+-- HTTP dotazy, založí se jedna nová funkce a jeden nový trigger.
+--
+-- Dotaz na ntfy je asynchronní (pg_net ho jen zařadí do fronty a vrátí se),
+-- takže vložení zprávy do chatu na nic nečeká a neselže ani tehdy, když je
+-- ntfy nedostupné.
+--
+-- Vzít zpět jde dvěma řádky:
+--   drop trigger if exists chat_message_notify on public.messages;
+--   drop function if exists public.notify_new_chat_message();
 
-create extension if not exists pg_net with schema extensions;
+-- Umí poslat HTTP dotaz z databáze. Zakládá si vlastní schéma \`net\`,
+-- proto se neurčuje, kam se má nainstalovat.
+create extension if not exists pg_net;
 
 create or replace function public.notify_new_chat_message()
 returns trigger
 language plpgsql
 security definer
-set search_path = public, extensions
+set search_path = public
 as $$
 declare
   who text;
@@ -202,7 +219,10 @@ begin
 end;
 $$;
 
+-- Jediný DROP v celém skriptu. Maže výhradně trigger tohohle jména, aby šlo
+-- skript spustit znovu; při prvním spuštění nemá co dělat.
 drop trigger if exists chat_message_notify on public.messages;
+
 create trigger chat_message_notify
   after insert on public.messages
   for each row execute function public.notify_new_chat_message();
