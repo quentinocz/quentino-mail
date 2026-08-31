@@ -26,7 +26,9 @@ import { summarize, generateReply, improveText, translateIncoming, translateText
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { clearTrackingCache } from './ordertrack';
-import { scanOrders, setItemPacked, setOrderDone, resetPacking } from './packing';
+import {
+  scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, findOrder
+} from './packing';
 import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderlink';
 import * as ptrans from './ptrans';
 import * as orderfeed from './orderfeed';
@@ -271,6 +273,9 @@ export function registerIpc() {
   // Balení objednávek
   handle('packing:scan', (days: number, force?: boolean) => scanOrders(days ?? 7, !!force));
   handle('packing:setItem', (dbId: number, index: number, value: boolean) => setItemPacked(dbId, index, !!value));
+  handle('packing:setCount', (dbId: number, index: number, count: number) => setItemCount(dbId, index, count ?? 0));
+  handle('packing:scanItem', (dbId: number, code: string) => scanItem(dbId, code ?? ''));
+  handle('packing:findOrder', (code: string) => findOrder(code ?? ''));
   handle('packing:setDone', (dbId: number, value: boolean) => setOrderDone(dbId, !!value));
   handle('packing:reset', (dbId: number) => resetPacking(dbId));
 

@@ -431,6 +431,9 @@ enum Schema {
         // Katalog: čárový kód, vnitřní číslo produktu a čas poslední zásoby
         "ALTER TABLE products ADD COLUMN ean TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE products ADD COLUMN product_id TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE products ADD COLUMN stock_at TEXT NOT NULL DEFAULT ''"
+        "ALTER TABLE products ADD COLUMN stock_at TEXT NOT NULL DEFAULT ''",
+        // Balení po kusech, ne po položkách — u „3 ks" jinak nejde poznat,
+        // kolik jich už je v krabici
+        "ALTER TABLE packing ADD COLUMN counts_json TEXT NOT NULL DEFAULT '{}'"
     ]
 }

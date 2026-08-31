@@ -518,11 +518,48 @@ export interface PackingOrder {
   /** Datum přijetí objednávky (ISO) */
   date: string;
   card: OrderCard;
-  /** Indexy položek, které už jsou odškrtnuté */
+  /** Indexy položek, které už jsou odškrtnuté celé */
   packed: number[];
+  /**
+   * Index položky → kolik kusů z ní už je v krabici.
+   *
+   * U „3 ks" nestačí zaškrtávátko: dokud se počítalo po položkách, nešlo
+   * poznat, jestli v krabici leží jeden kus, nebo všechny tři.
+   */
+  counts: Record<string, number>;
   /** Objednávka označená jako zabalená */
   done: boolean;
   doneAt: string | null;
+}
+
+/** Stav odškrtání jedné objednávky */
+export interface PackingState {
+  packed: number[];
+  counts: Record<string, number>;
+  done: boolean;
+  doneAt: string | null;
+}
+
+/** Výsledek načtení kódu při balení — co se odškrtlo a co ještě chybí */
+export interface PackingHit {
+  ok: boolean;
+  /** Proč se nic nepřičetlo: kód není v objednávce, nebo už je vše odškrtnuté */
+  reason?: 'empty' | 'noOrder' | 'notInOrder' | 'already';
+  index?: number;
+  code?: string | null;
+  title?: string;
+  /** Kolik kusů položky je v krabici po tomhle načtení */
+  count?: number;
+  qty?: number;
+  /** Kolik kusů téže položky ještě chybí — kvůli upozornění */
+  needMore?: number;
+  message: string;
+}
+
+/** Objednávka nalezená podle čísla z faktury */
+export interface PackingFind {
+  messageId: number;
+  orderNumber: string | null;
 }
 
 export interface PackingScan {

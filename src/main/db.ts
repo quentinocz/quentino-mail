@@ -404,6 +404,12 @@ function migrate(d: Database.Database) {
    * tvrdit „skladem" podle čísla starého půl dne.
    */
   try { d.exec("ALTER TABLE products ADD COLUMN stock_at TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  /*
+   * Balení po kusech, ne po položkách. Dřív se odškrtávala celá položka, takže
+   * u „3 ks" nebylo z čeho poznat, kolik jich už je v krabici — a při balení
+   * je právě tohle to jediné, co se počítá.
+   */
+  try { d.exec("ALTER TABLE packing ADD COLUMN counts_json TEXT NOT NULL DEFAULT '{}'"); } catch { /* sloupec už existuje */ }
   try { d.exec('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)'); } catch { /* index už existuje */ }
 }
 

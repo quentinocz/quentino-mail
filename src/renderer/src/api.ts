@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, PackingState, PackingHit, PackingFind, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -429,7 +429,15 @@ export const api = {
   packing: {
     /** Projde objednávkové maily za posledních `days` dní */
     scan: (days: number, force = false) => call<PackingScan>('packing:scan', days, force),
-    setItem: (dbId: number, index: number, value: boolean) => call<number[]>('packing:setItem', dbId, index, value),
+    setItem: (dbId: number, index: number, value: boolean) =>
+      call<PackingState>('packing:setItem', dbId, index, value),
+    /** Kolik kusů položky už je v krabici — u „3 ks" se odškrtává po jednom */
+    setCount: (dbId: number, index: number, count: number) =>
+      call<PackingState>('packing:setCount', dbId, index, count),
+    /** Načtený kód přiřadí k položce objednávky a přidá jeden kus */
+    scanItem: (dbId: number, code: string) => call<PackingHit>('packing:scanItem', dbId, code),
+    /** Objednávka podle čísla z faktury (QR na faktuře nese číslo faktury) */
+    findOrder: (code: string) => call<PackingFind | null>('packing:findOrder', code),
     setDone: (dbId: number, value: boolean) => call<void>('packing:setDone', dbId, value),
     reset: (dbId: number) => call<void>('packing:reset', dbId)
   },
@@ -488,7 +496,13 @@ export const api = {
    */
   scan: {
     available: () => call<boolean>('scan:available'),
-    start: () => call<boolean>('scan:start'),
+    /**
+     * `panel` otevře menší hledáček přilepený nahoru, aby pod ním zůstal
+     * vidět seznam — při balení se odškrtává proti němu. Vrací, kolik bodů
+     * shora hledáček zabírá, ať si rozhraní udělá místo.
+     */
+    start: (opts?: { panel?: boolean; qty?: boolean }) =>
+      call<{ panel: number }>('scan:start', opts ?? {}),
     stop: () => call<boolean>('scan:stop'),
     feedback: (text: string, ok = true) => call<boolean>('scan:feedback', text, ok),
     /** Kolik kusů přidá další načtení — číslo v počítadle hledáčku. */
