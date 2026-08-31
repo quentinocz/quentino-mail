@@ -172,7 +172,10 @@ enum Products {
             try Catalog.replaceVariants(variants)
         }
         Store.setSetting("productFeedSync", Formats.iso())
-        Store.setSetting("productFeedSchema", "2")
+        // Zvedá se pokaždé, když import začne plnit něco, co dřív neexistovalo
+        // — jinak by se u už staženého katalogu nové tabulky nikdy nenaplnily.
+        // Naposledy kvůli variantám, EANům a vnitřním číslům produktů.
+        Store.setSetting("productFeedSchema", "3")
         return rows.count
     }
 
@@ -194,10 +197,14 @@ enum Products {
 
     static func status() -> [String: Any] {
         let count = ((try? SQLite.shared.query("SELECT COUNT(*) AS cnt FROM products"))?.first?["cnt"] as? Int) ?? 0
+        let variants = ((try? SQLite.shared.query(
+            "SELECT COUNT(*) AS cnt FROM product_variants"
+        ))?.first?["cnt"] as? Int) ?? 0
         return [
             "url": Store.setting("productFeedUrl", "") ?? "",
             "count": count,
-            "lastSync": Store.setting("productFeedSync").flatMap { $0.isEmpty ? nil : $0 } ?? NSNull()
+            "lastSync": Store.setting("productFeedSync").flatMap { $0.isEmpty ? nil : $0 } ?? NSNull(),
+            "variants": variants
         ]
     }
 
@@ -205,7 +212,7 @@ enum Products {
     static func isStale() -> Bool {
         let current = status()
         if (current["count"] as? Int ?? 0) == 0 { return true }
-        if Store.setting("productFeedSchema") != "2" { return true }
+        if Store.setting("productFeedSchema") != "3" { return true }
         guard let last = Formats.date(current["lastSync"] as? String) else { return true }
         return Date().timeIntervalSince(last) > 20 * 3600
     }

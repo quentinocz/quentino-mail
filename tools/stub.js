@@ -621,7 +621,7 @@
     ],
     'articles:progress': null,
     'articles:checkProgress': null,
-    'products:status': { url: '', count: 0, lastSync: null },
+    'products:status': { url: '', count: 84, lastSync: new Date(Date.now() - 5 * 3600e3).toISOString(), variants: 220 },
     /*
      * Katalog: pár produktů s obrázkem, jeden z nich s variantami a s nulou
      * skladem — na náhledu má být vidět i to, jak vypadá vyprodaná varianta.

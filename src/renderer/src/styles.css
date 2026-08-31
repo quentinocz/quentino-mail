@@ -5908,6 +5908,22 @@ html[data-form-factor="phone"] .cl-list { max-height: none; }
 }
 .kat-pick input { width: auto; }
 
+/* Katalog z minulé verze nezná varianty — říct to a nabídnout nápravu je
+   lepší než nechat člověka hádat, proč u kšand nejsou délky */
+.kat-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 1px solid #ddd2ff;
+  font-size: 12.5px;
+}
+.kat-note > div { flex: 1; min-width: 220px; }
+.kat-note .ig-muted { font-size: 11.5px; line-height: 1.45; }
+
 /* ---------- detail produktu ---------- */
 
 /* Detail leží nad katalogem přes celou obrazovku. Musí být `fixed`: jako
@@ -6187,7 +6203,8 @@ html[data-form-factor="phone"] .cl-list { max-height: none; }
 [data-theme="dark"] .kat-stock { background: rgba(31, 28, 40, 0.9); }
 [data-theme="dark"] .kat-card:hover { border-color: #3f3956; }
 [data-theme="dark"] .kat-session:hover { background: #262230; }
-[data-theme="dark"] .kat-confirm { border-color: #3f3563; }
+[data-theme="dark"] .kat-confirm,
+[data-theme="dark"] .kat-note { border-color: #3f3563; }
 [data-theme="dark"] .kat-fit.warn { color: #e6b64c; }
 [data-theme="dark"] .kat-line-qty button { background: #2b2738; }
 [data-theme="dark"] .kat-hit-main:hover { background: #262230; }

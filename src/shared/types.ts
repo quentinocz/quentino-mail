@@ -633,6 +633,11 @@ export interface FeedStatus {
   url: string;
   count: number;
   lastSync: string | null;
+  /**
+   * Kolik variant katalog zná. Nula u neprázdného katalogu znamená, že se
+   * feed stahoval starší verzí aplikace — varianty se tehdy neukládaly.
+   */
+  variants?: number;
 }
 
 export interface CategoryRule {

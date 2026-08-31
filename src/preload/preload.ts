@@ -94,7 +94,7 @@ const ALLOWED_EVENTS = [
   'ptrans:progress', 'ptrans:changed',
   'articles:progress', 'articles:changed', 'articles:check',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
-  'stockin:changed', 'stockin:progress', 'scan:code', 'scan:closed'
+  'stockin:changed', 'stockin:progress', 'scan:code', 'scan:qty', 'scan:closed'
 ];
 
 contextBridge.exposeInMainWorld('api', {

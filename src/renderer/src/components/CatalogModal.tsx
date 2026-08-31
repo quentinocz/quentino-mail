@@ -58,6 +58,12 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
   const [cats, setCats] = useState<{ name: string; count: number }[]>([]);
   const [active, setActive] = useState<ProductDetail | null>(null);
   const [stockAt, setStockAt] = useState<string | null>(null);
+  /*
+   * Katalog stažený starší verzí varianty nezná — tabulka vznikla prázdná
+   * a produkty v ní zůstaly bez délek. Plánovač si o nové stažení řekne sám,
+   * ale kdo přijde do katalogu dřív, nemá čekat a koukat na neúplný seznam.
+   */
+  const [needsFeed, setNeedsFeed] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
@@ -78,6 +84,9 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     api.products.facets().then(f => setCats(f.categories.slice(0, 24))).catch(() => {});
     api.catalog.stockAt().then(setStockAt).catch(() => {});
+    api.products.status()
+      .then(st => setNeedsFeed(st.count > 0 && (st.variants ?? 0) === 0))
+      .catch(() => {});
   }, []);
   useEffect(() => api.on('products:changed', () => {
     load();
@@ -158,6 +167,30 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
             </div>
 
             <div className="modal-body kat-body">
+              {needsFeed && (
+                <div className="kat-note">
+                  <div>
+                    <b>Katalog nezná varianty.</b>
+                    <div className="ig-muted">
+                      Stáhl se starší verzí aplikace, která délky a velikosti neukládala.
+                      Jedno stažení to spraví — jinak si o něj aplikace řekne sama do dvaceti hodin.
+                    </div>
+                  </div>
+                  <button className="btn primary" disabled={busy} onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const st = await api.products.refresh();
+                      setNeedsFeed((st.variants ?? 0) === 0);
+                      toast(`Katalog stažen — ${st.count} produktů, ${st.variants ?? 0} variant.`);
+                      load();
+                    } catch (e: any) {
+                      toast(e.message, 'error');
+                    } finally { setBusy(false); }
+                  }}>
+                    <Icon name="refresh" size={13} /> {busy ? 'Stahuji…' : 'Stáhnout katalog'}
+                  </button>
+                </div>
+              )}
               <div className="kat-grid">
                 {items.map(p => {
                   const s = stockLabel(p.stock ?? null);
@@ -309,6 +342,8 @@ function Stockin({ phone }: { phone: boolean }) {
   /** Běží čtení kódů fotoaparátem (jen v aplikaci na telefonu) */
   const [camera, setCamera] = useState(false);
   const [hasCamera, setHasCamera] = useState(false);
+  /** Poslední načtený řádek — ten se dá v hledáčku rovnou přepočítat */
+  const lastScan = useRef<{ code: string; title: string; label: string; qty: number } | null>(null);
   const [plan, setPlan] = useState<StockinPlanRow[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -399,27 +434,65 @@ function Stockin({ phone }: { phone: boolean }) {
    * Hledáček zůstane otevřený a kódy chodí po jednom. Na každý se odpoví
    * větou, která se ukáže rovnou v hledáčku — kdo drží telefon nad krabicí,
    * se nedívá na obrazovku pod ním.
+   *
+   * Poslední načtený řádek si pamatujeme proto, aby šel v hledáčku rovnou
+   * přepočítat: v krabici je šest kusů, ale pípne se jednou.
    */
   useEffect(() => {
     if (!camera || !openId) return;
+
+    const say = (line: { code: string; title: string; label: string; qty: number }) => {
+      lastScan.current = line;
+      api.scan.feedback(
+        `${line.title}${line.label ? ` · ${line.label}` : ''} — celkem ${line.qty} ks`, true, line.qty
+      );
+    };
+
     const off = api.on('scan:code', async (payload: any) => {
       const text = String(payload?.text ?? '').trim();
       if (!text) return;
       const found = await api.catalog.scan(text).catch(() => null);
       if (!found) {
-        api.scan.feedback(`Kód ${text} v katalogu není`, false);
+        lastScan.current = null;
+        api.scan.feedback(`Kód ${text} v katalogu není`, false, -1);
         return;
       }
       const out = await api.stockin.scan(openId, text, qty).catch(() => null);
-      if (!out?.added) { api.scan.feedback('Nepodařilo se přidat', false); return; }
-      const line = out.item;
-      api.scan.feedback(
-        `${found.title}${found.label ? ` · ${found.label}` : ''} — celkem ${line?.qty ?? qty} ks`, true
-      );
+      if (!out?.added) {
+        lastScan.current = null;
+        api.scan.feedback('Nepodařilo se přidat', false, -1);
+        return;
+      }
+      say({
+        code: found.code,
+        title: found.title,
+        label: found.label,
+        qty: out.item?.qty ?? qty
+      });
       loadItems(openId);
     });
-    const offClosed = api.on('scan:closed', () => setCamera(false));
-    return () => { off(); offClosed(); };
+
+    /*
+     * „− 6 +" v hledáčku. Mění se počet **posledního načteného řádku**, ne
+     * nějaká výchozí hodnota: člověk pípne krabici a hned dopočítá, kolik
+     * jich v ní bylo. Nulou se řádek smaže, proto se dolů nejde pod jedničku
+     * — mazat naslepo držením tlačítka by bylo nemilé překvapení.
+     */
+    const offQty = api.on('scan:qty', async (payload: any) => {
+      const line = lastScan.current;
+      if (!line) return;
+      const next = Math.max(1, line.qty + (Number(payload?.delta) || 0));
+      if (next === line.qty) return;
+      // Zapsat do paměti hned, ne až po zápisu do databáze: při držení
+      // tlačítka chodí zprávy osmkrát za vteřinu a dvě po sobě by jinak
+      // vyšly ze stejného čísla a jeden krok by se ztratil
+      say({ ...line, qty: next });
+      await api.stockin.qty(openId, line.code, next).catch(() => {});
+      loadItems(openId);
+    });
+
+    const offClosed = api.on('scan:closed', () => { setCamera(false); lastScan.current = null; });
+    return () => { off(); offQty(); offClosed(); };
   }, [camera, openId, qty, loadItems]);
 
   const toggleCamera = async () => {

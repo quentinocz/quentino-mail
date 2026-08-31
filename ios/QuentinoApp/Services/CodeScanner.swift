@@ -22,6 +22,10 @@ import VisionKit
   3. **Zpětná vazba je v hledáčku, ne v aplikaci pod ním.** Rozhraní pošle
      zpátky jednu větu („Kšandy Slim · 120cm — celkem 6 ks") a ta se ukáže
      rovnou nad tlačítkem. Kdo drží telefon nad krabicí, se nedívá jinam.
+  4. **Počet se opraví na místě.** V krabici je šest kusů, ale pípne se
+     jednou — proto je pod větou i „− 6 +" a kvůli počtu se nemusí zavírat
+     fotoaparát. Držení tlačítka počítá dál, ať se u dvaceti kusů neťuká
+     dvacetkrát. Klávesnice tu schválně není: zakryla by hledáček.
  */
 @MainActor
 enum CodeScanner {
@@ -56,8 +60,9 @@ enum CodeScanner {
     }
 
     /// Krátká věta pod hledáček — co se právě přičetlo.
-    static func feedback(_ text: String, ok: Bool) {
-        controller?.show(text, ok: ok)
+    /// `qty` menší než nula počítadlo schová: u neznámého kódu není co počítat.
+    static func feedback(_ text: String, ok: Bool, qty: Int) {
+        controller?.show(text, ok: ok, qty: qty)
     }
 
     static func forget() { controller = nil }
@@ -116,11 +121,16 @@ private final class ScannerController: UIViewController {
         close.addTarget(self, action: #selector(done), for: .touchUpInside)
         view.addSubview(close)
 
+        makeQtyBar()
+
         NSLayoutConstraint.activate([
             banner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             banner.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.9),
-            banner.bottomAnchor.constraint(equalTo: close.topAnchor, constant: -16),
+            banner.bottomAnchor.constraint(equalTo: qtyBar.topAnchor, constant: -12),
             banner.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            qtyBar.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            qtyBar.heightAnchor.constraint(equalToConstant: 52),
+            qtyBar.bottomAnchor.constraint(equalTo: close.topAnchor, constant: -14),
             close.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             close.widthAnchor.constraint(equalToConstant: 140),
             close.heightAnchor.constraint(equalToConstant: 44),
@@ -128,15 +138,93 @@ private final class ScannerController: UIViewController {
         ])
     }
 
-    func show(_ text: String, ok: Bool) {
+    // MARK: Počet bez zavírání hledáčku
+
+    private let qtyBar = UIStackView()
+    private let qtyLabel = UILabel()
+    private var repeatTimer: Timer?
+
+    private func makeQtyBar() {
+        qtyBar.translatesAutoresizingMaskIntoConstraints = false
+        qtyBar.axis = .horizontal
+        qtyBar.alignment = .fill
+        qtyBar.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        qtyBar.layer.cornerRadius = 26
+        qtyBar.layer.masksToBounds = true
+        // Ukáže se, až je co počítat — prázdné počítadlo nad hledáčkem plete
+        qtyBar.isHidden = true
+
+        qtyLabel.textColor = .white
+        qtyLabel.textAlignment = .center
+        qtyLabel.font = .monospacedDigitSystemFont(ofSize: 19, weight: .bold)
+        qtyLabel.text = "1"
+        qtyLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 56).isActive = true
+
+        qtyBar.addArrangedSubview(stepButton("−", delta: -1))
+        qtyBar.addArrangedSubview(qtyLabel)
+        qtyBar.addArrangedSubview(stepButton("+", delta: 1))
+        view.addSubview(qtyBar)
+    }
+
+    private func stepButton(_ title: String, delta: Int) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 26, weight: .medium)
+        button.tag = delta
+        button.addTarget(self, action: #selector(step(_:)), for: .touchUpInside)
+        button.widthAnchor.constraint(equalToConstant: 58).isActive = true
+
+        // Držení počítá dál — u dvaceti kusů je dvacet ťuknutí trest
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(holdStep(_:)))
+        hold.minimumPressDuration = 0.4
+        button.addGestureRecognizer(hold)
+        return button
+    }
+
+    @objc private func step(_ sender: UIButton) {
+        Bridge.notify("scan:qty", ["delta": sender.tag])
+    }
+
+    @objc private func holdStep(_ sender: UILongPressGestureRecognizer) {
+        let delta = sender.view?.tag ?? 0
+        switch sender.state {
+        case .began:
+            repeatTimer?.invalidate()
+            repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { _ in
+                Task { @MainActor in Bridge.notify("scan:qty", ["delta": delta]) }
+            }
+        case .ended, .cancelled, .failed:
+            repeatTimer?.invalidate()
+            repeatTimer = nil
+        default:
+            break
+        }
+    }
+
+    func show(_ text: String, ok: Bool, qty: Int) {
         banner.text = " \(text) "
         banner.backgroundColor = (ok ? UIColor.systemGreen : UIColor.systemRed).withAlphaComponent(0.85)
-        UINotificationFeedbackGenerator().notificationOccurred(ok ? .success : .error)
+        qtyBar.isHidden = qty < 0
+        if qty >= 0 { qtyLabel.text = String(qty) }
+        /*
+         Haptika patří k načtení kódu, ne k počítání. Při držení tlačítka
+         chodí zprávy osmkrát za vteřinu a telefon by nepřetržitě drnčel;
+         `qty < 0` proto znamená „tohle je odpověď na kód".
+         */
+        if !ok { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+    }
+
+    /// Kód se načetl — potvrdit hmatem, ať se člověk nemusí dívat.
+    func confirmScan() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
     @objc private func done() { finish() }
 
     func finish() {
+        repeatTimer?.invalidate()
+        repeatTimer = nil
         scanner?.stopScanning()
         CodeScanner.forget()
         dismiss(animated: true)
@@ -164,6 +252,7 @@ extension ScannerController: DataScannerViewControllerDelegate {
         if clean == lastCode, Date().timeIntervalSince(lastAt) < 2 { return }
         lastCode = clean
         lastAt = Date()
+        confirmScan()
         Bridge.notify("scan:code", ["text": clean])
     }
 }
