@@ -4,7 +4,7 @@ import { buildOrderCard, shopMatchesSender } from './ordercard';
 import { isFinalStatus } from './ordertrack';
 import { findByCode } from './products';
 import type {
-  OrderCard, PackingFind, PackingHit, PackingOrder, PackingScan, PackingState
+  OrderCard, PackingHit, PackingOrder, PackingScan, PackingShopState, PackingState
 } from '../shared/types';
 
 /**
@@ -207,41 +207,128 @@ export function scanItem(messageId: number, raw: string): PackingHit {
 }
 
 /**
- * Objednávka podle čísla z faktury.
+ * Stav objednávky z feedu e-shopu.
  *
- * QR kód na faktuře nese číslo faktury, které nemusí být totéž co číslo
- * objednávky — proto se zkouší obojí: nejdřív přímo jako číslo objednávky,
- * pak přes tabulku objednávek z feedu, kde je faktura vedle svého čísla
- * objednávky. Vodicí nuly se ignorují, na faktuře i v e-shopu se liší.
+ * U starší objednávky je feed to jediné, co je aktuální: potvrzovací mail
+ * říká, co si zákazník objednal v den nákupu, ale ne to, že je zásilka dávno
+ * doručená nebo stornovaná. Právě tohle je potřeba vidět dřív, než někdo
+ * začne balit něco, co se balit nemá.
  */
-export function findOrder(raw: string): PackingFind | null {
-  const digits = (raw ?? '').replace(/\D+/g, '');
-  if (digits.length < 3) return null;
+function shopStateFor(orderNumber: string | null | undefined): PackingShopState | null {
+  const num = (orderNumber ?? '').replace(/\D+/g, '');
+  if (!num) return null;
+  const row = getDb().prepare(
+    `SELECT code, invoice, status, created_at, updated_at FROM shop_orders
+     WHERE code = ? OR code = ? ORDER BY created_at DESC LIMIT 1`
+  ).get(num, num.replace(/^0+/, '')) as any;
+  if (!row) return null;
 
-  const wanted = new Set<string>([digits, digits.replace(/^0+/, '')]);
+  return {
+    code: String(row.code ?? ''),
+    invoice: String(row.invoice ?? ''),
+    status: String(row.status ?? ''),
+    at: row.updated_at || row.created_at || null,
+    final: isFinalStatus(row.status)
+  };
+}
+
+/** Čísla objednávky, pod kterými se dá hledat — vodicí nuly se všude liší. */
+function numberForms(value: string): string[] {
+  const digits = (value ?? '').replace(/\D+/g, '');
+  if (!digits) return [];
+  const bare = digits.replace(/^0+/, '');
+  return bare && bare !== digits ? [digits, bare] : [digits];
+}
+
+/**
+ * Číslo z QR na faktuře přeložené na čísla objednávek, pod kterými ji hledat.
+ *
+ * Faktura a objednávka mají v e-shopu různá čísla, takže se překlad dělá vždy
+ * přes feed objednávek — tam stojí faktura vedle svého čísla objednávky.
+ * Načtené číslo se zkouší i samo o sobě, kdyby se náhodou skenovalo přímo
+ * číslo objednávky.
+ */
+function orderNumbersFor(raw: string): string[] {
+  const forms = numberForms(raw);
+  if (forms.length === 0) return [];
+
+  const out = new Set(forms);
   const rows = getDb().prepare(
-    `SELECT code FROM shop_orders WHERE invoice != '' AND (invoice = ? OR invoice = ?)`
-  ).all(digits, digits.replace(/^0+/, '')) as any[];
-  for (const r of rows) {
-    const c = String(r.code ?? '').replace(/\D+/g, '');
-    if (c) { wanted.add(c); wanted.add(c.replace(/^0+/, '')); }
-  }
+    `SELECT code FROM shop_orders WHERE invoice != '' AND (invoice = ? OR invoice = ?)
+     ORDER BY created_at DESC LIMIT 20`
+  ).all(forms[0], forms[forms.length - 1]) as any[];
+  for (const row of rows) for (const form of numberForms(String(row.code ?? ''))) out.add(form);
 
+  return [...out];
+}
+
+/**
+ * Zpráva s potvrzením objednávky daného čísla — bez ohledu na stáří.
+ *
+ * Běžný seznam k balení sahá jen pár dní zpátky, ale načtená faktura může být
+ * i půl roku stará; hledá se proto rovnou podle čísla v předmětu, ne v okně.
+ */
+function messageForNumbers(numbers: string[]): Candidate | null {
+  // Nejdřív hotové karty — u nich se ví, že číslo sedí přesně
   const cached = getDb().prepare(
-    `SELECT message_pk, json FROM order_cache WHERE json IS NOT NULL
-     ORDER BY at DESC LIMIT 800`
+    `SELECT c.message_pk AS id, c.json, m.date, m.subject, m.from_addr
+     FROM order_cache c JOIN messages m ON m.id = c.message_pk
+     WHERE c.json IS NOT NULL ORDER BY m.date DESC LIMIT 800`
   ).all() as any[];
-
   for (const row of cached) {
     let card: OrderCard | null = null;
     try { card = JSON.parse(row.json) as OrderCard; } catch { continue; }
-    const num = (card?.orderNumber ?? '').replace(/\D+/g, '');
-    if (!num) continue;
-    if (wanted.has(num) || wanted.has(num.replace(/^0+/, ''))) {
-      return { messageId: row.message_pk as number, orderNumber: card!.orderNumber };
+    const forms = numberForms(card?.orderNumber ?? '');
+    if (forms.some(f => numbers.includes(f))) {
+      return { id: row.id, date: row.date ?? '', subject: row.subject ?? '', fromAddr: row.from_addr ?? '' };
+    }
+  }
+
+  // Pak podle předmětu — na starší objednávku se karta teprve sestaví
+  for (const number of numbers) {
+    const rows = getDb().prepare(
+      `SELECT id, date, subject, from_addr FROM messages
+       WHERE subject LIKE ? ORDER BY date DESC LIMIT 40`
+    ).all(`%${number}%`) as any[];
+    for (const row of rows) {
+      const subject = String(row.subject ?? '');
+      if (!ORDER_SUBJECT.test(subject)) continue;
+      if (!shopMatchesSender(String(row.from_addr ?? ''))) continue;
+      return { id: row.id, date: row.date ?? '', subject, fromAddr: row.from_addr ?? '' };
     }
   }
   return null;
+}
+
+/**
+ * Otevře objednávku podle načteného čísla — i takovou, která je dávno mimo
+ * seznam k balení.
+ *
+ * Vrací rovnou celou objednávku i s kartou a stavem odškrtání, aby ji rozhraní
+ * mohlo přidat do seznamu, i když do zvoleného období nepatří. `shop` nese stav
+ * z feedu; u konečného stavu (doručeno, storno) se v rozhraní ukáže výstraha,
+ * že jde o starší objednávku.
+ */
+export async function openOrder(raw: string): Promise<PackingOrder | null> {
+  const numbers = orderNumbersFor(raw);
+  if (numbers.length === 0) return null;
+
+  const found = messageForNumbers(numbers);
+  if (!found) return null;
+
+  let card = cardOf(found.id);
+  if (!card) {
+    try { card = await buildOrderCard(found.id, true); } catch { card = null; }
+    if (card) writeCache(found.id, card);
+  }
+  if (!card) return null;
+
+  const state = readPacked(found.id);
+  return {
+    messageId: found.id, date: found.date, card,
+    packed: state.packed, counts: state.counts, done: state.done, doneAt: state.doneAt,
+    shop: shopStateFor(card.orderNumber)
+  };
 }
 
 /** Označí celou objednávku jako zabalenou (nebo označení zruší). */
@@ -256,6 +343,9 @@ export function setOrderDone(messageId: number, value: boolean): void {
 export function resetPacking(messageId: number): void {
   getDb().prepare('DELETE FROM packing WHERE message_pk = ?').run(messageId);
 }
+
+/** Jen pro zkoušky — jednotlivé kroky hledání objednávky se jinak nedají chytit. */
+export const __test = { orderNumbersFor, messageForNumbers, shopStateFor };
 
 /**
  * Projde e-maily za zvolené období a sestaví seznam objednávek k balení.
@@ -289,7 +379,8 @@ export async function scanOrders(days: number, force = false): Promise<PackingSc
     const p = readPacked(c.id);
     orders.push({
       messageId: c.id, date: c.date, card,
-      packed: p.packed, counts: p.counts, done: p.done, doneAt: p.doneAt
+      packed: p.packed, counts: p.counts, done: p.done, doneAt: p.doneAt,
+      shop: shopStateFor(card.orderNumber)
     });
   }
 

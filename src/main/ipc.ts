@@ -27,7 +27,7 @@ import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from 
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { clearTrackingCache } from './ordertrack';
 import {
-  scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, findOrder
+  scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder
 } from './packing';
 import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderlink';
 import * as ptrans from './ptrans';
@@ -275,7 +275,7 @@ export function registerIpc() {
   handle('packing:setItem', (dbId: number, index: number, value: boolean) => setItemPacked(dbId, index, !!value));
   handle('packing:setCount', (dbId: number, index: number, count: number) => setItemCount(dbId, index, count ?? 0));
   handle('packing:scanItem', (dbId: number, code: string) => scanItem(dbId, code ?? ''));
-  handle('packing:findOrder', (code: string) => findOrder(code ?? ''));
+  handle('packing:openOrder', (code: string) => openOrder(code ?? ''));
   handle('packing:setDone', (dbId: number, value: boolean) => setOrderDone(dbId, !!value));
   handle('packing:reset', (dbId: number) => resetPacking(dbId));
 

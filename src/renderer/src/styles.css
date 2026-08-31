@@ -1650,6 +1650,26 @@ input:focus, textarea:focus, select:focus {
 }
 .pk-note svg { flex-shrink: 0; }
 
+/*
+ * Starší objednávka. Načtená faktura může být i půl roku stará; když je
+ * objednávka podle feedu doručená nebo stornovaná, musí to být vidět dřív,
+ * než někdo sáhne po krabici — proto červená a nahoře, ne stav v rohu řádku.
+ */
+.pk-old {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  background: #fdecec;
+  color: #8a1c1c;
+  border: 1px solid #f2c2c2;
+}
+.pk-old svg { flex-shrink: 0; margin-top: 1px; }
+.pk-old-sub { margin-top: 2px; font-size: 12px; opacity: 0.85; }
+
 .pk-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 14px; }
 .pk-panel { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: #fbfafd; }
 .pk-panel-head {
@@ -2130,6 +2150,7 @@ button, kbd, label,
 [data-theme="dark"] .pk-item.checked { background: #1c2b23; border-color: #2c4a3c; }
 [data-theme="dark"] .pk-note { background: #1c2b23; color: #a8e0c4; border-color: #2c4a3c; }
 [data-theme="dark"] .pk-note.warn { background: #332a12; color: #f0d492; border-color: #5a4713; }
+[data-theme="dark"] .pk-old { background: #351d1d; color: #f3b5b5; border-color: #5c2b2b; }
 [data-theme="dark"] .pk-check { background: #2b2738; border-color: var(--border); }
 [data-theme="dark"] .pk-photo { background: #fff; border-color: var(--border); }
 [data-theme="dark"] .pk-code, [data-theme="dark"] .pk-qty, [data-theme="dark"] .pk-hint kbd { background: #2b2738; color: var(--text-2); }

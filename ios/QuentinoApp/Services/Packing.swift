@@ -122,45 +122,146 @@ enum Packing {
     }
 
     /**
-     Objednávka podle čísla z faktury.
+     Stav objednávky z feedu e-shopu.
 
-     QR kód na faktuře nese číslo faktury, které nemusí být totéž co číslo
-     objednávky — proto se zkouší obojí: nejdřív přímo jako číslo objednávky,
-     pak přes tabulku objednávek z feedu, kde je faktura vedle svého čísla
-     objednávky. Vodicí nuly se ignorují, na faktuře i v e-shopu se liší.
+     U starší objednávky je feed to jediné, co je aktuální: potvrzovací mail
+     říká, co si zákazník objednal v den nákupu, ale ne to, že je zásilka dávno
+     doručená nebo stornovaná. Právě tohle je potřeba vidět dřív, než někdo
+     začne balit něco, co se balit nemá.
      */
-    static func findOrder(_ raw: String) -> [String: Any]? {
-        let digits = raw.filter { $0.isNumber }
-        guard digits.count >= 3 else { return nil }
-        let bare = String(digits.drop { $0 == "0" })
+    private static func shopState(_ orderNumber: String?) -> [String: Any]? {
+        let forms = numberForms(orderNumber ?? "")
+        guard !forms.isEmpty else { return nil }
+        let row = (try? SQLite.shared.query(
+            """
+            SELECT code, invoice, status, created_at, updated_at FROM shop_orders
+            WHERE code = ? OR code = ? ORDER BY created_at DESC LIMIT 1
+            """,
+            [.text(forms[0]), .text(forms[forms.count - 1])]
+        ))?.first
+        guard let row else { return nil }
 
-        var wanted: Set<String> = [digits, bare]
+        let status = row["status"] as? String ?? ""
+        let updated = row["updated_at"] as? String ?? ""
+        let created = row["created_at"] as? String ?? ""
+        let at = !updated.isEmpty ? updated : created
+        return [
+            "code": row["code"] as? String ?? "",
+            "invoice": row["invoice"] as? String ?? "",
+            "status": status,
+            "at": at.isEmpty ? NSNull() : at,
+            "final": OrderTrack.isFinalStatus(status)
+        ]
+    }
+
+    /// Čísla objednávky, pod kterými se dá hledat — vodicí nuly se všude liší.
+    private static func numberForms(_ value: String) -> [String] {
+        let digits = value.filter { $0.isNumber }
+        guard !digits.isEmpty else { return [] }
+        let bare = String(digits.drop { $0 == "0" })
+        return (!bare.isEmpty && bare != digits) ? [digits, bare] : [digits]
+    }
+
+    /**
+     Číslo z QR na faktuře přeložené na čísla objednávek, pod kterými ji hledat.
+
+     Faktura a objednávka mají v e-shopu různá čísla, takže se překlad dělá vždy
+     přes feed objednávek — tam stojí faktura vedle svého čísla objednávky.
+     Načtené číslo se zkouší i samo o sobě, kdyby se náhodou skenovalo přímo
+     číslo objednávky.
+     */
+    private static func orderNumbers(for raw: String) -> [String] {
+        let forms = numberForms(raw)
+        guard !forms.isEmpty else { return [] }
+
+        var out = forms
         let rows = (try? SQLite.shared.query(
-            "SELECT code FROM shop_orders WHERE invoice != '' AND (invoice = ? OR invoice = ?)",
-            [.text(digits), .text(bare)]
+            """
+            SELECT code FROM shop_orders WHERE invoice != '' AND (invoice = ? OR invoice = ?)
+            ORDER BY created_at DESC LIMIT 20
+            """,
+            [.text(forms[0]), .text(forms[forms.count - 1])]
         )) ?? []
         for row in rows {
-            let code = (row["code"] as? String ?? "").filter { $0.isNumber }
-            guard !code.isEmpty else { continue }
-            wanted.insert(code)
-            wanted.insert(String(code.drop { $0 == "0" }))
+            for form in numberForms(row["code"] as? String ?? "") where !out.contains(form) {
+                out.append(form)
+            }
         }
+        return out
+    }
 
+    /**
+     Zpráva s potvrzením objednávky daného čísla — bez ohledu na stáří.
+
+     Běžný seznam k balení sahá jen pár dní zpátky, ale načtená faktura může být
+     i půl roku stará; hledá se proto rovnou podle čísla v předmětu, ne v okně.
+     */
+    private static func message(numbers: [String]) -> Candidate? {
+        // Nejdřív hotové karty — u nich se ví, že číslo sedí přesně
         let cached = (try? SQLite.shared.query(
-            "SELECT message_pk, json FROM order_cache WHERE json IS NOT NULL ORDER BY at DESC LIMIT 800", []
+            """
+            SELECT c.message_pk AS id, c.json, m.date, m.subject, m.from_addr
+            FROM order_cache c JOIN messages m ON m.id = c.message_pk
+            WHERE c.json IS NOT NULL ORDER BY m.date DESC LIMIT 800
+            """, []
         )) ?? []
-
         for row in cached {
             guard let text = row["json"] as? String, let data = text.data(using: .utf8),
                   let card = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let number = card["orderNumber"] as? String else { continue }
-            let num = number.filter { $0.isNumber }
-            guard !num.isEmpty else { continue }
-            if wanted.contains(num) || wanted.contains(String(num.drop { $0 == "0" })) {
-                return ["messageId": row["message_pk"] as? Int ?? 0, "orderNumber": number]
+                  let id = row["id"] as? Int else { continue }
+            let forms = numberForms(card["orderNumber"] as? String ?? "")
+            guard forms.contains(where: { numbers.contains($0) }) else { continue }
+            return Candidate(id: id, date: row["date"] as? String ?? "",
+                             subject: row["subject"] as? String ?? "")
+        }
+
+        // Pak podle předmětu — na starší objednávku se karta teprve sestaví
+        for number in numbers {
+            let rows = (try? SQLite.shared.query(
+                """
+                SELECT id, date, subject, from_addr FROM messages
+                WHERE subject LIKE ? ORDER BY date DESC LIMIT 40
+                """,
+                [.text("%\(number)%")]
+            )) ?? []
+            for row in rows {
+                guard let id = row["id"] as? Int else { continue }
+                let subject = row["subject"] as? String ?? ""
+                guard matches(subject, orderSubject) else { continue }
+                guard Orders.shopMatchesSender(row["from_addr"] as? String ?? "") else { continue }
+                return Candidate(id: id, date: row["date"] as? String ?? "", subject: subject)
             }
         }
         return nil
+    }
+
+    /**
+     Otevře objednávku podle načteného čísla — i takovou, která je dávno mimo
+     seznam k balení.
+
+     Vrací rovnou celou objednávku i s kartou a stavem odškrtání, aby ji
+     rozhraní mohlo přidat do seznamu, i když do zvoleného období nepatří.
+     `shop` nese stav z feedu; u konečného stavu (doručeno, storno) se
+     v rozhraní ukáže výstraha, že jde o starší objednávku.
+     */
+    static func openOrder(_ raw: String) async -> [String: Any]? {
+        let numbers = orderNumbers(for: raw)
+        guard !numbers.isEmpty, let found = message(numbers: numbers) else { return nil }
+
+        var card = cached(found.id)
+        if card == nil {
+            card = await Orders.card(dbId: found.id)
+            Orders.writeCache(found.id, card)
+        }
+        guard let order = card else { return nil }
+
+        let state = packed(found.id)
+        var out = payload(state)
+        out["messageId"] = found.id
+        out["date"] = found.date
+        out["card"] = order
+        out["shop"] = shopState(order["orderNumber"] as? String) ?? NSNull()
+        return out
     }
 
     /// Označí celou objednávku jako zabalenou (nebo označení zruší).
@@ -219,7 +320,8 @@ enum Packing {
                 "packed": state.items,
                 "counts": state.counts,
                 "done": state.done,
-                "doneAt": doneAt
+                "doneAt": doneAt,
+                "shop": shopState(order["orderNumber"] as? String) ?? NSNull()
             ])
         }
 

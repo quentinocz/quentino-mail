@@ -239,8 +239,8 @@ extension Bridge {
             Packing.scanItem(messageId: try Self.int(args.first),
                              raw: args.count > 1 ? (args[1] as? String ?? "") : "")
         }
-        register("packing:findOrder") { args in
-            Packing.findOrder(args.first as? String ?? "") ?? NSNull()
+        register("packing:openOrder") { args in
+            await Packing.openOrder(args.first as? String ?? "") ?? NSNull()
         }
         register("packing:setDone") { args in
             Packing.setDone(messageId: try Self.int(args.first),

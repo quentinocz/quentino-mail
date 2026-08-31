@@ -26,7 +26,11 @@ db.exec(`
     message_pk INTEGER PRIMARY KEY, json TEXT, at TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS shop_orders (
     code TEXT NOT NULL, market TEXT NOT NULL DEFAULT 'cz', invoice TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT '', PRIMARY KEY (code, market));
+    status TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT '', PRIMARY KEY (code, market));
+  CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY, date TEXT NOT NULL DEFAULT '',
+    subject TEXT NOT NULL DEFAULT '', from_addr TEXT NOT NULL DEFAULT '');
   CREATE TABLE IF NOT EXISTS products (
     code TEXT PRIMARY KEY,
     title_cz TEXT NOT NULL DEFAULT '', url_cz TEXT NOT NULL DEFAULT '', price_cz TEXT NOT NULL DEFAULT '',
@@ -86,10 +90,35 @@ db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
   .run(1, JSON.stringify(CARD), new Date().toISOString());
 db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
   .run(2, JSON.stringify(SPLIT), new Date().toISOString());
+// Půl roku stará objednávka — do okna k balení nespadá, načtená faktura ji najít musí
+db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
+  .run(3, JSON.stringify({ ...CARD, orderNumber: '021900' }), '2026-02-10T09:00:00.000Z');
 
-// Faktura 022605 patří k objednávce 023100 — čísla se neshodují schválně
-db.prepare('INSERT INTO shop_orders (code, market, invoice, created_at) VALUES (?, ?, ?, ?)')
-  .run('022605', 'cz', '999111', '2026-08-01');
+/*
+ * Faktury a objednávky mají v e-shopu různá čísla — právě proto se překlad
+ * dělá vždycky přes feed. 022605 je objednávka rozdělaná, 021900 je dávno
+ * doručená a v seznamu k balení by se sama neobjevila.
+ */
+const shop = db.prepare(
+  `INSERT INTO shop_orders (code, market, invoice, status, created_at, updated_at)
+   VALUES (?, ?, ?, ?, ?, ?)`
+);
+shop.run('022605', 'cz', '999111', 'Přijata', '2026-08-20', '2026-08-21');
+shop.run('021900', 'cz', '998700', 'Doručeno', '2026-02-10', '2026-02-14');
+
+// Potvrzovací maily — starší objednávka je jen tady, mimo okno k balení
+const mail = db.prepare('INSERT INTO messages (id, date, subject, from_addr) VALUES (?, ?, ?, ?)');
+mail.run(1, '2026-08-20T09:00:00.000Z', 'Objednávka č. 022605 přijata', 'info@quentino.cz');
+mail.run(2, '2026-08-19T09:00:00.000Z', 'Objednávka č. 022700 přijata', 'info@quentino.cz');
+mail.run(3, '2026-02-10T09:00:00.000Z', 'Objednávka č. 021900 přijata', 'info@quentino.cz');
+// Objednávka, ke které se karta nikdy neuložila — najít se musí podle předmětu
+mail.run(4, '2025-11-02T09:00:00.000Z', 'Objednávka č. 020500 přijata', 'info@quentino.cz');
+mail.run(5, '2025-11-02T09:05:00.000Z', 'Sleva 020500 jen dnes', 'newsletter@jinyshop.cz');
+
+// Doména e-shopu se bere z adresy feedu — bez ní se odesílatel neuzná
+db.prepare(
+  'INSERT INTO settings(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+).run('productFeedUrl', 'https://www.quentino.cz/feed.xml');
 
 // Kšandy mají v katalogu variantu, na štítku je její kód
 db.prepare('INSERT INTO products (code, title_cz, availability) VALUES (?, ?, ?)')
@@ -140,16 +169,6 @@ packing.scanItem(2, 'PS120CRV');
 hit = packing.scanItem(2, 'PS120CRV');
 check('druhý kus přeskočí zaplněný řádek', [hit.ok, hit.index, hit.count], [true, 1, 1]);
 
-/* ---------- 3. objednávka podle faktury ---------- */
-
-console.log('\nObjednávka podle čísla');
-
-check('číslo objednávky přímo', packing.findOrder('022605')?.messageId, 1);
-check('bez vodicích nul', packing.findOrder('22605')?.messageId, 1);
-check('faktura přes feed objednávek', packing.findOrder('999111')?.messageId, 1);
-check('neznámé číslo', packing.findOrder('880123'), null);
-check('krátký nesmysl', packing.findOrder('ab'), null);
-
 /* ---------- 4. starší záznamy ---------- */
 
 console.log('\nZáznamy z doby před počítáním kusů');
@@ -159,5 +178,42 @@ db.prepare('UPDATE packing SET packed_json = ?, counts_json = ? WHERE message_pk
 hit = packing.scanItem(1, 'OP01HN');
 check('odškrtnutá položka se dopočítá na plný počet', [hit.ok, hit.reason], [false, 'already']);
 
-console.log(failed === 0 ? '\n✓ balení sedí' : `\n✗ ${failed} nesedí`);
-process.exit(failed === 0 ? 0 : 1);
+/* ---------- 3. objednávka podle faktury ---------- */
+
+async function orders() {
+  console.log('\nObjednávka podle čísla');
+
+  check('číslo objednávky přímo', (await packing.openOrder('022605'))?.messageId, 1);
+  check('bez vodicích nul', (await packing.openOrder('22605'))?.messageId, 1);
+  check('faktura přes feed objednávek', (await packing.openOrder('999111'))?.messageId, 1);
+  check('neznámé číslo', await packing.openOrder('880123'), null);
+  check('krátký nesmysl', await packing.openOrder('ab'), null);
+
+  // Stav z feedu jde s objednávkou, aby šlo u starší poznat, že je hotová
+  const fresh = await packing.openOrder('999111');
+  check('stav z feedu u rozdělané', [fresh.shop.status, fresh.shop.final], ['Přijata', false]);
+
+  /*
+   * Stará doručená objednávka: v seznamu k balení není, ale načtená faktura
+   * ji musí najít — a rovnou říct, že jde o konečný stav a odkdy.
+   */
+  const old = await packing.openOrder('998700');
+  check('stará objednávka se najde podle faktury', old?.messageId, 3);
+  check('konečný stav i s datem',
+    [old.shop.status, old.shop.final, old.shop.at], ['Doručeno', true, '2026-02-14']);
+  check('karta se sestavila i mimo okno', old.card?.orderNumber, '021900');
+
+  /*
+   * Objednávka bez uložené karty se musí najít podle čísla v předmětu —
+   * a newsletter cizího e-shopu se stejným číslem se chytit nesmí.
+   */
+  check('podle předmětu, když karta chybí',
+    packing.__test.messageForNumbers(['020500'])?.id, 4);
+  check('faktura se přeloží na číslo objednávky',
+    packing.__test.orderNumbersFor('998700').includes('021900'), true);
+}
+
+orders().then(() => {
+  console.log(failed === 0 ? '\n✓ balení sedí' : `\n✗ ${failed} nesedí`);
+  process.exit(failed === 0 ? 0 : 1);
+});

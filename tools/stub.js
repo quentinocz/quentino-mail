@@ -203,7 +203,8 @@
     'packing:setCount': { packed: [0], counts: { '0': 1 }, done: false, doneAt: null },
     'packing:scanItem': { ok: true, index: 1, code: 'QM-042', title: 'Manžetové knoflíčky Onyx',
       count: 1, qty: 2, needMore: 1, message: 'Manžetové knoflíčky Onyx — 1/2 ks, ještě 1' },
-    'packing:findOrder': null,
+    // Načtená faktura otevře i půl roku starou doručenou objednávku
+    'packing:openOrder': null,
     'packing:setDone': true,
     'packing:reset': true,
     'ptrans:overview': {
@@ -784,12 +785,26 @@
       // Rozdělaná: pásek hotový, z manžetových knoflíčků jeden ze dvou —
       // právě na tomhle je vidět, že se počítá po kusech, ne po položkách
       { messageId: 1, date: new Date(Date.now() - 3 * 3600e3).toISOString(),
-        card: toPack('20260819'), packed: [0], counts: { '0': 1, '1': 1 }, done: false, doneAt: null },
+        card: toPack('20260819'), packed: [0], counts: { '0': 1, '1': 1 }, done: false, doneAt: null,
+        shop: { code: '022605', invoice: '999111', status: 'Přijata', at: '2026-08-19', final: false } },
       { messageId: 2, date: new Date(Date.now() - 26 * 3600e3).toISOString(),
-        card: toPack('20260812'), packed: [], counts: {}, done: false, doneAt: null }
+        card: toPack('20260812'), packed: [], counts: {}, done: false, doneAt: null,
+        shop: { code: '022600', invoice: '999100', status: 'Přijata', at: '2026-08-12', final: false } }
     ],
     statuses: ['Přijata'],
     scannedAt: new Date().toISOString()
+  };
+
+  // Stará doručená objednávka, jakou vrátí načtení faktury — kvůli výstraze
+  answers['packing:openOrder'] = {
+    messageId: 3, date: new Date(Date.now() - 190 * 24 * 3600e3).toISOString(),
+    card: Object.assign({}, answers['orders:card'], {
+      orderNumber: '021900',
+      live: Object.assign({}, answers['orders:card'].live, { status: 'Doručeno' }),
+      tracking: Object.assign({}, answers['orders:card'].tracking, { status: 'Doručeno' })
+    }),
+    packed: [], counts: {}, done: false, doneAt: null,
+    shop: { code: '021900', invoice: '998700', status: 'Doručeno', at: '2026-02-14', final: true }
   };
 
   // Náhledy si potřebují data upravit za běhu (např. „právě doběhl překlad")
@@ -797,6 +812,15 @@
 
   window.api = {
     invoke: function (channel, arg) {
+      /*
+       * Balení: na fotoaparát chodí dvojí kód a rozhraní je rozlišuje tím, že
+       * nejdřív zkusí položku v objednávce. Samé číslice jsou faktura, takže
+       * v objednávce nejsou — jinak by se stará objednávka nikdy neotevřela.
+       */
+      if (channel === 'packing:scanItem' && /^\d+$/.test(String(arguments[2] || ''))) {
+        return Promise.resolve({ ok: true, data: { ok: false, reason: 'notInOrder',
+          message: 'Kód v objednávce není' } });
+      }
       // Náhledy se střídají podle příspěvku, ať je vidět víc poměrů stran
       if (channel === 'ig:thumb') {
         var list = answers['ig:thumb'] || [];

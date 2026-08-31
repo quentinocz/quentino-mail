@@ -530,6 +530,8 @@ export interface PackingOrder {
   /** Objednávka označená jako zabalená */
   done: boolean;
   doneAt: string | null;
+  /** Stav z feedu e-shopu — u starších objednávek to jediné aktuální */
+  shop?: PackingShopState | null;
 }
 
 /** Stav odškrtání jedné objednávky */
@@ -556,10 +558,22 @@ export interface PackingHit {
   message: string;
 }
 
-/** Objednávka nalezená podle čísla z faktury */
-export interface PackingFind {
-  messageId: number;
-  orderNumber: string | null;
+/**
+ * Stav objednávky z feedu e-shopu.
+ *
+ * U starší objednávky je feed to jediné, co je aktuální — potvrzovací mail
+ * říká, co si zákazník objednal, ale ne že je zásilka dávno doručená.
+ */
+export interface PackingShopState {
+  /** Číslo objednávky, jak ho vede e-shop */
+  code: string;
+  /** Číslo faktury — na faktuře je jiné než číslo objednávky */
+  invoice: string;
+  status: string;
+  /** Kdy se objednávka naposledy změnila (z feedu), pokud je to známo */
+  at: string | null;
+  /** Konečný stav: doručeno, storno, vráceno… */
+  final: boolean;
 }
 
 export interface PackingScan {
