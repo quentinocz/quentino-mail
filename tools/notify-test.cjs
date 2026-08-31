@@ -13,6 +13,7 @@ const path = require('path');
 const { db, DIST } = require('./ptrans/harness.cjs');
 
 const notify = require(path.join(DIST, 'notify.js'));
+const settings = require(path.join(DIST, 'settings.js'));
 
 let failed = 0;
 function check(label, got, want) {
@@ -107,6 +108,25 @@ ok('posílá se na kořen serveru, ne na adresu tématu',
   sql.includes("url := 'https://ntfy.sh'") && !sql.includes("url := 'https://ntfy.sh/quentino"));
 ok('téma je v těle', sql.includes("'topic', 'quentino-tajne'"));
 
+/*
+ * pg_net si zakládá vlastní schéma `net`, takže se mu nesmí předepisovat, kam
+ * se má nainstalovat — `with schema …` by spuštění shodilo hned na prvním
+ * řádku. Zjistilo se to až čtením dokumentace, tak ať se to nevrátí.
+ */
+ok('rozšíření se instaluje bez určení schématu',
+  /create extension if not exists pg_net;/.test(sql) && !/pg_net with schema/.test(sql));
+ok('http_post se volá plným jménem', sql.includes('net.http_post('));
+
+/*
+ * Jediné DROP v celém skriptu smí být trigger téhož jména — kvůli tomu, aby
+ * šel skript spustit znovu. Cokoli dalšího by v cizí databázi mohlo bolet.
+ */
+const drops = sql.split('\n').filter(line => /^\s*drop /i.test(line));
+check('maže se jen vlastní trigger', drops,
+  ['drop trigger if exists chat_message_notify on public.messages;']);
+ok('nic se nemaže z tabulek',
+  !/\bdelete\s+from\b|\btruncate\b|\balter\s+table\b|\bdrop\s+table\b/i.test(sql));
+
 check('vlastní server se do SQL propíše',
   /url := '([^']+)'/.exec(notify.chatWebhookSql('https://ntfy.example.com/', 'x'))[1],
   'https://ntfy.example.com');
@@ -135,6 +155,27 @@ check('hlavní vypínač přebíjí všechno', notify.wantsNotify('mail'), false
 set('notifyPhone', '1');
 set('notifyTopic', '');
 check('bez tématu není kam poslat', notify.wantsNotify('mail'), false);
+
+/* ---------- 5. uložení ---------- */
+
+console.log('\nUložení');
+
+/*
+ * Téma se vygeneruje jedním klepnutím a hned se zavírá okno — když se cestou
+ * ztratí, pozná se to až tím, že notifikace nechodí. Proto se kontroluje, že
+ * uložení dílčí změny projde a nesmaže po sobě zbytek.
+ */
+settings.saveSettings({ notifyTopic: 'quentino-ulozene', notifyPhone: true });
+check('téma se uloží', settings.getSettings().notifyTopic, 'quentino-ulozene');
+
+settings.saveSettings({ notifyPhoneChat: false });
+check('dílčí uložení nesmaže téma',
+  [settings.getSettings().notifyTopic, settings.getSettings().notifyPhoneChat],
+  ['quentino-ulozene', false]);
+
+check('okolní mezery se ořežou',
+  (settings.saveSettings({ notifyTopic: '  quentino-x  ' }), settings.getSettings().notifyTopic),
+  'quentino-x');
 
 console.log(failed === 0 ? '\n✓ upozornění sedí' : `\n✗ ${failed} nesedí`);
 process.exit(failed === 0 ? 0 : 1);
