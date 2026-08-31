@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /**
  Vstupní bod aplikace.
@@ -8,8 +9,32 @@ import SwiftUI
  Electron: pošta, databáze, soubory, klíčenka. Díky tomu má iPad stejné
  obrazovky i logiku jako Mac a opravy se nepíšou dvakrát.
  */
+/**
+ Delegát kvůli probouzení na pozadí.
+
+ `BGTaskScheduler` chce mít obsluhu zaregistrovanou do konce startu aplikace;
+ pozdější registrace skončí výjimkou. V čistém SwiftUI na to není háček, tak
+ se sem přidává tenhle jeden.
+ */
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        Background.register()
+        Notify.requestPermission()
+        return true
+    }
+
+    /// Odchod na pozadí je poslední chvíle, kdy si jde říct o další probuzení.
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        Background.schedule()
+    }
+}
+
 @main
 struct QuentinoAppApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var bridge = Bridge()
 
     var body: some Scene {
@@ -24,7 +49,10 @@ struct QuentinoAppApp: App {
                 .ignoresSafeArea()
                 .preferredColorScheme(nil)   // světlý i tmavý režim řídí systém
                 .onOpenURL { url in bridge.handleDeepLink(url) }
-                .task { Scheduler.shared.start() }
+                .task {
+                    Scheduler.shared.start()
+                    Background.schedule()
+                }
         }
     }
 }

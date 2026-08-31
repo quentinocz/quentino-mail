@@ -208,6 +208,16 @@ await page.evaluate(() => {
   label?.scrollIntoView({ block: 'center' });
 });
 await overflow('nastavení — feedy objednávek'); await snap('22-feedy-objednavek');
+
+// Nastavení → Telefon: upozornění přes ntfy. Zvlášť se kouká na to, jestli se
+// vejde dlouhé SQL pro Supabase, které se ukáže až na vyžádání.
+await click('.tabs button', { hasText: 'Telefon' });
+await overflow('nastavení — telefon'); await snap('22b-nastaveni-telefon');
+await click('.btn.ghost', { hasText: 'Nastavení chatu v Supabase' });
+await page.waitForTimeout(300);
+await page.evaluate(() => document.querySelector('.modal-body')?.scrollTo(0, 9999));
+await overflow('nastavení — SQL pro chat'); await snap('22c-nastaveni-chat-sql');
+
 await page.keyboard.press('Escape');
 await page.waitForTimeout(400);
 

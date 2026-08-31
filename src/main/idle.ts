@@ -16,6 +16,7 @@ import { getCaCertificates } from './systemca';
 import { getDb } from './db';
 import { getSettings } from './settings';
 import { syncFolder } from './imap';
+import { mailNotification, notifyPhone, wantsNotify } from './notify';
 
 interface Watcher {
   accountId: number;
@@ -46,9 +47,6 @@ function newestId(accountId: number): number {
 }
 
 function notifyAbout(accountId: number, sinceId: number): void {
-  if (!getSettings().notifyNewMail) return;
-  if (!Notification.isSupported()) return;
-
   const rows = getDb().prepare(
     `SELECT id, from_name, from_addr, subject FROM messages
      WHERE account_id = ? AND folder = 'INBOX' AND id > ? AND seen = 0
@@ -56,7 +54,23 @@ function notifyAbout(accountId: number, sinceId: number): void {
   ).all(accountId, sinceId) as any[];
   if (rows.length === 0) return;
 
-  // Když se uživatel na aplikaci zrovna dívá, upozornění by bylo na obtíž
+  /*
+   * Telefon se ozve i tehdy, když se člověk dívá na počítač — právě proto,
+   * že smyslem je vědět o poště, když u počítače nesedí, a pravidlo „okno je
+   * v popředí" o tom nic neříká. Odesílá se na pozadí; když ntfy neodpoví,
+   * synchronizace tím nesmí utrpět.
+   */
+  if (wantsNotify('mail')) {
+    const { title, message } = mailNotification(rows.map(r => ({
+      fromName: r.from_name, fromAddr: r.from_addr, subject: r.subject
+    })));
+    void notifyPhone('mail', title, message).catch(() => { /* nevadí */ });
+  }
+
+  if (!getSettings().notifyNewMail) return;
+  if (!Notification.isSupported()) return;
+
+  // Když se uživatel na aplikaci zrovna dívá, upozornění na ploše je na obtíž
   const focused = BrowserWindow.getAllWindows().some(w => w.isFocused());
   if (focused) return;
 

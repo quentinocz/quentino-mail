@@ -7,7 +7,7 @@ import { useToast } from '../toast';
 import Icon from './Icon';
 import { buildBrandSignature, DEFAULT_SIG_CONFIG } from '../signature';
 
-type Tab = 'accounts' | 'persons' | 'ai' | 'knowledge' | 'rules' | 'sync';
+type Tab = 'accounts' | 'persons' | 'ai' | 'knowledge' | 'rules' | 'sync' | 'phone';
 
 interface SyncCfg { folder: string | null; enabled: boolean; lastRun: string | null; lastResult: string | null }
 
@@ -101,6 +101,9 @@ export default function SettingsModal(p: Props) {
     photoPath: string | null;
   } | null>(null);
   const [personPhotoPreview, setPersonPhotoPreview] = useState<string | null>(null);
+  /** SQL pro Supabase — ukazuje se až na vyžádání, je to dlouhé */
+  const [chatSql, setChatSql] = useState<string | null>(null);
+  const [sqlCopied, setSqlCopied] = useState(false);
 
   useEffect(() => {
     api.settings.get().then(setSettings).catch(() => {});
@@ -182,6 +185,12 @@ export default function SettingsModal(p: Props) {
       autoTranslate: settings.autoTranslate,
       loadRemoteImages: settings.loadRemoteImages,
       notifyNewMail: settings.notifyNewMail,
+      notifyPhone: settings.notifyPhone,
+      notifyServer: settings.notifyServer,
+      notifyTopic: settings.notifyTopic,
+      notifyPhoneMail: settings.notifyPhoneMail,
+      notifyPhoneChat: settings.notifyPhoneChat,
+      notifyPhoneLocal: settings.notifyPhoneLocal,
       autoSummarizeCategories: settings.autoSummarizeCategories,
       contactInfo: settings.contactInfo,
       productFeedUrl: settings.productFeedUrl,
@@ -332,6 +341,7 @@ export default function SettingsModal(p: Props) {
           <button className={`tab ${tab === 'knowledge' ? 'active' : ''}`} onClick={() => setTab('knowledge')}>Znalosti</button>
           <button className={`tab ${tab === 'rules' ? 'active' : ''}`} onClick={() => setTab('rules')}>Třídění</button>
           <button className={`tab ${tab === 'sync' ? 'active' : ''}`} onClick={() => setTab('sync')}>Sync</button>
+          <button className={`tab ${tab === 'phone' ? 'active' : ''}`} onClick={() => setTab('phone')}>Telefon</button>
         </div>
 
         <div className="modal-body">
@@ -894,6 +904,127 @@ export default function SettingsModal(p: Props) {
                   </span>
                 )}
               </div>
+            </>
+          )}
+
+          {/* ===================== TELEFON ===================== */}
+          {tab === 'phone' && settings && (
+            <>
+              <div className="desc" style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
+                Upozornění na telefon doručuje <b>ntfy</b>. Push přímo do téhle aplikace by
+                znamenal placený vývojářský účet u Applu, tohle je zdarma a bez registrace:
+                na telefon si nainstaluješ aplikaci <b>ntfy</b> z App Storu, přihlásíš ji
+                k tématu níž a od té chvíle ti chodí upozornění z ní.
+                Ven jde <b>odesílatel a předmět</b>, ne text zprávy.
+              </div>
+
+              <label className="check-row">
+                <input type="checkbox" checked={settings.notifyPhone}
+                  onChange={e => setSettings(s => s ? { ...s, notifyPhone: e.target.checked } : s)} />
+                Posílat upozornění na telefon
+              </label>
+
+              <div className="field">
+                <label>Téma (chová se jako heslo — kdo ho zná, čte i posílá)</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input value={settings.notifyTopic} spellCheck={false}
+                    placeholder="— zatím žádné —" className="mono" style={{ flex: 1 }}
+                    onChange={e => setSettings(s => s ? { ...s, notifyTopic: e.target.value } : s)} />
+                  <button className="btn ghost" onClick={() => run('topic', async () => {
+                    const topic = await api.notify.topic();
+                    setSettings(s => s ? { ...s, notifyTopic: topic } : s);
+                    setChatSql(null);
+                  })}>
+                    <Icon name="refresh" size={14} /> Vygenerovat
+                  </button>
+                </div>
+                {settings.notifyTopic && (
+                  <div className="desc">
+                    V aplikaci ntfy dej <b>Subscribe to topic</b> a zadej{' '}
+                    <code>{settings.notifyTopic}</code>
+                    {settings.notifyServer ? ` (server ${settings.notifyServer})` : ''}.
+                  </div>
+                )}
+              </div>
+
+              <div className="field">
+                <label>Server</label>
+                <input value={settings.notifyServer} spellCheck={false} placeholder="https://ntfy.sh"
+                  onChange={e => setSettings(s => s ? { ...s, notifyServer: e.target.value } : s)} />
+                <div className="desc">
+                  Prázdné = veřejný ntfy.sh. Vlastní server má smysl, když nechceš, aby
+                  jména a předměty procházela cizí službou — aplikace ntfy si vlastní server
+                  přidat umí.
+                </div>
+              </div>
+
+              <label className="check-row">
+                <input type="checkbox" checked={settings.notifyPhoneMail}
+                  onChange={e => setSettings(s => s ? { ...s, notifyPhoneMail: e.target.checked } : s)} />
+                Nová pošta
+              </label>
+              <label className="check-row">
+                <input type="checkbox" checked={settings.notifyPhoneChat}
+                  onChange={e => setSettings(s => s ? { ...s, notifyPhoneChat: e.target.checked } : s)} />
+                Nová zpráva v chatu
+              </label>
+              <div className="desc">
+                Pošta se hlásí odsud — aplikace drží se serverem otevřené spojení, takže
+                upozornění odejde ve chvíli, kdy zpráva dorazí. Když je počítač vypnutý,
+                zkusí to telefon sám na pozadí, ale systém ho pustí jen párkrát denně.
+                Chat je na tom líp: umí se ozvat přímo ze Supabase, viz níž.
+              </div>
+
+              <label className="check-row">
+                <input type="checkbox" checked={settings.notifyPhoneLocal}
+                  onChange={e => setSettings(s => s ? { ...s, notifyPhoneLocal: e.target.checked } : s)} />
+                Upozornit i z aplikace v telefonu, když si poštu najde sama
+              </label>
+              <div className="desc">
+                Přijde ze správné aplikace a nic neprojde cizí službou. Když je zároveň
+                zapnutý počítač, může upozornění na tutéž zprávu přijít dvakrát — telefon
+                nemá jak zjistit, že to počítač už ohlásil.
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="btn primary" disabled={busy === 'notifyTest' || !settings.notifyTopic}
+                  onClick={() => run('notifyTest', async () => {
+                    const out = await api.notify.test(settings.notifyServer, settings.notifyTopic);
+                    if (out.ok) toast('Odesláno — mrkni na telefon.');
+                    else toast(out.error || 'Nepovedlo se', 'error');
+                  })}>
+                  {busy === 'notifyTest' ? <span className="spinner-inline" /> : <Icon name="phone" size={14} />}
+                  {' '}Poslat zkušební
+                </button>
+                <button className="btn ghost" disabled={!settings.notifyTopic}
+                  onClick={() => run('chatSql', async () => {
+                    setChatSql(await api.notify.chatSql(settings.notifyServer, settings.notifyTopic));
+                  })}>
+                  <Icon name="chat" size={14} /> Nastavení chatu v Supabase
+                </button>
+              </div>
+
+              {chatSql && (
+                <div className="field" style={{ marginTop: 12 }}>
+                  <label>SQL pro Supabase</label>
+                  <div className="desc">
+                    Chat nemá kdo hlídat, když je počítač vypnutý — Supabase ale umí zavolat
+                    adresu sám, jakmile přibude zpráva. Vlož tohle do <b>SQL Editoru</b> projektu
+                    a spusť. Stačí jednou.
+                  </div>
+                  <textarea readOnly value={chatSql} spellCheck={false} rows={12}
+                    className="mono" style={{ fontSize: 11.5 }} />
+                  <button className="btn ghost" style={{ marginTop: 8, alignSelf: 'flex-start' }}
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(chatSql);
+                      setSqlCopied(true);
+                      setTimeout(() => setSqlCopied(false), 1800);
+                    }}>
+                    <Icon name={sqlCopied ? 'check' : 'copy'} size={14} />
+                    {' '}{sqlCopied ? 'Zkopírováno' : 'Kopírovat'}
+                  </button>
+                </div>
+              )}
             </>
           )}
 

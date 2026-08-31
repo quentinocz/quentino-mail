@@ -239,6 +239,23 @@ extension Bridge {
             Packing.scanItem(messageId: try Self.int(args.first),
                              raw: args.count > 1 ? (args[1] as? String ?? "") : "")
         }
+        // MARK: Upozornění na telefon
+        //
+        // Téma se generuje na počítači i tady stejně; SQL pro Supabase se
+        // odsud nenabízí — do databáze se stejně sahá z počítače.
+        register("notify:topic") { _ in
+            let abc = Array("abcdefghijklmnopqrstuvwxyz0123456789")
+            return "quentino-" + String((0..<24).map { _ in abc.randomElement()! })
+        }
+        register("notify:test") { args in
+            await Notify.test(server: args.first as? String ?? "",
+                              topic: args.count > 1 ? (args[1] as? String ?? "") : "")
+        }
+        register("notify:chatSql") { _ in
+            throw BridgeError.message("Nastavení chatu v Supabase se dělá na počítači — "
+                + "je to jednorázové vložení SQL do administrace projektu.")
+        }
+
         register("packing:openOrder") { args in
             await Packing.openOrder(args.first as? String ?? "")
         }

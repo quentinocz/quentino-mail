@@ -45,6 +45,12 @@ export function getSettings(): Settings {
     adminOrderRef: getSetting('adminOrderRef', '')!,
     voucherLogo: getSetting('voucherLogo', '')!,
     notifyNewMail: getSetting('notifyNewMail', '1') === '1',
+    notifyPhone: getSetting('notifyPhone', '0') === '1',
+    notifyServer: getSetting('notifyServer', '')!,
+    notifyTopic: getSetting('notifyTopic', '')!,
+    notifyPhoneMail: getSetting('notifyPhoneMail', '1') === '1',
+    notifyPhoneChat: getSetting('notifyPhoneChat', '1') === '1',
+    notifyPhoneLocal: getSetting('notifyPhoneLocal', '1') === '1',
     defaultPersonId: (() => {
       const v = parseInt(getSetting('defaultPersonId', '0')!, 10);
       return v > 0 ? v : null;
@@ -72,6 +78,12 @@ export function saveSettings(s: Partial<Settings>) {
   if (s.adminOrderRef !== undefined) setSetting('adminOrderRef', s.adminOrderRef.trim());
   if (s.voucherLogo !== undefined) setSetting('voucherLogo', s.voucherLogo);
   if (s.notifyNewMail !== undefined) setSetting('notifyNewMail', s.notifyNewMail ? '1' : '0');
+  if (s.notifyPhone !== undefined) setSetting('notifyPhone', s.notifyPhone ? '1' : '0');
+  if (s.notifyServer !== undefined) setSetting('notifyServer', s.notifyServer.trim());
+  if (s.notifyTopic !== undefined) setSetting('notifyTopic', s.notifyTopic.trim());
+  if (s.notifyPhoneMail !== undefined) setSetting('notifyPhoneMail', s.notifyPhoneMail ? '1' : '0');
+  if (s.notifyPhoneChat !== undefined) setSetting('notifyPhoneChat', s.notifyPhoneChat ? '1' : '0');
+  if (s.notifyPhoneLocal !== undefined) setSetting('notifyPhoneLocal', s.notifyPhoneLocal ? '1' : '0');
   if (s.defaultPersonId !== undefined) setSetting('defaultPersonId', String(s.defaultPersonId ?? 0));
   if (s.theme !== undefined) setSetting('theme', s.theme);
   setSetting('stateStamp', new Date().toISOString());

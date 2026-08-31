@@ -1426,6 +1426,9 @@ input:focus, textarea:focus, select:focus {
 
 /* ---------- Balení objednávek ---------- */
 
+/* Kódy a SQL — proporcionální písmo se u nich čte hůř a nedá se v něm počítat znaky */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 .pk-modal { width: min(1240px, 96vw); height: min(880px, 92vh); display: flex; flex-direction: column; }
 /* Hledáček se otevírá nahoře nad rozhraním — okno mu uhne, ne skokem */
 .pk-modal { transition: padding-top 0.22s ease; }
