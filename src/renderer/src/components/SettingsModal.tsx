@@ -173,6 +173,19 @@ export default function SettingsModal(p: Props) {
   const setSig = (patch: Partial<NonNullable<AccountConfig['sigConfig']>>) =>
     setEditing(e => (e && e.sigConfig ? { ...e, sigConfig: { ...e.sigConfig, ...patch } } : e));
 
+  /**
+   * Nastavení telefonu se ukládá rovnou při změně.
+   *
+   * Záložka nemá vlastní tlačítko „Uložit" a mít ho tu nemusí — jenže tím se
+   * vygenerované téma po zavření okna ztrácelo, protože jediné ukládání
+   * v okně visí na tlačítku v záložce AI. Zápis do databáze je levný, tak se
+   * dělá hned; nic se nemá kde ztratit.
+   */
+  const saveNotify = (patch: Partial<Settings>) => {
+    setSettings(s => (s ? { ...s, ...patch } : s));
+    void api.settings.save(patch).catch((e: any) => toast(e.message, 'error'));
+  };
+
   const saveAi = () => run('saveAi', async () => {
     if (!settings) return;
     await api.settings.save({
@@ -185,12 +198,6 @@ export default function SettingsModal(p: Props) {
       autoTranslate: settings.autoTranslate,
       loadRemoteImages: settings.loadRemoteImages,
       notifyNewMail: settings.notifyNewMail,
-      notifyPhone: settings.notifyPhone,
-      notifyServer: settings.notifyServer,
-      notifyTopic: settings.notifyTopic,
-      notifyPhoneMail: settings.notifyPhoneMail,
-      notifyPhoneChat: settings.notifyPhoneChat,
-      notifyPhoneLocal: settings.notifyPhoneLocal,
       autoSummarizeCategories: settings.autoSummarizeCategories,
       contactInfo: settings.contactInfo,
       productFeedUrl: settings.productFeedUrl,
@@ -920,7 +927,7 @@ export default function SettingsModal(p: Props) {
 
               <label className="check-row">
                 <input type="checkbox" checked={settings.notifyPhone}
-                  onChange={e => setSettings(s => s ? { ...s, notifyPhone: e.target.checked } : s)} />
+                  onChange={e => saveNotify({ notifyPhone: e.target.checked })} />
                 Posílat upozornění na telefon
               </label>
 
@@ -929,11 +936,12 @@ export default function SettingsModal(p: Props) {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input value={settings.notifyTopic} spellCheck={false}
                     placeholder="— zatím žádné —" className="mono" style={{ flex: 1 }}
-                    onChange={e => setSettings(s => s ? { ...s, notifyTopic: e.target.value } : s)} />
+                    onChange={e => saveNotify({ notifyTopic: e.target.value })} />
                   <button className="btn ghost" onClick={() => run('topic', async () => {
                     const topic = await api.notify.topic();
-                    setSettings(s => s ? { ...s, notifyTopic: topic } : s);
+                    saveNotify({ notifyTopic: topic });
                     setChatSql(null);
+                    toast('Téma vygenerováno a uloženo.');
                   })}>
                     <Icon name="refresh" size={14} /> Vygenerovat
                   </button>
@@ -950,7 +958,7 @@ export default function SettingsModal(p: Props) {
               <div className="field">
                 <label>Server</label>
                 <input value={settings.notifyServer} spellCheck={false} placeholder="https://ntfy.sh"
-                  onChange={e => setSettings(s => s ? { ...s, notifyServer: e.target.value } : s)} />
+                  onChange={e => saveNotify({ notifyServer: e.target.value })} />
                 <div className="desc">
                   Prázdné = veřejný ntfy.sh. Vlastní server má smysl, když nechceš, aby
                   jména a předměty procházela cizí službou — aplikace ntfy si vlastní server
@@ -960,12 +968,12 @@ export default function SettingsModal(p: Props) {
 
               <label className="check-row">
                 <input type="checkbox" checked={settings.notifyPhoneMail}
-                  onChange={e => setSettings(s => s ? { ...s, notifyPhoneMail: e.target.checked } : s)} />
+                  onChange={e => saveNotify({ notifyPhoneMail: e.target.checked })} />
                 Nová pošta
               </label>
               <label className="check-row">
                 <input type="checkbox" checked={settings.notifyPhoneChat}
-                  onChange={e => setSettings(s => s ? { ...s, notifyPhoneChat: e.target.checked } : s)} />
+                  onChange={e => saveNotify({ notifyPhoneChat: e.target.checked })} />
                 Nová zpráva v chatu
               </label>
               <div className="desc">
@@ -977,7 +985,7 @@ export default function SettingsModal(p: Props) {
 
               <label className="check-row">
                 <input type="checkbox" checked={settings.notifyPhoneLocal}
-                  onChange={e => setSettings(s => s ? { ...s, notifyPhoneLocal: e.target.checked } : s)} />
+                  onChange={e => saveNotify({ notifyPhoneLocal: e.target.checked })} />
                 Upozornit i z aplikace v telefonu, když si poštu najde sama
               </label>
               <div className="desc">

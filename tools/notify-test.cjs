@@ -13,6 +13,7 @@ const path = require('path');
 const { db, DIST } = require('./ptrans/harness.cjs');
 
 const notify = require(path.join(DIST, 'notify.js'));
+const settings = require(path.join(DIST, 'settings.js'));
 
 let failed = 0;
 function check(label, got, want) {
@@ -135,6 +136,27 @@ check('hlavní vypínač přebíjí všechno', notify.wantsNotify('mail'), false
 set('notifyPhone', '1');
 set('notifyTopic', '');
 check('bez tématu není kam poslat', notify.wantsNotify('mail'), false);
+
+/* ---------- 5. uložení ---------- */
+
+console.log('\nUložení');
+
+/*
+ * Téma se vygeneruje jedním klepnutím a hned se zavírá okno — když se cestou
+ * ztratí, pozná se to až tím, že notifikace nechodí. Proto se kontroluje, že
+ * uložení dílčí změny projde a nesmaže po sobě zbytek.
+ */
+settings.saveSettings({ notifyTopic: 'quentino-ulozene', notifyPhone: true });
+check('téma se uloží', settings.getSettings().notifyTopic, 'quentino-ulozene');
+
+settings.saveSettings({ notifyPhoneChat: false });
+check('dílčí uložení nesmaže téma',
+  [settings.getSettings().notifyTopic, settings.getSettings().notifyPhoneChat],
+  ['quentino-ulozene', false]);
+
+check('okolní mezery se ořežou',
+  (settings.saveSettings({ notifyTopic: '  quentino-x  ' }), settings.getSettings().notifyTopic),
+  'quentino-x');
 
 console.log(failed === 0 ? '\n✓ upozornění sedí' : `\n✗ ${failed} nesedí`);
 process.exit(failed === 0 ? 0 : 1);
