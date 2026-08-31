@@ -26,7 +26,7 @@ const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[]
  * pro ně nemá kanály a na malé obrazovce se stejně nedají obsloužit. Dřív se
  * v nabídce ukazovaly i tam a klepnutí neudělalo nic; teď se prostě nenabízejí.
  */
-const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string; desktopOnly?: boolean }[] = [
+export const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string; desktopOnly?: boolean }[] = [
   { id: 'digest', icon: 'sunrise', label: 'Přehled dne', hint: 'Co za posledních 24 hodin čeká na odpověď' },
   { id: 'packing', icon: 'bag', label: 'Balení objednávek', hint: 'Odškrtávací seznam — kusy, varianty, adresy' },
   { id: 'catalog', icon: 'layers', label: 'Katalog a naskladnění', hint: 'Produkty a zásoby, příjem zboží, štítky s kódem' },
@@ -105,26 +105,53 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
       ))}
 
       {menu && (
-        <div className="ws-menu">
-          {tools.map(tool => (
-            <button
-              key={tool.id}
-              className={`ws-menu-item ${(tool.id === 'instagram' ? current === 'instagram' : activeTool === tool.id) ? 'on' : ''}`}
-              onClick={() => {
-                setMenu(false);
-                if (tool.id === 'instagram') onChange('instagram');
-                else onAiTool?.(tool.id);
-              }}
-            >
-              <Icon name={tool.icon} size={15} />
-              <span>
-                <b>{tool.label}</b>
-                <small>{tool.hint}</small>
-              </span>
-            </button>
-          ))}
-        </div>
+        <FunctionsMenu
+          activeTool={activeTool}
+          onPick={tool => {
+            setMenu(false);
+            if (tool === 'instagram') onChange('instagram');
+            else onAiTool?.(tool);
+          }}
+          highlightInstagram={current === 'instagram'}
+        />
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Obsah nabídky Funkce — jedna kopie pro počítač i telefon.
+ *
+ * Na počítači visí pod přepínačem prostorů, na telefonu pod tlačítkem
+ * v hlavičce pošty. Kdyby se seznam psal dvakrát, přibyla by položka jen
+ * na jednom místě a nikdo by si toho hned nevšiml.
+ */
+export function FunctionsMenu({ activeTool, onPick, highlightInstagram = false, className = '' }: {
+  activeTool?: AiTool;
+  onPick: (tool: AiTool) => void;
+  highlightInstagram?: boolean;
+  className?: string;
+}) {
+  const phone = useIsPhone();
+  const tools = AI_TOOLS.filter(tool => !(phone && tool.desktopOnly));
+
+  return (
+    <div className={`ws-menu ${className}`}>
+      {tools.map(tool => (
+        <button
+          key={tool.id}
+          className={'ws-menu-item '
+            + ((tool.id === 'instagram' ? highlightInstagram : activeTool === tool.id) ? 'on' : '')}
+          onClick={() => onPick(tool.id)}
+        >
+          <Icon name={tool.icon} size={15} />
+          <span>
+            <b>{tool.label}</b>
+            <small>{tool.hint}</small>
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

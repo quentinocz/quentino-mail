@@ -85,11 +85,12 @@ function AppInner() {
    * v horním rohu, kam palec nedosáhne. Systémové aplikace to řeší tahem
    * od kraje, tak ať se to tady nemusí učit jinak.
    */
+  const readPane = useRef<HTMLDivElement>(null);
   useEdgeBack(() => {
     if (drawer) { setDrawer(false); return; }
     setSelectedId(null);
     setDetail(null);
-  }, phone && (drawer || selectedId !== null));
+  }, phone && (drawer || selectedId !== null), drawer ? undefined : readPane);
 
   // E-mail, který se má otevřít po přepnutí z chatu do pošty
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -346,7 +347,10 @@ function AppInner() {
           onAiTool={openAiTool}
           activeTool={aiTool ?? undefined}
         />
-        {phone && <MobileTabs current="chat" onChange={setWorkspace} chatUnread={chatUnread} />}
+        {phone && (
+          <MobileTabs current="chat" onChange={setWorkspace} chatUnread={chatUnread}
+            onAiTool={openAiTool} activeTool={aiTool ?? undefined} />
+        )}
         {settingsOpen && (
           <SettingsModal
             accounts={accounts}
@@ -371,7 +375,10 @@ function AppInner() {
           onAiTool={openAiTool}
           activeTool={aiTool ?? undefined}
         />
-        {phone && <MobileTabs current="instagram" onChange={setWorkspace} chatUnread={chatUnread} />}
+        {phone && (
+          <MobileTabs current="instagram" onChange={setWorkspace} chatUnread={chatUnread}
+            onAiTool={openAiTool} activeTool={aiTool ?? undefined} />
+        )}
         {settingsOpen && (
           <SettingsModal
             accounts={accounts}
@@ -495,6 +502,7 @@ function AppInner() {
         onReply={replyToMessage}
       />
       <MessageView
+        paneRef={readPane}
         detail={detail}
         selectedId={selectedId}
         account={activeAccount}
@@ -552,7 +560,10 @@ function AppInner() {
           }}
         />
       )}
-      {phone && <MobileTabs current="mail" onChange={setWorkspace} chatUnread={chatUnread} />}
+      {phone && (
+          <MobileTabs current="mail" onChange={setWorkspace} chatUnread={chatUnread}
+            onAiTool={openAiTool} activeTool={aiTool ?? undefined} />
+        )}
       {aiLayer}
       <TooltipLayer />
     </div>

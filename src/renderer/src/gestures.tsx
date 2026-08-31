@@ -33,11 +33,12 @@ export interface SwipeAction {
 }
 
 /** Odsunutá smí být jen jedna řádka — jinak se v seznamu ztratí přehled. */
-let closeOpenRow: (() => void) | null = null;
+let openRow: { close: () => void } | null = null;
 
 const ACTION_W = 82;
 /** Kolik se musí táhnout, než se tah bere jako vodorovný */
 const AXIS = 10;
+const SNAP = 'transform 0.22s cubic-bezier(0.22, 0.9, 0.28, 1)';
 
 export function SwipeRow({ left, right, className = '', children }: {
   /** Odkryje se tahem doprava (tlačítka vlevo) */
@@ -48,46 +49,45 @@ export function SwipeRow({ left, right, className = '', children }: {
   children: React.ReactNode;
 }) {
   const phone = useIsPhone();
-  const [dx, setDx] = useState(0);
   /*
-   * Posun se drží i v odkazu, ne jen ve stavu.
+   * Posun se do Reactu nehlásí.
    *
-   * Puštění prstu se vyhodnocuje v obsluze, která vidí stav z posledního
-   * překreslení — a to při rychlém švihnutí ještě nemusí proběhnout. Řádka
-   * pak vyskočila zpátky, i když ji člověk odsunul přes půlku.
+   * Původně se každý pohyb prstu ukládal do stavu, takže se při jednom tahu
+   * překreslil celý seznam šedesátkrát za vteřinu — a bylo to na pohybu vidět.
+   * Teď se posouvá přímo prvek a stav se dotkne jen jednou za gesto, aby se
+   * vykreslila správná strana tlačítek.
    */
+  const front = useRef<HTMLDivElement>(null);
   const dxRef = useRef(0);
   /*
-   * Která strana je právě odkrytá. Nestačí se ptát na znaménko posunu:
-   * při zavírání je posun hned nula, ale řádka ještě dojíždí — a kdyby
-   * tlačítka v tu chvíli zmizela, prosvitlo by pod ní pozadí.
+   * Která strana je odkrytá. Nestačí se ptát na znaménko posunu: při zavírání
+   * je posun hned nula, ale řádka ještě dojíždí — a kdyby tlačítka v tu chvíli
+   * zmizela, prosvitlo by pod ní pozadí.
    */
   const [side, setSide] = useState<'left' | 'right' | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const start = useRef({ x: 0, y: 0, base: 0, axis: '' as '' | 'x' | 'y' });
   const box = useRef<HTMLDivElement>(null);
 
-  const move = useCallback((value: number) => {
+  const apply = useCallback((value: number, animate: boolean) => {
     dxRef.current = value;
-    setDx(value);
-    if (value !== 0) {
-      if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
-      setSide(value > 0 ? 'left' : 'right');
-    }
+    const el = front.current;
+    if (!el) return;
+    el.style.transition = animate ? SNAP : 'none';
+    el.style.transform = `translateX(${value}px)`;
   }, []);
 
   const close = useCallback(() => {
-    dxRef.current = 0;
-    setDx(0);
+    apply(0, true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setSide(null), 220);
-    if (closeOpenRow) closeOpenRow = null;
-  }, []);
+    hideTimer.current = setTimeout(() => setSide(null), 260);
+    if (openRow?.close === close) openRow = null;
+  }, [apply]);
 
   useEffect(() => () => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    if (closeOpenRow) closeOpenRow = null;
-  }, []);
+    if (openRow?.close === close) openRow = null;
+  }, [close]);
 
   if (!phone || (!left?.length && !right?.length)) {
     return <div className={className}>{children}</div>;
@@ -109,17 +109,35 @@ export function SwipeRow({ left, right, className = '', children }: {
     if (!start.current.axis) {
       if (Math.abs(mx) < AXIS && Math.abs(my) < AXIS) return;
       start.current.axis = Math.abs(mx) > Math.abs(my) ? 'x' : 'y';
-      if (start.current.axis === 'x' && closeOpenRow) { closeOpenRow(); closeOpenRow = null; }
+      /*
+       * Zavřít se má **jiná** otevřená řádka, ne tahle. Když se zavírala
+       * i ta, po které prst zrovna jel, vynulovala si posun uprostřed gesta,
+       * ale tah dál počítal od původního místa — řádka poskočila zpátky
+       * a zavřít se nedala vůbec.
+       */
+      if (start.current.axis === 'x' && openRow && openRow.close !== close) {
+        openRow.close();
+        openRow = null;
+      }
     }
     if (start.current.axis !== 'x') return;
 
     /*
      * Za poslední tlačítko se dá přetáhnout ještě kus — v tom prostoru žije
      * dlouhý tah, který rovnou spustí první akci. Kdyby se dalo táhnout jen
-     * po šířku tlačítek, u třech akcích by se dlouhý tah nedal provést vůbec.
+     * po šířku tlačítek, u třech akcí by se dlouhý tah nedal provést vůbec.
      */
     const raw = start.current.base + mx;
-    move(Math.max(-rightW - 120, Math.min(leftW + 120, raw)));
+    const value = Math.max(-rightW - 120, Math.min(leftW + 120, raw));
+
+    if (value !== 0) {
+      const want = value > 0 ? 'left' : 'right';
+      if (want !== side) {
+        if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
+        setSide(want);
+      }
+    }
+    apply(value, false);
   };
 
   const onEnd = () => {
@@ -127,9 +145,9 @@ export function SwipeRow({ left, right, className = '', children }: {
     const width = box.current?.offsetWidth ?? 320;
     const at = dxRef.current;
 
-    const side = at > 0 ? left : right;
+    const acts = at > 0 ? left : right;
     const openW = at > 0 ? leftW : rightW;
-    if (!side?.length) { close(); return; }
+    if (!acts?.length) { close(); return; }
 
     /*
      * Dlouhý tah spustí první akci — pokud není nevratná.
@@ -139,15 +157,15 @@ export function SwipeRow({ left, right, className = '', children }: {
      * k odkrytí a rovnou by spouštěl akci.
      */
     const full = Math.max(width * 0.6, openW + 70);
-    const first = side[0];
+    const first = acts[0];
     if (Math.abs(at) > full && !first.confirm) {
       close();
       first.run();
       return;
     }
     if (Math.abs(at) > openW * 0.5) {
-      move(at > 0 ? leftW : -rightW);
-      closeOpenRow = close;
+      apply(at > 0 ? leftW : -rightW, true);
+      openRow = { close };
       return;
     }
     close();
@@ -167,14 +185,16 @@ export function SwipeRow({ left, right, className = '', children }: {
       {side === 'right' && !!right?.length && <div className="swipe-side right">{right.map(button)}</div>}
       <div
         className="swipe-front"
-        style={{ transform: `translateX(${dx}px)`, transition: start.current.axis === 'x' ? 'none' : undefined }}
+        ref={front}
         onTouchStart={onStart}
         onTouchMove={onMove}
         onTouchEnd={onEnd}
         onTouchCancel={close}
         /* Když je řádka odsunutá, klepnutí ji jen zavře — jinak by se pod
            prstem otevřela zpráva, kterou chtěl člověk jen zaklapnout */
-        onClickCapture={e => { if (dx !== 0) { e.stopPropagation(); e.preventDefault(); close(); } }}
+        onClickCapture={e => {
+          if (dxRef.current !== 0) { e.stopPropagation(); e.preventDefault(); close(); }
+        }}
       >
         {children}
       </div>
@@ -185,8 +205,9 @@ export function SwipeRow({ left, right, className = '', children }: {
 /**
  * Tažení dolů nad začátkem seznamu = synchronizovat.
  *
- * Reaguje se, jen když je seznam úplně nahoře a tah je svislý — jinak by
- * se každé rolování prsty měnilo v synchronizaci.
+ * Reaguje se, jen když je seznam úplně nahoře **a tah je svislý**. Bez
+ * rozpoznání směru se pruh objevoval i při tahu přes řádek do strany a obě
+ * gesta si pak přeskakovala pod rukama.
  */
 export function usePullToRefresh(
   ref: React.RefObject<HTMLElement | null>,
@@ -194,27 +215,47 @@ export function usePullToRefresh(
   enabled = true
 ): number {
   const [pull, setPull] = useState(0);
-  const state = useRef({ y: 0, active: false });
+  const value = useRef(0);
+  const state = useRef({ x: 0, y: 0, live: false, axis: '' as '' | 'x' | 'y' });
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !enabled) return;
 
+    const set = (next: number) => {
+      if (next === value.current) return;
+      value.current = next;
+      setPull(next);
+    };
+
     const onStart = (e: TouchEvent) => {
-      state.current = { y: e.touches[0].clientY, active: el.scrollTop <= 0 };
+      state.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        live: el.scrollTop <= 0,
+        axis: ''
+      };
     };
     const onMove = (e: TouchEvent) => {
-      if (!state.current.active) return;
+      if (!state.current.live) return;
+      const dx = e.touches[0].clientX - state.current.x;
       const dy = e.touches[0].clientY - state.current.y;
-      if (dy <= 0) { setPull(0); return; }
+
+      if (!state.current.axis) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        state.current.axis = Math.abs(dy) > Math.abs(dx) ? 'y' : 'x';
+        // Tah do strany patří řádce pod prstem, ne synchronizaci
+        if (state.current.axis === 'x') { state.current.live = false; set(0); return; }
+      }
+      if (dy <= 0) { set(0); return; }
       // Odpor: sto pixelů prstu je padesát pixelů pruhu, ať se to netahá samo
-      setPull(Math.min(90, dy * 0.5));
+      set(Math.min(90, Math.round(dy * 0.5)));
       if (dy > 6 && e.cancelable) e.preventDefault();
     };
     const onEnd = () => {
-      if (pull > 55) onRefresh();
-      state.current.active = false;
-      setPull(0);
+      if (value.current > 55) onRefresh();
+      state.current.live = false;
+      set(0);
     };
 
     el.addEventListener('touchstart', onStart, { passive: true });
@@ -227,7 +268,7 @@ export function usePullToRefresh(
       el.removeEventListener('touchend', onEnd);
       el.removeEventListener('touchcancel', onEnd);
     };
-  }, [ref, onRefresh, enabled, pull]);
+  }, [ref, onRefresh, enabled]);
 
   return pull;
 }
@@ -237,40 +278,89 @@ export function usePullToRefresh(
  *
  * Začíná jen v pruhu širokém pár milimetrů u kraje displeje. Kdyby se chytal
  * kdekoliv, nešlo by vodorovně listovat ničím jiným.
+ *
+ * Když se předá `pane`, **jde obrazovka s prstem**: odsouvá se doprava, jak
+ * se táhne, a po puštění dojede nebo se vrátí. Bez toho gesto jen v jednu
+ * chvíli přepnulo, co je vidět, a vypadalo to jako bliknutí — člověk nevěděl,
+ * jestli se něco stalo, nebo se aplikace zakuckala.
  */
-export function useEdgeBack(onBack: () => void, enabled = true): void {
+export function useEdgeBack(
+  onBack: () => void,
+  enabled = true,
+  pane?: React.RefObject<HTMLElement | null>
+): void {
   useEffect(() => {
     if (!enabled) return;
     let armed = false;
+    let dragging = false;
     let x = 0;
     let y = 0;
+
+    const el = () => pane?.current ?? null;
+    const slide = (value: number, animate: boolean) => {
+      const node = el();
+      if (!node) return;
+      node.style.transition = animate ? 'transform 0.26s cubic-bezier(0.22, 0.9, 0.28, 1)' : 'none';
+      node.style.transform = value ? `translateX(${value}px)` : '';
+    };
 
     const onStart = (e: TouchEvent) => {
       const t = e.touches[0];
       armed = t.clientX <= 24;
+      dragging = false;
       x = t.clientX;
       y = t.clientY;
     };
+
     const onMove = (e: TouchEvent) => {
       if (!armed) return;
       const t = e.touches[0];
-      if (Math.abs(t.clientY - y) > 45) { armed = false; return; }
-      if (t.clientX - x > 70) {
-        armed = false;
-        onBack();
+      const dx = t.clientX - x;
+      const dy = t.clientY - y;
+
+      if (!dragging) {
+        if (Math.abs(dy) > 45) { armed = false; return; }
+        if (dx < 12) return;
+        dragging = true;
+      }
+      if (!el()) {
+        // Bez plochy k posunu zbývá práh — tak se zavírá zásuvka
+        if (dx > 70) { armed = false; onBack(); }
+        return;
+      }
+      slide(Math.max(0, dx), false);
+    };
+
+    const onEnd = () => {
+      if (!armed || !dragging) { armed = false; dragging = false; return; }
+      armed = false;
+      dragging = false;
+      const node = el();
+      if (!node) return;
+
+      const moved = new DOMMatrixReadOnly(getComputedStyle(node).transform).m41;
+      if (moved > Math.min(90, node.offsetWidth * 0.3)) {
+        slide(node.offsetWidth, true);
+        /*
+         * Zpátky se přepíná až po dojetí. Kdyby se přepnulo hned, obrazovka
+         * by zmizela uprostřed pohybu — přesně to bliknutí, kvůli kterému
+         * se tohle dělá.
+         */
+        setTimeout(() => { onBack(); slide(0, false); }, 240);
+      } else {
+        slide(0, true);
       }
     };
-    const off = () => { armed = false; };
 
     window.addEventListener('touchstart', onStart, { passive: true });
     window.addEventListener('touchmove', onMove, { passive: true });
-    window.addEventListener('touchend', off);
-    window.addEventListener('touchcancel', off);
+    window.addEventListener('touchend', onEnd);
+    window.addEventListener('touchcancel', onEnd);
     return () => {
       window.removeEventListener('touchstart', onStart);
       window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', off);
-      window.removeEventListener('touchcancel', off);
+      window.removeEventListener('touchend', onEnd);
+      window.removeEventListener('touchcancel', onEnd);
     };
-  }, [onBack, enabled]);
+  }, [onBack, enabled, pane]);
 }

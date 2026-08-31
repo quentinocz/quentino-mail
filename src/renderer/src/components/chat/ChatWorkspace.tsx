@@ -133,8 +133,10 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { loadConvs(); }, [loadConvs]);
 
-  /* Tah od levého okraje vrátí z vlákna na seznam — stejně jako v poště */
-  useEdgeBack(() => setActiveId(null), phone && activeId !== null);
+  /* Tah od levého okraje vrátí z vlákna na seznam — stejně jako v poště,
+     včetně toho, že vlákno jde s prstem a nezmizí bliknutím */
+  const threadPane = useRef<HTMLDivElement>(null);
+  useEdgeBack(() => setActiveId(null), phone && activeId !== null, threadPane);
 
   // Nové zprávy chodí bez upozornění, proto se seznam i vlákno občas přečtou znovu
   useEffect(() => {
@@ -354,7 +356,7 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
         </div>
       </div>
 
-      <div className="ch-main">
+      <div className="ch-main" ref={threadPane}>
         {!active ? (
           <div className="empty-state">
             <div className="big">💬</div>

@@ -274,6 +274,7 @@ for (const device of DEVICES) {
   await click('.composer-head button:last-child');
 
   await click('.m-tabs button:nth-child(3)');
+  await click('.sheet-action', { hasText: 'Sociální sítě' });
   await check('social'); await snap('07-social');
   // Účty a značka jsou nově pod „…" — pás pilulek se na telefon nevešel
   await click('.ig-topbar .m-round');
@@ -302,12 +303,10 @@ for (const device of DEVICES) {
 
   await click('.m-tabs button:nth-child(1)');
   // Složky se otevírají klepnutím na název složky v hlavičce
-  // Balení, přehled dne i katalog jsou v nabídce Funkce; v panelu složek
-  // pro ně samostatné řádky nejsou
-  await click('.m-head-picker');
-  await click('.sidebar .ig-switch button');
+  // Funkce mají místo ve spodní liště, kde býval Instagram
+  await click('.m-tabs button:nth-child(3)');
   await check('funkce (panel)'); await snap('13b-funkce');
-  await click('.sidebar .ws-menu-item', { hasText: 'Balení objednávek' });
+  await click('.sheet-action', { hasText: 'Balení objednávek' });
   await check('balení — seznam'); await snap('14-baleni-seznam');
   await click('.pk-row');
   await check('balení — objednávka'); await snap('15-baleni-detail');
@@ -317,9 +316,8 @@ for (const device of DEVICES) {
   await page.waitForTimeout(400);
   // Katalog: na telefonu je to hlavně naskladnění u regálu — pole pro čtečku
   // musí být palcem dosažitelné a mřížka produktů čitelná po dvou
-  await click('.m-head-picker');
-  await click('.sidebar .ig-switch button');
-  await click('.sidebar .ws-menu-item', { hasText: 'Katalog a naskladnění' });
+  await click('.m-tabs button:nth-child(3)');
+  await click('.sheet-action', { hasText: 'Katalog a naskladnění' });
   await check('katalog — produkty'); await snap('16-katalog');
   await click('.kat-open');
   await check('katalog — detail'); await snap('17-katalog-detail');
