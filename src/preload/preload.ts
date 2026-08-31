@@ -31,7 +31,7 @@ const ALLOWED_INVOKE = [
   'vouchers:codes', 'vouchers:deleteCode', 'vouchers:release', 'vouchers:use',
   'vouchers:clashes', 'vouchers:clearClash', 'vouchers:sync', 'ship:relearn', 'customer:context', 'customer:conversation', 'customer:messageText', 'orderlinks:refresh', 'orderlinks:pending', 'orderlinks:resolve',
   'packing:scan', 'packing:setItem', 'packing:setCount', 'packing:setDone', 'packing:reset',
-  'packing:scanItem', 'packing:findOrder',
+  'packing:scanItem', 'packing:openOrder',
   'messages:exportPdf', 'files:saveTempImage',
   'files:openAttachment', 'files:showInFolder', 'files:pickAttachments', 'files:pickImage', 'files:readAsDataUrl',
   'stats:categories',

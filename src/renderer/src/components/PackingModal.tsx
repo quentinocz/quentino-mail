@@ -55,6 +55,12 @@ function relTime(iso: string): string {
   return d === 1 ? 'včera' : `před ${d} dny`;
 }
 
+/** Datum bez času — u stavu objednávky stačí den */
+function dayOf(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('cs-CZ');
+}
+
 function totalPieces(items: OrderCardItem[]): number {
   return items.reduce((s, i) => s + (i.qty || 1), 0);
 }
@@ -143,6 +149,12 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<PackingProgress | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  /**
+   * Objednávka otevřená načtením faktury zůstane v seznamu, i když do
+   * zvoleného období ani mezi zobrazené stavy nepatří — jinak by zmizela
+   * hned, jak by se objevila.
+   */
+  const [pinned, setPinned] = useState<number | null>(null);
   const [zoom, setZoom] = useState<OrderCardItem | null>(null);
   const [copied, setCopied] = useState(false);
   const phone = useIsPhone();
@@ -207,12 +219,13 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
 
   const visible = useMemo(() => {
     return orders.filter(o => {
+      if (o.messageId === pinned) return true;
       if (hidePacked && o.done) return false;
       const status = o.card.tracking?.status ?? o.card.live?.status ?? null;
       // Objednávka bez zjištěného stavu se nikdy neschovává — je nejspíš čerstvá
       return !(status && hidden.has(status));
     });
-  }, [orders, hidePacked, hidden]);
+  }, [orders, hidePacked, hidden, pinned]);
 
   const toggleStatus = (s: string) => setHidden(prev => {
     const next = new Set(prev);
@@ -241,6 +254,12 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
 
   const current = visible.find(o => o.messageId === selected) ?? null;
 
+  // Nová objednávka začíná odshora — po skenování bývá seznam odrolovaný
+  useEffect(() => {
+    const box = document.querySelector('.pk-detail .pk-scroll');
+    if (box) box.scrollTop = 0;
+  }, [selected]);
+
   const patch = (id: number, fn: (o: PackingOrder) => PackingOrder) =>
     setOrders(prev => prev.map(o => (o.messageId === id ? fn(o) : o)));
 
@@ -254,8 +273,8 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
    * a odpovědi čtečky. Na telefonu se totéž pošle i do hledáčku, protože kdo
    * míří fotoaparátem na štítek, se na obrazovku pod ním nedívá.
    */
-  const say = useCallback((text: string, ok: boolean) => {
-    setNote({ text, ok });
+  const say = useCallback((text: string, ok: boolean, inPage = true) => {
+    if (inPage) setNote({ text, ok });
     if (!ok) navigator.vibrate?.(60);
     api.scan.feedback(text, ok).catch(() => { /* čtečka nemusí být otevřená */ });
   }, []);
@@ -356,6 +375,37 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
   useEffect(() => { api.scan.available().then(setHasCamera).catch(() => setHasCamera(false)); }, []);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
+  /**
+   * Přidá načtenou objednávku do seznamu a otevře ji.
+   *
+   * Stará objednávka do zvoleného období nespadá a její stav bývá schovaný,
+   * takže se připíchne. U konečného stavu (doručeno, storno) se rovnou ozve
+   * výstraha — kdo balí, musí se to dozvědět dřív, než sáhne po krabici.
+   */
+  const openFound = useCallback((found: PackingOrder) => {
+    // Hláška od předchozí objednávky by nad tou novou jen mátla
+    setNote(null);
+    setFlash(null);
+    setOrders(prev => {
+      const rest = prev.filter(o => o.messageId !== found.messageId);
+      return [found, ...rest];
+    });
+    setPinned(found.messageId);
+    setSelected(found.messageId);
+    selectedRef.current = found.messageId;
+
+    const number = found.card.orderNumber ?? '';
+    if (found.shop?.final) {
+      // Totéž hlásí červený pruh nad seznamem, tak ať to nestojí dvakrát pod sebou
+      say(`Objednávka ${number} — ${found.shop.status}${found.shop.at ? `, ${dayOf(found.shop.at)}` : ''}`,
+        false, false);
+    } else if (found.done) {
+      say(`Objednávka ${number} už je označená jako zabalená`, false);
+    } else {
+      say(`Objednávka ${number} otevřena`, true);
+    }
+  }, [say]);
+
   /*
    * Hledáček zůstane otevřený a kódy chodí po jednom. Načte se dvojí:
    * číslo z faktury, kterým se otevře objednávka, a kódy produktů, kterými se
@@ -389,19 +439,14 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
         if (hit && hit.reason === 'already') { say(hit.message, false); return; }
       }
 
-      const found = await api.packing.findOrder(text).catch(() => null);
-      if (found) {
-        setSelected(found.messageId);
-        selectedRef.current = found.messageId;
-        say(`Objednávka ${found.orderNumber ?? ''} otevřena`, true);
-        return;
-      }
+      const found = await api.packing.openOrder(text).catch(() => null);
+      if (found) { openFound(found); return; }
       say(id === null ? `Objednávka ${text} se nenašla` : `Kód ${text} v objednávce není`, false);
     });
 
     const offClosed = api.on('scan:closed', () => setPanelH(0));
     return () => { off(); offClosed(); };
-  }, [panelH, say]);
+  }, [panelH, say, openFound]);
 
   const toggleCamera = async () => {
     if (panelH) { await api.scan.stop().catch(() => {}); setPanelH(0); return; }
@@ -550,6 +595,26 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                     </div>
                   </div>
                 </div>
+
+                {/*
+                  Starší objednávka. Načtená faktura může být i půl roku stará
+                  a z potvrzovacího mailu to nepoznat — proto se stav bere
+                  z feedu e-shopu a u konečného (doručeno, storno) se řekne
+                  nahlas, že se tohle nejspíš balit nemá.
+                */}
+                {current.shop?.final && (
+                  <div className="pk-old">
+                    <Icon name="alert" size={15} />
+                    <div>
+                      <b>Starší objednávka — {current.shop.status}</b>
+                      <div className="pk-old-sub">
+                        {current.shop.at && `stav z ${dayOf(current.shop.at)} · `}
+                        objednávka {current.shop.code}
+                        {current.shop.invoice && ` · faktura ${current.shop.invoice}`}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/*
                   Upozornění na kusy navíc. Při balení je nejdražší chyba

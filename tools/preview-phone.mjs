@@ -331,6 +331,13 @@ for (const device of DEVICES) {
   await page.evaluate(() => window.__emit?.('scan:code', { text: 'QM-042' }));
   await page.waitForTimeout(400);
   await check('balení — čtečka'); await snap('15b-baleni-ctecka');
+  /*
+   * Načtení faktury staré objednávky: musí ji to přidat do seznamu, otevřít
+   * a nahoře říct, že je podle feedu doručená — jinak by se zabalila znovu.
+   */
+  await page.evaluate(() => window.__emit?.('scan:code', { text: '998700' }));
+  await page.waitForTimeout(500);
+  await check('balení — stará objednávka'); await snap('15c-baleni-stara');
   await page.locator('.pk-modal .modal-head .icon-btn').first().click();
   await page.waitForTimeout(300);
   // V hlavičce balení jsou dvě ikony (obnovit, zavřít) — zavírá ta poslední

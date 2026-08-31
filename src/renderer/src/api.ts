@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, PackingState, PackingHit, PackingFind, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, PackingState, PackingHit, PackingOrder, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -436,8 +436,11 @@ export const api = {
       call<PackingState>('packing:setCount', dbId, index, count),
     /** Načtený kód přiřadí k položce objednávky a přidá jeden kus */
     scanItem: (dbId: number, code: string) => call<PackingHit>('packing:scanItem', dbId, code),
-    /** Objednávka podle čísla z faktury (QR na faktuře nese číslo faktury) */
-    findOrder: (code: string) => call<PackingFind | null>('packing:findOrder', code),
+    /**
+     * Objednávka podle načteného čísla — i taková, která je dávno mimo seznam
+     * k balení. Faktura a objednávka mají různá čísla, překlad jde přes feed.
+     */
+    openOrder: (code: string) => call<PackingOrder | null>('packing:openOrder', code),
     setDone: (dbId: number, value: boolean) => call<void>('packing:setDone', dbId, value),
     reset: (dbId: number) => call<void>('packing:reset', dbId)
   },
