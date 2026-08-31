@@ -153,6 +153,18 @@ enum Packing {
         ]
     }
 
+    /**
+     Prázdný text jako `null` do JSONu.
+
+     Psát to podmínkou `text.isEmpty ? NSNull() : text` nejde: Swift u ternárního
+     operátoru nehledá pro obě větve společného předka, takže `NSNull` a `String`
+     v jedné podmínce neprojdou. U `??` to projde — proto ten rozdíl níž v souboru.
+     */
+    private static func orNull(_ text: String?) -> Any {
+        guard let text, !text.isEmpty else { return NSNull() }
+        return text
+    }
+
     /// Cena tak, jak ji skládá i verze pro počítač — číslo a měna, nic navíc.
     private static func money(_ value: Double, _ currency: String) -> String {
         let number = value == value.rounded() ? String(Int(value)) : String(value)
@@ -197,7 +209,7 @@ enum Packing {
             "code": row["code"] as? String ?? "",
             "invoice": row["invoice"] as? String ?? "",
             "status": status,
-            "at": at.isEmpty ? NSNull() : at,
+            "at": orNull(at),
             "final": OrderTrack.isFinalStatus(status)
         ]
     }
@@ -264,20 +276,22 @@ enum Packing {
             let hit = code.isEmpty ? nil : Catalog.find(code) as? [String: Any]
             let label = hit?["label"] as? String ?? ""
             let price = item["price"] as? Double ?? 0
-            return [
+            let variants: [String] = label.isEmpty ? [] : [label]
+            let out: [String: Any] = [
                 "qty": max(1, item["quantity"] as? Int ?? 1),
                 "unit": "ks",
                 "title": (hit?["title"] as? String) ?? (item["title"] as? String) ?? code,
-                "code": code.isEmpty ? NSNull() : code,
+                "code": orNull(code),
                 "url": NSNull(),
                 "price": price > 0 ? money(price, currency) : "",
                 "availability": hit?["availability"] ?? NSNull(),
-                "variants": label.isEmpty ? [] : [label],
+                "variants": variants,
                 "image": hit?["image"] ?? NSNull(),
                 "feedUrl": NSNull(),
                 "feedPrice": NSNull(),
                 "matched": hit != nil
             ]
+            return out
         }
 
         let status = row["status"] as? String ?? ""
@@ -285,17 +299,37 @@ enum Packing {
         let name = row["name"] as? String ?? ""
         let total = row["total"] as? Double ?? 0
 
+        // Adresu feed nenese, ale jméno ano — na kartě je pak aspoň komu to jde
         var shipping: Any = NSNull()
         if !name.isEmpty {
-            shipping = ["name": name, "company": NSNull(), "lines": [String](), "country": NSNull()]
+            let address: [String: Any] = [
+                "name": name, "company": NSNull(), "lines": [String](), "country": NSNull()
+            ]
+            shipping = address
         }
+
+        /*
+         Stav a číslo zásilky z feedu. Vnořený slovník stojí zvlášť schválně:
+         v jednom velkém literálu si Swift u smíšených hodnot nepomůže typem
+         zvenčí a překlad spadne na tom, že „NSNull" a text nejsou totéž.
+         */
+        let tracking: [String: Any] = [
+            "source": "api",
+            "status": orNull(status),
+            "createdAt": row["created_at"] ?? NSNull(),
+            "paidDate": row["paid_date"] ?? NSNull(),
+            "customerPhone": orNull(phone),
+            "carrierId": NSNull(), "carrierName": NSNull(),
+            "trackingCode": row["tracking"] ?? NSNull(),
+            "trackingUrl": NSNull(), "shipment": NSNull(), "shipmentError": NSNull()
+        ]
 
         return [
             "orderNumber": row["code"] as? String ?? "",
             "lang": (market == "sk" || market == "en") ? market : "cz",
             "placedAt": row["created_at"] ?? NSNull(),
             "customerEmail": row["email"] ?? NSNull(),
-            "customerPhone": phone.isEmpty ? NSNull() : phone,
+            "customerPhone": orNull(phone),
             "billing": NSNull(),
             "shipping": shipping,
             "items": cardItems,
@@ -303,21 +337,12 @@ enum Packing {
             "shipmentPrice": NSNull(),
             "paymentName": row["payment"] ?? NSNull(),
             "paymentPrice": NSNull(),
-            "total": total > 0 ? money(total, currency) : NSNull(),
+            "total": orNull(total > 0 ? money(total, currency) : ""),
             "historyUrl": NSNull(),
             "adminUrl": NSNull(),
             "adminSource": NSNull(),
             "live": NSNull(),
-            "tracking": [
-                "source": "api",
-                "status": status.isEmpty ? NSNull() : status,
-                "createdAt": row["created_at"] ?? NSNull(),
-                "paidDate": row["paid_date"] ?? NSNull(),
-                "customerPhone": phone.isEmpty ? NSNull() : phone,
-                "carrierId": NSNull(), "carrierName": NSNull(),
-                "trackingCode": row["tracking"] ?? NSNull(),
-                "trackingUrl": NSNull(), "shipment": NSNull(), "shipmentError": NSNull()
-            ]
+            "tracking": tracking
         ]
     }
 
