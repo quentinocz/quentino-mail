@@ -83,7 +83,7 @@ const ALLOWED_INVOKE = [
   'stockin:list', 'stockin:create', 'stockin:open', 'stockin:scan', 'stockin:qty',
   'stockin:rename', 'stockin:delete', 'stockin:plan', 'stockin:sendWindow',
   'stockin:sendApi', 'stockin:apiCheck', 'stockin:confirm',
-  'scan:available', 'scan:start', 'scan:stop', 'scan:feedback',
+  'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
   // Verze aplikace do hlavičky nastavení
   'app:version'
 ];

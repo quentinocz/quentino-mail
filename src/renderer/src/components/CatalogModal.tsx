@@ -342,8 +342,8 @@ function Stockin({ phone }: { phone: boolean }) {
   /** Běží čtení kódů fotoaparátem (jen v aplikaci na telefonu) */
   const [camera, setCamera] = useState(false);
   const [hasCamera, setHasCamera] = useState(false);
-  /** Poslední načtený řádek — ten se dá v hledáčku rovnou přepočítat */
-  const lastScan = useRef<{ code: string; title: string; label: string; qty: number } | null>(null);
+  /** Počet pro další načtení; hledáček ho mění mimo React, proto odkaz */
+  const qtyRef = useRef(1);
   const [plan, setPlan] = useState<StockinPlanRow[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -376,6 +376,13 @@ function Stockin({ phone }: { phone: boolean }) {
   const create = async () => {
     try {
       const s = await api.stockin.create();
+      /*
+       * Nové naskladnění se přidá do seznamu rovnou tady, ne až se seznam
+       * natáhne z databáze. Bez toho `openId` ukazovalo na řádek, o kterém
+       * rozhraní ještě nevědělo, a místo prázdného naskladnění se ukázal
+       * zase seznam — vypadalo to, že se tlačítko neudělalo nic.
+       */
+      setSessions(prev => [s, ...prev]);
       setOpenId(s.id);
       setTimeout(() => input.current?.focus(), 50);
     } catch (e: any) { toast(e.message, 'error'); }
@@ -435,70 +442,57 @@ function Stockin({ phone }: { phone: boolean }) {
    * větou, která se ukáže rovnou v hledáčku — kdo drží telefon nad krabicí,
    * se nedívá na obrazovku pod ním.
    *
-   * Poslední načtený řádek si pamatujeme proto, aby šel v hledáčku rovnou
-   * přepočítat: v krabici je šest kusů, ale pípne se jednou.
+   * Počítadlo „− 6 +" v hledáčku říká, **kolik kusů přidá další načtení**.
+   * V krabici je šest kusů, ale pípne se jednou; nastavit to předem je
+   * rychlejší než po každém pípnutí opravovat řádek v seznamu pod tím.
    */
   useEffect(() => {
     if (!camera || !openId) return;
-
-    const say = (line: { code: string; title: string; label: string; qty: number }) => {
-      lastScan.current = line;
-      api.scan.feedback(
-        `${line.title}${line.label ? ` · ${line.label}` : ''} — celkem ${line.qty} ks`, true, line.qty
-      );
-    };
 
     const off = api.on('scan:code', async (payload: any) => {
       const text = String(payload?.text ?? '').trim();
       if (!text) return;
       const found = await api.catalog.scan(text).catch(() => null);
       if (!found) {
-        lastScan.current = null;
-        api.scan.feedback(`Kód ${text} v katalogu není`, false, -1);
+        api.scan.feedback(`Kód ${text} v katalogu není`, false);
         return;
       }
-      const out = await api.stockin.scan(openId, text, qty).catch(() => null);
+      const out = await api.stockin.scan(openId, text, qtyRef.current).catch(() => null);
       if (!out?.added) {
-        lastScan.current = null;
-        api.scan.feedback('Nepodařilo se přidat', false, -1);
+        api.scan.feedback('Nepodařilo se přidat', false);
         return;
       }
-      say({
-        code: found.code,
-        title: found.title,
-        label: found.label,
-        qty: out.item?.qty ?? qty
-      });
+      api.scan.feedback(
+        `${found.title}${found.label ? ` · ${found.label}` : ''}`
+        + ` — +${qtyRef.current}, celkem ${out.item?.qty ?? qtyRef.current} ks`, true
+      );
       loadItems(openId);
     });
 
     /*
-     * „− 6 +" v hledáčku. Mění se počet **posledního načteného řádku**, ne
-     * nějaká výchozí hodnota: člověk pípne krabici a hned dopočítá, kolik
-     * jich v ní bylo. Nulou se řádek smaže, proto se dolů nejde pod jedničku
-     * — mazat naslepo držením tlačítka by bylo nemilé překvapení.
+     * Držení tlačítka posílá zprávy osmkrát za vteřinu. Počítá se proto
+     * z odkazu, ne ze stavu Reactu — dvě zprávy těsně za sebou by jinak
+     * vyšly ze stejného čísla a jeden krok by se ztratil.
      */
-    const offQty = api.on('scan:qty', async (payload: any) => {
-      const line = lastScan.current;
-      if (!line) return;
-      const next = Math.max(1, line.qty + (Number(payload?.delta) || 0));
-      if (next === line.qty) return;
-      // Zapsat do paměti hned, ne až po zápisu do databáze: při držení
-      // tlačítka chodí zprávy osmkrát za vteřinu a dvě po sobě by jinak
-      // vyšly ze stejného čísla a jeden krok by se ztratil
-      say({ ...line, qty: next });
-      await api.stockin.qty(openId, line.code, next).catch(() => {});
-      loadItems(openId);
+    const offQty = api.on('scan:qty', (payload: any) => {
+      const next = Math.max(1, qtyRef.current + (Number(payload?.delta) || 0));
+      if (next === qtyRef.current) return;
+      qtyRef.current = next;
+      setQty(next);
+      api.scan.count(next);
     });
 
-    const offClosed = api.on('scan:closed', () => { setCamera(false); lastScan.current = null; });
+    const offClosed = api.on('scan:closed', () => setCamera(false));
     return () => { off(); offQty(); offClosed(); };
-  }, [camera, openId, qty, loadItems]);
+  }, [camera, openId, loadItems]);
 
   const toggleCamera = async () => {
     if (camera) { await api.scan.stop().catch(() => {}); setCamera(false); return; }
     try {
       await api.scan.start();
+      // Počítadlo v hledáčku musí od začátku ukazovat, kolik se přidá
+      qtyRef.current = qty;
+      api.scan.count(qty);
       setCamera(true);
     } catch (e: any) { toast(e.message, 'error'); }
   };
@@ -528,18 +522,9 @@ function Stockin({ phone }: { phone: boolean }) {
   if (!openId || !session) {
     return (
       <div className="modal-body kat-body">
-        <div className="kat-lead">
-          <p>
-            Naskladnění je seznam kódů a počtů. Načteš je čtečkou nebo je najdeš podle
-            názvu — a na konci se jedním tlačítkem vloží do naskladňování v Upgates.
-            <b> Uložení tam potvrdíš sám</b>, ať je vidět, co se zapisuje.
-          </p>
-          <p className="ig-muted">
-            Rozpracované naskladnění se synchronizuje mezi zařízeními, takže se dá začít
-            u regálu na telefonu a dokončit na počítači.
-          </p>
-        </div>
-        <button className="btn primary" onClick={create}><Icon name="plus" size={13} /> Nové naskladnění</button>
+        <button className="btn primary" style={{ alignSelf: 'flex-start' }} onClick={create}>
+          <Icon name="plus" size={13} /> Nové naskladnění
+        </button>
 
         <div className="kat-sessions">
           {sessions.map(s => (
@@ -610,12 +595,17 @@ function Stockin({ phone }: { phone: boolean }) {
               počet ťuká na písmenkové, nebo se mačká plus dvacetkrát */}
           <input type="number" inputMode="numeric" min={1} value={qty}
             onFocus={e => e.target.select()}
-            onChange={e => setQty(Math.max(1, Number(e.target.value) || 1))} />
+            onChange={e => {
+              const next = Math.max(1, Number(e.target.value) || 1);
+              qtyRef.current = next;
+              setQty(next);
+              if (camera) api.scan.count(next);
+            }} />
         </label>
         {hasCamera && (
           <button className={`btn ${camera ? 'primary' : 'ghost'}`} onClick={toggleCamera}
             data-tip="Čte QR i čárové kódy fotoaparátem, jeden kus za druhým">
-            <Icon name="image" size={14} /> {camera ? 'Čtu…' : 'Foťák'}
+            <Icon name="search" size={14} /> {camera ? 'Skenuji…' : 'Skenovat'}
           </button>
         )}
         <button className="btn ghost" onClick={() => submitScan(scan)}>Přidat</button>
@@ -702,22 +692,28 @@ function Stockin({ phone }: { phone: boolean }) {
                 {item.stockBefore !== null ? ` · skladem bylo ${item.stockBefore}` : ''}
               </div>
             </div>
-            {/* Počet se dá přepsat, ne jen naklikat: u dvaceti kusů je
-                mačkání plus dvacetkrát trest, ne ovládání */}
+            {/*
+              * Počet se dá přepsat, ne jen naklikat: u dvaceti kusů je mačkání
+              * plus dvacetkrát trest, ne ovládání.
+              *
+              * Pole je záměrně neřízené (`defaultValue` a klíč podle počtu):
+              * každá změna naskladnění překreslí seznam a řízené pole by při
+              * psaní přepisovalo samo sebe zpátky na uloženou hodnotu.
+              */}
             <div className="kat-line-qty">
               <button onClick={() => api.stockin.qty(openId, item.code, item.qty - 1)}
                 aria-label="O kus méně">−</button>
               <input
+                key={`${item.code}:${item.qty}`}
                 type="number"
                 inputMode="numeric"
                 min={0}
-                value={item.qty}
+                defaultValue={item.qty}
                 onFocus={e => e.target.select()}
-                onChange={e => {
+                onBlur={e => {
                   const value = Math.max(0, Math.round(Number(e.target.value) || 0));
-                  setItems(prev => prev.map(one => one.code === item.code ? { ...one, qty: value } : one));
+                  if (value !== item.qty) api.stockin.qty(openId, item.code, value);
                 }}
-                onBlur={e => api.stockin.qty(openId, item.code, Math.max(0, Number(e.target.value) || 0))}
                 onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
               />
               <button onClick={() => api.stockin.qty(openId, item.code, item.qty + 1)}
@@ -765,11 +761,7 @@ function Stockin({ phone }: { phone: boolean }) {
             <Icon name="upload" size={13} /> {busy ? 'Vkládám…' : 'Vložit do Upgates'}
           </button>
         )}
-        {phone && (
-          <span className="ig-muted kat-phone-note">
-            Odeslání do Upgates dokonči na počítači — naskladnění se tam objeví samo.
-          </span>
-        )}
+
       </div>
     </>
   );

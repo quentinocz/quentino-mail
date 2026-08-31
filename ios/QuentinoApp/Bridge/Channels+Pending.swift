@@ -87,9 +87,11 @@ extension Bridge {
         register("scan:feedback") { args in
             let text = args.first as? String ?? ""
             let ok = args.count > 1 ? (args[1] as? Bool ?? true) : true
-            // Záporný počet znamená „není co počítat" a počítadlo se schová
-            let qty = args.count > 2 ? (args[2] as? Int ?? -1) : -1
-            await CodeScanner.feedback(text, ok: ok, qty: qty)
+            await CodeScanner.feedback(text, ok: ok)
+            return true
+        }
+        register("scan:count") { args in
+            await CodeScanner.count(args.first as? Int ?? 1)
             return true
         }
         /*

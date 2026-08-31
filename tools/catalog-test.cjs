@@ -209,27 +209,78 @@ check('nula řádek smaže', stockin.itemsOf(session.id).length, 0);
 
 console.log('\nslučování z telefonu:\n');
 stockin.addScan(session.id, 'REGJ01', 2);
+const older = '2020-01-01T00:00:00.000Z';
 const remote = {
   sessions: [{
     id: session.id, title: 'Zkouška', note: '', device: 'iPhone', state: 'open',
-    created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', sent_at: ''
+    created_at: older, updated_at: older, sent_at: ''
   }],
   items: [
-    { session_id: session.id, code: 'REGJ01', title: 'Kravata Regent', qty: 2, added_at: '' },
+    { session_id: session.id, code: 'REGJ01', title: 'Kravata Regent', qty: 9, added_at: '' },
     { session_id: session.id, code: 'PS120SM-110', title: 'Kšandy Slim', label: 'Délka: 110cm', qty: 5, added_at: '' }
   ]
 };
+
+/*
+ * Starší verze se nevnucuje.
+ *
+ * Tohle je ta chyba, kvůli které se opravený počet vracel na původní:
+ * slučovalo se po řádcích a bralo se vyšší číslo, takže soubor z minulého
+ * kola vždycky přebil čerstvou opravu — i na jediném zařízení, které si tak
+ * přepisovalo vlastní práci.
+ */
 stockin.mergeStockin(remote);
+check('starší verze počet nepřebije', stockin.itemsOf(session.id).find(one => one.code === 'REGJ01').qty, 2);
+check('a nepřidá ani své řádky', stockin.itemsOf(session.id).length, 1);
+
+// Novější strana přebírá seznam celý — jinak by nešlo řádek smazat
+const newer = { ...remote, sessions: [{ ...remote.sessions[0], updated_at: new Date(Date.now() + 60_000).toISOString() }] };
+stockin.mergeStockin(newer);
 const merged = stockin.itemsOf(session.id);
-const regj = merged.find(one => one.code === 'REGJ01');
-// Kdyby se sčítalo, bylo by tu 4 — a při každé další synchronizaci o dvě víc
-check('stejný řádek z obou stran se nesčítá', regj.qty, 2);
-check('řádek jen z telefonu se přidá', merged.find(one => one.code === 'PS120SM-110').qty, 5);
-check('dvakrát sloučit nic nezmění', (stockin.mergeStockin(remote), stockin.itemsOf(session.id).length), 2);
+check('novější verze počet přepíše', merged.find(one => one.code === 'REGJ01').qty, 9);
+check('a přinese svoje řádky', merged.length, 2);
+
+// Když novější strana řádek nemá, znamená to, že ho někdo smazal
+const withoutLine = {
+  sessions: [{ ...remote.sessions[0], updated_at: new Date(Date.now() + 120_000).toISOString() }],
+  items: [{ session_id: session.id, code: 'REGJ01', title: 'Kravata Regent', qty: 9, added_at: '' }]
+};
+stockin.mergeStockin(withoutLine);
+check('smazaný řádek se nevrátí', stockin.itemsOf(session.id).length, 1);
 
 stockin.markSent(session.id);
-stockin.mergeStockin(remote);
+stockin.mergeStockin(withoutLine);
 check('odeslané naskladnění se nevrátí mezi rozpracované', stockin.sessionOf(session.id).state, 'sent');
+
+/*
+ * Smazané se nesmí vrátit.
+ *
+ * Přesně tohle se dělo v provozu: naskladnění smazané na telefonu se do
+ * minuty objevilo zpátky, protože druhé zařízení ho poslalo ve sdíleném
+ * souboru znovu. Řádek se proto nemaže, jen se označí za smazaný — a takový
+ * putuje dál, aby se o tom dozvěděla i druhá strana.
+ */
+console.log('\nsmazání:\n');
+const doomed = stockin.createSession('Ke smazání');
+stockin.addScan(doomed.id, 'REGJ01', 1);
+stockin.deleteSession(doomed.id);
+check('smazané zmizí ze seznamu', stockin.listSessions().some(one => one.id === doomed.id), false);
+check('a nedá se otevřít', stockin.sessionOf(doomed.id), null);
+
+const zombie = {
+  sessions: [{
+    id: doomed.id, title: 'Ke smazání', note: '', device: 'MacBook', state: 'open',
+    created_at: older, updated_at: new Date(Date.now() + 600_000).toISOString(), sent_at: ''
+  }],
+  items: [{ session_id: doomed.id, code: 'REGJ01', title: 'Kravata Regent', qty: 1, added_at: '' }]
+};
+stockin.mergeStockin(zombie);
+check('a synchronizace ho nevzkřísí ani novějším časem',
+  stockin.listSessions().some(one => one.id === doomed.id), false);
+check('ani jeho řádky', stockin.itemsOf(doomed.id).length, 0);
+// Druhá strana se o smazání musí dozvědět, jinak ho pošle znovu za minutu
+check('náhrobek jde do sdílené složky',
+  stockin.stockinExport().sessions.some(one => one.id === doomed.id && one.state === 'deleted'), true);
 
 /* ---------- štítky ---------- */
 
