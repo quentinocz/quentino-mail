@@ -76,6 +76,10 @@ targets:
         UIBackgroundModes:
           - fetch
           - processing
+        # Probouzení na pozadí kvůli nové poště. Bez tohohle klíče systém
+        # úlohu odmítne zaregistrovat; název se musí shodovat s Background.refreshId.
+        BGTaskSchedulerPermittedIdentifiers:
+          - cz.quentino.app.refresh
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: cz.quentino.app

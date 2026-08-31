@@ -93,6 +93,14 @@ enum Settings {
             "autoTranslate": Store.bool("autoTranslate", true),
             "loadRemoteImages": Store.bool("loadRemoteImages", false),
             "notifyNewMail": Store.bool("notifyNewMail", true),
+            // Upozornění na telefon přes ntfy — push do vlastní aplikace by
+            // znamenal placený účet u Applu
+            "notifyPhone": Store.bool("notifyPhone", false),
+            "notifyServer": Store.setting("notifyServer", "") ?? "",
+            "notifyTopic": Store.setting("notifyTopic", "") ?? "",
+            "notifyPhoneMail": Store.bool("notifyPhoneMail", true),
+            "notifyPhoneChat": Store.bool("notifyPhoneChat", true),
+            "notifyPhoneLocal": Store.bool("notifyPhoneLocal", true),
             "categoryRules": Store.json("categoryRules", []),
             "autoSummarizeCategories": Store.json("autoSummarizeCategories", []),
             "contactInfo": Store.setting("contactInfo", "") ?? "",
@@ -113,10 +121,13 @@ enum Settings {
             Secrets.set("anthropicApiKey", key)
         }
         for key in ["brandPrompt", "draftModel", "fastModel", "contactInfo",
-                    "productFeedUrl", "stockFeedUrl", "adminOrderRef", "voucherLogo", "theme"] {
+                    "productFeedUrl", "stockFeedUrl", "adminOrderRef", "voucherLogo", "theme",
+                    "notifyServer", "notifyTopic"] {
             if let value = patch[key] as? String { Store.setSetting(key, value) }
         }
-        for key in ["autoSummarize", "autoCategorize", "autoTranslate", "loadRemoteImages", "notifyNewMail"] {
+        for key in ["autoSummarize", "autoCategorize", "autoTranslate", "loadRemoteImages",
+                    "notifyNewMail", "notifyPhone", "notifyPhoneMail", "notifyPhoneChat",
+                    "notifyPhoneLocal"] {
             if let value = patch[key] as? Bool { Store.setSetting(key, value ? "1" : "0") }
         }
         for key in ["categoryRules", "autoSummarizeCategories"] {

@@ -4,7 +4,10 @@
   const settings = {
     hasApiKey: true, secretsLocked: false, brandPrompt: '', draftModel: 'claude-sonnet-5',
     fastModel: 'claude-haiku-4-5', autoSummarize: true, autoCategorize: true, autoTranslate: true,
-    loadRemoteImages: false, notifyNewMail: true, categoryRules: [], autoSummarizeCategories: [],
+    loadRemoteImages: false, notifyNewMail: true,
+    notifyPhone: true, notifyServer: '', notifyTopic: 'quentino-nahled123456789abcdef',
+    notifyPhoneMail: true, notifyPhoneChat: true, notifyPhoneLocal: true,
+    categoryRules: [], autoSummarizeCategories: [],
     contactInfo: '', productFeedUrl: '', adminOrderRef: '', voucherLogo: '', defaultPersonId: 0, theme: 'light'
   };
   const accounts = [{
@@ -205,6 +208,14 @@
       count: 1, qty: 2, needMore: 1, message: 'Manžetové knoflíčky Onyx — 1/2 ks, ještě 1' },
     // Načtená faktura otevře i půl roku starou doručenou objednávku
     'packing:openOrder': null,
+    // Upozornění na telefon přes ntfy — v náhledu se nikam neposílá
+    'notify:topic': 'quentino-nahled123456789abcdef',
+    'notify:test': { ok: true },
+    'notify:chatSql': [
+      '-- Upozornění na nové zprávy v chatu, rovnou ze Supabase.',
+      'create extension if not exists pg_net with schema extensions;',
+      'create or replace function public.notify_new_chat_message() ...'
+    ].join('\n'),
     'packing:setDone': true,
     'packing:reset': true,
     'ptrans:overview': {

@@ -512,6 +512,19 @@ export const api = {
     count: (n: number) => call<boolean>('scan:count', n)
   },
 
+  /**
+   * Upozornění na telefon přes ntfy. Push přímo do vlastní aplikace by
+   * znamenal placený účet u Applu, tohle je zdarma a bez registrace.
+   */
+  notify: {
+    /** Nový náhodný název tématu — je zároveň heslo, tak ať se nedá uhodnout */
+    topic: () => call<string>('notify:topic'),
+    test: (server: string, topic: string) =>
+      call<{ ok: boolean; error?: string }>('notify:test', server, topic),
+    /** SQL k vložení do Supabase, aby chat upozorňoval sám od sebe */
+    chatSql: (server: string, topic: string) => call<string>('notify:chatSql', server, topic)
+  },
+
   quota: {
     get: (accountId: number) => call<{ used: number; limit: number } | null>('quota:get', accountId),
     /**

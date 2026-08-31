@@ -29,6 +29,7 @@ import { clearTrackingCache } from './ordertrack';
 import {
   scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder
 } from './packing';
+import { chatWebhookSql, makeTopic, notifyTest } from './notify';
 import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderlink';
 import * as ptrans from './ptrans';
 import * as orderfeed from './orderfeed';
@@ -276,6 +277,14 @@ export function registerIpc() {
   handle('packing:setCount', (dbId: number, index: number, count: number) => setItemCount(dbId, index, count ?? 0));
   handle('packing:scanItem', (dbId: number, code: string) => scanItem(dbId, code ?? ''));
   handle('packing:openOrder', (code: string) => openOrder(code ?? ''));
+
+  /*
+   * Upozornění na telefon. Push přímo do vlastní aplikace by znamenal placený
+   * účet u Applu, takže doručuje ntfy — POST na adresu s tajným názvem tématu.
+   */
+  handle('notify:topic', () => makeTopic());
+  handle('notify:test', (server: string, topic: string) => notifyTest(server ?? '', topic ?? ''));
+  handle('notify:chatSql', (server: string, topic: string) => chatWebhookSql(server ?? '', topic ?? ''));
   handle('packing:setDone', (dbId: number, value: boolean) => setOrderDone(dbId, !!value));
   handle('packing:reset', (dbId: number) => resetPacking(dbId));
 

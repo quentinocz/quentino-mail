@@ -230,9 +230,38 @@ export interface Settings {
   defaultPersonId: number | null;
   /** Systémové upozornění při nové zprávě */
   notifyNewMail: boolean;
+  /**
+   * Upozornění na telefon přes ntfy.
+   *
+   * Push přímo do vlastní aplikace by znamenal placený účet u Applu, takže
+   * notifikace doručuje aplikace ntfy — stačí POST na adresu s tajným názvem
+   * tématu. Název tématu je zároveň heslo: kdo ho zná, čte i posílá.
+   */
+  notifyPhone: boolean;
+  /** Adresa serveru ntfy; prázdné = veřejný ntfy.sh */
+  notifyServer: string;
+  /**
+   * Název tématu. Chová se jako heslo — kdo ho zná, notifikace čte i posílá.
+   * Ukládá se ale načisto, protože se musí dostat i do telefonu přes sdílenou
+   * složku; šifrování klíčem konkrétního počítače by to znemožnilo.
+   */
+  notifyTopic: string;
+  notifyPhoneMail: boolean;
+  notifyPhoneChat: boolean;
+  /**
+   * Upozornit i z telefonu, když si poštu najde sám na pozadí.
+   *
+   * Když zároveň běží počítač, může upozornění přijít dvakrát — jedno přes
+   * ntfy z počítače, druhé rovnou z aplikace. Telefon nemá jak zjistit, že to
+   * počítač už ohlásil, takže je to na přepínači, ne na hádání.
+   */
+  notifyPhoneLocal: boolean;
   /** Vzhled aplikace */
   theme: 'light' | 'dark';
 }
+
+/** Na co se upozorňuje — pošta, nebo chat */
+export type NotifyKind = 'mail' | 'chat';
 
 /** Zadání dárkového poukazu */
 export interface VoucherSpec {
