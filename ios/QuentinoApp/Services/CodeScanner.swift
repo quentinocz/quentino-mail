@@ -222,25 +222,42 @@ private final class ScannerController: UIViewController {
         qtyLabel.text = "1"
         qtyLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 56).isActive = true
 
-        qtyBar.addArrangedSubview(stepButton("−", delta: -1))
+        /*
+         Po jednom i po deseti.
+
+         Krabice mívá šest kusů, ale taky padesát. Po jednom by se k padesáti
+         ťukalo dlouho a držení tlačítka se u velkých čísel špatně trefuje do
+         přesné hodnoty — dvě tlačítka navíc jsou rychlejší i spolehlivější
+         než jedno, které se musí držet a včas pustit.
+         */
+        qtyBar.addArrangedSubview(stepButton("−10", delta: -10, width: 54, size: 17, repeats: false))
+        qtyBar.addArrangedSubview(stepButton("−", delta: -1, width: 52, size: 26, repeats: true))
         qtyBar.addArrangedSubview(qtyLabel)
-        qtyBar.addArrangedSubview(stepButton("+", delta: 1))
+        qtyBar.addArrangedSubview(stepButton("+", delta: 1, width: 52, size: 26, repeats: true))
+        qtyBar.addArrangedSubview(stepButton("+10", delta: 10, width: 54, size: 17, repeats: false))
         view.addSubview(qtyBar)
     }
 
-    private func stepButton(_ title: String, delta: Int) -> UIButton {
+    private func stepButton(_ title: String, delta: Int, width: CGFloat,
+                            size: CGFloat, repeats: Bool) -> UIButton {
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
         button.setTitleColor(.white, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 26, weight: .medium)
+        button.titleLabel?.font = .systemFont(ofSize: size, weight: .medium)
         button.tag = delta
         button.addTarget(self, action: #selector(step(_:)), for: .touchUpInside)
-        button.widthAnchor.constraint(equalToConstant: 58).isActive = true
+        button.widthAnchor.constraint(equalToConstant: width).isActive = true
 
-        // Držení počítá dál — u dvaceti kusů je dvacet ťuknutí trest
-        let hold = UILongPressGestureRecognizer(target: self, action: #selector(holdStep(_:)))
-        hold.minimumPressDuration = 0.4
-        button.addGestureRecognizer(hold)
+        /*
+         Držení počítá dál — u dvaceti kusů je dvacet ťuknutí trest. Po deseti
+         se ale nedrží: osmkrát za vteřinu po desítce je osmdesát kusů za
+         vteřinu a číslo by se přestřelilo dřív, než se stihne pustit.
+         */
+        if repeats {
+            let hold = UILongPressGestureRecognizer(target: self, action: #selector(holdStep(_:)))
+            hold.minimumPressDuration = 0.4
+            button.addGestureRecognizer(hold)
+        }
         return button
     }
 
