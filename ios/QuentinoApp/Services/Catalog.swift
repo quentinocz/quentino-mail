@@ -212,11 +212,18 @@ enum Catalog {
     static func suggest(_ query: String, limit: Int = 8) -> [[String: Any]] {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 2 else { return [] }
-        let words = fold(text).split(separator: " ").prefix(5).map(String.init)
+        /*
+         Hledá se přesně tak jako v katalogu — přes připravený sloupec bez
+         diakritiky a bez oddělovačů, ve kterém jsou i kódy variant. Dvě různá
+         hledání pro totéž zboží by znamenala, že našeptávač najde něco jiného
+         než záložka Produkty, a to se pozná v nejhorší chvíli: u regálu.
+         */
+        Products.ensureSearchIndex()
+        let words = Products.queryWords(text)
         guard !words.isEmpty else { return [] }
 
         let rows = (try? SQLite.shared.query(
-            "SELECT code, title_cz, title_en, image, stock, price_cz FROM products"
+            "SELECT code, title_cz, title_en, image, stock, price_cz, search FROM products"
         )) ?? []
 
         var out: [[String: Any]] = []
@@ -224,8 +231,8 @@ enum Catalog {
             let code = row["code"] as? String ?? ""
             let titleCz = row["title_cz"] as? String ?? ""
             let titleEn = row["title_en"] as? String ?? ""
-            let hay = fold("\(code) \(titleCz) \(titleEn)")
-            guard words.allSatisfy({ hay.contains($0) }) else { continue }
+            let hay = row["search"] as? String ?? ""
+            guard words.allSatisfy({ hay.contains($0) || hay.contains(Products.squash($0)) }) else { continue }
             out.append([
                 "code": code,
                 "title": titleCz.isEmpty ? (titleEn.isEmpty ? code : titleEn) : titleCz,
@@ -237,11 +244,6 @@ enum Catalog {
             if out.count >= limit { break }
         }
         return out
-    }
-
-    /// Malá písmena bez diakritiky — jediná podoba, ve které se dá porovnávat.
-    private static func fold(_ text: String) -> String {
-        text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "cs_CZ"))
     }
 
     // MARK: - Čtečka

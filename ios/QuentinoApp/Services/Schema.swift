@@ -448,6 +448,10 @@ enum Schema {
         "ALTER TABLE products ADD COLUMN ean TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE products ADD COLUMN product_id TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE products ADD COLUMN stock_at TEXT NOT NULL DEFAULT ''",
+        // Podoba produktu, ve které se dá hledat: bez diakritiky, malými
+        // písmeny a zvlášť i bez oddělovačů, včetně kódů variant. Prázdno
+        // znamená „ještě se nespočítalo" a doplní se při prvním hledání.
+        "ALTER TABLE products ADD COLUMN search TEXT NOT NULL DEFAULT ''",
         // Balení po kusech, ne po položkách — u „3 ks" jinak nejde poznat,
         // kolik jich už je v krabici
         "ALTER TABLE packing ADD COLUMN counts_json TEXT NOT NULL DEFAULT '{}'",

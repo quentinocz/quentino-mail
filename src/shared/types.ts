@@ -591,24 +591,14 @@ export interface PackingOrder {
   source?: 'mail' | 'feed';
 }
 
-/** Výsledek hledání objednávky podle načteného čísla */
+/** Výsledek hledání objednávky podle čísla z faktury */
 export type PackingLookup =
-  | {
-      ok: true;
-      order: PackingOrder;
-      /**
-       * Druhé čtení téhož čísla. Číslo faktury jedné objednávky může být
-       * číslem jiné objednávky — otevře se ta z faktury, ale o druhé se musí
-       * vědět, jinak by se tiše balila špatná.
-       */
-      also?: { orderNumber: string; note: string };
-    }
+  | { ok: true; order: PackingOrder }
   | {
       ok: false;
       /** Kde to skončilo: číslo ve feedu není, nebo k němu nejsou položky */
       reason: 'noNumber' | 'notInFeed' | 'noItems';
       message: string;
-      also?: undefined;
     };
 
 /** Stav odškrtání jedné objednávky */
@@ -727,6 +717,22 @@ export interface ProductHit {
   availability?: string;
   /** Počet kusů skladem; null = feed hodnotu neposlal */
   stock?: number | null;
+  /**
+   * Varianty i se zásobou, rovnou u karty v seznamu.
+   *
+   * Souhrn na produktu sečítá všechny délky dohromady, takže „14 ks" nic
+   * neříká o tom, jestli je na regálu ta jedna délka, která zrovna došla —
+   * a kvůli tomu se dřív musela otevírat karta u každého produktu zvlášť.
+   */
+  variants?: ProductHitVariant[];
+}
+
+/** Varianta ve výpisu katalogu — jen to, co se vejde na kartu */
+export interface ProductHitVariant {
+  code: string;
+  /** „Délka: 120cm" */
+  label: string;
+  stock: number | null;
 }
 
 /** Dotaz do katalogu pro prohlížeč produktů (stránkovaně) */

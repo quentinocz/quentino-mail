@@ -272,6 +272,19 @@ await overflow('uvolnění místa'); await snap('26-uvolnit-misto');
 await click('.modal-foot .btn.ghost', { hasText: 'Zavřít' });
 await page.waitForTimeout(300);
 
+/*
+ * Balení: hledání podle čísla. Ze čtečky je to vždycky faktura — přepínač je
+ * vedle pole proto, aby se obě čísla nespletla; číslo faktury jedné
+ * objednávky bývá číslem jiné objednávky.
+ */
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Balení objednávek' });
+await overflow('balení — hledání podle čísla'); await snap('26b-baleni');
+await click('.pk-as button', { hasText: 'objednávka' });
+await overflow('balení — hledání podle objednávky'); await snap('26c-baleni-objednavka');
+await click('.modal-head .icon-btn:last-child');
+await page.waitForTimeout(300);
+
 // Katalog: mřížka s obrázky a zásobou, detail s variantami, naskladnění a štítky.
 // Tři záložky nad jedním seznamem — kontroluje se hlavně to, že se arch
 // štítků vejde vedle ovládání a mřížka nezůstane s dírou v řadě.

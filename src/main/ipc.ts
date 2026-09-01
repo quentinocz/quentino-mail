@@ -277,7 +277,8 @@ export function registerIpc() {
   handle('packing:setItem', (dbId: number, index: number, value: boolean) => setItemPacked(dbId, index, !!value));
   handle('packing:setCount', (dbId: number, index: number, count: number) => setItemCount(dbId, index, count ?? 0));
   handle('packing:scanItem', (dbId: number, code: string) => scanItem(dbId, code ?? ''));
-  handle('packing:openOrder', (code: string) => openOrder(code ?? ''));
+  handle('packing:openOrder', (code: string, as?: 'invoice' | 'code') =>
+    openOrder(code ?? '', as === 'code' ? 'code' : 'invoice'));
   handle('packing:mailFor', (orderNumber: string) => mailForOrder(orderNumber ?? ''));
 
   /*

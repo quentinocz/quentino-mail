@@ -176,6 +176,8 @@ enum Products {
         // — jinak by se u už staženého katalogu nové tabulky nikdy nenaplnily.
         // Naposledy kvůli variantám, EANům a vnitřním číslům produktů.
         Store.setSetting("productFeedSchema", "3")
+        // Katalog i varianty jsou nové — hledání se dopočítá při prvním dotazu
+        try? SQLite.shared.run("UPDATE products SET search = ''")
         return rows.count
     }
 
@@ -239,6 +241,83 @@ enum Products {
         ]
     }
 
+    // MARK: - Hledání
+
+    /**
+     Podoba textu, ve které se dá porovnávat: malá písmena bez diakritiky.
+
+     `LIKE` v SQL jde znak po znaku, takže „ksandy" jinak nenajde „Kšandy" —
+     a u regálu nikdo nepřepíná klávesnici kvůli jednomu slovu.
+     */
+    static func fold(_ text: String) -> String {
+        text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "cs_CZ"))
+    }
+
+    /**
+     Totéž bez oddělovačů — „PS120SM-120" a „ps120sm 120" je jeden a týž kód.
+
+     Kód varianty se opisuje ze štítku, z faktury nebo po paměti a pomlčka se
+     v něm netrefí pokaždé na stejné místo.
+     */
+    static func squash(_ text: String) -> String {
+        String(fold(text).unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0) && $0.isASCII
+        })
+    }
+
+    /// Slova dotazu; kratší než dva znaky sedí skoro všude a jen matou.
+    static func queryWords(_ text: String) -> [String] {
+        fold(text).split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+            .map(String.init).filter { $0.count >= 2 }.prefix(6).map { $0 }
+    }
+
+    /**
+     Doplní sloupec pro hledání tam, kde chybí.
+
+     Je v něm název, kód, kategorie i **kódy variant** — na štítku a ve faktuře
+     je kód délky („PS120SM-120"), kdežto v katalogu se produkt vede pod
+     seskupujícím kódem („PS120SM"), takže bez variant by se kód ze štítku
+     nenašel. Ukládá se dvojmo, s oddělovači i bez nich.
+
+     Volá se před každým hledáním, ale skoro vždycky nic nedělá: naplní se až
+     po stažení katalogu nebo po povýšení aplikace.
+     */
+    static func ensureSearchIndex() {
+        let missing = ((try? SQLite.shared.query(
+            "SELECT COUNT(*) AS cnt FROM products WHERE search = ''"
+        ))?.first?["cnt"] as? Int) ?? 0
+        guard missing > 0 else { return }
+
+        var byProduct: [String: [String]] = [:]
+        for row in (try? SQLite.shared.query("SELECT code, product_code FROM product_variants")) ?? [] {
+            let parent = row["product_code"] as? String ?? ""
+            byProduct[parent, default: []].append(row["code"] as? String ?? "")
+        }
+
+        let rows = (try? SQLite.shared.query(
+            "SELECT code, ean, title_cz, title_sk, title_en, category, categories, manufacturer FROM products"
+        )) ?? []
+        try? SQLite.shared.transaction {
+            for row in rows {
+                let code = row["code"] as? String ?? ""
+                let parts = ([
+                    code,
+                    row["ean"] as? String ?? "",
+                    row["title_cz"] as? String ?? "",
+                    row["title_sk"] as? String ?? "",
+                    row["title_en"] as? String ?? "",
+                    row["category"] as? String ?? "",
+                    row["categories"] as? String ?? "",
+                    row["manufacturer"] as? String ?? ""
+                ] + (byProduct[code] ?? [])).filter { !$0.isEmpty }.joined(separator: " ")
+                try SQLite.shared.run(
+                    "UPDATE products SET search = ? WHERE code = ?",
+                    [.text("\(fold(parts)) \(squash(parts))"), .text(code)]
+                )
+            }
+        }
+    }
+
     static func list(_ query: [String: Any]) -> [String: Any] {
         let limit = min(max(query["limit"] as? Int ?? 40, 1), 200)
         let offset = max(query["offset"] as? Int ?? 0, 0)
@@ -250,13 +329,21 @@ enum Products {
 
         let text = (query["query"] as? String ?? "").trimmingCharacters(in: .whitespaces)
         if !text.isEmpty {
-            // Každé slovo musí sedět — hledání „modrá kravata" tak funguje podle očekávání
-            for word in text.split(separator: " ").prefix(6) {
-                conditions.append(
-                    "(title_cz LIKE ? OR title_sk LIKE ? OR title_en LIKE ? OR code LIKE ? OR category LIKE ? "
-                    + "OR categories LIKE ? OR url_cz LIKE ? OR url_sk LIKE ? OR url_en LIKE ?)"
-                )
-                params.append(contentsOf: Array(repeating: SQLite.Value.text("%\(word)%"), count: 9))
+            ensureSearchIndex()
+            /*
+             Hledá se v připravené podobě produktu — bez diakritiky, malými
+             písmeny a zvlášť i bez oddělovačů, takže „ksandy", „Kšandy"
+             i „ps120sm120" najdou totéž. Jsou v ní i kódy variant, protože
+             kód ze štítku je kód délky, kdežto v katalogu se produkt vede
+             pod seskupujícím kódem.
+
+             Každé slovo musí sedět (AND), aby „modrá kravata" fungovalo
+             podle očekávání.
+             */
+            for word in queryWords(text) {
+                conditions.append("(search LIKE ? OR search LIKE ?)")
+                params.append(.text("%\(word)%"))
+                params.append(.text("%\(squash(word))%"))
             }
         }
         if let category = query["category"] as? String, !category.isEmpty {
@@ -285,7 +372,48 @@ enum Products {
             params + [.int(Int64(limit)), .int(Int64(offset))]
         )) ?? []
 
-        return ["items": rows.map(shape), "total": total, "offset": offset, "limit": limit]
+        return [
+            "items": withVariants(rows.map(shape)),
+            "total": total, "offset": offset, "limit": limit
+        ]
+    }
+
+    /**
+     Doplní ke kartám varianty i se zásobou.
+
+     Jedním dotazem na celou stránku, ne po produktu: šedesát karet by jinak
+     znamenalo šedesát dotazů a listování katalogem by se zadrhávalo.
+
+     Souhrn na produktu sečítá všechny délky dohromady, takže „14 ks" neřekne
+     nic o tom, která z nich zrovna došla.
+     */
+    static func withVariants(_ items: [[String: Any]]) -> [[String: Any]] {
+        guard !items.isEmpty else { return items }
+        let codes = items.map { $0["code"] as? String ?? "" }
+        let holes = codes.map { _ in "?" }.joined(separator: ",")
+        let rows = (try? SQLite.shared.query(
+            "SELECT code, product_code, label, stock FROM product_variants "
+            + "WHERE product_code IN (\(holes)) ORDER BY sort, code",
+            codes.map { SQLite.Value.text($0) }
+        )) ?? []
+        guard !rows.isEmpty else { return items }
+
+        var byProduct: [String: [[String: Any]]] = [:]
+        for row in rows {
+            let parent = row["product_code"] as? String ?? ""
+            let one: [String: Any] = [
+                "code": row["code"] ?? "",
+                "label": row["label"] ?? "",
+                "stock": row["stock"] ?? NSNull()
+            ]
+            byProduct[parent, default: []].append(one)
+        }
+        return items.map { item in
+            guard let variants = byProduct[item["code"] as? String ?? ""] else { return item }
+            var out = item
+            out["variants"] = variants
+            return out
+        }
     }
 
     static func search(_ query: String, limit: Int = 20) -> [[String: Any]] {

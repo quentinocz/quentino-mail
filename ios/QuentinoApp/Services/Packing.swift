@@ -444,54 +444,68 @@ enum Packing {
     }
 
     /**
-     Otevře objednávku podle načteného čísla — i takovou, která je dávno mimo
+     Otevře objednávku podle čísla z faktury — i takovou, která je dávno mimo
      seznam k balení.
 
-     Pořadí je dané tím, co je na papíře: na faktuře je číslo faktury, takže se
-     nejdřív přeloží přes feed na číslo objednávky. Teprve když načtené číslo
-     žádná faktura nemá, bere se jako číslo objednávky — jinak by se u čísla,
-     které je zároveň fakturou jedné a objednávkou druhé, otevřela ta nesprávná.
-     Když nastane obojí, druhá možnost se vrátí v „also" a rozhraní ji nabídne.
+     **Načtené číslo je vždycky číslo faktury.** QR na dokladu nic jiného nenese
+     a číslo objednávky se z něj nikdy neskenuje. Objednávka se proto pokaždé
+     dohledá přes feed: faktura → řádek ve feedu → číslo objednávky.
+
+     Obě čísla se schválně nemíchají. Číslo faktury jedné objednávky totiž může
+     být zároveň číslem jiné objednávky, a kdyby se hledalo „nejdřív jako
+     faktura, a když to nevyjde, tak jako objednávka", otevřela by se u takového
+     čísla cizí objednávka — a poznalo by se to až podle zboží v krabici.
+
+     Ruční pole je na to výjimka, ale výslovná: kdo si číslo objednávky opíše
+     z e-shopu, zadá ho jako číslo objednávky („code").
 
      Podklady se berou z mailu, když existuje (má navíc adresu), jinak z feedu —
      ten má u položek rovnou kód varianty, takže se proti němu dá odškrtávat taky.
      */
-    static func openOrder(_ raw: String) async -> [String: Any] {
+    static func openOrder(_ raw: String, as kind: String = "invoice") async -> [String: Any] {
         let asked = numberForms(raw)
         guard !asked.isEmpty else {
-            return ["ok": false, "reason": "noNumber", "message": "To není číslo objednávky ani faktury"]
+            return ["ok": false, "reason": "noNumber", "message": "To není číslo faktury"]
         }
         let shown = asked[0]
+        let byCode = kind == "code"
 
-        let byInvoice = (try? SQLite.shared.query(
-            SQL_BY_INVOICE, [.text(asked[0]), .text(asked[asked.count - 1])]
-        )) ?? []
-        let byCode = shopOrder(shown)
+        let row: [String: Any]? = byCode
+            ? shopOrder(shown)
+            : ((try? SQLite.shared.query(
+                SQL_BY_INVOICE, [.text(asked[0]), .text(asked[asked.count - 1])]
+              )) ?? []).first
 
-        guard let primary = byInvoice.first ?? byCode else {
+        if let found = row {
+            let code = found["code"] as? String ?? ""
+            guard let order = await open(found) else {
+                return [
+                    "ok": false, "reason": "noItems",
+                    "message": "Objednávka \(code) nemá ve feedu položky a e-mail k ní nenajdu"
+                ]
+            }
+            return ["ok": true, "order": order]
+        }
+
+        /*
+         * Ve feedu není — může být starší, než kam feed sahá. Potvrzovací
+         * e-mail ale ve schránce být může; hledá se v něm jen podle čísla
+         * objednávky, takže z faktury se takhle vyjít nedá.
+         */
+        if byCode {
+            if let found = message(numbers: asked), let order = await orderFromMail(found) {
+                return ["ok": true, "order": order]
+            }
             return [
                 "ok": false, "reason": "notInFeed",
-                "message": "Faktura ani objednávka \(shown) ve feedu není — \(feedReach())"
+                "message": "Objednávka \(shown) ve feedu není — \(feedReach())"
             ]
         }
 
-        let code = primary["code"] as? String ?? ""
-        guard let order = await open(primary) else {
-            return [
-                "ok": false, "reason": "noItems",
-                "message": "Objednávka \(code) nemá ve feedu položky a e-mail k ní nenajdu"
-            ]
-        }
-
-        var out: [String: Any] = ["ok": true, "order": order]
-        if !byInvoice.isEmpty, let other = byCode, (other["code"] as? String ?? "") != code {
-            let otherCode = other["code"] as? String ?? ""
-            out["also"] = [
-                "orderNumber": otherCode,
-                "note": "Číslo \(shown) je faktura objednávky \(code), ale existuje i objednávka \(otherCode)"
-            ]
-        }
-        return out
+        return [
+            "ok": false, "reason": "notInFeed",
+            "message": "Faktura \(shown) ve feedu není — \(feedReach())"
+        ]
     }
 
     /**

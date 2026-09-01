@@ -163,6 +163,50 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
    */
   const labelCodes = useMemo(() => [...picked], [picked]);
 
+  /**
+   * Je vybraný celý produkt?
+   *
+   * Buď je ve výběru jeho kód (a rozepíše se na varianty až při sazbě),
+   * nebo jsou zaškrtané všechny varianty jednotlivě — pro toho, kdo se dívá
+   * na kartu, je to jedno a totéž.
+   */
+  const wholePicked = (p: ProductHit) => {
+    if (picked.has(p.code)) return true;
+    const vars = p.variants ?? [];
+    return vars.length > 0 && vars.every(v => picked.has(v.code));
+  };
+
+  /** Celý produkt do výběru, nebo ven — i s variantami, ať nezůstane půlka. */
+  const toggleWhole = (p: ProductHit) => {
+    const off = wholePicked(p);
+    setLabelPreset(null);
+    setPicked(prev => {
+      const next = new Set(prev);
+      next.delete(p.code);
+      for (const v of p.variants ?? []) next.delete(v.code);
+      if (!off) next.add(p.code);
+      return next;
+    });
+  };
+
+  /**
+   * Jedna varianta do výběru, nebo ven.
+   *
+   * Když byl vybraný celý produkt, rozepíše se nejdřív na varianty a teprve
+   * z nich se ta jedna vyndá. Jinak by odškrtnutí jedné délky nemělo co
+   * ubrat — kód produktu ve výběru znamená „všechny" — a zaškrtávátko by
+   * se vrátilo zpátky samo.
+   */
+  const toggleVariant = (p: ProductHit, code: string) => {
+    setLabelPreset(null);
+    setPicked(prev => {
+      const next = new Set(prev);
+      if (next.delete(p.code)) for (const v of p.variants ?? []) next.add(v.code);
+      if (next.has(code)) next.delete(code); else next.add(code);
+      return next;
+    });
+  };
+
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal kat-modal">
@@ -236,8 +280,10 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
               <div className="kat-grid">
                 {items.map(p => {
                   const s = stockLabel(p.stock ?? null);
+                  const vars = p.variants ?? [];
+                  const on = wholePicked(p);
                   return (
-                    <div key={p.code} className={`kat-card ${picked.has(p.code) ? 'picked' : ''}`}>
+                    <div key={p.code} className={`kat-card ${on || vars.some(v => picked.has(v.code)) ? 'picked' : ''}`}>
                       <button className="kat-open" onClick={() => openProduct(p.code)}>
                         <div className="kat-img">
                           {p.image ? <img src={p.image} alt="" loading="lazy" />
@@ -250,10 +296,46 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
                           <span>{p.price.cz}</span>
                         </div>
                       </button>
+
+                      {/*
+                        * Varianty rovnou na kartě, i se zásobou. Souhrn na
+                        * produktu sečítá všechny délky dohromady, takže
+                        * „14 ks" neřekne nic o tom, která z nich zrovna
+                        * došla — a dřív se to muselo hledat po jedné
+                        * v otevřené kartě.
+                        *
+                        * Na počítači je každá varianta zároveň zaškrtávátko
+                        * na štítky: dotiskuje se často jen jedna délka a
+                        * tisknout kvůli ní celou řadu je plýtvání archem.
+                        */}
+                      {vars.length > 0 && (
+                        <div className="kat-vlist">
+                          {vars.map(v => {
+                            const vs = stockLabel(v.stock);
+                            const label = v.label || v.code;
+                            return phone ? (
+                              <span key={v.code} className="kat-vrow">
+                                <span className="kat-vname">{label}</span>
+                                <span className={`kat-stock ${vs.tone}`}>{vs.text}</span>
+                              </span>
+                            ) : (
+                              <label key={v.code}
+                                className={`kat-vrow pick ${on || picked.has(v.code) ? 'on' : ''}`}
+                                data-tip={`${v.code} — na štítky jen tuhle variantu`}>
+                                <input type="checkbox" checked={on || picked.has(v.code)}
+                                  onChange={() => toggleVariant(p, v.code)} />
+                                <span className="kat-vname">{label}</span>
+                                <span className={`kat-stock ${vs.tone}`}>{vs.text}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+
                       {!phone && (
                         <label className="kat-pick">
-                          <input type="checkbox" checked={picked.has(p.code)} onChange={() => toggle(p.code)} />
-                          na štítky
+                          <input type="checkbox" checked={on} onChange={() => toggleWhole(p)} />
+                          {vars.length > 0 ? 'všechny varianty' : 'na štítky'}
                         </label>
                       )}
                     </div>
@@ -311,8 +393,10 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
         {active && (
           <ProductSheet
             detail={active}
-            picked={picked.has(active.code)}
-            onPick={phone ? null : () => toggle(active.code)}
+            picked={wholePicked(active)}
+            pickedCodes={picked}
+            onPick={phone ? null : () => toggleWhole(active)}
+            onPickVariant={phone ? null : code => toggleVariant(active, code)}
             onClose={() => setActive(null)}
           />
         )}
@@ -323,11 +407,14 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
 
 /* ---------- detail produktu s variantami ---------- */
 
-function ProductSheet({ detail, picked, onPick, onClose }: {
+function ProductSheet({ detail, picked, pickedCodes, onPick, onPickVariant, onClose }: {
   detail: ProductDetail;
   picked: boolean;
+  /** Co všechno je ve výběru — kvůli jednotlivě zaškrtnutým variantám */
+  pickedCodes: Set<string>;
   /** Na telefonu se štítky netisknou, takže tam výběr nedává smysl */
   onPick: (() => void) | null;
+  onPickVariant: ((code: string) => void) | null;
   onClose: () => void;
 }) {
   return (
@@ -359,16 +446,27 @@ function ProductSheet({ detail, picked, onPick, onClose }: {
               <div className="kat-vars">
                 {detail.variants.map(v => {
                   const s = stockLabel(v.stock);
-                  return (
-                    <div key={v.code} className="kat-var">
+                  const on = picked || pickedCodes.has(v.code);
+                  const inner = (
+                    <>
+                      {/* Dotiskuje se často jen jedna délka — celá řada by
+                          byla zbytečně spotřebovaný arch */}
+                      {onPickVariant && (
+                        <input type="checkbox" checked={on}
+                          onChange={() => onPickVariant(v.code)}
+                          aria-label={`Na štítky: ${v.label || v.code}`} />
+                      )}
                       <div className="kat-var-main">
                         <b>{v.label || v.code}</b>
                         <span className="kat-code">{v.code}</span>
                       </div>
                       <span>{v.price}</span>
                       <span className={`kat-stock ${s.tone}`}>{s.text}</span>
-                    </div>
+                    </>
                   );
+                  return onPickVariant
+                    ? <label key={v.code} className={`kat-var pick ${on ? 'on' : ''}`}>{inner}</label>
+                    : <div key={v.code} className="kat-var">{inner}</div>;
                 })}
               </div>
             </>
@@ -380,7 +478,9 @@ function ProductSheet({ detail, picked, onPick, onClose }: {
             {onPick && (
               <button className={`btn ${picked ? 'primary' : 'ghost'}`} onClick={onPick}>
                 <Icon name={picked ? 'check' : 'printer'} size={13} />
-                {picked ? 'Vybráno na štítky' : 'Na štítky'}
+                {picked
+                  ? 'Vybráno na štítky'
+                  : detail.variants.length > 0 ? 'Všechny varianty na štítky' : 'Na štítky'}
               </button>
             )}
             {detail.url.cz && (

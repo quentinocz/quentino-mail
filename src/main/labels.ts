@@ -52,40 +52,68 @@ function esc(s: string): string {
 }
 
 /**
- * Podklady pro štítky z výběru produktů.
+ * Podklady pro štítky z výběru.
  *
- * Když má produkt varianty, tisknou se **varianty**, ne produkt: naskladňuje
- * se konkrétní délka, ne „kšandy". U produktu bez variant je štítek jeden.
+ * Ve výběru smí být kód produktu i kód **jedné varianty**:
+ *
+ *  - kód produktu s variantami se rozepíše na všechny varianty — naskladňuje
+ *    se konkrétní délka, ne „kšandy", a štítek na seskupující kód by se
+ *    nedal přiřadit k ničemu na regálu,
+ *  - kód varianty zůstane sám za sebe — dotiskuje se často jen jedna délka
+ *    a tisknout kvůli ní celou řadu je plýtvání archem,
+ *  - produkt bez variant má štítek jeden.
+ *
+ * Pořadí se drží podle výběru, aby se dal arch přečíst shora dolů tak, jak
+ * se zaškrtávalo.
  */
 export function labelItems(codes: string[], perItem = 1, byStock = false): LabelItem[] {
   const d = getDb();
   const out: LabelItem[] = [];
+  const seen = new Set<string>();
+
+  /*
+   * Počet podle skladu se bere u té věci, na kterou štítek je. U produktu
+   * s variantami je zásoba na variantě — souhrn na „hlavním" kódu sečítá
+   * všechny délky dohromady a nálepek by se vytisklo tolik, kolik je kusů
+   * celkem, na každou variantu zvlášť.
+   */
+  const many = (stock: unknown) => byStock
+    ? Math.max(0, Math.floor(Number(stock) || 0))
+    : Math.max(1, perItem);
+
+  const add = (code: string, title: string, label: string, stock: unknown) => {
+    if (seen.has(code)) return;
+    const count = many(stock);
+    if (count <= 0) return;
+    seen.add(code);
+    out.push({ code, title, label, count });
+  };
+
   for (const code of codes) {
+    // Kód varianty: štítek jen na ni, ne na celou řadu
+    const variant = d.prepare(
+      `SELECT v.code, v.label, v.stock, v.product_code, p.title_cz
+         FROM product_variants v LEFT JOIN products p ON p.code = v.product_code
+        WHERE v.code = ?`
+    ).get(code) as any;
+    if (variant) {
+      add(variant.code, variant.title_cz ?? variant.product_code, variant.label ?? '', variant.stock);
+      continue;
+    }
+
+    const product = d.prepare('SELECT code, title_cz, stock FROM products WHERE code = ?')
+      .get(code) as any;
+    if (!product) continue;
+    const title = product.title_cz || product.code;
+
     const variants = d.prepare(
       'SELECT code, label, stock FROM product_variants WHERE product_code = ? ORDER BY sort, code'
     ).all(code) as any[];
-    const product = d.prepare('SELECT code, title_cz, stock FROM products WHERE code = ?')
-      .get(code) as any;
-    const title = product?.title_cz ?? code;
-
-    /*
-     * Počet podle skladu se bere u té věci, na kterou štítek je. U produktu
-     * s variantami je zásoba na variantě — souhrn na „hlavním" kódu sečítá
-     * všechny délky dohromady a nálepek by se vytisklo tolik, kolik je kusů
-     * celkem, na každou variantu zvlášť.
-     */
-    const many = (stock: unknown) => byStock
-      ? Math.max(0, Math.floor(Number(stock) || 0))
-      : Math.max(1, perItem);
 
     if (variants.length > 0) {
-      for (const v of variants) {
-        const count = many(v.stock);
-        if (count > 0) out.push({ code: v.code, title, label: v.label ?? '', count });
-      }
-    } else if (product) {
-      const count = many(product.stock);
-      if (count > 0) out.push({ code: product.code, title, label: '', count });
+      for (const v of variants) add(v.code, title, v.label ?? '', v.stock);
+    } else {
+      add(product.code, title, '', product.stock);
     }
   }
   return out;
