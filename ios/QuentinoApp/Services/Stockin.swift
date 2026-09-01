@@ -19,6 +19,47 @@ enum Stockin {
     private static func touch(_ id: String) {
         try? SQLite.shared.run("UPDATE stockin SET updated_at = ? WHERE id = ?",
                                [.text(Formats.iso()), .text(id)])
+        pushSoon(id)
+    }
+
+    // MARK: - Rychlý posel
+
+    /**
+     Jedno naskladnění tak, jak ho druhá strana umí sloučit.
+
+     Je to tentýž tvar, jaký nese soubor ve sdílené složce, jen o jedné
+     položce — počítač tedy nepotřebuje nic nového a ostatních naskladnění
+     se to nedotkne.
+     */
+    static func slice(_ id: String) -> [String: Any]? {
+        guard let session = (try? SQLite.shared.query(
+            "SELECT * FROM stockin WHERE id = ?", [.text(id)]
+        ))?.first else { return nil }
+        let items = (try? SQLite.shared.query(
+            "SELECT * FROM stockin_items WHERE session_id = ?", [.text(id)]
+        )) ?? []
+        return ["sessions": [session], "items": items]
+    }
+
+    private static var pushWork: [String: DispatchWorkItem] = [:]
+
+    /**
+     Poslat změnu počítači co nevidět.
+
+     Odklad je schválně: při skenování jde pípnutí za pípnutím a bez něj by
+     se posílalo desetkrát za vteřinu. Necelá půlvteřina z toho udělá jednu
+     zprávu a je to pořád „hned".
+
+     Když posel nedoručí, nic se neděje — sdílená složka to donese.
+     */
+    static func pushSoon(_ id: String) {
+        pushWork[id]?.cancel()
+        let work = DispatchWorkItem {
+            pushWork[id] = nil
+            if let slice = slice(id) { Live.publish("stockin", slice) }
+        }
+        pushWork[id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     private static func shape(_ row: [String: Any]) -> [String: Any] {
@@ -68,6 +109,8 @@ enum Stockin {
             "INSERT INTO stockin (id, title, device, state, created_at, updated_at) VALUES (?,?,?,'open',?,?)",
             [.text(id), .text(name), .text(Device.name()), .text(at), .text(at)]
         )
+        // Ať počítač ví o zahájení, ne až o prvním pípnutí
+        pushSoon(id)
         return session(id)
     }
 
@@ -147,6 +190,7 @@ enum Stockin {
     static func rename(_ id: String, title: String, note: String) {
         try? SQLite.shared.run("UPDATE stockin SET title = ?, note = ?, updated_at = ? WHERE id = ?",
                                [.text(title), .text(note), .text(Formats.iso()), .text(id)])
+        pushSoon(id)
     }
 
     /**
@@ -162,6 +206,7 @@ enum Stockin {
         try? SQLite.shared.run("DELETE FROM stockin_items WHERE session_id = ?", [.text(id)])
         try? SQLite.shared.run("UPDATE stockin SET state = 'deleted', updated_at = ? WHERE id = ?",
                                [.text(Formats.iso()), .text(id)])
+        pushSoon(id)
         let cutoff = Formats.iso(Date().addingTimeInterval(-60 * 86_400))
         try? SQLite.shared.run("DELETE FROM stockin WHERE state = 'deleted' AND updated_at < ?",
                                [.text(cutoff)])
@@ -171,6 +216,7 @@ enum Stockin {
         let at = Formats.iso()
         try? SQLite.shared.run("UPDATE stockin SET state = 'sent', sent_at = ?, updated_at = ? WHERE id = ?",
                                [.text(at), .text(at), .text(id)])
+        pushSoon(id)
     }
 
     /**

@@ -32,6 +32,12 @@ final class Scheduler {
     func start() {
         guard ticker == nil else { return }
         observe()
+        /*
+         Živé propojení s počítačem. Sdílená složka zůstává tím, co platí —
+         tohle je jen rychlý posel, aby se naskladnění z regálu neobjevilo
+         na počítači až za dvě minuty.
+         */
+        LiveWork.start()
         ticker = Task { [weak self] in
             // Krátká prodleva po startu, ať se nejdřív ukáže rozhraní
             _ = try? await Task.sleep(nanoseconds: 4_000_000_000)
@@ -56,13 +62,17 @@ final class Scheduler {
             Task { @MainActor in
                 self?.lastSync = .distantPast
                 self?.lastMail = .distantPast
+                // Spojení systém na pozadí zavře; po návratu se navazuje znovu
+                if Live.isEnabled() { Live.start() }
                 await self?.tick()
             }
         })
         observers.append(center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { _ in
-            // Nic se neplánuje: iOS aplikaci stejně za chvíli zmrazí
+            // Nic se neplánuje: iOS aplikaci stejně za chvíli zmrazí.
+            // Spojení se zavírá samo — držet ho na pozadí nemá jak vyjít.
+            Live.stop()
         })
     }
 

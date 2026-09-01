@@ -18,6 +18,7 @@ import ProductsModal from './components/ProductsModal';
 import ArticlesModal from './components/ArticlesModal';
 import CatalogModal from './components/CatalogModal';
 import PtransStatusBar from './components/PtransStatusBar';
+import LiveOfferBar from './components/LiveOfferBar';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
 import type { Workspace, AiTool } from './components/WorkspaceSwitch';
@@ -49,6 +50,8 @@ function AppInner() {
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [digestOpen, setDigestOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
+  /** Naskladnění, na které se má skočit z proužku s prací z telefonu */
+  const [liveStockin, setLiveStockin] = useState<string | null>(null);
   // Nástroje pod záložkou AI: překlady a články. Otevírají se přes celé okno,
   // ale běh (překlad) pokračuje i po zavření — proto je stav tady, ne v panelu.
   const [aiTool, setAiTool] = useState<AiTool | null>(null);
@@ -324,7 +327,9 @@ function AppInner() {
    */
   const aiLayer = (
     <>
-      {aiTool === 'catalog' && <CatalogModal onClose={() => setAiTool(null)} />}
+      {aiTool === 'catalog' && (
+        <CatalogModal openStockin={liveStockin} onClose={() => { setAiTool(null); setLiveStockin(null); }} />
+      )}
       {/* Přehled dne a balení se otevírají z nabídky Funkce, která je ve všech
           prostorech — proto se kreslí tady, ne jen v poště */}
       {digestOpen && <DigestModal onClose={() => setDigestOpen(false)} />}
@@ -343,6 +348,17 @@ function AppInner() {
           {aiTool === 'ptrans' && <ProductsModal onClose={() => setAiTool(null)} />}
           {aiTool === 'articles' && <ArticlesModal onClose={() => setAiTool(null)} />}
           <PtransStatusBar hidden={aiTool ?? undefined} onOpen={tool => setAiTool(tool)} />
+          {/*
+            * Rozdělaná práce z telefonu. Nabízí se, nevnucuje — a když je
+            * příslušné okno stejně otevřené, není co nabízet.
+            */}
+          <LiveOfferBar
+            hidden={aiTool === 'catalog' || packingOpen}
+            onOpen={one => {
+              if (one.kind === 'stockin') { setLiveStockin(one.id); setAiTool('catalog'); }
+              else setPackingOpen(true);
+            }}
+          />
         </>
       )}
     </>

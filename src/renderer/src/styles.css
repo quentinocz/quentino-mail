@@ -2711,6 +2711,18 @@ button, kbd, label,
 .pt-status-pct { font-size: 11.5px; font-weight: 600; color: var(--text-2); }
 .pt-statusbar .btn { padding: 5px 9px; font-size: 11.5px; }
 .pt-statusbar .btn.danger { color: var(--danger); }
+
+/*
+ * Proužek s prací z telefonu. Vypadá jako proužek běžícího překladu
+ * schválně — je to totéž sdělení „na pozadí se něco děje" a učit se dvě
+ * podoby téhož by bylo zbytečné. Fialový okraj ho odliší v tom jediném,
+ * v čem se liší: tohle si žádá klepnutí, překlad běží sám.
+ */
+.pt-statusbar.live-offer {
+  border-color: var(--accent);
+  box-shadow: 0 14px 34px rgba(124, 92, 255, 0.24);
+}
+.live-offer .pt-status-ico { background: var(--accent-soft); color: var(--accent-dark); }
 /* Na telefonu překlady nejsou, ale kdyby okno zúžil na počítači, ať se nerozbije */
 @media (max-width: 620px) {
   .pt-statusbar { flex-wrap: wrap; }

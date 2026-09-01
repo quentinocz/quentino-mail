@@ -16,6 +16,8 @@ import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets,
   productDetail, findByCode, suggestForStockin, productCodes, refreshStock, stockSyncedAt } from './products';
 import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
+import * as live from './live';
+import { liveOffers, dismissOffer } from './livework';
 import { scanOld, freeUp } from './cleanup';
 import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renameSession,
   deleteSession, planOf, emitChanged as emitStockin } from './stockin';
@@ -480,6 +482,17 @@ export function registerIpc() {
    * to být i dva různé projekty. Bezplatný tarif každý z nich po pár dnech
    * ticha uspí.
    */
+  /*
+   * Živé propojení telefonu a počítače. Kanál je zároveň heslo, takže se
+   * generuje tady a jen se ukáže — vymýšlet ho ručně by znamenalo kratší
+   * a hádatelnější jméno.
+   */
+  handle('live:status', () => live.status());
+  handle('live:save', (patch: any) => live.saveConfig(patch ?? {}));
+  handle('live:newChannel', () => live.newChannel());
+  handle('live:offers', () => liveOffers());
+  handle('live:dismiss', (key: string) => dismissOffer(key ?? ''));
+
   handle('supabase:status', () => keepalive.status());
   handle('supabase:ping', async () => {
     const result = await keepalive.keepAwake(true);

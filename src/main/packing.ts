@@ -4,6 +4,7 @@ import { buildOrderCard, shopMatchesSender } from './ordercard';
 import { isFinalStatus } from './ordertrack';
 import { findByCode } from './products';
 import { ordersSince, refreshForPacking } from './orderfeed';
+import * as live from './live';
 import type {
   OrderAddress, OrderCard, OrderCardItem, PackingHit, PackingLookup, PackingOrder,
   PackingScan, PackingShopState, PackingState, ShopAddress, ShopOrder
@@ -133,6 +134,7 @@ function save(id: number, state: PackingState) {
       `UPDATE packing_shop SET packed_json = ?, counts_json = ?, done = ?, done_at = ?
        WHERE id = ?`
     ).run(packed, counts, state.done ? 1 : 0, state.doneAt, -id);
+    pushSoon(id);
     return;
   }
   getDb().prepare(
@@ -774,3 +776,77 @@ async function recentFromMail(seen: Set<string>): Promise<PackingOrder[]> {
   return out;
 }
 
+
+
+/* ---------- rychlý posel ---------- */
+
+/**
+ * Odškrtávání se posílá druhému zařízení hned.
+ *
+ * Balí se s telefonem v ruce, ale krabice se zavírá u počítače a etiketa
+ * se tiskne tam — a mezitím se nesmí stát, že jedna strana odškrtne kus,
+ * o kterém druhá neví, a zboží se do krabice dá dvakrát.
+ *
+ * Posílají se **jen objednávky z feedu**. Ty se vedou pod dvojicí kód +
+ * trh, která je na obou zařízeních stejná. Objednávka vedená podle
+ * e-mailu má na každém zařízení jiné číslo zprávy, takže by se stav
+ * neměl k čemu přiřadit; ty ostatně po přechodu balení na feed zbyly jen
+ * pro objednávky starší, než kam feed sahá.
+ *
+ * Sdílená složka odškrtávání nenese — je to stav rozdělané práce, ne
+ * dokument. Když posel nedoručí, dokončí se balení tam, kde začalo.
+ */
+const packingTimers = new Map<number, NodeJS.Timeout>();
+
+export function packingSlice(id: number): any | null {
+  if (!isShopId(id)) return null;
+  const row = getDb().prepare(
+    'SELECT code, market, packed_json, counts_json, done, done_at FROM packing_shop WHERE id = ?'
+  ).get(-id) as any;
+  if (!row) return null;
+  return {
+    code: String(row.code ?? ''),
+    market: String(row.market ?? ''),
+    packed: row.packed_json ?? '[]',
+    counts: row.counts_json ?? '{}',
+    done: !!row.done,
+    doneAt: row.done_at ?? null,
+    at: new Date().toISOString()
+  };
+}
+
+function pushSoon(id: number): void {
+  if (!isShopId(id)) return;
+  const running = packingTimers.get(id);
+  if (running) clearTimeout(running);
+  packingTimers.set(id, setTimeout(() => {
+    packingTimers.delete(id);
+    const slice = packingSlice(id);
+    if (slice) live.publish('packing', slice);
+  }, 400));
+}
+
+/**
+ * Přijaté odškrtávání od druhého zařízení.
+ *
+ * Zapisuje se natvrdo, protože poslední slovo má ten, kdo drží krabici —
+ * a stav se posílá celý, ne po kusech, takže není co slučovat. Když
+ * objednávka na tomhle zařízení ještě řádek nemá, založí se.
+ */
+export function applyPacking(slice: any): { code: string; done: boolean } | null {
+  const code = String(slice?.code ?? '');
+  if (!code) return null;
+  const market = String(slice?.market ?? '');
+  getDb().prepare(
+    `INSERT INTO packing_shop (code, market, packed_json, counts_json, done, done_at)
+     VALUES (?,?,?,?,?,?)
+     ON CONFLICT(code, market) DO UPDATE SET
+       packed_json = excluded.packed_json, counts_json = excluded.counts_json,
+       done = excluded.done, done_at = excluded.done_at`
+  ).run(
+    code, market,
+    String(slice.packed ?? '[]'), String(slice.counts ?? '{}'),
+    slice.done ? 1 : 0, slice.doneAt ?? null
+  );
+  return { code, done: !!slice.done };
+}
