@@ -10,15 +10,7 @@ import { SwipeRow, usePullToRefresh, type SwipeAction } from '../gestures';
 import OrderBadge, { looksLikeOrder, shopLabel } from './OrderBadge';
 import { Sheet, SheetActions } from './Sheet';
 import { useIsPhone } from '../mobile';
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return d.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
-  const sameYear = d.getFullYear() === now.getFullYear();
-  return d.toLocaleDateString('cs-CZ', sameYear ? { day: 'numeric', month: 'numeric' } : { day: 'numeric', month: 'numeric', year: '2-digit' });
-}
+import { fmtDate, recipients } from '@shared/maillist';
 
 function fmtSize(n: number): string {
   if (!n) return '';
@@ -53,6 +45,12 @@ interface Props {
   hasAccount: boolean;
   accountId: number | null;
   isTrash: boolean;
+  /**
+   * Odeslaná pošta nebo koncepty — v seznamu se pak místo odesílatele ukazuje
+   * příjemce. Odesílatel jsme tam pořád my a sloupec s vlastním jménem
+   * u každého řádku nedává smysl.
+   */
+  isOutgoing: boolean;
   /** URL produktového feedu — z ní se pozná doména vlastního e-shopu */
   productFeedUrl: string | null;
   onChanged: () => void;
@@ -389,7 +387,9 @@ export default function MessageList(p: Props) {
               <div className="row1">
                 {!m.seen && <span className="unread-dot" />}
                 {m.flagged && <span className="flag-star"><Icon name="star" size={12} filled /></span>}
-                <span className="from">{m.fromName || m.fromAddr || '(neznámý)'}</span>
+                <span className="from">
+                  {p.isOutgoing ? recipients(m.toAddr) : (m.fromName || m.fromAddr || '(neznámý)')}
+                </span>
                 {m.orderRef && !isOrder && (
                   <span className={`ord-chip ref ${m.answered || m.orderRef.resolved ? 'done' : ''}`}
                     data-tip={`Zpráva k objednávce ${m.orderRef.orderNumber}`}>
