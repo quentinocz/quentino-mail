@@ -260,15 +260,24 @@ enum Products {
      v něm netrefí pokaždé na stejné místo.
      */
     static func squash(_ text: String) -> String {
-        String(fold(text).unicodeScalars.filter {
-            CharacterSet.alphanumerics.contains($0) && $0.isASCII
-        })
+        // Jen ASCII písmena a číslice — přesně jako na počítači, ať obě
+        // aplikace hledají v téže podobě
+        var out = ""
+        for character in fold(text) where character.isASCII && (character.isLetter || character.isNumber) {
+            out.append(character)
+        }
+        return out
     }
 
     /// Slova dotazu; kratší než dva znaky sedí skoro všude a jen matou.
     static func queryWords(_ text: String) -> [String] {
-        fold(text).split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
-            .map(String.init).filter { $0.count >= 2 }.prefix(6).map { $0 }
+        let pieces: [String] = fold(text).split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        var out: [String] = []
+        for word in pieces where word.count >= 2 {
+            out.append(word)
+            if out.count == 6 { break }
+        }
+        return out
     }
 
     /**
@@ -297,22 +306,32 @@ enum Products {
         let rows = (try? SQLite.shared.query(
             "SELECT code, ean, title_cz, title_sk, title_en, category, categories, manufacturer FROM products"
         )) ?? []
+        /*
+         Sloupce se skládají po jednom, ne do jednoho literálu.
+
+         Osm `as? String ?? ""` v jednom poli, k tomu spojení s variantami,
+         `filter` a `joined` — u toho překladač Swiftu odvozování typů vzdá
+         („unable to type-check this expression in reasonable time") a
+         překlad spadne. Rozepsané je to delší, ale přeloží se.
+         */
+        let columns = ["code", "ean", "title_cz", "title_sk", "title_en",
+                       "category", "categories", "manufacturer"]
         try? SQLite.shared.transaction {
             for row in rows {
                 let code = row["code"] as? String ?? ""
-                let parts = ([
-                    code,
-                    row["ean"] as? String ?? "",
-                    row["title_cz"] as? String ?? "",
-                    row["title_sk"] as? String ?? "",
-                    row["title_en"] as? String ?? "",
-                    row["category"] as? String ?? "",
-                    row["categories"] as? String ?? "",
-                    row["manufacturer"] as? String ?? ""
-                ] + (byProduct[code] ?? [])).filter { !$0.isEmpty }.joined(separator: " ")
+                var parts: [String] = []
+                for column in columns {
+                    let value: String = row[column] as? String ?? ""
+                    if !value.isEmpty { parts.append(value) }
+                }
+                for variant in byProduct[code] ?? [] where !variant.isEmpty {
+                    parts.append(variant)
+                }
+                let text: String = parts.joined(separator: " ")
+                let indexed: String = fold(text) + " " + squash(text)
                 try SQLite.shared.run(
                     "UPDATE products SET search = ? WHERE code = ?",
-                    [.text("\(fold(parts)) \(squash(parts))"), .text(code)]
+                    [.text(indexed), .text(code)]
                 )
             }
         }
