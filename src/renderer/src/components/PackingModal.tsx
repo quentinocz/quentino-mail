@@ -307,6 +307,26 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
   const patchState = (id: number, st: { packed: number[]; counts: Record<string, number> }) =>
     patch(id, x => ({ ...x, packed: st.packed, counts: st.counts }));
 
+  /*
+   * Odškrtnutí z druhého zařízení.
+   *
+   * Do databáze se zapsalo hned, ale otevřené okno drží objednávky ve své
+   * paměti — bez tohohle by v ní zůstal starý stav a člověk by koukal na
+   * položku odškrtnutou v telefonu a neodškrtnutou na obrazovce. Zapisuje se
+   * jen do té jedné objednávky: přenačíst celý seznam by u toho, kdo zrovna
+   * balí, poskočilo rolování.
+   */
+  useEffect(() => api.on('packing:changed', (st: any) => {
+    if (!st || typeof st.id !== 'number') return;
+    patch(st.id, x => ({
+      ...x,
+      packed: Array.isArray(st.packed) ? st.packed : x.packed,
+      counts: st.counts && typeof st.counts === 'object' ? st.counts : x.counts,
+      done: !!st.done,
+      doneAt: st.doneAt ?? null
+    }));
+  }), []);
+
   const countOf = (o: PackingOrder, index: number) => o.counts?.[String(index)] ?? 0;
 
   /**

@@ -304,6 +304,16 @@ await click('.ws-menu-item', { hasText: 'Balení objednávek' });
 await overflow('balení — hledání podle čísla'); await snap('26b-baleni');
 await click('.pk-as button', { hasText: 'objednávka' });
 await overflow('balení — hledání podle objednávky'); await snap('26c-baleni-objednavka');
+
+/*
+ * Odškrtnutí z druhého zařízení. Musí se objevit v zaškrtávátkách, ne jen
+ * v databázi — přesně tohle chybělo: v databázi to bylo, na obrazovce ne.
+ */
+await page.evaluate(() => window.__emit('packing:changed', {
+  id: 1, code: '20260819', packed: [0, 1], counts: { '0': 1, '1': 2 }, done: false, doneAt: null
+}));
+await page.waitForTimeout(200);
+await overflow('balení — odškrtnuto z telefonu'); await snap('26d-baleni-z-telefonu');
 await click('.modal-head .icon-btn:last-child');
 await page.waitForTimeout(300);
 

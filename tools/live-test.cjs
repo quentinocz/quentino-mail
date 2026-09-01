@@ -146,11 +146,11 @@ check('skrytím nabídka zmizí', work.dismissOffer(offers[0].key).length, 0);
 console.log('\nhotová práce se nenabízí:\n');
 deliver(message('stockin', slice));
 check('rozdělaná se nabídne', work.liveOffers().length, 1);
-const sent = {
+const finished = {
   sessions: [{ ...slice.sessions[0], state: 'sent', updated_at: '2026-09-01T09:00:00.000Z', sent_at: '2026-09-01T09:00:00.000Z' }],
   items: slice.items
 };
-deliver(message('stockin', sent));
+deliver(message('stockin', finished));
 check('odeslaná se přestane nabízet', work.liveOffers().length, 0);
 
 /* ---------- balení ---------- */
@@ -227,6 +227,139 @@ check('otevřená objednávka se nabídne bez odškrtnutého kusu',
   work.liveOffers().map(o => [o.id, o.detail]), [['20260830', 'balí se']]);
 work.dismissOffer('packing:20260830');
 
+/* ---------- co všechno se posílá ---------- */
+
+/*
+ * Tady se nezkouší jedna věc, ale **úplnost**: každá změna, kterou jde
+ * v aplikaci udělat, musí druhé zařízení dostat. Chybějící kousek se totiž
+ * v provozu neprojeví jako chyba, ale jako „občas se to nesrovná" — a to se
+ * hledá nejhůř. Odchycený posel proto zaznamená všechno, co se poslalo.
+ */
+console.log('\nkaždá změna se pošle druhé straně:\n');
+
+const posted = [];
+const realPublish = live.publish;
+live.publish = (kind, data) => { posted.push({ kind, data }); return true; };
+/** Odeslání je odložené o 0,4 s, ať ze série pípnutí není série zpráv */
+const settle = () => new Promise(r => setTimeout(r, 700));
+
+// Katalog, ze kterého se naskladňuje
+db.prepare(
+  `INSERT OR REPLACE INTO products (code, title_cz, stock) VALUES ('REGJ01', 'Kravata Regent', 3)`
+).run();
+
+async function run() {
+  const kinds = () => posted.map(one => one.kind);
+  const clear = () => { posted.length = 0; };
+
+  /* --- naskladnění --- */
+  const session = stockin.createSession('Zkouška posla');
+  await settle();
+  check('založení naskladnění', kinds(), ['stockin']);
+  clear();
+
+  stockin.workingOn(session.id);
+  check('otevření naskladnění', kinds(), ['stockin']);
+  clear();
+
+  stockin.addScan(session.id, 'REGJ01', 2);
+  await settle();
+  check('načtený kód', kinds(), ['stockin']);
+  check('a jde s ním i počet',
+    posted[0].data.items.map(i => [i.code, i.qty]), [['REGJ01', 2]]);
+  clear();
+
+  stockin.setQty(session.id, 'REGJ01', 5);
+  await settle();
+  check('změna počtu', kinds(), ['stockin']);
+  check('s novou hodnotou', posted[0].data.items[0].qty, 5);
+  clear();
+
+  /*
+   * Smazaný řádek. Tohle je zrádné: řádky se slučují a chybějící se doplní
+   * — smazání by se tedy druhá strana nedozvěděla vůbec, kdyby s ním
+   * nepřišel i novější čas u hlavičky, podle kterého se seznam přebírá celý.
+   */
+  stockin.setQty(session.id, 'REGJ01', 0);
+  await settle();
+  check('smazání řádku', kinds(), ['stockin']);
+  check('a posílá se prázdný seznam', posted[0].data.items.length, 0);
+  ok('s novějším časem, aby se seznam přebral celý',
+    posted[0].data.sessions[0].updated_at > session.updatedAt);
+  clear();
+
+  stockin.renameSession(session.id, 'Přejmenováno', '');
+  await settle();
+  check('přejmenování', kinds(), ['stockin']);
+  clear();
+
+  stockin.markSent(session.id);
+  await settle();
+  check('odeslání do e-shopu', kinds(), ['stockin']);
+  check('a druhá strana se dozví, že je hotovo', posted[0].data.sessions[0].state, 'sent');
+  clear();
+
+  stockin.deleteSession(session.id);
+  await settle();
+  check('smazání naskladnění', kinds(), ['stockin']);
+  check('jako náhrobek, ne zmizením', posted[0].data.sessions[0].state, 'deleted');
+  clear();
+
+  /* --- balení --- */
+  db.prepare("INSERT OR IGNORE INTO packing_shop (code, market) VALUES ('20260905', 'cz')").run();
+  const pid = -db.prepare("SELECT id FROM packing_shop WHERE code = '20260905'").get().id;
+
+  packing.workingOn(pid);
+  check('otevření objednávky', kinds(), ['packing']);
+  clear();
+
+  packing.setItemCount(pid, 0, 1);
+  await settle();
+  check('odškrtnutí kusu', kinds(), ['packing']);
+  check('a jde s ním, co se odškrtlo', posted[0].data.counts, '{"0":1}');
+  clear();
+
+  packing.setOrderDone(pid, true);
+  await settle();
+  check('zavření krabice', kinds(), ['packing']);
+  check('s příznakem hotovo', posted[0].data.done, true);
+  clear();
+
+  /*
+   * Vynulování. Zapisuje se jinou cestou než odškrtávání, takže se na něj dá
+   * snadno zapomenout — a na druhé straně by pak zůstalo zaškrtnuté to, co
+   * se právě zrušilo.
+   */
+  packing.resetPacking(pid);
+  await settle();
+  check('vynulování', kinds(), ['packing']);
+  check('a posílá se prázdný stav',
+    [posted[0].data.packed, posted[0].data.counts, posted[0].data.done], ['[]', '{}', false]);
+  clear();
+
+  live.publish = realPublish;
+
+  /* --- co se vrací otevřenému oknu --- */
+
+  /*
+   * Přijaté odškrtnutí se musí dostat do zaškrtávátek, ne jen do databáze.
+   * Právě tohle chybělo: v databázi to bylo, na obrazovce ne — a člověk
+   * koukal na položku odškrtnutou v telefonu a neodškrtnutou na počítači.
+   */
+  console.log('\nco se vrátí otevřenému oknu:\n');
+  const applied = packing.applyPacking({
+    code: '20260905', market: 'cz', packed: '[0]', counts: '{"0":2}',
+    done: false, doneAt: null
+  });
+  check('vrací se číslo, pod kterým objednávku vede rozhraní', applied.id, pid);
+  check('odškrtnuté položky', applied.packed, [0]);
+  check('i počty kusů', applied.counts, { '0': 2 });
+  check('a příznak hotovo', applied.done, false);
+
+  console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ živé propojení sedí\n');
+  process.exit(failed ? 1 : 0);
+}
+
 /* ---------- podoba zpráv ---------- */
 
 console.log('\nco se posílá:\n');
@@ -237,5 +370,4 @@ check('a je v něm jen tohle jedno', mine.sessions.length, 1);
 check('neznámé naskladnění se neposílá', stockin.sessionSlice('neexistuje'), null);
 check('u balení se posílají jen objednávky z feedu', packing.packingSlice(42), null);
 
-console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ živé propojení sedí\n');
-process.exit(failed ? 1 : 0);
+void run();

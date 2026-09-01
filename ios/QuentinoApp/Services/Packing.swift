@@ -554,6 +554,9 @@ enum Packing {
     static func reset(messageId: Int) {
         if isShopId(messageId) {
             _ = try? SQLite.shared.run(SQL_RESET_SHOP, [.int(Int64(-messageId))])
+            // Vynulování je taky změna stavu — druhé zařízení o ní musí vědět,
+            // jinak by tam zůstalo odškrtnuté to, co se právě zrušilo
+            pushSoon(messageId)
             return
         }
         _ = try? SQLite.shared.run("DELETE FROM packing WHERE message_pk = ?", [.int(Int64(messageId))])
@@ -1026,7 +1029,40 @@ extension Packing {
             """,
             [.text(code), .text(market), .text(packed), .text(counts), .int(done ? 1 : 0), doneAt]
         )
-        return ["code": code, "done": done]
+
+        /*
+         Zpátky jde i číslo, pod kterým objednávku vede rozhraní, a co se
+         doopravdy zapsalo. Bez toho by otevřené okno drželo starý stav
+         a člověk by koukal na položku odškrtnutou na počítači a
+         neodškrtnutou na telefonu.
+         */
+        let row = (try? SQLite.shared.query(
+            "SELECT id FROM packing_shop WHERE code = ? AND market = ?",
+            [.text(code), .text(market)]
+        ))?.first
+        let localId = -(row?["id"] as? Int ?? 0)
+
+        var out: [String: Any] = [
+            "id": localId,
+            "code": code,
+            "packed": parseList(packed),
+            "counts": parseCounts(counts),
+            "done": done
+        ]
+        out["doneAt"] = slice["doneAt"] ?? NSNull()
+        return out
+    }
+
+    private static func parseList(_ text: String) -> [Int] {
+        guard let data = text.data(using: .utf8),
+              let list = (try? JSONSerialization.jsonObject(with: data)) as? [Int] else { return [] }
+        return list
+    }
+
+    private static func parseCounts(_ text: String) -> [String: Int] {
+        guard let data = text.data(using: .utf8),
+              let map = (try? JSONSerialization.jsonObject(with: data)) as? [String: Int] else { return [:] }
+        return map
     }
 }
 

@@ -111,7 +111,13 @@ function takeStockin(from: string, data: any): void {
 function takePacking(from: string, data: any): void {
   const applied = applyPacking(data);
   if (!applied) return;
-  emit('packing:changed', {});
+  /*
+   * Se stavem, ne jen jako „něco se změnilo". Otevřené okno si ho rovnou
+   * promítne do zaškrtávátek; kdyby dostalo jen zprávu, muselo by celý
+   * seznam načíst znovu — a než by to udělalo, koukal by na něj člověk
+   * s odškrtnutou položkou v telefonu a neodškrtnutou na obrazovce.
+   */
+  emit('packing:changed', applied);
 
   if (applied.done) { closeOffer(`packing:${applied.code}`); return; }
 
