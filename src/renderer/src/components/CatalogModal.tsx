@@ -136,6 +136,7 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
       const codes = await api.catalog.codes({
         query, category: category || undefined, inStockOnly: inStock, sort: 'title'
       });
+      setLabelPreset(null);
       setPicked(prev => new Set([...prev, ...codes]));
       toast(`Vybráno ${codes.length} produktů.`);
     } catch (e: any) {
@@ -145,11 +146,22 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const toggle = (code: string) => setPicked(prev => {
-    const next = new Set(prev);
-    if (next.has(code)) next.delete(code); else next.add(code);
-    return next;
-  });
+  const toggle = (code: string) => {
+    // Zaškrtnutí produktu je jiná úloha než tisk z naskladnění — připravené
+    // položky se tedy zahodí, jinak by výběr klikal naprázdno
+    setLabelPreset(null);
+    setPicked(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code); else next.add(code);
+      return next;
+    });
+  };
+
+  /*
+   * Kódy do štítků. Nová kopie pole při každém vykreslení by rozjela
+   * donačítání dokola — proto se drží, dokud se výběr nezmění.
+   */
+  const labelCodes = useMemo(() => [...picked], [picked]);
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -163,7 +175,7 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
                 by záložka slibovala něco, co se tam nedá dokončit */}
             {!phone && (
               <button className={tab === 'labels' ? 'on' : ''} onClick={() => setTab('labels')}>
-                Štítky{picked.size ? ` (${picked.size})` : ''}
+                Štítky{labelPreset ? ` (${labelPreset.length})` : picked.size ? ` (${picked.size})` : ''}
               </button>
             )}
           </div>
@@ -292,7 +304,7 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
           }} />
         )}
         {tab === 'labels' && !phone && (
-          <Labels codes={[...picked]} preset={labelPreset}
+          <Labels codes={labelCodes} preset={labelPreset}
             onClear={() => { setPicked(new Set()); setLabelPreset(null); }} />
         )}
 
@@ -988,7 +1000,13 @@ function Labels({ codes, onClear, preset }: {
   return (
     <>
       <div className="modal-body kat-body kat-labels">
-        {codes.length === 0 ? (
+        {/*
+          * Rozhoduje, jestli je co tisknout — ne jestli je něco zaškrtnuté.
+          * Položky z naskladnění přijdou hotové a žádný produkt u nich
+          * zaškrtnutý není; ptát se na výběr by je schovalo za výzvu
+          * „vyber produkty", i když jsou připravené k tisku.
+          */}
+        {codes.length === 0 && !preset?.length ? (
           <div className="empty-state">
             <div className="big">🏷️</div>
             <p>Vyber produkty v záložce Produkty — zaškrtnutím „na štítky".</p>
@@ -1233,15 +1251,19 @@ function Labels({ codes, onClear, preset }: {
 
       <div className="modal-foot">
         <span className="ig-muted">
-          {codes.length === 0 ? 'Nic není vybráno'
+          {items.length === 0 ? 'Nic není vybráno'
             : format === 'pdf'
               ? `${plural(totalLabels, 'štítek', 'štítky', 'štítků')} · ${perPage} na stránku · `
                 + plural(Math.ceil(totalLabels / perPage), 'strana', 'strany', 'stran')
               : `${plural(totalLabels, 'štítek', 'štítky', 'štítků')} `
-                + `z ${plural(codes.length, 'produktu', 'produktů', 'produktů')}`}
+                + `z ${plural(items.length, 'položky', 'položek', 'položek')}`}
         </span>
         <span style={{ flex: 1 }} />
-        {codes.length > 0 && <button className="btn ghost" onClick={onClear}>Zrušit výběr</button>}
+        {(codes.length > 0 || preset?.length) && (
+          <button className="btn ghost" onClick={onClear}>
+            {preset ? 'Zahodit' : 'Zrušit výběr'}
+          </button>
+        )}
         <button className="btn primary" onClick={print} disabled={items.length === 0}>
           <Icon name="download" size={13} />
           {format === 'pdf' ? 'Uložit PDF' : format === 'zpl' ? 'Uložit ZPL' : 'Uložit CSV'}

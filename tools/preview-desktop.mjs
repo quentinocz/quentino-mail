@@ -327,12 +327,21 @@ await overflow('štítky — počty podle skladu'); await snap('34c-stitky-sklad
 await click('.kat-countby button', { hasText: 'Pevný počet' });
 await click('.kat-templates button', { hasText: 'Vlastní arch' });
 
-// Naskladněné zboží se polepuje hned — štítky se vezmou rovnou z relace
+/*
+ * Naskladněné zboží se polepuje hned — štítky se vezmou rovnou z relace.
+ * Nejdřív se ale zahodí předchozí výběr: přesně tak se to dělá v provozu
+ * a přesně tam to dřív skončilo výzvou „vyber produkty", protože se
+ * rozhodovalo podle zaškrtnutých produktů místo podle toho, co je k tisku.
+ */
+await click('.kat-tabs button', { hasText: 'Štítky' });
+await click('.modal-foot .btn.ghost', { hasText: 'Zrušit výběr' });
 await click('.kat-tabs button', { hasText: 'Naskladnění' });
 // Záložka se otevře znovu na seznamu relací, takže se do jedné musí vstoupit
 await click('.kat-session');
 await click('.modal-foot .btn.ghost', { hasText: 'Štítky' });
 await overflow('štítky — z naskladnění'); await snap('34d-stitky-naskladneni');
+// Bez položek k tisku by tlačítko nedávalo smysl — tady jich je dvaadvacet
+await page.waitForSelector('.kat-preview iframe');
 
 // Hromadný výběr: stránka jich ukazuje šedesát, filtr může mít stovky
 await click('.kat-tabs button', { hasText: 'Produkty' });
