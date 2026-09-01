@@ -976,6 +976,19 @@ extension Packing {
         return out
     }
 
+    /**
+     Oznámí, že se na téhle objednávce právě pracuje.
+
+     Bez toho se druhé zařízení dozvědělo o balení až při prvním odškrtnutí —
+     jenže rozhodnutí „balím tuhle" padne dřív, při načtení faktury nebo
+     klepnutí v seznamu, a právě tehdy má počítač nabídnout, že se dá
+     pokračovat u něj.
+     */
+    static func workingOn(_ messageId: Int) {
+        guard messageId < 0, let slice = slice(messageId) else { return }
+        Live.publish("packing", slice)
+    }
+
     static func pushSoon(_ messageId: Int) {
         guard messageId < 0 else { return }
         packingWork[messageId]?.cancel()

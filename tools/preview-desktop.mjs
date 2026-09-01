@@ -277,6 +277,22 @@ await page.waitForTimeout(300);
  * počítači může být rozepsaná odpověď zákazníkovi — jen se nabídne dole.
  */
 await overflow('proužek: práce z telefonu'); await snap('07c-zivy-prouzek');
+// Klepnutí má skončit u té krabice, ne v seznamu, kde se k ní musí doklikat
+await click('.live-offer .btn.primary');
+await overflow('proužek: pokračování u objednávky'); await snap('07d-zivy-otevreno');
+await click('.modal-head .icon-btn:last-child');
+await page.waitForTimeout(300);
+
+// Totéž u naskladnění: proužek má otevřít tu relaci, na které se pracuje
+await page.evaluate(() => window.__emit('live:offers', [{
+  key: 'stockin:ph-a1', kind: 'stockin', id: 'ph-a1', from: 'iPhone Patrik',
+  title: 'Naskladnění 30. 8. 2026', detail: '3 položky · 11 ks', at: '2026-09-01T08:05:00.000Z'
+}]));
+await page.waitForTimeout(200);
+await click('.live-offer .btn.primary');
+await overflow('proužek: pokračování u naskladnění'); await snap('07e-zivy-naskladneni');
+await click('.modal-head .icon-btn:last-child');
+await page.waitForTimeout(300);
 
 /*
  * Balení: hledání podle čísla. Ze čtečky je to vždycky faktura — přepínač je

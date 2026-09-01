@@ -52,6 +52,8 @@ function AppInner() {
   const [packingOpen, setPackingOpen] = useState(false);
   /** Naskladnění, na které se má skočit z proužku s prací z telefonu */
   const [liveStockin, setLiveStockin] = useState<string | null>(null);
+  /** Objednávka, na kterou se má skočit z proužku s prací z telefonu */
+  const [livePacking, setLivePacking] = useState<string | null>(null);
   // Nástroje pod záložkou AI: překlady a články. Otevírají se přes celé okno,
   // ale běh (překlad) pokračuje i po zavření — proto je stav tady, ne v panelu.
   const [aiTool, setAiTool] = useState<AiTool | null>(null);
@@ -335,7 +337,8 @@ function AppInner() {
       {digestOpen && <DigestModal onClose={() => setDigestOpen(false)} />}
       {packingOpen && (
         <PackingModal
-          onClose={() => setPackingOpen(false)}
+          openOrder={livePacking}
+          onClose={() => { setPackingOpen(false); setLivePacking(null); }}
           onOpenMessage={id => {
             setPackingOpen(false);
             setWorkspace('mail');
@@ -356,7 +359,7 @@ function AppInner() {
             hidden={aiTool === 'catalog' || packingOpen}
             onOpen={one => {
               if (one.kind === 'stockin') { setLiveStockin(one.id); setAiTool('catalog'); }
-              else setPackingOpen(true);
+              else { setLivePacking(one.id); setPackingOpen(true); }
             }}
           />
         </>

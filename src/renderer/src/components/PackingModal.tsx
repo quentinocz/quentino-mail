@@ -155,9 +155,17 @@ function PackItem({
 interface Props {
   onClose: () => void;
   onOpenMessage: (id: number) => void;
+  /**
+   * Číslo objednávky, na které se má okno rovnou otevřít.
+   *
+   * Chodí sem z proužku s prací z telefonu: klepnutí na „pokračovat tady"
+   * má skončit u té krabice, kterou někdo balí, ne v seznamu, kde se k ní
+   * musí doklikat — a která navíc nemusí do zvoleného období vůbec spadat.
+   */
+  openOrder?: string | null;
 }
 
-export default function PackingModal({ onClose, onOpenMessage }: Props) {
+export default function PackingModal({ onClose, onOpenMessage, openOrder }: Props) {
   const toast = useToast();
   const [days, setDays] = useState(3);
   const [orders, setOrders] = useState<PackingOrder[]>([]);
@@ -515,6 +523,28 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
       setLooking(false);
     }
   }, [looking, openFound, say, toast]);
+
+  /*
+   * Objednávka z proužku „pracuje se na tomhle". Otevře se jednou, hned po
+   * otevření okna: v seznamu být nemusí (může být starší, než sahá zvolené
+   * období), takže se dohledá stejnou cestou jako opsané číslo objednávky.
+   */
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (!openOrder || jumped.current) return;
+    jumped.current = true;
+    void findByNumber(openOrder, 'code');
+  }, [openOrder, findByNumber]);
+
+  /*
+   * „Právě balím tuhle." Posílá se při každém otevření objednávky, ne až
+   * při prvním odškrtnutí — rozhodnutí padne dřív a druhé zařízení má
+   * nabídnout pokračování hned.
+   */
+  useEffect(() => {
+    if (selected === null) return;
+    api.packing.working(selected).catch(() => {});
+  }, [selected]);
 
   const toggleCamera = async () => {
     if (panelH) { await api.scan.stop().catch(() => {}); setPanelH(0); return; }

@@ -237,6 +237,8 @@
       count: 1, qty: 2, needMore: 1, message: 'Manžetové knoflíčky Onyx — 1/2 ks, ještě 1' },
     // Načtená faktura otevře i půl roku starou doručenou objednávku
     'packing:openOrder': null,
+    'packing:working': true,
+    'stockin:working': true,
     // Upozornění na telefon přes ntfy — v náhledu se nikam neposílá
     'packing:mailFor': 1,
     'notify:topic': 'quentino-nahled123456789abcdef',
@@ -790,8 +792,9 @@
     'live:save': { enabled: true, channel: 'q-mkrp7had2xqf9bntsvwe', connected: true, error: null },
     'live:newChannel': 'q-mkrp7had2xqf9bntsvwe',
     'live:offers': [
-      { key: 'stockin:tel-abc', kind: 'stockin', id: 'tel-abc', from: 'iPhone Patrik',
-        title: 'Kšandy z úterý', detail: '12 položek · 46 ks', at: '2026-09-01T08:05:00.000Z' }
+      // Balení: proužek má okno otevřít rovnou u té krabice, ne v seznamu
+      { key: 'packing:20260812', kind: 'packing', id: '20260812', from: 'iPhone Patrik',
+        title: 'Objednávka 20260812', detail: 'balí se', at: '2026-09-01T08:06:00.000Z' }
     ],
     'live:dismiss': [],
     'scan:available': false,
