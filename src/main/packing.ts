@@ -482,56 +482,38 @@ function feedReach(): string {
 }
 
 /**
- * Otevře objednávku podle načteného čísla — i takovou, která je dávno mimo
+ * Otevře objednávku podle čísla z faktury — i takovou, která je dávno mimo
  * seznam k balení.
  *
- * Pořadí je dané tím, co je na papíře: na faktuře je **číslo faktury**, takže
- * se nejdřív přeloží přes feed na číslo objednávky. Teprve když načtené číslo
- * žádná faktura nemá, bere se jako číslo objednávky — jinak by se u čísla,
- * které je zároveň fakturou jedné a objednávkou druhé, otevřela ta nesprávná.
- * Když nastane obojí, druhá možnost se vrátí v `also` a rozhraní ji nabídne.
+ * **Načtené číslo je vždycky číslo faktury.** QR na dokladu nic jiného nenese
+ * a číslo objednávky se z něj nikdy neskenuje. Objednávka se proto pokaždé
+ * dohledá přes feed: faktura → řádek ve feedu → číslo objednávky.
+ *
+ * Obě čísla se schválně nemíchají. Číslo faktury jedné objednávky totiž může
+ * být zároveň číslem jiné objednávky, a kdyby se hledalo „nejdřív jako
+ * faktura, a když to nevyjde, tak jako objednávka", otevřela by se u takového
+ * čísla cizí objednávka — a poznalo by se to až podle zboží v krabici.
+ * Když faktura ve feedu není, řekne se to; hádat se nebude.
+ *
+ * Ruční pole je na to výjimka, ale výslovná: kdo si číslo objednávky opíše
+ * z e-shopu, zadá ho jako číslo objednávky (`as: 'code'`).
  *
  * Podklady se berou z mailu, když existuje (má navíc adresu), jinak z feedu —
  * ten má u položek rovnou kód varianty, takže se proti němu dá odškrtávat taky.
  */
-export async function openOrder(raw: string): Promise<PackingLookup> {
+export async function openOrder(raw: string, as: 'invoice' | 'code' = 'invoice'):
+  Promise<PackingLookup> {
   const asked = numberForms(raw);
   if (asked.length === 0) {
-    return { ok: false, reason: 'noNumber', message: 'To není číslo objednávky ani faktury' };
+    return { ok: false, reason: 'noNumber', message: 'To není číslo faktury' };
   }
   const shown = asked[0];
 
-  // 1) číslo jako faktura — to je to, co je na dokladu vytištěné
-  const byInvoice = getDb().prepare(
-    `SELECT * FROM shop_orders WHERE invoice != '' AND (invoice = ? OR ltrim(invoice, '0') = ?)
-     ORDER BY created_at DESC LIMIT 4`
-  ).all(asked[0], asked[asked.length - 1]) as any[];
-
-  // 2) číslo jako číslo objednávky
-  const byCode = shopOrderOf(shown);
-
-  const primary = byInvoice[0] ?? byCode;
-  if (!primary) {
-    /*
-     * Ve feedu není — může být starší, než kam feed sahá. Potvrzovací e-mail
-     * ale ve schránce být může, a objednávka bez řádku ve feedu se nemá s čím
-     * poprat o totožnost, takže se vede podle zprávy.
-     */
-    const fromMail = await (async () => {
-      const found = messageForNumbers(asked);
-      return found ? orderFromMail(found) : null;
-    })();
-    if (fromMail) return { ok: true, order: fromMail };
-
-    return {
-      ok: false, reason: 'notInFeed',
-      message: `Faktura ani objednávka ${shown} ve feedu není — ${feedReach()}`
-    };
-  }
-
-  const code = String(primary.code ?? '');
-  const order = await open(primary);
-  if (!order) {
+  const row = as === 'code' ? shopOrderOf(shown) : invoiceRow(asked);
+  if (row) {
+    const code = String(row.code ?? '');
+    const order = await open(row);
+    if (order) return { ok: true, order };
     return {
       ok: false, reason: 'noItems',
       message: `Objednávka ${code} nemá ve feedu položky a e-mail k ní nenajdu`
@@ -539,18 +521,38 @@ export async function openOrder(raw: string): Promise<PackingLookup> {
   }
 
   /*
-   * Číslo faktury jedné objednávky může být číslem jiné objednávky. Otevře se
-   * ta z faktury, ale o druhé se musí vědět — jinak by se tiše balila špatná.
+   * Ve feedu není — může být starší, než kam feed sahá. Potvrzovací e-mail
+   * ale ve schránce být může; hledá se v něm ale jen podle čísla objednávky,
+   * takže z faktury se takhle vyjít nedá.
    */
-  let also: PackingLookup['also'];
-  if (byInvoice[0] && byCode && String(byCode.code ?? '') !== code) {
-    also = {
-      orderNumber: String(byCode.code ?? ''),
-      note: `Číslo ${shown} je faktura objednávky ${code}, ale existuje i objednávka ${byCode.code}`
+  if (as === 'code') {
+    const found = messageForNumbers(asked);
+    const fromMail = found ? await orderFromMail(found) : null;
+    if (fromMail) return { ok: true, order: fromMail };
+    return {
+      ok: false, reason: 'notInFeed',
+      message: `Objednávka ${shown} ve feedu není — ${feedReach()}`
     };
   }
 
-  return { ok: true, order, also };
+  return {
+    ok: false, reason: 'notInFeed',
+    message: `Faktura ${shown} ve feedu není — ${feedReach()}`
+  };
+}
+
+/**
+ * Řádek feedu podle čísla faktury.
+ *
+ * Vede se přesně i bez úvodních nul: e-shop píše `022605`, čtečka přečte
+ * `22605` a řetězcové porovnání by je minulo.
+ */
+function invoiceRow(forms: string[]): any | null {
+  const rows = getDb().prepare(
+    `SELECT * FROM shop_orders WHERE invoice != '' AND (invoice = ? OR ltrim(invoice, '0') = ?)
+     ORDER BY created_at DESC LIMIT 4`
+  ).all(forms[0], forms[forms.length - 1]) as any[];
+  return rows[0] ?? null;
 }
 
 /**

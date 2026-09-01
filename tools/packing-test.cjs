@@ -49,7 +49,8 @@ db.exec(`
     image TEXT, category TEXT NOT NULL DEFAULT '', categories TEXT NOT NULL DEFAULT '',
     manufacturer TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '',
     stock INTEGER, price_num REAL,
-    ean TEXT NOT NULL DEFAULT '', product_id TEXT NOT NULL DEFAULT '', stock_at TEXT NOT NULL DEFAULT '');
+    ean TEXT NOT NULL DEFAULT '', product_id TEXT NOT NULL DEFAULT '', stock_at TEXT NOT NULL DEFAULT '',
+    search TEXT NOT NULL DEFAULT '');
   CREATE TABLE IF NOT EXISTS product_variants (
     code TEXT PRIMARY KEY, product_code TEXT NOT NULL, variant_id TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT '', ean TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '',
@@ -242,12 +243,19 @@ async function orders() {
    * k ní e-mail existuje. Odškrtání se drží u čísla, pod kterým se objednávka
    * vede, a dvě různá čísla pro tutéž objednávku by rozešla odškrtané kusy.
    */
+  /*
+   * Načtené číslo je vždycky číslo faktury — QR na dokladu jiné nenese.
+   * Objednávka se k němu dohledá přes feed.
+   */
   const num = async (value) => (await packing.openOrder(value)).order?.card.orderNumber;
-  check('číslo objednávky přímo', await num('022605'), '022605');
-  check('bez vodicích nul', await num('22605'), '022605');
   check('faktura přes feed objednávek', await num('999111'), '022605');
+  check('bez vodicích nul u faktury', await num('0999111'), '022605');
+  check('číslo objednávky se jako faktura nebere', (await packing.openOrder('022605')).ok, false);
+  // Ruční pole je výslovná výjimka: číslo objednávky opsané z e-shopu
+  check('číslo objednávky jen na vyžádání',
+    (await packing.openOrder('022605', 'code')).order?.card.orderNumber, '022605');
 
-  const feedFirst = (await packing.openOrder('022605')).order;
+  const feedFirst = (await packing.openOrder('022605', 'code')).order;
   check('objednávka z feedu se vede podle feedu, ne podle mailu',
     [feedFirst.source, feedFirst.messageId < 0], ['feed', true]);
 
@@ -255,6 +263,7 @@ async function orders() {
   check('neznámé číslo řekne, kam až feed sahá',
     [missing.ok, missing.reason, /feed má \d+ objednávek/.test(missing.message)],
     [false, 'notInFeed', true]);
+  check('a mluví o faktuře, ne o objednávce', /^Faktura 880123/.test(missing.message), true);
   check('krátký nesmysl', (await packing.openOrder('ab')).reason, 'noNumber');
 
   // Stav z feedu jde s objednávkou, aby šlo u starší poznat, že je hotová
@@ -273,18 +282,20 @@ async function orders() {
    * Objednávka starší, než kam feed sahá, ve feedu vůbec není — tam zůstává
    * jedinou stopou potvrzovací e-mail a vede se podle něj.
    */
-  const mailOnly = (await packing.openOrder('020500')).order;
+  const mailOnly = (await packing.openOrder('020500', 'code')).order;
   check('objednávka mimo feed se najde podle e-mailu',
     [mailOnly?.messageId, mailOnly?.source], [4, 'mail']);
 
   /*
-   * Číslo faktury bývá číslem jiné objednávky. Otevřít se musí ta z faktury —
-   * opačné pořadí by tiše balilo cizí objednávku — a o druhé se musí vědět.
+   * Tady se to dřív lámalo: 020100 je faktura objednávky 019800 a zároveň
+   * číslo úplně jiné objednávky. Ze čtečky je to vždycky faktura, takže se
+   * musí otevřít 019800 — a při výslovném hledání podle objednávky ta druhá.
+   * Kdyby se obě čísla míchala, balilo by se cizí zboží.
    */
-  const clash = await packing.openOrder('020100');
-  check('faktura má přednost před stejným číslem objednávky',
-    clash.order.card.orderNumber, '019800');
-  check('druhá možnost se nabídne', clash.also?.orderNumber, '020100');
+  check('shodné číslo se ze čtečky čte jako faktura',
+    (await packing.openOrder('020100')).order.card.orderNumber, '019800');
+  check('a jako objednávka jen na vyžádání',
+    (await packing.openOrder('020100', 'code')).order.card.orderNumber, '020100');
 
   console.log('\nObjednávka bez e-mailu');
 

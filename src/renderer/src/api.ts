@@ -448,7 +448,13 @@ export const api = {
      * Objednávka podle načteného čísla — i taková, která je dávno mimo seznam
      * k balení. Faktura a objednávka mají různá čísla, překlad jde přes feed.
      */
-    openOrder: (code: string) => call<PackingLookup>('packing:openOrder', code),
+    /**
+     * Načtené číslo je vždycky číslo faktury — QR na dokladu jiné nenese.
+     * `as: 'code'` je jen pro ruční pole, kam se dá opsat číslo objednávky
+     * z e-shopu; obě čísla se schválně nemíchají.
+     */
+    openOrder: (code: string, as: 'invoice' | 'code' = 'invoice') =>
+      call<PackingLookup>('packing:openOrder', code, as),
     /**
      * Zpráva s potvrzením objednávky. Hledá se až na klepnutí — pro celý
      * seznam předem by to znamenalo průchod schránkou u každé objednávky.

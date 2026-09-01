@@ -1,6 +1,6 @@
 import { getDb, getSetting, setSetting } from './db';
 import { ProductHit, FeedStatus, MailLang, ProductQuery, ProductPage, ProductFacets,
-  ProductVariant, ProductDetail, ScanHit, CatalogSuggestion } from '../shared/types';
+  ProductVariant, ProductHitVariant, ProductDetail, ScanHit, CatalogSuggestion } from '../shared/types';
 import { syncFeedXml } from './ptrans';
 
 /**
@@ -222,6 +222,8 @@ export function importFeedXml(xml: string): number {
    * chyběly. Naposledy kvůli variantám, EANům a vnitřním číslům produktů.
    */
   setSetting('productFeedSchema', '3');
+  // Katalog i varianty jsou nové — hledání se dopočítá při prvním dotazu
+  dropSearchIndex();
   return rows.length;
 }
 
@@ -363,6 +365,120 @@ function mapRow(r: any): ProductHit {
 }
 
 /**
+ * Doplní ke kartám varianty i se zásobou.
+ *
+ * Jedním dotazem na celou stránku, ne po produktu: šedesát karet by jinak
+ * znamenalo šedesát dotazů a listování katalogem by se zadrhávalo.
+ */
+function withVariants(items: ProductHit[]): ProductHit[] {
+  if (items.length === 0) return items;
+  const holes = items.map(() => '?').join(',');
+  const rows = getDb().prepare(
+    `SELECT code, product_code, label, stock FROM product_variants
+      WHERE product_code IN (${holes}) ORDER BY sort, code`
+  ).all(...items.map(one => one.code)) as any[];
+  if (rows.length === 0) return items;
+
+  const byProduct = new Map<string, ProductHitVariant[]>();
+  for (const row of rows) {
+    const list = byProduct.get(row.product_code) ?? [];
+    list.push({ code: row.code, label: row.label ?? '', stock: row.stock ?? null });
+    byProduct.set(row.product_code, list);
+  }
+  return items.map(one => {
+    const variants = byProduct.get(one.code);
+    return variants ? { ...one, variants } : one;
+  });
+}
+
+/* ---------- hledání ---------- */
+
+/**
+ * Podoba textu, ve které se dá porovnávat: malá písmena bez diakritiky.
+ *
+ * `LIKE` v SQL jde znak po znaku, takže „ksandy" jinak nenajde „Kšandy" —
+ * a u regálu nikdo nepřepíná klávesnici kvůli jednomu slovu.
+ */
+function fold(text: string): string {
+  return (text ?? '').normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase();
+}
+
+/**
+ * Totéž bez oddělovačů — `PS120SM-120` a `ps120sm 120` je jeden a týž kód.
+ *
+ * Kód varianty se opisuje ze štítku, z faktury nebo po paměti a pomlčka se
+ * v něm netrefí pokaždé na stejné místo. Když se srovná i ta, najde se kód
+ * v každé podobě, ve které ho někdo napíše.
+ */
+function squash(text: string): string {
+  return fold(text).replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * Slova dotazu, jak se hledají.
+ *
+ * Každé slovo se hledá zvlášť a všechna musí sedět, takže „modra kravata"
+ * najde modrou kravatu i „kravatu modrou". Kratší než dva znaky se zahodí —
+ * jednopísmenné slovo sedí skoro všude a jen by zamíchalo pořadím.
+ */
+function queryWords(text: string): string[] {
+  return fold(text).split(/\s+/).map(w => w.trim()).filter(w => w.length >= 2).slice(0, 6);
+}
+
+/**
+ * Text, ve kterém se produkt hledá — název, kód, kategorie i **kódy variant**.
+ *
+ * Varianty tu musí být: na štítku i ve faktuře je kód délky (`PS120SM-120`),
+ * kdežto v katalogu se produkt vede pod seskupujícím kódem (`PS120SM`).
+ * Bez nich hledání kódu ze štítku nenajde nic, i když produkt v katalogu je.
+ *
+ * Ukládá se dvojmo — s oddělovači i bez nich — aby se trefil zápis s pomlčkou
+ * i bez ní. Dvojnásobek textu u dvanácti set produktů nikoho nezabolí.
+ */
+function haystack(row: any, variantCodes: string[]): string {
+  const parts = [
+    row.code, row.ean, row.title_cz, row.title_sk, row.title_en,
+    row.category, row.categories, row.manufacturer, ...variantCodes
+  ].filter(Boolean).join(' ');
+  return `${fold(parts)} ${squash(parts)}`;
+}
+
+/**
+ * Doplní sloupec pro hledání tam, kde chybí.
+ *
+ * Volá se před každým hledáním, ale skoro vždycky nic nedělá: dotaz na
+ * prázdné řádky je levný a naplní se až po stažení katalogu nebo po
+ * povýšení aplikace. Přepočítat se musí celé, protože kódy variant leží
+ * v jiné tabulce a při stažení se obě mění naráz.
+ */
+function ensureSearchIndex(): void {
+  const d = getDb();
+  const missing = (d.prepare("SELECT COUNT(*) AS cnt FROM products WHERE search = ''")
+    .get() as { cnt: number }).cnt;
+  if (missing === 0) return;
+
+  const variants = new Map<string, string[]>();
+  for (const row of d.prepare('SELECT code, product_code FROM product_variants').all() as any[]) {
+    const list = variants.get(row.product_code) ?? [];
+    list.push(String(row.code ?? ''));
+    variants.set(row.product_code, list);
+  }
+
+  const rows = d.prepare(
+    'SELECT code, ean, title_cz, title_sk, title_en, category, categories, manufacturer FROM products'
+  ).all() as any[];
+  const upd = d.prepare('UPDATE products SET search = ? WHERE code = ?');
+  d.transaction(() => {
+    for (const row of rows) upd.run(haystack(row, variants.get(row.code) ?? []), row.code);
+  })();
+}
+
+/** Katalog se změnil — hledání se dopočítá při příštím dotazu. */
+function dropSearchIndex(): void {
+  getDb().prepare("UPDATE products SET search = ''").run();
+}
+
+/**
  * Stránkované procházení katalogu — základ prohlížeče produktů v kompozeru.
  * Bez dotazu vrací celý katalog, takže se dá listovat i „naslepo".
  */
@@ -376,11 +492,20 @@ export function listProducts(q: ProductQuery = {}): ProductPage {
 
   const text = (q.query ?? '').trim();
   if (text) {
-    // Každé slovo musí sedět (AND) — hledání „modra kravata" tak funguje podle očekávání
-    for (const word of text.split(/\s+/).slice(0, 6)) {
-      const like = `%${word}%`;
-      where.push('(title_cz LIKE ? OR title_sk LIKE ? OR title_en LIKE ? OR code LIKE ? OR category LIKE ? OR categories LIKE ? OR url_cz LIKE ? OR url_sk LIKE ? OR url_en LIKE ?)');
-      params.push(like, like, like, like, like, like, like, like, like);
+    ensureSearchIndex();
+    /*
+     * Hledá se v připravené podobě produktu — bez diakritiky, malými písmeny
+     * a zvlášť i bez oddělovačů, takže „ksandy", „Kšandy" i „ps120sm120"
+     * najdou totéž. Jsou v ní i kódy variant, protože kód ze štítku je kód
+     * délky, kdežto v katalogu se produkt vede pod seskupujícím kódem.
+     *
+     * Každé slovo musí sedět (AND), aby „modra kravata" fungovalo podle
+     * očekávání. Slovo se hledá i ve své sražené podobě: kdo napíše
+     * „ps120sm-120", trefí se do druhé poloviny textu.
+     */
+    for (const word of queryWords(text)) {
+      where.push('(search LIKE ? OR search LIKE ?)');
+      params.push(`%${word}%`, `%${squash(word)}%`);
     }
   }
   if (q.category) {
@@ -400,7 +525,7 @@ export function listProducts(q: ProductQuery = {}): ProductPage {
   const rows = d.prepare(`SELECT * FROM products ${whereSql} ${orderSql} LIMIT ? OFFSET ?`)
     .all(...params, limit, offset) as any[];
 
-  return { items: rows.map(mapRow), total, offset, limit };
+  return { items: withVariants(rows.map(mapRow)), total, offset, limit };
 }
 
 /** Seznam kategorií s počty — levý filtr v prohlížeči produktů. */
@@ -552,22 +677,23 @@ export function suggestForStockin(query: string, limit = 8): CatalogSuggestion[]
   if (text.length < 2) return [];
 
   /*
-   * Hledá se bez ohledu na háčky a čárky.
-   *
-   * SQL `LIKE` porovnává znak po znaku, takže „ksandy" nenajde „Kšandy" —
-   * a u regálu nikdo nepřepíná klávesnici kvůli jednomu slovu. Katalog má
-   * dvanáct set řádků, což je na projití v paměti nic, takže se sáhne pro
-   * všechny a filtruje se tady.
+   * Hledá se přesně tak jako v katalogu — přes připravený sloupec bez
+   * diakritiky a bez oddělovačů, ve kterém jsou i kódy variant. Dvě různá
+   * hledání pro totéž zboží by znamenala, že našeptávač najde něco jiného
+   * než záložka Produkty, a to se pozná v nejhorší chvíli: u regálu.
    */
-  const words = fold(text).split(/\s+/).filter(Boolean).slice(0, 5);
+  ensureSearchIndex();
+  const words = queryWords(text);
+  if (words.length === 0) return [];
+
   const rows = getDb().prepare(
-    'SELECT code, title_cz, title_en, image, stock, price_cz FROM products'
+    'SELECT code, title_cz, title_en, image, stock, price_cz, search FROM products'
   ).all() as any[];
 
   const out: CatalogSuggestion[] = [];
   for (const row of rows) {
-    const hay = fold(`${row.code} ${row.title_cz ?? ''} ${row.title_en ?? ''}`);
-    if (!words.every(word => hay.includes(word))) continue;
+    const hay = String(row.search ?? '');
+    if (!words.every(word => hay.includes(word) || hay.includes(squash(word)))) continue;
     out.push({
       code: row.code,
       title: row.title_cz || row.title_en || row.code,
@@ -579,11 +705,6 @@ export function suggestForStockin(query: string, limit = 8): CatalogSuggestion[]
     if (out.length >= limit) break;
   }
   return out;
-}
-
-/** Malá písmena bez diakritiky — jediná podoba, ve které se dá porovnávat. */
-function fold(text: string): string {
-  return (text ?? '').normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase();
 }
 
 export function searchProducts(query: string, limit = 20): ProductHit[] {

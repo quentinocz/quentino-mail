@@ -430,6 +430,18 @@ function migrate(d: Database.Database) {
    */
   try { d.exec("ALTER TABLE products ADD COLUMN stock_at TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   /*
+   * Podoba produktu, ve které se dá hledat.
+   *
+   * `LIKE` porovnává znak po znaku, takže „ksandy" nenajde „Kšandy" a
+   * „ps120sm120" nenajde „PS120SM-120" — u regálu ale nikdo nepřepíná
+   * klávesnici ani netrefí pomlčku na správné místo. Sloupec proto drží text
+   * bez diakritiky, malými písmeny a zvlášť i bez oddělovačů, a jsou v něm
+   * i kódy variant, aby se dala najít konkrétní délka.
+   *
+   * Prázdno znamená „ještě se nespočítalo" a doplní se při prvním hledání.
+   */
+  try { d.exec("ALTER TABLE products ADD COLUMN search TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  /*
    * Balení po kusech, ne po položkách. Dřív se odškrtávala celá položka, takže
    * u „3 ks" nebylo z čeho poznat, kolik jich už je v krabici — a při balení
    * je právě tohle to jediné, co se počítá.

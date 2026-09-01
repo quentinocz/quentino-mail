@@ -693,7 +693,18 @@
           price: { cz: [690, 590, 490, 290, 890, 620, 450, 540, 390, 990, 640, 1190][i] + ' Kč', sk: '', en: '' },
           category: ['Kšandy', 'Kravaty', 'Motýlky', 'Kapesníčky', 'Manžetové knoflíčky'][i % 5],
           availability: 'Skladem',
-          stock: [4, 0, 12, 2, 7, 0, 3, 25, 9, 1, 6, 14][i]
+          stock: [4, 0, 12, 2, 7, 0, 3, 25, 9, 1, 6, 14][i],
+          // Délky u kšand a šlí; ostatní zboží varianty nemá, ať je na
+          // náhledu vidět obojí podoba karty
+          variants: [0, 6, 9].indexOf(i) < 0 ? undefined
+            : [100, 110, 120, 130].map(function (len, n) {
+                return {
+                  code: ['PS120SM', 'REGJ01', 'MOT14', 'KAP07', 'MKO02', 'MIL33',
+                    'DSL09', 'MOTS21', 'SPO05', 'PSK41', 'PLK18', 'SET77'][i] + '-' + len,
+                  label: 'Délka: ' + len + 'cm',
+                  stock: [0, 2, 5, 1][(n + i) % 4]
+                };
+              })
         };
       });
     })() },

@@ -159,7 +159,16 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
   const [lookup, setLookup] = useState('');
   const [looking, setLooking] = useState(false);
   /** Číslo šlo přečíst dvěma způsoby — druhá možnost k otevření */
-  const [also, setAlso] = useState<{ orderNumber: string; note: string } | null>(null);
+  /**
+   * Čím je zadané číslo.
+   *
+   * Z faktury se skenuje **jen číslo faktury** a objednávka se k němu dohledá
+   * přes feed. Obě čísla se schválně nemíchají: číslo faktury jedné objednávky
+   * může být zároveň číslem jiné objednávky, takže „když to nevyjde jako
+   * faktura, zkus to jako objednávku" by tiše otevřelo cizí zboží. Kdo si
+   * číslo objednávky opisuje z e-shopu, přepne si to tady.
+   */
+  const [findAs, setFindAs] = useState<'invoice' | 'code'>('invoice');
   const [zoom, setZoom] = useState<OrderCardItem | null>(null);
   const [copied, setCopied] = useState(false);
   const phone = useIsPhone();
@@ -403,7 +412,6 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
     // Hláška od předchozí objednávky by nad tou novou jen mátla
     setNote(null);
     setFlash(null);
-    setAlso(null);
     setOrders(prev => {
       const rest = prev.filter(o => o.messageId !== found.messageId);
       return [found, ...rest];
@@ -457,8 +465,9 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
         if (hit && hit.reason === 'already') { say(hit.message, false); return; }
       }
 
-      const out = await api.packing.openOrder(text).catch(() => null);
-      if (out?.ok) { openFound(out.order); setAlso(out.also ?? null); return; }
+      // Čtečka čte doklad, a na dokladu je číslo faktury — nic jiného
+      const out = await api.packing.openOrder(text, 'invoice').catch(() => null);
+      if (out?.ok) { openFound(out.order); return; }
       // Hláška z hledání říká, kde to skončilo — na feedu, nebo na položkách
       say(out?.message ?? `Kód ${text} v objednávce není`, false);
     });
@@ -472,13 +481,13 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
    *
    * Bez pole by šlo číslo zadat jedině fotoaparátem, takže na počítači vůbec.
    */
-  const findByNumber = useCallback(async (text: string) => {
+  const findByNumber = useCallback(async (text: string, as: 'invoice' | 'code' = 'invoice') => {
     const value = text.trim();
     if (!value || looking) return;
     setLooking(true);
     try {
-      const out = await api.packing.openOrder(value);
-      if (out.ok) { openFound(out.order); setAlso(out.also ?? null); setLookup(''); }
+      const out = await api.packing.openOrder(value, as);
+      if (out.ok) { openFound(out.order); setLookup(''); }
       else say(out.message, false);
     } catch (e: any) {
       toast(e.message, 'error');
@@ -558,15 +567,27 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
             Skrýt zabalené
           </button>
           {/*
-            Číslo z faktury nebo objednávky. Na počítači je to jediná cesta,
-            jak objednávku najít — čtečka se chová jako klávesnice a kód sem
-            spadne i s Enterem.
+            Číslo z dokladu. Na počítači je to jediná cesta, jak objednávku
+            najít — čtečka se chová jako klávesnice a kód sem spadne i s
+            Enterem, takže výchozí je faktura. Přepínač je vedle proto, aby
+            bylo pokaždé vidět, které z těch dvou čísel se zrovna hledá.
           */}
-          <form className="pk-find" onSubmit={e => { e.preventDefault(); void findByNumber(lookup); }}>
+          <form className="pk-find" onSubmit={e => { e.preventDefault(); void findByNumber(lookup, findAs); }}>
             <Icon name="search" size={13} />
             <input value={lookup} onChange={e => setLookup(e.target.value)}
-              inputMode="numeric" placeholder="číslo objednávky / faktury"
-              aria-label="Najít objednávku podle čísla objednávky nebo faktury" />
+              inputMode="numeric"
+              placeholder={findAs === 'invoice' ? 'číslo faktury' : 'číslo objednávky'}
+              aria-label={findAs === 'invoice'
+                ? 'Najít objednávku podle čísla faktury'
+                : 'Najít objednávku podle čísla objednávky'} />
+            <span className="pk-as">
+              <button type="button" className={findAs === 'invoice' ? 'on' : ''}
+                onClick={() => setFindAs('invoice')}
+                data-tip="Číslo z faktury; objednávka se k němu dohledá ve feedu">faktura</button>
+              <button type="button" className={findAs === 'code' ? 'on' : ''}
+                onClick={() => setFindAs('code')}
+                data-tip="Číslo objednávky opsané z e-shopu">objednávka</button>
+            </span>
             {looking && <span className="spinner-inline" />}
           </form>
           <span style={{ flex: 1 }} />
@@ -646,21 +667,6 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                     </div>
                   </div>
                 </div>
-
-                {/*
-                  Číslo faktury jedné objednávky bývá číslem jiné objednávky.
-                  Otevřela se ta z faktury — ale ta druhá musí být na dosah,
-                  jinak by se tiše balila špatná.
-                */}
-                {also && (
-                  <div className="pk-note warn pk-also">
-                    <Icon name="alert" size={14} />
-                    <span>{also.note}</span>
-                    <button className="oc-btn" onClick={() => void findByNumber(also.orderNumber)}>
-                      Otevřít {also.orderNumber}
-                    </button>
-                  </div>
-                )}
 
                 {/*
                   Starší objednávka. Načtená faktura může být i půl roku stará

@@ -1703,8 +1703,21 @@ input:focus, textarea:focus, select:focus {
   color: var(--text-1);
 }
 .pk-find:focus-within { border-color: var(--accent); }
-.pk-also { align-items: center; }
-.pk-also .oc-btn { margin-left: auto; flex-shrink: 0; }
+/*
+ * Čím zadané číslo je. Ze čtečky je to vždycky faktura; přepínač je vidět
+ * proto, aby se obě čísla nespletla — číslo faktury jedné objednávky bývá
+ * číslem jiné objednávky a otevřít tu cizí se pozná až podle zboží.
+ */
+.pk-as { display: inline-flex; gap: 2px; flex-shrink: 0; }
+.pk-as button {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.pk-as button.on { background: var(--accent); color: #fff; }
 .pk-old-sub { margin-top: 2px; font-size: 12px; opacity: 0.85; }
 
 .pk-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 14px; }
@@ -6119,7 +6132,49 @@ html[data-form-factor="phone"] .cl-list { max-height: none; }
 .kat-var:last-child { border-bottom: 0; }
 .kat-var-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .kat-var .kat-stock { position: static; background: transparent; padding: 0; }
+.kat-var.pick { cursor: pointer; }
+.kat-var.pick input { width: auto; flex-shrink: 0; }
+.kat-var.pick.on { background: var(--accent-soft); }
 .kat-links { display: flex; gap: 8px; }
+
+/*
+ * Varianty rovnou na kartě v seznamu.
+ *
+ * Zásoba na produktu sečítá všechny délky dohromady, takže bez tohohle
+ * seznamu se muselo u každého produktu otevírat okno jen kvůli tomu, aby
+ * bylo vidět, která délka došla. Řádky jsou schválně drobné — je jich
+ * u kšand i osm a karta se kvůli nim nesmí roztáhnout přes celý sloupec.
+ */
+.kat-vlist {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  max-height: 132px;
+  overflow-y: auto;
+}
+.kat-vrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.kat-vrow.pick { cursor: pointer; }
+.kat-vrow input { width: auto; margin: 0; flex-shrink: 0; }
+.kat-vrow.pick:hover { background: var(--bg); }
+.kat-vrow.on { background: var(--accent-soft); color: var(--accent-dark); }
+.kat-vname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Zásoba u varianty je text v řádku, ne odznak přes obrázek */
+.kat-vrow .kat-stock {
+  position: static;
+  background: transparent;
+  padding: 0;
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .kat-vrow.pick:hover { background: #2c2738; }
 
 /* ---------- naskladnění ---------- */
 

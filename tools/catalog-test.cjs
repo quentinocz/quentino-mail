@@ -25,7 +25,8 @@ db.exec(`
     image TEXT, category TEXT NOT NULL DEFAULT '', categories TEXT NOT NULL DEFAULT '',
     manufacturer TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '',
     stock INTEGER, price_num REAL,
-    ean TEXT NOT NULL DEFAULT '', product_id TEXT NOT NULL DEFAULT '', stock_at TEXT NOT NULL DEFAULT '');
+    ean TEXT NOT NULL DEFAULT '', product_id TEXT NOT NULL DEFAULT '', stock_at TEXT NOT NULL DEFAULT '',
+    search TEXT NOT NULL DEFAULT '');
   CREATE TABLE IF NOT EXISTS product_variants (
     code TEXT PRIMARY KEY, product_code TEXT NOT NULL, variant_id TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT '', ean TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '',
@@ -185,6 +186,52 @@ check('kód funguje taky', products.suggestForStockin('REGJ01')[0].code, 'REGJ01
 check('hledá se i bez háčků a čárek', products.suggestForStockin('ksandy')[0].code, 'PS120SM');
 check('a naopak s nimi taky', products.suggestForStockin('kravata')[0].code, 'REGJ01');
 check('víc slov musí sedět všechna', products.suggestForStockin('kšandy kravata').length, 0);
+
+/*
+ * Kód varianty. Na štítku i na faktuře je kód délky (`PS120SM-120`), kdežto
+ * v katalogu se produkt vede pod seskupujícím kódem (`PS120SM`) — bez toho,
+ * aby se hledalo i mezi variantami, nenajde kód ze štítku nic, i když
+ * produkt v katalogu je.
+ */
+console.log('\nhledání kódu varianty:\n');
+const one = (q) => products.listProducts({ query: q }).items.map(i => i.code);
+check('kód varianty najde produkt', one('PS120SM-120'), ['PS120SM']);
+check('malými písmeny taky', one('ps120sm-120'), ['PS120SM']);
+// Pomlčku nikdo netrefí pokaždé na stejné místo
+check('a bez pomlčky', one('ps120sm120'), ['PS120SM']);
+check('kód s mezerou místo pomlčky', one('ps120sm 120'), ['PS120SM']);
+check('název bez diakritiky najde produkt', one('ksandy'), ['PS120SM']);
+check('název s diakritikou taky', one('Kšandy'), ['PS120SM']);
+check('cizí kód nenajde nic', one('XX999'), []);
+check('EAN najde produkt', one('8594001234567'), ['PS120SM']);
+check('našeptávač hledá stejně jako katalog',
+  products.suggestForStockin('ps120sm120')[0]?.code, 'PS120SM');
+
+// Varianty i se zásobou jdou rovnou s kartou, ať se kvůli nim neotvírá okno
+const card = products.listProducts({ query: 'PS120SM' }).items[0];
+check('karta nese varianty i se zásobou', card.variants.map(v => [v.code, v.stock]),
+  [['PS120SM-110', 0], ['PS120SM-120', 4]]);
+check('produkt bez variant je nemá',
+  products.listProducts({ query: 'REGJ01' }).items[0].variants, undefined);
+
+/*
+ * Štítky na jednu variantu. Dotiskuje se často jen jedna délka a tisknout
+ * kvůli ní celou řadu je zbytečně spotřebovaný arch.
+ */
+console.log('\nštítky na jednu variantu:\n');
+check('kód varianty dá jeden štítek',
+  labels.labelItems(['PS120SM-120'], 1).map(i => [i.code, i.count]), [['PS120SM-120', 1]]);
+check('a nese název produktu i délku',
+  labels.labelItems(['PS120SM-120'], 1).map(i => [i.title, i.label]), [['Kšandy Slim', 'Délka: 120cm']]);
+check('kód produktu se rozepíše na všechny',
+  labels.labelItems(['PS120SM'], 1).map(i => i.code), ['PS120SM-110', 'PS120SM-120']);
+// Zásoba je ta z rychlého feedu výš, ne ta z prvního načtení katalogu
+check('počet podle skladu bere zásobu varianty',
+  labels.labelItems(['PS120SM-120'], 1, true).map(i => i.count), [4]);
+// Produkt i jeho varianta ve výběru najednou: štítek jen jednou
+check('varianta se nezdvojí',
+  labels.labelItems(['PS120SM', 'PS120SM-120'], 1).map(i => i.code),
+  ['PS120SM-110', 'PS120SM-120']);
 
 /* ---------- naskladnění ---------- */
 

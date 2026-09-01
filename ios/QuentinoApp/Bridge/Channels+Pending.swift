@@ -260,7 +260,9 @@ extension Bridge {
             Packing.mailForOrder(args.first as? String ?? "") ?? NSNull()
         }
         register("packing:openOrder") { args in
-            await Packing.openOrder(args.first as? String ?? "")
+            // Druhý argument říká, čím zadané číslo je; bez něj je to faktura
+            let kind = args.count > 1 ? (args[1] as? String ?? "invoice") : "invoice"
+            return await Packing.openOrder(args.first as? String ?? "", as: kind)
         }
         register("packing:setDone") { args in
             Packing.setDone(messageId: try Self.int(args.first),
