@@ -168,6 +168,17 @@ extension Bridge {
         // různé projekty.
 
         register("supabase:status") { _ in KeepAlive.status() }
+
+        /*
+         Živé propojení telefonu a počítače. Kanál je zároveň heslo, takže se
+         generuje tady a jen se ukáže; nabídky rozdělané práce (`live:offers`)
+         jsou jen na počítači — kdo drží telefon, dívá se na to, co dělá.
+         */
+        register("live:status") { _ in Live.status() }
+        register("live:save") { args in
+            Live.saveConfig(args.first as? [String: Any] ?? [:])
+        }
+        register("live:newChannel") { _ in Live.newChannel() }
         register("supabase:ping") { _ in
             let result = await KeepAlive.keepAwake(force: true)
             return ["result": result, "status": KeepAlive.status()]

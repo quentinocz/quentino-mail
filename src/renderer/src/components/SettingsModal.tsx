@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang,
-  OrderFeed, OrderFeedStatus, OrderStats } from '@shared/types';
+  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -103,6 +103,10 @@ export default function SettingsModal(p: Props) {
   const [personPhotoPreview, setPersonPhotoPreview] = useState<string | null>(null);
   /** SQL pro Supabase — ukazuje se až na vyžádání, je to dlouhé */
   const [chatSql, setChatSql] = useState<string | null>(null);
+  /** Stav živého propojení telefonu a počítače */
+  const [live, setLive] = useState<LiveStatus>({
+    enabled: false, channel: '', connected: false, error: null
+  });
   const [sqlCopied, setSqlCopied] = useState(false);
 
   useEffect(() => {
@@ -113,7 +117,11 @@ export default function SettingsModal(p: Props) {
     api.ai.usage().then(setAiUsage).catch(() => {});
     api.appsync.get().then(setSyncCfg).catch(() => {});
     api.upgates.config().then(setUpgates).catch(() => {});
+    api.live.status().then(setLive).catch(() => {});
   }, []);
+
+  // Spojení se navazuje na pozadí, takže se stav hlásí sám
+  useEffect(() => api.on('live:state', (s: LiveStatus) => setLive(s)), []);
 
   useEffect(() => {
     if (editing?.logoPath) {
@@ -931,6 +939,51 @@ export default function SettingsModal(p: Props) {
                   onChange={e => saveNotify({ notifyPhone: e.target.checked })} />
                 Posílat upozornění na telefon
               </label>
+
+              {/*
+                * Živé propojení. Je to jiná věc než upozornění — nejde
+                * o hlášku, ale o rozdělanou práci — proto má vlastní kanál
+                * i vlastní vypínač, i když obojí sedí na téhle záložce.
+                */}
+              <h4 style={{ marginTop: 18 }}>Naskladnění a balení živě</h4>
+              <div className="desc" style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
+                Co se naskladní nebo odškrtne na telefonu, se objeví na počítači do vteřiny —
+                a naopak. Jede to přes <b>Supabase</b>, který už je napojený kvůli chatu, a to
+                způsobem, kdy se <b>nic neukládá do databáze</b>: zpráva se doručí tomu, kdo
+                zrovna poslouchá, a tím končí. Není tedy co uklízet ani co přeplnit.
+                Sdílená složka funguje dál a zůstává tím, co platí — tohle je jen rychlejší
+                cesta. Na počítači nic nevyskočí přes rozdělanou práci: dole se ukáže proužek
+                a okno se otevře, teprve když na něj klepneš.
+              </div>
+
+              <label className="check-row">
+                <input type="checkbox" checked={live.enabled}
+                  onChange={e => api.live.save({ enabled: e.target.checked }).then(setLive)} />
+                Propojit telefon a počítač živě
+              </label>
+
+              <div className="field">
+                <label>Kanál (chová se jako heslo — stejný zadej i v telefonu)</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input value={live.channel} spellCheck={false}
+                    placeholder="— zatím žádný —" className="mono" style={{ flex: 1 }}
+                    onChange={e => api.live.save({ channel: e.target.value }).then(setLive)} />
+                  <button className="btn ghost" onClick={() => run('liveChannel', async () => {
+                    const channel = await api.live.newChannel();
+                    setLive(await api.live.save({ channel }));
+                    toast('Kanál vygenerován a uložen.');
+                  })}>
+                    <Icon name="refresh" size={14} /> Vygenerovat
+                  </button>
+                </div>
+                <div className="desc">
+                  {live.enabled
+                    ? live.connected
+                      ? '✓ Propojeno — počítač poslouchá.'
+                      : (live.error ?? 'Připojuji…')
+                    : 'Vypnuto — naskladnění putuje jen sdílenou složkou.'}
+                </div>
+              </div>
 
               <div className="field">
                 <label>Téma (chová se jako heslo — kdo ho zná, čte i posílá)</label>

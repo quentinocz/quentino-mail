@@ -866,6 +866,7 @@ enum Packing {
                 [.text(json(state.items)), .text(json(state.counts)),
                  .int(state.done ? 1 : 0), doneAt, .int(Int64(-messageId))]
             )
+            pushSoon(messageId)
             return
         }
         _ = try? SQLite.shared.run(
@@ -941,3 +942,80 @@ enum Packing {
         return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 }
+
+// MARK: - Rychlý posel
+
+/**
+ Odškrtávání se posílá počítači hned.
+
+ Balí se s telefonem v ruce, ale krabice se zavírá u počítače a etiketa se
+ tiskne tam — a mezitím se nesmí stát, že jedna strana odškrtne kus, o kterém
+ druhá neví, a zboží se do krabice dá dvakrát.
+
+ Posílají se **jen objednávky z feedu**. Ty se vedou pod dvojicí kód + trh,
+ která je na obou zařízeních stejná; objednávka vedená podle e-mailu má na
+ každém zařízení jiné číslo zprávy, takže by se stav neměl k čemu přiřadit.
+ */
+extension Packing {
+    static func slice(_ messageId: Int) -> [String: Any]? {
+        guard messageId < 0 else { return nil }
+        guard let row = (try? SQLite.shared.query(
+            "SELECT code, market, packed_json, counts_json, done, done_at FROM packing_shop WHERE id = ?",
+            [.int(Int64(-messageId))]
+        ))?.first else { return nil }
+        let doneAt = row["done_at"] as? String
+        var out: [String: Any] = [
+            "code": row["code"] as? String ?? "",
+            "market": row["market"] as? String ?? "",
+            "packed": row["packed_json"] as? String ?? "[]",
+            "counts": row["counts_json"] as? String ?? "{}",
+            "done": (row["done"] as? Int ?? 0) == 1,
+            "at": Formats.iso()
+        ]
+        out["doneAt"] = doneAt ?? NSNull()
+        return out
+    }
+
+    static func pushSoon(_ messageId: Int) {
+        guard messageId < 0 else { return }
+        packingWork[messageId]?.cancel()
+        let work = DispatchWorkItem {
+            packingWork[messageId] = nil
+            if let slice = slice(messageId) { Live.publish("packing", slice) }
+        }
+        packingWork[messageId] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    /**
+     Přijaté odškrtávání od počítače.
+
+     Zapisuje se natvrdo: poslední slovo má ten, kdo drží krabici, a stav se
+     posílá celý, ne po kusech, takže není co slučovat.
+     */
+    @discardableResult
+    static func applyRemote(_ slice: [String: Any]) -> [String: Any]? {
+        let code = slice["code"] as? String ?? ""
+        guard !code.isEmpty else { return nil }
+        let market = slice["market"] as? String ?? ""
+        let packed = slice["packed"] as? String ?? "[]"
+        let counts = slice["counts"] as? String ?? "{}"
+        let done = slice["done"] as? Bool ?? false
+        var doneAt = SQLite.Value.null
+        if let stamp = slice["doneAt"] as? String { doneAt = .text(stamp) }
+        _ = try? SQLite.shared.run(
+            """
+            INSERT INTO packing_shop (code, market, packed_json, counts_json, done, done_at)
+            VALUES (?,?,?,?,?,?)
+            ON CONFLICT(code, market) DO UPDATE SET
+              packed_json = excluded.packed_json, counts_json = excluded.counts_json,
+              done = excluded.done, done_at = excluded.done_at
+            """,
+            [.text(code), .text(market), .text(packed), .text(counts), .int(done ? 1 : 0), doneAt]
+        )
+        return ["code": code, "done": done]
+    }
+}
+
+/// Odložené odeslání po objednávce — mimo `Packing`, aby šlo měnit z rozšíření
+private var packingWork: [Int: DispatchWorkItem] = [:]

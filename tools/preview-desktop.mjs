@@ -273,6 +273,12 @@ await click('.modal-foot .btn.ghost', { hasText: 'Zavřít' });
 await page.waitForTimeout(300);
 
 /*
+ * Proužek s rozdělanou prací z telefonu. Nevyskakuje přes obrazovku — na
+ * počítači může být rozepsaná odpověď zákazníkovi — jen se nabídne dole.
+ */
+await overflow('proužek: práce z telefonu'); await snap('07c-zivy-prouzek');
+
+/*
  * Balení: hledání podle čísla. Ze čtečky je to vždycky faktura — přepínač je
  * vedle pole proto, aby se obě čísla nespletla; číslo faktury jedné
  * objednávky bývá číslem jiné objednávky.

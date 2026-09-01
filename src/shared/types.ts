@@ -1654,3 +1654,33 @@ export interface LabelLayout {
   /** Tenká linka kolem každého štítku — pomůcka při stříhání */
   cutLines: boolean;
 }
+
+/* ---------- živé propojení telefonu a počítače ---------- */
+
+/** Stav spojení se Supabase Realtime */
+export interface LiveStatus {
+  enabled: boolean;
+  channel: string;
+  connected: boolean;
+  error: string | null;
+}
+
+/**
+ * Rozdělaná práce z druhého zařízení, nabídnutá proužkem dole.
+ *
+ * Nabídka, ne příkaz: data se uloží hned, ale okno se otevře, teprve když
+ * na proužek někdo klepne. Vyskočit přes rozepsanou odpověď zákazníkovi jen
+ * proto, že někdo u regálu pípnul čtečkou, by bylo horší než nic.
+ */
+export interface LiveOffer {
+  /** `stockin:<id>` nebo `packing:<číslo objednávky>` */
+  key: string;
+  kind: 'stockin' | 'packing';
+  /** Co otevřít: id naskladnění, u balení číslo objednávky */
+  id: string;
+  /** Odkud to přišlo, do hlášky */
+  from: string;
+  title: string;
+  detail: string;
+  at: string;
+}

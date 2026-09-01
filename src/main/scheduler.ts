@@ -5,6 +5,8 @@ import { syncAllAccounts } from './imap';
 import { refreshFeed, feedIsStale, refreshStock } from './products';
 import { refreshDueFeeds } from './orderfeed';
 import { runSync, syncVouchersNow, watchShared } from './appsync';
+import { start as startLive } from './live';
+import { startLiveWork } from './livework';
 import { refreshStatesIfNeeded } from './ptrans/store';
 import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncSource as syncIgSource } from './instagram/publish';
 import { getSetting } from './db';
@@ -81,6 +83,16 @@ export function startScheduler() {
   watchShared();
   setInterval(syncVouchersNow, 10_000);
   setTimeout(syncVouchersNow, 3_000);
+
+  /*
+   * Živé propojení telefonu a počítače.
+   *
+   * Sdílená složka zůstává tím, co platí — tohle je jen rychlý posel, aby
+   * se naskladnění z regálu neobjevilo na počítači až za dvě minuty. Zapíná
+   * se se zpožděním, ať se aplikace nejdřív v klidu nastartuje.
+   */
+  startLiveWork();
+  setTimeout(() => { try { startLive(); } catch { /* zbývá složka */ } }, 5_000);
 
   // Stavy překladů se počítají dopředu a leží v databázi. Když se změní
   // pravidla, podle kterých se určují, musí se jednou přepočítat — jinak by

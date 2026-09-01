@@ -44,10 +44,20 @@ function plural(n: number, one: string, few: string, many: string): string {
   return `${n} ${n === 1 ? one : n >= 2 && n <= 4 ? few : many}`;
 }
 
-export default function CatalogModal({ onClose }: { onClose: () => void }) {
+export default function CatalogModal({ onClose, openStockin }: {
+  onClose: () => void;
+  /**
+   * Otevřít rovnou tohle naskladnění.
+   *
+   * Chodí sem z proužku s prací z telefonu: klepnutí na „pokračovat tady"
+   * má skončit u toho naskladnění, ne v seznamu produktů, kde se k němu
+   * musí doklikat.
+   */
+  openStockin?: string | null;
+}) {
   const toast = useToast();
   const phone = useIsPhone();
-  const [tab, setTab] = useState<Tab>('catalog');
+  const [tab, setTab] = useState<Tab>(openStockin ? 'stockin' : 'catalog');
 
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
@@ -380,7 +390,7 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
         )}
 
         {tab === 'stockin' && (
-          <Stockin phone={phone} onPrintLabels={phone ? null : rows => {
+          <Stockin phone={phone} openId={openStockin ?? null} onPrintLabels={phone ? null : rows => {
             setLabelPreset(rows);
             setTab('labels');
           }} />
@@ -497,8 +507,10 @@ function ProductSheet({ detail, picked, pickedCodes, onPick, onPickVariant, onCl
 
 /* ---------- naskladnění ---------- */
 
-function Stockin({ phone, onPrintLabels }: {
+function Stockin({ phone, openId: startWith, onPrintLabels }: {
   phone: boolean;
+  /** Naskladnění, které se má otevřít rovnou (z proužku z telefonu) */
+  openId?: string | null;
   /**
    * Předat naskladněné položky rovnou štítkům.
    *
@@ -509,7 +521,7 @@ function Stockin({ phone, onPrintLabels }: {
 }) {
   const toast = useToast();
   const [sessions, setSessions] = useState<StockinSession[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(startWith ?? null);
   const [items, setItems] = useState<StockinItem[]>([]);
   const [scan, setScan] = useState('');
   const [qty, setQty] = useState(1);

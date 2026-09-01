@@ -784,6 +784,16 @@
     ],
     // Čtečka fotoaparátem je jen v aplikaci na telefonu; náhled běží
     // v prohlížeči, takže tlačítko schválně nesvítí
+    // Živé propojení telefonu a počítače — v náhledu zapnuté a spojené,
+    // ať je vidět, jak proužek s prací z telefonu vypadá
+    'live:status': { enabled: true, channel: 'q-mkrp7had2xqf9bntsvwe', connected: true, error: null },
+    'live:save': { enabled: true, channel: 'q-mkrp7had2xqf9bntsvwe', connected: true, error: null },
+    'live:newChannel': 'q-mkrp7had2xqf9bntsvwe',
+    'live:offers': [
+      { key: 'stockin:tel-abc', kind: 'stockin', id: 'tel-abc', from: 'iPhone Patrik',
+        title: 'Kšandy z úterý', detail: '12 položek · 46 ks', at: '2026-09-01T08:05:00.000Z' }
+    ],
+    'live:dismiss': [],
     'scan:available': false,
     // Štítky rovnou z naskladnění: počty jsou ty, které se naskladňovaly
     'labels:stockin': [

@@ -17,7 +17,7 @@ import type {
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, LabelLayout,
-  RollLabel, ZplPlan
+  RollLabel, ZplPlan, LiveStatus, LiveOffer
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -358,6 +358,20 @@ export const api = {
    * Bezplatný tarif je po pár dnech ticha uspí, takže je vidět, kdy se
    * který naposledy ozval, a jde na ně sáhnout ručně.
    */
+
+  /**
+   * Živé propojení telefonu a počítače.
+   *
+   * Sdílená složka zůstává tím, co platí; tohle je rychlý posel, aby se
+   * naskladnění z regálu neobjevilo na počítači až za dvě minuty.
+   */
+  live: {
+    status: () => call<LiveStatus>('live:status'),
+    save: (patch: { channel?: string; enabled?: boolean }) => call<LiveStatus>('live:save', patch),
+    newChannel: () => call<string>('live:newChannel'),
+    offers: () => call<LiveOffer[]>('live:offers'),
+    dismiss: (key: string) => call<LiveOffer[]>('live:dismiss', key)
+  },
   supabase: {
     status: () => call<SupabaseStatus[]>('supabase:status'),
     ping: () => call<{

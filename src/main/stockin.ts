@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron';
 import { getDb, getSetting } from './db';
 import { deviceId, deviceName } from './device';
 import { findByCode } from './products';
+import * as live from './live';
 import { StockinSession, StockinItem, StockinPlanRow } from '../shared/types';
 
 /**
@@ -27,6 +28,46 @@ function now(): string {
 
 function touch(id: string): void {
   getDb().prepare('UPDATE stockin SET updated_at = ? WHERE id = ?').run(now(), id);
+  pushSoon(id);
+}
+
+/* ---------- rychlý posel ---------- */
+
+/**
+ * Jedno naskladnění tak, jak ho druhá strana umí sloučit.
+ *
+ * Je to tentýž tvar, jaký nese soubor ve sdílené složce, jen o jedné
+ * položce — `mergeStockin` na druhé straně tedy nepotřebuje nic nového a
+ * ostatních naskladnění se to nedotkne.
+ */
+export function sessionSlice(id: string): { sessions: any[]; items: any[] } | null {
+  const d = getDb();
+  const session = d.prepare('SELECT * FROM stockin WHERE id = ?').get(id) as any;
+  if (!session) return null;
+  const items = d.prepare('SELECT * FROM stockin_items WHERE session_id = ?').all(id) as any[];
+  return { sessions: [session], items };
+}
+
+const pushTimers = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Poslat změnu druhému zařízení co nevidět.
+ *
+ * Odklad je schválně: při skenování jde pípnutí za pípnutím a bez něj by
+ * se posílalo desetkrát za vteřinu. Necelá půlvteřina z toho udělá jednu
+ * zprávu a je to pořád „hned".
+ *
+ * Když posel nedoručí (spojení není, druhá strana neposlouchá), nic se
+ * neděje — sdílená složka to donese v běžném kole.
+ */
+export function pushSoon(id: string): void {
+  const running = pushTimers.get(id);
+  if (running) clearTimeout(running);
+  pushTimers.set(id, setTimeout(() => {
+    pushTimers.delete(id);
+    const slice = sessionSlice(id);
+    if (slice) live.publish('stockin', slice);
+  }, 400));
 }
 
 export function listSessions(): StockinSession[] {
@@ -61,6 +102,8 @@ export function createSession(title = ''): StockinSession {
     `INSERT INTO stockin (id, title, device, state, created_at, updated_at)
      VALUES (?,?,?,'open',?,?)`
   ).run(id, title || `Naskladnění ${new Date().toLocaleDateString('cs-CZ')}`, deviceName(), at, at);
+  // Ať se druhé zařízení dozví o zahájení, ne až o prvním pípnutí
+  pushSoon(id);
   return sessionOf(id)!;
 }
 
@@ -129,6 +172,7 @@ export function setQty(id: string, code: string, qty: number): void {
 export function renameSession(id: string, title: string, note = ''): void {
   getDb().prepare('UPDATE stockin SET title = ?, note = ?, updated_at = ? WHERE id = ?')
     .run(title, note, now(), id);
+  pushSoon(id);
 }
 
 /**
@@ -145,6 +189,7 @@ export function deleteSession(id: string): void {
   const d = getDb();
   d.prepare('DELETE FROM stockin_items WHERE session_id = ?').run(id);
   d.prepare("UPDATE stockin SET state = 'deleted', updated_at = ? WHERE id = ?").run(now(), id);
+  pushSoon(id);
   purgeTombstones();
 }
 
@@ -157,6 +202,7 @@ function purgeTombstones(): void {
 export function markSent(id: string): void {
   getDb().prepare("UPDATE stockin SET state = 'sent', sent_at = ?, updated_at = ? WHERE id = ?")
     .run(now(), now(), id);
+  pushSoon(id);
 }
 
 /**
