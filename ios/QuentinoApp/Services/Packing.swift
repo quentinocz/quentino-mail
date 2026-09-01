@@ -628,9 +628,16 @@ enum Packing {
             }
             guard let items = order["items"] as? [Any], !items.isEmpty else { continue }
 
+            /*
+             Bez čísla by objednávka nedostala platné id a odškrtávala by se
+             pod nulou — tedy do řádku patřícího zprávě. Takový řádek ve feedu
+             nemá co dělat, ale stát se to může.
+             */
             let code = order["code"] as? String ?? ""
+            guard !code.isEmpty else { continue }
             let market = order["market"] as? String ?? ""
             let id = shopId(code: code, market: market)
+            guard id < 0 else { continue }
             let state = packed(id)
 
             let status = order["status"] as? String ?? ""
@@ -682,12 +689,11 @@ enum Packing {
 
     /// Objednávka z feedu zpátky do tvaru řádku, se kterým pracuje `cardFromFeed`.
     private static func feedRow(_ order: [String: Any]) -> [String: Any] {
-        let items = (try? JSONSerialization.data(withJSONObject: order["items"] ?? []))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        let billing = (try? JSONSerialization.data(withJSONObject: order["billing"] ?? NSNull()))
-            .flatMap { String(data: $0, encoding: .utf8) }
-        let postal = (try? JSONSerialization.data(withJSONObject: order["postal"] ?? NSNull()))
-            .flatMap { String(data: $0, encoding: .utf8) }
+        // Objednávka bez adresy nese `NSNull` a ta se na nejvyšší úrovni
+        // serializovat nedá — `OrderFeed.jsonText` si tvar ověří předem
+        let items = OrderFeed.jsonText(order["items"]) ?? "[]"
+        let billing = OrderFeed.jsonText(order["billing"])
+        let postal = OrderFeed.jsonText(order["postal"])
 
         return [
             "code": order["code"] ?? "", "market": order["market"] ?? "cz",
