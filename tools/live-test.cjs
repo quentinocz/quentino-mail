@@ -195,6 +195,37 @@ deliver(message('packing', {
 const fresh = db.prepare("SELECT * FROM packing_shop WHERE code = '20260901'").get();
 ok('řádek se založil', !!fresh);
 check('i s odškrtanými kusy', fresh?.counts_json, '{"0":1}');
+work.dismissOffer('packing:20260901');
+
+/*
+ * Nabídnout se to má ve chvíli, kdy někdo řekne „dělám tohle" — ne až
+ * u prvního pípnutí. U regálu to je rozdíl mezi „počítač o tom ví, než
+ * k němu dojdu" a „musím čekat, až něco naskenuju".
+ */
+console.log('\nnabídne se hned po otevření, ne až po prvním kusu:\n');
+const empty = {
+  sessions: [{
+    id: 'tel-nova', title: 'Naskladnění 1. 9. 2026', note: '', device: 'iPhone Patrik',
+    state: 'open', created_at: '2026-09-01T12:00:00.000Z',
+    updated_at: '2026-09-01T12:00:00.000Z', sent_at: ''
+  }],
+  items: []
+};
+deliver(message('stockin', empty));
+check('prázdné naskladnění se nabídne taky',
+  work.liveOffers().map(o => o.id), ['tel-nova']);
+check('a přizná, že v něm zatím nic není',
+  work.liveOffers()[0].detail, '0 položek · 0 ks');
+work.dismissOffer('stockin:tel-nova');
+
+// Balení bez jediného odškrtnutého kusu — otevřená objednávka, nic víc
+deliver(message('packing', {
+  code: '20260830', market: 'cz', packed: '[]', counts: '{}',
+  done: false, doneAt: null, at: '2026-09-01T12:01:00.000Z'
+}));
+check('otevřená objednávka se nabídne bez odškrtnutého kusu',
+  work.liveOffers().map(o => [o.id, o.detail]), [['20260830', 'balí se']]);
+work.dismissOffer('packing:20260830');
 
 /* ---------- podoba zpráv ---------- */
 

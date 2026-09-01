@@ -74,6 +74,11 @@ extension Bridge {
             return true
         }
         register("stockin:plan") { args in Stockin.plan(args.first as? String ?? "") }
+        // „Právě dělám tohle" — počítač to má vědět hned, ne až po prvním pípnutí
+        register("stockin:working") { args in
+            Stockin.workingOn(args.first as? String ?? "")
+            return true
+        }
 
         // MARK: Čtečka kódů fotoaparátem
         //
@@ -269,6 +274,10 @@ extension Bridge {
 
         register("packing:mailFor") { args in
             Packing.mailForOrder(args.first as? String ?? "") ?? NSNull()
+        }
+        register("packing:working") { args in
+            Packing.workingOn(try Self.int(args.first))
+            return true
         }
         register("packing:openOrder") { args in
             // Druhý argument říká, čím zadané číslo je; bez něj je to faktura

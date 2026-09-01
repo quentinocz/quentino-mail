@@ -20,7 +20,8 @@ import * as live from './live';
 import { liveOffers, dismissOffer } from './livework';
 import { scanOld, freeUp } from './cleanup';
 import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renameSession,
-  deleteSession, planOf, emitChanged as emitStockin } from './stockin';
+  deleteSession, planOf, emitChanged as emitStockin,
+  workingOn as stockinWorkingOn } from './stockin';
 import { sendViaWindow, sendViaApi, apiCanWriteStock, confirmSent } from './upstock';
 import { labelItems, stockinLabelItems, labelsToPdf, labelPreview, labelsExport, zplPlan,
   DEFAULT_LAYOUT, DEFAULT_ROLL } from './labels';
@@ -30,6 +31,7 @@ import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { clearTrackingCache } from './ordertrack';
 import {
   scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder,
+  workingOn,
   mailForOrder
 } from './packing';
 import { chatWebhookSql, makeTopic, notifyTest } from './notify';
@@ -282,6 +284,12 @@ export function registerIpc() {
   handle('packing:openOrder', (code: string, as?: 'invoice' | 'code') =>
     openOrder(code ?? '', as === 'code' ? 'code' : 'invoice'));
   handle('packing:mailFor', (orderNumber: string) => mailForOrder(orderNumber ?? ''));
+  /*
+   * „Právě balím tohle." Posílá se při otevření objednávky, ne až při prvním
+   * odškrtnutí — druhé zařízení má nabídnout pokračování ve chvíli, kdy
+   * rozhodnutí padne.
+   */
+  handle('packing:working', (dbId: number) => { workingOn(dbId ?? 0); return true; });
 
   /*
    * Upozornění na telefon. Push přímo do vlastní aplikace by znamenal placený
@@ -348,6 +356,8 @@ export function registerIpc() {
   handle('stockin:list', () => listSessions());
   handle('stockin:create', (title?: string) => { const s = createSession(title ?? ''); emitStockin(); return s; });
   handle('stockin:open', (id: string) => ({ session: sessionOf(id), items: itemsOf(id) }));
+  // „Právě dělám tohle" — druhé zařízení to má vědět hned, ne až po prvním pípnutí
+  handle('stockin:working', (id: string) => { stockinWorkingOn(id ?? ''); return true; });
   handle('stockin:scan', (id: string, raw: string, qty?: number) => {
     const out = addScan(id, raw, qty ?? 1);
     if (out.added) emitStockin();

@@ -52,6 +52,17 @@ enum Stockin {
 
      Když posel nedoručí, nic se neděje — sdílená složka to donese.
      */
+    /**
+     Oznámí, že se na tomhle naskladnění právě pracuje.
+
+     Založení se posílá samo, ale otevřít se dá i naskladnění z minula —
+     a to je stejné rozhodnutí („dělám tohle"). Bez toho se počítač dozvěděl
+     až o prvním pípnutí a proužek naskočil pozdě.
+     */
+    static func workingOn(_ id: String) {
+        if let slice = slice(id) { Live.publish("stockin", slice) }
+    }
+
     static func pushSoon(_ id: String) {
         pushWork[id]?.cancel()
         let work = DispatchWorkItem {

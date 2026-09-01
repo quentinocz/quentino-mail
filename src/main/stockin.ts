@@ -70,6 +70,18 @@ export function pushSoon(id: string): void {
   }, 400));
 }
 
+/**
+ * Oznámí, že se na tomhle naskladnění právě pracuje.
+ *
+ * Založení se posílá samo, ale otevřít se dá i naskladnění z minula — a to
+ * je stejné rozhodnutí („dělám tohle"). Bez toho se počítač dozvěděl až
+ * o prvním pípnutí a proužek naskočil pozdě.
+ */
+export function workingOn(id: string): void {
+  const slice = sessionSlice(id);
+  if (slice) live.publish('stockin', slice);
+}
+
 export function listSessions(): StockinSession[] {
   const rows = getDb().prepare(
     `SELECT s.*, (SELECT COUNT(*) FROM stockin_items i WHERE i.session_id = s.id) AS lines,

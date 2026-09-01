@@ -474,6 +474,8 @@ export const api = {
      * seznam předem by to znamenalo průchod schránkou u každé objednávky.
      */
     mailFor: (orderNumber: string) => call<number | null>('packing:mailFor', orderNumber),
+    /** „Právě balím tohle" — druhé zařízení to má vědět hned po otevření */
+    working: (dbId: number) => call<boolean>('packing:working', dbId),
     setDone: (dbId: number, value: boolean) => call<void>('packing:setDone', dbId, value),
     reset: (dbId: number) => call<void>('packing:reset', dbId)
   },
@@ -512,6 +514,8 @@ export const api = {
     list: () => call<StockinSession[]>('stockin:list'),
     create: (title?: string) => call<StockinSession>('stockin:create', title),
     open: (id: string) => call<{ session: StockinSession | null; items: StockinItem[] }>('stockin:open', id),
+    /** „Právě dělám tohle" — druhé zařízení to má vědět hned po otevření */
+    working: (id: string) => call<boolean>('stockin:working', id),
     scan: (id: string, raw: string, qty = 1) =>
       call<{ added: boolean; item?: StockinItem; unknown?: string }>('stockin:scan', id, raw, qty),
     qty: (id: string, code: string, qty: number) => call<boolean>('stockin:qty', id, code, qty),

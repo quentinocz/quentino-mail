@@ -561,6 +561,15 @@ function Stockin({ phone, openId: startWith, onPrintLabels }: {
     loadList();
     if (openId) loadItems(openId);
   }), [loadList, loadItems, openId]);
+  /*
+   * „Právě dělám tohle." Posílá se při každém otevření naskladnění, ne až
+   * při prvním pípnutí — rozhodnutí padne dřív a druhé zařízení má
+   * nabídnout pokračování hned.
+   */
+  useEffect(() => {
+    if (!openId) return;
+    api.stockin.working(openId).catch(() => {});
+  }, [openId]);
   useEffect(() => api.on('stockin:progress', (p: any) => setProgress(p)), []);
 
   const session = sessions.find(s => s.id === openId) ?? null;

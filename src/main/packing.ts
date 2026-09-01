@@ -815,6 +815,21 @@ export function packingSlice(id: number): any | null {
   };
 }
 
+/**
+ * Oznámí, že se na téhle objednávce právě pracuje.
+ *
+ * Bez toho se druhé zařízení dozvědělo o balení až při prvním odškrtnutí —
+ * jenže rozhodnutí „balím tuhle" padne dřív, při načtení faktury nebo
+ * klepnutí v seznamu, a právě tehdy má počítač nabídnout, že se dá
+ * pokračovat u něj. Posílá se tentýž stav jako při odškrtávání, takže na
+ * druhé straně není co rozlišovat.
+ */
+export function workingOn(id: number): void {
+  if (!isShopId(id)) return;
+  const slice = packingSlice(id);
+  if (slice) live.publish('packing', slice);
+}
+
 function pushSoon(id: number): void {
   if (!isShopId(id)) return;
   const running = packingTimers.get(id);
