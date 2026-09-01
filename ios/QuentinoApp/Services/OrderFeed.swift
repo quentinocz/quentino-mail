@@ -270,19 +270,30 @@ enum OrderFeed {
 
     // MARK: - Stahování
 
-    /// Slovník do JSONu pro uložení; `NSNull` a nesmysl se ukládají jako prázdno.
+    /**
+     Hodnota na JSON, nebo `nil`.
+
+     `isValidJSONObject` tu není navíc: `JSONSerialization` na nejvyšší úrovni
+     bere jen pole a slovník a u čehokoli jiného — `NSNull` je právě takový
+     případ — nevyhodí chybu, kterou by `try?` chytil, ale rovnou shodí
+     aplikaci. Objednávka bez adresy přitom `NSNull` nese úplně běžně.
+     */
+    static func jsonText(_ value: Any?) -> String? {
+        guard let value, JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Totéž pro uložení do databáze; co se nedá zapsat, je prázdno.
     private static func json(_ value: Any?) -> SQLite.Value {
-        guard let value, !(value is NSNull),
-              let data = try? JSONSerialization.data(withJSONObject: value),
-              let text = String(data: data, encoding: .utf8) else { return .null }
+        guard let text = jsonText(value) else { return .null }
         return .text(text)
     }
 
     private static func store(_ orders: [[String: Any]]) {
         let now = ISO8601DateFormatter().string(from: Date())
         for order in orders {
-            let items = (try? JSONSerialization.data(withJSONObject: order["items"] ?? []))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+            let items = jsonText(order["items"]) ?? "[]"
             _ = try? SQLite.shared.run("""
                 INSERT INTO shop_orders (code, market, status, paid, paid_date, resolved, invoice,
                   created_at, updated_at, currency, total, tracking, customer_id, name, email, phone,

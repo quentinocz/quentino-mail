@@ -424,7 +424,9 @@ function shopIdFor(code: string, market: string): number {
   d.prepare('INSERT OR IGNORE INTO packing_shop (code, market) VALUES (?, ?)').run(code, market);
   const row = d.prepare('SELECT id FROM packing_shop WHERE code = ? AND market = ?')
     .get(code, market) as any;
-  return -Number(row.id);
+  // Nula znamená, že se řádek nepovedlo založit; volající ji musí zahodit,
+  // protože kladné číslo by rozhraní vzalo jako zprávu
+  return row?.id ? -Number(row.id) : 0;
 }
 
 /** Objednávka postavená na feedu — použije se, když k ní není potvrzovací mail. */
@@ -681,8 +683,15 @@ export async function scanOrders(days: number, force = false): Promise<PackingSc
     const row = rows[i];
     if (i % 25 === 0) emit('packing:progress', { done: i, total: rows.length, label: null });
     if (row.items.length === 0) continue;
+    /*
+     * Bez čísla by objednávka nedostala platné číslo v seznamu a odškrtávala
+     * by se pod nulou — tedy do řádku patřícího zprávě. Takový řádek ve feedu
+     * nemá co dělat, ale stát se to může.
+     */
+    if (!row.code) continue;
 
     const id = shopIdFor(row.code, row.market);
+    if (id >= 0) continue;
     const state = readPacked(id);
     if (row.status) statuses.add(row.status);
     for (const form of numberForms(row.code)) seen.add(form);

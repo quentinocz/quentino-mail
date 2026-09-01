@@ -4,13 +4,16 @@
  *
  * Zdrojáky pro iOS se v tomhle prostředí nepřekládají (Xcode tu není), takže
  * o překlepu se člověk dozví až z běhu na GitHubu — a to je čtvrt hodiny
- * čekání na jeden řádek. Tenhle skript hlídá vzor, který už jednou překlad
- * shodil, aby se to nemuselo opakovat.
+ * čekání na jeden řádek — a chyby, které se projeví až za běhu, se takhle
+ * nechytí vůbec. Skript proto hlídá vzory, které to už jednou způsobily.
  *
  *   node tools/swift-lint.cjs
  *
- * Hlídaný vzor: **vnořený slovník s `NSNull()` psaný rovnou do jiného
- * slovníku.** Swift si typ `[String: Any]` z vnějšího literálu do vnitřního
+ * Hlídané vzory jsou dva a oba už jednou překlad nebo běh shodily.
+ *
+ * ## 1. Vnořený slovník s `NSNull()` psaný rovnou do jiného slovníku
+ *
+ * Swift si typ `[String: Any]` z vnějšího literálu do vnitřního
  * nepropíše, takže se u podmínky uvnitř pohádá o to, že `NSNull` a text nejsou
  * totéž. Ve vnějším literálu, který má typ z návratové hodnoty funkce, je
  * přitom všechno v pořádku — proto se to špatně hledá okem.
@@ -19,6 +22,15 @@
  *
  *     let tracking: [String: Any] = [ … ]
  *     return [ "tracking": tracking ]
+ *
+ * ## 2. `JSONSerialization` nad hodnotou, která může být `NSNull`
+ *
+ * Na nejvyšší úrovni bere serializace jen pole a slovník. U čehokoli jiného
+ * nevyhodí chybu, kterou by `try?` chytil — **shodí aplikaci**. Objednávka bez
+ * adresy přitom `NSNull` nese úplně běžně, takže se to projeví až v provozu
+ * a jen u některých dat.
+ *
+ * Náprava: ověřit tvar předem přes `JSONSerialization.isValidJSONObject`.
  */
 const fs = require('fs');
 const path = require('path');
@@ -28,6 +40,9 @@ const REPO = path.join(__dirname, '..');
 
 /** Řádek tvaru `"klíč": [` — začátek vnořeného literálu */
 const OPENS_NESTED = /^\s*"[^"]+"\s*:\s*\[\s*$/;
+
+/** `data(withJSONObject: … ?? NSNull())` — serializace něčeho, co nemusí být slovník */
+const NULL_TO_JSON = /data\(withJSONObject:[^)]*NSNull\(\)/;
 
 function swiftFiles(dir) {
   const out = [];
@@ -68,6 +83,14 @@ for (const file of swiftFiles(ROOT)) {
     console.log(`      ${lines[i].trim()}`);
     console.log('      vytáhni ho do proměnné s uvedeným typem: let x: [String: Any] = [ … ]');
   }
+
+  lines.forEach((line, i) => {
+    if (!NULL_TO_JSON.test(line)) return;
+    found++;
+    console.log(`  ✗ ${path.relative(REPO, file)}:${i + 1} — serializace hodnoty, která může být NSNull`);
+    console.log(`      ${line.trim()}`);
+    console.log('      ověř tvar předem: JSONSerialization.isValidJSONObject(value)');
+  });
 }
 
 console.log(found === 0 ? '  ✓ swift: nic podezřelého' : `\n✗ ${found} k opravě`);
