@@ -52,7 +52,9 @@ enum LiveWork {
 
     private static func takePacking(_ data: Any?) {
         guard let payload = data as? [String: Any] else { return }
-        guard Packing.applyRemote(payload) != nil else { return }
-        Bridge.notify("packing:changed")
+        guard let applied = Packing.applyRemote(payload) else { return }
+        // Se stavem, ne jen jako „něco se změnilo" — okno si ho promítne
+        // rovnou do zaškrtávátek
+        Bridge.notify("packing:changed", applied)
     }
 }

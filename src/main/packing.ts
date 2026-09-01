@@ -605,6 +605,9 @@ export function resetPacking(messageId: number): void {
       `UPDATE packing_shop SET packed_json = '[]', counts_json = '{}', done = 0, done_at = NULL
        WHERE id = ?`
     ).run(-messageId);
+    // Vynulování je taky změna stavu — druhé zařízení o ní musí vědět,
+    // jinak by tam zůstalo odškrtnuté to, co se právě zrušilo
+    pushSoon(messageId);
     return;
   }
   getDb().prepare('DELETE FROM packing WHERE message_pk = ?').run(messageId);
@@ -848,11 +851,22 @@ function pushSoon(id: number): void {
  * a stav se posílá celý, ne po kusech, takže není co slučovat. Když
  * objednávka na tomhle zařízení ještě řádek nemá, založí se.
  */
-export function applyPacking(slice: any): { code: string; done: boolean } | null {
+export interface AppliedPacking {
+  /** Číslo, pod kterým objednávku vede rozhraní — u feedu záporné */
+  id: number;
+  code: string;
+  packed: number[];
+  counts: Record<string, number>;
+  done: boolean;
+  doneAt: string | null;
+}
+
+export function applyPacking(slice: any): AppliedPacking | null {
   const code = String(slice?.code ?? '');
   if (!code) return null;
   const market = String(slice?.market ?? '');
-  getDb().prepare(
+  const d = getDb();
+  d.prepare(
     `INSERT INTO packing_shop (code, market, packed_json, counts_json, done, done_at)
      VALUES (?,?,?,?,?,?)
      ON CONFLICT(code, market) DO UPDATE SET
@@ -863,5 +877,26 @@ export function applyPacking(slice: any): { code: string; done: boolean } | null
     String(slice.packed ?? '[]'), String(slice.counts ?? '{}'),
     slice.done ? 1 : 0, slice.doneAt ?? null
   );
-  return { code, done: !!slice.done };
+
+  /*
+   * Zpátky se vrací i číslo, pod kterým objednávku vede rozhraní. Bez něj by
+   * si otevřené okno muselo hledat řádek podle čísla objednávky — a hlavně
+   * by se muselo obejít bez toho, co se doopravdy zapsalo, takže by se
+   * odškrtnutí z telefonu na obrazovce neprojevilo, dokud se seznam nenačte
+   * znovu. Přesně tohle se dělo: v databázi to bylo, na obrazovce ne.
+   */
+  const row = d.prepare('SELECT id FROM packing_shop WHERE code = ? AND market = ?')
+    .get(code, market) as any;
+
+  const parse = <T>(text: unknown, fallback: T): T => {
+    try { return JSON.parse(String(text ?? '')) as T; } catch { return fallback; }
+  };
+  return {
+    id: -Number(row?.id ?? 0),
+    code,
+    packed: parse<number[]>(slice.packed, []),
+    counts: parse<Record<string, number>>(slice.counts, {}),
+    done: !!slice.done,
+    doneAt: slice.doneAt ?? null
+  };
 }
