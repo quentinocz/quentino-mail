@@ -31,6 +31,22 @@
  * a jen u některých dat.
  *
  * Náprava: ověřit tvar předem přes `JSONSerialization.isValidJSONObject`.
+ *
+ * ## 3. Dlouhý výraz plný `as? String ?? ""`
+ *
+ * Swift odvozuje typy i tam, kde je člověku všechno jasné, a u pole s osmi
+ * přetypováními, které se ještě spojuje s jiným polem a prohání přes `filter`
+ * a `joined`, to vzdá: **„unable to type-check this expression in reasonable
+ * time"**. Není to varování, překlad spadne — a tady se to nepozná, protože
+ * Xcode v tomhle prostředí není.
+ *
+ * Náprava: rozepsat to. Sloupce po jednom do `var parts: [String] = []`
+ * a mezivýsledky do proměnných s uvedeným typem.
+ *
+ * Hlídá se právě ta kombinace, ne přetypování sama o sobě: obyčejný slovník
+ * s deseti `as? String ?? ""` má typ daný okolím a přeloží se bez potíží.
+ * Teprve když se takové pole ještě spojuje s jiným a prohání přes `filter`
+ * nebo `joined`, nemá se odvozování o co opřít.
  */
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +59,19 @@ const OPENS_NESTED = /^\s*"[^"]+"\s*:\s*\[\s*$/;
 
 /** `data(withJSONObject: … ?? NSNull())` — serializace něčeho, co nemusí být slovník */
 const NULL_TO_JSON = /data\(withJSONObject:[^)]*NSNull\(\)/;
+
+/** Přetypování textu — jedno je v pořádku, hromada v jednom výrazu ne */
+const CAST = /as\?\s*String\s*\?\?/g;
+
+/** Kolik jich v jednom výrazu překladač ještě unese */
+const CAST_LIMIT = 4;
+
+/**
+ * Co z výrazu dělá hádanku: spojení dvou polí, nebo metoda pověšená rovnou
+ * na uzavírací závorku literálu. Přetypování uvnitř `[SQLite.Value]` samo
+ * o sobě v pořádku je — typ je daný okolím a překladač ho nemusí hledat.
+ */
+const CHAINED = /\]\s*\+\s*[([]|\]\s*\)?\s*\.(filter|map|compactMap|joined|reduce)\b/;
 
 function swiftFiles(dir) {
   const out = [];
@@ -91,6 +120,24 @@ for (const file of swiftFiles(ROOT)) {
     console.log(`      ${line.trim()}`);
     console.log('      ověř tvar předem: JSONSerialization.isValidJSONObject(value)');
   });
+
+  /*
+   * Výraz se počítá od řádku, který otevírá hranatou závorku, po ten, který
+   * ji zavírá — tam se přetypování hromadí. Čtyři jsou ještě v pohodě,
+   * osm překlad shodilo.
+   */
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\[\s*$/.test(lines[i])) continue;
+    const end = endOfLiteral(lines, i);
+    const body = lines.slice(i, end + 1).join('\n');
+    const casts = (body.match(CAST) || []).length;
+    if (casts <= CAST_LIMIT || !CHAINED.test(body)) continue;
+
+    found++;
+    console.log(`  ✗ ${path.relative(REPO, file)}:${i + 1} — ${casts} přetypování v jednom výrazu`);
+    console.log(`      ${lines[i].trim()}`);
+    console.log('      rozepiš to: hodnoty po jedné do var parts: [String] = []');
+  }
 }
 
 console.log(found === 0 ? '  ✓ swift: nic podezřelého' : `\n✗ ${found} k opravě`);
