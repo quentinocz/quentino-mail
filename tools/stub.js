@@ -55,6 +55,22 @@
     attachments: [{ id: 1, filename: 'potvrzeni.pdf', mime: 'application/pdf', size: 84210, path: '/x', cid: null }],
     detectedLang: null, translationCz: null
   });
+  /*
+   * Odeslaná pošta: odesílatel jsme pořád my, zajímavý je příjemce. Právě na
+   * tom se ukázalo, že seznam ukazoval u každého řádku vlastní jméno.
+   */
+  const sent = Array.from({ length: 8 }, function (_, i) {
+    return Object.assign({}, messages[i], {
+      id: 200 + i, folder: 'Sent', uid: 300 + i,
+      fromAddr: 'info@quentino.cz', fromName: 'Quentino',
+      toAddr: i % 3 === 0
+        ? 'jana.novakova@seznam.cz, petr@gmail.com, sklad@quentino.cz'
+        : 'zakaznik' + i + '@seznam.cz',
+      subject: 'Re: ' + messages[i].subject,
+      seen: true, date: new Date(Date.now() - i * 5 * 3600e3).toISOString()
+    });
+  });
+
   const answers = {
     'settings:get': settings,
     'accounts:list': accounts,
@@ -853,6 +869,10 @@
       if (channel === 'packing:scanItem' && /^\d+$/.test(String(arguments[2] || ''))) {
         return Promise.resolve({ ok: true, data: { ok: false, reason: 'notInOrder',
           message: 'Kód v objednávce není' } });
+      }
+      // Seznam zpráv je jiný podle složky — odeslaná pošta ukazuje příjemce
+      if (channel === 'messages:list') {
+        return Promise.resolve({ ok: true, data: arguments[2] === 'Sent' ? sent : messages });
       }
       // Náhledy se střídají podle příspěvku, ať je vidět víc poměrů stran
       if (channel === 'ig:thumb') {

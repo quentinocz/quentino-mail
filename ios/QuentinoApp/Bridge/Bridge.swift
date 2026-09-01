@@ -133,20 +133,33 @@ final class Bridge: NSObject, ObservableObject, WKScriptMessageHandler {
      v telefonu ukázal na úplně jinou zprávu. `Message-ID` je pro danou zprávu
      stejné všude.
 
-     Upozornění posílá počítač ve chvíli, kdy zprávu stáhl on — v telefonu tedy
-     ještě být nemusí. Pak se otevře aspoň pošta a rozhraní řekne proč.
+     Upozornění posílá počítač ve chvíli, kdy zprávu stáhl **on** — v telefonu
+     tedy skoro nikdy ještě není. Proto se nehlásí „nemám", ale rovnou se
+     stáhne pošta a zkusí se to znovu; rozhraní zatím ukáže, že se čeká.
      */
     private func openMail(messageId: String) {
+        if let found = localMessage(messageId) {
+            Task { await emit("mail:open", found) }
+            return
+        }
+
+        Task { await emit("mail:open", ["pending": true]) }
+        Task.detached(priority: .userInitiated) { [weak self] in
+            MailSync.syncAll()
+            guard let self else { return }
+            let found = self.localMessage(messageId) ?? ["notFound": true]
+            await self.emit("mail:open", found)
+        }
+    }
+
+    private func localMessage(_ messageId: String) -> [String: Any]? {
+        guard !messageId.isEmpty else { return nil }
         let rows = (try? SQLite.shared.query(
             "SELECT id, account_id FROM messages WHERE message_id = ? LIMIT 1",
             [.text(messageId)]
         )) ?? []
-
-        var payload: [String: Any] = ["pending": true]
-        if let row = rows.first, let id = row["id"] as? Int {
-            payload = ["id": id, "accountId": row["account_id"] as? Int ?? 0]
-        }
-        Task { await emit("mail:open", payload) }
+        guard let row = rows.first, let id = row["id"] as? Int else { return nil }
+        return ["id": id, "accountId": row["account_id"] as? Int ?? 0]
     }
 
     // MARK: - Registrace kanálů

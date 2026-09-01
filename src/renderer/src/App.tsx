@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AccountPublic, FolderInfo, MessageHeader, MessageFull, Settings, Category, MessageSort, ListFilters } from '@shared/types';
+import { isOutgoingFolder } from '@shared/folders';
 import { api } from './api';
 import { ToastProvider, useToast } from './toast';
 import Sidebar, { View } from './components/Sidebar';
@@ -267,8 +268,11 @@ function AppInner() {
     setWorkspace('mail');
     if (p?.accountId) setActiveAccountId(p.accountId);
     setView({ type: 'folder', folder: 'INBOX' });
-    if (p?.id) openMessage(p.id);
-    else if (p?.pending) toast('Tuhle zprávu tady ještě nemám — načte se při synchronizaci.');
+    if (p?.id) { openMessage(p.id); return; }
+    // Upozornění chodí z počítače ve chvíli, kdy zprávu stáhl on — telefon ji
+    // tedy teprve stahuje a druhá zpráva na stejném kanálu ji pak otevře
+    if (p?.pending) toast('Stahuji zprávu…');
+    else if (p?.notFound) toast('Zprávu se nepodařilo najít — zkus synchronizaci.', 'error');
   }), [openMessage, toast]);
 
   // Totéž pro chat: odkaz z notifikace otevře konkrétní konverzaci
@@ -506,6 +510,8 @@ function AppInner() {
         hasAccount={!!activeAccount}
         accountId={activeAccountId}
         isTrash={view.type === 'folder' && folders.some(f => f.path === (view as any).folder && f.specialUse === '\\Trash')}
+        isOutgoing={view.type === 'folder'
+          && isOutgoingFolder(folders.find(f => f.path === (view as any).folder))}
         productFeedUrl={settings?.productFeedUrl ?? null}
         onChanged={() => { loadMessages(); loadStats(); }}
         onCloseDetail={() => { setSelectedId(null); setDetail(null); }}

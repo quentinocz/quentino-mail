@@ -76,6 +76,17 @@ const overflow = async label => {
   console.log(`${label.padEnd(28)} ${data.length ? 'přetéká: ' + data.join(', ') : '—'}`);
 };
 
+/*
+ * Odeslaná pošta: ve sloupci má být příjemce, ne my — odesílatel jsme tam
+ * pořád my a vlastní jméno u každého řádku nic neříká. U čerstvé pošty má být
+ * čas, u starší datum; obojí se pozná jedině pohledem na seznam.
+ */
+await click('.side-item', { hasText: 'Odeslaná pošta' });
+await page.waitForTimeout(500);
+await overflow('pošta — odeslané'); await snap('01c-odeslane');
+await click('.side-item', { hasText: 'Vše' });
+await page.waitForTimeout(400);
+
 // Překlady se otevírají z nabídky Funkce — v panelu už samostatnou položku nemají
 await click('.ig-switch button', { hasText: 'Funkce' });
 await click('.ws-menu-item', { hasText: 'Překlady produktů' });
