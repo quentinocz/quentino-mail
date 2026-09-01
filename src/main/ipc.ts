@@ -20,7 +20,7 @@ import { scanOld, freeUp } from './cleanup';
 import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renameSession,
   deleteSession, planOf, emitChanged as emitStockin } from './stockin';
 import { sendViaWindow, sendViaApi, apiCanWriteStock, confirmSent } from './upstock';
-import { labelItems, labelsToPdf, labelPreview, labelsExport, zplPlan,
+import { labelItems, stockinLabelItems, labelsToPdf, labelPreview, labelsExport, zplPlan,
   DEFAULT_LAYOUT, DEFAULT_ROLL } from './labels';
 import { summarize, generateReply, improveText, translateIncoming, translateText, categorizeUncategorized, getAiUsage, generateDigest } from './ai';
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
@@ -332,7 +332,9 @@ export function registerIpc() {
   handle('catalog:stockAt', () => stockSyncedAt());
   handle('labels:preview', (items: any[], layout: any) =>
     labelPreview(items ?? [], { ...DEFAULT_LAYOUT, ...(layout ?? {}) }));
-  handle('labels:items', (codes: string[], perItem?: number) => labelItems(codes ?? [], perItem ?? 1));
+  handle('labels:items', (codes: string[], perItem?: number, byStock?: boolean) =>
+    labelItems(codes ?? [], perItem ?? 1, !!byStock));
+  handle('labels:stockin', (sessionId: string) => stockinLabelItems(sessionId ?? ''));
   handle('labels:pdf', (items: any[], layout: any) =>
     labelsToPdf(items ?? [], { ...DEFAULT_LAYOUT, ...(layout ?? {}) }));
   handle('labels:roll', (roll: any) => zplPlan({ ...DEFAULT_ROLL, ...(roll ?? {}) }));

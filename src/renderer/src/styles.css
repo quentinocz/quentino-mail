@@ -6477,3 +6477,50 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 [data-theme="dark"] .kat-formats button { background: #262230; }
 [data-theme="dark"] .kat-formats button.on { background: var(--accent-soft); }
+
+/* Výběr archu vypadá stejně jako výběr formátu — je to tatáž volba
+   o řádek níž, jen jemnější, tak ať se to neučí dvakrát. */
+.kat-templates { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.kat-templates button {
+  flex: 1 1 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.kat-templates button b { font-size: 12px; }
+.kat-templates button small { font-size: 10.5px; color: var(--text-3); }
+.kat-templates button:hover { background: var(--bg); }
+.kat-templates button.on { border-color: var(--accent); background: var(--accent-soft); }
+.kat-templates button.on b { color: var(--accent-dark); }
+[data-theme="dark"] .kat-templates button { background: #262230; }
+[data-theme="dark"] .kat-templates button.on { background: var(--accent-soft); }
+
+/* Pevný počet / podle skladu — dvě možnosti téhož, tedy přepínač, ne dvě
+   tlačítka vedle sebe. Šířka se drží obsahu, aby to nebylo přes celý řádek. */
+.kat-countby {
+  display: inline-flex;
+  /* Přepínač se drží obsahu — ve svislém sloupci by se jinak roztáhl
+     přes celou šířku a vypadal jako pruh, ne jako volba ze dvou */
+  align-self: flex-start;
+  width: fit-content;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  padding: 2px;
+}
+.kat-countby button {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.kat-countby button.on { background: var(--accent); color: #fff; }
+[data-theme="dark"] .kat-countby { background: #262230; }

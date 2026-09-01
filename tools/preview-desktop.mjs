@@ -318,6 +318,22 @@ await click('.kat-formats button', { hasText: 'CSV' });
 await overflow('štítky — CSV'); await snap('34-stitky-csv');
 await click('.kat-formats button', { hasText: 'Archy A4' });
 
+// Koupený arch kulatých štítků: rozteč i okraje jsou dané výsekem, tak ať
+// je vidět, že se náhled trefí do kruhů a ne do mřížky
+await click('.kat-templates button', { hasText: 'Kulaté' });
+await overflow('štítky — kulatý arch'); await snap('34b-stitky-arch');
+await click('.kat-countby button', { hasText: 'Podle skladu' });
+await overflow('štítky — počty podle skladu'); await snap('34c-stitky-sklad');
+await click('.kat-countby button', { hasText: 'Pevný počet' });
+await click('.kat-templates button', { hasText: 'Vlastní arch' });
+
+// Naskladněné zboží se polepuje hned — štítky se vezmou rovnou z relace
+await click('.kat-tabs button', { hasText: 'Naskladnění' });
+// Záložka se otevře znovu na seznamu relací, takže se do jedné musí vstoupit
+await click('.kat-session');
+await click('.modal-foot .btn.ghost', { hasText: 'Štítky' });
+await overflow('štítky — z naskladnění'); await snap('34d-stitky-naskladneni');
+
 // Hromadný výběr: stránka jich ukazuje šedesát, filtr může mít stovky
 await click('.kat-tabs button', { hasText: 'Produkty' });
 await click('.modal-foot .btn.ghost', { hasText: 'Vybrat vše' });

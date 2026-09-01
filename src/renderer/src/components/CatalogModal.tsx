@@ -3,8 +3,8 @@ import type {
   ProductHit, ProductDetail, StockinSession, StockinItem, StockinPlanRow, LabelLayout,
   CatalogSuggestion, RollLabel, LabelFormat, ZplPlan
 } from '@shared/types';
-import { labelGeometry } from '@shared/labels';
-import { api } from '../api';
+import { LABEL_TEMPLATES, labelGeometry } from '@shared/labels';
+import { api, type LabelItemRow } from '../api';
 import { useToast } from '../toast';
 import { useIsPhone } from '../mobile';
 import Icon from './Icon';
@@ -65,6 +65,14 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
    */
   const [needsFeed, setNeedsFeed] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  /**
+   * Hotové podklady pro štítky z naskladnění.
+   *
+   * Zboží se naskladní a hned se polepuje, takže cesta „naskladnění → štítky"
+   * je ta nejčastější. Počty jsou ty, které se naskladňovaly — vybírat
+   * produkty znovu ručně by znamenalo opsat totéž podruhé.
+   */
+  const [labelPreset, setLabelPreset] = useState<LabelItemRow[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -277,8 +285,16 @@ export default function CatalogModal({ onClose }: { onClose: () => void }) {
           </>
         )}
 
-        {tab === 'stockin' && <Stockin phone={phone} />}
-        {tab === 'labels' && !phone && <Labels codes={[...picked]} onClear={() => setPicked(new Set())} />}
+        {tab === 'stockin' && (
+          <Stockin phone={phone} onPrintLabels={phone ? null : rows => {
+            setLabelPreset(rows);
+            setTab('labels');
+          }} />
+        )}
+        {tab === 'labels' && !phone && (
+          <Labels codes={[...picked]} preset={labelPreset}
+            onClear={() => { setPicked(new Set()); setLabelPreset(null); }} />
+        )}
 
         {active && (
           <ProductSheet
@@ -369,7 +385,16 @@ function ProductSheet({ detail, picked, onPick, onClose }: {
 
 /* ---------- naskladnění ---------- */
 
-function Stockin({ phone }: { phone: boolean }) {
+function Stockin({ phone, onPrintLabels }: {
+  phone: boolean;
+  /**
+   * Předat naskladněné položky rovnou štítkům.
+   *
+   * Zboží se naskladní a hned se polepuje — počty jsou tytéž, které se
+   * právě zapsaly. Na telefonu se netiskne, proto to smí být prázdné.
+   */
+  onPrintLabels: ((rows: LabelItemRow[]) => void) | null;
+}) {
   const toast = useToast();
   const [sessions, setSessions] = useState<StockinSession[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -799,6 +824,17 @@ function Stockin({ phone }: { phone: boolean }) {
         <button className="btn ghost" onClick={() => api.stockin.plan(openId).then(setPlan)}>
           Zkontrolovat
         </button>
+        {onPrintLabels && (
+          <button className="btn ghost" disabled={items.length === 0}
+            onClick={() => api.catalog.labelsForStockin(openId)
+              .then(rows => {
+                if (rows.length === 0) { toast('Není co tisknout', 'error'); return; }
+                onPrintLabels(rows);
+              })
+              .catch((e: any) => toast(e.message, 'error'))}>
+            <Icon name="printer" size={13} /> Štítky
+          </button>
+        )}
         {!phone && (
           <button className="btn primary" onClick={send} disabled={busy || items.length === 0}>
             <Icon name="upload" size={13} /> {busy ? 'Vkládám…' : 'Vložit do Upgates'}
@@ -814,10 +850,7 @@ function Stockin({ phone }: { phone: boolean }) {
 
 const LAYOUT_KEY = 'quentino-labels';
 
-const BASE_LAYOUT: LabelLayout = {
-  cols: 4, rows: 8, marginTop: 10, marginSide: 8, gap: 3,
-  qr: 18, fontSize: 9, withTitle: true, cutLines: false
-};
+const BASE_LAYOUT: LabelLayout = LABEL_TEMPLATES[0].layout;
 
 /**
  * Rozvržení se pamatuje.
@@ -849,7 +882,16 @@ function savedRoll(): RollLabel {
   }
 }
 
-function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
+function Labels({ codes, onClear, preset }: {
+  codes: string[];
+  onClear: () => void;
+  /**
+   * Hotové podklady odjinud — štítky na právě naskladněné zboží. Když
+   * přijdou, výběr produktů se neřeší: počty už jsou dané tím, co se
+   * naskladnilo.
+   */
+  preset?: LabelItemRow[] | null;
+}) {
   const toast = useToast();
   const [layout, setLayout] = useState<LabelLayout>(savedLayout);
   /*
@@ -865,13 +907,22 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
   const [roll, setRoll] = useState<RollLabel>(savedRoll);
   const [plan, setPlan] = useState<ZplPlan | null>(null);
   const [perItem, setPerItem] = useState(1);
-  const [items, setItems] = useState<{ code: string; title: string; label: string; count: number }[]>([]);
+  /**
+   * Odkud se berou počty.
+   *
+   * `fixed` je „tolikrát od každého", `stock` vezme zásobu z feedu. U produktu
+   * s variantami se počítá zásoba **varianty** — souhrn na hlavním kódu sečítá
+   * všechny délky dohromady a nálepek by se vytiskl násobek.
+   */
+  const [countBy, setCountBy] = useState<'fixed' | 'stock'>('fixed');
+  const [items, setItems] = useState<LabelItemRow[]>([]);
   const [html, setHtml] = useState('');
 
   useEffect(() => {
+    if (preset) { setItems(preset); return; }
     if (codes.length === 0) { setItems([]); return; }
-    api.catalog.labelItems(codes, perItem).then(setItems).catch(() => {});
-  }, [codes, perItem]);
+    api.catalog.labelItems(codes, perItem, countBy === 'stock').then(setItems).catch(() => {});
+  }, [codes, perItem, countBy, preset]);
 
   useEffect(() => {
     if (items.length === 0) { setHtml(''); return; }
@@ -919,8 +970,17 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
   const num = (label: string, key: keyof LabelLayout, min: number, max: number, unit = '') => (
     <label className="kat-num">
       <span>{label}</span>
-      <input type="number" min={min} max={max} value={layout[key] as number}
-        onChange={e => set({ [key]: Math.min(max, Math.max(min, Number(e.target.value) || min)) } as any)} />
+      <input type="number" min={min} max={max} value={(layout[key] as number) ?? 0}
+        onChange={e => {
+          /*
+           * Prázdné pole neznamená „nejmenší možná hodnota". U posunu archu
+           * jde rozsah do minusu a nula je uprostřed — spadnout při mazání
+           * na −10 mm by tisk odsunulo z papíru dřív, než se dopíše číslo.
+           */
+          const typed = Number(e.target.value);
+          const value = e.target.value === '' || !Number.isFinite(typed) ? 0 : typed;
+          set({ [key]: Math.min(max, Math.max(min, value)) } as any);
+        }} />
       {unit && <small>{unit}</small>}
     </label>
   );
@@ -951,8 +1011,50 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
               </button>
             </div>
 
+            {/*
+              * Odkud se berou počty. „Podle skladu" je to, co se při polepování
+              * dělá nejčastěji — na každý kus na regálu jeden štítek — a ručně
+              * by to znamenalo opsat zásobu u každé varianty zvlášť.
+              */}
+            {!preset && (
+              <div className="kat-countby">
+                <button className={countBy === 'fixed' ? 'on' : ''} onClick={() => setCountBy('fixed')}>
+                  Pevný počet
+                </button>
+                <button className={countBy === 'stock' ? 'on' : ''} onClick={() => setCountBy('stock')}
+                  data-tip="Zásoba z feedu, u variant zvlášť za každou">
+                  Podle skladu
+                </button>
+              </div>
+            )}
+            {preset && (
+              <div className="kat-note">
+                <div>
+                  <b>Štítky na právě naskladněné zboží.</b>
+                  <div className="ig-muted">
+                    Počty jsou ty, které se naskladňovaly — ne zásoba na skladě,
+                    ta o zboží na stole ještě neví.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {format === 'pdf' && (
               <>
+                {/*
+                  * Koupený arch má rozteč a okraje dané výsekem. Odhadovat je
+                  * od oka znamená tisknout přes okraje, takže se vybírají
+                  * hotové — a čísla pod tím zůstávají k doladění.
+                  */}
+                <div className="kat-templates">
+                  {LABEL_TEMPLATES.map(t => (
+                    <button key={t.id} className={layout.template === t.id ? 'on' : ''}
+                      onClick={() => setLayout({ ...t.layout })} data-tip={t.note}>
+                      <b>{t.label}</b><small>{t.note}</small>
+                    </button>
+                  ))}
+                </div>
+
                 <div className="kat-label-form">
                   {num('Sloupců', 'cols', 1, 8)}
                   {num('Řádků', 'rows', 1, 14)}
@@ -961,11 +1063,20 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
                   {num('Okraj shora', 'marginTop', 0, 30, 'mm')}
                   {num('Okraj po stranách', 'marginSide', 0, 30, 'mm')}
                   {num('Písmo', 'fontSize', 5, 16, 'pt')}
-                  <label className="kat-num">
-                    <span>Kusů na produkt</span>
-                    <input type="number" min={1} max={50} value={perItem}
-                      onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
-                  </label>
+                  {/*
+                    * Posun celého archu. Papír se do tiskárny nikdy nezavede
+                    * na desetinu milimetru přesně; když jde tisk soustavně
+                    * o kousek vedle, srovná se to tady místo posouvání papíru.
+                    */}
+                  {num('Posun →', 'offsetX', -10, 10, 'mm')}
+                  {num('Posun ↓', 'offsetY', -10, 10, 'mm')}
+                  {countBy === 'fixed' && !preset && (
+                    <label className="kat-num">
+                      <span>Kusů na produkt</span>
+                      <input type="number" min={1} max={50} value={perItem}
+                        onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
+                    </label>
+                  )}
                   <label className="kat-check">
                     <input type="checkbox" checked={layout.withTitle}
                       onChange={e => set({ withTitle: e.target.checked })} />
@@ -984,8 +1095,14 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
                   * to prostě ořízlo a přišlo se na to až po vytištění archu.
                   */}
                 <div className={`kat-fit ${geom.tooSmall ? 'bad' : geom.shrunk ? 'warn' : ''}`}>
-                  <b>Štítek {geom.cellW} × {geom.cellH} mm</b>
+                  <b>
+                    Štítek {geom.cellW} × {geom.cellH} mm
+                    {layout.shape === 'round' ? ' (kulatý)' : ''}
+                  </b>
                   <span>· {perPage} na stránku</span>
+                  {layout.shape === 'round' && (
+                    <span>· obsah se drží uvnitř kruhu s rezervou {layout.safe ?? 1.5} mm</span>
+                  )}
                   {geom.tooSmall && (
                     <span>· QR vyšlo na {geom.qr} mm — na to čtečka nestačí.
                       Uber řádky nebo sloupce, případně vypni název.</span>
@@ -1032,11 +1149,13 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
                       onChange={e => setRollValue({ textMm: Math.max(2, Number(e.target.value) || 2) })} />
                     <small>mm</small>
                   </label>
-                  <label className="kat-num">
-                    <span>Kusů na produkt</span>
-                    <input type="number" min={1} max={50} value={perItem}
-                      onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
-                  </label>
+                  {countBy === 'fixed' && !preset && (
+                    <label className="kat-num">
+                      <span>Kusů na produkt</span>
+                      <input type="number" min={1} max={50} value={perItem}
+                        onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
+                    </label>
+                  )}
                   <label className="kat-check">
                     <input type="checkbox" checked={roll.withTitle}
                       onChange={e => setRollValue({ withTitle: e.target.checked })} />
@@ -1075,11 +1194,13 @@ function Labels({ codes, onClear }: { codes: string[]; onClear: () => void }) {
             {format === 'csv' && (
               <>
                 <div className="kat-label-form">
-                  <label className="kat-num">
-                    <span>Kusů na produkt</span>
-                    <input type="number" min={1} max={50} value={perItem}
-                      onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
-                  </label>
+                  {countBy === 'fixed' && !preset && (
+                    <label className="kat-num">
+                      <span>Kusů na produkt</span>
+                      <input type="number" min={1} max={50} value={perItem}
+                        onChange={e => setPerItem(Math.max(1, Number(e.target.value) || 1))} />
+                    </label>
+                  )}
                 </div>
                 <div className="kat-note">
                   <div>

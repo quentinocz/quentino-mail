@@ -1612,8 +1612,33 @@ export interface LabelLayout {
   /** Okraje stránky v milimetrech */
   marginTop: number;
   marginSide: number;
-  /** Mezera mezi štítky v milimetrech */
+  /** Vodorovná mezera mezi štítky v milimetrech */
   gap: number;
+  /**
+   * Svislá mezera. Chybí-li, platí `gap` — u archů, kde na sebe řady
+   * navazují bez mezery, se ale musí dát nastavit zvlášť.
+   */
+  gapY?: number;
+  /**
+   * Tvar štítku. U kulatých se obsah musí vejít do kruhu, ne do políčka —
+   * do rohů by se tisklo mimo štítek.
+   */
+  shape?: 'rect' | 'round';
+  /**
+   * Volný okraj uvnitř štítku v milimetrech.
+   *
+   * Rezerva na nepřesnost tisku: papír se do tiskárny nikdy nezavede na
+   * desetinu milimetru přesně a u kulatých štítků se odchylka pozná hned.
+   */
+  safe?: number;
+  /**
+   * Posun celého archu v milimetrech — když konkrétní tiskárna tiskne
+   * soustavně o kousek vedle, srovná se to tady místo přesouvání papíru.
+   */
+  offsetX?: number;
+  offsetY?: number;
+  /** Z jaké šablony rozvržení vzniklo (kvůli výběru v rozhraní) */
+  template?: string;
   /** Velikost QR kódu v milimetrech */
   qr: number;
   /** Velikost textu pod kódem v bodech */

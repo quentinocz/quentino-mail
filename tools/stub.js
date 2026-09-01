@@ -774,6 +774,12 @@
     // Čtečka fotoaparátem je jen v aplikaci na telefonu; náhled běží
     // v prohlížeči, takže tlačítko schválně nesvítí
     'scan:available': false,
+    // Štítky rovnou z naskladnění: počty jsou ty, které se naskladňovaly
+    'labels:stockin': [
+      { code: 'PS120SM-110', title: 'Kšandy Slim tmavě modré', label: 'Délka: 110cm', count: 6 },
+      { code: 'PS120SM-120', title: 'Kšandy Slim tmavě modré', label: 'Délka: 120cm', count: 4 },
+      { code: 'REGJ01', title: 'Kravata Regent bordó', label: '', count: 12 }
+    ],
     'labels:items': [
       { code: 'PS120SM-100', title: 'Kšandy Slim tmavě modré', label: 'Délka: 100cm', count: 1 },
       { code: 'PS120SM-110', title: 'Kšandy Slim tmavě modré', label: 'Délka: 110cm', count: 1 },
@@ -914,23 +920,48 @@
         var items = arguments[1] || [];
         var layout = arguments[2] || {};
         var cols = layout.cols || 4, rows = layout.rows || 8;
+        var gap = layout.gap || 0;
+        var gapY = layout.gapY == null ? gap : layout.gapY;
+        var round = layout.shape === 'round';
+        var safe = layout.safe == null ? (round ? 1.5 : 1) : layout.safe;
+        var cellW = (210 - 2 * (layout.marginSide || 0) - (cols - 1) * gap) / cols;
+        var cellH = (297 - 2 * (layout.marginTop || 0) - (rows - 1) * gapY) / rows;
+        // Kolik QR zbude, se počítá stejně jako v hlavním procesu — u kulatého
+        // štítku se do rohů políčka tisknout nedá
+        var textH = (layout.fontSize || 9) * (25.4 / 72) * 1.1;
+        var qr = layout.qr || 18;
+        if (round) {
+          var r = Math.min(cellW, cellH) / 2 - safe;
+          var k = textH + 1;
+          var under = 8 * r * r - k * k;
+          qr = Math.min(qr, under > 0 ? (Math.sqrt(under) - k) / 2 : 0);
+        } else {
+          qr = Math.min(qr, cellH - 2 * safe - 1 - textH);
+        }
+        // Počet kusů znamená tolik štítků — jinak by náhled ukazoval tři
+        // políčka tam, kde patička slibuje dvaadvacet
+        var drawn = [];
+        items.forEach(function (item) {
+          for (var n = 0; n < Math.max(1, item.count || 1); n++) drawn.push(item);
+        });
         var cells = '';
-        for (var i = 0; i < Math.min(items.length, cols * rows); i++) {
-          cells += '<div class="cell"><div class="qr"></div><div class="code">'
-            + items[i].code + '</div>'
-            + (layout.withTitle ? '<div class="name">' + (items[i].label || items[i].title) + '</div>' : '')
+        for (var i = 0; i < Math.min(drawn.length, cols * rows); i++) {
+          var left = (layout.marginSide || 0) + (i % cols) * (cellW + gap) + (layout.offsetX || 0);
+          var top = (layout.marginTop || 0) + Math.floor(i / cols) * (cellH + gapY) + (layout.offsetY || 0);
+          cells += '<div class="cell" style="left:' + left.toFixed(2) + 'mm;top:' + top.toFixed(2) + 'mm">'
+            + '<div class="qr"></div><div class="code">' + drawn[i].code + '</div>'
+            + (layout.withTitle ? '<div class="name">' + (drawn[i].label || drawn[i].title) + '</div>' : '')
             + '</div>';
         }
         var html = '<!doctype html><meta charset="utf-8"><style>'
           + '*{box-sizing:border-box}body{margin:0;font-family:-apple-system,sans-serif}'
-          + '.page{width:210mm;height:297mm;padding:' + (layout.marginTop || 10) + 'mm '
-          + (layout.marginSide || 8) + 'mm;display:grid;'
-          + 'grid-template-columns:repeat(' + cols + ',1fr);grid-template-rows:repeat(' + rows + ',1fr);'
-          + 'gap:' + (layout.gap || 3) + 'mm}'
-          + '.cell{display:flex;flex-direction:column;align-items:center;justify-content:center;'
-          + 'gap:1mm;overflow:hidden;padding:1mm'
-          + (layout.cutLines ? ';border:.2mm dashed #bbb' : '') + '}'
-          + '.qr{width:' + (layout.qr || 18) + 'mm;height:' + (layout.qr || 18) + 'mm;background:'
+          + '.page{position:relative;width:210mm;height:297mm}'
+          + '.cell{position:absolute;width:' + cellW.toFixed(2) + 'mm;height:' + cellH.toFixed(2) + 'mm;'
+          + 'display:flex;flex-direction:column;align-items:center;justify-content:center;'
+          + 'gap:1mm;overflow:hidden;padding:' + safe + 'mm'
+          + (round ? ';border-radius:50%' : '')
+          + (layout.cutLines ? ';outline:.2mm dashed #bbb;outline-offset:-.1mm' : '') + '}'
+          + '.qr{width:' + qr.toFixed(2) + 'mm;height:' + qr.toFixed(2) + 'mm;background:'
           + 'repeating-conic-gradient(#000 0 25%,#fff 0 50%) 0 0/4mm 4mm}'
           + '.code{font-family:ui-monospace,Menlo,monospace;font-size:' + (layout.fontSize || 9)
           + 'pt;font-weight:700;letter-spacing:.04em;text-align:center;word-break:break-all}'
