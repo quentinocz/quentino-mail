@@ -55,13 +55,19 @@ export function startScheduler() {
   setInterval(() => keepAwake().catch(() => {}), 6 * 60 * 60_000);
   setTimeout(() => keepAwake().catch(() => {}), 60_000);
 
-  // Feedy objednávek. Kontroluje se každou minutu, ale stahuje se jen ten,
-  // kterému došel jeho vlastní interval — malý feed s posledními 24 h běžně
-  // po pěti minutách, velké jednou denně.
+  /*
+   * Feedy objednávek.
+   *
+   * E-shop soubor přegenerovává v pevných značkách (pětiminutový v :00, :05,
+   * :10…) a `refreshDueFeeds` na ně čeká. Kontroluje se proto po půl minutě,
+   * ne po minutě — jinak by se stahovalo se zpožděním až minutu po značce,
+   * což je u pětiminutového feedu pětina periody. Kontrola samotná je jen
+   * čtení jedné hodnoty z nastavení, takže nic nestojí.
+   */
   const orders = () => refreshDueFeeds().then(result => {
     if (result.some(item => item.orders > 0)) emit('orderfeed:changed', {});
   }).catch(() => {});
-  setInterval(orders, 60_000);
+  setInterval(orders, 30_000);
   setTimeout(orders, 15_000);
 
   // Synchronizace mezi zařízeními (sdílená složka) — každou minutu

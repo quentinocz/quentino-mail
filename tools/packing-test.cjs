@@ -32,7 +32,8 @@ db.exec(`
     tracking TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
     shipment TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '',
-    items_json TEXT NOT NULL DEFAULT '[]', PRIMARY KEY (code, market));
+    items_json TEXT NOT NULL DEFAULT '[]',
+    billing_json TEXT, postal_json TEXT, PRIMARY KEY (code, market));
   CREATE TABLE IF NOT EXISTS packing_shop (
     id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, market TEXT NOT NULL DEFAULT '',
     packed_json TEXT NOT NULL DEFAULT '[]', counts_json TEXT NOT NULL DEFAULT '{}',
@@ -58,6 +59,12 @@ db.exec(`
 const packing = require(path.join(DIST, 'packing.js'));
 
 let failed = 0;
+function ok(label, condition, detail) {
+  if (!condition) failed++;
+  console.log(`  ${condition ? '✓' : '✗'} ${label}`);
+  if (!condition && detail) console.log('      ', detail);
+}
+
 function check(label, got, want) {
   const ok = JSON.stringify(got) === JSON.stringify(want);
   if (!ok) failed++;
@@ -102,6 +109,9 @@ db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
 // Půl roku stará objednávka — do okna k balení nespadá, načtená faktura ji najít musí
 db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
   .run(3, JSON.stringify({ ...CARD, orderNumber: '021900' }), '2026-02-10T09:00:00.000Z');
+// Objednávka starší, než kam feed sahá — jedinou stopou je potvrzovací e-mail
+db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
+  .run(4, JSON.stringify({ ...CARD, orderNumber: '020500' }), '2025-11-02T09:00:00.000Z');
 
 /*
  * Faktury a objednávky mají v e-shopu různá čísla — právě proto se překlad
@@ -128,6 +138,25 @@ shop.run('019800', 'cz', '020100', 'Vyřizuje se', '2025-12-01', '2025-12-02', F
 shop.run('020100', 'cz', '020400', 'Vyřizuje se', '2025-12-20', '2025-12-21', FEED_ITEMS);
 // Objednávka jen ve feedu, bez potvrzovacího mailu — balit se musí dát i tak
 shop.run('018000', 'cz', '018100', 'Vyřizuje se', '2025-09-01', '2025-09-02', FEED_ITEMS);
+// Objednávka bez položek — do seznamu k balení nepatří, balit se na ní nedá nic
+shop.run('017000', 'cz', '017100', 'Vyřizuje se', '2025-08-01', '2025-08-02', '[]');
+
+/*
+ * Adresy. Doručovací u výdejního místa, jinde jen fakturační — přesně jak to
+ * chodí z e-shopu. Bez nich by karta při balení mlčky ukázala prázdno.
+ */
+const addr = db.prepare('UPDATE shop_orders SET billing_json = ?, postal_json = ?, name = ? WHERE code = ?');
+const POSTAL = JSON.stringify({
+  name: 'Jana Nováková', company: '', street: 'Vodičkova 30',
+  city: 'Praha 1', zip: '110 00', country: 'CZ', state: ''
+});
+const BILLING = JSON.stringify({
+  name: 'Jana Nováková', company: '', street: 'Dlouhá 12',
+  city: 'Praha 1', zip: '110 00', country: 'CZ', state: ''
+});
+for (const code of ['022605', '021900', '019800', '020100', '018000']) {
+  addr.run(BILLING, POSTAL, 'Jana Nováková', code);
+}
 
 // Potvrzovací maily — starší objednávka je jen tady, mimo okno k balení
 const mail = db.prepare('INSERT INTO messages (id, date, subject, from_addr) VALUES (?, ?, ?, ?)');
@@ -208,10 +237,19 @@ check('odškrtnutá položka se dopočítá na plný počet', [hit.ok, hit.reaso
 async function orders() {
   console.log('\nObjednávka podle čísla');
 
-  const at = async (value) => (await packing.openOrder(value)).order?.messageId;
-  check('číslo objednávky přímo', await at('022605'), 1);
-  check('bez vodicích nul', await at('22605'), 1);
-  check('faktura přes feed objednávek', await at('999111'), 1);
+  /*
+   * Objednávka, která je ve feedu, se vždycky vede podle feedu — i když
+   * k ní e-mail existuje. Odškrtání se drží u čísla, pod kterým se objednávka
+   * vede, a dvě různá čísla pro tutéž objednávku by rozešla odškrtané kusy.
+   */
+  const num = async (value) => (await packing.openOrder(value)).order?.card.orderNumber;
+  check('číslo objednávky přímo', await num('022605'), '022605');
+  check('bez vodicích nul', await num('22605'), '022605');
+  check('faktura přes feed objednávek', await num('999111'), '022605');
+
+  const feedFirst = (await packing.openOrder('022605')).order;
+  check('objednávka z feedu se vede podle feedu, ne podle mailu',
+    [feedFirst.source, feedFirst.messageId < 0], ['feed', true]);
 
   const missing = await packing.openOrder('880123');
   check('neznámé číslo řekne, kam až feed sahá',
@@ -228,10 +266,16 @@ async function orders() {
    * ji musí najít — a rovnou říct, že jde o konečný stav a odkdy.
    */
   const old = (await packing.openOrder('998700')).order;
-  check('stará objednávka se najde podle faktury', old?.messageId, 3);
+  check('stará objednávka se najde podle faktury', old?.card.orderNumber, '021900');
   check('konečný stav i s datem',
     [old.shop.status, old.shop.final, old.shop.at], ['Doručeno', true, '2026-02-14']);
-  check('karta se sestavila i mimo okno', old.card?.orderNumber, '021900');
+  /*
+   * Objednávka starší, než kam feed sahá, ve feedu vůbec není — tam zůstává
+   * jedinou stopou potvrzovací e-mail a vede se podle něj.
+   */
+  const mailOnly = (await packing.openOrder('020500')).order;
+  check('objednávka mimo feed se najde podle e-mailu',
+    [mailOnly?.messageId, mailOnly?.source], [4, 'mail']);
 
   /*
    * Číslo faktury bývá číslem jiné objednávky. Otevřít se musí ta z faktury —
@@ -265,7 +309,44 @@ async function orders() {
   check('a drží se stejné číslo', again.messageId, feed.messageId);
 }
 
-orders().then(() => {
+/* ---------- 7. seznam k balení z feedu ---------- */
+
+async function fromFeed() {
+  console.log('\nSeznam k balení');
+
+  /*
+   * Seznam se staví z feedu, ne z potvrzovacích e-mailů. Kontroluje se, že
+   * v něm objednávky jsou i bez jediného e-mailu a že nesou adresu — právě
+   * kvůli ní se rozbor adres do feedu doplňoval.
+   */
+  const scan = await packing.scanOrders(400);
+  const codes = scan.orders.map(o => o.card.orderNumber);
+  ok('objednávky z feedu jsou v seznamu', codes.includes('018000'), JSON.stringify(codes));
+  ok('všechny jsou vedené jako z feedu',
+    scan.orders.every(o => o.source === 'feed' && o.messageId < 0),
+    JSON.stringify(scan.orders.map(o => [o.card.orderNumber, o.source, o.messageId])));
+
+  const one = scan.orders.find(o => o.card.orderNumber === '018000');
+  check('adresa z feedu se dostane na kartu',
+    [one.card.shipping?.name, one.card.shipping?.lines],
+    ['Jana Nováková', ['Vodičkova 30', '110 00 Praha 1']]);
+  check('stav objednávky jde s ní', one.shop.status, 'Vyřizuje se');
+
+  /*
+   * Odškrtání se drží u čísla, pod kterým se objednávka vede. Když ji jednou
+   * otevře seznam a podruhé načtená faktura, musí to být totéž číslo — jinak
+   * by se odškrtané kusy rozešly.
+   */
+  const scanned = (await packing.openOrder('018100')).order;
+  check('načtená faktura otevře tutéž objednávku jako seznam',
+    scanned.messageId, one.messageId);
+
+  // Objednávka bez položek se do seznamu neplete — balit se na ní nedá nic
+  ok('objednávka bez položek v seznamu není',
+    !codes.includes('017000'), JSON.stringify(codes));
+}
+
+orders().then(fromFeed).then(() => {
   console.log(failed === 0 ? '\n✓ balení sedí' : `\n✗ ${failed} nesedí`);
   process.exit(failed === 0 ? 0 : 1);
 });

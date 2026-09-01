@@ -256,6 +256,9 @@ extension Bridge {
                 + "je to jednorázové vložení SQL do administrace projektu.")
         }
 
+        register("packing:mailFor") { args in
+            Packing.mailForOrder(args.first as? String ?? "") ?? NSNull()
+        }
         register("packing:openOrder") { args in
             await Packing.openOrder(args.first as? String ?? "")
         }

@@ -1,7 +1,7 @@
 import { net } from 'electron';
 import { getDb, getSetting, setSetting } from './db';
 import { encrypt, decrypt } from './secure';
-import type { ShopOrder, ShopOrderItem, OrderFeed, OrderFeedStatus } from '../shared/types';
+import type { ShopAddress, ShopOrder, ShopOrderItem, OrderFeed, OrderFeedStatus } from '../shared/types';
 
 /**
  * Objednávky z exportních feedů e-shopu.
@@ -144,6 +144,35 @@ export function normalizePhone(raw: string, market = 'cz'): string {
   return clean;
 }
 
+/**
+ * Adresa z bloku `<BILLING>` nebo `<POSTAL>`.
+ *
+ * Názvy značek se u exportů liší podle stáří šablony (`ZIP_CODE` i `ZIP`,
+ * `COUNTRY_ID` i `COUNTRY`), takže se u každého pole zkouší víc variant.
+ * Prázdné pole export vynechává úplně — proto se nikde nespoléhá na to, že
+ * značka existuje.
+ *
+ * Vrací `null`, když v bloku není vůbec nic; prázdná adresa v kartě je horší
+ * než žádná, protože vypadá jako by se doručovalo nikam.
+ */
+function parseAddress(block: string): ShopAddress | null {
+  const first = tag(block, 'FIRSTNAME', 'FIRST_NAME');
+  const last = tag(block, 'SURNAME', 'LASTNAME', 'LAST_NAME');
+  const street = [tag(block, 'STREET'), tag(block, 'HOUSENUMBER', 'HOUSE_NUMBER')]
+    .filter(Boolean).join(' ');
+
+  const address: ShopAddress = {
+    name: [first, last].filter(Boolean).join(' ') || tag(block, 'NAME'),
+    company: tag(block, 'COMPANY_NAME', 'COMPANY'),
+    street,
+    city: tag(block, 'CITY'),
+    zip: tag(block, 'ZIP_CODE', 'ZIP', 'POSTCODE'),
+    country: tag(block, 'COUNTRY_ID', 'COUNTRY', 'COUNTRY_CODE'),
+    state: tag(block, 'STATE')
+  };
+  return Object.values(address).some(Boolean) ? address : null;
+}
+
 export function parseOrders(xml: string, market: string): ShopOrder[] {
   const out: ShopOrder[] = [];
   for (const block of blocks(xml, 'ORDER')) {
@@ -166,6 +195,17 @@ export function parseOrders(xml: string, market: string): ShopOrder[] {
     const first = tag(customerBlock, 'FIRSTNAME', 'FIRST_NAME');
     const last = tag(customerBlock, 'SURNAME', 'LASTNAME', 'LAST_NAME');
 
+    /*
+     * Adresy. Hledají se uvnitř `<ADDRESSES>`, ne v celé objednávce: `<STREET>`
+     * je v obou blocích a bez ohraničení by se fakturační ulice vydávala za
+     * doručovací. Když blok `<ADDRESSES>` chybí (starší export), zkusí se
+     * i přímo v objednávce.
+     */
+    const addresses = blocks(block, 'ADDRESSES')[0] ?? block;
+    const billingBlock = blocks(addresses, 'BILLING')[0] ?? '';
+    const postalBlock = blocks(addresses, 'POSTAL')[0]
+      ?? blocks(addresses, 'DELIVERY')[0] ?? '';
+
     out.push({
       code,
       market,
@@ -185,7 +225,9 @@ export function parseOrders(xml: string, market: string): ShopOrder[] {
       phone: normalizePhone(tag(customerBlock, 'PHONE'), market),
       shipment: tag(shipmentBlock, 'NAME'),
       payment: tag(paymentBlock, 'NAME'),
-      items
+      items,
+      billing: parseAddress(billingBlock),
+      postal: parseAddress(postalBlock)
     });
   }
   return out;
@@ -199,10 +241,10 @@ function save(orders: ShopOrder[]): number {
   const stmt = d.prepare(`
     INSERT INTO shop_orders (code, market, status, paid, paid_date, resolved, invoice,
       created_at, updated_at, currency, total, tracking, customer_id, name, email, phone,
-      shipment, payment, items_json, seen_at)
+      shipment, payment, items_json, billing_json, postal_json, seen_at)
     VALUES (@code, @market, @status, @paid, @paidDate, @resolved, @invoice,
       @createdAt, @updatedAt, @currency, @total, @tracking, @customerId, @name, @email, @phone,
-      @shipment, @payment, @items, @seen)
+      @shipment, @payment, @items, @billing, @postal, @seen)
     ON CONFLICT(code, market) DO UPDATE SET
       status = excluded.status, paid = excluded.paid, paid_date = excluded.paid_date,
       resolved = excluded.resolved, invoice = excluded.invoice,
@@ -214,7 +256,13 @@ function save(orders: ShopOrder[]): number {
       -- potřebovali.
       phone = CASE WHEN excluded.phone <> '' THEN excluded.phone ELSE shop_orders.phone END,
       shipment = excluded.shipment, payment = excluded.payment,
-      items_json = excluded.items_json, seen_at = excluded.seen_at
+      items_json = excluded.items_json, seen_at = excluded.seen_at,
+      -- Adresu přepisuje jen ta, která za něco stojí. Rychlý feed s posledními
+      -- 24 h ji nemusí nést vůbec a prázdnou hodnotou by se ztratila.
+      billing_json = CASE WHEN excluded.billing_json IS NOT NULL
+        THEN excluded.billing_json ELSE shop_orders.billing_json END,
+      postal_json = CASE WHEN excluded.postal_json IS NOT NULL
+        THEN excluded.postal_json ELSE shop_orders.postal_json END
   `);
 
   const write = d.transaction((list: ShopOrder[]) => {
@@ -226,7 +274,10 @@ function save(orders: ShopOrder[]): number {
         currency: order.currency, total: order.total, tracking: order.tracking,
         customerId: order.customerId, name: order.name, email: order.email, phone: order.phone,
         shipment: order.shipment, payment: order.payment,
-        items: JSON.stringify(order.items), seen: now
+        items: JSON.stringify(order.items),
+        billing: order.billing ? JSON.stringify(order.billing) : null,
+        postal: order.postal ? JSON.stringify(order.postal) : null,
+        seen: now
       });
     }
   });
@@ -273,13 +324,46 @@ export async function refreshFeed(id: string): Promise<{ orders: number }> {
  * feed už došlo. Chyba jednoho nesmí zastavit ostatní — velký feed může být
  * chvíli nedostupný a přitom ten malý s dnešními objednávkami funguje.
  */
+/**
+ * Kolik vteřin se počká po celé značce, než se sáhne pro soubor.
+ *
+ * E-shop soubor v tu chvíli teprve zapisuje; stažení přesně v :05:00 by
+ * vrátilo ten předchozí.
+ */
+const FEED_GRACE_MS = 40_000;
+
+/**
+ * Je feed na řadě?
+ *
+ * Nepočítá se od posledního stažení, ale podle skutečného času. E-shop
+ * přegenerovává soubor v pevných značkách — pětiminutový v :00, :05, :10 —
+ * takže „naposledy plus pět minut" znamená trvalé opoždění: stáhne se ve
+ * 12:03, další pokus ve 12:08, ale to je pořád soubor z 12:05. Takhle se
+ * místo toho pozná, že přibyla nová značka, a stahuje se hned po ní.
+ *
+ * U feedů delších než hodina (celý export jednou denně) na značky nezáleží
+ * a rozhoduje prostý odstup.
+ */
+export function feedDue(everyMinutes: number, lastRun: string, now = Date.now()): boolean {
+  const period = Math.max(1, everyMinutes) * 60_000;
+  if (!lastRun) return true;
+  const last = new Date(lastRun).getTime();
+  if (!Number.isFinite(last)) return true;
+
+  // Hodiny na počítači se dají posunout; budoucí značka by jinak feed zamkla
+  if (last > now) return true;
+
+  if (period > 3_600_000) return now - last >= period;
+  const slot = (t: number) => Math.floor((t - FEED_GRACE_MS) / period);
+  return slot(now) > slot(last);
+}
+
 export async function refreshDueFeeds(force = false): Promise<{ feed: string; orders: number; error?: string }[]> {
   const out: { feed: string; orders: number; error?: string }[] = [];
   for (const feed of getOrderFeeds()) {
     if (!feed.enabled) continue;
     const last = getSetting(`orderFeedSync:${feed.id}`, '')!;
-    const age = last ? Date.now() - new Date(last).getTime() : Infinity;
-    if (!force && age < feed.everyMinutes * 60_000) continue;
+    if (!force && !feedDue(feed.everyMinutes, last)) continue;
     try {
       const result = await refreshFeed(feed.id);
       out.push({ feed: feed.label, orders: result.orders });
@@ -288,6 +372,41 @@ export async function refreshDueFeeds(force = false): Promise<{ feed: string; or
     }
   }
   return out;
+}
+
+/**
+ * Obnova feedů před sestavením seznamu k balení.
+ *
+ * Rychlý feed s posledními 24 h se sahá vždycky — právě o dnešní objednávky
+ * při balení jde. Kompletní exporty se tahají jen tehdy, když okno sahá dál
+ * než den; jsou velké a stejně se přegenerovávají jednou denně, takže by je
+ * každé otevření okna stahovalo zbytečně.
+ *
+ * Chyba se polyká: bez sítě se má seznam poskládat z toho, co je uložené,
+ * ne se neotevřít.
+ */
+export async function refreshForPacking(days: number, force = false): Promise<void> {
+  const wanted = getOrderFeeds().filter(f => f.enabled && (f.recent || days > 1));
+  for (const feed of wanted) {
+    const last = getSetting(`orderFeedSync:${feed.id}`, '')!;
+    if (!force && !feedDue(feed.everyMinutes, last)) continue;
+    try { await refreshFeed(feed.id); } catch { /* seznam se poskládá z uloženého */ }
+  }
+}
+
+/**
+ * Objednávky za posledních `days` dní, jak je vede feed.
+ *
+ * Řadí se podle vzniku, ne podle poslední změny: při balení se jde odshora
+ * a nejstarší nezabalená objednávka nesmí spadnout dolů jen proto, že se
+ * u ní něco přepsalo.
+ */
+export function ordersSince(days: number, limit = 400): ShopOrder[] {
+  const since = new Date(Date.now() - Math.max(1, days) * 86_400_000).toISOString();
+  const rows = getDb().prepare(
+    `SELECT * FROM shop_orders WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?`
+  ).all(since, limit) as any[];
+  return rows.map(toOrder);
 }
 
 /* ---------- dotazy ---------- */
@@ -300,8 +419,19 @@ function toOrder(row: any): ShopOrder {
     currency: row.currency, total: row.total, tracking: row.tracking,
     customerId: row.customer_id, name: row.name, email: row.email, phone: row.phone,
     shipment: row.shipment, payment: row.payment,
-    items: safeItems(row.items_json)
+    items: safeItems(row.items_json),
+    billing: safeAddress(row.billing_json),
+    postal: safeAddress(row.postal_json)
   };
+}
+
+function safeAddress(json: string | null): ShopAddress | null {
+  try {
+    const value = JSON.parse(json ?? 'null');
+    return value && typeof value === 'object' ? value as ShopAddress : null;
+  } catch {
+    return null;
+  }
 }
 
 function safeItems(json: string): ShopOrderItem[] {

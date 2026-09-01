@@ -325,6 +325,8 @@ enum Schema {
       shipment TEXT NOT NULL DEFAULT '',
       payment TEXT NOT NULL DEFAULT '',
       items_json TEXT NOT NULL DEFAULT '[]',
+      billing_json TEXT,
+      postal_json TEXT,
       seen_at TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (code, market)
     );
@@ -448,6 +450,10 @@ enum Schema {
         "ALTER TABLE products ADD COLUMN stock_at TEXT NOT NULL DEFAULT ''",
         // Balení po kusech, ne po položkách — u „3 ks" jinak nejde poznat,
         // kolik jich už je v krabici
-        "ALTER TABLE packing ADD COLUMN counts_json TEXT NOT NULL DEFAULT '{}'"
+        "ALTER TABLE packing ADD COLUMN counts_json TEXT NOT NULL DEFAULT '{}'",
+        // Adresy z feedu objednávek — balení se přestěhovalo z e-mailů na feed
+        // a adresa je to jediné, co se při balení opisuje
+        "ALTER TABLE shop_orders ADD COLUMN billing_json TEXT",
+        "ALTER TABLE shop_orders ADD COLUMN postal_json TEXT"
     ]
 }

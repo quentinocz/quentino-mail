@@ -238,6 +238,7 @@
     // Načtená faktura otevře i půl roku starou doručenou objednávku
     'packing:openOrder': null,
     // Upozornění na telefon přes ntfy — v náhledu se nikam neposílá
+    'packing:mailFor': 1,
     'notify:topic': 'quentino-nahled123456789abcdef',
     'notify:test': { ok: true },
     'notify:chatSql': [
@@ -826,9 +827,11 @@
       // právě na tomhle je vidět, že se počítá po kusech, ne po položkách
       { messageId: 1, date: new Date(Date.now() - 3 * 3600e3).toISOString(),
         card: toPack('20260819'), packed: [0], counts: { '0': 1, '1': 1 }, done: false, doneAt: null,
+        source: 'feed',
         shop: { code: '022605', invoice: '999111', status: 'Přijata', at: '2026-08-19', final: false } },
       { messageId: 2, date: new Date(Date.now() - 26 * 3600e3).toISOString(),
         card: toPack('20260812'), packed: [], counts: {}, done: false, doneAt: null,
+        source: 'feed',
         shop: { code: '022600', invoice: '999100', status: 'Přijata', at: '2026-08-12', final: false } }
     ],
     statuses: ['Přijata'],

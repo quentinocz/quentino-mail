@@ -342,6 +342,18 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
     try { await api.packing.reset(id); } catch { /* nevadí, přepíše se příštím odškrtnutím */ }
   };
 
+  /** Otevře potvrzovací e-mail — u objednávky z feedu se zpráva teprve hledá. */
+  const openMail = useCallback(async (order: PackingOrder) => {
+    if (order.source !== 'feed') { onOpenMessage(order.messageId); return; }
+    try {
+      const id = await api.packing.mailFor(order.card.orderNumber ?? '');
+      if (id) onOpenMessage(id);
+      else toast('K téhle objednávce ve schránce potvrzovací e-mail nemám.');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  }, [onOpenMessage, toast]);
+
   const copyAddress = async () => {
     const a = current?.card.shipping ?? current?.card.billing;
     if (!a) return;
@@ -750,7 +762,12 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                 </div>
 
                 <div className="pk-foot">
-                  <button className="oc-btn" onClick={() => onOpenMessage(current.messageId)}>
+                  {/*
+                    Objednávka ze seznamu je z feedu, takže k ní číslo zprávy
+                    nemáme — dohledá se až tady. Pro celý seznam předem by to
+                    znamenalo průchod schránkou u každé objednávky.
+                  */}
+                  <button className="oc-btn" onClick={() => void openMail(current)}>
                     <Icon name="mail" size={12} /> Otevřít e-mail
                   </button>
                   {current.card.historyUrl && (
