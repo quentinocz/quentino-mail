@@ -73,6 +73,25 @@ function packedPieces(o: PackingOrder): number {
   }, 0);
 }
 
+/**
+ * Číslo, které má člověk před sebou.
+ *
+ * V ruce drží fakturu a na ní je **číslo faktury** — pod tím zboží hledá,
+ * tím se ptá zákazník a tím se ptá i dopravce. Číslo objednávky je jiné
+ * a ukazovat ho jako to hlavní znamenalo, že načtená faktura otevřela
+ * obrazovku s číslem, které na papíře nikde není.
+ *
+ * Číslo objednávky se proto ukazuje pod ním, drobně: taky se hodí (v e-shopu
+ * se objednávka vede pod ním), jen se podle něj nikdo nerozhoduje.
+ */
+function numbers(order: PackingOrder): { main: string; sub: string } {
+  const invoice = order.shop?.invoice ?? '';
+  const code = order.card.orderNumber ?? '';
+  if (invoice) return { main: invoice, sub: code };
+  // Objednávka bez vystavené faktury — pak je číslo objednávky to jediné
+  return { main: code || '—', sub: '' };
+}
+
 function customerName(o: PackingOrder): string {
   return o.card.shipping?.name || o.card.billing?.name || o.card.customerEmail || '—';
 }
@@ -420,15 +439,16 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
     setSelected(found.messageId);
     selectedRef.current = found.messageId;
 
-    const number = found.card.orderNumber ?? '';
+    // Hlásí se to číslo, které je na papíře v ruce — tedy z faktury
+    const number = numbers(found).main;
     if (found.shop?.final) {
       // Totéž hlásí červený pruh nad seznamem, tak ať to nestojí dvakrát pod sebou
-      say(`Objednávka ${number} — ${found.shop.status}${found.shop.at ? `, ${dayOf(found.shop.at)}` : ''}`,
+      say(`Faktura ${number} — ${found.shop.status}${found.shop.at ? `, ${dayOf(found.shop.at)}` : ''}`,
         false, false);
     } else if (found.done) {
-      say(`Objednávka ${number} už je označená jako zabalená`, false);
+      say(`Faktura ${number} už je označená jako zabalená`, false);
     } else {
-      say(`Objednávka ${number} otevřena`, true);
+      say(`Faktura ${number} otevřena`, true);
     }
   }, [say]);
 
@@ -623,7 +643,9 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                   className={`pk-row ${o.messageId === selected ? 'active' : ''} ${o.done ? 'done' : ''}`}
                   onClick={() => setSelected(o.messageId)}>
                   <div className="pk-row-top">
-                    <span className="pk-row-num">{o.card.orderNumber ?? '—'}</span>
+                    <span className="pk-row-num">{numbers(o).main}</span>
+                    {/* Číslo objednávky drobně vedle — hlavní je to z faktury */}
+                    {numbers(o).sub && <span className="pk-row-code">obj. {numbers(o).sub}</span>}
                     {o.done && <Icon name="check" size={13} className="pk-row-done" />}
                     <span style={{ flex: 1 }} />
                     <span className="pk-row-age">{relTime(o.date)}</span>
@@ -653,7 +675,14 @@ export default function PackingModal({ onClose, onOpenMessage }: Props) {
                     <Icon name="chevLeft" size={20} />
                   </button>
                   <div>
-                    <div className="pk-head-num">{current.card.orderNumber ?? 'Objednávka'}</div>
+                    <div className="pk-head-num">
+                      {numbers(current).main}
+                      {numbers(current).sub && (
+                        <span className="pk-head-code" data-tip="Číslo objednávky v e-shopu">
+                          obj. {numbers(current).sub}
+                        </span>
+                      )}
+                    </div>
                     <div className="pk-head-name">{customerName(current)}</div>
                   </div>
                   <span style={{ flex: 1 }} />

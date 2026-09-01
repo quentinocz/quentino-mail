@@ -1478,6 +1478,13 @@ input:focus, textarea:focus, select:focus {
 .pk-row.done { opacity: 0.55; }
 .pk-row-top { display: flex; align-items: center; gap: 6px; }
 .pk-row-num { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+/* Číslo objednávky vedle toho z faktury — je k dohledání, ne k rozhodování */
+.pk-row-code {
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  padding-top: 3px;
+}
 .pk-row-done { color: var(--ok); }
 .pk-row-age { font-size: 11px; color: var(--text-3); }
 .pk-row-name {
@@ -1515,6 +1522,18 @@ input:focus, textarea:focus, select:focus {
   border-bottom: 1px solid var(--border);
 }
 .pk-head-num { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+/* Na úzké obrazovce se to celé přesune pod číslo faktury; rozpadnout se
+   na „obj." a číslo pod tím ale nesmí — to už není údaj, jen dvě slova */
+.pk-head-code {
+  display: inline-block;
+  white-space: nowrap;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0;
+  vertical-align: 3px;
+}
 .pk-head-name { font-size: 14px; font-weight: 600; color: var(--text-2); padding-top: 2px; }
 .pk-head-right { text-align: right; min-width: 150px; }
 .pk-head-count { font-size: 11.5px; color: var(--text-3); font-weight: 600; padding-bottom: 4px; }
