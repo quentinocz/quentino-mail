@@ -4,7 +4,7 @@ import { app, BrowserWindow, dialog } from 'electron';
 import QRCode from 'qrcode';
 import { getDb } from './db';
 import { LabelLayout, RollLabel, ZplPlan } from '../shared/types';
-import { labelGeometry } from '../shared/labels';
+import { gapY, labelGeometry, safeMm } from '../shared/labels';
 
 /**
  * Štítky s kódem na A4.
@@ -57,32 +57,82 @@ function esc(s: string): string {
  * Když má produkt varianty, tisknou se **varianty**, ne produkt: naskladňuje
  * se konkrétní délka, ne „kšandy". U produktu bez variant je štítek jeden.
  */
-export function labelItems(codes: string[], perItem = 1): LabelItem[] {
+export function labelItems(codes: string[], perItem = 1, byStock = false): LabelItem[] {
   const d = getDb();
   const out: LabelItem[] = [];
   for (const code of codes) {
     const variants = d.prepare(
-      'SELECT code, label FROM product_variants WHERE product_code = ? ORDER BY sort, code'
+      'SELECT code, label, stock FROM product_variants WHERE product_code = ? ORDER BY sort, code'
     ).all(code) as any[];
-    const product = d.prepare('SELECT code, title_cz FROM products WHERE code = ?').get(code) as any;
+    const product = d.prepare('SELECT code, title_cz, stock FROM products WHERE code = ?')
+      .get(code) as any;
     const title = product?.title_cz ?? code;
+
+    /*
+     * Počet podle skladu se bere u té věci, na kterou štítek je. U produktu
+     * s variantami je zásoba na variantě — souhrn na „hlavním" kódu sečítá
+     * všechny délky dohromady a nálepek by se vytisklo tolik, kolik je kusů
+     * celkem, na každou variantu zvlášť.
+     */
+    const many = (stock: unknown) => byStock
+      ? Math.max(0, Math.floor(Number(stock) || 0))
+      : Math.max(1, perItem);
 
     if (variants.length > 0) {
       for (const v of variants) {
-        out.push({ code: v.code, title, label: v.label ?? '', count: Math.max(1, perItem) });
+        const count = many(v.stock);
+        if (count > 0) out.push({ code: v.code, title, label: v.label ?? '', count });
       }
     } else if (product) {
-      out.push({ code: product.code, title, label: '', count: Math.max(1, perItem) });
+      const count = many(product.stock);
+      if (count > 0) out.push({ code: product.code, title, label: '', count });
     }
   }
   return out;
 }
 
+/**
+ * Štítky na to, co se právě naskladnilo.
+ *
+ * Zboží se naskladní a hned se na ně lepí štítky — počet je tedy ten, který
+ * se naskladňoval, ne zásoba na skladě: ta v tu chvíli ještě neví o tom, co
+ * leží na stole.
+ */
+export function stockinLabelItems(sessionId: string): LabelItem[] {
+  const rows = getDb().prepare(
+    `SELECT code, title, label, qty FROM stockin_items
+     WHERE session_id = ? AND qty > 0 ORDER BY added_at`
+  ).all(sessionId) as any[];
+
+  return rows.map(r => ({
+    code: r.code,
+    title: r.title ?? r.code,
+    label: r.label ?? '',
+    count: Math.max(1, Number(r.qty) || 1)
+  }));
+}
+
+/**
+ * Vysází archy štítků do HTML.
+ *
+ * Políčka se pokládají na **absolutní pozice**, ne do mřížky. U koupených
+ * archů je rozteč daná výsekem — u Y025025W066 vodorovně 30,48 mm a svisle
+ * 25,4 mm bez mezery — a mřížka, která si rozměry dopočítá z volného místa,
+ * se do desetiny milimetru netrefí. Tady se každý štítek posadí přesně tam,
+ * kde na papíře je.
+ */
 async function sheetHtml(items: LabelItem[], layout: LabelLayout): Promise<string> {
   // Kolik se do políčka vejde, počítá sdílený výpočet — stejný, jaký v
   // rozhraní ukazuje „štítek 46 × 25 mm". QR se podle něj zmenší, místo aby
   // přeteklo přes okraj a oříznulo se
   const geom = labelGeometry(layout);
+  const round = layout.shape === 'round';
+  const safe = safeMm(layout);
+  const stepX = geom.cellW + layout.gap;
+  const stepY = geom.cellH + gapY(layout);
+  const offsetX = layout.offsetX ?? 0;
+  const offsetY = layout.offsetY ?? 0;
+
   const cells: string[] = [];
   for (const item of items) {
     const svg = await QRCode.toString(item.code, {
@@ -91,20 +141,25 @@ async function sheetHtml(items: LabelItem[], layout: LabelLayout): Promise<strin
     // Vlastní rozměr se řídí stylem, ne atributem v SVG
     const qr = svg.replace(/<svg([^>]*)>/, '<svg$1 preserveAspectRatio="xMidYMid meet">');
     for (let i = 0; i < item.count; i++) {
-      cells.push(`<div class="cell">
-        <div class="qr">${qr}</div>
+      cells.push(`<div class="qr">${qr}</div>
         <div class="code">${esc(item.code)}</div>
         ${layout.withTitle && (item.label || item.title)
           ? `<div class="name">${esc(item.label || item.title)}</div>`
-          : ''}
-      </div>`);
+          : ''}`);
     }
   }
 
   const perPage = Math.max(1, layout.cols * layout.rows);
   const pages: string[] = [];
   for (let i = 0; i < cells.length; i += perPage) {
-    pages.push(`<div class="page">${cells.slice(i, i + perPage).join('')}</div>`);
+    const placed = cells.slice(i, i + perPage).map((inner, n) => {
+      const col = n % layout.cols;
+      const row = Math.floor(n / layout.cols);
+      const left = layout.marginSide + col * stepX + offsetX;
+      const top = layout.marginTop + row * stepY + offsetY;
+      return `<div class="cell" style="left:${mm(left)}mm;top:${mm(top)}mm">${inner}</div>`;
+    });
+    pages.push(`<div class="page">${placed.join('')}</div>`);
   }
   if (pages.length === 0) pages.push('<div class="page"></div>');
 
@@ -113,25 +168,18 @@ async function sheetHtml(items: LabelItem[], layout: LabelLayout): Promise<strin
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, "Segoe UI", Arial, sans-serif; }
-  .page {
-    width: 210mm; height: 297mm;
-    padding: ${layout.marginTop}mm ${layout.marginSide}mm;
-    display: grid;
-    grid-template-columns: repeat(${layout.cols}, 1fr);
-    /* Řádky se předepisují všechny, i když je poslední arch poloprázdný.
-       S automatickými řádky by se jediná řada roztáhla přes celou stránku a
-       štítky by se vytiskly uprostřed papíru místo na svých místech. */
-    grid-template-rows: repeat(${layout.rows}, 1fr);
-    gap: ${layout.gap}mm;
-    page-break-after: always;
-  }
+  .page { position: relative; width: 210mm; height: 297mm; page-break-after: always; }
   .page:last-child { page-break-after: auto; }
+  /* Políčko sedí na svém místě podle rozteče archu, ne podle mřížky */
   .cell {
+    position: absolute;
+    width: ${mm(geom.cellW)}mm; height: ${mm(geom.cellH)}mm;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 1mm; overflow: hidden; padding: 1mm;
-    ${layout.cutLines ? 'border: 0.2mm dashed #bbb;' : ''}
+    gap: 1mm; overflow: hidden; padding: ${mm(safe)}mm;
+    ${round ? 'border-radius: 50%;' : ''}
+    ${layout.cutLines ? 'outline: 0.2mm dashed #bbb; outline-offset: -0.1mm;' : ''}
   }
-  .qr { width: ${geom.qr}mm; height: ${geom.qr}mm; flex: 0 0 auto; }
+  .qr { width: ${mm(geom.qr)}mm; height: ${mm(geom.qr)}mm; flex: 0 0 auto; }
   .qr svg { width: 100%; height: 100%; display: block; }
   /* Kód pod QR je pojistka pro chvíli, kdy čtečka nedosáhne — proto
      jednoprostorové písmo a rozpal, ať se nedá splést O a 0 */
@@ -139,13 +187,20 @@ async function sheetHtml(items: LabelItem[], layout: LabelLayout): Promise<strin
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: ${layout.fontSize}pt; font-weight: 700; letter-spacing: 0.04em;
     line-height: 1.1; text-align: center; word-break: break-all;
+    /* U kulatých štítků je dole místa míň než uprostřed — šířka je tětiva */
+    max-width: ${mm(geom.textW)}mm;
   }
   .name {
     font-size: ${Math.max(5, layout.fontSize - 2)}pt; color: #444;
-    line-height: 1.15; text-align: center;
+    line-height: 1.15; text-align: center; max-width: ${mm(geom.textW)}mm;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
 </style></head><body>${pages.join('')}</body></html>`;
+}
+
+/** Milimetry do stylu — na dvě desetiny stačí, dál už tiskárna nedosáhne. */
+function mm(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 /** Náhled do rozhraní — stejné HTML, jaké půjde do tisku. */

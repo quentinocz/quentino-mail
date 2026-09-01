@@ -20,6 +20,14 @@ import type {
   RollLabel, ZplPlan
 } from '@shared/types';
 
+/** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
+export interface LabelItemRow {
+  code: string;
+  title: string;
+  label: string;
+  count: number;
+}
+
 declare global {
   interface Window {
     api: {
@@ -461,8 +469,11 @@ export const api = {
     suggest: (query: string, limit = 8) => call<CatalogSuggestion[]>('catalog:suggest', query, limit),
     refreshStock: () => call<{ products: number; variants: number; at: string }>('catalog:refreshStock'),
     stockAt: () => call<string | null>('catalog:stockAt'),
-    labelItems: (codes: string[], perItem = 1) =>
-      call<{ code: string; title: string; label: string; count: number }[]>('labels:items', codes, perItem),
+    /** `byStock` vezme počty ze zásoby ve feedu — u variant z varianty, ne ze součtu */
+    labelItems: (codes: string[], perItem = 1, byStock = false) =>
+      call<LabelItemRow[]>('labels:items', codes, perItem, byStock),
+    /** Štítky na to, co se právě naskladnilo — v počtech, které se naskladňovaly */
+    labelsForStockin: (sessionId: string) => call<LabelItemRow[]>('labels:stockin', sessionId),
     labelPreview: (items: any[], layout: Partial<LabelLayout>) =>
       call<string>('labels:preview', items, layout),
     labelPdf: (items: any[], layout: Partial<LabelLayout>) =>
