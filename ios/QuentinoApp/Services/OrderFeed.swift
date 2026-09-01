@@ -194,6 +194,16 @@ enum OrderFeed {
                 ]
             }
 
+            /*
+             Adresy. Hledají se uvnitř `<ADDRESSES>`, ne v celé objednávce:
+             `<STREET>` je v obou blocích a bez ohraničení by se fakturační
+             ulice vydávala za doručovací.
+             */
+            let addresses = blocks(block, "ADDRESSES").first ?? block
+            let billing = address(blocks(addresses, "BILLING").first ?? "")
+            let postal = address(blocks(addresses, "POSTAL").first
+                ?? blocks(addresses, "DELIVERY").first ?? "")
+
             // Doprava i platba mají uvnitř vlastní NAME — mimo tyhle bloky by
             // se chytlo prvního výskytu, ať patří komukoli
             let shipmentBlock = blocks(block, "SHIPMENT").first ?? ""
@@ -223,12 +233,50 @@ enum OrderFeed {
                 "phone": normalizePhone(tag(customerBlock, "PHONE"), market: market),
                 "shipment": tag(shipmentBlock, "NAME"),
                 "payment": tag(paymentBlock, "NAME"),
-                "items": items
+                "items": items,
+                "billing": billing ?? NSNull(),
+                "postal": postal ?? NSNull()
             ]
         }
     }
 
+    /**
+     Adresa z bloku `<BILLING>` nebo `<POSTAL>`.
+
+     Názvy značek se mezi šablonami exportu liší (`ZIP_CODE` i `ZIP`,
+     `COUNTRY_ID` i `COUNTRY`), takže se u každého pole zkouší víc variant.
+     Prázdné pole export vynechává, proto se nikde nespoléhá na to, že značka
+     existuje — a z bloku bez jediné vyplněné hodnoty se vrací „nic": prázdná
+     adresa na kartě vypadá, jako by se doručovalo nikam.
+     */
+    private static func address(_ block: String) -> [String: Any]? {
+        let street = [tag(block, "STREET"), tag(block, "HOUSENUMBER", "HOUSE_NUMBER")]
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        let person = [tag(block, "FIRSTNAME", "FIRST_NAME"),
+                      tag(block, "SURNAME", "LASTNAME", "LAST_NAME")]
+            .filter { !$0.isEmpty }.joined(separator: " ")
+
+        let out: [String: String] = [
+            "name": person.isEmpty ? tag(block, "NAME") : person,
+            "company": tag(block, "COMPANY_NAME", "COMPANY"),
+            "street": street,
+            "city": tag(block, "CITY"),
+            "zip": tag(block, "ZIP_CODE", "ZIP", "POSTCODE"),
+            "country": tag(block, "COUNTRY_ID", "COUNTRY", "COUNTRY_CODE"),
+            "state": tag(block, "STATE")
+        ]
+        return out.values.contains(where: { !$0.isEmpty }) ? out : nil
+    }
+
     // MARK: - Stahování
+
+    /// Slovník do JSONu pro uložení; `NSNull` a nesmysl se ukládají jako prázdno.
+    private static func json(_ value: Any?) -> SQLite.Value {
+        guard let value, !(value is NSNull),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let text = String(data: data, encoding: .utf8) else { return .null }
+        return .text(text)
+    }
 
     private static func store(_ orders: [[String: Any]]) {
         let now = ISO8601DateFormatter().string(from: Date())
@@ -238,8 +286,8 @@ enum OrderFeed {
             _ = try? SQLite.shared.run("""
                 INSERT INTO shop_orders (code, market, status, paid, paid_date, resolved, invoice,
                   created_at, updated_at, currency, total, tracking, customer_id, name, email, phone,
-                  shipment, payment, items_json, seen_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  shipment, payment, items_json, billing_json, postal_json, seen_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(code, market) DO UPDATE SET
                   status = excluded.status, paid = excluded.paid, paid_date = excluded.paid_date,
                   resolved = excluded.resolved, invoice = excluded.invoice,
@@ -249,7 +297,13 @@ enum OrderFeed {
                   -- ho občas nemá a přišli bychom o jediné, co potřebujeme
                   phone = CASE WHEN excluded.phone <> '' THEN excluded.phone ELSE shop_orders.phone END,
                   shipment = excluded.shipment, payment = excluded.payment,
-                  items_json = excluded.items_json, seen_at = excluded.seen_at
+                  items_json = excluded.items_json, seen_at = excluded.seen_at,
+                  -- Adresu přepisuje jen ta, která za něco stojí: rychlý feed
+                  -- ji nemusí nést vůbec a prázdnou hodnotou by se ztratila
+                  billing_json = CASE WHEN excluded.billing_json IS NOT NULL
+                    THEN excluded.billing_json ELSE shop_orders.billing_json END,
+                  postal_json = CASE WHEN excluded.postal_json IS NOT NULL
+                    THEN excluded.postal_json ELSE shop_orders.postal_json END
                 """, [
                 .text(order["code"] as? String ?? ""),
                 .text(order["market"] as? String ?? "cz"),
@@ -270,6 +324,8 @@ enum OrderFeed {
                 .text(order["shipment"] as? String ?? ""),
                 .text(order["payment"] as? String ?? ""),
                 .text(items),
+                json(order["billing"]),
+                json(order["postal"]),
                 .text(now)
             ])
         }
@@ -297,15 +353,44 @@ enum OrderFeed {
         }
     }
 
+    /**
+     Kolik vteřin se počká po celé značce, než se sáhne pro soubor.
+
+     E-shop ho v tu chvíli teprve zapisuje; stažení přesně v :05:00 by vrátilo
+     ten předchozí.
+     */
+    private static let grace: TimeInterval = 40
+
+    /**
+     Je feed na řadě?
+
+     Nepočítá se od posledního stažení, ale podle skutečného času. E-shop
+     přegenerovává soubor v pevných značkách — pětiminutový v :00, :05, :10 —
+     takže „naposledy plus pět minut" znamená trvalé opoždění: stáhne se ve
+     12:03, další pokus ve 12:08, jenže to je pořád soubor z 12:05. Takhle se
+     místo toho pozná, že přibyla nová značka.
+
+     U feedů delších než hodina (celý export jednou denně) na značky nezáleží
+     a rozhoduje prostý odstup.
+     */
+    static func due(everyMinutes: Int, lastRun: String, now: Date = Date()) -> Bool {
+        let period = Double(max(1, everyMinutes)) * 60
+        guard !lastRun.isEmpty, let last = ISO8601DateFormatter().date(from: lastRun) else { return true }
+        // Hodiny na telefonu se dají posunout; budoucí značka by feed zamkla
+        if last > now { return true }
+        if period > 3600 { return now.timeIntervalSince(last) >= period }
+
+        let slot = { (t: Date) in floor((t.timeIntervalSince1970 - grace) / period) }
+        return slot(now) > slot(last)
+    }
+
     /// Obnova těch feedů, kterým došel jejich vlastní interval.
     @discardableResult
     static func refreshDue(force: Bool = false) async -> [[String: Any]] {
         var out: [[String: Any]] = []
         for feed in feeds() where feed.enabled {
             let last = Store.setting("orderFeedSync:\(feed.id)", "") ?? ""
-            let age = last.isEmpty ? Double.infinity
-                : Date().timeIntervalSince(ISO8601DateFormatter().date(from: last) ?? .distantPast)
-            if !force && age < Double(feed.everyMinutes) * 60 { continue }
+            if !force && !due(everyMinutes: feed.everyMinutes, lastRun: last) { continue }
             do {
                 let count = try await refresh(id: feed.id)
                 out.append(["feed": feed.label, "orders": count])
@@ -346,8 +431,50 @@ enum OrderFeed {
             "phone": raw["phone"] as? String ?? "",
             "shipment": raw["shipment"] as? String ?? "",
             "payment": raw["payment"] as? String ?? "",
-            "items": items
+            "items": items,
+            "billing": parsed(raw["billing_json"]) ?? NSNull(),
+            "postal": parsed(raw["postal_json"]) ?? NSNull()
         ]
+    }
+
+    /// Uložený JSON zpátky na slovník; poškozený řádek se bere jako prázdný.
+    private static func parsed(_ value: Any?) -> [String: Any]? {
+        guard let text = value as? String, let data = text.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    /**
+     Obnova feedů před sestavením seznamu k balení.
+
+     Rychlý feed s posledními 24 h se sahá vždycky — právě o dnešní objednávky
+     při balení jde. Kompletní exporty jen tehdy, když okno sahá dál než den;
+     jsou velké a přegenerovávají se stejně jednou denně.
+
+     Chyba se polyká: bez sítě se má seznam poskládat z uloženého, ne se
+     neotevřít.
+     */
+    static func refreshForPacking(days: Int, force: Bool = false) async {
+        for feed in feeds() where feed.enabled && (feed.recent || days > 1) {
+            let last = Store.setting("orderFeedSync:\(feed.id)", "") ?? ""
+            if !force && !due(everyMinutes: feed.everyMinutes, lastRun: last) { continue }
+            _ = try? await refresh(id: feed.id)
+        }
+    }
+
+    /**
+     Objednávky za posledních `days` dní, jak je vede feed.
+
+     Řadí se podle vzniku, ne podle poslední změny: při balení se jde odshora
+     a nejstarší nezabalená objednávka nesmí spadnout dolů jen proto, že se
+     u ní něco přepsalo.
+     */
+    static func since(days: Int, limit: Int = 400) -> [[String: Any]] {
+        let from = Date().addingTimeInterval(-Double(max(1, days)) * 86_400)
+        let rows = (try? SQLite.shared.query(
+            "SELECT * FROM shop_orders WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?",
+            [.text(ISO8601DateFormatter().string(from: from)), .int(Int64(limit))]
+        )) ?? []
+        return rows.map { row($0) }
     }
 
     static func byEmail(_ email: String, limit: Int = 12) -> [[String: Any]] {

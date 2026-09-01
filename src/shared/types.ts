@@ -351,6 +351,20 @@ export interface ShopOrderItem {
   price: number;
 }
 
+/** Adresa z exportu objednávek */
+export interface ShopAddress {
+  /** Jméno příjemce; u firmy zůstává i tak, protože balík přebírá člověk */
+  name: string;
+  company: string;
+  street: string;
+  city: string;
+  zip: string;
+  /** Kód země, jak ho vede e-shop („CZ", „SK") */
+  country: string;
+  /** Kraj nebo stát — u nás bývá prázdné, u zahraničních zásilek ne */
+  state: string;
+}
+
 export interface ShopOrder {
   code: string;
   /** cz | sk | en — čísla objednávek se mezi trhy opakují */
@@ -373,6 +387,15 @@ export interface ShopOrder {
   shipment: string;
   payment: string;
   items: ShopOrderItem[];
+  /**
+   * Fakturační a doručovací adresa.
+   *
+   * Doručovací nemusí být vyplněná — pak se doručuje na fakturační. U výdejních
+   * míst je v ní adresa toho místa, ne zákazníka, což je při balení to, co se
+   * čte.
+   */
+  billing: ShopAddress | null;
+  postal: ShopAddress | null;
 }
 
 export interface OrderFeed {

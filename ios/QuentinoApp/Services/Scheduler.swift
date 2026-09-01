@@ -126,10 +126,16 @@ final class Scheduler {
             await KeepAlive.keepAwake()
         }
 
-        // Feedy objednávek. Kontroluje se každý průchod, ale stahuje se jen
-        // ten, kterému došel jeho vlastní interval — malý s posledními 24 h
-        // po pár minutách, velké jednou za půl dne.
-        if Date().timeIntervalSince(lastOrders) > 60 {
+        /*
+         Feedy objednávek.
+
+         E-shop soubor přegenerovává v pevných značkách (pětiminutový v :00,
+         :05, :10…) a `OrderFeed.refreshDue` na ně čeká. Kontroluje se proto
+         každý průchod smyčky, ne po minutě — jinak by se stahovalo se
+         zpožděním až minutu po značce, což je u pětiminutového feedu pětina
+         periody. Kontrola sama je jen čtení jedné hodnoty z nastavení.
+         */
+        if Date().timeIntervalSince(lastOrders) > 25 {
             lastOrders = Date()
             let result = await OrderFeed.refreshDue()
             if result.contains(where: { ($0["orders"] as? Int ?? 0) > 0 }) {

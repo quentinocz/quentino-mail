@@ -441,6 +441,11 @@ export const api = {
      * k balení. Faktura a objednávka mají různá čísla, překlad jde přes feed.
      */
     openOrder: (code: string) => call<PackingLookup>('packing:openOrder', code),
+    /**
+     * Zpráva s potvrzením objednávky. Hledá se až na klepnutí — pro celý
+     * seznam předem by to znamenalo průchod schránkou u každé objednávky.
+     */
+    mailFor: (orderNumber: string) => call<number | null>('packing:mailFor', orderNumber),
     setDone: (dbId: number, value: boolean) => call<void>('packing:setDone', dbId, value),
     reset: (dbId: number) => call<void>('packing:reset', dbId)
   },

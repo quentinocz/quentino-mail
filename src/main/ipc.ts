@@ -27,7 +27,8 @@ import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from 
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { clearTrackingCache } from './ordertrack';
 import {
-  scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder
+  scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder,
+  mailForOrder
 } from './packing';
 import { chatWebhookSql, makeTopic, notifyTest } from './notify';
 import { refreshOrderLinks, pendingCount, setOrderReplyResolved } from './orderlink';
@@ -277,6 +278,7 @@ export function registerIpc() {
   handle('packing:setCount', (dbId: number, index: number, count: number) => setItemCount(dbId, index, count ?? 0));
   handle('packing:scanItem', (dbId: number, code: string) => scanItem(dbId, code ?? ''));
   handle('packing:openOrder', (code: string) => openOrder(code ?? ''));
+  handle('packing:mailFor', (orderNumber: string) => mailForOrder(orderNumber ?? ''));
 
   /*
    * Upozornění na telefon. Push přímo do vlastní aplikace by znamenal placený

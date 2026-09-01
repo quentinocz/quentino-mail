@@ -36,6 +36,24 @@
         <CODE>SET01</CODE><QUANTITY>2</QUANTITY><PRICE_WITH_VAT>0</PRICE_WITH_VAT>
       </ITEM>
     </ITEMS>
+    <ADDRESSES>
+      <BILLING>
+        <STREET>Dlouhá 12</STREET>
+        <CITY>Praha 1</CITY>
+        <STATE></STATE>
+        <ZIP_CODE>110 00</ZIP_CODE>
+        <COUNTRY_ID>CZ</COUNTRY_ID>
+      </BILLING>
+      <POSTAL>
+        <COMPANY_NAME></COMPANY_NAME>
+        <FIRSTNAME>Jana</FIRSTNAME>
+        <SURNAME>Nováková</SURNAME>
+        <STREET>Balíkovna, Vodičkova 30</STREET>
+        <CITY>Praha 1</CITY>
+        <ZIP_CODE>110 00</ZIP_CODE>
+        <COUNTRY_ID>CZ</COUNTRY_ID>
+      </POSTAL>
+    </ADDRESSES>
     <SHIPMENT><NAME>Balíkovna</NAME><PRICE_WITH_VAT>69</PRICE_WITH_VAT></SHIPMENT>
     <PAYMENT><NAME>Bankovní převod</NAME><PRICE_WITH_VAT>0</PRICE_WITH_VAT></PAYMENT>
   </ORDER>
@@ -62,6 +80,18 @@
       <ITEM><TITLE>Bordó pánské široké kšandy</TITLE><CODE>PSSK120BR2</CODE>
         <QUANTITY>1</QUANTITY><PRICE_WITH_VAT>1290</PRICE_WITH_VAT></ITEM>
     </ITEMS>
+    <!-- Jen fakturační adresa: doručuje se na ni, doručovací blok chybí -->
+    <ADDRESSES>
+      <BILLING>
+        <COMPANY_NAME>Alfa s.r.o.</COMPANY_NAME>
+        <FIRSTNAME>Petr</FIRSTNAME>
+        <SURNAME>Svoboda</SURNAME>
+        <STREET>Nádražní 5</STREET>
+        <CITY>Brno</CITY>
+        <ZIP_CODE>60200</ZIP_CODE>
+        <COUNTRY_ID>CZ</COUNTRY_ID>
+      </BILLING>
+    </ADDRESSES>
     <SHIPMENT><NAME>Zásilkovna</NAME></SHIPMENT>
     <PAYMENT><NAME>Dobírka</NAME></PAYMENT>
   </ORDER>

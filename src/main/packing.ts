@@ -1,22 +1,28 @@
 import { BrowserWindow } from 'electron';
-import { getDb } from './db';
+import { getDb, getSetting, setSetting } from './db';
 import { buildOrderCard, shopMatchesSender } from './ordercard';
 import { isFinalStatus } from './ordertrack';
 import { findByCode } from './products';
+import { ordersSince, refreshForPacking } from './orderfeed';
 import type {
-  OrderCard, OrderCardItem, PackingHit, PackingLookup, PackingOrder,
-  PackingScan, PackingShopState, PackingState
+  OrderAddress, OrderCard, OrderCardItem, PackingHit, PackingLookup, PackingOrder,
+  PackingScan, PackingShopState, PackingState, ShopAddress, ShopOrder
 } from '../shared/types';
 
 /**
  * Podklady pro balení objednávek.
  *
- * Objednávky se sbírají z potvrzovacích e-mailů — projdou se zprávy za zvolené
- * období, z každé se sestaví karta objednávky a výsledek se uloží do databáze,
- * aby se při dalším otevření nemuselo znovu stahovat nic než živý stav.
+ * Zdrojem je **feed objednávek**. Dřív se procházela schránka a ke každému
+ * potvrzovacímu e-mailu se skládala karta — u týdenního okna to znamenalo
+ * desítky rozborů a stahování stránek objednávek, tedy dlouhé čekání pokaždé,
+ * když se okno otevřelo. Feed má přitom všechno potřebné v jedné lokální
+ * tabulce, u položek rovnou kód varianty (ten je i na štítku) a k tomu
+ * aktuální stav objednávky.
+ *
+ * E-mail zůstává na dvě věci: na objednávku zadanou před chvílí, kterou feed
+ * ještě nestihl, a na tlačítko „Otevřít e-mail" u konkrétní objednávky.
  */
 
-const CACHE_TTL = 10 * 60_000;
 const ORDER_SUBJECT = /(objedn[áa]v|order\b|bestellung)/i;
 const SUBJECT_NUMBER = /(?:č\.|c\.|no\.|nr\.|#)\s*\d{3,}/i;
 
@@ -42,12 +48,11 @@ function normCode(raw: string): string {
 }
 
 /** Zprávy, které podle hlavičky vypadají na potvrzení objednávky z našeho e-shopu. */
-function candidates(days: number): Candidate[] {
-  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+function orderMails(since: string, limit = 40): Candidate[] {
   const rows = getDb().prepare(
     `SELECT id, date, subject, from_addr FROM messages
-     WHERE date >= ? ORDER BY date DESC LIMIT 400`
-  ).all(since) as any[];
+     WHERE date >= ? ORDER BY date DESC LIMIT ?`
+  ).all(since, limit) as any[];
 
   return rows
     .filter(r => ORDER_SUBJECT.test(r.subject) && SUBJECT_NUMBER.test(r.subject))
@@ -55,18 +60,6 @@ function candidates(days: number): Candidate[] {
     .map(r => ({ id: r.id, date: r.date, subject: r.subject, fromAddr: r.from_addr }));
 }
 
-function readCache(id: number): OrderCard | null | undefined {
-  const row = getDb().prepare('SELECT json, at FROM order_cache WHERE message_pk = ?').get(id) as any;
-  if (!row) return undefined;
-  const card = row.json ? JSON.parse(row.json) as OrderCard : null;
-  // Doručené a stornované objednávky se už nezmění — ty se znovu nenačítají
-  // ani při ručním obnovení, jinak by každý sken zbytečně stahoval historii.
-  // Výjimkou jsou starší záznamy uložené ještě bez stavu zásilky.
-  if (card && isFinalStatus(card.tracking?.status ?? card.live?.status)
-    && !(card.tracking?.trackingCode && !card.tracking.shipment)) return card;
-  if (Date.now() - new Date(row.at).getTime() > CACHE_TTL) return undefined;
-  return card;
-}
 
 function writeCache(id: number, card: OrderCard | null) {
   getDb().prepare(
@@ -329,6 +322,34 @@ function messageForNumbers(numbers: string[]): Candidate | null {
  * a varianta jen jako věta. Název, varianta a obrázek se doplní z katalogu;
  * adresu feed nemá, ta zůstane prázdná.
  */
+/**
+ * Adresa z feedu do tvaru, jaký zná karta objednávky.
+ *
+ * Jméno se bere z adresy, a když v ní není, ze zákazníka — u firemních
+ * objednávek bývá vyplněná jen firma, ale balík stejně přebírá člověk.
+ */
+function addressFromFeed(json: string | null, fallbackName = ''): OrderAddress | null {
+  let a: ShopAddress | null = null;
+  try { a = JSON.parse(json ?? 'null'); } catch { return null; }
+  if (!a || typeof a !== 'object') return null;
+
+  const lines = [
+    a.street,
+    [a.zip, a.city].filter(Boolean).join(' '),
+    a.state
+  ].map(line => (line ?? '').trim()).filter(Boolean);
+
+  const name = (a.name || fallbackName || '').trim();
+  if (!name && !a.company && lines.length === 0) return null;
+
+  return {
+    name: name || a.company || '',
+    company: a.company || null,
+    lines,
+    country: a.country || null
+  };
+}
+
 function cardFromFeed(row: any): OrderCard {
   const market = String(row.market ?? 'cz');
   const currency = String(row.currency ?? '');
@@ -354,6 +375,14 @@ function cardFromFeed(row: any): OrderCard {
     };
   });
 
+  /*
+   * Adresa. Doručovací nemusí být vyplněná — pak se doručuje na fakturační,
+   * a právě to je na kartě potřeba vidět. U výdejních míst je v doručovací
+   * adresa toho místa, což je při balení to, co se opisuje.
+   */
+  const postal = addressFromFeed(row.postal_json, String(row.name ?? ''));
+  const billing = addressFromFeed(row.billing_json, String(row.name ?? ''));
+
   const status = String(row.status ?? '') || null;
   return {
     orderNumber: String(row.code ?? ''),
@@ -361,8 +390,8 @@ function cardFromFeed(row: any): OrderCard {
     placedAt: row.created_at || null,
     customerEmail: row.email || null,
     customerPhone: row.phone || null,
-    billing: null,
-    shipping: row.name ? { name: String(row.name), company: null, lines: [], country: null } : null,
+    billing,
+    shipping: postal ?? billing,
     items: cardItems,
     shipmentName: row.shipment || null,
     shipmentPrice: null,
@@ -481,6 +510,17 @@ export async function openOrder(raw: string): Promise<PackingLookup> {
 
   const primary = byInvoice[0] ?? byCode;
   if (!primary) {
+    /*
+     * Ve feedu není — může být starší, než kam feed sahá. Potvrzovací e-mail
+     * ale ve schránce být může, a objednávka bez řádku ve feedu se nemá s čím
+     * poprat o totožnost, takže se vede podle zprávy.
+     */
+    const fromMail = await (async () => {
+      const found = messageForNumbers(asked);
+      return found ? orderFromMail(found) : null;
+    })();
+    if (fromMail) return { ok: true, order: fromMail };
+
     return {
       ok: false, reason: 'notInFeed',
       message: `Faktura ani objednávka ${shown} ve feedu není — ${feedReach()}`
@@ -511,18 +551,36 @@ export async function openOrder(raw: string): Promise<PackingLookup> {
   return { ok: true, order, also };
 }
 
-/** Podklady k objednávce: nejdřív mail (má adresu), jinak feed. */
+/**
+ * Podklady k objednávce z feedu.
+ *
+ * Feed má přednost, i když k objednávce e-mail existuje, a to kvůli jediné
+ * věci: **totožnosti**. Odškrtání se drží u čísla, pod kterým se objednávka
+ * v seznamu vede, a kdyby ji jednou otevřel feed a podruhé mail, byla by to
+ * dvě různá čísla a odškrtané kusy by se rozešly. Sáhne se po mailu jedině
+ * tehdy, když feed u objednávky nemá položky.
+ */
 async function open(row: any): Promise<PackingOrder | null> {
-  const numbers = numberForms(String(row.code ?? ''));
-  const found = numbers.length > 0 ? messageForNumbers(numbers) : null;
-  if (found) {
-    const fromMail = await orderFromMail(found);
-    if (fromMail) return fromMail;
-  }
-
   let items: unknown[] = [];
   try { items = JSON.parse(row.items_json ?? '[]') ?? []; } catch { /* prázdno */ }
-  return items.length > 0 ? orderFromFeed(row) : null;
+  if (items.length > 0) return orderFromFeed(row);
+
+  const numbers = numberForms(String(row.code ?? ''));
+  const found = numbers.length > 0 ? messageForNumbers(numbers) : null;
+  return found ? orderFromMail(found) : null;
+}
+
+/**
+ * Zpráva s potvrzením dané objednávky — pro tlačítko „Otevřít e-mail".
+ *
+ * Hledá se až ve chvíli, kdy na tlačítko někdo klepne. Kdyby se dohledávalo
+ * pro celý seznam předem, byl by z toho průchod schránkou pro každou
+ * objednávku — přesně to, čeho se sestavením z feedu zbavujeme.
+ */
+export function mailForOrder(orderNumber: string): number | null {
+  const numbers = numberForms(orderNumber);
+  if (numbers.length === 0) return null;
+  return messageForNumbers(numbers)?.id ?? null;
 }
 
 /** Jen pro zkoušky — jednotlivé kroky hledání objednávky se jinak nedají chytit. */
@@ -550,43 +608,110 @@ export function resetPacking(messageId: number): void {
 export const __test = { messageForNumbers, shopStateFor, shopOrderOf, cardFromFeed };
 
 /**
- * Projde e-maily za zvolené období a sestaví seznam objednávek k balení.
- * Postup hlásí událostí `packing:progress`, ať uživatel u delšího načítání vidí, co se děje.
+ * Kolik minut zpátky se po sestavení seznamu ještě kouká do pošty.
+ *
+ * Rychlý feed se přegenerovává po pěti minutách, takže objednávka zadaná před
+ * chvílí v něm ještě není — potvrzovací e-mail ale dorazil hned. Deset minut
+ * je s rezervou na obojí: na zpoždění feedu i na to, že se soubor stahuje
+ * chvíli po značce.
+ */
+const MAIL_TOPUP_MINUTES = 10;
+
+/**
+ * Rozdělané balení z doby, kdy seznam stál na e-mailech.
+ *
+ * Odškrtání se drží u čísla, pod kterým se objednávka vede. Přechodem na feed
+ * se to číslo změnilo, takže by rozdělaná objednávka vypadala jako nezačatá.
+ * Projde se to jednou a stav se přenese; přiřadit objednávku jde přes uloženou
+ * kartu, kde je její číslo.
+ */
+function migrateMailPacking(): void {
+  const d = getDb();
+  if (getSetting('packingFeedMigrated', '') === '1') return;
+
+  const rows = d.prepare(
+    `SELECT p.message_pk AS id, p.packed_json, p.counts_json, p.done, p.done_at, c.json
+     FROM packing p JOIN order_cache c ON c.message_pk = p.message_pk
+     WHERE c.json IS NOT NULL`
+  ).all() as any[];
+
+  for (const row of rows) {
+    let card: OrderCard | null = null;
+    try { card = JSON.parse(row.json) as OrderCard; } catch { continue; }
+    const order = shopOrderOf(card?.orderNumber ?? '');
+    if (!order) continue;
+
+    const id = shopIdFor(String(order.code ?? ''), String(order.market ?? ''));
+    // Co je na novém místě rozdělané, se nepřepisuje — přenáší se jen prázdné
+    const existing = readPacked(id);
+    if (existing.packed.length > 0 || Object.keys(existing.counts).length > 0 || existing.done) continue;
+
+    d.prepare(
+      `UPDATE packing_shop SET packed_json = ?, counts_json = ?, done = ?, done_at = ? WHERE id = ?`
+    ).run(row.packed_json ?? '[]', row.counts_json ?? '{}', row.done ?? 0, row.done_at ?? null, -id);
+  }
+
+  setSetting('packingFeedMigrated', '1');
+}
+
+/**
+ * Sestaví seznam objednávek k balení.
+ *
+ * Zdrojem je **feed objednávek**, ne potvrzovací e-maily. Dřív se procházela
+ * schránka a ke každé zprávě se skládala karta — u týdenního okna to
+ * znamenalo desítky rozborů a stahování stránek objednávek. Feed má přitom
+ * všechno potřebné v jedné lokální tabulce, u položek rovnou kód varianty
+ * a k tomu aktuální stav objednávky.
+ *
+ * Před sestavením se obnoví rychlý feed s posledními 24 h; kompletní exporty
+ * jen tehdy, když okno sahá dál než den. Objednávku zadanou před chvílí feed
+ * ještě nemusí mít, takže se nakonec dokouká do pošty za posledních pár minut.
  */
 export async function scanOrders(days: number, force = false): Promise<PackingScan> {
-  const list = candidates(days);
+  emit('packing:progress', { done: 0, total: 0, label: 'Obnovuji feed objednávek…' });
+  await refreshForPacking(days, force);
+  migrateMailPacking();
+
+  const rows = ordersSince(days);
   const orders: PackingOrder[] = [];
   const statuses = new Set<string>();
+  const seen = new Set<string>();
 
-  emit('packing:progress', { done: 0, total: list.length, label: null });
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (i % 25 === 0) emit('packing:progress', { done: i, total: rows.length, label: null });
+    if (row.items.length === 0) continue;
 
-  for (let i = 0; i < list.length; i++) {
-    const c = list[i];
-    emit('packing:progress', { done: i, total: list.length, label: c.subject });
+    const id = shopIdFor(row.code, row.market);
+    const state = readPacked(id);
+    if (row.status) statuses.add(row.status);
+    for (const form of numberForms(row.code)) seen.add(form);
 
-    let card = force ? undefined : readCache(c.id);
-    if (card === undefined) {
-      try {
-        card = await buildOrderCard(c.id, true);
-      } catch {
-        card = null; // nedostupná zpráva balení neblokuje
-      }
-      writeCache(c.id, card);
-    }
-    if (!card) continue;
-
-    const status = card.tracking?.status ?? card.live?.status ?? null;
-    if (status) statuses.add(status);
-
-    const p = readPacked(c.id);
     orders.push({
-      messageId: c.id, date: c.date, card,
-      packed: p.packed, counts: p.counts, done: p.done, doneAt: p.doneAt,
-      source: 'mail', shop: shopStateFor(card.orderNumber)
+      messageId: id,
+      date: row.createdAt,
+      card: cardFromFeed(feedRow(row)),
+      packed: state.packed, counts: state.counts, done: state.done, doneAt: state.doneAt,
+      source: 'feed',
+      shop: {
+        code: row.code, invoice: row.invoice, status: row.status,
+        at: row.updatedAt || row.createdAt || null, final: isFinalStatus(row.status)
+      }
     });
   }
 
-  emit('packing:progress', { done: list.length, total: list.length, label: null });
+  /*
+   * Doplnění z pošty. Feed se přegenerovává po pěti minutách, takže objednávka
+   * zadaná před chvílí v něm chybí — a právě ta je při balení ta nejdůležitější.
+   */
+  emit('packing:progress', { done: rows.length, total: rows.length, label: 'Kontroluji poštu…' });
+  for (const fresh of await recentFromMail(seen)) {
+    orders.unshift(fresh);
+    const status = fresh.card.tracking?.status ?? fresh.card.live?.status ?? null;
+    if (status) statuses.add(status);
+  }
+
+  emit('packing:progress', { done: rows.length, total: rows.length, label: null });
 
   return {
     orders,
@@ -594,3 +719,47 @@ export async function scanOrders(days: number, force = false): Promise<PackingSc
     scannedAt: new Date().toISOString()
   };
 }
+
+/** `ShopOrder` zpátky do tvaru řádku, se kterým pracuje `cardFromFeed`. */
+function feedRow(order: ShopOrder): any {
+  return {
+    code: order.code, market: order.market, currency: order.currency,
+    items_json: JSON.stringify(order.items), status: order.status,
+    phone: order.phone, name: order.name, email: order.email,
+    total: order.total, created_at: order.createdAt, paid_date: order.paidDate,
+    shipment: order.shipment, payment: order.payment, tracking: order.tracking,
+    billing_json: order.billing ? JSON.stringify(order.billing) : null,
+    postal_json: order.postal ? JSON.stringify(order.postal) : null
+  };
+}
+
+/**
+ * Objednávky z posledních pár minut, které ve feedu ještě nejsou.
+ *
+ * Prochází se jen zprávy z tohohle krátkého okna, takže je to pár řádků, ne
+ * celá schránka. Karta se skládá z mailu — ta objednávka ve feedu prostě
+ * ještě není a čekat na něj by znamenalo o ní nevědět.
+ */
+async function recentFromMail(seen: Set<string>): Promise<PackingOrder[]> {
+  const since = new Date(Date.now() - MAIL_TOPUP_MINUTES * 60_000).toISOString();
+  const out: PackingOrder[] = [];
+
+  for (const row of orderMails(since)) {
+    let card = cardOf(row.id);
+    if (!card) {
+      try { card = await buildOrderCard(row.id, true); } catch { card = null; }
+      if (card) writeCache(row.id, card);
+    }
+    if (!card) continue;
+    if (numberForms(card.orderNumber ?? '').some(form => seen.has(form))) continue;
+
+    const state = readPacked(row.id);
+    out.push({
+      messageId: row.id, date: row.date, card,
+      packed: state.packed, counts: state.counts, done: state.done, doneAt: state.doneAt,
+      source: 'mail', shop: shopStateFor(card.orderNumber)
+    });
+  }
+  return out;
+}
+

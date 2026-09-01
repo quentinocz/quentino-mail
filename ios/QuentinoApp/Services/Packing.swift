@@ -3,12 +3,16 @@ import Foundation
 /**
  Podklady pro balení objednávek.
 
- Objednávky se sbírají z potvrzovacích e-mailů: projdou se zprávy za zvolené
- období, z každé se sestaví karta objednávky a výsledek se uloží do
- `order_cache`, aby se při dalším otevření nemuselo stahovat nic než živý stav.
+ Zdrojem je **feed objednávek**. Dřív se procházela schránka a ke každému
+ potvrzovacímu e-mailu se skládala karta — na telefonu to byla jediná
+ obrazovka, která uměla běžet klidně minutu. Feed má přitom všechno potřebné
+ v jedné lokální tabulce, u položek rovnou kód varianty (ten je i na štítku)
+ a k tomu aktuální stav objednávky.
 
- Na telefonu je to jediná obrazovka, která umí běžet klidně minutu — proto se
- průběh hlásí událostí `packing:progress`, ať je vidět, co se děje.
+ E-mail zůstává na dvě věci: na objednávku zadanou před chvílí, kterou feed
+ ještě nestihl, a na tlačítko „Otevřít e-mail" u konkrétní objednávky.
+
+ Průběh se hlásí událostí `packing:progress`, ať je vidět, co se děje.
  */
 enum Packing {
     /// Jak dlouho platí uložená karta u objednávky, která se ještě může měnit.
@@ -46,6 +50,11 @@ enum Packing {
     private static let SQL_BY_CODE = """
     SELECT * FROM shop_orders WHERE code = ? OR ltrim(code, '0') = ?
     ORDER BY created_at DESC LIMIT 8
+    """
+
+    private static let SQL_ORDER_MAILS = """
+    SELECT id, date, subject, from_addr FROM messages
+    WHERE date >= ? ORDER BY date DESC LIMIT ?
     """
 
     // MARK: - Odškrtávání
@@ -299,14 +308,14 @@ enum Packing {
         let name = row["name"] as? String ?? ""
         let total = row["total"] as? Double ?? 0
 
-        // Adresu feed nenese, ale jméno ano — na kartě je pak aspoň komu to jde
-        var shipping: Any = NSNull()
-        if !name.isEmpty {
-            let address: [String: Any] = [
-                "name": name, "company": NSNull(), "lines": [String](), "country": NSNull()
-            ]
-            shipping = address
-        }
+        /*
+         Adresa. Doručovací nemusí být vyplněná — pak se doručuje na fakturační,
+         a právě to je na kartě potřeba vidět. U výdejních míst je v doručovací
+         adresa toho místa, což je při balení to, co se opisuje.
+         */
+        let postal = cardAddress(row["postal_json"], fallbackName: name)
+        let billing = cardAddress(row["billing_json"], fallbackName: name)
+        let shipping: Any = postal ?? billing ?? NSNull()
 
         /*
          Stav a číslo zásilky z feedu. Vnořený slovník stojí zvlášť schválně:
@@ -330,7 +339,7 @@ enum Packing {
             "placedAt": row["created_at"] ?? NSNull(),
             "customerEmail": row["email"] ?? NSNull(),
             "customerPhone": orNull(phone),
-            "billing": NSNull(),
+            "billing": billing ?? NSNull(),
             "shipping": shipping,
             "items": cardItems,
             "shipmentName": row["shipment"] ?? NSNull(),
@@ -343,6 +352,32 @@ enum Packing {
             "adminSource": NSNull(),
             "live": NSNull(),
             "tracking": tracking
+        ]
+    }
+
+    /**
+     Adresa z feedu do tvaru, jaký zná karta objednávky.
+
+     Jméno se bere z adresy, a když v ní není, ze zákazníka — u firemních
+     objednávek bývá vyplněná jen firma, ale balík stejně přebírá člověk.
+     */
+    private static func cardAddress(_ value: Any?, fallbackName: String) -> [String: Any]? {
+        guard let text = value as? String, let data = text.data(using: .utf8),
+              let a = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+        let field = { (key: String) in (a[key] as? String ?? "").trimmingCharacters(in: .whitespaces) }
+        let zipCity = [field("zip"), field("city")].filter { !$0.isEmpty }.joined(separator: " ")
+        let lines = [field("street"), zipCity, field("state")].filter { !$0.isEmpty }
+
+        let company = field("company")
+        let name = field("name").isEmpty ? fallbackName : field("name")
+        if name.isEmpty && company.isEmpty && lines.isEmpty { return nil }
+
+        return [
+            "name": name.isEmpty ? company : name,
+            "company": company.isEmpty ? NSNull() : company,
+            "lines": lines,
+            "country": field("country").isEmpty ? NSNull() : field("country")
         ]
     }
 
@@ -459,20 +494,38 @@ enum Packing {
         return out
     }
 
-    /// Podklady k objednávce: nejdřív mail (má adresu), jinak feed.
-    private static func open(_ row: [String: Any]) async -> [String: Any]? {
-        let numbers = numberForms(row["code"] as? String ?? "")
-        if !numbers.isEmpty, let found = message(numbers: numbers),
-           let fromMail = await orderFromMail(found) {
-            return fromMail
-        }
+    /**
+     Podklady k objednávce z feedu.
 
+     Feed má přednost, i když k objednávce e-mail existuje, a to kvůli jediné
+     věci: **totožnosti**. Odškrtání se drží u čísla, pod kterým se objednávka
+     v seznamu vede, a kdyby ji jednou otevřel feed a podruhé mail, byla by to
+     dvě různá čísla a odškrtané kusy by se rozešly.
+     */
+    private static func open(_ row: [String: Any]) async -> [String: Any]? {
         var items: [Any] = []
         if let text = row["items_json"] as? String, let data = text.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [Any] {
             items = parsed
         }
-        return items.isEmpty ? nil : orderFromFeed(row)
+        if !items.isEmpty { return orderFromFeed(row) }
+
+        let numbers = numberForms(row["code"] as? String ?? "")
+        guard !numbers.isEmpty, let found = message(numbers: numbers) else { return nil }
+        return await orderFromMail(found)
+    }
+
+    /**
+     Zpráva s potvrzením dané objednávky — pro tlačítko „Otevřít e-mail".
+
+     Hledá se až ve chvíli, kdy na tlačítko někdo klepne. Pro celý seznam
+     předem by to byl průchod schránkou u každé objednávky — přesně to, čeho
+     se sestavením z feedu zbavujeme.
+     */
+    static func mailForOrder(_ orderNumber: String) -> Int? {
+        let numbers = numberForms(orderNumber)
+        guard !numbers.isEmpty else { return nil }
+        return message(numbers: numbers)?.id
     }
 
     /// Označí celou objednávku jako zabalenou (nebo označení zruší).
@@ -495,59 +548,189 @@ enum Packing {
     // MARK: - Sken
 
     /**
-     Projde e-maily za zvolené období a sestaví seznam objednávek k balení.
+     Kolik minut zpátky se po sestavení seznamu ještě kouká do pošty.
 
-     `force` přeskočí uložené karty — hodí se, když se stav objednávky změnil
-     dřív, než vypršela desetiminutová platnost.
+     Rychlý feed se přegenerovává po pěti minutách, takže objednávka zadaná
+     před chvílí v něm ještě není — potvrzovací e-mail ale dorazil hned. Deset
+     minut je s rezervou na obojí.
      */
-    static func scan(days: Int, force: Bool = false) async -> [String: Any] {
-        let list = candidates(days: days)
-        var orders: [[String: Any]] = []
-        var statuses: Set<String> = []
+    private static let mailTopupMinutes = 10.0
 
-        Bridge.notify("packing:progress", ["done": 0, "total": list.count, "label": NSNull()])
+    /**
+     Rozdělané balení z doby, kdy seznam stál na e-mailech.
 
-        for (index, candidate) in list.enumerated() {
-            Bridge.notify("packing:progress", [
-                "done": index, "total": list.count, "label": candidate.subject
-            ])
+     Odškrtání se drží u čísla, pod kterým se objednávka vede. Přechodem na
+     feed se to číslo změnilo, takže by rozdělaná objednávka vypadala jako
+     nezačatá. Projde se to jednou a stav se přenese.
+     */
+    private static func migrateMailPacking() {
+        guard Store.setting("packingFeedMigrated", "") != "1" else { return }
 
-            var card = force ? nil : cached(candidate.id)
-            if card == nil {
-                card = await Orders.card(dbId: candidate.id)
-                Orders.writeCache(candidate.id, card)
-            }
-            guard let order = card else { continue }
+        let rows = (try? SQLite.shared.query("""
+            SELECT p.message_pk AS id, p.packed_json, p.counts_json, p.done, p.done_at, c.json
+            FROM packing p JOIN order_cache c ON c.message_pk = p.message_pk
+            WHERE c.json IS NOT NULL
+            """, [])) ?? []
 
-            let tracking = order["tracking"] as? [String: Any]
-            let live = order["live"] as? [String: Any]
-            if let status = (tracking?["status"] as? String) ?? (live?["status"] as? String), !status.isEmpty {
-                statuses.insert(status)
-            }
+        for row in rows {
+            guard let text = row["json"] as? String, let data = text.data(using: .utf8),
+                  let card = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let order = shopOrder(card["orderNumber"] as? String ?? "") else { continue }
 
-            let state = packed(candidate.id)
-            var doneAt: Any = NSNull()
-            if let stamp = state.doneAt { doneAt = stamp }
-            orders.append([
-                "messageId": candidate.id,
-                "date": candidate.date,
-                "card": order,
-                "packed": state.items,
-                "counts": state.counts,
-                "done": state.done,
-                "doneAt": doneAt,
-                "source": "mail",
-                "shop": shopState(order["orderNumber"] as? String) ?? NSNull()
+            let id = shopId(code: order["code"] as? String ?? "",
+                            market: order["market"] as? String ?? "")
+            // Co je na novém místě rozdělané, se nepřepisuje
+            let existing = packed(id)
+            if !existing.items.isEmpty || !existing.counts.isEmpty || existing.done { continue }
+
+            var doneAt = SQLite.Value.null
+            if let stamp = row["done_at"] as? String { doneAt = .text(stamp) }
+            _ = try? SQLite.shared.run(SQL_UPDATE_SHOP, [
+                .text(row["packed_json"] as? String ?? "[]"),
+                .text(row["counts_json"] as? String ?? "{}"),
+                .int(Int64(row["done"] as? Int ?? 0)),
+                doneAt,
+                .int(Int64(-id))
             ])
         }
 
-        Bridge.notify("packing:progress", ["done": list.count, "total": list.count, "label": NSNull()])
+        Store.setSetting("packingFeedMigrated", "1")
+    }
+
+    /**
+     Sestaví seznam objednávek k balení.
+
+     Zdrojem je **feed objednávek**, ne potvrzovací e-maily. Dřív se procházela
+     schránka a ke každé zprávě se skládala karta — u týdenního okna to
+     znamenalo desítky rozborů a stahování stránek objednávek. Feed má přitom
+     všechno potřebné v jedné lokální tabulce, u položek rovnou kód varianty
+     a k tomu aktuální stav objednávky.
+
+     Před sestavením se obnoví rychlý feed s posledními 24 h; kompletní exporty
+     jen tehdy, když okno sahá dál než den. Objednávku zadanou před chvílí feed
+     ještě nemusí mít, takže se nakonec dokouká do pošty za posledních pár minut.
+     */
+    static func scan(days: Int, force: Bool = false) async -> [String: Any] {
+        Bridge.notify("packing:progress",
+                      ["done": 0, "total": 0, "label": "Obnovuji feed objednávek…"])
+        await OrderFeed.refreshForPacking(days: days, force: force)
+        migrateMailPacking()
+
+        let rows = OrderFeed.since(days: days)
+        var orders: [[String: Any]] = []
+        var statuses: Set<String> = []
+        var seen: Set<String> = []
+
+        for (index, order) in rows.enumerated() {
+            if index % 25 == 0 {
+                Bridge.notify("packing:progress",
+                              ["done": index, "total": rows.count, "label": NSNull()])
+            }
+            guard let items = order["items"] as? [Any], !items.isEmpty else { continue }
+
+            let code = order["code"] as? String ?? ""
+            let market = order["market"] as? String ?? ""
+            let id = shopId(code: code, market: market)
+            let state = packed(id)
+
+            let status = order["status"] as? String ?? ""
+            if !status.isEmpty { statuses.insert(status) }
+            for form in numberForms(code) { seen.insert(form) }
+
+            let updated = order["updatedAt"] as? String ?? ""
+            let created = order["createdAt"] as? String ?? ""
+            var out = payload(state)
+            out["messageId"] = id
+            out["date"] = created
+            out["card"] = cardFromFeed(feedRow(order))
+            out["source"] = "feed"
+            out["shop"] = [
+                "code": code,
+                "invoice": order["invoice"] as? String ?? "",
+                "status": status,
+                "at": orNull(updated.isEmpty ? created : updated),
+                "final": OrderTrack.isFinalStatus(status)
+            ] as [String: Any]
+            orders.append(out)
+        }
+
+        /*
+         Doplnění z pošty. Feed se přegenerovává po pěti minutách, takže
+         objednávka zadaná před chvílí v něm chybí — a právě ta je při balení
+         ta nejdůležitější.
+         */
+        Bridge.notify("packing:progress",
+                      ["done": rows.count, "total": rows.count, "label": "Kontroluji poštu…"])
+        for fresh in await recentFromMail(seen: seen) {
+            orders.insert(fresh, at: 0)
+            if let card = fresh["card"] as? [String: Any],
+               let tracking = card["tracking"] as? [String: Any],
+               let status = tracking["status"] as? String, !status.isEmpty {
+                statuses.insert(status)
+            }
+        }
+
+        Bridge.notify("packing:progress",
+                      ["done": rows.count, "total": rows.count, "label": NSNull()])
 
         return [
             "orders": orders,
             "statuses": statuses.sorted { $0.localizedStandardCompare($1) == .orderedAscending },
             "scannedAt": Formats.iso(Date())
         ]
+    }
+
+    /// Objednávka z feedu zpátky do tvaru řádku, se kterým pracuje `cardFromFeed`.
+    private static func feedRow(_ order: [String: Any]) -> [String: Any] {
+        let items = (try? JSONSerialization.data(withJSONObject: order["items"] ?? []))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        let billing = (try? JSONSerialization.data(withJSONObject: order["billing"] ?? NSNull()))
+            .flatMap { String(data: $0, encoding: .utf8) }
+        let postal = (try? JSONSerialization.data(withJSONObject: order["postal"] ?? NSNull()))
+            .flatMap { String(data: $0, encoding: .utf8) }
+
+        return [
+            "code": order["code"] ?? "", "market": order["market"] ?? "cz",
+            "currency": order["currency"] ?? "", "items_json": items,
+            "status": order["status"] ?? "", "phone": order["phone"] ?? "",
+            "name": order["name"] ?? "", "email": order["email"] ?? "",
+            "total": order["total"] ?? 0.0, "created_at": order["createdAt"] ?? "",
+            "paid_date": order["paidDate"] ?? "", "shipment": order["shipment"] ?? "",
+            "payment": order["payment"] ?? "", "tracking": order["tracking"] ?? "",
+            "billing_json": billing ?? NSNull(), "postal_json": postal ?? NSNull()
+        ]
+    }
+
+    /**
+     Objednávky z posledních pár minut, které ve feedu ještě nejsou.
+
+     Prochází se jen zprávy z tohohle krátkého okna, takže je to pár řádků, ne
+     celá schránka. Karta se skládá z mailu — ta objednávka ve feedu prostě
+     ještě není a čekat na něj by znamenalo o ní nevědět.
+     */
+    private static func recentFromMail(seen: Set<String>) async -> [[String: Any]] {
+        let since = Date().addingTimeInterval(-mailTopupMinutes * 60)
+        var out: [[String: Any]] = []
+
+        for candidate in orderMails(since: Formats.iso(since)) {
+            var card = cached(candidate.id)
+            if card == nil {
+                card = await Orders.card(dbId: candidate.id)
+                Orders.writeCache(candidate.id, card)
+            }
+            guard let order = card else { continue }
+            let number = order["orderNumber"] as? String ?? ""
+            if numberForms(number).contains(where: { seen.contains($0) }) { continue }
+
+            var entry = payload(packed(candidate.id))
+            entry["messageId"] = candidate.id
+            entry["date"] = candidate.date
+            entry["card"] = order
+            entry["source"] = "mail"
+            entry["shop"] = shopState(number) ?? NSNull()
+            out.append(entry)
+        }
+        return out
     }
 
     // MARK: - Vnitřnosti
@@ -559,14 +742,9 @@ enum Packing {
     }
 
     /// Zprávy, které podle hlavičky vypadají na potvrzení objednávky z našeho e-shopu.
-    private static func candidates(days: Int) -> [Candidate] {
-        let since = Formats.iso(Date().addingTimeInterval(-Double(days) * 86_400))
+    private static func orderMails(since: String, limit: Int = 40) -> [Candidate] {
         let rows = (try? SQLite.shared.query(
-            """
-            SELECT id, date, subject, from_addr FROM messages
-            WHERE date >= ? ORDER BY date DESC LIMIT 400
-            """,
-            [.text(since)]
+            SQL_ORDER_MAILS, [.text(since), .int(Int64(limit))]
         )) ?? []
 
         return rows.compactMap { row -> Candidate? in

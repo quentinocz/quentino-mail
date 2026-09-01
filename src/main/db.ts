@@ -260,6 +260,8 @@ function migrate(d: Database.Database) {
       shipment TEXT NOT NULL DEFAULT '',
       payment TEXT NOT NULL DEFAULT '',
       items_json TEXT NOT NULL DEFAULT '[]',
+      billing_json TEXT,
+      postal_json TEXT,
       seen_at TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (code, market)
     );
@@ -433,6 +435,15 @@ function migrate(d: Database.Database) {
    * je právě tohle to jediné, co se počítá.
    */
   try { d.exec("ALTER TABLE packing ADD COLUMN counts_json TEXT NOT NULL DEFAULT '{}'"); } catch { /* sloupec už existuje */ }
+  /*
+   * Adresy z feedu objednávek.
+   *
+   * Balení se přestěhovalo z potvrzovacích e-mailů na feed — ten je rychlejší
+   * a úplnější, ale dokud se z něj nečetly adresy, chyběla na kartě ta jediná
+   * věc, kterou při balení člověk opisuje.
+   */
+  try { d.exec("ALTER TABLE shop_orders ADD COLUMN billing_json TEXT"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE shop_orders ADD COLUMN postal_json TEXT"); } catch { /* sloupec už existuje */ }
   try { d.exec('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)'); } catch { /* index už existuje */ }
 }
 
