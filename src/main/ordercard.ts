@@ -4,6 +4,8 @@ import { upgatesConfigured, orderLive } from './upgates';
 import { parseOrderEmail } from './orderparse';
 import { DEFAULT_FEED_URL } from './products';
 import { liveTracking, isFinalStatus } from './ordertrack';
+import { orderByCode } from './orderfeed';
+import { shortFor } from './shorthand';
 import type { OrderCard, OrderCardItem, MailLang, OrderBadge } from '../shared/types';
 
 export { parseOrderEmail };
@@ -260,7 +262,8 @@ export async function buildOrderCard(dbId: number, withLive = true, withRendered
 
     // Uložit až ve chvíli, kdy je zásilka dobraná — jinak by se uzavřel
     // stav bez posledního záznamu od dopravce
-    const status = card.tracking?.status ?? card.live?.status ?? null;
+    const feed = card.orderNumber ? orderByCode(card.orderNumber) : null;
+  const status = card.tracking?.status ?? card.live?.status ?? null;
     if (isFinalStatus(status) && (card.tracking?.shipment || !card.tracking?.trackingCode)) {
       const admin0 = adminLink(card);
       writeFinalCache(dbId, { ...card, adminUrl: admin0.url, adminSource: admin0.source });
@@ -293,6 +296,7 @@ export async function buildOrderBadge(dbId: number): Promise<OrderBadge | null> 
   const card = await buildOrderCard(dbId, true);
   if (!card) return null;
 
+  const feed = card.orderNumber ? orderByCode(card.orderNumber) : null;
   const status = card.tracking?.status ?? card.live?.status ?? null;
   const paid = !!(card.live?.paid || card.tracking?.paidDate);
   const delivered = !!card.live?.deliveredDate;
@@ -303,6 +307,14 @@ export async function buildOrderBadge(dbId: number): Promise<OrderBadge | null> 
     status,
     tone: statusTone(status, paid, delivered),
     carrierName: card.tracking?.carrierName ?? null,
-    shipmentStage: card.tracking?.shipment?.stage ?? card.tracking?.shipment?.description ?? null
+    shipmentStage: card.tracking?.shipment?.stage ?? card.tracking?.shipment?.description ?? null,
+    /*
+     * Doprava a platba se berou z feedu, ne z potvrzovacího e-mailu.
+     * V mailu je to, co si zákazník vybral při objednání; ve feedu to, co
+     * u objednávky platí teď — a to je rozdíl pokaždé, když se objednávka
+     * mezitím upravovala.
+     */
+    shipmentShort: shortFor('shipment', feed?.shipment ?? card.shipmentName) || null,
+    paymentShort: shortFor('payment', feed?.payment ?? card.paymentName) || null
   };
 }

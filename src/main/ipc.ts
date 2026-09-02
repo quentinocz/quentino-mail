@@ -17,6 +17,7 @@ import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets,
 import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
 import * as live from './live';
+import { shorthandRows, saveShorthand } from './shorthand';
 import { liveOffers, dismissOffer } from './livework';
 import { scanOld, freeUp } from './cleanup';
 import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renameSession,
@@ -214,6 +215,14 @@ export function registerIpc() {
   // Karta objednávky vyčtená z potvrzovacího e-mailu
   handle('orders:card', (dbId: number, withLive?: boolean) => buildOrderCard(dbId, withLive !== false));
   handle('orders:badge', (dbId: number) => buildOrderBadge(dbId));
+  /*
+   * Slovník zkratek pro dopravu a platbu. Nabízí se jen to, co doopravdy je
+   * ve feedu — vypisovat všechno, co e-shop umí, by znamenalo dvacet řádků,
+   * ze kterých se používají tři.
+   */
+  handle('shorthand:list', () => shorthandRows());
+  handle('shorthand:save', (kind: any, name: string, short: string) =>
+    saveShorthand(kind === 'payment' ? 'payment' : 'shipment', name ?? '', short ?? ''));
   // Druhá fáze: dopravci, kteří stav vypisují až JavaScriptem (PPL, DPD, GLS).
   // Karta se zobrazí hned a stav zásilky se doplní, jakmile doběhne.
   handle('orders:shipment', async (dbId: number, force?: boolean) =>

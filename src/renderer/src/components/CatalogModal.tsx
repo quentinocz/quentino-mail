@@ -83,6 +83,14 @@ export default function CatalogModal({ onClose, openStockin }: {
    * produkty znovu ručně by znamenalo opsat totéž podruhé.
    */
   const [labelPreset, setLabelPreset] = useState<LabelItemRow[] | null>(null);
+  /**
+   * Kolik místa nahoře zabral hledáček.
+   *
+   * Fotoaparát se otevírá jen v horní části obrazovky (stejně jako u balení),
+   * takže obsah okna se o tu výšku posune dolů — jinak by hledáček ležel přes
+   * seznam načtených položek, a právě ten je při naskladňování potřeba vidět.
+   */
+  const [scanPanel, setScanPanel] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -219,7 +227,8 @@ export default function CatalogModal({ onClose, openStockin }: {
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal kat-modal">
+      <div className="modal kat-modal" data-scan={scanPanel ? 'on' : undefined}
+        style={scanPanel ? { paddingTop: scanPanel } : undefined}>
         <div className="modal-head">
           <div className="modal-title"><Icon name="bag" size={15} /> Katalog</div>
           <div className="kat-tabs">
@@ -390,7 +399,8 @@ export default function CatalogModal({ onClose, openStockin }: {
         )}
 
         {tab === 'stockin' && (
-          <Stockin phone={phone} openId={openStockin ?? null} onPrintLabels={phone ? null : rows => {
+          <Stockin phone={phone} openId={openStockin ?? null} onScanPanel={setScanPanel}
+            onPrintLabels={phone ? null : rows => {
             setLabelPreset(rows);
             setTab('labels');
           }} />
@@ -507,8 +517,10 @@ function ProductSheet({ detail, picked, pickedCodes, onPick, onPickVariant, onCl
 
 /* ---------- naskladnění ---------- */
 
-function Stockin({ phone, openId: startWith, onPrintLabels }: {
+function Stockin({ phone, openId: startWith, onPrintLabels, onScanPanel }: {
   phone: boolean;
+  /** Kolik místa nahoře zabral hledáček — okno se o to posune */
+  onScanPanel?: (height: number) => void;
   /** Naskladnění, které se má otevřít rovnou (z proužku z telefonu) */
   openId?: string | null;
   /**
@@ -570,6 +582,8 @@ function Stockin({ phone, openId: startWith, onPrintLabels }: {
     if (!openId) return;
     api.stockin.working(openId).catch(() => {});
   }, [openId]);
+  // Zavřené naskladnění (i zavřené okno) nesmí nechat viset hledáček
+  useEffect(() => () => { void api.scan.stop().catch(() => {}); onScanPanel?.(0); }, [onScanPanel]);
   useEffect(() => api.on('stockin:progress', (p: any) => setProgress(p)), []);
 
   const session = sessions.find(s => s.id === openId) ?? null;
@@ -683,18 +697,39 @@ function Stockin({ phone, openId: startWith, onPrintLabels }: {
       api.scan.count(next);
     });
 
-    const offClosed = api.on('scan:closed', () => setCamera(false));
+    // Hledáček zavřel systém (např. odepřený fotoaparát) — okno se musí
+    // vrátit nahoru, jinak by nad ním zůstala díra
+    const offClosed = api.on('scan:closed', () => { setCamera(false); onScanPanel?.(0); });
     return () => { off(); offQty(); offClosed(); };
   }, [camera, openId, loadItems]);
 
+  /** Počet na jedno pípnutí — drží se i v hledáčku, ať je vidět, co se přičte. */
+  const setScanQty = (value: number) => {
+    const next = Math.max(1, Math.round(value) || 1);
+    qtyRef.current = next;
+    setQty(next);
+    if (camera) api.scan.count(next);
+  };
+
   const toggleCamera = async () => {
-    if (camera) { await api.scan.stop().catch(() => {}); setCamera(false); return; }
+    if (camera) {
+      await api.scan.stop().catch(() => {});
+      setCamera(false);
+      onScanPanel?.(0);
+      return;
+    }
     try {
-      await api.scan.start();
+      /*
+       * Hledáček jen v horní části, stejně jako u balení. Přes celou
+       * obrazovku by se pípalo naslepo — a právě u naskladnění je potřeba
+       * vidět, co už v seznamu je, aby se dvakrát nenačetl týž kód.
+       */
+      const out = await api.scan.start({ panel: true, qty: true });
       // Počítadlo v hledáčku musí od začátku ukazovat, kolik se přidá
       qtyRef.current = qty;
       api.scan.count(qty);
       setCamera(true);
+      onScanPanel?.(Number(out?.panel) || 0);
     } catch (e: any) { toast(e.message, 'error'); }
   };
 
@@ -780,6 +815,11 @@ function Stockin({ phone, openId: startWith, onPrintLabels }: {
         </button>
       </div>
 
+      {/*
+        * Nahoře jen pole na kód — hned pod hledáčkem, kam padají načtené kódy.
+        * Počet a zapnutí fotoaparátu jsou dole u palce; mezi tím zůstane
+        * seznam toho, co už je načtené, aby se týž kód nepřidal dvakrát.
+        */}
       <div className="kat-scanbar">
         <input
           ref={input}
@@ -790,25 +830,6 @@ function Stockin({ phone, openId: startWith, onPrintLabels }: {
           onChange={e => setScan(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submitScan(scan); }}
         />
-        <label className="kat-qty">
-          ks
-          {/* `inputMode` vytáhne na telefonu číselnou klávesnici — jinak se
-              počet ťuká na písmenkové, nebo se mačká plus dvacetkrát */}
-          <input type="number" inputMode="numeric" min={1} value={qty}
-            onFocus={e => e.target.select()}
-            onChange={e => {
-              const next = Math.max(1, Number(e.target.value) || 1);
-              qtyRef.current = next;
-              setQty(next);
-              if (camera) api.scan.count(next);
-            }} />
-        </label>
-        {hasCamera && (
-          <button className={`btn ${camera ? 'primary' : 'ghost'}`} onClick={toggleCamera}
-            data-tip="Čte QR i čárové kódy fotoaparátem, jeden kus za druhým">
-            <Icon name="search" size={14} /> {camera ? 'Skenuji…' : 'Skenovat'}
-          </button>
-        )}
         <button className="btn ghost" onClick={() => submitScan(scan)}>Přidat</button>
       </div>
 
@@ -944,6 +965,37 @@ function Stockin({ phone, openId: startWith, onPrintLabels }: {
               </div>
             ))}
           </div>
+        )}
+      </div>
+
+      {/*
+        * Kolik kusů se přidá při dalším pípnutí — dole, u palce.
+        *
+        * U regálu se počet mění pořád: pět kusů jedné délky, pak jeden, pak
+        * deset. Ťukat to do číselného pole s klávesnicí přes půl obrazovky
+        * je pomalejší než pípnout desetkrát, proto jsou vedle sebe kroky
+        * po jednom i po deseti. Tatáž hodnota jde i do hledáčku, takže
+        * v něm je vidět, co se právě přičte.
+        */}
+      <div className="kat-qtybar">
+        <span className="kat-qty-label">Kusů na pípnutí</span>
+        <div className="kat-qty-steps">
+          <button className="btn ghost" onClick={() => setScanQty(qty - 10)} disabled={qty <= 1}>−10</button>
+          <button className="btn ghost" onClick={() => setScanQty(qty - 1)} disabled={qty <= 1}>−</button>
+          {/* `inputMode` vytáhne na telefonu číselnou klávesnici — jinak se
+              počet ťuká na písmenkové */}
+          <input type="number" inputMode="numeric" min={1} value={qty}
+            onFocus={e => e.target.select()}
+            onChange={e => setScanQty(Number(e.target.value) || 1)} />
+          <button className="btn ghost" onClick={() => setScanQty(qty + 1)}>+</button>
+          <button className="btn ghost" onClick={() => setScanQty(qty + 10)}>+10</button>
+        </div>
+        <span style={{ flex: 1 }} />
+        {hasCamera && (
+          <button className={`btn ${camera ? 'ghost' : 'primary'} kat-scanbtn`} onClick={toggleCamera}
+            data-tip="Čte QR i čárové kódy fotoaparátem, jeden kus za druhým">
+            <Icon name="camera" size={15} /> {camera ? 'Zavřít' : 'Scan'}
+          </button>
         )}
       </div>
 

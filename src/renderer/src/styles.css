@@ -1521,6 +1521,10 @@ input:focus, textarea:focus, select:focus {
   padding: 12px 18px;
   border-bottom: 1px solid var(--border);
 }
+/* Skenování je při balení to hlavní — palec ho musí trefit napoprvé */
+.pk-scan { flex-shrink: 0; padding: 6px 14px; font-weight: 700; gap: 6px; }
+html[data-form-factor="phone"] .pk-scan { padding: 8px 16px; font-size: 14px; }
+
 .pk-head-num { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 /* Na úzké obrazovce se to celé přesune pod číslo faktury; rozpadnout se
    na „obj." a číslo pod tím ale nesmí — to už není údaj, jen dvě slova */
@@ -4528,6 +4532,54 @@ html[data-form-factor="phone"] .pk-hint { display: none; }
  */
 .pk-modal[data-scan="on"] .pk-filters,
 .pk-modal[data-scan="on"] .pk-panels { display: none; }
+
+/*
+ * Naskladnění s otevřeným hledáčkem. Nahoře kouká fotoaparát, dole zůstává
+ * počet na pípnutí a mezi tím seznam toho, co je načtené — bez něj by se
+ * pípalo naslepo a týž kód by se snadno přidal dvakrát.
+ */
+.kat-modal[data-scan="on"] .kat-filters,
+.kat-modal[data-scan="on"] .kat-tabs,
+/*
+ * Při skenování se schová všechno, co se v tu chvíli nepoužívá: záložky,
+ * přejmenování naskladnění i patička s odesláním. Na malém telefonu zbývá
+ * pod hledáčkem sotva třetina obrazovky a každý schovaný řádek je jeden
+ * další vidět v seznamu — a právě ten seznam je důvod, proč hledáček
+ * nezabírá celou obrazovku.
+ */
+.kat-modal[data-scan="on"] .kat-title,
+.kat-modal[data-scan="on"] .modal-foot { display: none; }
+
+/* ---------- počet na pípnutí ---------- */
+
+.kat-qtybar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.kat-qty-label { font-size: 11.5px; color: var(--text-3); }
+.kat-qty-steps { display: flex; align-items: center; gap: 4px; }
+.kat-qty-steps .btn { padding: 5px 9px; font-size: 12px; min-width: 34px; justify-content: center; }
+.kat-qty-steps input {
+  width: 58px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 6px;
+}
+.kat-scanbtn { flex-shrink: 0; padding: 6px 14px; font-weight: 700; gap: 6px; }
+
+/* Na telefonu je to řada, na kterou se sahá nejčastěji — musí být na palec */
+html[data-form-factor="phone"] .kat-qtybar { padding: 10px 12px; gap: 8px; }
+html[data-form-factor="phone"] .kat-qty-label { display: none; }
+html[data-form-factor="phone"] .kat-qty-steps .btn { padding: 8px 10px; min-width: 40px; }
+html[data-form-factor="phone"] .kat-qty-steps input { width: 54px; font-size: 16px; }
+html[data-form-factor="phone"] .kat-scanbtn { padding: 8px 14px; font-size: 14px; }
 /* Jedna část přes celou obrazovku místo dvou sloupců pod sebou */
 html[data-form-factor="phone"] .pk-modal[data-pane="list"] .pk-detail { display: none; }
 html[data-form-factor="phone"] .pk-modal[data-pane="detail"] .pk-list { display: none; }
@@ -6463,11 +6515,10 @@ html[data-form-factor="phone"] .kat-sheet-in { border-radius: 0; height: 100%; w
 html[data-form-factor="phone"] .kat-sheet-top { flex-direction: column; }
 html[data-form-factor="phone"] .kat-sheet-top img { width: 100%; height: 220px; }
 /* Pole pro čtečku palcem — proto přes celou šířku a počet pod ním */
-html[data-form-factor="phone"] .kat-scanbar { flex-wrap: wrap; padding: 10px 14px; }
-html[data-form-factor="phone"] .kat-scan { flex: 1 1 100%; order: 2; font-size: 16px; }
-/* Nejdřív počet, pak přidání — ve stejném pořadí, v jakém to člověk dělá */
-html[data-form-factor="phone"] .kat-qty { order: 3; }
-html[data-form-factor="phone"] .kat-scanbar .btn { order: 4; margin-left: auto; }
+/* Pole na kód a „Přidat" na jednom řádku — počet je teď dole u palce */
+html[data-form-factor="phone"] .kat-scanbar { padding: 10px 14px; }
+html[data-form-factor="phone"] .kat-scan { flex: 1; min-width: 0; font-size: 16px; }
+html[data-form-factor="phone"] .kat-scanbar .btn { flex-shrink: 0; }
 html[data-form-factor="phone"] .kat-plan-row { grid-template-columns: 1fr; gap: 2px; }
 html[data-form-factor="phone"] .kat-hits { margin: 0 14px; max-height: 50vh; }
 /* Číselné pole musí mít aspoň 16 px, jinak si systém obrazovku přiblíží */
@@ -6610,3 +6661,25 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 .kat-countby button.on { background: var(--accent); color: #fff; }
 [data-theme="dark"] .kat-countby { background: #262230; }
+
+/* ---------- slovník zkratek dopravy a plateb ---------- */
+
+.sh-list { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.sh-group { display: flex; flex-direction: column; gap: 4px; }
+.sh-group > b { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); }
+.sh-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+/* Název z feedu bývá dlouhý; ustupuje poli se zkratkou, ne naopak */
+.sh-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-count { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+.sh-row input {
+  width: 128px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  font-size: 12.5px;
+}

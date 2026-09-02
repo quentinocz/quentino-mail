@@ -214,17 +214,38 @@ const SECRET_LABELS: Record<string, string> = {
  */
 const VOLATILE_SETTING_KEYS = [
   'stateStamp', 'ftsBuilt', 'contactsBackfilled',
-  'productFeedSync', 'productFeedSchema',
+  // Razítka stahování. `stockFeedSync` je dvojče `productFeedSync` — katalog
+  // a zásoby se stahují zvlášť a obojí je „kdy naposledy tady", ne nastavení.
+  'productFeedSync', 'productFeedSchema', 'stockFeedSync',
   'syncLastRun', 'syncLastResult',
   'ptransSyncedAt', 'ptransStateRules',
+  /*
+   * Jednorázová značka „migrace už proběhla". Obnovit ji na zařízení, kde
+   * migrace nikdy neběžela, znamená, že se přeskočí navždy — a odškrtávání
+   * z doby před přechodem balení na feed se nikam nepřenese.
+   */
+  'packingFeedMigrated',
+  // Rozměry okna patří k obrazovce, ne k účtu; obnovené z jiného počítače
+  // otevřou aplikaci mimo viditelnou plochu
+  'windowState',
+  // Odkaz na složku platí jen na zařízení, kde vznikl (iOS security-scoped
+  // bookmark) — jinde je to nesmyslná binárka
+  'syncFolderBookmark',
+  // Poslední ohlášená zpráva. Cizí číslo buď upozornění umlčí, nebo je
+  // vysype všechna znovu.
+  'notifyLastMailId',
   // Totožnost zařízení do zálohy nepatří: po obnovení na druhém počítači by
   // obě zařízení tvrdila, že jsou totéž, psala si do stejného deníku a
   // sahala si po týchž zamluvených kódech poukazů.
   'deviceId', 'deviceName'
 ];
 
-/** Totéž, ale klíčů je celá řada — jeden na každý feed objednávek. */
-const VOLATILE_SETTING_PREFIXES = ['orderFeedSync:', 'orderFeedError:'];
+/**
+ * Totéž, ale klíčů je celá řada — jeden na každý feed objednávek a jeden na
+ * každý projekt Supabase („kdy se naposledy ozval", což je vlastnost spojení
+ * tohohle zařízení).
+ */
+const VOLATILE_SETTING_PREFIXES = ['orderFeedSync:', 'orderFeedError:', 'supabaseSeen:'];
 
 function isVolatile(key: string): boolean {
   return VOLATILE_SETTING_KEYS.includes(key)
@@ -291,6 +312,99 @@ function unseal(box: any, passphrase: string): any {
 /** Je záloha zamčená heslem? */
 export function configNeedsPassphrase(data: any): boolean {
   return !!data?.encrypted;
+}
+
+
+/**
+ * Tabulky, ve kterých je lidská práce.
+ *
+ * Nastavení a klíče se přenášely odjakživa, ale ty tady se do zálohy
+ * nedostaly vůbec — a přitom je to jediné, co se nedá znovu stáhnout ani
+ * dopočítat. Dárkové poukazy někdo vypsal, barvy a sety u překladů někdo
+ * naučil, články někdo napsal. Po obnovení na novém počítači to všechno
+ * chybělo a nebylo kde to vzít.
+ *
+ * Co tu **není**: stažený katalog, feed objednávek, pošta, odškrtávání
+ * a fronty. To se buď stáhne znovu, nebo popisuje rozdělanou práci na
+ * konkrétním zařízení — tomu se záloha vyhýbá schválně.
+ */
+const BACKUP_TABLES = [
+  // Dárkové poukazy: šablony i vydané kódy
+  'voucher_templates', 'voucher_codes',
+  // Naučené u překladů: paměť, barvy, sety a styl
+  'ptrans_memory', 'ptrans_colors', 'ptrans_bundles', 'ptrans_style',
+  // Články i s jazykovými verzemi a mapou adres
+  'art_articles', 'art_langs', 'art_urlmap',
+  // Naučené fáze dopravy z hlášek dopravců
+  'ship_phase'
+];
+
+/** Strop na tabulku — záloha nemá být obraz celé databáze. */
+const MAX_TABLE_ROWS = 20_000;
+
+function tableColumns(table: string): string[] {
+  try {
+    return (getDb().prepare(`PRAGMA table_info(${table})`).all() as any[])
+      .map(one => String(one.name));
+  } catch {
+    return [];
+  }
+}
+
+function exportTables(): Record<string, any[]> {
+  const d = getDb();
+  const out: Record<string, any[]> = {};
+  for (const table of BACKUP_TABLES) {
+    // Tabulka nemusí existovat — starší databáze, nebo modul, který se
+    // v téhle verzi ještě nezakládal
+    if (tableColumns(table).length === 0) continue;
+    try {
+      out[table] = d.prepare(`SELECT * FROM ${table} LIMIT ${MAX_TABLE_ROWS}`).all() as any[];
+    } catch { /* poškozená tabulka nesmí shodit celou zálohu */ }
+  }
+  return out;
+}
+
+/**
+ * Vrátí řádky zpátky.
+ *
+ * Sloupce se protnou s tím, co tabulka na tomhle zařízení opravdu má:
+ * záloha z novější verze aplikace jinak spadne na sloupci, který tu ještě
+ * není, a obnovení skončí v půlce. Chybějící sloupce se prostě vynechají —
+ * doplní je migrace, až přijde.
+ *
+ * Zapisuje se `INSERT OR REPLACE`, takže obnovení do rozdělané aplikace
+ * přepíše, co v záloze je, a nechá být, co v ní není.
+ */
+function importTables(payload: any): number {
+  if (!payload || typeof payload !== 'object') return 0;
+  const d = getDb();
+  let rows = 0;
+
+  for (const table of BACKUP_TABLES) {
+    const incoming = payload[table];
+    if (!Array.isArray(incoming) || incoming.length === 0) continue;
+    const mine = new Set(tableColumns(table));
+    if (mine.size === 0) continue;
+
+    const columns = Object.keys(incoming[0] ?? {}).filter(one => mine.has(one));
+    if (columns.length === 0) continue;
+
+    const sql = `INSERT OR REPLACE INTO ${table} (${columns.join(',')})`
+      + ` VALUES (${columns.map(() => '?').join(',')})`;
+    const stmt = d.prepare(sql);
+    const write = d.transaction(() => {
+      for (const row of incoming) {
+        const values = columns.map(one => {
+          const value = (row as any)[one];
+          return value === undefined ? null : value;
+        });
+        try { stmt.run(...values); rows++; } catch { /* jeden řádek nesmí zabít zbytek */ }
+      }
+    });
+    try { write(); } catch { /* ani jedna tabulka */ }
+  }
+  return rows;
 }
 
 export function exportConfig(passphrase?: string): object {
@@ -371,6 +485,8 @@ export function exportConfig(passphrase?: string): object {
     accounts,
     igAccounts,
     igMarkets,
+    // Poukazy, naučené překlady a články — to jediné, co se nedá stáhnout znovu
+    tables: exportTables(),
     files,
     secrets: passphrase ? seal(secrets, passphrase) : secrets
   };
@@ -524,6 +640,10 @@ export function importConfig(data: any, passphrase?: string): string {
     }
     if (n) parts.push(`${n}× instagramový účet`);
   }
+
+  /* ---- Poukazy, naučené překlady, články ---- */
+  const restoredRows = importTables(data.tables);
+  if (restoredRows) parts.push(`${restoredRows}× řádek poukazů, překladů a článků`);
 
   const embedded = Object.keys(files).length;
   if (embedded) parts.push(`${embedded}× obrázek`);

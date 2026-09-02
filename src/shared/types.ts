@@ -667,6 +667,27 @@ export interface OrderBadge {
   tone: 'new' | 'paid' | 'sent' | 'done' | 'problem';
   carrierName: string | null;
   shipmentStage: string | null;
+  /**
+   * Doprava a platba ve zkratce — „Zásilkovna", „Dobírka".
+   *
+   * Na telefonu je to to jediné, co se na odznak vejde, a taky to jediné,
+   * co se z něj ráno čte: jestli balík jde na výdejnu nebo domů a jestli je
+   * zaplaceno, nebo se bude vybírat dobírka. Zkratky se dají doladit
+   * v nastavení; bez toho platí odhad.
+   */
+  shipmentShort: string | null;
+  paymentShort: string | null;
+}
+
+/** Řádek slovníku zkratek pro dopravu a platbu */
+export interface ShorthandRow {
+  kind: 'shipment' | 'payment';
+  name: string;
+  /** Zadaná zkratka; prázdné = platí odhad */
+  short: string;
+  guess: string;
+  /** U kolika objednávek se název vyskytl */
+  count: number;
 }
 
 export interface KnowledgeDoc {

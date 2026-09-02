@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang,
-  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus } from '@shared/types';
+  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -742,6 +742,8 @@ export default function SettingsModal(p: Props) {
 
               <OrderFeedsField />
 
+              <ShorthandField />
+
               <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
                 <label><Icon name="settings" size={13} /> Odkaz na objednávku v administraci</label>
                 <input value={settings.adminOrderRef} placeholder="023702:1185"
@@ -1266,6 +1268,78 @@ function OrderFeedsField() {
           Stáhnout vše
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Slovník zkratek pro dopravu a platbu.
+ *
+ * Na telefonu je v seznamu pošty na odznak místo asi pro dvacet znaků.
+ * „Zásilkovna – výdejní místo" se tam nevejde, a hlavně to není to, co se
+ * z odznaku ráno čte: jde o to, jestli balík míří na výdejnu nebo domů
+ * a jestli je zaplaceno, nebo se bude vybírat dobírka.
+ *
+ * Nabízí se **jen to, co doopravdy je v objednávkách** — vypisovat všechno,
+ * co e-shop umí, by znamenalo dvacet řádků, ze kterých se používají tři.
+ * Prázdné pole neznamená „nic neukazuj": platí odhad, který je hned vedle
+ * vidět, takže je jasné, co se ukáže, i než někdo něco napíše.
+ */
+function ShorthandField() {
+  const [rows, setRows] = useState<ShorthandRow[]>([]);
+  const [busy, setBusy] = useState('');
+
+  // Starší verze aplikace v telefonu kanál nezná a vrátí prázdno — pole
+  // s rozhraním se kvůli tomu nesmí rozsypat
+  useEffect(() => {
+    api.shorthand.list().then(list => setRows(Array.isArray(list) ? list : [])).catch(() => {});
+  }, []);
+
+  const save = (row: ShorthandRow, value: string) => {
+    setRows(prev => prev.map(one =>
+      one.kind === row.kind && one.name === row.name ? { ...one, short: value } : one));
+    setBusy(`${row.kind}:${row.name}`);
+    api.shorthand.save(row.kind, row.name, value)
+      .then(list => setRows(Array.isArray(list) ? list : []))
+      .catch(() => {})
+      .finally(() => setBusy(''));
+  };
+
+  const group = (kind: ShorthandRow['kind'], title: string) => {
+    const mine = rows.filter(one => one.kind === kind);
+    if (mine.length === 0) return null;
+    return (
+      <div className="sh-group">
+        <b>{title}</b>
+        {mine.map(row => (
+          <label key={`${row.kind}:${row.name}`} className="sh-row">
+            <span className="sh-name" title={row.name}>{row.name}</span>
+            <span className="sh-count">{row.count}×</span>
+            <input value={row.short} placeholder={row.guess} spellCheck={false} maxLength={14}
+              onChange={e => save(row, e.target.value)} />
+            {busy === `${row.kind}:${row.name}` && <span className="spinner-inline" />}
+          </label>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+      <label><Icon name="truck" size={13} /> Zkratky dopravy a plateb</label>
+      <div className="desc">
+        Co se ukáže u objednávky v seznamu pošty na telefonu — místo čísla a částky,
+        které se z odznaku stejně nečtou. Nabízí se to, co je v načtených objednávkách.
+        Necháš-li pole prázdné, platí odhad v něm napsaný.
+      </div>
+      {rows.length === 0 ? (
+        <div className="desc">Zatím nejsou načtené žádné objednávky — načti feed objednávek výš.</div>
+      ) : (
+        <div className="sh-list">
+          {group('shipment', 'Doprava')}
+          {group('payment', 'Platba')}
+        </div>
+      )}
     </div>
   );
 }
