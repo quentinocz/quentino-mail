@@ -124,6 +124,9 @@ require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electr
 
 const settings = require(path.join(DIST, 'settings.js'));
 
+/** Kolik věcí nesedí — počítá se od prvního naplnění databáze */
+let bad = 0;
+
 /* ---------- co se má přenést ---------- */
 
 const VZOREK = {
@@ -172,6 +175,20 @@ const PROVOZNI = {
   'orderFeedSync:feed1': '2026-08-24T11:58:00Z',
   'orderFeedError:feed2': 'HTTP 500',
   productFeedSync: '2026-08-24T06:00:00Z',
+  // Dvojče produktového feedu: zásoby se stahují zvlášť a razítko o nich
+  // platí jen pro zařízení, které je stáhlo
+  stockFeedSync: '2026-08-24T08:00:00Z',
+  // „Kdy se projekt naposledy ozval" je vlastnost spojení tohohle zařízení
+  'supabaseSeen:https://xyz.supabase.co': '2026-08-20T09:00:00Z',
+  // Jednorázová značka migrace: obnovená na zařízení, kde migrace neběžela,
+  // ji přeskočí navždy
+  packingFeedMigrated: '1',
+  // Rozměry okna patří k obrazovce, ne k účtu
+  windowState: '{"x":0,"y":0,"width":2560,"height":1400}',
+  // Odkaz na složku platí jen tam, kde vznikl
+  syncFolderBookmark: 'Ym9va21hcmstZGF0YQ==',
+  // Poslední ohlášená zpráva: cizí číslo upozornění umlčí nebo je vysype znovu
+  notifyLastMailId: '4821',
   syncLastResult: 'staženo 12 zpráv',
   stateStamp: '2026-08-24T12:00:00Z',
   // Totožnost zařízení: po obnovení na druhém počítači by obě tvrdila, že
@@ -188,6 +205,38 @@ const set = (k, v) => dbs.old.prepare(
 for (const [k, v] of Object.entries(VZOREK)) set(k, v);
 for (const [k, v] of Object.entries(TAJNE)) set(k, 'ŠIFRA(' + Buffer.from(v).toString('base64') + ')');
 for (const [k, v] of Object.entries(PROVOZNI)) set(k, v);
+
+/*
+ * Lidská práce ve staré databázi: poukazy, naučené překlady, článek a fáze
+ * dopravy. Do zálohy se to dřív nedostalo vůbec — a je to jediné, co se
+ * nedá znovu stáhnout.
+ */
+const vloz = (sql, ...values) => {
+  try { dbs.old.prepare(sql).run(...values); }
+  catch (e) { console.log('  ! nešlo naplnit:', String(e.message).slice(0, 80)); bad++; }
+};
+vloz(`INSERT INTO voucher_templates (id, name, value, unit, valid_until, note, lang, code_mode, fixed_code, updated_at)
+      VALUES ('tpl-300', 'Omluva 300 Kč', '300', 'CZK', '2027-06-30', '', 'cz', 'unique', '', '2026-08-24T09:00:00Z')`);
+vloz(`INSERT INTO voucher_codes (template_id, code, used_at, used_for, used_by)
+      VALUES ('tpl-300', 'Q7H2-4KDA', '2026-08-20T10:00:00Z', 'reklamace', 'Patrik')`);
+vloz(`INSERT INTO voucher_codes (template_id, code, used_at, used_for, used_by)
+      VALUES ('tpl-300', 'Q7H2-9XPL', NULL, '', '')`);
+vloz(`INSERT INTO ptrans_colors (source, base, hits, origin, locked, updated_at)
+      VALUES ('tmavě modrá', 'modra', 12, 'ruka', 1, '2026-08-24T09:00:00Z')`);
+vloz(`INSERT INTO ptrans_bundles (category, pattern, is_bundle, hits, updated_at)
+      VALUES ('Sety', 'kravata a kapesníček', 1, 4, '2026-08-24T09:00:00Z')`);
+vloz(`INSERT INTO ptrans_memory (id, kind, lang, source, target, category, hits, updated_at)
+      VALUES (1, 'glossary', 'sk', 'kšandy', 'traky', '', 3, '2026-08-24T09:00:00Z')`);
+vloz(`INSERT INTO art_articles (id, article_id, topic, status, created_at, updated_at)
+      VALUES (1, 'art-1', 'Jak vybrat kšandy', 'done', '2026-08-01T09:00:00Z', '2026-08-02T09:00:00Z')`);
+vloz(`INSERT INTO art_langs (article_id, lang, title, long, state, updated_at)
+      VALUES (1, 'cz', 'Jak vybrat kšandy', '<p>Kšandy se vybírají podle délky.</p>', 'done', '2026-08-02T09:00:00Z')`);
+vloz(`INSERT INTO ship_phase (skeleton, phase, sample, source, at)
+      VALUES ('zasilka je pripravena k vyzvednuti', 'ready', 'Zásilka je připravena k vyzvednutí', 'ai', '2026-08-24T09:00:00Z')`);
+
+// Stažená data — ta se do zálohy dostat nesmí
+vloz(`INSERT INTO products (code, title_cz) VALUES ('PS120SM', 'Kšandy Slim')`);
+vloz(`INSERT INTO shop_orders (code, market) VALUES ('022605', 'cz')`);
 
 const zaloha = JSON.parse(JSON.stringify(settings.exportConfig()));
 console.log('záloha: verze', zaloha.version, '· klíčů v nastavení:', Object.keys(zaloha.settings ?? {}).length);
@@ -207,7 +256,6 @@ const decrypted = key => {
   return m ? Buffer.from(m[1], 'base64').toString() : `(nešifrované) ${raw}`;
 };
 
-let bad = 0;
 console.log('\nběžné nastavení:');
 for (const [key, want] of Object.entries(VZOREK)) {
   const ok = got(key) === want;
@@ -233,6 +281,56 @@ for (const [key, staraHodnota] of Object.entries(PROVOZNI)) {
   const note = value === null ? '' : ' (přepsáno vlastní hodnotou — v pořádku)';
   console.log(`  ${ok ? '✓' : '✗'} ${key}${ok ? note : ` — přenesla se hodnota ze zálohy: ${value}`}`);
 }
+
+/*
+ * Tabulky s lidskou prací. Nastavení a klíče se přenášely odjakživa, ale
+ * tohle je jediné, co se nedá znovu stáhnout ani dopočítat: poukazy někdo
+ * vypsal, barvy u překladů někdo naučil, články někdo napsal. Do zálohy se
+ * to dřív nedostalo vůbec.
+ */
+console.log('\nlidská práce (poukazy, naučené překlady, články):');
+
+const radku = (table) => {
+  try {
+    return dbs.fresh.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
+  } catch {
+    return -1;
+  }
+};
+const radek = (table, where) => {
+  try {
+    return dbs.fresh.prepare(`SELECT * FROM ${table} WHERE ${where}`).get() ?? null;
+  } catch {
+    return null;
+  }
+};
+const sedi = (label, ok, detail) => {
+  if (!ok) bad++;
+  console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `\n        ${detail}`}`);
+};
+
+sedi('šablona poukazu', radku('voucher_templates') === 1, `řádků: ${radku('voucher_templates')}`);
+sedi('a její hodnota i platnost',
+  radek('voucher_templates', "id = 'tpl-300'")?.value === '300');
+sedi('vydané kódy', radku('voucher_codes') === 2, `řádků: ${radku('voucher_codes')}`);
+sedi('i s tím, že jeden je použitý',
+  radek('voucher_codes', "code = 'Q7H2-4KDA'")?.used_at === '2026-08-20T10:00:00Z');
+sedi('naučená barva', radek('ptrans_colors', "source = 'tmavě modrá'")?.base === 'modra');
+sedi('i s tím, že je zamčená ručně',
+  radek('ptrans_colors', "source = 'tmavě modrá'")?.locked === 1);
+sedi('naučený set', radku('ptrans_bundles') === 1, `řádků: ${radku('ptrans_bundles')}`);
+sedi('paměť překladů', radek('ptrans_memory', "id = 1")?.source === 'kšandy');
+sedi('napsaný článek', radek('art_articles', "id = 1")?.topic === 'Jak vybrat kšandy');
+sedi('i jeho česká verze',
+  (radek('art_langs', "article_id = 1 AND lang = 'cz'")?.long ?? '').includes('Kšandy'));
+sedi('naučená fáze dopravy', radku('ship_phase') === 1, `řádků: ${radku('ship_phase')}`);
+
+/*
+ * Co se přenášet **nemá**: stažená data. Katalog se stáhne znovu za pár
+ * vteřin, kdežto záloha s dvanácti sty produkty by byla k neposlání.
+ */
+sedi('stažený katalog v záloze není', radku('products') === 0, `řádků: ${radku('products')}`);
+sedi('ani feed objednávek', radku('shop_orders') === 0, `řádků: ${radku('shop_orders')}`);
 
 console.log(bad ? `\n${bad} věcí nesedí` : '\nzáloha přenese všechno, co má, a nic, co nemá');
 process.exit(bad ? 1 : 0);

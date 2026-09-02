@@ -587,10 +587,17 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
         <div className="modal-head">
           <div className="modal-title"><Icon name="bag" size={16} /> Balení objednávek</div>
           <span style={{ flex: 1 }} />
+          {/*
+            * Skenování je při balení to hlavní, co se dělá — ne jedna ikona
+            * z řady. Načtení faktury otevírá objednávku a pípnutí kódu
+            * odškrtává kus, takže se na tohle tlačítko sahá u každé krabice
+            * několikrát. Proto je barevné a s popiskem, aby se trefilo
+            * palcem napoprvé.
+            */}
           {hasCamera && (
-            <button className={`icon-btn ${panelH ? 'on' : ''}`} onClick={toggleCamera}
+            <button className={`btn ${panelH ? 'ghost' : 'primary'} pk-scan`} onClick={toggleCamera}
               data-tip={panelH ? 'Zavřít čtečku' : 'Skenovat faktury a kódy produktů'}>
-              <Icon name="camera" size={15} />
+              <Icon name="camera" size={15} /> {panelH ? 'Zavřít' : 'Scan'}
             </button>
           )}
           <button className="icon-btn" disabled={loading} data-tip="Načíst znovu včetně stavů"

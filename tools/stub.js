@@ -8,7 +8,7 @@
     notifyPhone: true, notifyServer: '', notifyTopic: 'quentino-nahled123456789abcdef',
     notifyPhoneMail: true, notifyPhoneChat: true, notifyPhoneLocal: true,
     categoryRules: [], autoSummarizeCategories: [],
-    contactInfo: '', productFeedUrl: '', adminOrderRef: '', voucherLogo: '', defaultPersonId: 0, theme: 'light'
+    contactInfo: '', productFeedUrl: 'https://www.quentino.cz/export-products.xml', adminOrderRef: '', voucherLogo: '', defaultPersonId: 0, theme: 'light'
   };
   const accounts = [{
     id: 1, name: 'Quentino', email: 'info@quentino.cz', imapHost: 'imap.example.cz', imapPort: 993,
@@ -38,8 +38,10 @@
   ];
   const messages = Array.from({ length: 12 }, (_, i) => ({
     id: i + 1, accountId: 1, folder: 'INBOX', uid: 100 + i, messageId: 'm' + i,
-    subject: subjects[i % 5],
-    fromAddr: 'zakaznik' + i + '@seznam.cz',
+    // Každá pátá je potvrzení objednávky z vlastního e-shopu — jen u takové
+    // se ukáže odznak objednávky, a právě ten je na telefonu jiný
+    subject: i % 5 === 0 ? 'Potvrzení objednávky č. 20260819' : subjects[i % 5],
+    fromAddr: i % 5 === 0 ? 'obchod@quentino.cz' : 'zakaznik' + i + '@seznam.cz',
     fromName: ['Jana Nováková', 'Petr Svoboda', 'Alfa s.r.o.'][i % 3],
     toAddr: 'info@quentino.cz', date: new Date(Date.now() - i * 3600e3).toISOString(),
     snippet: 'Dobrý den, chtěl bych se zeptat na stav mé objednávky, kterou jsem zadal minulý týden…',
@@ -87,7 +89,9 @@
     'orderlinks:refresh': { orders: 0, links: 0 },
     'orders:badge': {
       orderNumber: '20260819', total: '2\u00a0480 Kč', status: 'Odeslána', tone: 'sent',
-      carrierName: 'Zásilkovna', shipmentStage: 'na cestě'
+      carrierName: 'Zásilkovna', shipmentStage: 'na cestě',
+      // Na telefonu se místo čísla a částky ukáže doprava a platba
+      shipmentShort: 'Zásilkovna', paymentShort: 'Dobírka'
     },
     'orders:card': {
       orderNumber: '20260819', lang: 'cz', placedAt: '2026-08-12T09:14:00Z',
@@ -237,6 +241,16 @@
       count: 1, qty: 2, needMore: 1, message: 'Manžetové knoflíčky Onyx — 1/2 ks, ještě 1' },
     // Načtená faktura otevře i půl roku starou doručenou objednávku
     'packing:openOrder': null,
+    // Slovník zkratek dopravy a plateb — co se ukáže na odznaku v seznamu
+    'shorthand:list': [
+      { kind: 'shipment', name: 'Zásilkovna - výdejní místo', short: '', guess: 'Zásilkovna', count: 148 },
+      { kind: 'shipment', name: 'PPL ParcelShop', short: 'PPL box', guess: 'PPL', count: 61 },
+      { kind: 'shipment', name: 'Česká pošta - Balík do ruky', short: '', guess: 'ČP', count: 22 },
+      { kind: 'payment', name: 'Platba kartou online', short: '', guess: 'Karta', count: 171 },
+      { kind: 'payment', name: 'Dobírka', short: '', guess: 'Dobírka', count: 44 },
+      { kind: 'payment', name: 'Bankovním převodem', short: '', guess: 'Převod', count: 16 }
+    ],
+    'shorthand:save': [],
     'packing:working': true,
     'stockin:working': true,
     // Upozornění na telefon přes ntfy — v náhledu se nikam neposílá

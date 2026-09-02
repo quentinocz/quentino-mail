@@ -26,6 +26,7 @@ const ALLOWED_INVOKE = [
   'ai:usage', 'ai:digest', 'quota:get', 'mail:cleanupScan', 'mail:cleanupRun', 'shell:openUrl',
   'upgates:config', 'upgates:saveConfig', 'upgates:test', 'upgates:orders',
   'orders:card', 'orders:badge', 'orders:refresh', 'orders:shipment',
+  'shorthand:list', 'shorthand:save',
   'voucher:create',
   'vouchers:list', 'vouchers:save', 'vouchers:delete', 'vouchers:addCodes',
   'vouchers:codes', 'vouchers:deleteCode', 'vouchers:release', 'vouchers:use',

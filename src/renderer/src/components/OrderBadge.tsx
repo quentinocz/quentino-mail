@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { MessageHeader, OrderBadge as OrderBadgeData, OrderCard as OrderCardData } from '@shared/types';
 import { api } from '../api';
+import { useIsPhone } from '../mobile';
 import Icon from './Icon';
 import OrderCard from './OrderCard';
 
@@ -71,6 +72,7 @@ interface Props {
 }
 
 export default function OrderBadge({ message }: Props) {
+  const phone = useIsPhone();
   const chipRef = useRef<HTMLSpanElement | null>(null);
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
@@ -186,8 +188,24 @@ export default function OrderBadge({ message }: Props) {
         data-tip={pinned ? 'Zavřít objednávku' : 'Objednávka — najeď myší'}
       >
         <span className="ord-dot" />
-        <span className="ord-num">{number ?? 'objednávka'}</span>
-        {statusText && <span className="ord-state">{statusText}</span>}
+        {/*
+          * Na telefonu se do řádku vejde asi dvacet znaků a číslo objednávky
+          * s částkou z nich nic neřeknou — číslo si nikdo nepamatuje a částka
+          * je v e-mailu o řádek níž. Co se z odznaku ráno čte doopravdy, je
+          * kam balík jde a jestli je zaplaceno. Dokud stav z e-shopu nedorazí,
+          * ukáže se aspoň číslo, ať řádek neposkočí.
+          */}
+        {phone && badge && (badge.shipmentShort || badge.paymentShort) ? (
+          <>
+            {badge.shipmentShort && <span className="ord-num">{badge.shipmentShort}</span>}
+            {badge.paymentShort && <span className="ord-state">{badge.paymentShort}</span>}
+          </>
+        ) : (
+          <>
+            <span className="ord-num">{number ?? 'objednávka'}</span>
+            {statusText && <span className="ord-state">{statusText}</span>}
+          </>
+        )}
       </span>
 
       {open && pos && createPortal(

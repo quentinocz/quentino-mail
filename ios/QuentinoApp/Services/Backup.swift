@@ -41,17 +41,34 @@ enum Backup {
      */
     private static let volatileKeys = [
         "stateStamp", "ftsBuilt", "contactsBackfilled", "windowState",
-        "productFeedSync", "productFeedSchema",
+        // Razítka stahování. „stockFeedSync" je dvojče „productFeedSync" —
+        // katalog a zásoby se stahují zvlášť a obojí je „kdy naposledy tady".
+        "productFeedSync", "productFeedSchema", "stockFeedSync",
         "syncLastRun", "syncLastResult", "appsyncLastRun", "appsyncLastResult",
-        "ptransSyncedAt",
+        "ptransSyncedAt", "ptransStateRules",
+        /*
+         Jednorázová značka „migrace už proběhla". Obnovit ji na zařízení, kde
+         migrace nikdy neběžela, znamená, že se přeskočí navždy.
+         */
+        "packingFeedMigrated",
+        // Odkaz na složku platí jen na zařízení, kde vznikl (security-scoped
+        // bookmark) — jinde je to nesmyslná binárka
+        "syncFolderBookmark",
+        // Poslední ohlášená zpráva. Cizí číslo buď upozornění umlčí, nebo je
+        // vysype všechna znovu.
+        "notifyLastMailId",
         // Totožnost zařízení do zálohy nepatří: po obnovení na druhém přístroji
         // by obě zařízení tvrdila, že jsou totéž, psala si do stejného deníku
         // a sahala si po týchž zamluvených kódech poukazů.
         "deviceId", "deviceName"
     ]
 
-    /// Totéž, ale klíčů je celá řada — jeden na každý feed objednávek.
-    private static let volatilePrefixes = ["orderFeedSync:", "orderFeedError:"]
+    /**
+     Totéž, ale klíčů je celá řada — jeden na každý feed objednávek a jeden
+     na každý projekt Supabase („kdy se naposledy ozval", což je vlastnost
+     spojení tohohle zařízení).
+     */
+    private static let volatilePrefixes = ["orderFeedSync:", "orderFeedError:", "supabaseSeen:"]
 
     private static func isVolatile(_ key: String) -> Bool {
         volatileKeys.contains(key) || volatilePrefixes.contains { key.hasPrefix($0) }
@@ -143,6 +160,8 @@ enum Backup {
             "accounts": accounts,
             "igAccounts": igAccounts,
             "igMarkets": (try? SQLite.shared.query("SELECT * FROM ig_markets ORDER BY ord, lang")) ?? [],
+            // Poukazy, naučené překlady a články — jediné, co se nedá stáhnout znovu
+            "tables": exportTables(),
             "files": files,
             "secrets": (passphrase ?? "").isEmpty ? secrets : seal(secrets, passphrase: passphrase!)
         ]
@@ -353,6 +372,10 @@ enum Backup {
             if count > 0 { parts.append("\(count)× instagramový účet") }
         }
 
+        // Poukazy, naučené překlady a články
+        let restoredRows = importTables(data["tables"])
+        if restoredRows > 0 { parts.append("\(restoredRows)× řádek poukazů, překladů a článků") }
+
         if !files.isEmpty { parts.append("\(files.count)× obrázek") }
         Store.touchState()
         return parts.isEmpty ? "V souboru nebylo co importovat." : "Importováno: \(parts.joined(separator: ", "))."
@@ -417,4 +440,93 @@ enum Backup {
         }
         return object
     }
+
+    // MARK: - Tabulky s lidskou prací
+
+    /**
+     Tabulky, ve kterých je lidská práce.
+
+     Nastavení a klíče se přenášely odjakživa, ale tyhle se do zálohy
+     nedostaly vůbec — a přitom je to jediné, co se nedá znovu stáhnout ani
+     dopočítat. Dárkové poukazy někdo vypsal, barvy a sety u překladů někdo
+     naučil, články někdo napsal.
+
+     Co tu **není**: stažený katalog, feed objednávek, pošta, odškrtávání
+     a fronty. To se buď stáhne znovu, nebo popisuje rozdělanou práci na
+     konkrétním zařízení.
+     */
+    private static let backupTables = [
+        "voucher_templates", "voucher_codes",
+        "ptrans_memory", "ptrans_colors", "ptrans_bundles", "ptrans_style",
+        "art_articles", "art_langs", "art_urlmap",
+        "ship_phase"
+    ]
+
+    /// Strop na tabulku — záloha nemá být obraz celé databáze.
+    private static let maxTableRows = 20_000
+
+    private static func tableColumns(_ table: String) -> Set<String> {
+        let rows = (try? SQLite.shared.query("PRAGMA table_info(\(table))")) ?? []
+        var out: Set<String> = []
+        for row in rows {
+            if let name = row["name"] as? String { out.insert(name) }
+        }
+        return out
+    }
+
+    private static func exportTables() -> [String: Any] {
+        var out: [String: Any] = [:]
+        for table in backupTables {
+            // Tabulka nemusí existovat — starší databáze nebo modul, který
+            // se v téhle verzi ještě nezakládal
+            guard !tableColumns(table).isEmpty else { continue }
+            let rows = (try? SQLite.shared.query("SELECT * FROM \(table) LIMIT \(maxTableRows)")) ?? []
+            out[table] = rows
+        }
+        return out
+    }
+
+    /**
+     Vrátí řádky zpátky.
+
+     Sloupce se protnou s tím, co tabulka na tomhle zařízení opravdu má:
+     záloha z novější verze aplikace by jinak spadla na sloupci, který tu
+     ještě není, a obnovení by skončilo v půlce.
+     */
+    @discardableResult
+    private static func importTables(_ payload: Any?) -> Int {
+        guard let map = payload as? [String: Any] else { return 0 }
+        var written = 0
+
+        for table in backupTables {
+            guard let incoming = map[table] as? [[String: Any]], !incoming.isEmpty else { continue }
+            let mine = tableColumns(table)
+            guard !mine.isEmpty else { continue }
+
+            let columns = Array(incoming[0].keys).filter { mine.contains($0) }
+            guard !columns.isEmpty else { continue }
+
+            let holes = columns.map { _ in "?" }.joined(separator: ",")
+            let sql = "INSERT OR REPLACE INTO \(table) (\(columns.joined(separator: ","))) VALUES (\(holes))"
+            for row in incoming {
+                let values = columns.map { name -> SQLite.Value in value(row[name]) }
+                if (try? SQLite.shared.run(sql, values)) != nil { written += 1 }
+            }
+        }
+        return written
+    }
+
+    /// Hodnota z JSONu do vazby pro SQLite; co se nepozná, jde jako text.
+    private static func value(_ any: Any?) -> SQLite.Value {
+        switch any {
+        case nil, is NSNull: return .null
+        case let text as String: return .text(text)
+        case let number as Int: return .int(Int64(number))
+        case let number as Bool: return .int(number ? 1 : 0)
+        case let number as Double: return .double(number)
+        case let number as NSNumber: return .int(number.int64Value)
+        default: return .text(String(describing: any ?? ""))
+        }
+    }
+
 }

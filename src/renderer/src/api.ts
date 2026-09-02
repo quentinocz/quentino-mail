@@ -17,7 +17,7 @@ import type {
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, LabelLayout,
-  RollLabel, ZplPlan, LiveStatus, LiveOffer
+  RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -365,6 +365,13 @@ export const api = {
    * Sdílená složka zůstává tím, co platí; tohle je rychlý posel, aby se
    * naskladnění z regálu neobjevilo na počítači až za dvě minuty.
    */
+  /** Slovník zkratek pro dopravu a platbu — co se vejde na odznak v seznamu */
+  shorthand: {
+    list: () => call<ShorthandRow[]>('shorthand:list'),
+    save: (kind: 'shipment' | 'payment', name: string, short: string) =>
+      call<ShorthandRow[]>('shorthand:save', kind, name, short)
+  },
+
   live: {
     status: () => call<LiveStatus>('live:status'),
     save: (patch: { channel?: string; enabled?: boolean }) => call<LiveStatus>('live:save', patch),

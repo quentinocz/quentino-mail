@@ -236,6 +236,19 @@ await overflow('nastavení — feedy objednávek'); await snap('22-feedy-objedna
 // vejde dlouhé SQL pro Supabase, které se ukáže až na vyžádání.
 await click('.tabs button', { hasText: 'Telefon' });
 await overflow('nastavení — telefon'); await snap('22b-nastaveni-telefon');
+/*
+ * Slovník zkratek dopravy a plateb. Na telefonu je to jediné, co se na
+ * odznak u zprávy vejde — a taky to jediné, co se z něj ráno čte.
+ */
+await click('.tabs .tab', { hasText: 'AI' });
+await page.evaluate(() => {
+  document.querySelector('.sh-list')?.scrollIntoView({ block: 'center' });
+});
+await page.waitForTimeout(250);
+await overflow('nastavení — zkratky dopravy'); await snap('22c-nastaveni-zkratky');
+// Zpátky na Telefon — další kroky pokračují tam
+await click('.tabs .tab', { hasText: 'Telefon' });
+await page.waitForTimeout(200);
 await click('.btn.ghost', { hasText: 'Nastavení chatu v Supabase' });
 await page.waitForTimeout(300);
 await page.evaluate(() => document.querySelector('.modal-body')?.scrollTo(0, 9999));

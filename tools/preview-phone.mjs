@@ -356,6 +356,16 @@ for (const device of DEVICES) {
   await check('naskladnění — seznam'); await snap('18-naskladneni');
   await click('.kat-session-open');
   await check('naskladnění — řádky'); await snap('19-naskladneni-radky');
+  /*
+   * Hledáček jen v horní části, stejně jako u balení: nahoře fotoaparát,
+   * dole počet na pípnutí a mezi tím seznam toho, co je načtené. Bez
+   * seznamu by se pípalo naslepo a týž kód by se snadno přidal dvakrát.
+   */
+  await click('.kat-scanbtn');
+  await page.waitForTimeout(500);
+  await check('naskladnění — čtečka'); await snap('19b-naskladneni-ctecka');
+  await click('.kat-scanbtn');
+  await page.waitForTimeout(400);
   await click('.modal-foot .btn.ghost', { hasText: 'Zkontrolovat' });
   await check('naskladnění — co se zapíše'); await snap('20-naskladneni-plan');
   // Hledání podle názvu: štítek občas chybí a kód se po paměti nepíše
