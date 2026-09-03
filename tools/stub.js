@@ -243,12 +243,19 @@
     'packing:openOrder': null,
     // Slovník zkratek dopravy a plateb — co se ukáže na odznaku v seznamu
     'shorthand:list': { scope: { orders: 428, withShipment: 428, withPayment: 428 }, rows: [
-      { kind: 'shipment', name: 'Zásilkovna - výdejní místo', short: '', guess: 'Zásilkovna', count: 148 },
-      { kind: 'shipment', name: 'PPL ParcelShop', short: 'PPL box', guess: 'PPL', count: 61 },
-      { kind: 'shipment', name: 'Česká pošta - Balík do ruky', short: '', guess: 'ČP', count: 22 },
-      { kind: 'payment', name: 'Platba kartou online', short: '', guess: 'Karta', count: 171 },
-      { kind: 'payment', name: 'Dobírka', short: '', guess: 'Dobírka', count: 44 },
-      { kind: 'payment', name: 'Bankovním převodem', short: '', guess: 'Převod', count: 16 }
+      { kind: 'shipment', name: 'Zásilkovna', short: '', guess: 'Zásilkovna', count: 148, distinct: 37,
+        samples: ['Zásilkovna Z-Box - Z-BOX', 'Zásilkovna Výdejní místo - Libuň, Libuň 53, Potraviny'] },
+      { kind: 'shipment', name: 'PPL', short: 'PPL box', guess: 'PPL', count: 61, distinct: 12,
+        samples: ['PPL ParcelBox - ABOX BRN Kounicova (Billa)', 'PPL / DHL International'] },
+      { kind: 'shipment', name: 'Balíkovna', short: '', guess: 'Balíkovna', count: 22, distinct: 6,
+        samples: ['Balíkovna - Šumperk Sport Start'] },
+      { kind: 'shipment', name: 'Osobně', short: '', guess: 'Osobně', count: 9, distinct: 1,
+        samples: ['Osobní odběr - Lipová 656, Markvartovice 747 14'] },
+      { kind: 'payment', name: 'Karta', short: '', guess: 'Karta', count: 171, distinct: 2,
+        samples: ['Platba kartou online'] },
+      { kind: 'payment', name: 'Dobírka', short: '', guess: 'Dobírka', count: 44, distinct: 1, samples: ['Dobírka'] },
+      { kind: 'payment', name: 'Převod', short: '', guess: 'Převod', count: 16, distinct: 1,
+        samples: ['Bankovním převodem'] }
     ] },
     'shorthand:save': { scope: { orders: 428, withShipment: 428, withPayment: 428 }, rows: [] },
     'packing:working': true,

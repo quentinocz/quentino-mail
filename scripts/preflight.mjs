@@ -588,6 +588,73 @@ function checkChannels() {
   } else {
     warn(`Kanálů rozhraní: ${used.length}, všechny povolené i obsloužené.`);
   }
+
+  checkIosChannels(used);
+}
+
+/**
+ * Kanály, které aplikace v telefonu **schválně** nemá.
+ *
+ * Rozhraní je jedno a totéž na obou zařízeních, takže se z něj volá i to,
+ * co dává smysl jen na počítači: tisk PDF, okno administrace Upgates,
+ * překlady a psaní článků (dlouhé běhy, které by systém na telefonu stejně
+ * zmrazil) a proužek s nabídkou rozdělané práce — kdo drží telefon, dívá se
+ * na to, co dělá.
+ */
+const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:'];
+const DESKTOP_ONLY = [
+  'app:version',
+  // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači
+  'catalog:codes',
+  'files:openAttachment', 'files:showInFolder',
+  'mail:cleanupScan',
+  // Nabídka rozdělané práce se ukazuje jen na počítači
+  'live:offers', 'live:dismiss', 'live:watch',
+  // Zápis do Upgates dělá počítač; telefon má místo toho kanál s vysvětlením
+  'stockin:apiCheck'
+];
+
+/**
+ * Druhá aplikace, tentýž kanál.
+ *
+ * Kontrola vznikla po chybě, která se jinak nedala chytit: slovník zkratek
+ * dopravy se přidal do rozhraní i do hlavního procesu, ale kanály pro
+ * telefon se zapomněly. Na počítači to fungovalo, na telefonu — jediném
+ * místě, kde se zkratky ukazují — zůstalo nastavení prázdné a vypadalo
+ * pokažené. Překlad ani zkoušky takovou díru nevidí.
+ *
+ * Když je kanál na telefonu opravdu zbytečný, patří do seznamu výš. To je
+ * jedna řádka a rozhodnutí, které je pak vidět.
+ */
+function checkIosChannels(used) {
+  const dir = path.join(ROOT, 'ios/QuentinoApp');
+  if (!fs.existsSync(dir)) return;
+
+  const swift = listFiles(dir, '.swift')
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n');
+  const registered = new Set(
+    [...swift.matchAll(/register\(\s*"([a-zA-Z:]+)"/g)].map((m) => m[1])
+  );
+  if (registered.size === 0) {
+    warn('Kanály pro telefon se nepodařilo vyčíst — kontrola přeskočena.');
+    return;
+  }
+
+  const missing = used.filter((channel) =>
+    !registered.has(channel)
+    && !DESKTOP_ONLY.includes(channel)
+    && !DESKTOP_ONLY_PREFIXES.some((prefix) => channel.startsWith(prefix))
+  );
+  if (missing.length) {
+    fail(
+      `Aplikace v telefonu neobsluhuje ${missing.length} kanálů: ${missing.join(', ')}`,
+      'Buď je doplň do ios/QuentinoApp/Bridge/Channels+*.swift, nebo — jsou-li '
+      + 'jen pro počítač — je přidej do DESKTOP_ONLY ve scripts/preflight.mjs.'
+    );
+    return;
+  }
+  warn(`Kanálů pro telefon: ${registered.size}, žádný nechybí.`);
 }
 
 /** Všechny soubory s příponou pod složkou, včetně podsložek. */

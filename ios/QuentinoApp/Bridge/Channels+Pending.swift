@@ -161,6 +161,22 @@ extension Bridge {
             await Orders.card(dbId: try Self.int(args.first), withLive: true, withRendered: true, force: true)
         }
         register("orders:badge") { args in await Orders.badge(dbId: try Self.int(args.first)) }
+
+        /*
+         Slovník zkratek dopravy a plateb.
+
+         Na telefonu to není doplněk: zkrácený odznak v seznamu pošty se
+         ukazuje jen tady, takže bez těchhle kanálů nastavovalo nastavení na
+         počítači něco, co se nikde neprojevilo.
+         */
+        register("shorthand:list") { _ in Shorthand.view() }
+        register("shorthand:save") { args in
+            Shorthand.save(
+                kind: args.first as? String ?? "shipment",
+                name: args.count > 1 ? (args[1] as? String ?? "") : "",
+                short: args.count > 2 ? (args[2] as? String ?? "") : ""
+            )
+        }
         register("orders:shipment") { args in
             let force = args.count > 1 ? (args[1] as? Bool ?? false) : false
             return await Orders.shipment(dbId: try Self.int(args.first), force: force)

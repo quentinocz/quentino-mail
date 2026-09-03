@@ -124,13 +124,37 @@ enum Orders {
             if let value = shipment["stage"] as? String ?? shipment["description"] as? String { stage = value }
         }
 
+        let number = card["orderNumber"] as? String ?? ""
+        let feed = number.isEmpty ? nil : OrderFeed.byCode(number)
+        let shipmentName = (feed?["shipment"] as? String) ?? (card["shipmentName"] as? String)
+        let paymentName = (feed?["payment"] as? String) ?? (card["paymentName"] as? String)
+        /*
+         Prázdná zkratka je „nemám co ukázat", ne prázdný text — rozhraní
+         podle toho pozná, že má nechat číslo a stav. `NSNull` v ternárním
+         výrazu si Swift s textem neporovná, proto se to skládá po krocích.
+         */
+        var shipmentShort: Any = NSNull()
+        let shipmentValue = Shorthand.shortFor("shipment", shipmentName)
+        if !shipmentValue.isEmpty { shipmentShort = shipmentValue }
+        var paymentShort: Any = NSNull()
+        let paymentValue = Shorthand.shortFor("payment", paymentName)
+        if !paymentValue.isEmpty { paymentShort = paymentValue }
+
         return [
             "orderNumber": card["orderNumber"] ?? NSNull(),
             "total": card["total"] ?? NSNull(),
             "status": status ?? NSNull(),
             "tone": tone(status: status, paid: paid, delivered: delivered),
             "carrierName": tracking?["carrierName"] ?? NSNull(),
-            "shipmentStage": stage
+            "shipmentStage": stage,
+            /*
+             Doprava a platba ve zkratce — na telefonu to jediné, co se na
+             odznak vejde. Berou se z feedu, ne z potvrzovacího e-mailu:
+             v mailu je, co si zákazník vybral při objednání, ve feedu to,
+             co u objednávky platí teď.
+             */
+            "shipmentShort": shipmentShort,
+            "paymentShort": paymentShort
         ]
     }
 
