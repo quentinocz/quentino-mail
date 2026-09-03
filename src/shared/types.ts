@@ -744,21 +744,40 @@ export interface DigestFacts {
   currency: string;
   today: DigestTotals;
   yesterday: DigestTotals;
+  /**
+   * Posledních 30 dní — hlavní okno přehledu.
+   *
+   * Kalendářní měsíc je na začátku měsíce k ničemu: druhého září se dvěma
+   * dny srovnávanými proti dvěma dnům srpna vychází cokoli a AI z toho pak
+   * píše nesmysly. Klouzavých třicet dní je stejně dlouhé pořád, takže se
+   * z něj počítá zboží, země, doprava, platby i průměrná objednávka.
+   */
+  window: DigestTotals;
+  /** Třicet dní před tím — s čím se okno srovnává */
+  prevWindow: DigestTotals;
+  /**
+   * Kalendářní měsíc. Zůstává, protože „jak jsme na tom v září" je otázka,
+   * kterou si člověk stejně klade — jen se z něj nedělají závěry.
+   */
   month: DigestTotals;
   /** Stejný počet dní minulého měsíce — jinak by se 3. září srovnávalo s celým srpnem */
   prevMonth: DigestTotals;
   monthLabel: string;
+  /** Kolikátý den měsíce to je — podle toho se pozná, že je měsíc krátký */
+  monthDays: number;
   /** Posledních 30 kalendářních dnů na graf */
   days: DigestDay[];
   countries: DigestSlice[];
   shipments: DigestSlice[];
   payments: DigestSlice[];
-  /** Nejprodávanější zboží tohoto měsíce */
+  /** Nejprodávanější zboží za posledních 30 dní */
   products: DigestProduct[];
-  /** Kolik objednávek měsíce je od zákazníků, kteří u nás už nakoupili */
+  /** Kolik objednávek z posledních 30 dní je od zákazníků, kteří u nás už nakoupili */
   returning: number;
-  /** Průměrná objednávka měsíce v převažující měně */
+  /** Průměrná objednávka za posledních 30 dní v převažující měně */
   average: number;
+  /** Zjištění spočítaná v kódu — podklad pro postřehy i samostatná karta */
+  signals: DigestSignal[];
   /** Kdy naposledy dorazil feed — ať se pozná, že čísla nejsou čerstvá */
   feedAt: string | null;
   /** Kolik objednávek feed vůbec zná (prázdný přehled se má umět vysvětlit) */
@@ -786,10 +805,36 @@ export interface DigestTask {
   reason: string;
 }
 
+/**
+ * Signál — hotové zjištění spočítané **v kódu**, bez AI.
+ *
+ * Srovnávat dvě čísla umí kód líp než model: nespočítá se špatně a nikdy
+ * si nic nepřimyslí. Signály jsou proto to, co se ukazuje jako fakt, a taky
+ * to jediné, o co se smí opřít postřeh od AI.
+ */
+export interface DigestSignal {
+  /** up = roste, down = klesá, watch = k pohlídání, info = jen údaj */
+  kind: 'up' | 'down' | 'watch' | 'info';
+  text: string;
+  /** Čísla, ze kterých to plyne — v rozhraní pod větou, ať jde ověřit */
+  basis: string;
+}
+
+/**
+ * Jeden postřeh.
+ *
+ * `basis` není ozdoba: bez ní se nedá poznat, jestli za radou stojí čísla,
+ * nebo jestli si model jen musel něco vymyslet. Právě proto se vypisuje —
+ * tvrzení, pod kterým není konkrétní číslo, se pozná na první pohled.
+ */
 export interface DigestNote {
   /** trend = co se děje s čísly, napad = návrh, pozor = riziko */
   kind: 'trend' | 'napad' | 'pozor';
   text: string;
+  /** Čísla, ze kterých to plyne */
+  basis: string | null;
+  /** U návrhu: podle čeho se pozná, že zabral */
+  check: string | null;
 }
 
 /**

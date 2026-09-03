@@ -158,10 +158,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   const facts = report?.facts;
   const currency = facts?.currency ?? 'CZK';
 
-  const monthDelta = useMemo(() => {
+  const windowDelta = useMemo(() => {
     if (!facts) return null;
-    const now = facts.month.revenue.find(one => one.currency === facts.currency)?.amount ?? 0;
-    const before = facts.prevMonth.revenue.find(one => one.currency === facts.currency)?.amount ?? 0;
+    const now = facts.window.revenue.find(one => one.currency === facts.currency)?.amount ?? 0;
+    const before = facts.prevWindow.revenue.find(one => one.currency === facts.currency)?.amount ?? 0;
     return delta(now, before);
   }, [facts]);
 
@@ -236,11 +236,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     dnes {delta(facts.today.orders, facts.yesterday.orders).text}
                   </span>
                 </div>
+                {/*
+                  * Hlavní číslo je klouzavých třicet dní, ne kalendářní měsíc:
+                  * prvního v měsíci by se srovnával jeden den s jedním dnem
+                  * a vycházely by z toho nesmysly. Měsíc je pod grafem jako údaj.
+                  */}
                 <div className="dg-tile">
-                  <span className="dg-tile-label">{facts.monthLabel}</span>
-                  <span className="dg-tile-value">{facts.month.orders}</span>
-                  <span className={`dg-tile-sub tone-${monthDelta?.tone ?? 'flat'}`}>
-                    {moneyOf(facts.month, currency)} · {monthDelta?.text} proti minulému
+                  <span className="dg-tile-label">Posledních 30 dní</span>
+                  <span className="dg-tile-value">{facts.window.orders}</span>
+                  <span className={`dg-tile-sub tone-${windowDelta?.tone ?? 'flat'}`}>
+                    {moneyOf(facts.window, currency)} · {windowDelta?.text} proti předchozím 30
                   </span>
                 </div>
                 <div className="dg-tile">
@@ -248,7 +253,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   <span className="dg-tile-value">{money(facts.average, currency)}</span>
                   <span className="dg-tile-sub">
                     {facts.returning}× stálý zákazník
-                    {facts.month.unpaid > 0 && <> · {facts.month.unpaid} nezaplacených</>}
+                    {facts.window.unpaid > 0 && <> · {facts.window.unpaid} nezaplacených</>}
                   </span>
                 </div>
               </div>
@@ -284,6 +289,32 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 )}
               </div>
 
+              {/*
+                * Co spočítal kód. Není to od AI a schválně to stojí zvlášť:
+                * pod každou větou je vidět, z čeho vznikla, takže se to dá
+                * ověřit očima na grafu vedle.
+                */}
+              {facts.signals.length > 0 && (
+                <div className="dg-card">
+                  <div className="dg-card-head">
+                    <Icon name="sliders" size={14} /> Čísla, co stojí za pozornost
+                    <span className="dg-when">spočítáno z feedu</span>
+                  </div>
+                  {facts.signals.map((one, i) => (
+                    <p className={`dg-note sig-${one.kind}`} key={i}>
+                      <Icon
+                        name={one.kind === 'up' ? 'zap' : one.kind === 'down' ? 'chevDown' : one.kind === 'watch' ? 'alert' : 'eye'}
+                        size={13}
+                      />
+                      <span>
+                        {one.text}
+                        <span className="dg-basis">{one.basis}</span>
+                      </span>
+                    </p>
+                  ))}
+                </div>
+              )}
+
               {/* Graf: počet objednávek, nebo tržba — jedno tlačítko, dvě čtení */}
               <div className="dg-card">
                 <div className="dg-card-head">
@@ -294,6 +325,11 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   </span>
                 </div>
                 <DayChart days={facts.days} currency={currency} mode={mode} />
+                {/* Kalendářní měsíc zůstává jako údaj — jen se z něj nedělají závěry */}
+                <div className="dg-caption">
+                  {facts.monthLabel} zatím {facts.month.orders} objednávek za {moneyOf(facts.month, currency)}
+                  {' · '}stejná část minulého měsíce {facts.prevMonth.orders} za {moneyOf(facts.prevMonth, currency)}
+                </div>
               </div>
 
               <div className="dg-grid">
@@ -305,10 +341,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   empty="Ve feedu zatím není platba." />
               </div>
 
-              {/* Nejprodávanější zboží měsíce */}
+              {/* Nejprodávanější zboží za posledních 30 dní */}
               <div className="dg-card">
-                <div className="dg-card-head"><Icon name="bag" size={14} /> Nejprodávanější — {facts.monthLabel}</div>
-                {facts.products.length === 0 && <div className="dg-empty">Tento měsíc zatím nic neprošlo.</div>}
+                <div className="dg-card-head"><Icon name="bag" size={14} /> Nejprodávanější — 30 dní</div>
+                {facts.products.length === 0 && <div className="dg-empty">Za posledních 30 dní zatím nic neprošlo.</div>}
                 {facts.products.map(one => {
                   const top = Math.max(1, ...facts.products.map(p => p.qty));
                   return (
@@ -318,7 +354,14 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                         <span className="dg-bar-fill" style={{ width: `${(one.qty / top) * 100}%` }} />
                       </span>
                       <span className="dg-bar-num">{one.qty} ks</span>
-                      <span className="dg-bar-money">{money(one.revenue, currency)}</span>
+                      {/*
+                        * Nula není tržba, ale „nevíme": zboží prodané v jiné měně
+                        * se do korunového sloupce nepočítá a u dárků cena chybí.
+                        * Vypsaná „0 Kč" vypadala jako chyba ve feedu.
+                        */}
+                      <span className="dg-bar-money" title={one.revenue ? '' : `Tržba jen z objednávek v ${currency}`}>
+                        {one.revenue ? money(one.revenue, currency) : '—'}
+                      </span>
                     </div>
                   );
                 })}
@@ -345,10 +388,19 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     {report.insight.followUp && (
                       <p className="dg-follow"><Icon name="clock" size={13} /> {report.insight.followUp}</p>
                     )}
+                    {/*
+                      * Pod každým bodem je vidět, o co se opírá. Není to
+                      * ozdoba: tvrzení bez čísla se tím pozná na první pohled
+                      * a nedá se schovat za sebejistou větu.
+                      */}
                     {report.insight.notes.map((note, i) => (
                       <p className={`dg-note ${note.kind}`} key={i}>
                         <Icon name={note.kind === 'pozor' ? 'alert' : note.kind === 'napad' ? 'sparkles' : 'zap'} size={13} />
-                        {note.text}
+                        <span>
+                          {note.text}
+                          {note.basis && <span className="dg-basis">opřeno o: {note.basis}</span>}
+                          {note.check && <span className="dg-basis">zabralo, když: {note.check}</span>}
+                        </span>
                       </p>
                     ))}
                     {report.insight.focus && (

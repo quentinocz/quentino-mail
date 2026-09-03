@@ -19,6 +19,8 @@ import Foundation
 enum Digest {
     private static let insightKey = "digestInsightAt"
     private static let everySeconds: TimeInterval = 24 * 3600
+    /// Délka hlavního okna ve dnech
+    private static let window = 30
 
     // MARK: - Pomůcky
 
@@ -136,6 +138,205 @@ enum Digest {
         }
     }
 
+    // MARK: - Signály: závěry, které spočítá kód
+
+    private static let dayNames = ["neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"]
+
+    /// O kolik procent se to změnilo; bez základu se nepočítá nic
+    private static func pct(_ now: Int, _ before: Int) -> Int? {
+        guard before != 0 else { return nil }
+        return Int((Double(now - before) / Double(before) * 100).rounded())
+    }
+
+    private static func signal(_ kind: String, _ text: String, _ basis: String) -> [String: Any] {
+        var one: [String: Any] = [:]
+        one["kind"] = kind
+        one["text"] = text
+        one["basis"] = basis
+        return one
+    }
+
+    /**
+     Co se v číslech změnilo.
+
+     Schválně **kód, ne model**: srovnat dvě čísla umí kód přesně a zadarmo,
+     kdežto model se v tom umí splést a hlavně si dokáže vymyslet trend,
+     který v datech není. Prahy jsou tu proto, aby se z šumu nedělaly zprávy.
+     */
+    private static func signals(
+        currency: String, days: [[String: Any]], window now: Totals, prevWindow before: Totals,
+        returning: Int, windowRows: [[String: Any]], prevRows: [[String: Any]],
+        payments: [[String: Any]], shipments: [[String: Any]], countries: [[String: Any]],
+        products: [[String: Any]], prevQuantity: [String: Int]
+    ) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        // Kód měny je v tabulce v pořádku, ve větě ne — „19 400 CZK" nikdo neříká
+        func money(_ value: Int) -> String { "\(value) \(currency == "CZK" ? "Kč" : currency)" }
+
+        // 1) Objednávky, tržba a průměrná objednávka proti předchozím 30 dnům
+        if before.orders >= 5 {
+            if let change = pct(now.orders, before.orders), abs(change) >= 10 {
+                out.append(signal(change > 0 ? "up" : "down",
+                                  "Objednávek je o \(abs(change)) % \(change > 0 ? "víc" : "míň") "
+                                  + "než v předchozích 30 dnech.",
+                                  "\(now.orders) proti \(before.orders)"))
+            }
+            let nowMoney = now.amount(currency)
+            let beforeMoney = before.amount(currency)
+            if let change = pct(nowMoney, beforeMoney), abs(change) >= 10 {
+                out.append(signal(change > 0 ? "up" : "down",
+                                  "Tržba je o \(abs(change)) % \(change > 0 ? "vyšší" : "nižší") "
+                                  + "než v předchozích 30 dnech.",
+                                  "\(money(nowMoney)) proti \(money(beforeMoney))"))
+            }
+            let nowPaid = now.orders - now.cancelled
+            let beforePaid = before.orders - before.cancelled
+            if nowPaid > 0, beforePaid > 0 {
+                let nowAvg = Int((Double(nowMoney) / Double(nowPaid)).rounded())
+                let beforeAvg = Int((Double(beforeMoney) / Double(beforePaid)).rounded())
+                if let change = pct(nowAvg, beforeAvg), abs(change) >= 10 {
+                    out.append(signal(change > 0 ? "up" : "down",
+                                      "Průměrná objednávka \(change > 0 ? "vzrostla" : "klesla") "
+                                      + "o \(abs(change)) %.",
+                                      "\(money(nowAvg)) proti \(money(beforeAvg))"))
+                }
+            }
+        }
+
+        // 2) Nejsilnější a nejslabší den v týdnu
+        if now.orders >= 15 {
+            var perWeekday: [Int: (orders: Int, days: Int)] = [:]
+            for entry in days {
+                guard let key = entry["day"] as? String, let date = dateOfDay(key) else { continue }
+                let weekday = Calendar.current.component(.weekday, from: date) - 1
+                var found = perWeekday[weekday] ?? (0, 0)
+                found.orders += entry["orders"] as? Int ?? 0
+                found.days += 1
+                perWeekday[weekday] = found
+            }
+            let averages = perWeekday.map { (weekday: $0.key, avg: Double($0.value.orders) / Double(max(1, $0.value.days))) }
+                .sorted { $0.avg > $1.avg }
+            if let best = averages.first, let worst = averages.last,
+               best.avg >= worst.avg * 1.5, best.avg >= 1 {
+                out.append(signal("info",
+                                  "Nejvíc se objednává v \(dayNames[best.weekday]), nejmíň v \(dayNames[worst.weekday]).",
+                                  String(format: "průměrně %.1f proti %.1f objednávky na den", best.avg, worst.avg)))
+            }
+        }
+
+        // 3) Posun v platbách a dopravě — podíl, ne počet: při růstu roste všechno
+        func shareShift(_ title: String, _ list: [[String: Any]], _ pick: ([String: Any]) -> String) {
+            guard now.orders >= 10, before.orders >= 10 else { return }
+            var beforeCount: [String: Int] = [:]
+            for row in prevRows {
+                let key = pick(row)
+                if !key.isEmpty { beforeCount[key] = (beforeCount[key] ?? 0) + 1 }
+            }
+            var bigKey = ""
+            var bigFrom = 0.0
+            var bigTo = 0.0
+            var bigDiff = 0.0
+            for one in list {
+                let key = one["key"] as? String ?? ""
+                let orders = one["orders"] as? Int ?? 0
+                let fromShare = Double(beforeCount[key] ?? 0) / Double(before.orders) * 100
+                let toShare = Double(orders) / Double(now.orders) * 100
+                let diff = toShare - fromShare
+                if abs(diff) > abs(bigDiff) {
+                    bigKey = key; bigFrom = fromShare; bigTo = toShare; bigDiff = diff
+                }
+            }
+            guard abs(bigDiff) >= 8, !bigKey.isEmpty else { return }
+            out.append(signal("watch",
+                              "\(title): \(bigKey) \(bigDiff > 0 ? "roste" : "ustupuje") — "
+                              + "\(Int(bigTo.rounded())) % objednávek místo \(Int(bigFrom.rounded())) %.",
+                              "\(Int(bigTo.rounded())) % z \(now.orders) proti \(Int(bigFrom.rounded())) % z \(before.orders)"))
+        }
+        shareShift("Platba", payments) { Shorthand.shortFor("payment", $0["payment"] as? String) }
+        shareShift("Doprava", shipments) { Shorthand.shortFor("shipment", $0["shipment"] as? String) }
+
+        // 4) Zboží, které vyskočilo nebo spadlo
+        for product in products.prefix(5) {
+            let code = product["code"] as? String ?? ""
+            let title = product["title"] as? String ?? code
+            let qty = product["qty"] as? Int ?? 0
+            let was = prevQuantity[code] ?? 0
+            if qty < 3 { continue }
+            if was == 0, qty >= 5 {
+                out.append(signal("up", "\(title) se předtím neprodával, teď je mezi nejprodávanějšími.",
+                                  "\(qty) ks za 30 dní, předtím 0"))
+            } else if let change = pct(qty, was), abs(change) >= 50 {
+                out.append(signal(change > 0 ? "up" : "down",
+                                  "\(title): prodej \(change > 0 ? "vzrostl" : "klesl") o \(abs(change)) %.",
+                                  "\(qty) ks proti \(was) ks"))
+            }
+        }
+
+        // 5) Nezaplacené, které leží — peníze, o kterých se neví
+        let limit = Formats.iso(Date().addingTimeInterval(-3 * 86_400))
+        let stale = windowRows.filter { row in
+            (row["paid"] as? Int ?? 0) == 0
+                && !isCancelled(row["status"] as? String ?? "")
+                && (row["created_at"] as? String ?? "") < limit
+        }
+        if stale.count >= 3 {
+            var sum = 0.0
+            for row in stale where (row["currency"] as? String ?? "CZK").uppercased() == currency {
+                sum += row["total"] as? Double ?? Double(row["total"] as? Int ?? 0)
+            }
+            out.append(signal("watch", "\(stale.count) objednávek čeká na zaplacení déle než tři dny.",
+                              "dohromady \(money(Int(sum.rounded())))"))
+        }
+
+        // 6) Storna
+        if now.orders >= 10, now.cancelled > 0 {
+            let rate = Int((Double(now.cancelled) / Double(now.orders) * 100).rounded())
+            let beforeRate = before.orders >= 10
+                ? Int((Double(before.cancelled) / Double(before.orders) * 100).rounded()) : nil
+            if rate >= 8 || (beforeRate != nil && rate - beforeRate! >= 5) {
+                let tail = beforeRate != nil ? " (předtím \(beforeRate!) %)" : ""
+                out.append(signal("watch", "Storna jsou na \(rate) % objednávek\(tail).",
+                                  "\(now.cancelled) z \(now.orders)"))
+            }
+        }
+
+        // 7) Opakovaný nákup — u galanterie to dělá rozdíl mezi kampaní a obchodem
+        if now.orders >= 10 {
+            let share = Int((Double(returning) / Double(now.orders) * 100).rounded())
+            out.append(signal(share >= 25 ? "up" : "watch",
+                              "Opakovaně nakupuje \(share) % objednávek.",
+                              "\(returning) z \(now.orders) za 30 dní"))
+        }
+
+        // 8) Zahraničí
+        if let home = countries.first, now.orders >= 10 {
+            let homeKey = home["key"] as? String ?? ""
+            let abroad = now.orders - (home["orders"] as? Int ?? 0)
+            if abroad > 0 {
+                let rest = countries.dropFirst().prefix(3).map { one in
+                    "\(one["key"] as? String ?? "") \(one["orders"] as? Int ?? 0)"
+                }.joined(separator: ", ")
+                out.append(signal("info",
+                                  "Mimo \(homeKey) jde \(Int((Double(abroad) / Double(now.orders) * 100).rounded())) % objednávek.",
+                                  rest))
+            }
+        }
+
+        return out
+    }
+
+    /// `YYYY-MM-DD` na datum — na poledne, ať časové pásmo nepřehodí den
+    private static func dateOfDay(_ key: String) -> Date? {
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var components = DateComponents()
+        components.year = parts[0]
+        components.month = parts[1]
+        components.day = parts[2]
+        components.hour = 12
+        return Calendar.current.date(from: components)
+    }
+
     // MARK: - Čísla
 
     /// Všechno, co jde spočítat bez AI. Jen dotazy do databáze, žádná síť.
@@ -149,13 +350,22 @@ enum Digest {
         let prevMonthEnd = shiftDays(
             calendar.date(byAdding: .day, value: dayOfMonth - 1, to: prevMonthStart) ?? prevMonthStart, 1)
 
+        /*
+         Hlavní okno jsou **klouzavé dny**, ne kalendářní měsíc. Prvního září
+         má měsíc jeden den a srovnává se s jedním dnem srpna — z toho vyjde
+         cokoli. Třicet dní je stejně dlouhých pořád.
+         */
+        let windowStart = shiftDays(now, -(window - 1))
+        let prevWindowStart = shiftDays(now, -(2 * window - 1))
+        let from = min(dayKey(prevWindowStart), dayKey(prevMonthStart))
+
         let rows = (try? SQLite.shared.query(
             """
             SELECT code, market, status, paid, created_at, currency, total, email,
                    shipment, payment, items_json, billing_json, postal_json
               FROM shop_orders WHERE created_at >= ? ORDER BY created_at DESC LIMIT 5000
             """,
-            [.text(dayKey(prevMonthStart))]
+            [.text(from)]
         )) ?? []
 
         let todayKey = dayKey(now)
@@ -163,20 +373,25 @@ enum Digest {
         let monthKey = dayKey(monthStart)
         let prevStartKey = dayKey(prevMonthStart)
         let prevEndKey = dayKey(prevMonthEnd)
+        let windowKey = dayKey(windowStart)
+        let prevWindowKey = dayKey(prevWindowStart)
 
-        let monthRows = rows.filter { day(of: $0) >= monthKey }
+        let windowRows = rows.filter { day(of: $0) >= windowKey }
+        let prevRows = rows.filter { day(of: $0) >= prevWindowKey && day(of: $0) < windowKey }
         let today = totals(rows.filter { day(of: $0) == todayKey })
         let yesterday = totals(rows.filter { day(of: $0) == yesterdayKey })
-        let month = totals(monthRows)
+        let windowTotals = totals(windowRows)
+        let prevWindow = totals(prevRows)
+        let month = totals(rows.filter { day(of: $0) >= monthKey })
         let prevMonth = totals(rows.filter { day(of: $0) >= prevStartKey && day(of: $0) < prevEndKey })
 
         // Sčítat koruny s eury nejde, ale dlaždice i graf potřebují jedno
         // číslo — bere se měna, ve které je nejvíc peněz
-        let currency = month.mainCurrency ?? today.mainCurrency ?? "CZK"
+        let currency = windowTotals.mainCurrency ?? today.mainCurrency ?? "CZK"
 
-        // Posledních 30 dní i s prázdnými — díra po víkendu je informace
+        // Celé okno i s prázdnými dny — díra po víkendu je informace
         var days: [[String: Any]] = []
-        for back in stride(from: 29, through: 0, by: -1) {
+        for back in stride(from: window - 1, through: 0, by: -1) {
             let key = dayKey(shiftDays(now, -back))
             let one = totals(rows.filter { day(of: $0) == key })
             var entry: [String: Any] = [:]
@@ -186,27 +401,47 @@ enum Digest {
             days.append(entry)
         }
 
-        // Nejprodávanější zboží měsíce. Skládá se po kódech — týž produkt
-        // chodí ve feedu s názvem v jazyce trhu
+        /*
+         Nejprodávanější zboží. Skládá se po kódech — týž produkt chodí ve
+         feedu s názvem v jazyce trhu. Do tržby jdou jen objednávky
+         v převažující měně (osm eur připsaných ke korunám dělalo z pásku
+         zboží za 32 Kč) a bere se cena za **řádek**, ne za kus.
+         */
         var titles: [String: String] = [:]
         var quantity: [String: Int] = [:]
         var inOrders: [String: Int] = [:]
         var earned: [String: Double] = [:]
-        for row in monthRows where !isCancelled(row["status"] as? String ?? "") {
+        for row in windowRows where !isCancelled(row["status"] as? String ?? "") {
+            let sameCurrency = (row["currency"] as? String ?? "CZK").uppercased() == currency
             var counted = Set<String>()
             for item in items(row) {
                 let code = ((item["code"] as? String) ?? (item["title"] as? String) ?? "")
                     .trimmingCharacters(in: .whitespaces)
                 if code.isEmpty { continue }
                 let qty = item["quantity"] as? Int ?? Int(item["quantity"] as? Double ?? 0)
-                let price = item["price"] as? Double ?? Double(item["price"] as? Int ?? 0)
+                let unit = item["price"] as? Double ?? Double(item["price"] as? Int ?? 0)
+                let line = item["total"] as? Double ?? Double(item["total"] as? Int ?? 0)
                 titles[code] = titles[code] ?? (item["title"] as? String ?? code)
                 quantity[code] = (quantity[code] ?? 0) + qty
-                earned[code] = (earned[code] ?? 0) + price * Double(qty)
+                if sameCurrency {
+                    earned[code] = (earned[code] ?? 0) + (line > 0 ? line : unit * Double(qty))
+                }
                 if !counted.contains(code) {
                     inOrders[code] = (inOrders[code] ?? 0) + 1
                     counted.insert(code)
                 }
+            }
+        }
+
+        // Totéž za předchozích třicet dní — jen na srovnání, na obrazovku nejde
+        var prevQuantity: [String: Int] = [:]
+        for row in prevRows where !isCancelled(row["status"] as? String ?? "") {
+            for item in items(row) {
+                let code = ((item["code"] as? String) ?? (item["title"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                if code.isEmpty { continue }
+                let qty = item["quantity"] as? Int ?? Int(item["quantity"] as? Double ?? 0)
+                prevQuantity[code] = (prevQuantity[code] ?? 0) + qty
             }
         }
         let products: [[String: Any]] = quantity.sorted { $0.value > $1.value }.prefix(8).map { pair in
@@ -228,7 +463,7 @@ enum Digest {
                AND EXISTS (SELECT 1 FROM shop_orders p
                             WHERE p.email = o.email AND p.created_at < o.created_at)
             """,
-            [.text(monthKey)]
+            [.text(windowKey)]
         ))?.first?["n"] as? Int) ?? 0
 
         let feedRow = (try? SQLite.shared.query(
@@ -242,25 +477,39 @@ enum Digest {
         let monthIndex = max(1, min(12, calendar.component(.month, from: now))) - 1
         let monthLabel = "\(months[monthIndex]) \(calendar.component(.year, from: now))"
 
-        let paidOrders = month.orders - month.cancelled
-        let average = paidOrders > 0 ? Int((Double(month.amount(currency)) / Double(paidOrders)).rounded()) : 0
+        let paidOrders = windowTotals.orders - windowTotals.cancelled
+        let average = paidOrders > 0
+            ? Int((Double(windowTotals.amount(currency)) / Double(paidOrders)).rounded()) : 0
+
+        let countries = slices(windowRows, by: country)
+        // Dopravci a platby ve zkratkách ze slovníku — pobočky by daly stovku
+        // řádků, jednu na výdejnu
+        let shipments = slices(windowRows) { Shorthand.shortFor("shipment", $0["shipment"] as? String) }
+        let payments = slices(windowRows) { Shorthand.shortFor("payment", $0["payment"] as? String) }
 
         var out: [String: Any] = [:]
         out["currency"] = currency
         out["today"] = today.json
         out["yesterday"] = yesterday.json
+        out["window"] = windowTotals.json
+        out["prevWindow"] = prevWindow.json
         out["month"] = month.json
         out["prevMonth"] = prevMonth.json
         out["monthLabel"] = monthLabel
+        out["monthDays"] = dayOfMonth
         out["days"] = days
-        out["countries"] = slices(monthRows, by: country)
-        // Dopravci a platby ve zkratkách ze slovníku — pobočky by daly stovku
-        // řádků, jednu na výdejnu
-        out["shipments"] = slices(monthRows) { Shorthand.shortFor("shipment", $0["shipment"] as? String) }
-        out["payments"] = slices(monthRows) { Shorthand.shortFor("payment", $0["payment"] as? String) }
+        out["countries"] = countries
+        out["shipments"] = shipments
+        out["payments"] = payments
         out["products"] = products
         out["returning"] = returning
         out["average"] = average
+        out["signals"] = signals(
+            currency: currency, days: days, window: windowTotals, prevWindow: prevWindow,
+            returning: returning, windowRows: windowRows, prevRows: prevRows,
+            payments: payments, shipments: shipments, countries: countries,
+            products: products, prevQuantity: prevQuantity
+        )
         out["feedAt"] = feedAt
         out["known"] = known
         return out
@@ -424,29 +673,56 @@ enum Digest {
             return "\(title) (\(code)) \(qty) ks za \(revenue) \(currency)"
         }.joined(separator: "; ")
 
+        let monthDays = facts["monthDays"] as? Int ?? 0
+
         var lines: [String] = []
+        lines.append("Posledních 30 dní: \(count("window", "orders")) objednávek za \(money("window"))"
+                     + ", průměr \(facts["average"] as? Int ?? 0) \(currency)"
+                     + ", storno \(count("window", "cancelled"))"
+                     + ", nezaplacených \(count("window", "unpaid"))"
+                     + ", opakovaný nákup \(facts["returning"] as? Int ?? 0)")
+        lines.append("Předchozích 30 dní: \(count("prevWindow", "orders")) objednávek za \(money("prevWindow"))"
+                     + ", storno \(count("prevWindow", "cancelled"))")
         lines.append("Dnes: \(count("today", "orders")) objednávek za \(money("today"))"
-                     + ", storno \(count("today", "cancelled"))"
-                     + ", nezaplacených \(count("today", "unpaid"))")
+                     + ", storno \(count("today", "cancelled"))")
         lines.append("Včera: \(count("yesterday", "orders")) objednávek za \(money("yesterday"))")
-        lines.append("\(facts["monthLabel"] as? String ?? "Tento měsíc"): "
-                     + "\(count("month", "orders")) objednávek za \(money("month")), "
-                     + "průměr \(facts["average"] as? Int ?? 0) \(currency), "
-                     + "vracejících se zákazníků \(facts["returning"] as? Int ?? 0)")
-        lines.append("Stejná část minulého měsíce: \(count("prevMonth", "orders")) objednávek za \(money("prevMonth"))")
-        lines.append("Denní řada (posledních 30 dní, počet objednávek): \(days)")
-        lines.append("Země: \(slice("countries"))")
-        lines.append("Doprava: \(slice("shipments"))")
-        lines.append("Platba: \(slice("payments"))")
-        lines.append("Nejprodávanější tento měsíc: \(products.isEmpty ? "—" : products)")
+        /*
+         Kalendářní měsíc je tu jen jako údaj a rovnou se říká, kolik dní má.
+         Bez toho model druhého v měsíci srovnával dva dny s dvěma dny
+         a stavěl na tom závěry.
+         */
+        lines.append("\(facts["monthLabel"] as? String ?? "Tento měsíc") (zatím \(monthDays) dní): "
+                     + "\(count("month", "orders")) objednávek za \(money("month")) — stejná část "
+                     + "minulého měsíce \(count("prevMonth", "orders")) za \(money("prevMonth")). "
+                     + "Krátký měsíc není trend, závěry stav na 30denním okně.")
+        lines.append("Denní řada (30 dní, počet objednávek): \(days)")
+        lines.append("Země (30 dní): \(slice("countries"))")
+        lines.append("Doprava (30 dní): \(slice("shipments"))")
+        lines.append("Platba (30 dní): \(slice("payments"))")
+        lines.append("Nejprodávanější (30 dní): \(products.isEmpty ? "—" : products)")
         return lines.joined(separator: "\n")
+    }
+
+    /**
+     Spočítané signály do zadání.
+
+     To hlavní, o co se má postřeh opírat: hotové srovnání, které spočítal
+     kód. Model tedy neodvozuje trend z řady čísel a zbývá mu práce, ve které
+     je dobrý — co z toho je důležité a co s tím dělat.
+     */
+    private static func signalsForAi(_ facts: [String: Any]) -> String {
+        let list = facts["signals"] as? [[String: Any]] ?? []
+        if list.isEmpty { return "(žádný, čísla se proti minulému období výrazně nezměnila)" }
+        return list.map { one in
+            "- \(one["text"] as? String ?? "") [\(one["basis"] as? String ?? "")]"
+        }.joined(separator: "\n")
     }
 
     /// Co bylo minule — aby AI navazovala a neopakovala se
     private static func memoryForAi(_ history: [(at: String, facts: [String: Any], insight: [String: Any])]) -> String {
         history.map { one -> String in
             let when = String(one.at.prefix(10))
-            let orders = (one.facts["month"] as? [String: Any])?["orders"] as? Int
+            let orders = ((one.facts["window"] as? [String: Any]) ?? (one.facts["month"] as? [String: Any]))?["orders"] as? Int
             let notes = (one.insight["notes"] as? [[String: Any]] ?? []).map { note in
                 "- \(note["text"] as? String ?? "")"
             }.joined(separator: "\n")
@@ -456,31 +732,94 @@ enum Digest {
             if let text = one.insight["focus"] as? String, !text.isEmpty {
                 focus = "\nChtěl jsi příště ověřit: \(text)"
             }
-            let head = orders != nil ? "[\(when), měsíc měl tehdy \(orders!) objednávek]" : "[\(when)]"
+            let head = orders != nil ? "[\(when), za 30 dní tehdy \(orders!) objednávek]" : "[\(when)]"
             return "\(head)\n\(one.insight["headline"] as? String ?? "")\n\(notes)\(focus)"
         }.joined(separator: "\n\n")
     }
 
     private static let insightSystem = """
-    Jsi obchodní analytik e-shopu Quentino (pásky, peněženky a kožená galanterie; trhy CZ, SK a EU).
-    Dostaneš čísla z feedu objednávek a svoje dřívější postřehy. Napiš krátký, konkrétní rozbor pro majitele.
+    Jsi obchodní analytik e-shopu Quentino (pásky, kšandy, kravaty a kožená galanterie; trhy CZ, SK a EU).
+    Dostaneš spočítané signály, čísla z feedu objednávek a svoje dřívější postřehy. Tvůj úkol NENÍ počítat — \
+    to je hotové. Tvůj úkol je vybrat, co z toho stojí za pozornost, říct proč a co s tím.
 
-    Pravidla:
-    - Piš česky, věcně, bez marketingových frází a bez oslovení.
-    - Vycházej JEN z předložených čísel. Nic si nedomýšlej; když na něco data nestačí, napiš to.
-    - Čísla v textu musí sedět na zadání.
-    - Hledej trendy (růst/pokles, změny v dopravě, platbách, zemích, zboží), rizika (nezaplacené, storna, propad) \
-    a konkrétní návrhy (cena, sada, zásoba, doprava) — návrh musí být proveditelný tenhle týden.
+    Jak přemýšlej:
+    1. Projdi signály a čísla a najdi ty, které mají skutečný dopad na tržbu, marži nebo práci navíc.
+    2. U každého se zeptej: opírá se to o dost velký vzorek? Nemá to jiné vysvětlení (víkend, svátek, \
+    jednorázová velká objednávka)? Když ano, napiš to místo závěru.
+    3. Teprve co projde, napiš jako bod.
+
+    Tvrdá pravidla:
+    - Ke každému bodu MUSÍŠ do "basis" napsat konkrétní čísla ze zadání, o která se opírá. Když je nemáš, \
+    ten bod nepiš.
+    - Nevymýšlej si čísla ani skutečnosti, které v zadání nejsou (náklady, marže, ceny dopravy, kampaně, \
+    konkurence). Když by závěr takový údaj potřeboval, napiš, co by bylo potřeba zjistit.
+    - Návrh (kind "napad") musí mít cíl a být proveditelný tenhle týden; do "check" napiš, podle čeho se \
+    za týden pozná, jestli zabral.
+    - Nikdy nepiš obecné rady typu „zaměřte se na marketing" nebo „zlepšete komunikaci se zákazníky".
+    - Radši dva podložené body než pět dojmů. Když data na nic nestačí (málo objednávek, krátké období), \
+    napiš jeden bod, že zatím není z čeho soudit.
     - Když už jsi něco navrhoval dřív, navaž: co se potvrdilo, co ne.
-    - Nejvýš pět bodů, každý jedna věta.
+    - Česky, věcně, bez oslovení a bez marketingových frází. Každý bod jedna věta, nejvýš čtyři body. \
+    Celá odpověď do 1200 znaků.
 
-    Vrať POUZE JSON, nic dalšího:
+    Vrať POUZE JSON, nic dalšího, a hlídej, ať se celý vejde:
     {"headline":"jedna až dvě věty souhrnu",
      "followUp":"navázání na minulý přehled nebo null",
-     "notes":[{"kind":"trend|napad|pozor","text":"…"}],
+     "notes":[{"kind":"trend|napad|pozor","text":"…","basis":"čísla, ze kterých to plyne",\
+    "check":"u návrhu jak se pozná, že zabral, jinak null"}],
      "focus":"co si sám chceš ověřit v příštím přehledu, nebo null",
      "questions":["dvě až tři otázky, na které se podle tebe vyplatí doptat"]}
     """
+
+    /**
+     Záchrana z nedopsané odpovědi.
+
+     Model občas narazí na strop tokenů a JSON zůstane rozseknutý uprostřed
+     věty. Rozbor na tom skončí a v okně se pak objevil **celý surový JSON
+     i se závorkami**. Vytahat z něj hotové kusy jde i tak.
+     */
+    private static func salvage(_ raw: String) -> [String: Any] {
+        func first(_ pattern: String) -> String? {
+            guard let found = raw.range(of: pattern, options: .regularExpression) else { return nil }
+            let text = String(raw[found])
+            guard let colon = text.firstIndex(of: ":") else { return nil }
+            let value = text[text.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            let clean = value.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            return clean.isEmpty ? nil : unescape(clean)
+        }
+
+        var out: [String: Any] = [:]
+        if let headline = first("\"headline\"\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\"") { out["headline"] = headline }
+        if let follow = first("\"followUp\"\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\"") { out["followUp"] = follow }
+        if let focus = first("\"focus\"\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\"") { out["focus"] = focus }
+
+        var notes: [[String: Any]] = []
+        let pattern = "\"kind\"\\s*:\\s*\"(trend|napad|pozor)\"\\s*,\\s*\"text\"\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\""
+        var search = raw.startIndex..<raw.endIndex
+        while let found = raw.range(of: pattern, options: .regularExpression, range: search) {
+            let chunk = String(raw[found])
+            search = found.upperBound..<raw.endIndex
+            let parts = chunk.components(separatedBy: "\"text\"")
+            guard parts.count > 1 else { continue }
+            let kind = chunk.contains("\"napad\"") ? "napad" : chunk.contains("\"pozor\"") ? "pozor" : "trend"
+            let tail = parts[1].drop(while: { $0 != "\"" }).dropFirst()
+            let text = unescape(String(tail.prefix(while: { $0 != "\"" })))
+            if text.isEmpty { continue }
+            var entry: [String: Any] = [:]
+            entry["kind"] = kind
+            entry["text"] = text
+            notes.append(entry)
+            if notes.count >= 6 { break }
+        }
+        out["notes"] = notes
+        return out
+    }
+
+    private static func unescape(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\n", with: " ")
+            .replacingOccurrences(of: "\\\"", with: "\"")
+            .trimmingCharacters(in: .whitespaces)
+    }
 
     /// Odpověď modelu na strukturu; když se JSON nepovede, zachrání se text
     private static func parseInsight(_ raw: String, model: String) -> [String: Any] {
@@ -503,6 +842,10 @@ enum Digest {
                 var entry: [String: Any] = [:]
                 entry["kind"] = ["trend", "napad", "pozor"].contains(kind) ? kind : "trend"
                 entry["text"] = text
+                entry["basis"] = NSNull()
+                if let basis = note["basis"] as? String, !basis.isEmpty { entry["basis"] = basis }
+                entry["check"] = NSNull()
+                if let check = note["check"] as? String, !check.isEmpty { entry["check"] = check }
                 notes.append(entry)
                 if notes.count >= 6 { break }
             }
@@ -516,35 +859,74 @@ enum Digest {
             return out
         }
 
-        // Model se občas rozpovídá mimo JSON; věta navíc je pořád lepší než nic
-        let lines = raw.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        // Nedopsaný JSON — vytahá se z něj, co je hotové
+        if raw.contains("\"headline\"") || raw.contains("\"notes\"") {
+            let saved = salvage(raw)
+            for (key, value) in saved { out[key] = value }
+            if out["notes"] == nil { out["notes"] = [[String: Any]]() }
+            if out["headline"] == nil { out["headline"] = "" }
+            return out
+        }
+
+        /*
+         Model se úplně minul formátem a napsal prostý text. Řádky se vezmou
+         tak, jak jsou — ale nikdy se do okna nepustí něco, co začíná složenou
+         závorkou: surový JSON na obrazovce je horší než prázdno.
+         */
+        let lines = raw.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("{") && !$0.hasPrefix("}") }
         out["headline"] = lines.first ?? ""
         var notes: [[String: Any]] = []
-        for line in lines.dropFirst().prefix(5) {
+        for line in lines.dropFirst().prefix(4) {
             var entry: [String: Any] = [:]
             entry["kind"] = "trend"
             entry["text"] = line.replacingOccurrences(of: "^[-•*]\\s*", with: "", options: .regularExpression)
+            entry["basis"] = NSNull()
+            entry["check"] = NSNull()
             notes.append(entry)
         }
         out["notes"] = notes
         return out
     }
 
+    /// Dopadl postřeh k něčemu, nebo se odpověď nevešla?
+    private static func usable(_ one: [String: Any]) -> Bool {
+        let headline = one["headline"] as? String ?? ""
+        let notes = one["notes"] as? [[String: Any]] ?? []
+        return !headline.isEmpty && !headline.hasPrefix("{") && !notes.isEmpty
+    }
+
     private static func makeInsight(_ facts: [String: Any]) async throws -> [String: Any] {
         let history = stored()
         let memory = memoryForAi(history)
-        let answer = try await AI.ask(
-            model: AI.draftModel,
-            system: insightSystem,
-            user: "# Čísla\n\(factsForAi(facts))\n\n"
-                + (memory.isEmpty ? "" : "# Co jsi psal dřív (nejnovější nahoře)\n\(memory)\n"),
-            maxTokens: 1200
-        )
-        let insight = parseInsight(answer, model: AI.draftModel)
+        let user = "# Spočítané signály (z nich vycházej)\n\(signalsForAi(facts))\n\n"
+            + "# Čísla\n\(factsForAi(facts))\n\n"
+            + (memory.isEmpty ? "" : "# Co jsi psal dřív (nejnovější nahoře)\n\(memory)\n")
+
+        /*
+         Strop je schválně vysoký a přesto se hlídá. Když se odpověď nevejde,
+         zůstane JSON rozseknutý uprostřed věty — a takový postřeh se nesmí
+         uložit jako postřeh dne, jinak by se celý den ukazoval zmetek.
+         */
+        var answer = try await AI.ask(
+            model: AI.draftModel, system: insightSystem, user: user, maxTokens: 2400)
+        var insight = parseInsight(answer, model: AI.draftModel)
+        if !usable(insight) {
+            answer = try await AI.ask(
+                model: AI.draftModel,
+                system: insightSystem + "\n\nMinulý pokus se nevešel do limitu. Piš výrazně stručněji: "
+                    + "nejvýš dva body, každý do 140 znaků, \"basis\" do 60 znaků.",
+                user: user,
+                maxTokens: 2400
+            )
+            let second = parseInsight(answer, model: AI.draftModel)
+            if usable(second) { insight = second }
+        }
 
         ensureTable()
         var snapshot: [String: Any] = [:]
-        for key in ["today", "month", "prevMonth", "currency", "average", "returning"] {
+        for key in ["today", "window", "prevWindow", "month", "currency", "average", "returning"] {
             snapshot[key] = facts[key]
         }
         snapshot["products"] = Array((facts["products"] as? [[String: Any]] ?? []).prefix(5))
