@@ -1196,6 +1196,12 @@ input:focus, textarea:focus, select:focus {
 .dg-note > svg { flex-shrink: 0; margin-top: 3px; color: var(--accent-dark); }
 .dg-note.pozor > svg { color: var(--danger); }
 .dg-note.napad > svg { color: var(--ok); }
+.dg-note.sig-down > svg, .dg-note.sig-watch > svg { color: var(--danger); }
+.dg-note.sig-up > svg { color: var(--ok); }
+.dg-note.sig-info > svg { color: var(--text-3); }
+/* Podklad pod tvrzením — malý, ale vždycky vidět, ať jde ověřit */
+.dg-basis { display: block; font-size: 11.5px; color: var(--text-3); padding-top: 1px; }
+.dg-caption { font-size: 11.5px; color: var(--text-3); }
 .dg-follow { display: flex; gap: 7px; align-items: flex-start; font-size: 12.5px; color: var(--text-2); }
 .dg-follow > svg { flex-shrink: 0; margin-top: 2px; }
 .dg-focus { font-size: 12.5px; color: var(--text-2); font-style: italic; }

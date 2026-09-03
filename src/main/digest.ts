@@ -25,6 +25,26 @@
  * Každý postřeh se uloží i s čísly, ze kterých vznikl. Do příštího zadání
  * jde pár posledních — AI tak vidí, co navrhla minule a jak to dopadlo,
  * a místo opakování téhož může navazovat.
+ *
+ * ## Co počítá kód a co AI
+ *
+ * Srovnání se počítají **v kódu**, ne modelem: růst a pokles, posun
+ * v platbách a dopravě, nejsilnější den v týdnu, zboží, které vyskočilo
+ * nebo spadlo, nezaplacené objednávky, které leží. Vyjde z toho seznam
+ * signálů — hotových vět s čísly, na které se dá spolehnout, protože je
+ * nikdo nevymyslel.
+ *
+ * AI dostane právě tyhle signály a její úkol je jiný: **vybrat, co z toho
+ * je důležité, a říct proč a co s tím**. Nemá si přidávat vlastní čísla
+ * a u každého bodu musí uvést, o co se opírá — když se to nedá napsat,
+ * nemá tam ten bod co dělat.
+ *
+ * ## Okno je klouzavé, ne kalendářní
+ *
+ * Prvního září má „tenhle měsíc" jeden den a srovnání s jedním dnem srpna
+ * je náhoda. Hlavní okno jsou proto **poslední tři desítky dní** proti
+ * předchozím třiceti; kalendářní měsíc zůstává jako údaj, ne jako podklad
+ * pro závěry.
  */
 import { getDb, getSetting, setSetting } from './db';
 import { getSettings } from './settings';
@@ -33,9 +53,12 @@ import { shortFor } from './shorthand';
 import { listConversations } from './chat/supabase';
 import { isConfigured as chatConfigured } from './chat/config';
 import type {
-  DigestDay, DigestFacts, DigestInsight, DigestMoney, DigestNote, DigestProduct,
-  DigestReport, DigestSlice, DigestTask, DigestTotals
+  DigestDay, DigestFacts, DigestInsight, DigestNote, DigestProduct,
+  DigestReport, DigestSignal, DigestSlice, DigestTask, DigestTotals
 } from '../shared/types';
+
+/** Délka hlavního okna ve dnech */
+const WINDOW = 30;
 
 /* ---------- pomůcky ---------- */
 
@@ -80,7 +103,15 @@ function ordersFrom(since: string): Row[] {
   }
 }
 
-function itemsOf(row: Row): { title: string; code: string; quantity: number; price: number }[] {
+/**
+ * Položky objednávky.
+ *
+ * `total` (cena za řádek) přibylo později — u objednávek stažených starší
+ * verzí ve feedu není a dopočítá se z ceny za kus, proto je nepovinné.
+ */
+function itemsOf(row: Row): {
+  title: string; code: string; quantity: number; price: number; total?: number;
+}[] {
   try {
     const list = JSON.parse(row.items_json || '[]');
     return Array.isArray(list) ? list : [];
@@ -150,6 +181,219 @@ function sliceRows(
     .sort((a, b) => b.orders - a.orders);
 }
 
+/* ---------- signály: závěry, které spočítá kód ---------- */
+
+interface SignalInput {
+  currency: string;
+  days: DigestDay[];
+  window: DigestTotals;
+  prevWindow: DigestTotals;
+  returning: number;
+  windowRows: Row[];
+  prevRows: Row[];
+  payments: DigestSlice[];
+  shipments: DigestSlice[];
+  countries: DigestSlice[];
+  products: DigestProduct[];
+  prevProducts: Map<string, number>;
+}
+
+const DAY_NAMES = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
+
+/** Kolik procent je rozdíl; bez základu se nepočítá nic */
+function pct(now: number, before: number): number | null {
+  if (!before) return null;
+  return Math.round(((now - before) / before) * 100);
+}
+
+/**
+ * Co se v číslech změnilo.
+ *
+ * Tohle je schválně **kód, ne model**. Srovnat dvě čísla a spočítat podíl
+ * umí kód přesně a zadarmo, kdežto model se v tom umí splést a hlavně si
+ * dokáže vymyslet trend, který v datech není. Vyjde z toho seznam vět,
+ * pod kterými je vždycky vidět, z čeho vznikly.
+ *
+ * Prahy jsou tu proto, aby se z šumu nedělaly zprávy: pod pět objednávek
+ * v srovnávaném období se nic neporovnává a rozdíly do deseti procent
+ * se nehlásí.
+ */
+export function signalsOf(input: SignalInput): DigestSignal[] {
+  const out: DigestSignal[] = [];
+  const { currency, window: now, prevWindow: before } = input;
+  // Kód měny je v tabulce v pořádku, ve větě ne — „19 400 CZK" nikdo neříká
+  const money = (value: number) => `${Math.round(value)} ${currency === 'CZK' ? 'Kč' : currency}`;
+
+  // 1) Objednávky a tržba proti předchozím třiceti dnům
+  if (before.orders >= 5) {
+    const change = pct(now.orders, before.orders);
+    if (change !== null && Math.abs(change) >= 10) {
+      out.push({
+        kind: change > 0 ? 'up' : 'down',
+        text: `Objednávek je o ${Math.abs(change)} % ${change > 0 ? 'víc' : 'míň'} než v předchozích 30 dnech.`,
+        basis: `${now.orders} proti ${before.orders}`
+      });
+    }
+    const nowMoney = now.revenue.find(one => one.currency === currency)?.amount ?? 0;
+    const beforeMoney = before.revenue.find(one => one.currency === currency)?.amount ?? 0;
+    const moneyChange = pct(nowMoney, beforeMoney);
+    if (moneyChange !== null && Math.abs(moneyChange) >= 10) {
+      out.push({
+        kind: moneyChange > 0 ? 'up' : 'down',
+        text: `Tržba je o ${Math.abs(moneyChange)} % ${moneyChange > 0 ? 'vyšší' : 'nižší'} než v předchozích 30 dnech.`,
+        basis: `${money(nowMoney)} proti ${money(beforeMoney)}`
+      });
+    }
+    /*
+     * Průměrná objednávka. Umí se hnout na opačnou stranu než tržba —
+     * a právě to je zajímavé: víc objednávek za míň peněz znamená něco
+     * jiného než míň objednávek za víc.
+     */
+    const nowPaid = now.orders - now.cancelled;
+    const beforePaid = before.orders - before.cancelled;
+    if (nowPaid > 0 && beforePaid > 0) {
+      const nowAvg = Math.round(nowMoney / nowPaid);
+      const beforeAvg = Math.round(beforeMoney / beforePaid);
+      const avgChange = pct(nowAvg, beforeAvg);
+      if (avgChange !== null && Math.abs(avgChange) >= 10) {
+        out.push({
+          kind: avgChange > 0 ? 'up' : 'down',
+          text: `Průměrná objednávka ${avgChange > 0 ? 'vzrostla' : 'klesla'} o ${Math.abs(avgChange)} %.`,
+          basis: `${money(nowAvg)} proti ${money(beforeAvg)}`
+        });
+      }
+    }
+  }
+
+  // 2) Nejsilnější a nejslabší den v týdnu
+  if (now.orders >= 15) {
+    const byWeekday = new Map<number, { orders: number; days: number }>();
+    for (const day of input.days) {
+      const weekday = new Date(`${day.day}T12:00:00`).getDay();
+      const found = byWeekday.get(weekday) ?? { orders: 0, days: 0 };
+      found.orders += day.orders;
+      found.days++;
+      byWeekday.set(weekday, found);
+    }
+    const perDay = [...byWeekday.entries()]
+      .map(([weekday, one]) => ({ weekday, avg: one.orders / Math.max(1, one.days) }))
+      .sort((a, b) => b.avg - a.avg);
+    const best = perDay[0];
+    const worst = perDay[perDay.length - 1];
+    if (best && worst && best.avg >= worst.avg * 1.5 && best.avg >= 1) {
+      out.push({
+        kind: 'info',
+        text: `Nejvíc se objednává v ${DAY_NAMES[best.weekday]}, nejmíň v ${DAY_NAMES[worst.weekday]}.`,
+        basis: `průměrně ${best.avg.toFixed(1)} proti ${worst.avg.toFixed(1)} objednávky na den`
+      });
+    }
+  }
+
+  // 3) Posun v platbách a dopravě — podíl, ne počet: při růstu roste všechno
+  const shareShift = (title: string, list: DigestSlice[], pick: (row: Row) => string) => {
+    if (now.orders < 10 || before.orders < 10) return;
+    const beforeCount = new Map<string, number>();
+    for (const row of input.prevRows) {
+      const key = pick(row);
+      if (key) beforeCount.set(key, (beforeCount.get(key) ?? 0) + 1);
+    }
+    let biggest: { key: string; from: number; to: number; diff: number } | null = null;
+    for (const one of list) {
+      const from = ((beforeCount.get(one.key) ?? 0) / before.orders) * 100;
+      const to = (one.orders / now.orders) * 100;
+      const diff = to - from;
+      if (!biggest || Math.abs(diff) > Math.abs(biggest.diff)) {
+        biggest = { key: one.key, from, to, diff };
+      }
+    }
+    if (!biggest || Math.abs(biggest.diff) < 8) return;
+    out.push({
+      kind: 'watch',
+      text: `${title}: ${biggest.key} ${biggest.diff > 0 ? 'roste' : 'ustupuje'}`
+        + ` — ${Math.round(biggest.to)} % objednávek místo ${Math.round(biggest.from)} %.`,
+      basis: `${Math.round(biggest.to)} % z ${now.orders} proti ${Math.round(biggest.from)} % z ${before.orders}`
+    });
+  };
+  shareShift('Platba', input.payments, row => shortFor('payment', row.payment));
+  shareShift('Doprava', input.shipments, row => shortFor('shipment', row.shipment));
+
+  // 4) Zboží, které vyskočilo nebo spadlo
+  for (const product of input.products.slice(0, 5)) {
+    const was = input.prevProducts.get(product.code) ?? 0;
+    if (product.qty < 3) continue;
+    const change = pct(product.qty, was);
+    if (was === 0 && product.qty >= 5) {
+      out.push({
+        kind: 'up',
+        text: `${product.title} se předtím neprodával, teď je mezi nejprodávanějšími.`,
+        basis: `${product.qty} ks za 30 dní, předtím 0`
+      });
+    } else if (change !== null && Math.abs(change) >= 50) {
+      out.push({
+        kind: change > 0 ? 'up' : 'down',
+        text: `${product.title}: prodej ${change > 0 ? 'vzrostl' : 'klesl'} o ${Math.abs(change)} %.`,
+        basis: `${product.qty} ks proti ${was} ks`
+      });
+    }
+  }
+
+  // 5) Nezaplacené, které leží — peníze, o kterých se neví
+  const stale = input.windowRows.filter(row =>
+    !row.paid && !isCancelled(row.status)
+    && (row.created_at || '') < new Date(Date.now() - 3 * 86_400_000).toISOString());
+  if (stale.length >= 3) {
+    const sum = stale
+      .filter(row => (row.currency || 'CZK').toUpperCase() === currency)
+      .reduce((total, row) => total + Number(row.total || 0), 0);
+    out.push({
+      kind: 'watch',
+      text: `${stale.length} objednávek čeká na zaplacení déle než tři dny.`,
+      basis: `dohromady ${money(sum)}`
+    });
+  }
+
+  // 6) Storna
+  if (now.orders >= 10 && now.cancelled > 0) {
+    const rate = Math.round((now.cancelled / now.orders) * 100);
+    const beforeRate = before.orders >= 10 ? Math.round((before.cancelled / before.orders) * 100) : null;
+    if (rate >= 8 || (beforeRate !== null && rate - beforeRate >= 5)) {
+      out.push({
+        kind: 'watch',
+        text: `Storna jsou na ${rate} % objednávek${beforeRate !== null ? ` (předtím ${beforeRate} %)` : ''}.`,
+        basis: `${now.cancelled} z ${now.orders}`
+      });
+    }
+  }
+
+  /*
+   * 7) Vracející se zákazníci. U galanterie je opakovaný nákup to, co dělá
+   * rozdíl mezi kampaní a obchodem, takže se hlásí i když je všechno v normě.
+   */
+  if (now.orders >= 10) {
+    const share = Math.round((input.returning / now.orders) * 100);
+    out.push({
+      kind: share >= 25 ? 'up' : 'watch',
+      text: `Opakovaně nakupuje ${share} % objednávek.`,
+      basis: `${input.returning} z ${now.orders} za 30 dní`
+    });
+  }
+
+  // 8) Zahraničí — kolik z objednávek jde mimo domácí trh
+  const home = input.countries[0];
+  if (home && now.orders >= 10) {
+    const abroad = now.orders - home.orders;
+    if (abroad > 0) {
+      out.push({
+        kind: 'info',
+        text: `Mimo ${home.key} jde ${Math.round((abroad / now.orders) * 100)} % objednávek.`,
+        basis: input.countries.slice(1, 4).map(one => `${one.key} ${one.orders}`).join(', ')
+      });
+    }
+  }
+
+  return out;
+}
+
 /* ---------- čísla ---------- */
 
 /**
@@ -167,20 +411,33 @@ export function digestFacts(now = new Date()): DigestFacts {
   const dayOfMonth = now.getDate();
   const prevMonthEnd = shiftDays(new Date(now.getFullYear(), now.getMonth() - 1, dayOfMonth), 1);
 
-  const rows = ordersFrom(dayKey(prevMonthStart));
-  const inRange = (row: Row, from: Date, to?: Date) => {
+  /*
+   * Hlavní okno jsou **klouzavé dny**, ne kalendářní měsíc. Prvního září má
+   * měsíc jeden den a srovnává se s jedním dnem srpna — z toho vyjde cokoli
+   * a jakýkoli závěr nad tím je náhoda. Třicet dní je stejně dlouhých pořád.
+   */
+  const windowStart = shiftDays(now, -(WINDOW - 1));
+  const prevWindowStart = shiftDays(now, -(2 * WINDOW - 1));
+
+  // Načte se to starší z obou začátků, ať mají obě srovnání z čeho brát
+  const from = dayKey(prevWindowStart) < dayKey(prevMonthStart)
+    ? dayKey(prevWindowStart) : dayKey(prevMonthStart);
+  const rows = ordersFrom(from);
+  const inRange = (row: Row, start: Date, end?: Date) => {
     const day = (row.created_at || '').slice(0, 10);
     if (!day) return false;
-    if (day < dayKey(from)) return false;
-    return to ? day < dayKey(to) : true;
+    if (day < dayKey(start)) return false;
+    return end ? day < dayKey(end) : true;
   };
 
   const todayKey = dayKey(now);
   const yesterdayKey = dayKey(shiftDays(now, -1));
   const today = totalsOf(rows.filter(row => (row.created_at || '').slice(0, 10) === todayKey));
   const yesterday = totalsOf(rows.filter(row => (row.created_at || '').slice(0, 10) === yesterdayKey));
-  const monthRows = rows.filter(row => inRange(row, monthStart));
-  const month = totalsOf(monthRows);
+  const windowRows = rows.filter(row => inRange(row, windowStart));
+  const windowTotals = totalsOf(windowRows);
+  const prevWindow = totalsOf(rows.filter(row => inRange(row, prevWindowStart, windowStart)));
+  const month = totalsOf(rows.filter(row => inRange(row, monthStart)));
   const prevMonth = totalsOf(rows.filter(row => inRange(row, prevMonthStart, prevMonthEnd)));
 
   /*
@@ -188,22 +445,31 @@ export function digestFacts(now = new Date()): DigestFacts {
    * potřebují jedno číslo — bere se ta, ve které je nejvíc peněz, a zbytek
    * se ukazuje vedle.
    */
-  const currency = month.revenue[0]?.currency ?? today.revenue[0]?.currency ?? 'CZK';
+  const currency = windowTotals.revenue[0]?.currency ?? today.revenue[0]?.currency ?? 'CZK';
 
-  // Posledních 30 dní i s prázdnými — v grafu je díra po víkendu informace
+  // Celé okno i s prázdnými dny — v grafu je díra po víkendu informace
   const days: DigestDay[] = [];
-  for (let back = 29; back >= 0; back--) {
+  for (let back = WINDOW - 1; back >= 0; back--) {
     const key = dayKey(shiftDays(now, -back));
     const dayRows = rows.filter(row => (row.created_at || '').slice(0, 10) === key);
     const totals = totalsOf(dayRows);
     days.push({ day: key, orders: totals.orders, revenue: inCurrency(totals, currency) });
   }
 
-  // Nejprodávanější zboží měsíce. Skládá se po kódech, protože týž produkt
-  // chodí ve feedu s názvem v jazyce trhu
+  /*
+   * Nejprodávanější zboží. Skládá se po kódech, protože týž produkt chodí ve
+   * feedu s názvem v jazyce trhu.
+   *
+   * Dvě věci, na kterých to dřív ukazovalo nesmysly:
+   *  - **Měna.** Do tržby se počítají jen objednávky v převažující měně;
+   *    osm eur připsaných ke korunám dělalo z pásku zboží za 32 Kč.
+   *  - **Cena za řádek vs. za kus.** Export nese obojí; bere se cena za
+   *    řádek, a jen když chybí, dopočítá se z ceny za kus.
+   */
   const products = new Map<string, DigestProduct>();
-  for (const row of monthRows) {
+  for (const row of windowRows) {
     if (isCancelled(row.status)) continue;
+    const sameCurrency = (row.currency || 'CZK').toUpperCase() === currency;
     const seen = new Set<string>();
     for (const item of itemsOf(row)) {
       const code = String(item.code || item.title || '').trim();
@@ -212,9 +478,23 @@ export function digestFacts(now = new Date()): DigestFacts {
         ?? { code, title: String(item.title || code), qty: 0, orders: 0, revenue: 0 };
       const qty = Number(item.quantity) || 0;
       one.qty += qty;
-      one.revenue += (Number(item.price) || 0) * qty;
+      if (sameCurrency) {
+        const line = Number(item.total) || (Number(item.price) || 0) * qty;
+        one.revenue += line;
+      }
       if (!seen.has(code)) { one.orders++; seen.add(code); }
       products.set(code, one);
+    }
+  }
+
+  // Totéž za předchozích třicet dní — jen kvůli srovnání, na obrazovku nejde
+  const prevProducts = new Map<string, number>();
+  for (const row of rows.filter(one => inRange(one, prevWindowStart, windowStart))) {
+    if (isCancelled(row.status)) continue;
+    for (const item of itemsOf(row)) {
+      const code = String(item.code || item.title || '').trim();
+      if (!code) continue;
+      prevProducts.set(code, (prevProducts.get(code) ?? 0) + (Number(item.quantity) || 0));
     }
   }
 
@@ -229,7 +509,7 @@ export function digestFacts(now = new Date()): DigestFacts {
         WHERE o.created_at >= ? AND o.email != ''
           AND EXISTS (SELECT 1 FROM shop_orders p
                        WHERE p.email = o.email AND p.created_at < o.created_at)`
-    ).get(dayKey(monthStart)) as any)?.n ?? 0);
+    ).get(dayKey(windowStart)) as any)?.n ?? 0);
   } catch { /* starší databáze bez sloupce e-mailu */ }
 
   let known = 0;
@@ -242,25 +522,37 @@ export function digestFacts(now = new Date()): DigestFacts {
     feedAt = row?.at || null;
   } catch { /* tabulka nemusí být */ }
 
-  const monthRevenue = inCurrency(month, currency);
-  const paidOrders = month.orders - month.cancelled;
+  const windowRevenue = inCurrency(windowTotals, currency);
+  const paidOrders = windowTotals.orders - windowTotals.cancelled;
+
+  const countries = sliceRows(windowRows, countryOf, key => key);
+  // Dopravci a platby se ukazují ve zkratkách ze slovníku — pobočky by
+  // jinak daly stovku řádků, jednu na výdejnu
+  const shipments = sliceRows(windowRows, row => shortFor('shipment', row.shipment), key => key);
+  const payments = sliceRows(windowRows, row => shortFor('payment', row.payment), key => key);
+  const prevRows = rows.filter(one => inRange(one, prevWindowStart, windowStart));
+  const topProducts = [...products.values()]
+    .map(one => ({ ...one, revenue: Math.round(one.revenue) }))
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 8);
 
   return {
     currency,
-    today, yesterday, month, prevMonth,
+    today, yesterday,
+    window: windowTotals, prevWindow,
+    month, prevMonth,
     monthLabel: new Intl.DateTimeFormat('cs-CZ', { month: 'long', year: 'numeric' }).format(now),
+    monthDays: dayOfMonth,
     days,
-    countries: sliceRows(monthRows, countryOf, key => key),
-    // Dopravci a platby se ukazují ve zkratkách ze slovníku — pobočky by
-    // jinak daly stovku řádků, jednu na výdejnu
-    shipments: sliceRows(monthRows, row => shortFor('shipment', row.shipment), key => key),
-    payments: sliceRows(monthRows, row => shortFor('payment', row.payment), key => key),
-    products: [...products.values()]
-      .map(one => ({ ...one, revenue: Math.round(one.revenue) }))
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 8),
+    countries, shipments, payments,
+    products: topProducts,
     returning,
-    average: paidOrders > 0 ? Math.round(monthRevenue / paidOrders) : 0,
+    average: paidOrders > 0 ? Math.round(windowRevenue / paidOrders) : 0,
+    signals: signalsOf({
+      currency, days, window: windowTotals, prevWindow, returning,
+      windowRows, prevRows, payments, shipments, countries,
+      products: topProducts, prevProducts
+    }),
     feedAt,
     known
   };
@@ -391,22 +683,46 @@ function factsForAi(facts: DigestFacts): string {
     list.slice(0, count).map(one => `${one.label} ${one.orders}×`).join(', ') || '—';
 
   return [
+    `Posledních 30 dní: ${facts.window.orders} objednávek za ${money(facts.window)}`
+      + `, průměr ${facts.average} ${facts.currency}`
+      + `, storno ${facts.window.cancelled}, nezaplacených ${facts.window.unpaid}`
+      + `, opakovaný nákup ${facts.returning}`,
+    `Předchozích 30 dní: ${facts.prevWindow.orders} objednávek za ${money(facts.prevWindow)}`
+      + `, storno ${facts.prevWindow.cancelled}`,
     `Dnes: ${facts.today.orders} objednávek za ${money(facts.today)}`
-      + `${facts.today.cancelled ? `, storno ${facts.today.cancelled}` : ''}`
-      + `${facts.today.unpaid ? `, nezaplacených ${facts.today.unpaid}` : ''}`,
+      + `${facts.today.cancelled ? `, storno ${facts.today.cancelled}` : ''}`,
     `Včera: ${facts.yesterday.orders} objednávek za ${money(facts.yesterday)}`,
-    `${facts.monthLabel}: ${facts.month.orders} objednávek za ${money(facts.month)}`
-      + `, průměr ${facts.average} ${facts.currency}, vracejících se zákazníků ${facts.returning}`,
-    `Stejná část minulého měsíce: ${facts.prevMonth.orders} objednávek za ${money(facts.prevMonth)}`,
-    `Denní řada (posledních 30 dní, počet objednávek): `
+    /*
+     * Kalendářní měsíc je tu jen jako údaj a rovnou se říká, kolik dní má.
+     * Bez toho model druhého v měsíci srovnával dva dny s dvěma dny
+     * a stavěl na tom závěry.
+     */
+    `${facts.monthLabel} (zatím ${facts.monthDays} ${facts.monthDays === 1 ? 'den' : 'dní'}):`
+      + ` ${facts.month.orders} objednávek za ${money(facts.month)}`
+      + ` — stejná část minulého měsíce ${facts.prevMonth.orders} za ${money(facts.prevMonth)}.`
+      + ` Krátký měsíc není trend, závěry stav na 30denním okně.`,
+    `Denní řada (30 dní, počet objednávek): `
       + facts.days.map(one => `${one.day.slice(5)}:${one.orders}`).join(' '),
-    `Země: ${slice(facts.countries)}`,
-    `Doprava: ${slice(facts.shipments)}`,
-    `Platba: ${slice(facts.payments)}`,
-    `Nejprodávanější tento měsíc: `
+    `Země (30 dní): ${slice(facts.countries)}`,
+    `Doprava (30 dní): ${slice(facts.shipments)}`,
+    `Platba (30 dní): ${slice(facts.payments)}`,
+    `Nejprodávanější (30 dní): `
       + (facts.products.map(one => `${one.title} (${one.code}) ${one.qty} ks za ${one.revenue} ${facts.currency}`)
         .join('; ') || '—')
   ].join('\n');
+}
+
+/**
+ * Spočítané signály do zadání.
+ *
+ * Tohle je to hlavní, o co se má postřeh opírat: hotové srovnání, které
+ * spočítal kód. Model tedy neodvozuje trend z řady čísel — to za něj někdo
+ * udělal — a zbývá mu práce, ve které je dobrý: co z toho je důležité
+ * a co s tím dělat.
+ */
+function signalsForAi(facts: DigestFacts): string {
+  if (!facts.signals.length) return '(žádný, čísla se proti minulému období výrazně nezměnila)';
+  return facts.signals.map(one => `- ${one.text} [${one.basis}]`).join('\n');
 }
 
 /** Co bylo minule — aby AI navazovala a neopakovala se */
@@ -414,37 +730,84 @@ function memoryForAi(history: { at: string; facts: any; insight: DigestInsight }
   if (!history.length) return '';
   return history.map(one => {
     const when = one.at.slice(0, 10);
-    const orders = one.facts?.month?.orders;
+    const orders = one.facts?.window?.orders ?? one.facts?.month?.orders;
     const notes = (one.insight?.notes ?? []).map((note: DigestNote) => `- ${note.text}`).join('\n');
     // Vlastní poznámka „na co se podívat příště" je to hlavní, kvůli čemu se
     // paměť vede — bez ní by každý den začínal od nuly
     const focus = one.insight?.focus ? `\nChtěl jsi příště ověřit: ${one.insight.focus}` : '';
-    return `[${when}${orders != null ? `, měsíc měl tehdy ${orders} objednávek` : ''}]\n`
+    return `[${when}${orders != null ? `, za 30 dní tehdy ${orders} objednávek` : ''}]\n`
       + `${one.insight?.headline ?? ''}\n${notes}${focus}`;
   }).join('\n\n');
 }
 
-const INSIGHT_SYSTEM = `Jsi obchodní analytik e-shopu Quentino (pásky, peněženky a kožená galanterie; trhy CZ, SK a EU).
-Dostaneš čísla z feedu objednávek a svoje dřívější postřehy. Napiš krátký, konkrétní rozbor pro majitele.
+const INSIGHT_SYSTEM = `Jsi obchodní analytik e-shopu Quentino (pásky, kšandy, kravaty a kožená galanterie; trhy CZ, SK a EU).
+Dostaneš spočítané signály, čísla z feedu objednávek a svoje dřívější postřehy. Tvůj úkol NENÍ počítat — to je hotové. Tvůj úkol je vybrat, co z toho stojí za pozornost, říct proč a co s tím.
 
-Pravidla:
-- Piš česky, věcně, bez marketingových frází a bez oslovení.
-- Vycházej JEN z předložených čísel. Nic si nedomýšlej; když na něco data nestačí, napiš to.
-- Čísla v textu musí sedět na zadání.
-- Hledej trendy (růst/pokles, změny v dopravě, platbách, zemích, zboží), rizika (nezaplacené, storna, propad) a konkrétní návrhy (cena, sada, zásoba, doprava) — návrh musí být proveditelný tenhle týden.
+Jak přemýšlej:
+1. Projdi signály a čísla a najdi ty, které mají skutečný dopad na tržbu, marži nebo práci navíc.
+2. U každého se zeptej: opírá se to o dost velký vzorek? Nemá to jiné vysvětlení (víkend, svátek, jednorázová velká objednávka)? Když ano, napiš to místo závěru.
+3. Teprve co projde, napiš jako bod.
+
+Tvrdá pravidla:
+- Ke každému bodu MUSÍŠ do "basis" napsat konkrétní čísla ze zadání, o která se opírá. Když je nemáš, ten bod nepiš.
+- Nevymýšlej si čísla ani skutečnosti, které v zadání nejsou (náklady, marže, ceny dopravy, kampaně, konkurence). Když by závěr takový údaj potřeboval, napiš, co by bylo potřeba zjistit.
+- Návrh (kind "napad") musí mít cíl a být proveditelný tenhle týden; do "check" napiš, podle čeho se za týden pozná, jestli zabral.
+- Nikdy nepiš obecné rady typu „zaměřte se na marketing" nebo „zlepšete komunikaci se zákazníky".
+- Radši dva podložené body než pět dojmů. Když data na nic nestačí (málo objednávek, krátké období), napiš jeden bod, že zatím není z čeho soudit.
 - Když už jsi něco navrhoval dřív, navaž: co se potvrdilo, co ne.
-- Nejvýš pět bodů, každý jedna věta.
+- Česky, věcně, bez oslovení a bez marketingových frází. Každý bod jedna věta, nejvýš čtyři body. Celá odpověď do 1200 znaků.
 
-Vrať POUZE JSON, nic dalšího:
+Vrať POUZE JSON, nic dalšího, a hlídej, ať se celý vejde:
 {"headline":"jedna až dvě věty souhrnu",
  "followUp":"navázání na minulý přehled nebo null",
- "notes":[{"kind":"trend|napad|pozor","text":"…"}],
+ "notes":[{"kind":"trend|napad|pozor","text":"…","basis":"čísla, ze kterých to plyne","check":"u návrhu jak se pozná, že zabral, jinak null"}],
  "focus":"co si sám chceš ověřit v příštím přehledu, nebo null",
  "questions":["dvě až tři otázky, na které se podle tebe vyplatí doptat"]}`;
 
-/** Odpověď modelu na strukturu; když se JSON nepovede, zachrání se aspoň text */
-function parseInsight(raw: string, model: string): DigestInsight {
+/** Text z JSONu i s uvozovkami uvnitř — `\"` a `\n` se musí vrátit zpátky */
+function unescape(text: string): string {
+  return text
+    .replace(/\\n/g, ' ')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .trim();
+}
+
+/**
+ * Záchrana z nedopsané odpovědi.
+ *
+ * Model občas narazí na strop tokenů a JSON zůstane rozseknutý uprostřed
+ * věty. `JSON.parse` na tom skončí a v okně se pak objevil **celý surový
+ * JSON i se závorkami** — přesně to, co uživatel viděl. Vytahat z toho
+ * hotové kusy jde i tak: co je dopsané, se ukáže, zbytek se zahodí.
+ */
+function salvageInsight(raw: string): Partial<DigestInsight> {
+  const first = (pattern: RegExp): string | null => {
+    const found = raw.match(pattern);
+    return found ? unescape(found[1]) || null : null;
+  };
+  const notes: DigestNote[] = [];
+  for (const found of raw.matchAll(
+    /"kind"\s*:\s*"(trend|napad|pozor)"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"(?:\s*,\s*"basis"\s*:\s*"((?:[^"\\]|\\.)*)")?/g
+  )) {
+    const text = unescape(found[2]);
+    if (text) notes.push({ kind: found[1] as DigestNote['kind'], text, basis: found[3] ? unescape(found[3]) : null, check: null });
+  }
+  return {
+    headline: first(/"headline"\s*:\s*"((?:[^"\\]|\\.)*)"/) ?? undefined,
+    notes,
+    followUp: first(/"followUp"\s*:\s*"((?:[^"\\]|\\.)*)"/),
+    focus: first(/"focus"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+  };
+}
+
+/** Odpověď modelu na strukturu; z nedopsané se zachrání, co jde */
+export function parseInsight(raw: string, model: string): DigestInsight {
   const at = new Date().toISOString();
+  const empty: DigestInsight = {
+    at, headline: '', notes: [], followUp: null, focus: null, questions: [], model
+  };
+
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
   if (start >= 0 && end > start) {
@@ -454,55 +817,86 @@ function parseInsight(raw: string, model: string): DigestInsight {
         ? one.notes
           .map((note: any) => ({
             kind: ['trend', 'napad', 'pozor'].includes(note?.kind) ? note.kind : 'trend',
-            text: String(note?.text ?? '').trim()
+            text: String(note?.text ?? '').trim(),
+            basis: note?.basis ? String(note.basis).trim() : null,
+            check: note?.check ? String(note.check).trim() : null
           }))
           .filter((note: DigestNote) => note.text)
           .slice(0, 6)
         : [];
       return {
-        at,
+        ...empty,
         headline: String(one.headline ?? '').trim(),
         notes,
         followUp: one.followUp ? String(one.followUp).trim() : null,
         focus: one.focus ? String(one.focus).trim() : null,
         questions: Array.isArray(one.questions)
           ? one.questions.map((q: any) => String(q ?? '').trim()).filter(Boolean).slice(0, 3)
-          : [],
-        model
+          : []
       };
-    } catch { /* spadne se do záchrany níž */ }
+    } catch { /* nedopsaný JSON — zkusí se z něj vytahat, co je hotové */ }
   }
-  // Model se občas rozpovídá mimo JSON; věta navíc je pořád lepší než nic
-  const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+
+  if (raw.includes('"headline"') || raw.includes('"notes"')) {
+    const saved = salvageInsight(raw);
+    return { ...empty, ...saved, notes: saved.notes ?? [] };
+  }
+
+  /*
+   * Model se úplně minul formátem a napsal prostý text. Řádky se vezmou tak,
+   * jak jsou — ale nikdy se do okna nepustí něco, co začíná složenou
+   * závorkou: surový JSON na obrazovce je horší než prázdno.
+   */
+  const lines = raw.split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('{') && !line.startsWith('}'));
   return {
-    at,
+    ...empty,
     headline: lines[0] ?? '',
-    notes: lines.slice(1, 6).map(text => ({ kind: 'trend' as const, text: text.replace(/^[-•*]\s*/, '') })),
-    followUp: null,
-    focus: null,
-    questions: [],
-    model
+    notes: lines.slice(1, 5).map(text => ({
+      kind: 'trend' as const, text: text.replace(/^[-•*]\s*/, ''), basis: null, check: null
+    }))
   };
+}
+
+/** Dopadl postřeh k něčemu, nebo se odpověď nevešla? */
+function insightUsable(one: DigestInsight): boolean {
+  return one.headline.length > 0 && !one.headline.startsWith('{') && one.notes.length > 0;
 }
 
 async function makeInsight(facts: DigestFacts): Promise<DigestInsight> {
   const s = getSettings();
   const history = storedInsights();
   const memory = memoryForAi(history);
-  const answer = await ask(
-    s.draftModel,
-    INSIGHT_SYSTEM,
-    `# Čísla\n${factsForAi(facts)}\n\n${memory ? `# Co jsi psal dřív (nejnovější nahoře)\n${memory}\n` : ''}`,
-    1200
-  );
-  const insight = parseInsight(answer, s.draftModel);
+  const user = `# Spočítané signály (z nich vycházej)\n${signalsForAi(facts)}\n\n`
+    + `# Čísla\n${factsForAi(facts)}\n\n`
+    + `${memory ? `# Co jsi psal dřív (nejnovější nahoře)\n${memory}\n` : ''}`;
+
+  /*
+   * Strop je schválně vysoký a přesto se hlídá. Když se odpověď nevejde,
+   * zůstane JSON rozseknutý uprostřed věty — a takový postřeh se nesmí
+   * uložit jako postřeh dne, jinak by se celý den ukazoval zmetek. Zkusí
+   * se proto ještě jednou a stručněji.
+   */
+  let answer = await ask(s.draftModel, INSIGHT_SYSTEM, user, 2400);
+  let insight = parseInsight(answer, s.draftModel);
+  if (!insightUsable(insight)) {
+    answer = await ask(
+      s.draftModel,
+      `${INSIGHT_SYSTEM}\n\nMinulý pokus se nevešel do limitu. Piš výrazně stručněji: nejvýš dva body, každý do 140 znaků, "basis" do 60 znaků.`,
+      user,
+      2400
+    );
+    const second = parseInsight(answer, s.draftModel);
+    if (insightUsable(second) || !insightUsable(insight)) insight = second;
+  }
 
   ensureTable();
   const d = getDb();
   d.prepare('INSERT OR REPLACE INTO digest_reports (at, facts, insight) VALUES (?,?,?)').run(
     insight.at,
     JSON.stringify({
-      today: facts.today, month: facts.month, prevMonth: facts.prevMonth,
+      today: facts.today, window: facts.window, prevWindow: facts.prevWindow, month: facts.month,
       currency: facts.currency, average: facts.average, returning: facts.returning,
       products: facts.products.slice(0, 5), countries: facts.countries.slice(0, 5)
     }),

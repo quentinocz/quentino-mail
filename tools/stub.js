@@ -119,6 +119,11 @@
             revenue: [{ currency: 'CZK', amount: 14820 }, { currency: 'EUR', amount: 214 }] },
           yesterday: { orders: 7, cancelled: 0, unpaid: 1, items: 10,
             revenue: [{ currency: 'CZK', amount: 11430 }] },
+          // Hlavní okno: klouzavých třicet dní proti předchozím třiceti
+          window: { orders: 113, cancelled: 4, unpaid: 11, items: 172,
+            revenue: [{ currency: 'CZK', amount: 194600 }, { currency: 'EUR', amount: 2140 }] },
+          prevWindow: { orders: 96, cancelled: 6, unpaid: 9, items: 141,
+            revenue: [{ currency: 'CZK', amount: 168300 }] },
           month: { orders: 96, cancelled: 4, unpaid: 11, items: 148,
             revenue: [{ currency: 'CZK', amount: 162400 }, { currency: 'EUR', amount: 1980 }] },
           prevMonth: { orders: 81, cancelled: 6, unpaid: 9, items: 121,
@@ -136,6 +141,22 @@
           ],
           returning: 23,
           average: 1765,
+          monthDays: 3,
+          /*
+           * Signály. Spočítal je kód, ne AI — proto je pod každou větou
+           * vidět, z čeho vznikla.
+           */
+          signals: [
+            { kind: 'up', text: 'Objednávek je o 18 % víc než v předchozích 30 dnech.',
+              basis: '113 proti 96' },
+            { kind: 'watch', text: 'Platba: Karta roste — 60 % objednávek místo 48 %.',
+              basis: '68 z 113 proti 46 z 96' },
+            { kind: 'info', text: 'Nejvíc se objednává v úterý, nejmíň v sobotu.',
+              basis: 'průměrně 5,4 proti 1,8 objednávky na den' },
+            { kind: 'watch', text: '11 objednávek čeká na zaplacení déle než tři dny.',
+              basis: 'dohromady 19 400 Kč' },
+            { kind: 'up', text: 'Opakovaně nakupuje 20 % objednávek.', basis: '23 z 113 za 30 dní' }
+          ],
           feedAt: new Date(Date.now() - 12 * 60e3).toISOString(),
           known: 1284
         },
@@ -153,9 +174,13 @@
           at: new Date(Date.now() - 5 * 3600e3).toISOString(),
           headline: 'Měsíc jde o 15 % nad srpen, tahá to pásek QP-118 a karta jako platba.',
           notes: [
-            { kind: 'trend', text: 'Podíl karty stoupl na 60 % objednávek, dobírka klesla o osm procentních bodů.' },
-            { kind: 'napad', text: 'K pásku QP-118 nabídnout kšandy v setu — kupují se spolu u 12 objednávek.' },
-            { kind: 'pozor', text: 'Jedenáct nezaplacených objednávek za 19 400 Kč čeká déle než tři dny.' }
+            { kind: 'trend', text: 'Podíl karty stoupl na 60 % objednávek, dobírka o tolik klesla.',
+              basis: '68 ze 113 proti 46 z 96 v předchozích 30 dnech', check: null },
+            { kind: 'napad', text: 'K pásku QP-118 nabídnout kšandy v setu.',
+              basis: 'kupují se spolu u 12 ze 34 objednávek s páskem',
+              check: 'za týden aspoň pět objednávek se setem' },
+            { kind: 'pozor', text: 'Jedenáct nezaplacených objednávek za 19 400 Kč čeká déle než tři dny.',
+              basis: '11 z 113 objednávek okna', check: null }
           ],
           followUp: 'Minulý týden jsi čekal propad po svátku — nepřišel, čtvrtek byl naopak nejsilnější den.',
           focus: 'ověřit, jestli růst SK drží i po skončení dopravy zdarma',
