@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -410,6 +410,14 @@ export const api = {
     card: (dbId: number, withLive = true) => call<OrderCard | null>('orders:card', dbId, withLive),
     /** Jen číslo, částka a stav — pro odznak v seznamu zpráv */
     badge: (dbId: number) => call<OrderBadge | null>('orders:badge', dbId),
+    /**
+     * Zkratky dopravy a platby rovnou k číslům z předmětů.
+     *
+     * Odznak sám čeká na e-shop i na dopravce; tohle je jen dotaz do
+     * databáze, takže na telefonu naskočí doprava s platbou hned a nekouká
+     * se do té doby na číslo s cenou.
+     */
+    shorts: (codes: string[]) => call<Record<string, CodeShorthand>>('orders:shorts', codes),
     /** Znovu načte stav ze stránky e-shopu i od dopravce (obejde cache) */
     refresh: (dbId: number) => call<OrderCard | null>('orders:refresh', dbId),
     /** Dotáhne stav zásilky u dopravců, kteří ho vypisují až JavaScriptem */

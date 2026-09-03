@@ -17,7 +17,7 @@ import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets,
 import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
 import * as live from './live';
-import { shorthandRows, saveShorthand, shorthandScope } from './shorthand';
+import { shorthandRows, saveShorthand, shorthandScope, shortsForCodes } from './shorthand';
 import { liveOffers, dismissOffer, watchLive } from './livework';
 import { scanOld, freeUp } from './cleanup';
 import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renameSession,
@@ -215,6 +215,12 @@ export function registerIpc() {
   // Karta objednávky vyčtená z potvrzovacího e-mailu
   handle('orders:card', (dbId: number, withLive?: boolean) => buildOrderCard(dbId, withLive !== false));
   handle('orders:badge', (dbId: number) => buildOrderBadge(dbId));
+  /*
+   * Krátká cesta k odznaku: čísla objednávek z předmětů → zkratky dopravy
+   * a platby, jen z databáze. Celý odznak čeká na e-shop a na dopravce,
+   * takže na telefonu se do té doby koukalo na číslo s cenou.
+   */
+  handle('orders:shorts', (codes: string[]) => shortsForCodes(codes ?? []));
   /*
    * Slovník zkratek pro dopravu a platbu. Nabízí se jen to, co doopravdy je
    * ve feedu — vypisovat všechno, co e-shop umí, by znamenalo dvacet řádků,

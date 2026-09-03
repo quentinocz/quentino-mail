@@ -63,6 +63,13 @@ for (const device of DEVICES) {
     isMobile: !device.desktop,
     hasTouch: !device.desktop
   });
+  /*
+   * Odznak objednávky v provozu čeká na e-shop a na dopravce — a právě
+   * v té chvíli se na telefonu dřív koukalo na číslo s cenou místo dopravy
+   * a platby. Náhled to zdrží schválně, aby bylo na snímku vidět, že
+   * zkratky naskočí i bez něj.
+   */
+  await page.addInitScript(() => { window.__badgeDelay = 4000; });
   page.on('pageerror', e => problems.push(`${device.name}: chyba stránky: ${e.message}`));
   page.on('console', m => {
     // Chybějící favicona v náhledu nic neznamená

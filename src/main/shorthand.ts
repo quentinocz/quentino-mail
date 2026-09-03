@@ -29,6 +29,7 @@
  * vyplňování.
  */
 import { getDb, getSetting, setSetting } from './db';
+import type { CodeShorthand } from '../shared/types';
 
 const KEY = 'orderShorthand';
 
@@ -311,4 +312,64 @@ export function saveShorthand(kind: ShorthandKind, family: string, short: string
   if (value) mine[key] = { name: clean, short: value }; else delete mine[key];
   setSetting(KEY, JSON.stringify(mine));
   return shorthandRows();
+}
+
+/**
+ * Zkratky rovnou k číslům objednávek — bez čekání na síť.
+ *
+ * Odznak v seznamu pošty se skládá ze dvou zdrojů a každý je jinak rychlý.
+ * Celý odznak (`orders:badge`) rozebere e-mail, doptá se e-shopu na stav
+ * a dopravce na zásilku; než se to vrátí, ukazuje řádek jen to, co jde
+ * vyčíst z předmětu — číslo a částku. Na počítači je to jedno, tam se číslo
+ * i tak ukazuje. **Na telefonu to ale znamená, že se místo dopravy a platby
+ * chvíli kouká na číslo s cenou**, u pár řádků klidně minuty: dotazy jdou
+ * po dvou a každý čeká na síť. Přesně tak to vypadalo — část řádků měla
+ * „Hermes Karta", část pořád „023830 598,00 Kč".
+ *
+ * Tohle je proto krátká cesta: číslo z předmětu → řádek ve feedu → zkratky.
+ * Žádná síť, jen jeden dotaz do databáze, takže odznak sedí hned a celý
+ * odznak ho pak už jen doplní o stav a barvu.
+ *
+ * Číslo z předmětu bere e-shop jako číslo objednávky, ale u faktur chodí
+ * číslo faktury — hledá se proto obojí, nikdy se ale nezamění jedno za druhé:
+ * napřed se zkusí číslo objednávky, teprve když není, číslo faktury.
+ */
+export function shortsForCodes(codes: string[]): Record<string, CodeShorthand> {
+  const out: Record<string, CodeShorthand> = {};
+  const asked = [...new Set(
+    (codes ?? []).map(one => String(one ?? '').trim().replace(/^#/, '')).filter(Boolean)
+  )].slice(0, 200);
+  if (!asked.length) return out;
+
+  const d = getDb();
+  let byCode: any;
+  let byInvoice: any;
+  try {
+    byCode = d.prepare(
+      `SELECT code, shipment, payment FROM shop_orders
+        WHERE code = ? OR code = ? ORDER BY created_at DESC LIMIT 1`
+    );
+    byInvoice = d.prepare(
+      `SELECT code, shipment, payment FROM shop_orders
+        WHERE invoice != '' AND (invoice = ? OR ltrim(invoice, '0') = ?)
+        ORDER BY created_at DESC LIMIT 1`
+    );
+  } catch {
+    return out;
+  }
+
+  for (const one of asked) {
+    // Vedoucí nuly píše e-shop v předmětu, ve feedu bývají oříznuté
+    const bare = one.replace(/^0+/, '') || one;
+    let row: any = null;
+    try { row = byCode.get(one, bare) ?? byInvoice.get(one, bare); } catch { row = null; }
+    if (!row) continue;
+
+    const shipmentShort = shortFor('shipment', row.shipment) || null;
+    const paymentShort = shortFor('payment', row.payment) || null;
+    // Objednávka bez dopravy i platby by odznak jen připravila o číslo
+    if (!shipmentShort && !paymentShort) continue;
+    out[one] = { code: String(row.code ?? one), shipmentShort, paymentShort };
+  }
+  return out;
 }

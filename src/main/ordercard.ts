@@ -312,9 +312,11 @@ export async function buildOrderBadge(dbId: number): Promise<OrderBadge | null> 
      * Doprava a platba se berou z feedu, ne z potvrzovacího e-mailu.
      * V mailu je to, co si zákazník vybral při objednání; ve feedu to, co
      * u objednávky platí teď — a to je rozdíl pokaždé, když se objednávka
-     * mezitím upravovala.
+     * mezitím upravovala. Poslední záchranou je dopravce ze sledování
+     * zásilky: ten se pozná i u objednávky, která ve feedu vůbec není.
      */
-    shipmentShort: shortFor('shipment', feed?.shipment ?? card.shipmentName) || null,
+    shipmentShort: shortFor('shipment', feed?.shipment ?? card.shipmentName
+      ?? card.tracking?.carrierName) || null,
     paymentShort: shortFor('payment', feed?.payment ?? card.paymentName) || null
   };
 }

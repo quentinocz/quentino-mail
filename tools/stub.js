@@ -924,6 +924,25 @@
         return Promise.resolve({ ok: true, data: { ok: false, reason: 'notInOrder',
           message: 'Kód v objednávce není' } });
       }
+      /*
+       * Odznak objednávky proti krátké cestě ke zkratkám. Celý odznak čeká
+       * v provozu na e-shop a na dopravce; náhled telefonu si to zapne přes
+       * `window.__badgeDelay`, protože jinak by se nepoznalo, že doprava
+       * s platbou naskočí hned a nekouká se do té doby na číslo s cenou.
+       */
+      if (channel === 'orders:shorts') {
+        var shorts = {};
+        (arg || []).forEach(function (code) {
+          shorts[code] = { code: code, shipmentShort: 'Hermes', paymentShort: 'Karta' };
+        });
+        return Promise.resolve({ ok: true, data: shorts });
+      }
+      if (channel === 'orders:badge') {
+        return new Promise(function (done) {
+          setTimeout(function () { done({ ok: true, data: answers['orders:badge'] }); },
+            window.__badgeDelay || 0);
+        });
+      }
       // Seznam zpráv je jiný podle složky — odeslaná pošta ukazuje příjemce
       if (channel === 'messages:list') {
         return Promise.resolve({ ok: true, data: arguments[2] === 'Sent' ? sent : messages });

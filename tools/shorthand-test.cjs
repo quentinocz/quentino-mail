@@ -19,6 +19,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS shop_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, market TEXT NOT NULL DEFAULT 'cz',
     shipment TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '',
+    invoice TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
     UNIQUE (code, market));
   CREATE TABLE IF NOT EXISTS order_cache (
     message_pk INTEGER PRIMARY KEY, json TEXT, at TEXT NOT NULL DEFAULT '');
@@ -161,6 +162,33 @@ console.log('\nkolik je z čeho brát:\n');
 const scope = sh.shorthandScope();
 check('spočítané objednávky', scope.orders, 17);
 check('a kolik z nich má dopravu', scope.withShipment, 16);
+
+/* ---------- krátká cesta k odznaku ---------- */
+
+/*
+ * Tohle je odpověď na „u některých to funguje, u některých to píše stále
+ * číslo a cenu". Nebyla to chyba slučování: celý odznak čeká na e-shop
+ * a na dopravce, a než se vrátí, svítí v řádku číslo s částkou z předmětu.
+ * Krátká cesta jde rovnou z čísla do feedu, takže zkratky sedí hned.
+ */
+console.log('\nzkratky rovnou podle čísla:\n');
+db.prepare("INSERT INTO shop_orders (code, shipment, payment, invoice) VALUES ('23830', 'Zásilkovna Z-Box - Z-BOX', 'Platba kartou online', '250412')").run();
+
+const found = sh.shortsForCodes(['023830']);
+check('vedoucí nula z předmětu nevadí',
+  [found['023830']?.shipmentShort, found['023830']?.paymentShort], ['Zásilkovna', 'Karta']);
+check('a vrací se i číslo objednávky z feedu', found['023830']?.code, '23830');
+
+// Na faktuře je číslo faktury, ne objednávky — dohledat se musí, ale nikdy
+// zaměnit: napřed objednávka, teprve když není, faktura
+check('podle čísla faktury se objednávka dohledá',
+  sh.shortsForCodes(['250412'])['250412']?.code, '23830');
+check('co ve feedu není, se netváří, že je',
+  Object.keys(sh.shortsForCodes(['999999'])).length, 0);
+check('objednávka bez dopravy i platby odznak nepřepíše',
+  Object.keys(sh.shortsForCodes(['3'])).length, 0);
+check('ptát se jde na víc čísel najednou',
+  Object.keys(sh.shortsForCodes(['023830', '999999', 's1'])).sort(), ['023830', 's1']);
 
 console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ zkratky sedí\n');
 process.exit(failed ? 1 : 0);
