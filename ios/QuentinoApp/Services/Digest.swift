@@ -373,7 +373,7 @@ enum Digest {
     private static func stored(_ limit: Int = 6) -> [(at: String, facts: [String: Any], insight: [String: Any])] {
         ensureTable()
         let rows = (try? SQLite.shared.query(
-            "SELECT at, facts, insight FROM digest_reports ORDER BY at DESC LIMIT ?", [.int(limit)])) ?? []
+            "SELECT at, facts, insight FROM digest_reports ORDER BY at DESC LIMIT ?", [.int(Int64(limit))])) ?? []
         var out: [(at: String, facts: [String: Any], insight: [String: Any])] = []
         for row in rows {
             let facts = json(row["facts"] as? String) ?? [:]
