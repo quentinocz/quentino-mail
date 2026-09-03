@@ -22,6 +22,7 @@ import { BrowserWindow } from 'electron';
 import * as live from './live';
 import { mergeStockin, sessionOf, itemsOf, sessionSlice } from './stockin';
 import { applyPacking, packingSlice } from './packing';
+import { applyVoucherJournal } from './appsync';
 import { getDb } from './db';
 import type { LiveOffer } from '../shared/types';
 
@@ -38,6 +39,30 @@ function emit(channel: string, payload: unknown) {
  */
 const offers = new Map<string, LiveOffer>();
 
+/**
+ * Na co se právě někdo dívá.
+ *
+ * Jakmile je okno balení otevřené, proužek u balení nemá co nabízet — kdo
+ * ho má před sebou, ten se rozhodl u toho být. Přechod na jinou objednávku
+ * v telefonu se pak přepne rovnou v okně, místo aby se pod ním hromadily
+ * nabídky, které se po zavření musí jedna po druhé odklikat.
+ */
+const watching = new Set<string>();
+
+export function watchLive(kind: string, on: boolean): void {
+  if (on) {
+    watching.add(kind);
+    // Co se nabízelo, než se okno otevřelo, už nabízet nemá smysl
+    let dropped = false;
+    for (const [key, one] of offers) {
+      if (one.kind === kind) { offers.delete(key); dropped = true; }
+    }
+    if (dropped) emit('live:offers', liveOffers());
+  } else {
+    watching.delete(kind);
+  }
+}
+
 export function liveOffers(): LiveOffer[] {
   return [...offers.values()].sort((a, b) => (a.at < b.at ? 1 : -1));
 }
@@ -48,7 +73,19 @@ export function dismissOffer(key: string): LiveOffer[] {
   return liveOffers();
 }
 
+/**
+ * Nabídne rozdělanou práci — nejvýš jednu od každého druhu.
+ *
+ * Když se v telefonu proklikají čtyři objednávky za sebou, nabídky se dřív
+ * hromadily a po zavření okna se musely odklikat jedna po druhé. Zajímavá je
+ * přitom vždycky ta poslední: u té se právě stojí.
+ */
 function offer(one: LiveOffer): void {
+  // Kdo má okno otevřené, ten se rozhodl u toho být — tomu se nic nenabízí
+  if (watching.has(one.kind)) return;
+  for (const [key, old] of offers) {
+    if (old.kind === one.kind && key !== one.key) offers.delete(key);
+  }
   offers.set(one.key, one);
   emit('live:offers', liveOffers());
 }
@@ -65,6 +102,12 @@ export function startLiveWork(): void {
     if (message.kind === 'hello') { answerHello(); return; }
     if (message.kind === 'stockin') { takeStockin(message.fromName, message.data); return; }
     if (message.kind === 'packing') { takePacking(message.fromName, message.data); return; }
+    /*
+     * Poukazy se jen sloučí, nic se nenabízí. Není to rozdělaná práce, na
+     * kterou by se dalo „přejít" — je to fakt o tom, který kód je vydaný,
+     * a ten platí všude stejně.
+     */
+    if (message.kind === 'vouchers') { applyVoucherJournal(message.data); return; }
   });
 }
 
@@ -97,6 +140,8 @@ function takeStockin(from: string, data: any): void {
 
   const items = itemsOf(id);
   const pieces = items.reduce((sum, one) => sum + one.qty, 0);
+  // Otevřené okno se přepne rovnou na tuhle věc, ať se nemusí hledat
+  emit('live:work', { kind: 'stockin', id, from });
   offer({
     key: `stockin:${id}`,
     kind: 'stockin',
@@ -118,6 +163,9 @@ function takePacking(from: string, data: any): void {
    * s odškrtnutou položkou v telefonu a neodškrtnutou na obrazovce.
    */
   emit('packing:changed', applied);
+
+  // Otevřené okno se přepne rovnou na tuhle objednávku
+  emit('live:work', { kind: 'packing', id: applied.code, from });
 
   if (applied.done) { closeOffer(`packing:${applied.code}`); return; }
 

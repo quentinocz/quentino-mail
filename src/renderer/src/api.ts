@@ -16,8 +16,8 @@ import type {
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
   CleanupItem, CleanupScan,
-  ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, LabelLayout,
-  RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow
+  ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
+  RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -367,9 +367,9 @@ export const api = {
    */
   /** Slovník zkratek pro dopravu a platbu — co se vejde na odznak v seznamu */
   shorthand: {
-    list: () => call<ShorthandRow[]>('shorthand:list'),
+    list: () => call<ShorthandView>('shorthand:list'),
     save: (kind: 'shipment' | 'payment', name: string, short: string) =>
-      call<ShorthandRow[]>('shorthand:save', kind, name, short)
+      call<ShorthandView>('shorthand:save', kind, name, short)
   },
 
   live: {
@@ -377,7 +377,9 @@ export const api = {
     save: (patch: { channel?: string; enabled?: boolean }) => call<LiveStatus>('live:save', patch),
     newChannel: () => call<string>('live:newChannel'),
     offers: () => call<LiveOffer[]>('live:offers'),
-    dismiss: (key: string) => call<LiveOffer[]>('live:dismiss', key)
+    dismiss: (key: string) => call<LiveOffer[]>('live:dismiss', key),
+    /** „Tohle mám otevřené" — dokud to platí, nabídky se u toho druhu nedělají */
+    watch: (kind: 'stockin' | 'packing', on: boolean) => call<boolean>('live:watch', kind, on)
   },
   supabase: {
     status: () => call<SupabaseStatus[]>('supabase:status'),
@@ -531,7 +533,7 @@ export const api = {
     plan: (id: string) => call<StockinPlanRow[]>('stockin:plan', id),
     /** Otevře okno administrace a nasype do něj položky. Uložení tiskne člověk. */
     sendWindow: (id: string) =>
-      call<{ added: number; skipped: StockinPlanRow[]; needsLogin: boolean }>('stockin:sendWindow', id),
+      call<{ added: number; skipped: SkippedRow[]; needsLogin: boolean }>('stockin:sendWindow', id),
     sendApi: (id: string) =>
       call<{ written: number; failed: { code: string; error: string }[] }>('stockin:sendApi', id),
     apiCheck: () => call<{ can: boolean; detail: string }>('stockin:apiCheck'),

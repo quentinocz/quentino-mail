@@ -56,7 +56,7 @@ const ALLOWED_INVOKE = [
   'ptrans:googleTitles', 'ptrans:templatePreview', 'ptrans:generateSeo', 'ptrans:seoUrl',
   'ptrans:exportPreview', 'ptrans:export', 'ptrans:importFile', 'ptrans:redirectPreview',
   'supabase:status', 'supabase:ping',
-  'live:status', 'live:save', 'live:newChannel', 'live:offers', 'live:dismiss',
+  'live:status', 'live:save', 'live:newChannel', 'live:offers', 'live:dismiss', 'live:watch',
   'orderfeed:list', 'orderfeed:save', 'orderfeed:refresh',
   'orderfeed:contact', 'orderfeed:byEmail', 'orderfeed:byCode',
   'ptrans:consistency', 'ptrans:suggestPattern',
@@ -100,7 +100,7 @@ const ALLOWED_EVENTS = [
   'articles:progress', 'articles:changed', 'articles:check',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
   'stockin:changed', 'stockin:progress', 'scan:code', 'scan:qty', 'scan:closed',
-  'live:state', 'live:offers', 'packing:changed'
+  'live:state', 'live:offers', 'live:work', 'packing:changed'
 ];
 
 contextBridge.exposeInMainWorld('api', {

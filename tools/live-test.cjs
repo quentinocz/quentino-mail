@@ -360,6 +360,47 @@ async function run() {
   process.exit(failed ? 1 : 0);
 }
 
+/*
+ * Nabídky se nesmí hromadit. Když se v telefonu proklikají čtyři objednávky
+ * za sebou, dřív pod otevřeným oknem zbyly čtyři nabídky, které se po
+ * zavření musely jedna po druhé odklikat. Zajímavá je vždycky ta poslední.
+ */
+console.log('\nnabídky se nehromadí:\n');
+for (const code of ['20260901', '20260902', '20260903']) {
+  db.prepare(`INSERT OR IGNORE INTO packing_shop (code, market) VALUES ('${code}', 'cz')`).run();
+  deliver(message('packing', {
+    code, market: 'cz', packed: '[]', counts: '{}', done: false, doneAt: null,
+    at: '2026-09-02T10:00:00.000Z'
+  }));
+}
+check('nabízí se jen ta poslední',
+  work.liveOffers().filter(o => o.kind === 'packing').map(o => o.id), ['20260903']);
+
+/*
+ * A když je okno otevřené, nenabízí se nic — kdo si balení otevřel, ten se
+ * rozhodl u toho být a přechod na jinou objednávku se přepne rovnou v okně.
+ */
+console.log('\nkdyž je okno otevřené:\n');
+work.watchLive('packing', true);
+check('otevřením okna nabídky u balení zmizí',
+  work.liveOffers().filter(o => o.kind === 'packing').length, 0);
+deliver(message('packing', {
+  code: '20260904', market: 'cz', packed: '[]', counts: '{}', done: false, doneAt: null,
+  at: '2026-09-02T10:01:00.000Z'
+}));
+check('a další se nenabídne', work.liveOffers().filter(o => o.kind === 'packing').length, 0);
+/*
+ * Naskladnění se tím nedotkne — hlídá se každý druh zvlášť. (Nové id:
+ * odeslané naskladnění se schválně nevrací mezi rozdělaná.)
+ */
+deliver(message('stockin', {
+  sessions: [{ ...slice.sessions[0], id: 'tel-jine', updated_at: '2026-09-02T10:02:00.000Z' }],
+  items: slice.items.map(one => ({ ...one, session_id: 'tel-jine' }))
+}));
+check('naskladnění se nabízí dál', work.liveOffers().filter(o => o.kind === 'stockin').length, 1);
+work.watchLive('packing', false);
+work.dismissOffer('stockin:tel-jine');
+
 /* ---------- podoba zpráv ---------- */
 
 console.log('\nco se posílá:\n');

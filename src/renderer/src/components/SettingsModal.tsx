@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang,
-  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow } from '@shared/types';
+  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow, ShorthandView } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -1287,39 +1287,64 @@ function OrderFeedsField() {
  */
 function ShorthandField() {
   const [rows, setRows] = useState<ShorthandRow[]>([]);
+  const [scope, setScope] = useState({ orders: 0, withShipment: 0, withPayment: 0 });
   const [busy, setBusy] = useState('');
+  /** Ruční přidání — když e-shop dopravu zrovna zavedl nebo přejmenoval */
+  const [adding, setAdding] = useState<{ kind: ShorthandRow['kind']; name: string; short: string } | null>(null);
+
+  const take = (view: ShorthandView | null) => {
+    setRows(Array.isArray(view?.rows) ? view!.rows : []);
+    if (view?.scope) setScope(view.scope);
+  };
 
   // Starší verze aplikace v telefonu kanál nezná a vrátí prázdno — pole
   // s rozhraním se kvůli tomu nesmí rozsypat
-  useEffect(() => {
-    api.shorthand.list().then(list => setRows(Array.isArray(list) ? list : [])).catch(() => {});
-  }, []);
+  useEffect(() => { api.shorthand.list().then(take).catch(() => {}); }, []);
 
-  const save = (row: ShorthandRow, value: string) => {
+  const save = (kind: ShorthandRow['kind'], name: string, value: string) => {
     setRows(prev => prev.map(one =>
-      one.kind === row.kind && one.name === row.name ? { ...one, short: value } : one));
-    setBusy(`${row.kind}:${row.name}`);
-    api.shorthand.save(row.kind, row.name, value)
-      .then(list => setRows(Array.isArray(list) ? list : []))
+      one.kind === kind && one.name === name ? { ...one, short: value } : one));
+    setBusy(`${kind}:${name}`);
+    api.shorthand.save(kind, name, value)
+      .then(take)
       .catch(() => {})
       .finally(() => setBusy(''));
   };
 
   const group = (kind: ShorthandRow['kind'], title: string) => {
     const mine = rows.filter(one => one.kind === kind);
-    if (mine.length === 0) return null;
     return (
       <div className="sh-group">
         <b>{title}</b>
         {mine.map(row => (
           <label key={`${row.kind}:${row.name}`} className="sh-row">
             <span className="sh-name" title={row.name}>{row.name}</span>
-            <span className="sh-count">{row.count}×</span>
+            {/* Nula znamená „už to v objednávkách není, ale zkratka zůstala" */}
+            <span className="sh-count">{row.count > 0 ? `${row.count}×` : 'ručně'}</span>
             <input value={row.short} placeholder={row.guess} spellCheck={false} maxLength={14}
-              onChange={e => save(row, e.target.value)} />
+              onChange={e => save(row.kind, row.name, e.target.value)} />
             {busy === `${row.kind}:${row.name}` && <span className="spinner-inline" />}
           </label>
         ))}
+        {adding?.kind === kind ? (
+          <div className="sh-row">
+            <input className="sh-name-in" placeholder="Název tak, jak ho píše e-shop" autoFocus
+              value={adding.name} onChange={e => setAdding({ ...adding, name: e.target.value })} />
+            <input placeholder="zkratka" maxLength={14}
+              value={adding.short} onChange={e => setAdding({ ...adding, short: e.target.value })} />
+            <button className="btn ghost" disabled={!adding.name.trim() || !adding.short.trim()}
+              onClick={() => {
+                save(kind, adding.name.trim(), adding.short.trim());
+                setAdding(null);
+              }}>Uložit</button>
+            <button className="btn ghost" onClick={() => setAdding(null)}>Zrušit</button>
+          </div>
+        ) : (
+          <button className="btn ghost sh-add"
+            onClick={() => setAdding({ kind, name: '', short: '' })}>
+            <Icon name="plus" size={12} /> Přidat ručně
+          </button>
+        )}
       </div>
     );
   };
@@ -1329,17 +1354,25 @@ function ShorthandField() {
       <label><Icon name="truck" size={13} /> Zkratky dopravy a plateb</label>
       <div className="desc">
         Co se ukáže u objednávky v seznamu pošty na telefonu — místo čísla a částky,
-        které se z odznaku stejně nečtou. Nabízí se to, co je v načtených objednávkách.
-        Necháš-li pole prázdné, platí odhad v něm napsaný.
+        které se z odznaku stejně nečtou. Necháš-li pole prázdné, platí odhad v něm napsaný.
       </div>
-      {rows.length === 0 ? (
-        <div className="desc">Zatím nejsou načtené žádné objednávky — načti feed objednávek výš.</div>
-      ) : (
-        <div className="sh-list">
-          {group('shipment', 'Doprava')}
-          {group('payment', 'Platba')}
-        </div>
-      )}
+      <div className="sh-list">
+        {group('shipment', 'Doprava')}
+        {group('payment', 'Platba')}
+      </div>
+      {/*
+        * Odkud se seznam bere. Bez tohohle řádku vypadalo prázdné nastavení
+        * jako pokažené — a přitom jen nebylo z čeho brát.
+        */}
+      <div className="desc">
+        {scope.orders === 0
+          ? 'Nabídka se staví z načtených objednávek — zatím žádné nejsou, načti feed objednávek výš.'
+          : `Z ${scope.orders} načtených objednávek má vyplněnou dopravu ${scope.withShipment}`
+            + ` a platbu ${scope.withPayment}.`
+            + (scope.withShipment === 0
+              ? ' Starší objednávky dopravu nenesou — stáhni feed znovu, nebo si názvy přidej ručně.'
+              : '')}
+      </div>
     </div>
   );
 }

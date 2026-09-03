@@ -582,6 +582,22 @@ function Stockin({ phone, openId: startWith, onPrintLabels, onScanPanel }: {
     if (!openId) return;
     api.stockin.working(openId).catch(() => {});
   }, [openId]);
+
+  /*
+   * Dokud je otevřené naskladnění, nic se u něj nenabízí proužkem — okno se
+   * rovnou přepne na to, na kterém se v telefonu pracuje. Nabídky pod
+   * otevřeným oknem by se jen hromadily.
+   */
+  useEffect(() => {
+    if (!openId) return;
+    api.live.watch('stockin', true).catch(() => {});
+    return () => { api.live.watch('stockin', false).catch(() => {}); };
+  }, [openId]);
+
+  useEffect(() => api.on('live:work', (work: any) => {
+    if (work?.kind !== 'stockin' || !work.id) return;
+    setOpenId(prev => (prev && prev !== String(work.id) ? String(work.id) : prev));
+  }), []);
   // Zavřené naskladnění (i zavřené okno) nesmí nechat viset hledáček
   useEffect(() => () => { void api.scan.stop().catch(() => {}); onScanPanel?.(0); }, [onScanPanel]);
   useEffect(() => api.on('stockin:progress', (p: any) => setProgress(p)), []);
@@ -741,8 +757,15 @@ function Stockin({ phone, openId: startWith, onPrintLabels, onScanPanel }: {
       if (out.needsLogin) {
         toast('Přihlas se v okně administrace a spusť odeslání znovu.', 'error');
       } else {
+        /*
+         * U nedodělaných řádků se říká i proč. „3 se nepodařilo" nešlo
+         * spravit — chybějící číslo z feedu se opraví stažením feedu, kdežto
+         * nenalezená varianta se musí dodat ručně, a to jsou dvě jiné věci.
+         */
+        const duvody = [...new Set(out.skipped.map(one => one.reason).filter(Boolean))];
         toast(out.skipped.length
-          ? `Vloženo ${out.added} položek, ${out.skipped.length} se nepodařilo — dodej je v okně ručně.`
+          ? `Vloženo ${out.added} položek, ${out.skipped.length} se nepodařilo`
+            + `${duvody.length ? ` (${duvody.join(', ')})` : ''} — dodej je v okně ručně.`
           : `Vloženo ${out.added} položek. Zkontroluj je v okně a ulož.`,
           out.skipped.length ? 'error' : 'info');
         if (out.added > 0) setAwaiting(true);

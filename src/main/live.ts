@@ -58,8 +58,12 @@ const RETRY_MAX_MS = 60_000;
  * dělo, a broadcast se nikam neukládá. Ostatní na pozdrav odpoví tím, co
  * mají rozdělané — jinak by aplikace zapnutá uprostřed naskladnění o něm
  * nevěděla až do prvního dalšího pípnutí.
+ *
+ * `vouchers` je deník poukazů. U nich na rychlosti záleží nejvíc ze všeho:
+ * dvě zařízení, která o sobě nevědí, můžou vydat týž kód dvakrát — a pozná
+ * se to až u zákazníka, který ho nemůže uplatnit.
  */
-export type LiveKind = 'stockin' | 'packing' | 'hello';
+export type LiveKind = 'stockin' | 'packing' | 'vouchers' | 'hello';
 
 export interface LiveMessage {
   kind: LiveKind;

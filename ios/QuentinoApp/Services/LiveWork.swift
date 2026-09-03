@@ -19,6 +19,15 @@ enum LiveWork {
             case "hello": answerHello()
             case "stockin": takeStockin(message["data"])
             case "packing": takePacking(message["data"])
+            /*
+             Poukazy se jen sloučí. Není to rozdělaná práce, na kterou by se
+             dalo „přejít" — je to fakt o tom, který kód je vydaný, a ten
+             platí všude stejně.
+             */
+            case "vouchers":
+                if let journal = message["data"] as? [String: Any] {
+                    AppSync.applyVoucherJournal(journal)
+                }
             default: break
             }
         }

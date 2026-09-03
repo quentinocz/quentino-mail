@@ -679,6 +679,17 @@ export interface OrderBadge {
   paymentShort: string | null;
 }
 
+/**
+ * Slovník zkratek i s tím, z čeho se sestavil.
+ *
+ * Kdyby zůstal prázdný, `scope` je jediné, co řekne proč: jestli nejsou
+ * stažené objednávky, nebo jestli stažené jsou, ale doprava v nich chybí.
+ */
+export interface ShorthandView {
+  rows: ShorthandRow[];
+  scope: { orders: number; withShipment: number; withPayment: number };
+}
+
 /** Řádek slovníku zkratek pro dopravu a platbu */
 export interface ShorthandRow {
   kind: 'shipment' | 'payment';
@@ -1581,6 +1592,17 @@ export interface StockinPlanRow {
   stockBefore: number | null;
   /** Zásoba se od načtení změnila */
   moved: boolean;
+}
+
+/**
+ * Řádek, který se do formuláře v administraci nedostal — a proč.
+ *
+ * Bez důvodu byla jediná zpětná vazba „3 se nepodařilo" a nedalo se poznat,
+ * jestli chybí vnitřní číslo z feedu, nebo se nenašla varianta. Jsou to dvě
+ * úplně jiné opravy: první se spraví stažením feedu, druhá ručním dodáním.
+ */
+export interface SkippedRow extends StockinPlanRow {
+  reason: string;
 }
 
 /**

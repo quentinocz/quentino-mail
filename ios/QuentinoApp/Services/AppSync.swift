@@ -378,8 +378,75 @@ enum AppSync {
         pushTask = Task.detached(priority: .utility) {
             try? await Task.sleep(nanoseconds: 500_000_000)
             if Task.isCancelled { return }
+            /*
+             Nejdřív po drátě, pak do složky. Posel doručí do vteřiny, kdežto
+             složka podle toho, jak rychle cloud nahraje soubor — a u poukazů
+             na tom záleží: dvě zařízení, která o sobě nevědí, můžou vydat
+             týž kód dvakrát a pozná se to až u zákazníka.
+             */
+            publishVouchers()
             syncVouchersNow()
         }
+    }
+
+    // MARK: - Poukazy po drátě
+
+    /**
+     Strop na zprávu poslanou po drátě.
+
+     Broadcast má omezenou velikost a deník roste s počtem kódů. Když se
+     nevejde, prostě se nepošle a doručí ho složka — pomaleji, ale
+     spolehlivě. Mlčky se nic neztrácí.
+     */
+    private static let maxLiveJournal = 200_000
+
+    /// Deník poukazů — tentýž tvar, jaký leží ve sdílené složce.
+    static func voucherJournal() -> [String: Any] {
+        [
+            "device": Device.id(),
+            "name": Device.label(),
+            "updatedAt": Formats.iso(),
+            "templates": (try? SQLite.shared.query("SELECT * FROM voucher_templates")) ?? [],
+            "codes": (try? SQLite.shared.query("SELECT * FROM voucher_codes")) ?? []
+        ]
+    }
+
+    private static func publishVouchers() {
+        let journal = voucherJournal()
+        guard JSONSerialization.isValidJSONObject(journal),
+              let data = try? JSONSerialization.data(withJSONObject: journal),
+              data.count <= maxLiveJournal else { return }
+        Live.publish("vouchers", journal)
+    }
+
+    /**
+     Přijatý deník od druhého zařízení.
+
+     Slučuje se týmž kódem jako deník ze složky — jediný rozdíl je, že sem
+     dorazil po vteřině místo po minutě. Zpátky se nic neposílá: dvě zařízení
+     by si zprávy přehazovala tam a zpět a srovnat zbytek je práce pro složku,
+     která běží tak jako tak.
+     */
+    static func applyVoucherJournal(_ journal: [String: Any]) {
+        guard (journal["device"] as? String) != Device.id() else { return }
+        var names: [String: String] = [:]
+        let device = journal["device"] as? String ?? ""
+        if !device.isEmpty {
+            names[device] = (journal["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? String(device.prefix(8))
+        }
+
+        var clashes = 0
+        var changed = 0
+        _ = try? SQLite.shared.transaction {
+            changed += mergeVoucherTemplates(journal["templates"] as? [[String: Any]] ?? [])
+            let result = mergeVoucherCodes(journal["codes"] as? [[String: Any]] ?? [], names: names)
+            clashes += result.clashes
+            changed += result.changed
+        }
+
+        if changed > 0 { Bridge.notify("vouchers:changed") }
+        if clashes > 0 { Bridge.notify("vouchers:clash") }
     }
 
     private static func readVoucherJournals(_ folder: URL) -> [[String: Any]] {

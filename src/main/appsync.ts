@@ -10,6 +10,7 @@ import { listAccounts } from './accounts';
 import { storeParsedMessage } from './imap';
 import { deviceId, deviceLabel } from './device';
 import { claimAll } from './vouchers';
+import * as live from './live';
 
 /**
  * Synchronizace mezi zařízeními přes sdílenou složku (Dropbox, OneDrive, Google Drive,
@@ -390,6 +391,69 @@ function syncVouchers(dir: string): string | null {
  */
 let vouchersRunning = false;
 
+/**
+ * Deník poukazů — tentýž tvar, jaký leží ve sdílené složce.
+ *
+ * Používá ho rychlý posel přes Supabase: druhá strana ho sloučí přesně tím
+ * kódem, který by jinak spustila složka, takže není co psát dvakrát.
+ */
+export function voucherJournal(): VoucherJournal {
+  const d = getDb();
+  return {
+    device: deviceId(),
+    name: deviceLabel(),
+    updatedAt: new Date().toISOString(),
+    templates: d.prepare('SELECT * FROM voucher_templates').all() as any[],
+    codes: d.prepare('SELECT * FROM voucher_codes').all() as any[]
+  };
+}
+
+/**
+ * Přijatý deník od druhého zařízení.
+ *
+ * Slučuje se týmž kódem jako deník ze složky — jediný rozdíl je, že sem
+ * dorazil po vteřině místo po minutě. Vlastní deník se zahazuje: co víme,
+ * víme.
+ *
+ * Zpátky se nic neposílá. Kdyby ano, dvě zařízení by si zprávy přehazovala
+ * tam a zpět; srovnat zbytek je práce pro složku, která běží tak jako tak.
+ */
+export function applyVoucherJournal(journal: any): { changed: number; clashes: number } {
+  if (!journal || journal.device === deviceId()) return { changed: 0, clashes: 0 };
+  const names = deviceNames([journal as VoucherJournal]);
+
+  let changed = 0;
+  let clashes = 0;
+  getDb().transaction(() => {
+    changed += mergeTemplates(journal.templates ?? []);
+    const out = mergeCodes(journal.codes ?? [], names);
+    changed += out.changed;
+    clashes += out.clashes;
+  })();
+
+  if (changed) emit('vouchers:changed', {});
+  if (clashes) emit('vouchers:clash', {});
+  return { changed, clashes };
+}
+
+/**
+ * Strop na zprávu poslanou po drátě.
+ *
+ * Broadcast má omezenou velikost a deník roste s počtem kódů. Když se
+ * nevejde, prostě se nepošle a doručí ho složka — pomaleji, ale spolehlivě.
+ * Mlčky se nic neztrácí.
+ */
+const MAX_LIVE_JOURNAL = 200_000;
+
+/** Pošle deník poukazů druhému zařízení, pokud se vejde. */
+function publishVouchers(): void {
+  try {
+    const journal = voucherJournal();
+    if (JSON.stringify(journal).length > MAX_LIVE_JOURNAL) return;
+    live.publish('vouchers', journal);
+  } catch { /* posel je jen zkratka, složka doručí */ }
+}
+
 export function syncVouchersNow(): void {
   const cfg = getSyncConfig();
   if (!cfg.enabled || !cfg.folder || vouchersRunning) return;
@@ -410,7 +474,17 @@ let pushTimer: NodeJS.Timeout | null = null;
  */
 export function pushVouchersSoon(): void {
   if (pushTimer) clearTimeout(pushTimer);
-  pushTimer = setTimeout(() => { pushTimer = null; syncVouchersNow(); }, 500);
+  pushTimer = setTimeout(() => {
+    pushTimer = null;
+    /*
+     * Nejdřív po drátě, pak do složky. Posel doručí do vteřiny, kdežto
+     * složka podle toho, jak rychle cloud nahraje soubor — a u poukazů
+     * na tom záleží: dvě zařízení, která o sobě nevědí, můžou vydat týž
+     * kód dvakrát a pozná se to až u zákazníka.
+     */
+    publishVouchers();
+    syncVouchersNow();
+  }, 500);
 }
 
 /**

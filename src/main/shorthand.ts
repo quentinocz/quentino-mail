@@ -90,13 +90,32 @@ export function guessShort(name: string): string {
   return first.length > 12 ? `${first.slice(0, 11)}…` : first;
 }
 
-function saved(): Record<string, string> {
-  try {
-    const raw = JSON.parse(getSetting(KEY, '{}') || '{}');
-    return raw && typeof raw === 'object' ? raw as Record<string, string> : {};
-  } catch {
-    return {};
+/**
+ * Uložený slovník.
+ *
+ * U každého záznamu se drží i **název tak, jak ho někdo napsal**. Klíč je
+ * kvůli porovnávání malými písmeny, takže sám o sobě by z „Balíkovna" udělal
+ * „balíkovna" — a přesně tak by se to pak ukazovalo v nastavení. Starší
+ * zápisy jsou holý text a čtou se dál.
+ */
+interface SavedEntry { name: string; short: string }
+
+function saved(): Record<string, SavedEntry> {
+  let raw: any = null;
+  try { raw = JSON.parse(getSetting(KEY, '{}') || '{}'); } catch { return {}; }
+  if (!raw || typeof raw !== 'object') return {};
+
+  const out: Record<string, SavedEntry> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'string') {
+      // Starší podoba: jen zkratka, název se odvodí z klíče
+      out[key] = { name: key.slice(key.indexOf(':') + 1), short: value };
+    } else if (value && typeof value === 'object') {
+      const one = value as any;
+      out[key] = { name: String(one.name ?? ''), short: String(one.short ?? '') };
+    }
   }
+  return out;
 }
 
 /** Klíč do slovníku — druh a název, ať se „Zdarma" u dopravy neplete s platbou. */
@@ -109,46 +128,129 @@ export function shortFor(kind: ShorthandKind, name: string | null | undefined): 
   const text = (name ?? '').trim();
   if (!text) return '';
   const mine = saved()[keyOf(kind, text)];
-  return (mine ?? '').trim() || guessShort(text);
+  return (mine?.short ?? '').trim() || guessShort(text);
 }
 
 /**
- * Co všechno se ve feedu vyskytlo — podklad pro nastavení.
+ * Co všechno se vyskytlo — podklad pro nastavení.
  *
- * Nabízí se jen to, co v objednávkách doopravdy je. Vypisovat seznam všeho,
- * co e-shop umí nabídnout, by znamenalo dvacet řádků, ze kterých se používají
- * tři.
+ * Sbírá se ze **tří míst**, protože žádné samo o sobě nestačí:
+ *
+ *  1. feed objednávek (`shop_orders`) — nejspolehlivější, ale sloupce
+ *     `shipment` a `payment` se plní teprve od chvíle, kdy se feed stáhl
+ *     verzí, která je umí číst; starší řádky je mají prázdné,
+ *  2. rozebrané potvrzovací e-maily (`order_cache`) — tam je doprava
+ *     a platba tak, jak si ji zákazník vybral,
+ *  3. co už je ve slovníku — zkratka napsaná ručně nesmí zmizet jen proto,
+ *     že se objednávka mezitím vysypala z feedu.
+ *
+ * První verze četla jen feed a u prázdných sloupců neukázala vůbec nic —
+ * nastavení pak vypadalo pokažené, i když fungovalo přesně tak, jak bylo
+ * napsané.
  */
 export function shorthandRows(): ShorthandRow[] {
-  const d = getDb();
   const mine = saved();
-  const out: ShorthandRow[] = [];
+  const counts = new Map<string, { kind: ShorthandKind; name: string; count: number }>();
 
+  const add = (kind: ShorthandKind, raw: unknown, by = 1) => {
+    const name = String(raw ?? '').trim();
+    if (!name) return;
+    const key = keyOf(kind, name);
+    const found = counts.get(key);
+    if (found) found.count += by;
+    else counts.set(key, { kind, name, count: by });
+  };
+
+  const d = getDb();
+
+  // 1) Feed objednávek
   for (const kind of ['shipment', 'payment'] as ShorthandKind[]) {
+    try {
+      const rows = d.prepare(
+        `SELECT ${kind} AS name, COUNT(*) AS cnt FROM shop_orders
+          WHERE ${kind} IS NOT NULL AND ${kind} != '' GROUP BY ${kind}`
+      ).all() as any[];
+      for (const row of rows) add(kind, row.name, Number(row.cnt ?? 1));
+    } catch { /* starší databáze ten sloupec mít nemusí */ }
+  }
+
+  // 2) Rozebrané potvrzovací e-maily
+  try {
     const rows = d.prepare(
-      `SELECT ${kind} AS name, COUNT(*) AS cnt FROM shop_orders
-        WHERE ${kind} != '' GROUP BY ${kind} ORDER BY cnt DESC, name`
+      'SELECT json FROM order_cache WHERE json IS NOT NULL ORDER BY at DESC LIMIT 500'
     ).all() as any[];
     for (const row of rows) {
-      const name = String(row.name ?? '');
-      out.push({
-        kind,
-        name,
-        short: (mine[keyOf(kind, name)] ?? '').trim(),
-        guess: guessShort(name),
-        count: Number(row.cnt ?? 0)
-      });
+      let card: any = null;
+      try { card = JSON.parse(row.json); } catch { continue; }
+      add('shipment', card?.shipmentName);
+      add('payment', card?.paymentName);
+    }
+  } catch { /* tabulka nemusí být */ }
+
+  // 3) Co je ve slovníku — ručně napsaná zkratka nesmí zmizet
+  for (const [key, entry] of Object.entries(mine)) {
+    const cut = key.indexOf(':');
+    if (cut < 0) continue;
+    const kind = key.slice(0, cut) as ShorthandKind;
+    if (kind !== 'shipment' && kind !== 'payment') continue;
+    // Název z uloženého záznamu, ne z klíče — ten je malými písmeny
+    if (!counts.has(key)) {
+      counts.set(key, { kind, name: entry.name || key.slice(cut + 1), count: 0 });
     }
   }
-  return out;
+
+  return [...counts.values()]
+    .map(one => ({
+      kind: one.kind,
+      name: one.name,
+      short: (mine[keyOf(one.kind, one.name)]?.short ?? '').trim(),
+      guess: guessShort(one.name),
+      count: one.count
+    }))
+    .sort((a, b) => (a.kind === b.kind
+      ? (b.count - a.count) || a.name.localeCompare(b.name, 'cs')
+      : (a.kind === 'shipment' ? -1 : 1)));
 }
 
-/** Uloží zkratku; prázdná ji ze slovníku vyhodí a vrátí se k odhadu. */
+/**
+ * Kolik objednávek se prošlo a kolik z nich dopravu vůbec mělo.
+ *
+ * Když nabídka zůstane prázdná, tohle je jediné, co řekne proč: jestli
+ * nejsou stažené objednávky, nebo jestli je stažené jsou, ale doprava v nich
+ * chybí. Bez toho by v nastavení bylo prázdno bez vysvětlení.
+ */
+export function shorthandScope(): { orders: number; withShipment: number; withPayment: number } {
+  const d = getDb();
+  const count = (sql: string) => {
+    try { return Number((d.prepare(sql).get() as any)?.n ?? 0); } catch { return 0; }
+  };
+  return {
+    orders: count('SELECT COUNT(*) AS n FROM shop_orders'),
+    withShipment: count("SELECT COUNT(*) AS n FROM shop_orders WHERE shipment != ''"),
+    withPayment: count("SELECT COUNT(*) AS n FROM shop_orders WHERE payment != ''")
+  };
+}
+
+/**
+ * Uloží zkratku; prázdná ji ze slovníku vyhodí a vrátí se k odhadu.
+ *
+ * Zapsat se dá i k názvu, který zatím v žádné objednávce není — když e-shop
+ * dopravu právě zavedl nebo přejmenoval, nemá smysl čekat, až přijde první
+ * objednávka.
+ */
 export function saveShorthand(kind: ShorthandKind, name: string, short: string): ShorthandRow[] {
   const mine = saved();
-  const key = keyOf(kind, name);
+  const clean = (name ?? '').trim();
+  if (!clean) return shorthandRows();
+
+  const key = keyOf(kind, clean);
   const value = (short ?? '').trim();
-  if (value) mine[key] = value; else delete mine[key];
+  /*
+   * Prázdná zkratka u názvu, který se nikde jinde nebere, by řádek nechala
+   * viset naprázdno — proto se ukládá i sám název, aby se dal ze seznamu
+   * zase vyhodit smazáním zkratky.
+   */
+  if (value) mine[key] = { name: clean, short: value }; else delete mine[key];
   setSetting(KEY, JSON.stringify(mine));
   return shorthandRows();
 }
