@@ -334,7 +334,7 @@ function AppInner() {
       {aiTool === 'catalog' && (
         <CatalogModal openStockin={liveStockin} onClose={() => { setAiTool(null); setLiveStockin(null); }} />
       )}
-      {/* Přehled dne a balení se otevírají z nabídky Funkce, která je ve všech
+      {/* AI přehled a balení se otevírají z nabídky Funkce, která je ve všech
           prostorech — proto se kreslí tady, ne jen v poště */}
       {digestOpen && (
         <DigestModal

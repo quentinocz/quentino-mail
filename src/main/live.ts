@@ -63,7 +63,12 @@ const RETRY_MAX_MS = 60_000;
  * dvě zařízení, která o sobě nevědí, můžou vydat týž kód dvakrát — a pozná
  * se to až u zákazníka, který ho nemůže uplatnit.
  */
-export type LiveKind = 'stockin' | 'packing' | 'vouchers' | 'hello';
+/*
+ * `digest` jsou postřehy z AI přehledu. Stojí peníze a den co den vyjdou
+ * stejné, takže nemá smysl je počítat na čtyřech zařízeních zvlášť — kdo je
+ * udělá první, pošle je ostatním.
+ */
+export type LiveKind = 'stockin' | 'packing' | 'vouchers' | 'digest' | 'hello';
 
 export interface LiveMessage {
   kind: LiveKind;

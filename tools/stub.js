@@ -134,14 +134,61 @@
           shipments: slice([['Zásilkovna', 44], ['PPL', 26], ['Balíkovna', 14], ['Osobně', 7], ['Hermes', 5]]),
           payments: slice([['Karta', 58], ['Dobírka', 27], ['Převod', 11]]),
           products: [
-            { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 34, orders: 31, revenue: 43860 },
-            { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 21, orders: 19, revenue: 12495 },
-            { code: 'QK-007', title: 'Kšandy tmavě modré', qty: 12, orders: 12, revenue: 10680 },
-            { code: 'QW-311', title: 'Peněženka Slim', qty: 9, orders: 9, revenue: 11610 }
+            { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 34, orders: 31, revenue: 43860,
+              estimated: false, variants: [{ label: '110 cm', qty: 20 }, { label: '120 cm', qty: 14 }] },
+            { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 21, orders: 19, revenue: 12495,
+              estimated: false, variants: [] },
+            { code: 'QK-007', title: 'Kšandy tmavě modré', qty: 12, orders: 12, revenue: 10680,
+              estimated: true, variants: [{ label: '110 cm', qty: 7 }, { label: '120 cm', qty: 5 }] },
+            { code: 'QW-311', title: 'Peněženka Slim', qty: 9, orders: 9, revenue: 11610,
+              estimated: false, variants: [] }
           ],
           returning: 23,
           average: 1765,
           monthDays: 3,
+          purchases: 108,
+          duplicates: 5,
+          statuses: [
+            { key: 'Vyřízena', label: 'Vyřízena', orders: 74, revenue: 128000 },
+            { key: 'Přijata', label: 'Přijata', orders: 28, revenue: 51000 },
+            { key: 'Čeká na platbu', label: 'Čeká na platbu', orders: 7, revenue: 11400 },
+            { key: 'Stornována', label: 'Stornována', orders: 4, revenue: 0 }
+          ],
+          sizes: [
+            { label: '110 cm', qty: 41, products: 7 },
+            { label: '120 cm', qty: 22, products: 6 },
+            { label: '100 cm', qty: 9, products: 4 }
+          ],
+          history: {
+            coverage: 13,
+            lastYear: { orders: 88, revenue: 141000 },
+            rank: { better: 9, of: 12 },
+            months: (function () {
+              var out = [];
+              for (var back = 12; back >= 0; back--) {
+                var d = new Date(Date.now() - back * 30 * 86400e3);
+                var month = d.toISOString().slice(0, 7);
+                // Prosinec bývá silný — na tom je vidět, že sezóna není výmysl
+                var vanoce = d.getMonth() === 11;
+                var orders = vanoce ? 210 : 70 + ((back * 13) % 40);
+                out.push({ month: month, orders: orders, cancelled: 3, revenue: orders * 1700,
+                  currency: 'CZK', items: orders + 30, customers: orders - 8, complete: back > 0 });
+              }
+              return out;
+            })(),
+            season: {
+              month: '2026-12', label: 'prosinec', index: 1.9, startBy: '2026-11-10',
+              text: 'Prosinec bývá o 90 % silnější než průměrný měsíc — chystat se má do 10. 11.',
+              basis: 'průměrně 6,8 objednávky na den proti celoročním 3,6, z 13 měsíců historie'
+            }
+          },
+          social: {
+            posts: 6, likes: 742, comments: 38,
+            best: { at: new Date(Date.now() - 5 * 86400e3).toISOString(),
+              caption: 'Nové kšandy v cihlové', likes: 214, comments: 12,
+              permalink: 'https://instagram.com/p/x', markets: 3 },
+            daysWithPost: 6, ordersWithPost: 5.2, ordersWithout: 3.4, prevPosts: 2
+          },
           /*
            * Signály. Spočítal je kód, ne AI — proto je pod každou větou
            * vidět, z čeho vznikla.
@@ -189,8 +236,31 @@
         },
         nextInsightAt: new Date(Date.now() + 19 * 3600e3).toISOString(),
         insightError: null,
-        chatError: null
+        chatError: null,
+        // Návštěvnost z GA4 přes Sequel — jediná čísla, která nejsou z feedu
+        ga4: {
+          at: new Date(Date.now() - 4 * 3600e3).toISOString(),
+          window: { sessions: 5120, users: 3980, purchases: 113, revenue: 194600 },
+          prevWindow: { sessions: 4730, users: 3610, purchases: 96, revenue: 168300 },
+          sources: [
+            { name: 'google / organic', sessions: 2410 },
+            { name: 'google / cpc', sessions: 1180 },
+            { name: '(direct) / (none)', sessions: 760 }
+          ],
+          conversion: 2.2, prevConversion: 2, text: '', error: null
+        }
       };
+    })(),
+    'digest:archive': (function () {
+      var out = [];
+      for (var back = 0; back < 14; back++) {
+        out.push({
+          at: new Date(Date.now() - back * 86400e3).toISOString(),
+          headline: back === 0 ? 'Měsíc jde o 15 % nad srpen.' : 'Klidný den, tržba drží.',
+          orders: 113 - back, revenue: 194600 - back * 1500, currency: 'CZK'
+        });
+      }
+      return out;
     })(),
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
       + 'Kdyby dobírka měla příplatek 30 Kč, spadla by nejspíš i ta zbylá čtvrtina.',

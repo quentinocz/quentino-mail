@@ -10,6 +10,7 @@ import { listAccounts } from './accounts';
 import { storeParsedMessage } from './imap';
 import { deviceId, deviceLabel } from './device';
 import { claimAll } from './vouchers';
+import { digestShare, applyDigestShare } from './digest';
 import * as live from './live';
 
 /**
@@ -599,6 +600,27 @@ function syncStockin(dir: string): void {
   fs.renameSync(tmp, file);
 }
 
+/* ---------- AI přehled (postřehy jednou za den pro všechna zařízení) ---------- */
+
+/**
+ * Postřehy z AI přehledu.
+ *
+ * Vznikají jednou za den a jsou pro všechna zařízení stejné — každé si je
+ * počítat zvlášť znamená platit totéž čtyřikrát. Živý posel je pošle hned,
+ * tohle je pojistka pro zařízení, které bylo zrovna vypnuté: **novější
+ * vyhrává**, slučovat se nemá co.
+ */
+function syncDigest(dir: string): void {
+  const file = path.join(dir, 'digest.json');
+  let remote: any = null;
+  try { remote = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* první běh */ }
+  if (remote) applyDigestShare(remote);
+
+  const mine = digestShare();
+  const remoteAt = String(remote?.insight?.at ?? remote?.at ?? '');
+  if (mine && mine.at > remoteAt) writeJson(file, mine);
+}
+
 /* ---------- Kontakty (sjednocení) ---------- */
 
 function syncContacts(dir: string): void {
@@ -736,6 +758,13 @@ export async function runSync(): Promise<string> {
 
     // 2) Kontakty — sjednocení
     syncContacts(dir);
+
+    // 2b) AI přehled — postřehy dne se počítají jednou, ne na každém zařízení
+    try {
+      syncDigest(dir);
+    } catch (e: any) {
+      parts.push(`přehled: ${e?.message ?? e}`);
+    }
 
     // 3) Poukazy — šablony i vydané kódy, po řádcích a přes deníky zařízení
     try {

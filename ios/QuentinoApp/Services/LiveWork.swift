@@ -28,6 +28,15 @@ enum LiveWork {
                 if let journal = message["data"] as? [String: Any] {
                     AppSync.applyVoucherJournal(journal)
                 }
+            /*
+             Postřehy z AI přehledu. Vznikají jednou za den a jsou pro
+             všechna zařízení stejné — kdo je udělá první, pošle je
+             ostatním, aby je nemuseli platit znovu.
+             */
+            case "digest":
+                if Digest.applyShare(message["data"]) {
+                    Bridge.current?.emitAsync("digest:changed")
+                }
             default: break
             }
         }

@@ -23,6 +23,7 @@ import * as live from './live';
 import { mergeStockin, sessionOf, itemsOf, sessionSlice } from './stockin';
 import { applyPacking, packingSlice } from './packing';
 import { applyVoucherJournal } from './appsync';
+import { applyDigestShare } from './digest';
 import { getDb } from './db';
 import type { LiveOffer } from '../shared/types';
 
@@ -108,6 +109,12 @@ export function startLiveWork(): void {
      * a ten platí všude stejně.
      */
     if (message.kind === 'vouchers') { applyVoucherJournal(message.data); return; }
+    /*
+     * Postřehy z přehledu. Taky se jen uloží: je to jeden text na den
+     * a je jedno, které zařízení ho vyrobilo — druhá strana si ho jen
+     * nechá, aby ho nemusela platit znovu.
+     */
+    if (message.kind === 'digest') { takeDigest(message.data); return; }
   });
 }
 
@@ -125,6 +132,12 @@ function answerHello(): void {
     const slice = sessionSlice(String(row.id));
     if (slice) live.publish('stockin', slice);
   }
+}
+
+/** Postřehy vyrobené na jiném zařízení — uloží se, když jsou novější */
+function takeDigest(data: any): void {
+  if (!applyDigestShare(data)) return;
+  emit('digest:changed', {});
 }
 
 function takeStockin(from: string, data: any): void {

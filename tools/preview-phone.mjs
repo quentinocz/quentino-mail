@@ -315,11 +315,11 @@ for (const device of DEVICES) {
   await check('funkce (panel)'); await snap('13b-funkce');
 
   /*
-   * Přehled dne. Na telefonu se čte ráno jako první a je to jediné okno
+   * AI Přehled. Na telefonu se čte ráno jako první a je to jediné okno
    * s grafem — dlaždice se musí složit po dvou a proužky se nesmí vysypat
    * z šířky displeje.
    */
-  await click('.sheet-action', { hasText: 'Přehled dne' });
+  await click('.sheet-action', { hasText: 'AI Přehled' });
   await check('přehled dne'); await snap('13c-prehled-dne');
   await page.evaluate(() => {
     const body = document.querySelector('.dg-body');

@@ -61,7 +61,7 @@ interface Props {
   /**
    * Konverzace, na kterou se má skočit.
    *
-   * Přehled dne ukazuje chaty, kde poslední slovo má zákazník — kliknutí
+   * AI přehled ukazuje chaty, kde poslední slovo má zákazník — kliknutí
    * na řádek musí otevřít **tu** konverzaci, ne jen přepnout do chatu.
    */
   openConversation?: string | null;

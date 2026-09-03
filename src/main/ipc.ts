@@ -29,7 +29,9 @@ import { labelItems, stockinLabelItems, labelsToPdf, labelPreview, labelsExport,
 import { summarize, generateReply, improveText, translateIncoming, translateText, categorizeUncategorized, getAiUsage } from './ai';
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
-import { digestReport, digestAsk } from './digest';
+import { digestReport, digestAsk, digestArchive, digestFromArchive, digestFacts } from './digest';
+import { digestToPdf } from './digestpdf';
+import { getGa4Config, saveGa4Config, ga4Test } from './ga4';
 import { clearTrackingCache } from './ordertrack';
 import {
   scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder,
@@ -206,13 +208,33 @@ export function registerIpc() {
   // AI
   handle('ai:usage', () => getAiUsage());
   /*
-   * Přehled dne. Čísla a seznam k vyřízení se počítají při každém otevření
+   * AI Přehled. Čísla a seznam k vyřízení se počítají při každém otevření
    * (jsou z místní databáze), postřehy od AI nejvýš jednou za 24 hodin —
    * `force` je tlačítko „Přegenerovat".
    */
   handle('digest:get', (force?: boolean) => digestReport(force === true));
   handle('digest:ask', (question: string, history?: any[]) =>
     digestAsk(String(question ?? ''), Array.isArray(history) ? history : []));
+  /*
+   * Návštěvnost z GA4 přes Sequel. Klíč se ukládá zašifrovaně jako ostatní
+   * a ven z aplikace jde jen jeden dotaz denně.
+   */
+  /*
+   * Starší přehledy. Postřeh se nedá spočítat znovu — vznikl nad čísly,
+   * která platila tehdy — takže se drží půl roku zpátky.
+   */
+  handle('digest:archive', (limit?: number) => digestArchive(Number(limit) || 200));
+  handle('digest:old', (at: string) => digestFromArchive(String(at ?? '')));
+  handle('digest:pdf', async (at?: string) => {
+    const stored = at ? digestFromArchive(String(at)) : null;
+    const insight = stored?.insight ?? null;
+    // Do PDF jdou čerstvá čísla; u staršího přehledu ta, která k němu patří
+    const facts = stored?.facts?.window ? stored.facts : digestFacts();
+    return digestToPdf(facts, insight, stored?.at ?? new Date().toISOString());
+  });
+  handle('ga4:get', () => getGa4Config());
+  handle('ga4:save', (p: any) => saveGa4Config(p ?? {}));
+  handle('ga4:test', () => ga4Test());
 
   // Upgates API (objednávky zákazníka)
   handle('upgates:config', () => getUpgatesConfig());

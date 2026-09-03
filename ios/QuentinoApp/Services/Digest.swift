@@ -1,7 +1,7 @@
 import Foundation
 
 /**
- Přehled dne.
+ AI Přehled.
 
  Sesterský modul k `src/main/digest.ts` — schválně stejný, protože ráno se
  na telefon kouká dřív než na počítač a nesmí tam stát jiná čísla.
@@ -61,6 +61,87 @@ enum Digest {
             if !clean.isEmpty { return String(clean.uppercased().prefix(3)) }
         }
         return (row["market"] as? String ?? "").uppercased()
+    }
+
+    /**
+     Kódy zboží na produkty.
+
+     Ve feedu objednávek je kód **varianty**: šle 110 cm a 120 cm mají každé
+     svůj. Pro otázku „co se prodává" jsou to ale jedny šle — a naopak pro
+     otázku „jaká velikost jde nejvíc" je zajímavá právě varianta. Ceník je
+     tu kvůli položkám, u kterých feed cenu nenese (dárek, sada): nula
+     u nejprodávanějšího zboží vypadá jako chyba.
+     */
+    struct CatalogEntry {
+        let base: String
+        let title: String
+        let label: String
+        let price: Double
+    }
+
+    static func catalogIndex() -> [String: CatalogEntry] {
+        var out: [String: CatalogEntry] = [:]
+        for row in (try? SQLite.shared.query("SELECT code, title_cz, price_num FROM products")) ?? [] {
+            let code = (row["code"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            if code.isEmpty { continue }
+            let price = row["price_num"] as? Double ?? Double(row["price_num"] as? Int ?? 0)
+            out[code.lowercased()] = CatalogEntry(
+                base: code, title: row["title_cz"] as? String ?? code, label: "", price: price)
+        }
+        for row in (try? SQLite.shared.query("SELECT code, product_code, label, price FROM product_variants")) ?? [] {
+            let code = (row["code"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            if code.isEmpty { continue }
+            let base = (row["product_code"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            let parent = out[(base.isEmpty ? code : base).lowercased()]
+            let text = (row["price"] as? String ?? "")
+                .replacingOccurrences(of: "[^0-9.,]", with: "", options: .regularExpression)
+                .replacingOccurrences(of: ",", with: ".")
+            let price = Double(text) ?? parent?.price ?? 0
+            out[code.lowercased()] = CatalogEntry(
+                base: base.isEmpty ? code : base,
+                title: parent?.title ?? base,
+                label: (row["label"] as? String ?? "").trimmingCharacters(in: .whitespaces),
+                price: price)
+        }
+        return out
+    }
+
+    /// Do kolika hodin se dvě objednávky téhož zákazníka počítají jako jeden nákup
+    static let samePurchaseHours = 48
+
+    /**
+     Objednávky slité na nákupy.
+
+     Když zákazníkovi neprojde platba, objedná znovu. Pro tržbu jsou to dvě
+     objednávky, pro otázku „kolik lidí u nás nakoupilo" jeden nákup — bez
+     slučování vycházel opakovaný nákup nesmyslně vysoko.
+     */
+    static func purchases(_ rows: [[String: Any]]) -> (purchases: Int, duplicates: Int) {
+        var byEmail: [String: [String]] = [:]
+        var anonymous = 0
+        for row in rows {
+            if isCancelled(row["status"] as? String ?? "") { continue }
+            let email = (row["email"] as? String ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+            if email.isEmpty { anonymous += 1; continue }
+            byEmail[email, default: []].append(row["created_at"] as? String ?? "")
+        }
+
+        var purchases = anonymous
+        var orders = anonymous
+        for times in byEmail.values {
+            orders += times.count
+            var last: Date?
+            for at in times.sorted() {
+                let when = Formats.date(at)
+                if let last, let when, when.timeIntervalSince(last) <= Double(samePurchaseHours) * 3600 {
+                    // Tentýž nákup, jen druhý pokus
+                } else {
+                    purchases += 1
+                }
+                if let when { last = when }
+            }
+        }
+        return (purchases, max(0, orders - purchases))
     }
 
     private static func day(of row: [String: Any]) -> String {
@@ -167,7 +248,8 @@ enum Digest {
         currency: String, days: [[String: Any]], window now: Totals, prevWindow before: Totals,
         returning: Int, windowRows: [[String: Any]], prevRows: [[String: Any]],
         payments: [[String: Any]], shipments: [[String: Any]], countries: [[String: Any]],
-        products: [[String: Any]], prevQuantity: [String: Int]
+        products: [[String: Any]], prevQuantity: [String: Int], sizes: [[String: Any]],
+        purchases: Int, duplicates: Int, history: [String: Any], social: [String: Any]?
     ) -> [[String: Any]] {
         var out: [[String: Any]] = []
         // Kód měny je v tabulce v pořádku, ve větě ne — „19 400 CZK" nikdo neříká
@@ -300,12 +382,26 @@ enum Digest {
             }
         }
 
-        // 7) Opakovaný nákup — u galanterie to dělá rozdíl mezi kampaní a obchodem
-        if now.orders >= 10 {
-            let share = Int((Double(returning) / Double(now.orders) * 100).rounded())
+        /*
+         7) Opakovaný nákup — u galanterie to dělá rozdíl mezi kampaní
+         a obchodem. Počítá se z **nákupů**, ne z objednávek: dvě objednávky
+         téhož člověka do dvou dnů jsou jeden nákup, ne návrat.
+         */
+        if purchases >= 10 {
+            let share = Int((Double(returning) / Double(purchases) * 100).rounded())
             out.append(signal(share >= 25 ? "up" : "watch",
-                              "Opakovaně nakupuje \(share) % objednávek.",
-                              "\(returning) z \(now.orders) za 30 dní"))
+                              "Opakovaně nakupuje \(share) % zákazníků.",
+                              "\(returning) z \(purchases) nákupů za 30 dní"))
+        }
+
+        // 7b) Rozdvojené objednávky — když jich je hodně, drhne něco v košíku
+        if duplicates >= 3, now.orders >= 10 {
+            let share = Int((Double(duplicates) / Double(now.orders) * 100).rounded())
+            if share >= 8 {
+                out.append(signal("watch",
+                                  "\(duplicates) objednávek jsou druhé pokusy téhož zákazníka do dvou dnů (\(share) %).",
+                                  "\(now.orders) objednávek se slilo na \(purchases) nákupů"))
+            }
         }
 
         // 8) Zahraničí
@@ -320,6 +416,112 @@ enum Digest {
                                   "Mimo \(homeKey) jde \(Int((Double(abroad) / Double(now.orders) * 100).rounded())) % objednávek.",
                                   rest))
             }
+        }
+
+        // 9) Velikost napříč barvami — podle toho se skládá sklad, ne podle barev
+        if let size = sizes.first, (size["products"] as? Int ?? 0) >= 2, now.orders >= 10 {
+            let all = sizes.reduce(0) { $0 + ($1["qty"] as? Int ?? 0) }
+            let qty = size["qty"] as? Int ?? 0
+            if all > 0 {
+                out.append(signal("info",
+                                  "Nejžádanější velikost je \(size["label"] as? String ?? "") — "
+                                  + "\(Int((Double(qty) / Double(all) * 100).rounded())) % kusů s velikostí.",
+                                  "\(qty) z \(all) kusů, napříč \(size["products"] as? Int ?? 0) produkty"))
+            }
+        }
+
+        // 10) Zasazení do roku — „113 objednávek" je jinak číslo bez váhy
+        if let rank = history["rank"] as? [String: Any] {
+            let better = rank["better"] as? Int ?? 0
+            let of = rank["of"] as? Int ?? 0
+            if of >= 6 {
+                if better == of {
+                    out.append(signal("up", "Posledních 30 dní je nejsilnějších za celou dobu, co feed sahá.",
+                                      "\(now.orders) objednávek, víc než kterýkoli z \(of) uzavřených měsíců"))
+                } else if better <= of / 4 {
+                    out.append(signal("down", "Posledních 30 dní patří k nejslabším obdobím roku.",
+                                      "slabších bylo jen \(better) z \(of) měsíců"))
+                }
+            }
+        }
+
+        // 10b) Loňsko — jediné srovnání, které nemate sezónou
+        if let lastYear = history["lastYear"] as? [String: Any] {
+            let orders = lastYear["orders"] as? Int ?? 0
+            if orders >= 5, let change = pct(now.orders, orders), abs(change) >= 10 {
+                out.append(signal(change > 0 ? "up" : "down",
+                                  "Proti stejným 30 dnům loni \(change > 0 ? "víc" : "míň") o \(abs(change)) %.",
+                                  "\(now.orders) proti \(orders) loni"))
+            }
+        }
+
+        // 10c) Sezóna — z vlastních dat, ne z kalendáře
+        if let season = history["season"] as? [String: Any] {
+            out.append(signal("watch", season["text"] as? String ?? "", season["basis"] as? String ?? ""))
+        }
+
+        // 11) Sítě — korelace, ne důkaz, a tak se to i píše
+        if let social, days.count >= 14 {
+            let posts = social["posts"] as? Int ?? 0
+            let prevPosts = social["prevPosts"] as? Int ?? 0
+            let withPost = social["ordersWithPost"] as? Double ?? 0
+            let without = social["ordersWithout"] as? Double ?? 0
+            if posts == 0, prevPosts > 0 {
+                out.append(signal("watch",
+                                  "Za posledních 30 dní nevyšel žádný příspěvek, předtím jich bylo \(prevPosts).",
+                                  "\(prevPosts) příspěvků v předchozím období"))
+            } else if posts >= 3, without > 0 {
+                let change = pct(Int((withPost * 10).rounded()), Int((without * 10).rounded()))
+                if let change, abs(change) >= 20 {
+                    out.append(signal(change > 0 ? "up" : "info",
+                                      "Ve dnech s příspěvkem chodilo o \(abs(change)) % "
+                                      + "\(change > 0 ? "víc" : "míň") objednávek (souvislost, ne důkaz).",
+                                      "\(withPost) proti \(without) objednávky na den, "
+                                      + "\(social["daysWithPost"] as? Int ?? 0) dní s příspěvkem"))
+                }
+            }
+        }
+
+        return out
+    }
+
+    /**
+     Signály z návštěvnosti.
+
+     Zvlášť, protože GA4 přichází ze sítě a zbytek přehledu na něj nečeká.
+     Konverzní poměr je to hlavní, co objednávky samy o sobě neřeknou.
+     */
+    static func ga4Signals(_ snapshot: [String: Any]?) -> [[String: Any]] {
+        guard let snapshot, snapshot["error"] is NSNull else { return [] }
+        var out: [[String: Any]] = []
+        let now = snapshot["window"] as? [String: Any] ?? [:]
+        let before = snapshot["prevWindow"] as? [String: Any] ?? [:]
+
+        if let sessions = now["sessions"] as? Int, let was = before["sessions"] as? Int, was > 0,
+           let change = pct(sessions, was), abs(change) >= 10 {
+            out.append(signal(change > 0 ? "up" : "down",
+                              "Návštěvnost je o \(abs(change)) % \(change > 0 ? "vyšší" : "nižší") "
+                              + "než v předchozích 30 dnech.",
+                              "\(sessions) proti \(was) návštěvám"))
+        }
+
+        if let conversion = snapshot["conversion"] as? Double,
+           let previous = snapshot["prevConversion"] as? Double, previous > 0 {
+            let diff = ((conversion - previous) * 10).rounded() / 10
+            if abs(diff) >= 0.3 {
+                out.append(signal(diff > 0 ? "up" : "watch",
+                                  "Konverzní poměr \(diff > 0 ? "stoupl" : "klesl") na \(conversion) %.",
+                                  "předtím \(previous) %"))
+            }
+        }
+
+        let sources = snapshot["sources"] as? [[String: Any]] ?? []
+        if let top = sources.first, let sessions = now["sessions"] as? Int, sessions > 0 {
+            let share = Int((Double(top["sessions"] as? Int ?? 0) / Double(sessions) * 100).rounded())
+            let rest = sources.prefix(3).map { "\($0["name"] as? String ?? "") \($0["sessions"] as? Int ?? 0)" }
+            out.append(signal("info",
+                              "Nejvíc návštěv chodí z „\(top["name"] as? String ?? "")“ — \(share) %.",
+                              rest.joined(separator: ", ")))
         }
 
         return out
@@ -407,10 +609,16 @@ enum Digest {
          v převažující měně (osm eur připsaných ke korunám dělalo z pásku
          zboží za 32 Kč) a bere se cena za **řádek**, ne za kus.
          */
+        let catalog = catalogIndex()
         var titles: [String: String] = [:]
         var quantity: [String: Int] = [:]
         var inOrders: [String: Int] = [:]
         var earned: [String: Double] = [:]
+        var estimated = Set<String>()
+        var sizeQty: [String: Int] = [:]
+        var sizeProducts: [String: Set<String>] = [:]
+        var variantQty: [String: [String: Int]] = [:]
+
         for row in windowRows where !isCancelled(row["status"] as? String ?? "") {
             let sameCurrency = (row["currency"] as? String ?? "CZK").uppercased() == currency
             var counted = Set<String>()
@@ -418,17 +626,35 @@ enum Digest {
                 let code = ((item["code"] as? String) ?? (item["title"] as? String) ?? "")
                     .trimmingCharacters(in: .whitespaces)
                 if code.isEmpty { continue }
+                // Varianta se přiřadí k produktu — jinak by 110 a 120 cm byly dvoje šle
+                let known = catalog[code.lowercased()]
+                let base = known?.base ?? code
                 let qty = item["quantity"] as? Int ?? Int(item["quantity"] as? Double ?? 0)
                 let unit = item["price"] as? Double ?? Double(item["price"] as? Int ?? 0)
                 let line = item["total"] as? Double ?? Double(item["total"] as? Int ?? 0)
-                titles[code] = titles[code] ?? (item["title"] as? String ?? code)
-                quantity[code] = (quantity[code] ?? 0) + qty
+
+                titles[base] = titles[base] ?? known?.title ?? (item["title"] as? String ?? base)
+                quantity[base] = (quantity[base] ?? 0) + qty
                 if sameCurrency {
-                    earned[code] = (earned[code] ?? 0) + (line > 0 ? line : unit * Double(qty))
+                    let value = line > 0 ? line : unit * Double(qty)
+                    if value > 0 {
+                        earned[base] = (earned[base] ?? 0) + value
+                    } else if let price = known?.price, price > 0 {
+                        // Feed u dárků a sad cenu nenese; ceník je lepší než nula
+                        earned[base] = (earned[base] ?? 0) + price * Double(qty)
+                        estimated.insert(base)
+                    }
                 }
-                if !counted.contains(code) {
-                    inOrders[code] = (inOrders[code] ?? 0) + 1
-                    counted.insert(code)
+                if !counted.contains(base) {
+                    inOrders[base] = (inOrders[base] ?? 0) + 1
+                    counted.insert(base)
+                }
+
+                // Velikost sama o sobě: lidé si ji drží napříč barvami
+                if let label = known?.label, !label.isEmpty {
+                    sizeQty[label] = (sizeQty[label] ?? 0) + qty
+                    sizeProducts[label, default: []].insert(base)
+                    variantQty[base, default: [:]][label] = (variantQty[base]?[label] ?? 0) + qty
                 }
             }
         }
@@ -440,17 +666,35 @@ enum Digest {
                 let code = ((item["code"] as? String) ?? (item["title"] as? String) ?? "")
                     .trimmingCharacters(in: .whitespaces)
                 if code.isEmpty { continue }
+                let base = catalog[code.lowercased()]?.base ?? code
                 let qty = item["quantity"] as? Int ?? Int(item["quantity"] as? Double ?? 0)
-                prevQuantity[code] = (prevQuantity[code] ?? 0) + qty
+                prevQuantity[base] = (prevQuantity[base] ?? 0) + qty
             }
         }
         let products: [[String: Any]] = quantity.sorted { $0.value > $1.value }.prefix(8).map { pair in
+            let variants: [[String: Any]] = (variantQty[pair.key] ?? [:])
+                .sorted { $0.value > $1.value }.prefix(4).map { one in
+                    var entry: [String: Any] = [:]
+                    entry["label"] = one.key
+                    entry["qty"] = one.value
+                    return entry
+                }
             var one: [String: Any] = [:]
             one["code"] = pair.key
             one["title"] = titles[pair.key] ?? pair.key
             one["qty"] = pair.value
             one["orders"] = inOrders[pair.key] ?? 0
             one["revenue"] = Int((earned[pair.key] ?? 0).rounded())
+            one["estimated"] = estimated.contains(pair.key)
+            one["variants"] = variants
+            return one
+        }
+
+        let sizes: [[String: Any]] = sizeQty.sorted { $0.value > $1.value }.prefix(6).map { pair in
+            var one: [String: Any] = [:]
+            one["label"] = pair.key
+            one["qty"] = pair.value
+            one["products"] = sizeProducts[pair.key]?.count ?? 0
             return one
         }
 
@@ -460,8 +704,12 @@ enum Digest {
             """
             SELECT COUNT(*) AS n FROM shop_orders o
              WHERE o.created_at >= ? AND o.email != ''
+               AND lower(o.status) NOT LIKE '%storn%' AND lower(o.status) NOT LIKE '%zrušen%'
                AND EXISTS (SELECT 1 FROM shop_orders p
-                            WHERE p.email = o.email AND p.created_at < o.created_at)
+                            WHERE p.email = o.email
+                              AND p.created_at < datetime(o.created_at, '-48 hours')
+                              AND lower(p.status) NOT LIKE '%storn%'
+                              AND lower(p.status) NOT LIKE '%zrušen%')
             """,
             [.text(windowKey)]
         ))?.first?["n"] as? Int) ?? 0
@@ -487,6 +735,11 @@ enum Digest {
         let shipments = slices(windowRows) { Shorthand.shortFor("shipment", $0["shipment"] as? String) }
         let payments = slices(windowRows) { Shorthand.shortFor("payment", $0["payment"] as? String) }
 
+        let counted = purchases(windowRows)
+        let statuses = slices(windowRows) { ($0["status"] as? String ?? "").trimmingCharacters(in: .whitespaces) }
+        let history = DigestHistory.view(windowOrders: windowTotals.orders, currency: currency, now: now)
+        let social = DigestSocial.view(days: days, windowDays: window)
+
         var out: [String: Any] = [:]
         out["currency"] = currency
         out["today"] = today.json
@@ -502,13 +755,21 @@ enum Digest {
         out["shipments"] = shipments
         out["payments"] = payments
         out["products"] = products
+        out["sizes"] = sizes
+        out["statuses"] = statuses
+        out["purchases"] = counted.purchases
+        out["duplicates"] = counted.duplicates
+        out["history"] = history
+        out["social"] = social
         out["returning"] = returning
         out["average"] = average
         out["signals"] = signals(
             currency: currency, days: days, window: windowTotals, prevWindow: prevWindow,
             returning: returning, windowRows: windowRows, prevRows: prevRows,
             payments: payments, shipments: shipments, countries: countries,
-            products: products, prevQuantity: prevQuantity
+            products: products, prevQuantity: prevQuantity, sizes: sizes,
+            purchases: counted.purchases, duplicates: counted.duplicates,
+            history: history, social: social as? [String: Any]
         )
         out["feedAt"] = feedAt
         out["known"] = known
@@ -699,8 +960,90 @@ enum Digest {
         lines.append("Země (30 dní): \(slice("countries"))")
         lines.append("Doprava (30 dní): \(slice("shipments"))")
         lines.append("Platba (30 dní): \(slice("payments"))")
-        lines.append("Nejprodávanější (30 dní): \(products.isEmpty ? "—" : products)")
+        lines.append("Nejprodávanější (30 dní, varianty sloučené pod produkt): \(products.isEmpty ? "—" : products)")
+
+        let sizes = (facts["sizes"] as? [[String: Any]] ?? []).map { one in
+            "\(one["label"] as? String ?? "") \(one["qty"] as? Int ?? 0) ks u \(one["products"] as? Int ?? 0) produktů"
+        }.joined(separator: ", ")
+        lines.append("Velikosti napříč zbožím: \(sizes.isEmpty ? "—" : sizes)")
+        lines.append("Stavy objednávek: \(slice("statuses"))")
+        lines.append("Nákupy (objednávky téhož zákazníka do 48 h sloučené): \(facts["purchases"] as? Int ?? 0)"
+                     + ", z toho druhé pokusy nebo dokupy: \(facts["duplicates"] as? Int ?? 0)")
+
+        let history = historyForAi(facts["history"] as? [String: Any])
+        if !history.isEmpty { lines.append(history) }
+        let social = socialForAi(facts["social"] as? [String: Any])
+        if !social.isEmpty { lines.append(social) }
         return lines.joined(separator: "\n")
+    }
+
+    /// Dlouhodobý kontext — bez něj je „113 objednávek" číslo bez váhy
+    private static func historyForAi(_ history: [String: Any]?) -> String {
+        guard let history else { return "" }
+        var parts: [String] = []
+        if let lastYear = history["lastYear"] as? [String: Any] {
+            parts.append("stejných 30 dní loni: \(lastYear["orders"] as? Int ?? 0) objednávek "
+                         + "za \(lastYear["revenue"] as? Int ?? 0)")
+        }
+        if let rank = history["rank"] as? [String: Any] {
+            parts.append("slabších než současné okno bylo \(rank["better"] as? Int ?? 0) "
+                         + "z \(rank["of"] as? Int ?? 0) uzavřených měsíců")
+        }
+        let months = (history["months"] as? [[String: Any]] ?? []).map {
+            "\($0["month"] as? String ?? ""):\($0["orders"] as? Int ?? 0)"
+        }.joined(separator: " ")
+        if !months.isEmpty { parts.append("měsíce (počet objednávek): \(months)") }
+        if let season = history["season"] as? [String: Any] {
+            parts.append("sezóna: \(season["text"] as? String ?? "") (\(season["basis"] as? String ?? ""))")
+        }
+        if parts.isEmpty { return "" }
+        return "Dlouhodobě (feed pokrývá \(history["coverage"] as? Int ?? 0) měsíců): "
+            + parts.joined(separator: "; ")
+    }
+
+    /**
+     Sociální sítě do zadání.
+
+     Rovnou se říká, že je to souvislost, ne důkaz — jinak z toho model udělá
+     „příspěvky zvýšily prodej o 30 %", což z těchhle dat nikdo neví.
+     */
+    private static func socialForAi(_ social: [String: Any]?) -> String {
+        guard let social else { return "" }
+        let posts = social["posts"] as? Int ?? 0
+        let prevPosts = social["prevPosts"] as? Int ?? 0
+        if posts == 0, prevPosts == 0 { return "Sociální sítě: za posledních 60 dní nevyšel žádný příspěvek." }
+        var best = ""
+        if let one = social["best"] as? [String: Any] {
+            let caption = String((one["caption"] as? String ?? "").prefix(60))
+            best = "; nejúspěšnější „\(caption)“ (\(one["likes"] as? Int ?? 0) lajků, "
+                + "\(one["comments"] as? Int ?? 0) komentářů)"
+        }
+        return "Sociální sítě (30 dní): \(posts) příspěvků (předchozích 30 dní \(prevPosts)), "
+            + "\(social["likes"] as? Int ?? 0) lajků, \(social["comments"] as? Int ?? 0) komentářů; "
+            + "ve dnech s příspěvkem průměrně \(social["ordersWithPost"] as? Double ?? 0) objednávky, "
+            + "ve dnech bez \(social["ordersWithout"] as? Double ?? 0) — je to souvislost, ne důkaz"
+            + best + ". Zhlédnutí ani dosah aplikace nemá."
+    }
+
+    /// Návštěvnost do zadání — jen když se povedla stáhnout
+    private static func ga4ForAi(_ ga4: [String: Any]?) -> String {
+        guard let ga4, ga4["error"] is NSNull else { return "" }
+        func period(_ key: String) -> String {
+            let one = ga4[key] as? [String: Any] ?? [:]
+            let sessions = one["sessions"] as? Int
+            let users = one["users"] as? Int
+            let purchases = one["purchases"] as? Int
+            return "\(sessions.map(String.init) ?? "?") návštěv, \(users.map(String.init) ?? "?") uživatelů, "
+                + "\(purchases.map(String.init) ?? "?") nákupů"
+        }
+        let sources = (ga4["sources"] as? [[String: Any]] ?? []).map {
+            "\($0["name"] as? String ?? "") \($0["sessions"] as? Int ?? 0)"
+        }.joined(separator: ", ")
+        var text = "Návštěvnost z GA4 (30 dní): \(period("window")); předchozích 30 dní: \(period("prevWindow"))"
+        if let conversion = ga4["conversion"] as? Double { text += "; konverzní poměr \(conversion) %" }
+        if let previous = ga4["prevConversion"] as? Double { text += " proti \(previous) %" }
+        if !sources.isEmpty { text += "; zdroje: \(sources)" }
+        return text
     }
 
     /**
@@ -897,11 +1240,13 @@ enum Digest {
         return !headline.isEmpty && !headline.hasPrefix("{") && !notes.isEmpty
     }
 
-    private static func makeInsight(_ facts: [String: Any]) async throws -> [String: Any] {
+    private static func makeInsight(_ facts: [String: Any], ga4: [String: Any]? = nil) async throws -> [String: Any] {
         let history = stored()
         let memory = memoryForAi(history)
+        let traffic = ga4ForAi(ga4)
         let user = "# Spočítané signály (z nich vycházej)\n\(signalsForAi(facts))\n\n"
             + "# Čísla\n\(factsForAi(facts))\n\n"
+            + (traffic.isEmpty ? "" : "# Návštěvnost\n\(traffic)\n\n")
             + (memory.isEmpty ? "" : "# Co jsi psal dřív (nejnovější nahoře)\n\(memory)\n")
 
         /*
@@ -940,9 +1285,16 @@ enum Digest {
         )
         // Historie je paměť, ne archiv — třicet zápisů je půl roku ohlédnutí
         _ = try? SQLite.shared.run(
+            // Denní přehled za půl roku je 180 zápisů; drží se jich 200
             "DELETE FROM digest_reports WHERE at NOT IN "
-            + "(SELECT at FROM digest_reports ORDER BY at DESC LIMIT 30)")
+            + "(SELECT at FROM digest_reports ORDER BY at DESC LIMIT 200)")
         Store.setSetting(insightKey, insight["at"] as? String ?? "")
+
+        /*
+         Ostatní zařízení ať to nepočítají znovu. Posel je jen zkratka —
+         když nedoletí, dojde to sdílenou složkou při synchronizaci.
+         */
+        if let share = self.share() { Live.publish("digest", share) }
         return insight
     }
 
@@ -956,9 +1308,21 @@ enum Digest {
      24 hodin; `force` je tlačítko „Přegenerovat".
      */
     static func report(force: Bool = false) async -> [String: Any] {
-        let facts = self.facts()
+        var facts = self.facts()
         let mail = mailTasks()
         let chat = await chatTasks()
+
+        /*
+         Návštěvnost je jediná část, která jde ven ze zařízení — ptá se
+         nejvýš jednou denně a výpadek jen ubere kartu.
+         */
+        let ga4 = await Ga4.snapshot(force: force)
+        if let ga4, ga4["error"] is NSNull {
+            let extra = ga4Signals(ga4)
+            if !extra.isEmpty {
+                facts["signals"] = (facts["signals"] as? [[String: Any]] ?? []) + extra
+            }
+        }
 
         let history = stored(1)
         var insight: Any = history.first.map { $0.insight as Any } ?? NSNull()
@@ -969,7 +1333,7 @@ enum Digest {
         var insightError: Any = NSNull()
         if force || age >= everySeconds {
             do {
-                insight = try await makeInsight(facts)
+                insight = try await makeInsight(facts, ga4: ga4)
             } catch {
                 // Starý postřeh je pořád lepší než prázdné místo — jen se
                 // řekne, že se nový nepovedl
@@ -992,12 +1356,96 @@ enum Digest {
 
         var out: [String: Any] = [:]
         out["facts"] = facts
+        out["ga4"] = ga4 ?? NSNull()
         out["tasks"] = tasks
         out["insight"] = insight
         out["nextInsightAt"] = nextInsightAt
         out["insightError"] = insightError
         out["chatError"] = chat.error
         return out
+    }
+
+    // MARK: - Starší přehledy
+
+    /**
+     Seznam uložených přehledů.
+
+     Postřehy se ukládají den po dni a je to jediná část přehledu, která se
+     **nedá spočítat znovu**: čísla se dopočítají z feedu, ale text vznikl
+     nad tím, co platilo tehdy.
+     */
+    static func archive(_ limit: Int = 200) -> [[String: Any]] {
+        ensureTable()
+        let rows = (try? SQLite.shared.query(
+            "SELECT at, facts, insight FROM digest_reports ORDER BY at DESC LIMIT ?",
+            [.int(Int64(min(400, max(1, limit))))])) ?? []
+
+        return rows.map { row in
+            let facts = json(row["facts"] as? String) ?? [:]
+            let insight = json(row["insight"] as? String) ?? [:]
+            let window = (facts["window"] as? [String: Any]) ?? (facts["month"] as? [String: Any])
+            var one: [String: Any] = [:]
+            one["at"] = row["at"] as? String ?? ""
+            one["headline"] = insight["headline"] as? String ?? ""
+            one["orders"] = window?["orders"] as? Int ?? NSNull()
+            let revenue = (window?["revenue"] as? [[String: Any]])?.first?["amount"] as? Int
+            one["revenue"] = revenue ?? NSNull()
+            one["currency"] = facts["currency"] as? String ?? "CZK"
+            return one
+        }
+    }
+
+    /// Jeden starší přehled i s čísly, ze kterých vznikl
+    static func fromArchive(_ at: String) -> [String: Any]? {
+        ensureTable()
+        guard let row = (try? SQLite.shared.query(
+            "SELECT at, facts, insight FROM digest_reports WHERE at = ?", [.text(at)]))?.first else { return nil }
+        var one: [String: Any] = [:]
+        one["at"] = row["at"] as? String ?? at
+        one["facts"] = json(row["facts"] as? String) ?? [:]
+        one["insight"] = json(row["insight"] as? String) ?? [:]
+        return one
+    }
+
+    // MARK: - Sdílení mezi zařízeními
+
+    /**
+     Postřehy pro ostatní zařízení.
+
+     Postřeh stojí volání modelu a den co den vyjde stejný — počítat ho na
+     počítači, notebooku a dvou telefonech zvlášť je čtyřnásobná cena za
+     totéž. Kdo ho udělá první, pošle ho ostatním.
+     */
+    static func share() -> [String: Any]? {
+        guard let last = stored(1).first, !(last.insight["at"] as? String ?? "").isEmpty else { return nil }
+        var out: [String: Any] = [:]
+        out["at"] = last.at
+        out["facts"] = last.facts
+        out["insight"] = last.insight
+        return out
+    }
+
+    /// Přijetí postřehu odjinud; novější vyhrává
+    @discardableResult
+    static func applyShare(_ share: Any?) -> Bool {
+        guard let one = share as? [String: Any] else { return false }
+        let insight = one["insight"] as? [String: Any] ?? [:]
+        let at = ((insight["at"] as? String) ?? (one["at"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !at.isEmpty else { return false }
+
+        let mine = stored(1).first?.at ?? ""
+        if !mine.isEmpty, mine >= at { return false }
+
+        ensureTable()
+        let facts = OrderFeed.jsonText(one["facts"] ?? [String: Any]()) ?? "{}"
+        let text = OrderFeed.jsonText(insight) ?? "{}"
+        _ = try? SQLite.shared.run(
+            "INSERT OR REPLACE INTO digest_reports (at, facts, insight) VALUES (?,?,?)",
+            [.text(at), .text(facts), .text(text)]
+        )
+        Store.setSetting(insightKey, at)
+        return true
     }
 
     // MARK: - Doptávání
@@ -1037,7 +1485,10 @@ enum Digest {
             "- \(one["who"] as? String ?? ""): \(one["subject"] as? String ?? "")"
         }.joined(separator: "\n")
 
-        var user = "# Čísla\n\(factsForAi(facts))\n\n"
+        let traffic = ga4ForAi(await Ga4.snapshot())
+        var user = "# Spočítané signály\n\(signalsForAi(facts))\n\n"
+        user += "# Čísla\n\(factsForAi(facts))\n\n"
+        if !traffic.isEmpty { user += "# Návštěvnost\n\(traffic)\n\n" }
         user += "# Čeká na vyřízení (\(tasks.count))\n\(waiting.isEmpty ? "— nic" : waiting)"
         if !memory.isEmpty { user += "\n\n# Tvoje dřívější postřehy\n\(memory)" }
         if !talk.isEmpty { user += "\n\n# Dosavadní hovor\n\(talk)" }
