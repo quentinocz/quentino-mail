@@ -687,6 +687,155 @@ export interface OrderBadge {
  * je to ale právě to, co se nahradit mělo — proto tahle krátká cesta: jeden
  * dotaz do databáze, žádná síť.
  */
+/* ---------- Přehled dne ---------- */
+
+/**
+ * Tržba se nesčítá přes měny.
+ *
+ * E-shop prodává na víc trhů a součet korun s eury by nedal ani jedno.
+ * Drží se proto částka ke každé měně zvlášť; převažující měna je první.
+ */
+export interface DigestMoney {
+  currency: string;
+  amount: number;
+}
+
+/** Souhrn za období — den, měsíc, srovnávané období */
+export interface DigestTotals {
+  orders: number;
+  /** Stornované se nepočítají do tržby, ale je potřeba o nich vědět */
+  cancelled: number;
+  /** Nezaplacené (dobírka, nedoplacený převod) */
+  unpaid: number;
+  revenue: DigestMoney[];
+  /** Kusů zboží celkem */
+  items: number;
+}
+
+/** Řez daty — země, dopravce, platba */
+export interface DigestSlice {
+  key: string;
+  label: string;
+  orders: number;
+  revenue: number;
+}
+
+export interface DigestProduct {
+  code: string;
+  title: string;
+  qty: number;
+  orders: number;
+  revenue: number;
+}
+
+export interface DigestDay {
+  /** YYYY-MM-DD */
+  day: string;
+  orders: number;
+  revenue: number;
+}
+
+/**
+ * Čísla přehledu. Počítají se z feedu objednávek při každém otevření —
+ * je to jen několik dotazů do databáze, žádná AI a žádná síť.
+ */
+export interface DigestFacts {
+  /** Převažující měna; v ní jsou hodnoty v grafech a v průměru */
+  currency: string;
+  today: DigestTotals;
+  yesterday: DigestTotals;
+  month: DigestTotals;
+  /** Stejný počet dní minulého měsíce — jinak by se 3. září srovnávalo s celým srpnem */
+  prevMonth: DigestTotals;
+  monthLabel: string;
+  /** Posledních 30 kalendářních dnů na graf */
+  days: DigestDay[];
+  countries: DigestSlice[];
+  shipments: DigestSlice[];
+  payments: DigestSlice[];
+  /** Nejprodávanější zboží tohoto měsíce */
+  products: DigestProduct[];
+  /** Kolik objednávek měsíce je od zákazníků, kteří u nás už nakoupili */
+  returning: number;
+  /** Průměrná objednávka měsíce v převažující měně */
+  average: number;
+  /** Kdy naposledy dorazil feed — ať se pozná, že čísla nejsou čerstvá */
+  feedAt: string | null;
+  /** Kolik objednávek feed vůbec zná (prázdný přehled se má umět vysvětlit) */
+  known: number;
+}
+
+/**
+ * Co čeká na vyřízení.
+ *
+ * Nestačí příznak „zodpovězeno" ze serveru: odpověď odeslaná odjinud ho
+ * nenastaví a přehled pak dokola připomíná něco, co je dávno hotové. Bere
+ * se proto celé vlákno — když v něm po zprávě něco odešlo, je vyřízeno.
+ */
+export interface DigestTask {
+  kind: 'mail' | 'chat';
+  /** ID zprávy nebo konverzace — přehled na ni umí rovnou skočit */
+  id: string;
+  who: string;
+  subject: string;
+  preview: string;
+  at: string;
+  /** Reklamace, nedoručená zásilka, naštvaný zákazník — nahoru a zvýraznit */
+  urgent: boolean;
+  /** Proč to tady je */
+  reason: string;
+}
+
+export interface DigestNote {
+  /** trend = co se děje s čísly, napad = návrh, pozor = riziko */
+  kind: 'trend' | 'napad' | 'pozor';
+  text: string;
+}
+
+/**
+ * Postřehy od AI.
+ *
+ * Jediná část přehledu, která stojí peníze a čas, a proto se dělá nejvýš
+ * jednou za 24 hodin. Předchozí postřehy i čísla, ze kterých vznikly, se
+ * ukládají — AI tak vidí, co navrhla minule a jak to dopadlo.
+ */
+export interface DigestInsight {
+  at: string;
+  headline: string;
+  notes: DigestNote[];
+  /** Navázání na minulý přehled — co se z něj potvrdilo nebo nepotvrdilo */
+  followUp: string | null;
+  /**
+   * Na co se podívat příště.
+   *
+   * Vlastní poznámka AI pro sebe: jde do zadání dalšího přehledu, takže si
+   * může říct „zítra ověřím, jestli propad ve čtvrtek byl svátek" a druhý den
+   * na to navázat. Je vidět i v okně, takže se dá přečíst i přepsat.
+   */
+  focus: string | null;
+  /** Otázky, na které se podle AI vyplatí doptat — kliknutím se pošlou */
+  questions: string[];
+  model: string;
+}
+
+/** Jedna otázka a odpověď v doptávání nad přehledem */
+export interface DigestTurn {
+  role: 'user' | 'ai';
+  text: string;
+}
+
+export interface DigestReport {
+  facts: DigestFacts;
+  tasks: DigestTask[];
+  insight: DigestInsight | null;
+  /** Kdy se postřehy smějí dělat znovu (do té doby se ukazují uložené) */
+  nextInsightAt: string | null;
+  /** Proč postřehy nejsou — chybí klíč, spadla síť, ještě se nedělaly */
+  insightError: string | null;
+  /** Chat se ptá po síti; když nevyjde, přehled kvůli tomu nepadá */
+  chatError: string | null;
+}
+
 export interface CodeShorthand {
   /** Číslo objednávky ve feedu — u faktury je jiné než hledané číslo */
   code: string;

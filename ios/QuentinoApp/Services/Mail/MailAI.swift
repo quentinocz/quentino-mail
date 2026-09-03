@@ -286,46 +286,4 @@ enum MailAI {
             maxTokens: 2500
         )
     }
-
-    // MARK: - Denní přehled
-
-    static func digest() async throws -> String {
-        let since = Formats.iso(Date().addingTimeInterval(-24 * 3600))
-        let rows = (try? SQLite.shared.query(
-            """
-            SELECT from_name, from_addr, subject, snippet, summary, category, seen, answered, date
-            FROM messages WHERE folder = 'INBOX' AND date > ? ORDER BY date DESC LIMIT 60
-            """,
-            [.text(since)]
-        )) ?? []
-        guard !rows.isEmpty else { return "Za posledních 24 hodin nepřišly žádné nové zprávy. 🎉" }
-
-        let labels = ["orders": "objednávka", "people": "zákazník", "companies": "firma", "other": "ostatní"]
-        let listing = rows.map { row -> String in
-            let seen = (row["seen"] as? Int ?? 0) == 1 ? "přečteno" : "NEPŘEČTENO"
-            let answered = (row["answered"] as? Int ?? 0) == 1 ? ", zodpovězeno" : ""
-            let label = labels[row["category"] as? String ?? ""] ?? "—"
-            let who = (row["from_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                ?? row["from_addr"] as? String ?? ""
-            let what = (row["summary"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                ?? String((row["snippet"] as? String ?? "").prefix(100))
-            return "[\(seen)\(answered)] (\(label)) \(who): \(row["subject"] as? String ?? "") — \(what)"
-        }.joined(separator: "\n")
-
-        return try await AI.ask(
-            model: AI.draftModel,
-            system: """
-            Jsi asistent e-shopu Quentino. Z výpisu e-mailů za posledních 24 hodin sestav stručný český přehled dne:
-            1. Dvě–tři věty celkového shrnutí (kolik zpráv, co převažuje).
-            2. "Vyžaduje reakci:" — seznam nepřečtených/nezodpovězených zpráv od zákazníků, u každé odesílatel \
-            a o co jde (jedna řádka). Urgentní věci (reklamace, naštvaný zákazník, problém s doručením) dej \
-            na začátek a označ ⚠️.
-            3. "Objednávky:" — kolik přišlo, případně zajímavosti.
-            4. "Ostatní:" — jen pokud je něco za zmínku (faktury, dodavatelé). Newslettery a spam ignoruj.
-            Piš prostý text bez markdownu, přehledně po řádcích.
-            """,
-            user: listing,
-            maxTokens: 1200
-        )
-    }
 }

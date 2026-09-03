@@ -495,37 +495,6 @@ Pravidla: Nepiš předmět. Nepřidávej podpis (doplní se automaticky). Nepou�
   return proofread(s.draftModel, draft);
 }
 
-/* ---------- Denní AI přehled ---------- */
-
-export async function generateDigest(): Promise<string> {
-  const s = getSettings();
-  const d = getDb();
-  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-  const rows = d.prepare(
-    `SELECT from_name, from_addr, subject, snippet, summary, category, seen, answered, date
-     FROM messages WHERE folder = 'INBOX' AND date > ? ORDER BY date DESC LIMIT 60`
-  ).all(since) as any[];
-  if (rows.length === 0) return 'Za posledních 24 hodin nepřišly žádné nové zprávy. 🎉';
-
-  const catLabel: Record<string, string> = { orders: 'objednávka', people: 'zákazník', companies: 'firma', other: 'ostatní' };
-  const listing = rows.map(r =>
-    `[${r.seen ? 'přečteno' : 'NEPŘEČTENO'}${r.answered ? ', zodpovězeno' : ''}] (${catLabel[r.category] ?? '—'}) ` +
-    `${r.from_name || r.from_addr}: ${r.subject} — ${r.summary || r.snippet.slice(0, 100)}`
-  ).join('\n');
-
-  return ask(
-    s.draftModel,
-    `Jsi asistent e-shopu Quentino. Z výpisu e-mailů za posledních 24 hodin sestav stručný český přehled dne:
-1. Dvě–tři věty celkového shrnutí (kolik zpráv, co převažuje).
-2. "Vyžaduje reakci:" — seznam nepřečtených/nezodpovězených zpráv od zákazníků, u každé odesílatel a o co jde (jedna řádka). Urgentní věci (reklamace, naštvaný zákazník, problém s doručením) dej na začátek a označ ⚠️.
-3. "Objednávky:" — kolik přišlo, případně zajímavosti.
-4. "Ostatní:" — jen pokud je něco za zmínku (faktury, dodavatelé). Newslettery a spam ignoruj.
-Piš prostý text bez markdownu, přehledně po řádcích.`,
-    listing,
-    1200
-  );
-}
-
 /* ---------- Vylepšení / gramatika ---------- */
 
 export async function improveText(text: string, mode: 'improve' | 'grammar'): Promise<string> {

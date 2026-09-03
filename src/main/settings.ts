@@ -336,7 +336,10 @@ const BACKUP_TABLES = [
   // Články i s jazykovými verzemi a mapou adres
   'art_articles', 'art_langs', 'art_urlmap',
   // Naučené fáze dopravy z hlášek dopravců
-  'ship_phase'
+  'ship_phase',
+  // Paměť přehledu dne — dřívější postřehy a čísla, ze kterých vznikly.
+  // Bez ní by AI po přenesení na jiný počítač začala zase od nuly.
+  'digest_reports'
 ];
 
 /** Strop na tabulku — záloha nemá být obraz celé databáze. */

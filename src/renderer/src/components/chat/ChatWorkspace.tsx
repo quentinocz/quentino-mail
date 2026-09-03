@@ -58,13 +58,20 @@ interface Props {
   onAiTool: (tool: AiTool) => void;
   /** Který nástroj AI je zrovna otevřený */
   activeTool?: AiTool;
+  /**
+   * Konverzace, na kterou se má skočit.
+   *
+   * Přehled dne ukazuje chaty, kde poslední slovo má zákazník — kliknutí
+   * na řádek musí otevřít **tu** konverzaci, ne jen přepnout do chatu.
+   */
+  openConversation?: string | null;
 }
 
 /**
  * Chat ze zákaznického widgetu. Data jsou tatáž, se kterou pracuje webový
  * admin — aplikace do nich jen píše, takže widget ani nasazený chat se nemění.
  */
-export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread, onComposeEmail, onAiTool, activeTool }: Props) {
+export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread, onComposeEmail, onAiTool, activeTool, openConversation }: Props) {
   const toast = useToast();
   const [overview, setOverview] = useState<ChatOverview | null>(null);
   const [convs, setConvs] = useState<ChatConversation[]>([]);
@@ -80,6 +87,12 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
     const id = String(p?.id ?? '').trim();
     if (id) setActiveId(id);
   }), []);
+
+  // Totéž z přehledu dne — tam se konverzace předává rovnou, ne přes událost
+  useEffect(() => {
+    const id = (openConversation ?? '').trim();
+    if (id) setActiveId(id);
+  }, [openConversation]);
   const [messages, setMessages] = useState<Msg[]>([]);
   /**
    * Kontakt dohledaný ve feedu objednávek.

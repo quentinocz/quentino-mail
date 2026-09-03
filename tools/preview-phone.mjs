@@ -313,6 +313,23 @@ for (const device of DEVICES) {
   // Funkce mají místo ve spodní liště, kde býval Instagram
   await click('.m-tabs button:nth-child(3)');
   await check('funkce (panel)'); await snap('13b-funkce');
+
+  /*
+   * Přehled dne. Na telefonu se čte ráno jako první a je to jediné okno
+   * s grafem — dlaždice se musí složit po dvou a proužky se nesmí vysypat
+   * z šířky displeje.
+   */
+  await click('.sheet-action', { hasText: 'Přehled dne' });
+  await check('přehled dne'); await snap('13c-prehled-dne');
+  await page.evaluate(() => {
+    const body = document.querySelector('.dg-body');
+    if (body) body.scrollTop = body.scrollHeight;
+  });
+  await page.waitForTimeout(250);
+  await check('přehled dne — postřehy'); await snap('13d-prehled-postrehy');
+  await click('.dg-modal .modal-head .icon-btn:last-child');
+  await click('.m-tabs button:nth-child(3)');
+
   await click('.sheet-action', { hasText: 'Balení objednávek' });
   await check('balení — seznam'); await snap('14-baleni-seznam');
   await click('.pk-row');

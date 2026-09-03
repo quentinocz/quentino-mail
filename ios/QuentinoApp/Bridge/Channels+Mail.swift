@@ -207,7 +207,17 @@ extension Bridge {
         register("ai:translateIncoming") { args in
             try await MailAI.translateIncoming(try Self.int(args.first))
         }
-        register("ai:digest") { _ in try await MailAI.digest() }
+        /*
+         Přehled dne. Čísla a seznam k vyřízení se počítají při každém
+         otevření (jsou z místní databáze), postřehy od AI nejvýš jednou za
+         24 hodin — `force` je tlačítko „Přegenerovat".
+         */
+        register("digest:get") { args in await Digest.report(force: (args.first as? Bool) ?? false) }
+        register("digest:ask") { args in
+            let question = args.first as? String ?? ""
+            let history = args.count > 1 ? (args[1] as? [[String: Any]] ?? []) : []
+            return try await Digest.ask(question, history: history)
+        }
 
         // Tisk zprávy do PDF — stejná cesta jako u poukazů
         register("messages:exportPdf") { args in
