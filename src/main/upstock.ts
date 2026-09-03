@@ -3,7 +3,7 @@ import { getSetting } from './db';
 import { decrypt } from './secure';
 import { getUpgatesConfig } from './upgates';
 import { planOf, markSent } from './stockin';
-import { StockinPlanRow } from '../shared/types';
+import { StockinPlanRow, SkippedRow } from '../shared/types';
 
 /**
  * Zápis naskladnění do Upgates.
@@ -43,7 +43,7 @@ let sending: BrowserWindow | null = null;
  * i příště — jinak by se člověk hlásil při každé naskladnění znovu.
  */
 export async function sendViaWindow(sessionId: string):
-  Promise<{ added: number; skipped: StockinPlanRow[]; needsLogin: boolean }> {
+  Promise<{ added: number; skipped: SkippedRow[]; needsLogin: boolean }> {
   const cfg = getUpgatesConfig();
   if (!cfg.url) throw new Error('Není vyplněná adresa administrace (Nastavení → AI → Upgates).');
 
@@ -72,14 +72,25 @@ export async function sendViaWindow(sessionId: string):
    * až se uživatel přihlásí a stránka naskladňování se objeví.
    */
   const ready = await waitForStocking(win);
-  if (!ready) return { added: 0, skipped: rows, needsLogin: true };
+  if (!ready) {
+    return {
+      added: 0,
+      skipped: rows.map(one => ({ ...one, reason: 'nepřihlášeno' })),
+      needsLogin: true
+    };
+  }
 
   let added = 0;
-  const skipped: StockinPlanRow[] = [];
+  /*
+   * U nedodělaných řádků se vede i důvod. Bez něj byla jediná zpětná vazba
+   * „3 se nepodařilo" a nedalo se poznat, jestli chybí číslo z feedu, nebo
+   * se nenašla varianta — a to jsou dvě úplně jiné opravy.
+   */
+  const skipped: SkippedRow[] = [];
 
   for (const row of rows) {
     if (win.isDestroyed()) break;
-    if (!row.productId) { skipped.push(row); continue; }
+    if (!row.productId) { skipped.push({ ...row, reason: 'chybí ve feedu' }); continue; }
 
     emit('stockin:progress', { done: added + skipped.length, total: rows.length, code: row.code });
 
@@ -95,7 +106,10 @@ export async function sendViaWindow(sessionId: string):
     let optionSet: string | null = null;
     if (row.variantId || row.label) {
       optionSet = await optionSetFor(win, row);
-      if (!optionSet) { skipped.push(row); continue; }
+      if (!optionSet) {
+        skipped.push({ ...row, reason: 'varianta se v administraci nenašla' });
+        continue;
+      }
     }
 
     const before = await gridCount(win);
@@ -105,7 +119,7 @@ export async function sendViaWindow(sessionId: string):
     // Za přidané se počítá jen to, o co se seznam v administraci opravdu
     // rozrostl. „HTTP 200" ještě neznamená, že tam řádek přibyl.
     if (ok && after > before) added++;
-    else skipped.push(row);
+    else skipped.push({ ...row, reason: ok ? 'formulář řádek nepřidal' : 'zápis do formuláře selhal' });
   }
 
   emit('stockin:progress', { done: rows.length, total: rows.length, code: '' });
@@ -169,38 +183,115 @@ async function addOne(win: BrowserWindow, row: StockinPlanRow, optionSet: string
 /**
  * Číslo sady voleb pro variantu — vytažené z administrace, ne z feedu.
  *
- * `getVariants` vrátí obsah dialogu „Vyberte variantu produktu"; v jeho
- * řádcích je `input`, jehož `value` je právě `option_set_id`. Hledá se řádek,
- * jehož text obsahuje kód varianty, a když ten nesedí, tak její popisek
- * („Délka: 120cm"). Když nesedí nic jednoznačně, **nevrací se nic** —
- * uhodnout, která varianta to je, znamená naskladnit cizí velikost.
+ * Ve feedu má varianta `VARIANT_ID`, administrace pracuje s číslem „sady
+ * voleb" (`option_set_id`) a jsou to dvě různé věci. Společný mají jen kód
+ * varianty, takže se vytáhne seznam z administrace a hledá se v něm podle
+ * kódu; když ten nesedí, tak podle popisku („Délka: 120cm"). Když nesedí nic
+ * jednoznačně, **nevrací se nic** — uhodnout, která varianta to je, znamená
+ * naskladnit cizí velikost.
+ *
+ * ## Proč se čte z odpovědi, a ne ze stránky
+ *
+ * První verze četla `$('#optionSetDialog tbody tr')` hned po `$.nette.success`.
+ * Jenže Nette snippety překreslí a jQuery UI dialog otevře **až v dalším
+ * kole smyčky událostí** — v tu chvíli na stránce žádné řádky nejsou a
+ * varianta se „nenašla". Produkty s variantami se proto do formuláře
+ * nepřidaly vůbec, kdežto ty bez variant ano; vypadalo to jako náhoda.
+ *
+ * Odpověď serveru je přitom celá k dispozici hned: v `payload.snippets` je
+ * HTML dialogu. Čte se tedy z ní, a na stránku se sáhne až jako na náhradní
+ * řešení — a to s čekáním, ne naslepo.
  */
 async function optionSetFor(win: BrowserWindow, row: StockinPlanRow): Promise<string | null> {
   const found = await win.webContents.executeJavaScript(`
     (function () {
       return new Promise(function (done) {
         if (typeof $ === 'undefined') { done(''); return; }
+
+        var code = ${JSON.stringify(row.code)}.toLowerCase();
+        var label = ${JSON.stringify(row.label ?? '')}.toLowerCase();
+
+        /* Řádky z libovolného kusu HTML — hledá se input s hodnotou a text řádku */
+        function rowsFrom(html) {
+          var box = document.createElement('div');
+          box.innerHTML = html;
+          var out = [];
+          box.querySelectorAll('tr').forEach(function (tr) {
+            var input = tr.querySelector('input[value]');
+            var value = input && input.getAttribute('value');
+            if (value) out.push({ value: String(value), text: (tr.textContent || '').toLowerCase() });
+          });
+          return out;
+        }
+
+        /* Totéž ze stránky — až když v odpovědi nic není */
+        function rowsFromPage() {
+          var out = [];
+          document.querySelectorAll(
+            '#optionSetDialog tr, [id*="optionSet"] tr, .ui-dialog:visible tr'
+          ).forEach(function (tr) {
+            var input = tr.querySelector('input[value]');
+            var value = input && input.getAttribute('value');
+            if (value) out.push({ value: String(value), text: (tr.textContent || '').toLowerCase() });
+          });
+          return out;
+        }
+
+        function pick(rows) {
+          var byCode = [], byLabel = [];
+          rows.forEach(function (one) {
+            if (code && one.text.indexOf(code) >= 0) byCode.push(one.value);
+            else if (label && one.text.indexOf(label) >= 0) byLabel.push(one.value);
+          });
+          var hits = byCode.length ? byCode : byLabel;
+          // Víc shod znamená, že se to nedá rozhodnout — radši nic
+          return hits.length === 1 ? hits[0] : '';
+        }
+
+        function finish(value) {
+          try { $('#optionSetDialog').dialog('close'); } catch (e) { /* nemusí být otevřený */ }
+          try { $('.ui-dialog-content').dialog('close'); } catch (e) { /* ani tenhle */ }
+          done(value);
+        }
+
         $.ajax({
           url: ${JSON.stringify(STOCKING_PATH)} + '?do=getVariants',
           data: { product_id: ${JSON.stringify(row.productId)} },
           type: 'get',
           success: function (payload) {
-            try { $.nette.success(payload); } catch (e) { done(''); return; }
-            var code = ${JSON.stringify(row.code)}.toLowerCase();
-            var label = ${JSON.stringify(row.label ?? '')}.toLowerCase();
-            var byCode = [], byLabel = [];
-            $('#optionSetDialog tbody tr').each(function () {
-              var value = $(this).find('input').first().attr('value');
-              if (!value) return;
-              var text = ($(this).text() || '').toLowerCase();
-              if (code && text.indexOf(code) >= 0) byCode.push(String(value));
-              else if (label && text.indexOf(label) >= 0) byLabel.push(String(value));
-            });
-            try { $('#optionSetDialog').dialog('close'); } catch (e) { /* nemusí být otevřený */ }
-            var hits = byCode.length ? byCode : byLabel;
-            done(hits.length === 1 ? hits[0] : '');
+            /*
+             * Z odpovědi. Snippety jsou objekt { id: html }; projdou se
+             * všechny, protože jméno snippetu se mezi verzemi administrace
+             * liší, kdežto tvar řádků ne.
+             */
+            var html = '';
+            if (payload && payload.snippets) {
+              Object.keys(payload.snippets).forEach(function (key) {
+                var part = payload.snippets[key];
+                if (typeof part === 'string') html += part;
+              });
+            }
+            if (typeof payload === 'string') html += payload;
+
+            var chosen = html ? pick(rowsFrom(html)) : '';
+            if (chosen) { finish(chosen); return; }
+
+            /*
+             * Náhradní cesta přes stránku. Nette snippet překreslí a dialog
+             * otevře až v dalším kole smyčky událostí, takže se čeká — do
+             * dvou vteřin, po stovkách milisekund.
+             */
+            try { $.nette.success(payload); } catch (e) { /* jen překreslení */ }
+            var tries = 0;
+            var timer = setInterval(function () {
+              var value = pick(rowsFromPage());
+              if (value || ++tries >= 20) {
+                clearInterval(timer);
+                finish(value);
+              }
+            }, 100);
           },
-          error: function () { done(''); }
+          error: function () { finish(''); }
         });
       });
     })()

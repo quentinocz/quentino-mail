@@ -566,6 +566,27 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     api.packing.working(selected).catch(() => {});
   }, [selected]);
 
+  /*
+   * Dokud je tohle okno otevřené, nic se u balení nenabízí proužkem.
+   *
+   * Kdo balení otevřel, ten se rozhodl u toho být — a když se v telefonu
+   * proklikají čtyři objednávky, hromadily se pod oknem čtyři nabídky, které
+   * se po zavření musely jedna po druhé odklikat. Místo toho se okno rovnou
+   * přepne na tu, u které se právě stojí.
+   */
+  useEffect(() => {
+    api.live.watch('packing', true).catch(() => {});
+    return () => { api.live.watch('packing', false).catch(() => {}); };
+  }, []);
+
+  useEffect(() => api.on('live:work', (work: any) => {
+    if (work?.kind !== 'packing' || !work.id) return;
+    // Už je otevřená — přepínat není co
+    const open = orders.find(o => o.messageId === selectedRef.current);
+    if ((open?.shop?.code ?? '') === String(work.id)) return;
+    void findByNumber(String(work.id), 'code');
+  }), [orders, findByNumber]);
+
   const toggleCamera = async () => {
     if (panelH) { await api.scan.stop().catch(() => {}); setPanelH(0); return; }
     try {

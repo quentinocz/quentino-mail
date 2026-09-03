@@ -17,8 +17,8 @@ import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets,
 import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
 import * as live from './live';
-import { shorthandRows, saveShorthand } from './shorthand';
-import { liveOffers, dismissOffer } from './livework';
+import { shorthandRows, saveShorthand, shorthandScope } from './shorthand';
+import { liveOffers, dismissOffer, watchLive } from './livework';
 import { scanOld, freeUp } from './cleanup';
 import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renameSession,
   deleteSession, planOf, emitChanged as emitStockin,
@@ -220,9 +220,11 @@ export function registerIpc() {
    * ve feedu — vypisovat všechno, co e-shop umí, by znamenalo dvacet řádků,
    * ze kterých se používají tři.
    */
-  handle('shorthand:list', () => shorthandRows());
-  handle('shorthand:save', (kind: any, name: string, short: string) =>
-    saveShorthand(kind === 'payment' ? 'payment' : 'shipment', name ?? '', short ?? ''));
+  handle('shorthand:list', () => ({ rows: shorthandRows(), scope: shorthandScope() }));
+  handle('shorthand:save', (kind: any, name: string, short: string) => ({
+    rows: saveShorthand(kind === 'payment' ? 'payment' : 'shipment', name ?? '', short ?? ''),
+    scope: shorthandScope()
+  }));
   // Druhá fáze: dopravci, kteří stav vypisují až JavaScriptem (PPL, DPD, GLS).
   // Karta se zobrazí hned a stav zásilky se doplní, jakmile doběhne.
   handle('orders:shipment', async (dbId: number, force?: boolean) =>
@@ -511,6 +513,11 @@ export function registerIpc() {
   handle('live:newChannel', () => live.newChannel());
   handle('live:offers', () => liveOffers());
   handle('live:dismiss', (key: string) => dismissOffer(key ?? ''));
+  /*
+   * „Tohle mám otevřené." Dokud to platí, nic se u toho druhu nenabízí —
+   * přechod na jinou objednávku se přepne rovnou v okně.
+   */
+  handle('live:watch', (kind: string, on: boolean) => { watchLive(kind ?? '', !!on); return true; });
 
   handle('supabase:status', () => keepalive.status());
   handle('supabase:ping', async () => {

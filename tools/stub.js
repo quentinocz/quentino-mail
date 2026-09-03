@@ -242,15 +242,15 @@
     // Načtená faktura otevře i půl roku starou doručenou objednávku
     'packing:openOrder': null,
     // Slovník zkratek dopravy a plateb — co se ukáže na odznaku v seznamu
-    'shorthand:list': [
+    'shorthand:list': { scope: { orders: 428, withShipment: 428, withPayment: 428 }, rows: [
       { kind: 'shipment', name: 'Zásilkovna - výdejní místo', short: '', guess: 'Zásilkovna', count: 148 },
       { kind: 'shipment', name: 'PPL ParcelShop', short: 'PPL box', guess: 'PPL', count: 61 },
       { kind: 'shipment', name: 'Česká pošta - Balík do ruky', short: '', guess: 'ČP', count: 22 },
       { kind: 'payment', name: 'Platba kartou online', short: '', guess: 'Karta', count: 171 },
       { kind: 'payment', name: 'Dobírka', short: '', guess: 'Dobírka', count: 44 },
       { kind: 'payment', name: 'Bankovním převodem', short: '', guess: 'Převod', count: 16 }
-    ],
-    'shorthand:save': [],
+    ] },
+    'shorthand:save': { scope: { orders: 428, withShipment: 428, withPayment: 428 }, rows: [] },
     'packing:working': true,
     'stockin:working': true,
     // Upozornění na telefon přes ntfy — v náhledu se nikam neposílá
