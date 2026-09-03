@@ -55,53 +55,98 @@ check('neznámé jméno se zkrátí na první slovo', sh.guessShort('Kamion s pl
 check('a dlouhé se ořízne', sh.guessShort('Nadstandardnídoprava kamionem'), 'Nadstandard…');
 check('prázdné zůstane prázdné', sh.guessShort(''), '');
 
+/* ---------- slučování poboček ---------- */
+
+/*
+ * Tohle je jádro věci a čísla jsou ze skutečného feedu. E-shop neposílá
+ * „Zásilkovna", ale jméno **konkrétní výdejny** — a těch jsou stovky, jedna
+ * na pobočku. Kdyby se slovník vedl po názvech, měl by tři sta řádků, které
+ * nikdo nevyplní, a na odznaku by stálo „Zásilkovna Výdejní místo - Libuň,
+ * Libuň 53, Potraviny". Slučuje se proto po dopravcích.
+ */
+console.log('\npobočky se slučují po dopravcích:\n');
+const SKUTECNE = [
+  'PPL / DHL International',
+  'PPL ParcelBox - ABOX BRN Kounicova (Billa)',
+  'PPL ParcelBox - ABOX PRG Bechyňova (ČVUT)',
+  'PPL Parcelshop - ALLWYN - Knihkupectví Muller',
+  'Zásilkovna Z-Box - Z-BOX',
+  'Zásilkovna Výdejní místo - Libuň, Libuň 53, Potraviny',
+  'Zásilkovna Výdejní místo - Potraviny Malšovice',
+  'Balíkovna - Jablonec nad Nisou Chrobák PC',
+  'Balíkovna - Šumperk Sport Start',
+  'Osobní odběr - Lipová 656, Markvartovice 747 14',
+  'DPD',
+  'InPost Paczkomaty Box / Poczta Polska',
+  'Mondial Relay Box',
+  'Bartolini Box',
+  'Hermes PaketShop (Packeta)',
+  'Hermes Lieferung nach Hause (Packeta)'
+];
+for (const [i, name] of SKUTECNE.entries()) {
+  db.prepare('INSERT INTO shop_orders (code, shipment, payment) VALUES (?,?,?)')
+    .run(`s${i}`, name, i % 2 === 0 ? 'Dobírka' : 'Platba kartou online');
+}
+
+const rodiny = (kind) => sh.shorthandRows().filter(r => r.kind === kind).map(r => [r.name, r.count]);
+check('šestnáct výdejen dá sedm dopravců',
+  rodiny('shipment'),
+  [['PPL', 4], ['Zásilkovna', 3], ['Balíkovna', 2], ['Hermes', 2],
+    ['Bartolini', 1], ['DPD', 1], ['InPost', 1], ['Mondial', 1], ['Osobně', 1]]);
+// Hermes vozí Packeta, ale je to jiná síť — kdyby se slil se Zásilkovnou,
+// nešly by německé zásilky na odznaku rozeznat
+check('Hermes se nesleje se Zásilkovnou', sh.shortFor('shipment', 'Hermes PaketShop (Packeta)'), 'Hermes');
+check('a všechny PPL pobočky mají jednu zkratku',
+  [...new Set(SKUTECNE.filter(n => n.startsWith('PPL')).map(n => sh.shortFor('shipment', n)))],
+  ['PPL']);
+
+const ppl = sh.shorthandRows().find(r => r.name === 'PPL');
+check('u dopravce je vidět, kolik názvů se slilo', ppl.distinct, 4);
+check('i ukázka, ať jde zkontrolovat, že se to nespletlo', ppl.samples.length, 3);
+
 /* ---------- odkud se nabídka bere ---------- */
 
 console.log('\ncož se nabídne v nastavení:\n');
 
-const names = () => sh.shorthandRows().map(r => [r.kind, r.name, r.count]);
-
-// 1) Feed objednávek
-db.prepare("INSERT INTO shop_orders (code, shipment, payment) VALUES ('1', 'Zásilkovna', 'Dobírka')").run();
-db.prepare("INSERT INTO shop_orders (code, shipment, payment) VALUES ('2', 'Zásilkovna', 'Platba kartou online')").run();
-check('z feedu, nejčastější napřed',
-  names(),
-  [['shipment', 'Zásilkovna', 2], ['payment', 'Dobírka', 1], ['payment', 'Platba kartou online', 1]]);
-
 /*
- * 2) Objednávky stažené starší verzí mají sloupce prázdné — přesně kvůli nim
+ * Objednávky stažené starší verzí mají sloupce prázdné — přesně kvůli nim
  * nastavení nic neukazovalo. Rozebraný potvrzovací e-mail je ale má.
  */
 db.prepare("INSERT INTO shop_orders (code, shipment, payment) VALUES ('3', '', '')").run();
 db.prepare(
   "INSERT INTO order_cache (message_pk, json, at) VALUES (1, ?, '2026-09-01T10:00:00Z')"
-).run(JSON.stringify({ orderNumber: '3', shipmentName: 'PPL ParcelShop', paymentName: 'Dobírka' }));
+).run(JSON.stringify({ orderNumber: '3', shipmentName: 'GLS ParcelShop Brno', paymentName: 'Dobírka' }));
 const withMail = sh.shorthandRows();
 check('doplní se i z potvrzovacích e-mailů',
-  withMail.some(r => r.kind === 'shipment' && r.name === 'PPL ParcelShop'), true);
+  withMail.some(r => r.kind === 'shipment' && r.name === 'GLS'), true);
 check('a k dobírce se počet přičte',
-  withMail.find(r => r.kind === 'payment' && r.name === 'Dobírka')?.count, 2);
+  withMail.find(r => r.kind === 'payment' && r.name === 'Dobírka')?.count, 9);
 
-/* 3) Ručně zadaná zkratka */
+/*
+ * Ruční zápis. Píše se k **dopravci**, ne k jednotlivé pobočce — psát zkratku
+ * ke každé výdejně zvlášť je přesně to, čemu se slučováním vyhýbáme.
+ */
 console.log('\nruční zápis:\n');
-sh.saveShorthand('shipment', 'Balíkovna', 'Balíkovna');
-const withManual = sh.shorthandRows();
-const manual = withManual.find(r => r.name === 'Balíkovna');
-check('název, který v objednávkách není, se přesto nabídne', !!manual, true);
+sh.saveShorthand('shipment', 'WeDo', 'WeDo');
+const manual = sh.shorthandRows().find(r => r.name === 'WeDo');
+check('dopravce, který v objednávkách zatím není, se přesto nabídne', !!manual, true);
 check('a pozná se podle nulového počtu', manual?.count, 0);
-check('zkratka se ukáže na odznaku', sh.shortFor('shipment', 'Balíkovna'), 'Balíkovna');
 
-// Vlastní zkratka má přednost před odhadem
-sh.saveShorthand('payment', 'Platba kartou online', 'Kartou');
-check('vlastní zkratka přebije odhad', sh.shortFor('payment', 'Platba kartou online'), 'Kartou');
-check('bez ní platí odhad', sh.shortFor('payment', 'Dobírka'), 'Dobírka');
+// Vlastní zkratka má přednost před jménem rodiny — a platí pro celou rodinu
+sh.saveShorthand('payment', 'Karta', 'Kartou');
+check('vlastní zkratka přebije jméno rodiny',
+  sh.shortFor('payment', 'Platba kartou online'), 'Kartou');
+check('a platí i pro jiný název téže rodiny',
+  sh.shortFor('payment', 'GoPay - platební brána'), 'Kartou');
+check('u jiné rodiny se nic nemění', sh.shortFor('payment', 'Dobírka'), 'Dobírka');
 
-// Smazání se vrátí k odhadu a řádek bez výskytu ze seznamu zmizí
-sh.saveShorthand('payment', 'Platba kartou online', '');
-check('smazaná zkratka vrátí odhad', sh.shortFor('payment', 'Platba kartou online'), 'Karta');
-sh.saveShorthand('shipment', 'Balíkovna', '');
-check('a ručně přidaný název bez zkratky zmizí',
-  sh.shorthandRows().some(r => r.name === 'Balíkovna'), false);
+// Smazání se vrátí ke jménu rodiny a řádek bez výskytu ze seznamu zmizí
+sh.saveShorthand('payment', 'Karta', '');
+check('smazaná zkratka vrátí jméno rodiny',
+  sh.shortFor('payment', 'Platba kartou online'), 'Karta');
+sh.saveShorthand('shipment', 'WeDo', '');
+check('a ručně přidaný dopravce bez zkratky zmizí',
+  sh.shorthandRows().some(r => r.name === 'WeDo'), false);
 
 /*
  * Doprava a platba se nepletou. „Zdarma" může být obojí a zkratka jednoho
@@ -114,8 +159,8 @@ check('u platby zůstává odhad', sh.shortFor('payment', 'Zdarma'), 'Zdarma');
 
 console.log('\nkolik je z čeho brát:\n');
 const scope = sh.shorthandScope();
-check('spočítané objednávky', scope.orders, 3);
-check('a kolik z nich má dopravu', scope.withShipment, 2);
+check('spočítané objednávky', scope.orders, 17);
+check('a kolik z nich má dopravu', scope.withShipment, 16);
 
 console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ zkratky sedí\n');
 process.exit(failed ? 1 : 0);

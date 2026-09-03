@@ -6675,7 +6675,16 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   font-size: 12.5px;
 }
 /* Název z feedu bývá dlouhý; ustupuje poli se zkratkou, ne naopak */
-.sh-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sh-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Ukázka slitých názvů — drobně, je to kontrola, ne údaj */
+.sh-name small {
+  font-size: 10.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sh-count { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
 .sh-row input {
   width: 128px;

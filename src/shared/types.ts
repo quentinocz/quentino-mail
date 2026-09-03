@@ -690,15 +690,26 @@ export interface ShorthandView {
   scope: { orders: number; withShipment: number; withPayment: number };
 }
 
-/** Řádek slovníku zkratek pro dopravu a platbu */
+/**
+ * Řádek slovníku — jeden **dopravce nebo způsob platby**, ne jeden název.
+ *
+ * Ve feedu není „Zásilkovna", ale konkrétní výdejna („PPL ParcelBox - ABOX
+ * BRN Kounicova (Billa)"). Názvů jsou stovky, jeden na pobočku, a na odznaku
+ * má stát „PPL", ať je to kterákoli — proto se slučují do rodin.
+ */
 export interface ShorthandRow {
   kind: 'shipment' | 'payment';
+  /** Jméno rodiny — „PPL", „Zásilkovna", „Dobírka" */
   name: string;
-  /** Zadaná zkratka; prázdné = platí odhad */
+  /** Zadaná zkratka; prázdné = platí jméno rodiny */
   short: string;
   guess: string;
-  /** U kolika objednávek se název vyskytl */
+  /** U kolika objednávek se rodina vyskytla */
   count: number;
+  /** Kolik různých názvů do ní spadá — u dopravy desítky poboček */
+  distinct: number;
+  /** Pár názvů na ukázku, aby bylo vidět, co se slilo dohromady */
+  samples: string[];
 }
 
 export interface KnowledgeDoc {

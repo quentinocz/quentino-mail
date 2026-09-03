@@ -1318,7 +1318,19 @@ function ShorthandField() {
         <b>{title}</b>
         {mine.map(row => (
           <label key={`${row.kind}:${row.name}`} className="sh-row">
-            <span className="sh-name" title={row.name}>{row.name}</span>
+            <span className="sh-name">
+              <b>{row.name}</b>
+              {/*
+                * Co se do rodiny slilo. U dopravy je ve feedu jméno konkrétní
+                * výdejny, takže jich pod jedním dopravcem bývají desítky —
+                * bez ukázky by nešlo poznat, že se slučuje správně.
+                */}
+              {row.distinct > 1 && (
+                <small title={row.samples.join('\n')}>
+                  {row.distinct} názvů · {row.samples[0]}
+                </small>
+              )}
+            </span>
             {/* Nula znamená „už to v objednávkách není, ale zkratka zůstala" */}
             <span className="sh-count">{row.count > 0 ? `${row.count}×` : 'ručně'}</span>
             <input value={row.short} placeholder={row.guess} spellCheck={false} maxLength={14}
@@ -1328,7 +1340,7 @@ function ShorthandField() {
         ))}
         {adding?.kind === kind ? (
           <div className="sh-row">
-            <input className="sh-name-in" placeholder="Název tak, jak ho píše e-shop" autoFocus
+            <input className="sh-name-in" placeholder="Dopravce nebo způsob platby" autoFocus
               value={adding.name} onChange={e => setAdding({ ...adding, name: e.target.value })} />
             <input placeholder="zkratka" maxLength={14}
               value={adding.short} onChange={e => setAdding({ ...adding, short: e.target.value })} />
@@ -1354,7 +1366,10 @@ function ShorthandField() {
       <label><Icon name="truck" size={13} /> Zkratky dopravy a plateb</label>
       <div className="desc">
         Co se ukáže u objednávky v seznamu pošty na telefonu — místo čísla a částky,
-        které se z odznaku stejně nečtou. Necháš-li pole prázdné, platí odhad v něm napsaný.
+        které se z odznaku stejně nečtou. Řádek je <b>dopravce</b>, ne jednotlivá výdejna:
+        ve feedu je u každé objednávky konkrétní pobočka („PPL ParcelBox — ABOX BRN
+        Kounicova"), ale na odznaku má stát „PPL", ať je to kterákoli.
+        Necháš-li pole prázdné, platí jméno v něm napsané.
       </div>
       <div className="sh-list">
         {group('shipment', 'Doprava')}

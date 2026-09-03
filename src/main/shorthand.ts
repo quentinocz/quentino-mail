@@ -7,19 +7,26 @@
  * jde balík na výdejnu nebo domů a jestli je zaplaceno, nebo se bude vybírat
  * dobírka. Na to stačí dvě slova.
  *
- * ## Proč slovník, a ne automatické zkracování
+ * ## Slovník je po dopravcích, ne po názvech
  *
- * Názvy dopravy si e-shop pojmenovává sám a mění se: „Zásilkovna", pak
- * „Zásilkovna - na výdejní místo", pak „Packeta CZ". Zkracovat je pravidlem
- * (první slovo, iniciály) dopadne u jednoho dobře a u druhého nesmyslně —
- * z „Platba kartou online" by bylo „Platba", což neříká nic. Proto se
- * nabídnou **hodnoty, které doopravdy jsou ve feedu**, a ke každé se dá
- * napsat zkratka, jakou má člověk v hlavě.
+ * Ve feedu není „Zásilkovna", ale **konkrétní výdejna**: „PPL ParcelBox -
+ * ABOX BRN Kounicova (Billa)", „Zásilkovna Výdejní místo - Libuň, Libuň 53,
+ * Potraviny", „Balíkovna - Šumperk Sport Start". Takových názvů jsou stovky,
+ * jeden na každou pobočku, a vypisovat je do nastavení po jednom by dalo
+ * seznam, který nikdo nikdy nevyplní — a hlavně by to bylo zbytečné: na
+ * odznaku má stát „PPL", ať je to kterákoli pobočka.
  *
- * Než někdo něco napíše, platí odhad: nejdřív se zkusí najít známé slovo
- * (dobírka, kartou, Zásilkovna, PPL…), a když ani to ne, vezme se první
- * slovo názvu. Aplikace tak dává smysl hned po nasazení a slovník je na
- * doladění, ne na vyplňování.
+ * Názvy se proto slučují do **rodin** podle rozlišujícího slova (PPL,
+ * Zásilkovna, Balíkovna, dobírka, kartou…) a zkratka se píše k rodině.
+ * Deset řádků místo tří set.
+ *
+ * ## Proč slovník, a ne jen automatické zkracování
+ *
+ * Rodina se pozná sama, ale její jméno nemusí sedět každému do řádku —
+ * někdo chce „Zás.", jinému stačí „Z-Box". Proto se dá u každé rodiny
+ * zkratka přepsat. Než někdo něco napíše, platí jméno rodiny, takže
+ * aplikace dává smysl hned po nasazení a slovník je na doladění, ne na
+ * vyplňování.
  */
 import { getDb, getSetting, setSetting } from './db';
 
@@ -29,14 +36,23 @@ export type ShorthandKind = 'shipment' | 'payment';
 
 export interface ShorthandRow {
   kind: ShorthandKind;
-  /** Název tak, jak přišel z feedu */
+  /**
+   * Jméno rodiny — „PPL", „Zásilkovna", „Dobírka".
+   *
+   * Není to název z feedu; ten je u dopravy jménem konkrétní pobočky a je
+   * jich tolik, kolik má dopravce výdejen.
+   */
   name: string;
-  /** Zkratka do odznaku; prázdné = platí odhad */
+  /** Zkratka do odznaku; prázdné = platí jméno rodiny */
   short: string;
-  /** Odhad, který platí bez zadané zkratky — aby bylo v nastavení vidět, co se ukáže */
+  /** Co se ukáže bez zadané zkratky (= jméno rodiny) */
   guess: string;
-  /** U kolika objednávek se to vyskytlo — nejčastější patří nahoru */
+  /** U kolika objednávek se rodina vyskytla — nejčastější patří nahoru */
   count: number;
+  /** Kolik různých názvů do rodiny spadá — u dopravy to bývají desítky poboček */
+  distinct: number;
+  /** Pár názvů na ukázku, aby bylo vidět, co se do rodiny slilo */
+  samples: string[];
 }
 
 /**
@@ -49,6 +65,12 @@ export interface ShorthandRow {
  */
 const KNOWN: { match: RegExp; short: string }[] = [
   // Doprava
+  /*
+   * Hermes je německá dopravní síť, kterou u nás vozí Packeta — ve feedu je
+   * proto „Hermes PaketShop (Packeta)". Patří před Zásilkovnu, jinak by se
+   * německé zásilky slily s českými a na odznaku by se nedaly rozeznat.
+   */
+  { match: /hermes/i, short: 'Hermes' },
   { match: /zásilkov|zasilkov|packeta/i, short: 'Zásilkovna' },
   { match: /balíkovn|balikovn/i, short: 'Balíkovna' },
   { match: /česk[áa]\s*pošt|ceska\s*post/i, short: 'ČP' },
@@ -58,6 +80,10 @@ const KNOWN: { match: RegExp; short: string }[] = [
   { match: /\bdhl\b/i, short: 'DHL' },
   { match: /\bups\b/i, short: 'UPS' },
   { match: /\bwedo\b/i, short: 'WeDo' },
+  // Zahraniční sítě, které e-shop nabízí na polský a francouzský trh
+  { match: /inpost|paczkomat|poczta/i, short: 'InPost' },
+  { match: /mondial/i, short: 'Mondial' },
+  { match: /bartolini/i, short: 'Bartolini' },
   { match: /osobn[íi]\s*odb[ěe]r|vyzvednut[íi]|na\s*prodejn/i, short: 'Osobně' },
   { match: /výdejn|vydejn|pickup|point/i, short: 'Výdejna' },
   { match: /kur[ýy]r|dom[ůu]|na\s*adresu/i, short: 'Kurýr' },
@@ -118,17 +144,28 @@ function saved(): Record<string, SavedEntry> {
   return out;
 }
 
-/** Klíč do slovníku — druh a název, ať se „Zdarma" u dopravy neplete s platbou. */
-function keyOf(kind: ShorthandKind, name: string): string {
-  return `${kind}:${(name ?? '').trim().toLowerCase()}`;
+/**
+ * Do které rodiny název patří.
+ *
+ * Je to totéž, co odhad zkratky — „PPL ParcelBox - ABOX BRN Kounicova"
+ * i „PPL / DHL International" spadnou pod „PPL". Právě proto se slovník
+ * vede po rodinách: pobočky se mění a přibývají, rodina zůstává.
+ */
+export function familyOf(name: string | null | undefined): string {
+  return guessShort(name ?? '');
+}
+
+/** Klíč do slovníku — druh a rodina, ať se „Zdarma" u dopravy neplete s platbou. */
+function keyOf(kind: ShorthandKind, family: string): string {
+  return `${kind}:${(family ?? '').trim().toLowerCase()}`;
 }
 
 /** Co se ukáže na odznaku. */
 export function shortFor(kind: ShorthandKind, name: string | null | undefined): string {
-  const text = (name ?? '').trim();
-  if (!text) return '';
-  const mine = saved()[keyOf(kind, text)];
-  return (mine?.short ?? '').trim() || guessShort(text);
+  const family = familyOf(name);
+  if (!family) return '';
+  const mine = saved()[keyOf(kind, family)];
+  return (mine?.short ?? '').trim() || family;
 }
 
 /**
@@ -150,15 +187,22 @@ export function shortFor(kind: ShorthandKind, name: string | null | undefined): 
  */
 export function shorthandRows(): ShorthandRow[] {
   const mine = saved();
-  const counts = new Map<string, { kind: ShorthandKind; name: string; count: number }>();
+  const families = new Map<string, {
+    kind: ShorthandKind; family: string; count: number; names: Map<string, number>;
+  }>();
 
   const add = (kind: ShorthandKind, raw: unknown, by = 1) => {
     const name = String(raw ?? '').trim();
     if (!name) return;
-    const key = keyOf(kind, name);
-    const found = counts.get(key);
-    if (found) found.count += by;
-    else counts.set(key, { kind, name, count: by });
+    const family = familyOf(name);
+    if (!family) return;
+
+    const key = keyOf(kind, family);
+    const found = families.get(key)
+      ?? { kind, family, count: 0, names: new Map<string, number>() };
+    found.count += by;
+    found.names.set(name, (found.names.get(name) ?? 0) + by);
+    families.set(key, found);
   };
 
   const d = getDb();
@@ -193,19 +237,33 @@ export function shorthandRows(): ShorthandRow[] {
     if (cut < 0) continue;
     const kind = key.slice(0, cut) as ShorthandKind;
     if (kind !== 'shipment' && kind !== 'payment') continue;
-    // Název z uloženého záznamu, ne z klíče — ten je malými písmeny
-    if (!counts.has(key)) {
-      counts.set(key, { kind, name: entry.name || key.slice(cut + 1), count: 0 });
+    if (!families.has(key)) {
+      families.set(key, {
+        kind,
+        family: entry.name || key.slice(cut + 1),
+        count: 0,
+        names: new Map<string, number>()
+      });
     }
   }
 
-  return [...counts.values()]
+  return [...families.values()]
     .map(one => ({
       kind: one.kind,
-      name: one.name,
-      short: (mine[keyOf(one.kind, one.name)]?.short ?? '').trim(),
-      guess: guessShort(one.name),
-      count: one.count
+      name: one.family,
+      short: (mine[keyOf(one.kind, one.family)]?.short ?? '').trim(),
+      guess: one.family,
+      count: one.count,
+      distinct: one.names.size,
+      /*
+       * Ukázka názvů, které se do rodiny slily. Bez ní se nedá poznat, jestli
+       * se pod „PPL" schovaly jen parcelshopy, nebo omylem i něco cizího —
+       * a slučování je tady to jediné, co se může splést.
+       */
+      samples: [...one.names.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([name]) => name)
     }))
     .sort((a, b) => (a.kind === b.kind
       ? (b.count - a.count) || a.name.localeCompare(b.name, 'cs')
@@ -238,9 +296,9 @@ export function shorthandScope(): { orders: number; withShipment: number; withPa
  * dopravu právě zavedl nebo přejmenoval, nemá smysl čekat, až přijde první
  * objednávka.
  */
-export function saveShorthand(kind: ShorthandKind, name: string, short: string): ShorthandRow[] {
+export function saveShorthand(kind: ShorthandKind, family: string, short: string): ShorthandRow[] {
   const mine = saved();
-  const clean = (name ?? '').trim();
+  const clean = (family ?? '').trim();
   if (!clean) return shorthandRows();
 
   const key = keyOf(kind, clean);
