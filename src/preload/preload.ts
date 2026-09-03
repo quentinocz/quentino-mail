@@ -23,7 +23,7 @@ const ALLOWED_INVOKE = [
   'contacts:search',
   'appsync:get', 'appsync:save', 'appsync:run', 'appsync:pickFolder',
   'ai:summarize', 'ai:reply', 'ai:improve', 'ai:translateIncoming', 'ai:translateText',
-  'ai:usage', 'digest:get', 'digest:ask', 'quota:get', 'mail:cleanupScan', 'mail:cleanupRun', 'shell:openUrl',
+  'ai:usage', 'digest:get', 'digest:ask', 'digest:archive', 'digest:old', 'digest:pdf', 'ga4:get', 'ga4:save', 'ga4:test', 'quota:get', 'mail:cleanupScan', 'mail:cleanupRun', 'shell:openUrl',
   'upgates:config', 'upgates:saveConfig', 'upgates:test', 'upgates:orders',
   'orders:card', 'orders:badge', 'orders:shorts', 'orders:refresh', 'orders:shipment',
   'shorthand:list', 'shorthand:save',

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang,
-  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow, ShorthandView } from '@shared/types';
+  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow, ShorthandView , Ga4Config } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -621,6 +621,12 @@ export default function SettingsModal(p: Props) {
                   </div>
                 </div>
               )}
+              {/*
+                * Google Analytics přes Sequel. Je to jediné místo, kde
+                * aplikace sáhne po číslech mimo vlastní feed — návštěvnost
+                * a konverzní poměr z objednávek nevykoukáš.
+                */}
+              <Ga4Box />
               <div className="field">
                 <label>Znění značky (brand prompt)</label>
                 <textarea rows={6} value={settings.brandPrompt}
@@ -1387,6 +1393,70 @@ function ShorthandField() {
             + (scope.withShipment === 0
               ? ' Starší objednávky dopravu nenesou — stáhni feed znovu, nebo si názvy přidej ručně.'
               : '')}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Napojení na Google Analytics přes Sequel (sequel.sh).
+ *
+ * Přes Google by to znamenalo projekt v Cloudu, OAuth a obnovování tokenů;
+ * Sequel z toho dělá jedno HTTP volání s klíčem. Aplikace se ptá **jednou
+ * denně** — návštěvnost se mezi dvěma otevřeními přehledu nezmění tak, aby
+ * to stálo za dotaz.
+ */
+function Ga4Box() {
+  const toast = useToast();
+  const [cfg, setCfg] = useState<Ga4Config | null>(null);
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { api.ga4.get().then(setCfg).catch(() => {}); }, []);
+  if (!cfg) return null;
+
+  const save = (patch: { enabled?: boolean; key?: string; endpoint?: string }) => {
+    api.ga4.save(patch).then(next => {
+      setCfg(next);
+      if (patch.key !== undefined) setKey('');
+    }).catch(e => toast(`Uložení selhalo: ${e.message}`, 'error'));
+  };
+
+  return (
+    <div className="field">
+      <label>Google Analytics přes Sequel {cfg.hasKey ? '· klíč uložen ✓' : '· bez klíče'}</label>
+      <label className="check-row">
+        <input type="checkbox" checked={cfg.enabled} onChange={e => save({ enabled: e.target.checked })} />
+        Dotahovat návštěvnost do AI přehledu (jednou denně)
+      </label>
+      <input
+        type="password"
+        value={key}
+        onChange={e => setKey(e.target.value)}
+        placeholder={cfg.hasKey ? '••••••••  (vyplň jen pro změnu)' : 'sql_…'}
+      />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn" disabled={!key.trim()} onClick={() => save({ key: key.trim() })}>
+          Uložit klíč
+        </button>
+        <button
+          className="btn"
+          disabled={busy || !cfg.ready}
+          onClick={() => {
+            setBusy(true);
+            api.ga4.test()
+              .then(message => toast(message))
+              .catch(e => toast(`Nepovedlo se: ${e.message}`, 'error'))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? 'Zkouším…' : 'Vyzkoušet spojení'}
+        </button>
+      </div>
+      <div className="desc">
+        Klíč z sequel.sh (Bearer). Ukládá se šifrovaně, stejně jako ostatní.
+        {cfg.lastAt && <> Naposledy staženo {new Date(cfg.lastAt).toLocaleString('cs-CZ')}.</>}
+        {cfg.lastError && <> Poslední chyba: {cfg.lastError}</>}
       </div>
     </div>
   );

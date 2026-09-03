@@ -208,11 +208,23 @@ extension Bridge {
             try await MailAI.translateIncoming(try Self.int(args.first))
         }
         /*
-         Přehled dne. Čísla a seznam k vyřízení se počítají při každém
+         AI přehled. Čísla a seznam k vyřízení se počítají při každém
          otevření (jsou z místní databáze), postřehy od AI nejvýš jednou za
          24 hodin — `force` je tlačítko „Přegenerovat".
          */
         register("digest:get") { args in await Digest.report(force: (args.first as? Bool) ?? false) }
+        /*
+         Návštěvnost z GA4 přes Sequel. Klíč se ukládá do klíčenky a ven
+         z aplikace jde jeden dotaz denně.
+         */
+        // Starší přehledy — postřeh se nedá spočítat znovu, drží se půl roku
+        register("digest:archive") { args in
+            Digest.archive((args.first as? Int) ?? 200)
+        }
+        register("digest:old") { args in Digest.fromArchive(args.first as? String ?? "") ?? NSNull() }
+        register("ga4:get") { _ in Ga4.config() }
+        register("ga4:save") { args in Ga4.save(args.first as? [String: Any] ?? [:]) }
+        register("ga4:test") { _ in try await Ga4.test() }
         register("digest:ask") { args in
             let question = args.first as? String ?? ""
             let history = args.count > 1 ? (args[1] as? [[String: Any]] ?? []) : []

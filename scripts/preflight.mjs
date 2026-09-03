@@ -611,7 +611,9 @@ const DESKTOP_ONLY = [
   // Nabídka rozdělané práce se ukazuje jen na počítači
   'live:offers', 'live:dismiss', 'live:watch',
   // Zápis do Upgates dělá počítač; telefon má místo toho kanál s vysvětlením
-  'stockin:apiCheck'
+  'stockin:apiCheck',
+  // Přehled do PDF ukládá počítač — na telefonu není kam
+  'digest:pdf'
 ];
 
 /**

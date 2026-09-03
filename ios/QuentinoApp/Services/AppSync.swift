@@ -102,6 +102,9 @@ enum AppSync {
             // 4) Instagram — co už na kterém trhu vyšlo
             syncInstagram(folder.url)
 
+            // 4b) AI přehled — postřehy dne se počítají jednou, ne na každém zařízení
+            syncDigest(folder.url)
+
             // 5) Naskladnění — rozpracované naskladnění z telefonu na počítač
             syncStockin(folder.url)
 
@@ -628,6 +631,25 @@ enum AppSync {
      Instagramové id zdrojového příspěvku — místní čísla řádků jsou na
      každém zařízení jiná.
      */
+    /**
+     Postřehy z AI přehledu.
+
+     Vznikají jednou za den a jsou pro všechna zařízení stejné — každé si je
+     počítat zvlášť znamená platit totéž čtyřikrát. Živý posel je pošle hned,
+     tohle je pojistka pro zařízení, které bylo vypnuté: **novější vyhrává**,
+     slučovat se nemá co.
+     */
+    private static func syncDigest(_ folder: URL) {
+        let file = folder.appendingPathComponent("digest.json")
+        let remote = readJson(file) as? [String: Any]
+        if let remote { Digest.applyShare(remote) }
+
+        guard let mine = Digest.share() else { return }
+        let insight = remote?["insight"] as? [String: Any]
+        let remoteAt = (insight?["at"] as? String) ?? (remote?["at"] as? String) ?? ""
+        if (mine["at"] as? String ?? "") > remoteAt { _ = try? writeJson(mine, to: file) }
+    }
+
     private static func syncInstagram(_ folder: URL) {
         let file = folder.appendingPathComponent("instagram.json")
         let remote = readJson(file) as? [String: Any]

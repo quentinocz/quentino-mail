@@ -687,7 +687,7 @@ export interface OrderBadge {
  * je to ale právě to, co se nahradit mělo — proto tahle krátká cesta: jeden
  * dotaz do databáze, žádná síť.
  */
-/* ---------- Přehled dne ---------- */
+/* ---------- AI Přehled ---------- */
 
 /**
  * Tržba se nesčítá přes měny.
@@ -721,11 +721,109 @@ export interface DigestSlice {
 }
 
 export interface DigestProduct {
+  /** Kód **produktu**, ne varianty — 110 a 120 cm jsou tytéž šle */
   code: string;
   title: string;
   qty: number;
   orders: number;
   revenue: number;
+  /**
+   * Tržba je dopočítaná z ceníku.
+   *
+   * Feed u některých položek cenu nenese (dárek, sada, starší objednávka).
+   * Vypsat u nich nulu vypadalo jako chyba, tak se vezme cena z katalogu —
+   * ale musí být poznat, že je to odhad.
+   */
+  estimated: boolean;
+  /** Které varianty se pod produktem prodaly — 110 cm 4×, 120 cm 2× */
+  variants: { label: string; qty: number }[];
+}
+
+/** Jak se prodávají velikosti napříč zbožím — 110 cm vede u všech barev */
+export interface DigestSize {
+  label: string;
+  qty: number;
+  /** U kolika různých produktů se ta velikost objevila */
+  products: number;
+}
+
+/** Měsíční souhrn pro dlouhodobý graf */
+export interface DigestMonth {
+  month: string;
+  orders: number;
+  cancelled: number;
+  revenue: number;
+  currency: string;
+  items: number;
+  customers: number;
+  complete: boolean;
+}
+
+/**
+ * Zasazení okna do delší historie.
+ *
+ * Bez tohohle je „113 objednávek" číslo bez váhy: v lednu je to hodně,
+ * v prosinci málo. Sezóny se počítají z vlastních dat e-shopu, ne z kalendáře.
+ */
+export interface DigestHistory {
+  months: DigestMonth[];
+  /** Kolik měsíců feed pokrývá */
+  coverage: number;
+  /** Stejných 30 dní loni; null = data tak daleko nesahají */
+  lastYear: { orders: number; revenue: number } | null;
+  /** Kolik z uzavřených měsíců bylo slabších než současné okno */
+  rank: { better: number; of: number } | null;
+  season: {
+    month: string;
+    label: string;
+    index: number;
+    startBy: string;
+    text: string;
+    basis: string;
+  } | null;
+}
+
+/** Co se dělo na sociálních sítích — a jestli to bylo v dnech s objednávkami */
+export interface DigestSocial {
+  posts: number;
+  likes: number;
+  comments: number;
+  best: { at: string; caption: string; likes: number; comments: number; permalink: string; markets: number } | null;
+  daysWithPost: number;
+  ordersWithPost: number;
+  ordersWithout: number;
+  prevPosts: number;
+}
+
+/** Řádek v seznamu starších přehledů */
+export interface DigestArchiveRow {
+  at: string;
+  headline: string;
+  orders: number | null;
+  revenue: number | null;
+  currency: string;
+}
+
+/** Nastavení napojení na Google Analytics přes Sequel */
+export interface Ga4Config {
+  enabled: boolean;
+  hasKey: boolean;
+  endpoint: string;
+  lastAt: string | null;
+  lastError: string | null;
+  ready: boolean;
+}
+
+/** Návštěvnost z Google Analytics (přes Sequel) */
+export interface DigestGa4 {
+  at: string;
+  window: { sessions: number | null; users: number | null; purchases: number | null; revenue: number | null };
+  prevWindow: { sessions: number | null; users: number | null; purchases: number | null; revenue: number | null };
+  sources: { name: string; sessions: number }[];
+  conversion: number | null;
+  prevConversion: number | null;
+  text: string;
+  error: string | null;
 }
 
 export interface DigestDay {
@@ -778,6 +876,24 @@ export interface DigestFacts {
   average: number;
   /** Zjištění spočítaná v kódu — podklad pro postřehy i samostatná karta */
   signals: DigestSignal[];
+  /** Stavy objednávek v okně — kolik čeká na platbu, kolik je vyřízených */
+  statuses: DigestSlice[];
+  /**
+   * Nákupy, ne objednávky.
+   *
+   * Když zákazníkovi neprojde platba nebo si něco přikoupí, založí druhou
+   * objednávku. Pro tržbu jsou to dvě, pro otázku „kolik lidí u nás nakoupilo"
+   * jedna — proto se objednávky téhož e-mailu do dvou dnů slučují.
+   */
+  purchases: number;
+  /** Kolik objednávek se do nákupů slilo (druhé pokusy, dokupy) */
+  duplicates: number;
+  /** Velikosti napříč zbožím */
+  sizes: DigestSize[];
+  /** Dlouhodobý kontext — rok zpátky, loňské okno, sezóny */
+  history: DigestHistory;
+  /** Sociální sítě; null = Instagram v téhle instalaci není */
+  social: DigestSocial | null;
   /** Kdy naposledy dorazil feed — ať se pozná, že čísla nejsou čerstvá */
   feedAt: string | null;
   /** Kolik objednávek feed vůbec zná (prázdný přehled se má umět vysvětlit) */
@@ -871,6 +987,8 @@ export interface DigestTurn {
 
 export interface DigestReport {
   facts: DigestFacts;
+  /** Návštěvnost z GA4; null = není zapnutá */
+  ga4: DigestGa4 | null;
   tasks: DigestTask[];
   insight: DigestInsight | null;
   /** Kdy se postřehy smějí dělat znovu (do té doby se ukazují uložené) */

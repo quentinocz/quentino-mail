@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, DigestFacts, DigestInsight, DigestArchiveRow, Ga4Config, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -345,13 +345,24 @@ export const api = {
     translateText: (text: string, lang: string) => call<string>('ai:translateText', text, lang),
     usage: () => call<{ month: string; calls: number; inputTokens: number; outputTokens: number; estUsd: number }>('ai:usage'),
     /*
-     * Přehled dne. Čísla se počítají pokaždé, postřehy od AI nejvýš jednou
+     * AI Přehled. Čísla se počítají pokaždé, postřehy od AI nejvýš jednou
      * za 24 hodin — `force` je tlačítko „Přegenerovat".
      */
     digest: (force = false) => call<DigestReport>('digest:get', force),
     /** Doptání nad týmiž čísly, která jsou v přehledu vidět */
     digestAsk: (question: string, history: DigestTurn[] = []) =>
-      call<string>('digest:ask', question, history)
+      call<string>('digest:ask', question, history),
+    /** Starší přehledy — postřeh se nedá spočítat znovu, drží se půl roku */
+    digestArchive: (limit = 200) => call<DigestArchiveRow[]>('digest:archive', limit),
+    digestOld: (at: string) => call<{ at: string; facts: DigestFacts; insight: DigestInsight } | null>('digest:old', at),
+    /** Uloží přehled do PDF (jen na počítači); vrací cestu nebo null při zrušení */
+    digestPdf: (at?: string) => call<string | null>('digest:pdf', at)
+  },
+  ga4: {
+    /** Napojení na Google Analytics přes Sequel */
+    get: () => call<Ga4Config>('ga4:get'),
+    save: (p: { enabled?: boolean; key?: string; endpoint?: string }) => call<Ga4Config>('ga4:save', p),
+    test: () => call<string>('ga4:test')
   },
   upgates: {
     config: () => call<UpgatesConfig>('upgates:config'),

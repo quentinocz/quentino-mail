@@ -18,7 +18,7 @@ export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' |
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
   { id: 'chat', icon: 'chat', label: 'Chat', tip: 'Chat ze zákaznického widgetu na e-shopu' },
-  { id: 'ai', icon: 'sliders', label: 'Funkce', tip: 'Přehled dne, balení, katalog, sociální sítě, překlady a články' }
+  { id: 'ai', icon: 'sliders', label: 'Funkce', tip: 'AI přehled, balení, katalog, sociální sítě, překlady a články' }
 ];
 
 /**
@@ -27,7 +27,7 @@ const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[]
  * v nabídce ukazovaly i tam a klepnutí neudělalo nic; teď se prostě nenabízejí.
  */
 export const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string; desktopOnly?: boolean }[] = [
-  { id: 'digest', icon: 'sunrise', label: 'Přehled dne', hint: 'Prodeje v číslech, co čeká na odpověď a postřehy k tomu' },
+  { id: 'digest', icon: 'sunrise', label: 'AI Přehled', hint: 'Prodeje v číslech, co čeká na odpověď a postřehy k tomu' },
   { id: 'packing', icon: 'bag', label: 'Balení objednávek', hint: 'Odškrtávací seznam — kusy, varianty, adresy' },
   { id: 'catalog', icon: 'layers', label: 'Katalog a naskladnění', hint: 'Produkty a zásoby, příjem zboží, štítky s kódem' },
   { id: 'instagram', icon: 'image', label: 'Sociální sítě', hint: 'Instagram a Facebook ve všech trzích' },
