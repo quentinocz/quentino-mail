@@ -47,6 +47,16 @@
  * s deseti `as? String ?? ""` má typ daný okolím a přeloží se bez potíží.
  * Teprve když se takové pole ještě spojuje s jiným a prohání přes `filter`
  * nebo `joined`, nemá se odvozování o co opřít.
+ *
+ * ## 4. `.int(promenna)` v parametrech dotazu
+ *
+ * `SQLite.Value.int` bere `Int64`, ne `Int`. U čísla napsaného rovnou
+ * (`.int(1)`) to nevadí — literál se přizpůsobí — ale u proměnné překlad
+ * spadne na „cannot convert value of type 'Int' to expected argument type
+ * 'Int64'". V TypeScriptu je to jedno číslo a nic nenapovídá, že tady musí
+ * být obal, takže se to píše špatně pokaždé.
+ *
+ * Náprava: `.int(Int64(limit))`.
  */
 const fs = require('fs');
 const path = require('path');
@@ -72,6 +82,13 @@ const CAST_LIMIT = 4;
  * o sobě v pořádku je — typ je daný okolím a překladač ho nemusí hledat.
  */
 const CHAINED = /\]\s*\+\s*[([]|\]\s*\)?\s*\.(filter|map|compactMap|joined|reduce)\b/;
+
+/**
+ * `.int(něco)` v parametrech dotazu. Číslo napsané rovnou i podmínka
+ * s jedničkou a nulou (`.int(done ? 1 : 0)`) jsou v pořádku — literál se na
+ * `Int64` přizpůsobí sám. Problém dělá proměnná.
+ */
+const SQL_INT = /(^|[[\s,(])\.int\(([^()?]*)\)/g;
 
 function swiftFiles(dir) {
   const out = [];
@@ -138,6 +155,21 @@ for (const file of swiftFiles(ROOT)) {
     console.log(`      ${lines[i].trim()}`);
     console.log('      rozepiš to: hodnoty po jedné do var parts: [String] = []');
   }
+
+  lines.forEach((line, i) => {
+    // `case .int(let n)` je rozebrání hodnoty, ne její tvorba, a `case let n
+    // as Int64` už Int64 je — obojí je v pořádku
+    if (/^\s*case\b/.test(line)) return;
+    for (const match of line.matchAll(SQL_INT)) {
+      const inside = match[2].trim();
+      // Číslo napsané rovnou je v pořádku, proměnná ne
+      if (!inside || /^-?\d+$/.test(inside) || /[Ii]nt64/.test(inside)) continue;
+      found++;
+      console.log(`  ✗ ${path.relative(REPO, file)}:${i + 1} — .int(${inside}) chce Int64`);
+      console.log(`      ${line.trim()}`);
+      console.log(`      obal to: .int(Int64(${inside}))`);
+    }
+  });
 }
 
 console.log(found === 0 ? '  ✓ swift: nic podezřelého' : `\n✗ ${found} k opravě`);
