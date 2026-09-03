@@ -101,6 +101,17 @@ function migrate(d: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    /*
+     * Paměť přehledu dne: dřívější postřehy a čísla, ze kterých vznikly.
+     * Díky ní může AI navazovat („minule jsi navrhoval set — vyšlo to")
+     * místo toho, aby každé ráno psala totéž. Drží se posledních třicet.
+     */
+    CREATE TABLE IF NOT EXISTS digest_reports (
+      at TEXT PRIMARY KEY,
+      facts TEXT NOT NULL DEFAULT '{}',
+      insight TEXT NOT NULL DEFAULT '{}'
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL

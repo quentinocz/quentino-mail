@@ -233,6 +233,14 @@ vloz(`INSERT INTO art_langs (article_id, lang, title, long, state, updated_at)
       VALUES (1, 'cz', 'Jak vybrat kšandy', '<p>Kšandy se vybírají podle délky.</p>', 'done', '2026-08-02T09:00:00Z')`);
 vloz(`INSERT INTO ship_phase (skeleton, phase, sample, source, at)
       VALUES ('zasilka je pripravena k vyzvednuti', 'ready', 'Zásilka je připravena k vyzvednutí', 'ai', '2026-08-24T09:00:00Z')`);
+/*
+ * Paměť přehledu dne. Postřehy se nedají znovu spočítat — vznikly z čísel,
+ * která ten den platila — a bez nich by AI na novém počítači začala od nuly
+ * a psala dokola totéž.
+ */
+vloz(`INSERT INTO digest_reports (at, facts, insight)
+      VALUES ('2026-09-02T06:10:00Z', '{"month":{"orders":81}}',
+              '{"headline":"Srpen táhly pásky.","focus":"ověřit růst SK"}')`);
 
 // Stažená data — ta se do zálohy dostat nesmí
 vloz(`INSERT INTO products (code, title_cz) VALUES ('PS120SM', 'Kšandy Slim')`);
@@ -324,6 +332,8 @@ sedi('napsaný článek', radek('art_articles', "id = 1")?.topic === 'Jak vybrat
 sedi('i jeho česká verze',
   (radek('art_langs', "article_id = 1 AND lang = 'cz'")?.long ?? '').includes('Kšandy'));
 sedi('naučená fáze dopravy', radku('ship_phase') === 1, `řádků: ${radku('ship_phase')}`);
+sedi('paměť přehledu dne',
+  (radek('digest_reports', "at = '2026-09-02T06:10:00Z'")?.insight ?? '').includes('Srpen táhly pásky'));
 
 /*
  * Co se přenášet **nemá**: stažená data. Katalog se stáhne znovu za pár

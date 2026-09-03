@@ -26,9 +26,10 @@ import { listSessions, createSession, sessionOf, itemsOf, addScan, setQty, renam
 import { sendViaWindow, sendViaApi, apiCanWriteStock, confirmSent } from './upstock';
 import { labelItems, stockinLabelItems, labelsToPdf, labelPreview, labelsExport, zplPlan,
   DEFAULT_LAYOUT, DEFAULT_ROLL } from './labels';
-import { summarize, generateReply, improveText, translateIncoming, translateText, categorizeUncategorized, getAiUsage, generateDigest } from './ai';
+import { summarize, generateReply, improveText, translateIncoming, translateText, categorizeUncategorized, getAiUsage } from './ai';
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
+import { digestReport, digestAsk } from './digest';
 import { clearTrackingCache } from './ordertrack';
 import {
   scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder,
@@ -204,7 +205,14 @@ export function registerIpc() {
 
   // AI
   handle('ai:usage', () => getAiUsage());
-  handle('ai:digest', () => generateDigest());
+  /*
+   * Přehled dne. Čísla a seznam k vyřízení se počítají při každém otevření
+   * (jsou z místní databáze), postřehy od AI nejvýš jednou za 24 hodin —
+   * `force` je tlačítko „Přegenerovat".
+   */
+  handle('digest:get', (force?: boolean) => digestReport(force === true));
+  handle('digest:ask', (question: string, history?: any[]) =>
+    digestAsk(String(question ?? ''), Array.isArray(history) ? history : []));
 
   // Upgates API (objednávky zákazníka)
   handle('upgates:config', () => getUpgatesConfig());

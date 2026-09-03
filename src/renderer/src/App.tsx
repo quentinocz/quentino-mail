@@ -54,6 +54,8 @@ function AppInner() {
   const [liveStockin, setLiveStockin] = useState<string | null>(null);
   /** Objednávka, na kterou se má skočit z proužku s prací z telefonu */
   const [livePacking, setLivePacking] = useState<string | null>(null);
+  /** Konverzace, na kterou se má skočit z přehledu dne */
+  const [digestChat, setDigestChat] = useState<string | null>(null);
   // Nástroje pod záložkou AI: překlady a články. Otevírají se přes celé okno,
   // ale běh (překlad) pokračuje i po zavření — proto je stav tady, ne v panelu.
   const [aiTool, setAiTool] = useState<AiTool | null>(null);
@@ -334,7 +336,18 @@ function AppInner() {
       )}
       {/* Přehled dne a balení se otevírají z nabídky Funkce, která je ve všech
           prostorech — proto se kreslí tady, ne jen v poště */}
-      {digestOpen && <DigestModal onClose={() => setDigestOpen(false)} />}
+      {digestOpen && (
+        <DigestModal
+          onClose={() => setDigestOpen(false)}
+          /*
+           * Ze seznamu „čeká na vyřízení" se skáče rovnou do věci, které se
+           * to týká — dřív přehled jen vypsal, že něco čeká, a hledalo se
+           * to pak ručně.
+           */
+          onOpenMessage={id => { setDigestOpen(false); setWorkspace('mail'); openMessage(id); }}
+          onOpenChat={id => { setDigestOpen(false); setDigestChat(id); setWorkspace('chat'); }}
+        />
+      )}
       {packingOpen && (
         <PackingModal
           openOrder={livePacking}
@@ -379,6 +392,7 @@ function AppInner() {
           onComposeEmail={email => { setPendingEmail(email); setWorkspace('mail'); }}
           onAiTool={openAiTool}
           activeTool={aiTool ?? undefined}
+          openConversation={digestChat}
         />
         {phone && (
           <MobileTabs current="chat" onChange={setWorkspace} chatUnread={chatUnread}

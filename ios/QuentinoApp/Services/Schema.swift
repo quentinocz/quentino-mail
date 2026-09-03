@@ -358,6 +358,14 @@ enum Schema {
       at TEXT NOT NULL
     );
 
+    -- Paměť přehledu dne: dřívější postřehy a čísla, ze kterých vznikly.
+    -- Díky ní AI navazuje místo toho, aby každé ráno psala totéž.
+    CREATE TABLE IF NOT EXISTS digest_reports (
+      at TEXT PRIMARY KEY,
+      facts TEXT NOT NULL DEFAULT '{}',
+      insight TEXT NOT NULL DEFAULT '{}'
+    );
+
     CREATE TABLE IF NOT EXISTS products (
       code TEXT PRIMARY KEY,
       title_cz TEXT NOT NULL DEFAULT '',

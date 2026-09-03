@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -344,7 +344,14 @@ export const api = {
     translateIncoming: (dbId: number) => call<{ lang: string; translation: string }>('ai:translateIncoming', dbId),
     translateText: (text: string, lang: string) => call<string>('ai:translateText', text, lang),
     usage: () => call<{ month: string; calls: number; inputTokens: number; outputTokens: number; estUsd: number }>('ai:usage'),
-    digest: () => call<string>('ai:digest')
+    /*
+     * Přehled dne. Čísla se počítají pokaždé, postřehy od AI nejvýš jednou
+     * za 24 hodin — `force` je tlačítko „Přegenerovat".
+     */
+    digest: (force = false) => call<DigestReport>('digest:get', force),
+    /** Doptání nad týmiž čísly, která jsou v přehledu vidět */
+    digestAsk: (question: string, history: DigestTurn[] = []) =>
+      call<string>('digest:ask', question, history)
   },
   upgates: {
     config: () => call<UpgatesConfig>('upgates:config'),

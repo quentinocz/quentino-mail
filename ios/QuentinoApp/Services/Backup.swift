@@ -459,7 +459,9 @@ enum Backup {
         "voucher_templates", "voucher_codes",
         "ptrans_memory", "ptrans_colors", "ptrans_bundles", "ptrans_style",
         "art_articles", "art_langs", "art_urlmap",
-        "ship_phase"
+        "ship_phase",
+        // Paměť přehledu dne — dřívější postřehy a čísla, ze kterých vznikly
+        "digest_reports"
     ]
 
     /// Strop na tabulku — záloha nemá být obraz celé databáze.

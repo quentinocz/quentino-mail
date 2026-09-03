@@ -93,6 +93,82 @@
       // Na telefonu se místo čísla a částky ukáže doprava a platba
       shipmentShort: 'Zásilkovna', paymentShort: 'Dobírka'
     },
+    /*
+     * Přehled dne. Čísla vypadají jako z běžného týdne — víkendový propad
+     * i storno tam jsou schválně, protože právě na nich je vidět, jestli
+     * graf a dlaždice říkají to, co mají.
+     */
+    'digest:get': (function () {
+      var days = [];
+      for (var back = 29; back >= 0; back--) {
+        var d = new Date(Date.now() - back * 86400e3);
+        var key = d.toISOString().slice(0, 10);
+        var weekend = [0, 6].indexOf(d.getDay()) >= 0;
+        var orders = weekend ? 2 + (back % 3) : 6 + ((back * 7) % 9);
+        days.push({ day: key, orders: orders, revenue: orders * 1650 });
+      }
+      var slice = function (list) {
+        return list.map(function (one) {
+          return { key: one[0], label: one[0], orders: one[1], revenue: one[1] * 1700 };
+        });
+      };
+      return {
+        facts: {
+          currency: 'CZK',
+          today: { orders: 9, cancelled: 1, unpaid: 2, items: 14,
+            revenue: [{ currency: 'CZK', amount: 14820 }, { currency: 'EUR', amount: 214 }] },
+          yesterday: { orders: 7, cancelled: 0, unpaid: 1, items: 10,
+            revenue: [{ currency: 'CZK', amount: 11430 }] },
+          month: { orders: 96, cancelled: 4, unpaid: 11, items: 148,
+            revenue: [{ currency: 'CZK', amount: 162400 }, { currency: 'EUR', amount: 1980 }] },
+          prevMonth: { orders: 81, cancelled: 6, unpaid: 9, items: 121,
+            revenue: [{ currency: 'CZK', amount: 141200 }] },
+          monthLabel: 'září 2026',
+          days: days,
+          countries: slice([['CZ', 71], ['SK', 18], ['DE', 5], ['PL', 2]]),
+          shipments: slice([['Zásilkovna', 44], ['PPL', 26], ['Balíkovna', 14], ['Osobně', 7], ['Hermes', 5]]),
+          payments: slice([['Karta', 58], ['Dobírka', 27], ['Převod', 11]]),
+          products: [
+            { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 34, orders: 31, revenue: 43860 },
+            { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 21, orders: 19, revenue: 12495 },
+            { code: 'QK-007', title: 'Kšandy tmavě modré', qty: 12, orders: 12, revenue: 10680 },
+            { code: 'QW-311', title: 'Peněženka Slim', qty: 9, orders: 9, revenue: 11610 }
+          ],
+          returning: 23,
+          average: 1765,
+          feedAt: new Date(Date.now() - 12 * 60e3).toISOString(),
+          known: 1284
+        },
+        tasks: [
+          { kind: 'mail', id: '1', who: 'Jana Nováková', subject: 'Zásilka nedorazila',
+            preview: 'Dobrý den, balík měl přijít v úterý…', at: new Date(Date.now() - 3 * 3600e3).toISOString(),
+            urgent: true, reason: 'nikdo neodpověděl' },
+          { kind: 'mail', id: '2', who: 'Petr Svoboda', subject: 'Dotaz na délku pásku',
+            preview: 'Vejde se 110 cm na…', at: new Date(Date.now() - 9 * 3600e3).toISOString(),
+            urgent: false, reason: 'nikdo neodpověděl' },
+          { kind: 'chat', id: 'c-77', who: 'návštěvník chatu', subject: 'Chat na webu', preview: '',
+            at: new Date(Date.now() - 26 * 3600e3).toISOString(), urgent: false, reason: 'čeká na odpověď' }
+        ],
+        insight: {
+          at: new Date(Date.now() - 5 * 3600e3).toISOString(),
+          headline: 'Měsíc jde o 15 % nad srpen, tahá to pásek QP-118 a karta jako platba.',
+          notes: [
+            { kind: 'trend', text: 'Podíl karty stoupl na 60 % objednávek, dobírka klesla o osm procentních bodů.' },
+            { kind: 'napad', text: 'K pásku QP-118 nabídnout kšandy v setu — kupují se spolu u 12 objednávek.' },
+            { kind: 'pozor', text: 'Jedenáct nezaplacených objednávek za 19 400 Kč čeká déle než tři dny.' }
+          ],
+          followUp: 'Minulý týden jsi čekal propad po svátku — nepřišel, čtvrtek byl naopak nejsilnější den.',
+          focus: 'ověřit, jestli růst SK drží i po skončení dopravy zdarma',
+          questions: ['Které zboží táhne SK?', 'Kolik stojí dobírka proti kartě?'],
+          model: 'claude-sonnet-5'
+        },
+        nextInsightAt: new Date(Date.now() + 19 * 3600e3).toISOString(),
+        insightError: null,
+        chatError: null
+      };
+    })(),
+    'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
+      + 'Kdyby dobírka měla příplatek 30 Kč, spadla by nejspíš i ta zbylá čtvrtina.',
     'orders:card': {
       orderNumber: '20260819', lang: 'cz', placedAt: '2026-08-12T09:14:00Z',
       customerEmail: 'zakaznik0@seznam.cz', customerPhone: '+420 777 123 456',

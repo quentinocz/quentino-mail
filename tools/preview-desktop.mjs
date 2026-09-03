@@ -176,6 +176,25 @@ await click('.pt-modal .modal-head .icon-btn:last-child');
 await click('.ig-switch button', { hasText: 'Funkce' });
 await overflow('nabídka Funkce'); await snap('08-nabidka-funkci');
 
+/*
+ * Přehled dne. Je to jediné okno, kde se čte víc čísel než vět — proto se
+ * hlídá zvlášť: dlaždice, graf i seznam k vyřízení se musí vejít vedle sebe
+ * a nic z toho nesmí přetéct.
+ */
+await click('.ws-menu-item', { hasText: 'Přehled dne' });
+await overflow('přehled dne'); await snap('09b-prehled-dne');
+await click('.dg-switch button', { hasText: 'tržba' });
+await overflow('přehled dne — tržba'); await snap('09c-prehled-trzba');
+// Spodek okna: postřehy od AI a doptávání nad týmiž čísly
+await page.evaluate(() => {
+  const body = document.querySelector('.dg-body');
+  if (body) body.scrollTop = body.scrollHeight;
+});
+await page.waitForTimeout(250);
+await overflow('přehled dne — postřehy'); await snap('09d-prehled-postrehy');
+await click('.dg-modal .modal-head .icon-btn:last-child');
+
+await click('.ig-switch button', { hasText: 'Funkce' });
 await click('.ws-menu-item', { hasText: 'Články' });
 await overflow('články — seznam'); await snap('10-clanky-seznam');
 
