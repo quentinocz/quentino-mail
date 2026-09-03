@@ -161,6 +161,15 @@ extension Bridge {
             await Orders.card(dbId: try Self.int(args.first), withLive: true, withRendered: true, force: true)
         }
         register("orders:badge") { args in await Orders.badge(dbId: try Self.int(args.first)) }
+        /*
+         Krátká cesta k odznaku. Celý odznak čeká na e-shop i na dopravce,
+         takže než se vrátí, svítí v seznamu číslo s částkou — a to je přesně
+         to, co se na telefonu mělo nahradit dopravou a platbou. Tohle je jen
+         dotaz do databáze podle čísla z předmětu.
+         */
+        register("orders:shorts") { args in
+            Shorthand.forCodes(args.first as? [String] ?? [])
+        }
 
         /*
          Slovník zkratek dopravy a plateb.

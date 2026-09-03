@@ -680,6 +680,21 @@ export interface OrderBadge {
 }
 
 /**
+ * Zkratky dopravy a platby dohledané rovnou podle čísla z předmětu.
+ *
+ * Celý odznak (`orders:badge`) se ptá e-shopu na stav a dopravce na zásilku
+ * a než se vrátí, ukazuje řádek jen číslo s částkou z předmětu. Na telefonu
+ * je to ale právě to, co se nahradit mělo — proto tahle krátká cesta: jeden
+ * dotaz do databáze, žádná síť.
+ */
+export interface CodeShorthand {
+  /** Číslo objednávky ve feedu — u faktury je jiné než hledané číslo */
+  code: string;
+  shipmentShort: string | null;
+  paymentShort: string | null;
+}
+
+/**
  * Slovník zkratek i s tím, z čeho se sestavil.
  *
  * Kdyby zůstal prázdný, `scope` je jediné, co řekne proč: jestli nejsou

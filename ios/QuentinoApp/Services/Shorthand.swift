@@ -265,4 +265,75 @@ enum Shorthand {
     static func view() -> [String: Any] {
         ["rows": rows(), "scope": scope()]
     }
+
+    /**
+     Zkratky rovnou k číslům objednávek — bez čekání na síť.
+
+     Odznak v seznamu pošty se skládá ze dvou zdrojů a každý je jinak rychlý.
+     Celý odznak rozebere e-mail, doptá se e-shopu na stav a dopravce na
+     zásilku; než se to vrátí, svítí v řádku jen to, co jde vyčíst
+     z předmětu — číslo a částka. Na počítači to nevadí, tam se číslo ukazuje
+     tak jako tak. **Na telefonu to ale znamená, že se místo dopravy a platby
+     kouká na číslo s cenou**, u části řádků klidně minuty: dotazy jdou po
+     dvou a každý čeká na síť.
+
+     Tohle je proto krátká cesta: číslo z předmětu → řádek ve feedu →
+     zkratky. Jeden dotaz do databáze, žádná síť.
+
+     Číslo z předmětu bývá číslo objednávky, u faktur ale číslo faktury.
+     Hledá se obojí a nikdy se jedno nezamění za druhé: napřed objednávka,
+     teprve když není, faktura.
+     */
+    static func forCodes(_ codes: [String]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        var asked: [String] = []
+        for one in codes {
+            let clean = one.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")
+            if !clean.isEmpty, !asked.contains(clean) { asked.append(clean) }
+            if asked.count >= 200 { break }
+        }
+        guard !asked.isEmpty else { return out }
+
+        for one in asked {
+            // Vedoucí nuly píše e-shop v předmětu, ve feedu bývají oříznuté
+            let bare = String(one.drop(while: { $0 == "0" }))
+            let trimmed = bare.isEmpty ? one : bare
+            var rows = (try? SQLite.shared.query(
+                "SELECT code, shipment, payment FROM shop_orders "
+                + "WHERE code = ? OR code = ? ORDER BY created_at DESC LIMIT 1",
+                [.text(one), .text(trimmed)]
+            )) ?? []
+            if rows.isEmpty {
+                rows = (try? SQLite.shared.query(
+                    "SELECT code, shipment, payment FROM shop_orders "
+                    + "WHERE invoice != '' AND (invoice = ? OR ltrim(invoice, '0') = ?) "
+                    + "ORDER BY created_at DESC LIMIT 1",
+                    [.text(one), .text(trimmed)]
+                )) ?? []
+            }
+            guard let row = rows.first else { continue }
+
+            let shipment = shortFor("shipment", row["shipment"] as? String)
+            let payment = shortFor("payment", row["payment"] as? String)
+            // Objednávka bez dopravy i platby by odznak jen připravila o číslo
+            if shipment.isEmpty && payment.isEmpty { continue }
+
+            /*
+             Prázdná zkratka je „nemám co ukázat", ne prázdný text. `NSNull`
+             se ale s textem v jednom výrazu neporovná, proto se to skládá
+             po krocích — v ternárním operátoru se o tom Swift pohádá.
+             */
+            var shipmentShort: Any = NSNull()
+            if !shipment.isEmpty { shipmentShort = shipment }
+            var paymentShort: Any = NSNull()
+            if !payment.isEmpty { paymentShort = payment }
+
+            var found: [String: Any] = [:]
+            found["code"] = row["code"] as? String ?? one
+            found["shipmentShort"] = shipmentShort
+            found["paymentShort"] = paymentShort
+            out[one] = found
+        }
+        return out
+    }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { MessageHeader, OrderBadge as OrderBadgeData, OrderCard as OrderCardData } from '@shared/types';
+import type { CodeShorthand, MessageHeader, OrderBadge as OrderBadgeData, OrderCard as OrderCardData } from '@shared/types';
 import { api } from '../api';
 import { useIsPhone } from '../mobile';
 import Icon from './Icon';
@@ -67,6 +67,47 @@ function enqueue(job: () => Promise<void>) {
   pump();
 }
 
+// ---------- zkratky napřed, odznak potom ----------
+
+/*
+ * Celý odznak se ptá e-shopu na stav a dopravce na zásilku — než se vrátí,
+ * ukazuje řádek číslo a částku z předmětu. Na telefonu je ale právě tohle
+ * to, co se mělo nahradit dopravou a platbou, a u části řádků to trvalo tak
+ * dlouho, že tam číslo s cenou zůstalo viset. Zkratky se proto dotahují
+ * zvlášť: jeden dotaz do databáze na všechna právě viditelná čísla, bez sítě
+ * a bez fronty. Odznak je pak jen doplní o stav a barvu.
+ */
+const shortsCache = new Map<string, CodeShorthand | null>();
+const shortsWaiting = new Map<string, ((value: CodeShorthand | null) => void)[]>();
+let shortsTimer: number | null = null;
+
+function askShorts(number: string): Promise<CodeShorthand | null> {
+  if (shortsCache.has(number)) return Promise.resolve(shortsCache.get(number) ?? null);
+  return new Promise(resolve => {
+    const waiting = shortsWaiting.get(number) ?? [];
+    waiting.push(resolve);
+    shortsWaiting.set(number, waiting);
+    if (shortsTimer !== null) return;
+    // Krátké zdržení sloučí celou obrazovku do jediného dotazu
+    shortsTimer = window.setTimeout(async () => {
+      shortsTimer = null;
+      const batch = new Map(shortsWaiting);
+      shortsWaiting.clear();
+      let found: Record<string, CodeShorthand> | null = null;
+      try {
+        found = await api.orders.shorts([...batch.keys()]);
+      } catch {
+        // Výpadek neznamená, že zkratka není — jen se neuloží a zkusí se znovu
+      }
+      for (const [code, fns] of batch) {
+        const one = found ? (found[code] ?? null) : null;
+        if (found) shortsCache.set(code, one);
+        for (const fn of fns) fn(one);
+      }
+    }, 30);
+  });
+}
+
 interface Props {
   message: MessageHeader;
 }
@@ -78,6 +119,7 @@ export default function OrderBadge({ message }: Props) {
   const closeTimer = useRef<number | null>(null);
 
   const [badge, setBadge] = useState<OrderBadgeData | null | undefined>(badgeCache.get(message.id));
+  const [shorts, setShorts] = useState<CodeShorthand | null>(null);
   const [card, setCard] = useState<OrderCardData | null | undefined>(cardCache.get(message.id));
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
@@ -86,6 +128,18 @@ export default function OrderBadge({ message }: Props) {
   // Z předmětu: číslo a částka jsou k dispozici hned, bez čekání na cokoli
   const subjectNumber = (message.subject.match(SUBJECT_NUMBER) ?? [])[1] ?? null;
   const subjectTotal = ((message.subject.match(SUBJECT_TOTAL) ?? [])[1] ?? '').replace(/\s+/g, ' ').trim() || null;
+
+  /*
+   * Zkratky rovnou podle čísla z předmětu. Nejde přes frontu — je to dotaz
+   * do databáze, ne na síť — takže na telefonu je doprava s platbou na
+   * odznaku dřív, než se stihne cokoli stáhnout.
+   */
+  useEffect(() => {
+    if (!phone || !subjectNumber) return;
+    let alive = true;
+    void askShorts(subjectNumber).then(one => { if (alive && one) setShorts(one); });
+    return () => { alive = false; };
+  }, [phone, subjectNumber]);
 
   // Stav se dotáhne, teprve až je odznak vidět
   useEffect(() => {
@@ -176,6 +230,13 @@ export default function OrderBadge({ message }: Props) {
   const tone = badge?.tone ?? 'new';
   // Než dorazí stav z e-shopu, ukáže odznak aspoň částku z předmětu
   const statusText = badge ? (badge.status ?? TONE_LABEL[badge.tone]) : subjectTotal;
+  /*
+   * Zkratky ze dvou zdrojů: co dorazí dřív, to platí. Odznak zná i
+   * objednávky, které v předmětu číslo nemají, krátká cesta je zase hned —
+   * a když nic neví ani jeden, zůstane číslo s částkou.
+   */
+  const shipmentShort = badge?.shipmentShort || shorts?.shipmentShort || null;
+  const paymentShort = badge?.paymentShort || shorts?.paymentShort || null;
 
   return (
     <>
@@ -192,13 +253,13 @@ export default function OrderBadge({ message }: Props) {
           * Na telefonu se do řádku vejde asi dvacet znaků a číslo objednávky
           * s částkou z nich nic neřeknou — číslo si nikdo nepamatuje a částka
           * je v e-mailu o řádek níž. Co se z odznaku ráno čte doopravdy, je
-          * kam balík jde a jestli je zaplaceno. Dokud stav z e-shopu nedorazí,
-          * ukáže se aspoň číslo, ať řádek neposkočí.
+          * kam balík jde a jestli je zaplaceno. Dokud se doprava nedohledá
+          * (objednávka mimo feed, cizí e-shop), ukáže se aspoň číslo.
           */}
-        {phone && badge && (badge.shipmentShort || badge.paymentShort) ? (
+        {phone && (shipmentShort || paymentShort) ? (
           <>
-            {badge.shipmentShort && <span className="ord-num">{badge.shipmentShort}</span>}
-            {badge.paymentShort && <span className="ord-state">{badge.paymentShort}</span>}
+            {shipmentShort && <span className="ord-num">{shipmentShort}</span>}
+            {paymentShort && <span className="ord-state">{paymentShort}</span>}
           </>
         ) : (
           <>
