@@ -197,11 +197,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
             <Icon name="sunrise" size={18} /> Přehled dne
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/*
+              * Kolečko v hlavičce jen přepočítá čísla — ta jsou z databáze
+              * a nic nestojí. Nové postřehy dělá výhradně tlačítko
+              * „Přegenerovat" u nich, aby zvědavé kliknutí nestálo volání AI.
+              */}
             <button
               className="icon-btn"
-              data-tip="Přepočítat a napsat nové postřehy"
+              data-tip="Přepočítat čísla"
               disabled={busy}
-              onClick={() => load(true)}
+              onClick={() => load(false)}
             >
               <Icon name="refresh" size={15} />
             </button>
