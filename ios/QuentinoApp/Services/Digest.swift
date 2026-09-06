@@ -885,6 +885,60 @@ enum Digest {
         return Array(out.prefix(limit))
     }
 
+    /**
+     Odeslaná objednávka.
+
+     Stav je volný text z e-shopu, takže se hledají slova, ne hodnoty výčtu —
+     „Předána dopravci" i „Doručeno" znamenají, že u ní není co dělat.
+     */
+    private static func isShipped(_ status: String) -> Bool {
+        status.range(
+            of: "odesl|expedov|p[řr]ed[áa]n|na cest|doru[čc]en|vyzvednut|dokon[čc]en|uzav[řr]en|shipped|delivered|complete",
+            options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /**
+     Kolik práce leží.
+
+     Ráno nejde o to, která objednávka je která — na to je balení. Jde o to,
+     jestli něco nezůstalo viset: kolik objednávek ještě nikam neodešlo,
+     kolik z nich čeká na zaplacení a jak dlouho leží ta nejstarší.
+     */
+    static func pendingWork() -> [String: Any] {
+        // Dva měsíce zpět: co leží dýl, není rozdělaná práce, ale mrtvá objednávka
+        let since = dayKey(shiftDays(Date(), -60))
+        let rows = (try? SQLite.shared.query(
+            "SELECT status, paid, created_at FROM shop_orders WHERE created_at >= ?", [.text(since)])) ?? []
+
+        let open = rows.filter { row in
+            let status = row["status"] as? String ?? ""
+            return !isCancelled(status) && !isShipped(status)
+        }
+        let limit = Formats.iso(Date().addingTimeInterval(-3 * 86_400))
+        let unpaidOld = open.filter {
+            ($0["paid"] as? Int ?? 0) == 0 && ($0["created_at"] as? String ?? "") < limit
+        }.count
+
+        var oldest: Any = NSNull()
+        var most = -1
+        for row in open {
+            let day = String((row["created_at"] as? String ?? "").prefix(10))
+            guard let when = dateOfDay(day) else { continue }
+            let days = Int(Date().timeIntervalSince(when) / 86_400)
+            if days > most { most = days }
+        }
+        if most >= 0 { oldest = most }
+
+        var out: [String: Any] = [:]
+        out["unshipped"] = open.count
+        out["unpaidOld"] = unpaidOld
+        out["oldestDays"] = oldest
+        out["mails"] = 0
+        out["urgentMails"] = 0
+        out["chats"] = 0
+        return out
+    }
+
     /// Otevřené konverzace, kde poslední slovo má zákazník
     private static func chatTasks() async -> (tasks: [[String: Any]], error: Any) {
         guard Chat.isReady else { return ([], NSNull()) }
@@ -1409,6 +1463,12 @@ enum Digest {
         var out: [String: Any] = [:]
         out["facts"] = facts
         out["ga4"] = ga4 ?? NSNull()
+        // Souhrn místo seznamu — ráno jde o to, jestli něco leží
+        var pending = pendingWork()
+        pending["mails"] = mail.count
+        pending["urgentMails"] = mail.filter { $0["urgent"] as? Bool ?? false }.count
+        pending["chats"] = chat.tasks.count
+        out["pending"] = pending
         out["tasks"] = tasks
         out["insight"] = insight
         out["nextInsightAt"] = nextInsightAt

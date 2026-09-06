@@ -53,7 +53,6 @@ enum Ga4 {
     // MARK: - MCP přes HTTP
 
     private static var sessionId: String?
-    private static var toolName: String?
 
     /**
      Jedno volání JSON-RPC.
@@ -281,26 +280,51 @@ enum Ga4 {
         return parts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Položí Sequelu otázku a vrátí odpověď jako text
-    static func ask(_ question: String) async throws -> String {
-        sessionId = nil
-        var hello: [String: Any] = [:]
-        hello["protocolVersion"] = "2025-06-18"
-        hello["capabilities"] = [String: Any]()
-        hello["clientInfo"] = ["name": "quentino-app", "version": "1.0"]
-        _ = try await rpc("initialize", hello, id: 1)
-        _ = try await rpc("notifications/initialized", [String: Any](), id: nil)
+    /**
+     Položí Sequelu otázku a vrátí odpověď jako text.
 
-        let tool = try await pickTool()
-        // Jak se jmenuje parametr, nevíme — pošle se pod obvyklými jmény naráz
-        var args: [String: Any] = [:]
-        for name in ["query", "question", "prompt", "sql"] { args[name] = question }
+     Argumenty se skládají podle schématu nástroje, ne podle domněnky —
+     přesně kvůli tomu, na čem to dřív padalo: bez `action` a `app_id` si
+     server domyslel `connect` a odpověděl „app_id is required".
+     */
+    static func ask(_ question: String) async throws -> String {
+        try await connect()
+        let tools = try await listTools()
+        let tool = queryTool(tools)
+
+        var appId = Store.setting("ga4AppId", "") ?? ""
+        let properties = (schemaOf(tool)["properties"] as? [String: Any] ?? [:]).keys
+        let needsApp = properties.contains { name in
+            name.lowercased().range(
+                of: "(app|application|source|connection|integration|database|datasource)_?id$",
+                options: .regularExpression) != nil
+        }
+        if needsApp, appId.isEmpty {
+            // Zdroj se nevybral — zkusí se dohledat, a když je jediný, použije se
+            let found = try await apps()
+            if found.count == 1 { appId = found[0]["id"] as? String ?? "" }
+            else if found.count > 1 {
+                let names = found.compactMap { $0["name"] as? String }.joined(separator: ", ")
+                throw BridgeError.message("Sequel má víc zdrojů — vyber ten správný v nastavení: \(names)")
+            }
+            try await connect()
+        }
+
         var params: [String: Any] = [:]
-        params["name"] = tool
-        params["arguments"] = args
+        params["name"] = tool["name"] as? String ?? ""
+        params["arguments"] = argsFor(tool, question: question, appId: appId, action: "query")
 
         let text = textOf(try await rpc("tools/call", params, id: 4))
         guard !text.isEmpty else { throw BridgeError.message("Sequel vrátil prázdnou odpověď.") }
+        /*
+         Server umí vrátit chybu i jako obyčejný text s dvěstěkou — tohle je
+         ten případ „app_id is required", ze kterého se dřív v přehledu stala
+         nula návštěv.
+         */
+        if text.range(of: "\"status\"\\s*:\\s*\"error\"|\"error\"\\s*:\\s*\"",
+                      options: .regularExpression) != nil {
+            throw BridgeError.message("Sequel: \(String(text.prefix(200)))")
+        }
         return text
     }
 
