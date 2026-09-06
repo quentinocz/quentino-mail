@@ -75,18 +75,25 @@ enum Digest {
     struct CatalogEntry {
         let base: String
         let title: String
+        /// Kategorie z katalogu — velikosti se srovnávají uvnitř ní, ne napříč
+        let category: String
         let label: String
         let price: Double
     }
 
     static func catalogIndex() -> [String: CatalogEntry] {
         var out: [String: CatalogEntry] = [:]
-        for row in (try? SQLite.shared.query("SELECT code, title_cz, price_num FROM products")) ?? [] {
+        for row in (try? SQLite.shared.query(
+            "SELECT code, title_cz, price_num, category FROM products")) ?? [] {
             let code = (row["code"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             if code.isEmpty { continue }
             let price = row["price_num"] as? Double ?? Double(row["price_num"] as? Int ?? 0)
             out[code.lowercased()] = CatalogEntry(
-                base: code, title: row["title_cz"] as? String ?? code, label: "", price: price)
+                base: code,
+                title: row["title_cz"] as? String ?? code,
+                category: (row["category"] as? String ?? "").trimmingCharacters(in: .whitespaces),
+                label: "",
+                price: price)
         }
         for row in (try? SQLite.shared.query("SELECT code, product_code, label, price FROM product_variants")) ?? [] {
             let code = (row["code"] as? String ?? "").trimmingCharacters(in: .whitespaces)
@@ -100,6 +107,7 @@ enum Digest {
             out[code.lowercased()] = CatalogEntry(
                 base: base.isEmpty ? code : base,
                 title: parent?.title ?? base,
+                category: parent?.category ?? "",
                 label: (row["label"] as? String ?? "").trimmingCharacters(in: .whitespaces),
                 price: price)
         }
@@ -418,14 +426,20 @@ enum Digest {
             }
         }
 
-        // 9) Velikost napříč barvami — podle toho se skládá sklad, ne podle barev
-        if let size = sizes.first, (size["products"] as? Int ?? 0) >= 2, now.orders >= 10 {
-            let all = sizes.reduce(0) { $0 + ($1["qty"] as? Int ?? 0) }
-            let qty = size["qty"] as? Int ?? 0
-            if all > 0 {
+        /*
+         9) Velikost uvnitř kategorie — podle toho se skládá sklad. Napříč
+         kategoriemi by to bylo sčítání délky kšand s šířkou kravaty.
+         */
+        if now.orders >= 10 {
+            for group in sizes.prefix(2) {
+                let rows = group["sizes"] as? [[String: Any]] ?? []
+                let all = group["qty"] as? Int ?? 0
+                guard let size = rows.first, (size["products"] as? Int ?? 0) >= 2, all > 0 else { continue }
+                let qty = size["qty"] as? Int ?? 0
                 out.append(signal("info",
-                                  "Nejžádanější velikost je \(size["label"] as? String ?? "") — "
-                                  + "\(Int((Double(qty) / Double(all) * 100).rounded())) % kusů s velikostí.",
+                                  "\(group["category"] as? String ?? ""): nejžádanější velikost je "
+                                  + "\(size["label"] as? String ?? "") — "
+                                  + "\(Int((Double(qty) / Double(all) * 100).rounded())) % kusů.",
                                   "\(qty) z \(all) kusů, napříč \(size["products"] as? Int ?? 0) produkty"))
             }
         }
@@ -542,7 +556,13 @@ enum Digest {
     // MARK: - Čísla
 
     /// Všechno, co jde spočítat bez AI. Jen dotazy do databáze, žádná síť.
-    static func facts(now: Date = Date()) -> [String: Any] {
+    static func facts(now: Date = Date(), windowDays: Int = window) -> [String: Any] {
+        /*
+         Okno se dá přepnout: třicet dní na denní chod, dva roky na to,
+         jestli má výrobek stálé místo v sortimentu. Delší okno se v grafu
+         shlukuje — sedm set sloupků vedle sebe je čára, ne graf.
+         */
+        let span = max(7, min(730, windowDays))
         let calendar = Calendar.current
         let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
         let prevMonthStart = calendar.date(byAdding: .month, value: -1, to: monthStart) ?? monthStart
@@ -557,8 +577,8 @@ enum Digest {
          má měsíc jeden den a srovnává se s jedním dnem srpna — z toho vyjde
          cokoli. Třicet dní je stejně dlouhých pořád.
          */
-        let windowStart = shiftDays(now, -(window - 1))
-        let prevWindowStart = shiftDays(now, -(2 * window - 1))
+        let windowStart = shiftDays(now, -(span - 1))
+        let prevWindowStart = shiftDays(now, -(2 * span - 1))
         let from = min(dayKey(prevWindowStart), dayKey(prevMonthStart))
 
         let rows = (try? SQLite.shared.query(
@@ -592,15 +612,20 @@ enum Digest {
         let currency = windowTotals.mainCurrency ?? today.mainCurrency ?? "CZK"
 
         // Celé okno i s prázdnými dny — díra po víkendu je informace
+        // U delších oken se dny shlukují do týdnů a měsíců
+        let bucket = span <= 62 ? 1 : span <= 200 ? 7 : 30
         var days: [[String: Any]] = []
-        for back in stride(from: window - 1, through: 0, by: -1) {
-            let key = dayKey(shiftDays(now, -back))
-            let one = totals(rows.filter { day(of: $0) == key })
+        var back = span - 1
+        while back >= 0 {
+            let from = dayKey(shiftDays(now, -back))
+            let to = dayKey(shiftDays(now, -max(0, back - bucket + 1)))
+            let one = totals(rows.filter { day(of: $0) >= from && day(of: $0) <= to })
             var entry: [String: Any] = [:]
-            entry["day"] = key
+            entry["day"] = from
             entry["orders"] = one.orders
             entry["revenue"] = one.amount(currency)
             days.append(entry)
+            back -= bucket
         }
 
         /*
@@ -615,8 +640,9 @@ enum Digest {
         var inOrders: [String: Int] = [:]
         var earned: [String: Double] = [:]
         var estimated = Set<String>()
-        var sizeQty: [String: Int] = [:]
-        var sizeProducts: [String: Set<String>] = [:]
+        // Velikosti po kategoriích: kategorie → velikost → kusy / produkty
+        var sizeQty: [String: [String: Int]] = [:]
+        var sizeProducts: [String: [String: Set<String>]] = [:]
         var variantQty: [String: [String: Int]] = [:]
 
         for row in windowRows where !isCancelled(row["status"] as? String ?? "") {
@@ -650,10 +676,15 @@ enum Digest {
                     counted.insert(base)
                 }
 
-                // Velikost sama o sobě: lidé si ji drží napříč barvami
+                /*
+                 Velikost sama o sobě: lidé si ji drží napříč barvami — ale
+                 jen uvnitř jednoho druhu zboží. Délka kšand, šířka kravaty
+                 a obvod pasu se sčítat nedají, proto po kategoriích.
+                 */
                 if let label = known?.label, !label.isEmpty {
-                    sizeQty[label] = (sizeQty[label] ?? 0) + qty
-                    sizeProducts[label, default: []].insert(base)
+                    let category = (known?.category).flatMap { $0.isEmpty ? nil : $0 } ?? "Ostatní"
+                    sizeQty[category, default: [:]][label] = (sizeQty[category]?[label] ?? 0) + qty
+                    sizeProducts[category, default: [:]][label, default: []].insert(base)
                     variantQty[base, default: [:]][label] = (variantQty[base]?[label] ?? 0) + qty
                 }
             }
@@ -671,7 +702,7 @@ enum Digest {
                 prevQuantity[base] = (prevQuantity[base] ?? 0) + qty
             }
         }
-        let products: [[String: Any]] = quantity.sorted { $0.value > $1.value }.prefix(8).map { pair in
+        let products: [[String: Any]] = quantity.sorted { $0.value > $1.value }.prefix(50).map { pair in
             let variants: [[String: Any]] = (variantQty[pair.key] ?? [:])
                 .sorted { $0.value > $1.value }.prefix(4).map { one in
                     var entry: [String: Any] = [:]
@@ -690,13 +721,28 @@ enum Digest {
             return one
         }
 
-        let sizes: [[String: Any]] = sizeQty.sorted { $0.value > $1.value }.prefix(6).map { pair in
-            var one: [String: Any] = [:]
-            one["label"] = pair.key
-            one["qty"] = pair.value
-            one["products"] = sizeProducts[pair.key]?.count ?? 0
-            return one
+        /*
+         Velikosti po kategoriích. Kategorie s jedinou velikostí se
+         nevypisuje — „100 % kusů je jedna velikost" není zjištění, jen šum.
+         */
+        var sizes: [[String: Any]] = []
+        for (category, list) in sizeQty {
+            let rows: [[String: Any]] = list.sorted { $0.value > $1.value }.prefix(8).map { pair in
+                var one: [String: Any] = [:]
+                one["label"] = pair.key
+                one["qty"] = pair.value
+                one["products"] = sizeProducts[category]?[pair.key]?.count ?? 0
+                return one
+            }
+            if rows.count < 2 { continue }
+            var group: [String: Any] = [:]
+            group["category"] = category
+            group["qty"] = list.values.reduce(0, +)
+            group["sizes"] = rows
+            sizes.append(group)
         }
+        sizes.sort { ($0["qty"] as? Int ?? 0) > ($1["qty"] as? Int ?? 0) }
+        sizes = Array(sizes.prefix(4))
 
         // Vracející se zákazníci — proti celé historii ve feedu, ne jen proti
         // načtenému oknu, jinak by každý vypadal jako nový
@@ -738,7 +784,7 @@ enum Digest {
         let counted = purchases(windowRows)
         let statuses = slices(windowRows) { ($0["status"] as? String ?? "").trimmingCharacters(in: .whitespaces) }
         let history = DigestHistory.view(windowOrders: windowTotals.orders, currency: currency, now: now)
-        let social = DigestSocial.view(days: days, windowDays: window)
+        let social = DigestSocial.view(days: days, windowDays: span)
 
         var out: [String: Any] = [:]
         out["currency"] = currency
@@ -962,10 +1008,16 @@ enum Digest {
         lines.append("Platba (30 dní): \(slice("payments"))")
         lines.append("Nejprodávanější (30 dní, varianty sloučené pod produkt): \(products.isEmpty ? "—" : products)")
 
-        let sizes = (facts["sizes"] as? [[String: Any]] ?? []).map { one in
-            "\(one["label"] as? String ?? "") \(one["qty"] as? Int ?? 0) ks u \(one["products"] as? Int ?? 0) produktů"
-        }.joined(separator: ", ")
-        lines.append("Velikosti napříč zbožím: \(sizes.isEmpty ? "—" : sizes)")
+        let sizes = (facts["sizes"] as? [[String: Any]] ?? []).map { group -> String in
+            let rows = (group["sizes"] as? [[String: Any]] ?? []).map { one in
+                "\(one["label"] as? String ?? "") \(one["qty"] as? Int ?? 0) ks u "
+                + "\(one["products"] as? Int ?? 0) produktů"
+            }.joined(separator: ", ")
+            return "\(group["category"] as? String ?? ""): \(rows)"
+        }
+
+        lines.append("Velikosti (uvnitř kategorie): "
+                     + "\(sizes.isEmpty ? "—" : sizes.joined(separator: " | "))")
         lines.append("Stavy objednávek: \(slice("statuses"))")
         lines.append("Nákupy (objednávky téhož zákazníka do 48 h sloučené): \(facts["purchases"] as? Int ?? 0)"
                      + ", z toho druhé pokusy nebo dokupy: \(facts["duplicates"] as? Int ?? 0)")

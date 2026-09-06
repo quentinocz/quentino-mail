@@ -109,26 +109,161 @@ enum Ga4 {
         return parsed?["result"]
     }
 
-    /// Který nástroj se umí zeptat — jména se čtou, ne hádají
-    private static func pickTool() async throws -> String {
-        if let toolName { return toolName }
+    /**
+     Nástroje, které server nabízí — i s tím, co po nás chtějí.
+
+     Hádat jména parametrů byla chyba: Sequel má u dotazu i `action` (co se
+     má stát) a `app_id` (kterého zdroje se to týká), takže dotaz poslaný jen
+     s textem otázky skončil hláškou „app_id is required when
+     action='connect'". Schéma každého nástroje ale MCP posílá spolu s ním.
+     */
+    private static func listTools() async throws -> [[String: Any]] {
         let list = try await rpc("tools/list", [String: Any](), id: 3) as? [String: Any]
         let tools = list?["tools"] as? [[String: Any]] ?? []
         guard !tools.isEmpty else { throw BridgeError.message("Sequel nenabízí žádný nástroj.") }
+        return tools
+    }
 
-        var chosen = tools[0]
+    private static func schemaOf(_ tool: [String: Any]) -> [String: Any] {
+        (tool["inputSchema"] as? [String: Any]) ?? (tool["input_schema"] as? [String: Any]) ?? [:]
+    }
+
+    /// Nástroj, který se umí zeptat na data
+    private static func queryTool(_ tools: [[String: Any]]) -> [String: Any] {
         for one in tools {
             let text = "\(one["name"] as? String ?? "") \(one["description"] as? String ?? "")"
-            if text.range(of: "query|ask|analytics|report|run",
+            if text.range(of: "query|ask|analytics|report|run|sql",
                           options: [.regularExpression, .caseInsensitive]) != nil {
-                chosen = one
+                return one
+            }
+        }
+        return tools[0]
+    }
+
+    private static let queryActions = ["query", "ask", "run", "execute", "search", "report", "read", "sql"]
+    private static let listActions = ["list_apps", "list_sources", "list_connections", "apps", "sources", "list"]
+
+    /// Argumenty podle schématu nástroje, ne podle domněnky
+    private static func argsFor(_ tool: [String: Any], question: String?, appId: String?,
+                                action: String) -> [String: Any] {
+        let schema = schemaOf(tool)
+        let properties = schema["properties"] as? [String: Any] ?? [:]
+        let required = schema["required"] as? [String] ?? []
+        var out: [String: Any] = [:]
+
+        for (name, raw) in properties {
+            let property = raw as? [String: Any] ?? [:]
+            let options = (property["enum"] as? [Any] ?? []).map { "\($0)" }
+            let lower = name.lowercased()
+
+            if lower == "action", !options.isEmpty {
+                let wanted = action == "list" ? listActions : queryActions
+                var picked = wanted.compactMap { want in options.first { $0.lowercased() == want } }.first
+                if picked == nil {
+                    picked = options.first { one in wanted.contains { one.lowercased().contains($0) } }
+                }
+                if picked == nil { picked = options.first { $0.lowercased() != "connect" } }
+                if let picked { out["action"] = picked }
+                continue
+            }
+            if let question, lower.range(
+                of: "^(query|question|prompt|q|text|input|message|request|task)$",
+                options: .regularExpression) != nil {
+                out[name] = question
+                continue
+            }
+            if let appId, !appId.isEmpty, lower.range(
+                of: "(app|application|source|connection|integration|database|datasource)_?id$",
+                options: .regularExpression) != nil {
+                out[name] = appId
+                continue
+            }
+            if required.contains(name), !options.isEmpty, out[name] == nil { out[name] = options[0] }
+        }
+
+        // Schéma nemusí dorazit vůbec — pak se pošlou obvyklá jména
+        if properties.isEmpty {
+            if let question { out["query"] = question; out["question"] = question }
+            if let appId, !appId.isEmpty { out["app_id"] = appId }
+            out["action"] = action == "list" ? "list_apps" : "query"
+        }
+        return out
+    }
+
+    private static func connect() async throws {
+        sessionId = nil
+        var hello: [String: Any] = [:]
+        hello["protocolVersion"] = "2025-06-18"
+        hello["capabilities"] = [String: Any]()
+        hello["clientInfo"] = ["name": "quentino-app", "version": "1.0"]
+        _ = try await rpc("initialize", hello, id: 1)
+        _ = try await rpc("notifications/initialized", [String: Any](), id: nil)
+    }
+
+    /// Které zdroje jsou pod klíčem napojené — jediný se vybere sám
+    static func apps() async throws -> [[String: Any]] {
+        try await connect()
+        let tools = try await listTools()
+        var lister = queryTool(tools)
+        for one in tools {
+            let text = "\(one["name"] as? String ?? "") \(one["description"] as? String ?? "")"
+            if text.range(of: "app|source|connection|integration|list",
+                          options: [.regularExpression, .caseInsensitive]) != nil {
+                lister = one
                 break
             }
         }
-        let name = chosen["name"] as? String ?? ""
-        guard !name.isEmpty else { throw BridgeError.message("Nástroj Sequelu nemá jméno.") }
-        toolName = name
-        return name
+
+        var params: [String: Any] = [:]
+        params["name"] = lister["name"] as? String ?? ""
+        params["arguments"] = argsFor(lister, question: nil, appId: nil, action: "list")
+        let text = textOf(try? await rpc("tools/call", params, id: 5))
+
+        var found: [[String: Any]] = []
+        var seen = Set<String>()
+        let patterns = [
+            "\"(?:app_?id|id)\"\\s*:\\s*\"([^\"]{1,64})\"[^}]{0,200}?\"(?:name|title|label|app_?name)\"\\s*:\\s*\"([^\"]{1,80})\"",
+            "\"(?:name|title|label|app_?name)\"\\s*:\\s*\"([^\"]{1,80})\"[^}]{0,200}?\"(?:app_?id|id)\"\\s*:\\s*\"([^\"]{1,64})\""
+        ]
+        for (index, pattern) in patterns.enumerated() {
+            var search = text.startIndex..<text.endIndex
+            while let range = text.range(of: pattern, options: .regularExpression, range: search) {
+                let chunk = String(text[range])
+                search = range.upperBound..<text.endIndex
+                let values = chunk.components(separatedBy: "\"").filter { !$0.contains(":") && !$0.isEmpty }
+                guard values.count >= 4 else { continue }
+                let id = index == 0 ? values[1] : values[3]
+                let name = index == 0 ? values[3] : values[1]
+                if seen.contains(id) { continue }
+                seen.insert(id)
+                var one: [String: Any] = [:]
+                one["id"] = id
+                one["name"] = name
+                found.append(one)
+            }
+        }
+
+        if !found.isEmpty, let data = try? JSONSerialization.data(withJSONObject: found),
+           let json = String(data: data, encoding: .utf8) {
+            Store.setSetting("ga4Apps", json)
+        }
+        if found.count == 1, (Store.setting("ga4AppId", "") ?? "").isEmpty {
+            Store.setSetting("ga4AppId", found[0]["id"] as? String ?? "")
+        }
+        return found
+    }
+
+    /// Co server nabízí za nástroje — do nastavení, když se automatika netrefí
+    static func diagnostics() async throws -> String {
+        try await connect()
+        let tools = try await listTools()
+        return tools.map { one -> String in
+            let properties = (schemaOf(one)["properties"] as? [String: Any] ?? [:]).keys.sorted()
+            let required = (schemaOf(one)["required"] as? [String] ?? []).joined(separator: ", ")
+            let name = one["name"] as? String ?? ""
+            let list = properties.isEmpty ? "—" : properties.joined(separator: ", ")
+            return "\(name)(\(list))" + (required.isEmpty ? "" : " · povinné: \(required)")
+        }.joined(separator: "\n")
     }
 
     private static func textOf(_ result: Any?) -> String {

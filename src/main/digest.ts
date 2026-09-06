@@ -48,7 +48,7 @@
  */
 import { getDb, getSetting, setSetting } from './db';
 import { getSettings } from './settings';
-import { ask } from './ai';
+import { ask, askLong } from './ai';
 import { shortFor } from './shorthand';
 import { listConversations } from './chat/supabase';
 import { isConfigured as chatConfigured } from './chat/config';
@@ -57,8 +57,8 @@ import { historyView } from './digesthistory';
 import { socialView } from './digestsocial';
 import { ga4Snapshot } from './ga4';
 import type {
-  DigestDay, DigestFacts, DigestGa4, DigestHistory, DigestInsight, DigestNote, DigestProduct,
-  DigestReport, DigestSignal, DigestSize, DigestSlice, DigestSocial, DigestTask, DigestTotals
+  DigestDay, DigestFacts, DigestGa4, DigestHistory, DigestInsight, DigestNote, DigestPending, DigestProduct,
+  DigestReport, DigestSignal, DigestSizeGroup, DigestSlice, DigestSocial, DigestTask, DigestTotals
 } from '../shared/types';
 
 /** Délka hlavního okna ve dnech */
@@ -174,6 +174,8 @@ interface CatalogEntry {
   /** Kód produktu — u varianty ten nadřazený */
   base: string;
   title: string;
+  /** Kategorie z katalogu — velikosti se srovnávají uvnitř ní, ne napříč */
+  category: string;
   /** Označení varianty („110 cm"), u produktu prázdné */
   label: string;
   /** Cena z ceníku; použije se, jen když ji feed u položky nemá */
@@ -198,7 +200,7 @@ function catalogIndex(): Map<string, CatalogEntry> {
 
   try {
     for (const row of d.prepare(
-      'SELECT code, title_cz, price_num FROM products'
+      'SELECT code, title_cz, price_num, category FROM products'
     ).all() as any[]) {
       const code = String(row.code ?? '').trim();
       if (!code) continue;
@@ -206,7 +208,13 @@ function catalogIndex(): Map<string, CatalogEntry> {
         base: code,
         title: String(row.title_cz ?? code),
         label: '',
-        price: Number(row.price_num) || 0
+        price: Number(row.price_num) || 0,
+        /*
+         * Kategorie kvůli velikostem. „110 cm vede" napříč celým e-shopem
+         * nedává smysl — kšandy, pásky a kravaty mají každé jiné velikosti
+         * a míchat je dohromady znamená sečíst centimetry s obvodem krku.
+         */
+        category: String(row.category ?? '').trim()
       });
     }
   } catch { /* katalog nemusí být stažený */ }
@@ -222,6 +230,7 @@ function catalogIndex(): Map<string, CatalogEntry> {
       out.set(code.toLowerCase(), {
         base,
         title: parent?.title ?? base,
+        category: parent?.category ?? '',
         label: String(row.label ?? '').trim(),
         // Cena varianty je text („499 Kč"), tak z ní vytáhneme číslo
         price: Number(String(row.price ?? '').replace(/[^\d.,]/g, '').replace(',', '.')) || parent?.price || 0
@@ -293,6 +302,34 @@ function sliceRows(
     .sort((a, b) => b.orders - a.orders);
 }
 
+/**
+ * Rozpad uvnitř řádku.
+ *
+ * „Zásilkovna 44×" je půl odpovědi — jestli se u ní platí kartou, nebo
+ * dobírkou, rozhoduje o penězích i o práci s balíkem. Počítá se ke každému
+ * řádku zvlášť a v rozhraní se ukáže až po najetí myší.
+ */
+function withSplit(
+  rows: DigestSlice[], source: Row[], keyOf: (row: Row) => string, byOf: (row: Row) => string
+): DigestSlice[] {
+  const inside = new Map<string, Map<string, number>>();
+  for (const row of source) {
+    const key = keyOf(row);
+    const by = byOf(row);
+    if (!key || !by) continue;
+    const found = inside.get(key) ?? new Map<string, number>();
+    found.set(by, (found.get(by) ?? 0) + 1);
+    inside.set(key, found);
+  }
+  return rows.map(one => ({
+    ...one,
+    split: [...(inside.get(one.key) ?? new Map<string, number>()).entries()]
+      .map(([label, orders]) => ({ label, orders }))
+      .sort((a, b) => b.orders - a.orders)
+      .slice(0, 5)
+  }));
+}
+
 /* ---------- signály: závěry, které spočítá kód ---------- */
 
 interface SignalInput {
@@ -310,7 +347,7 @@ interface SignalInput {
   countries: DigestSlice[];
   products: DigestProduct[];
   prevProducts: Map<string, number>;
-  sizes: DigestSize[];
+  sizes: DigestSizeGroup[];
   history: DigestHistory;
   social: DigestSocial | null;
 }
@@ -526,17 +563,20 @@ export function signalsOf(input: SignalInput): DigestSignal[] {
   }
 
   /*
-   * 9) Velikost napříč barvami. U šlí a pásků si lidé drží jednu délku,
-   * ať je barva jakákoli — a podle toho se skládá sklad, ne podle barev.
+   * 9) Velikost uvnitř kategorie. U kšand i pásků si lidé drží jednu délku,
+   * ať je barva jakákoli — a podle toho se skládá sklad. Napříč kategoriemi
+   * by to ale bylo sčítání délky kšand s šířkou kravaty, takže se hlásí
+   * kategorie po kategorii.
    */
-  const size = input.sizes[0];
-  if (size && size.products >= 2 && now.orders >= 10) {
-    const all = input.sizes.reduce((sum, one) => sum + one.qty, 0);
-    if (all > 0) {
+  if (now.orders >= 10) {
+    for (const group of input.sizes.slice(0, 2)) {
+      const size = group.sizes[0];
+      if (!size || size.products < 2 || group.qty <= 0) continue;
       out.push({
         kind: 'info',
-        text: `Nejžádanější velikost je ${size.label} — ${Math.round((size.qty / all) * 100)} % kusů s velikostí.`,
-        basis: `${size.qty} z ${all} kusů, napříč ${size.products} produkty`
+        text: `${group.category}: nejžádanější velikost je ${size.label}`
+          + ` — ${Math.round((size.qty / group.qty) * 100)} % kusů.`,
+        basis: `${size.qty} z ${group.qty} kusů, napříč ${size.products} produkty`
       });
     }
   }
@@ -666,7 +706,14 @@ export function ga4Signals(snapshot: DigestGa4 | null): DigestSignal[] {
  * databáze — nic se nestahuje a na nic se nečeká, takže není důvod
  * ukazovat včerejší čísla.
  */
-export function digestFacts(now = new Date()): DigestFacts {
+export function digestFacts(now = new Date(), windowDays = WINDOW): DigestFacts {
+  /*
+   * Okno se dá přepnout: třicet dní na denní chod, dva roky na to, jestli
+   * má výrobek stálé místo v sortimentu. Delší okno se v grafu **shlukuje**
+   * — sedm set sloupků vedle sebe je čára, ne graf — a srovnává se vždycky
+   * se stejně dlouhým obdobím před ním.
+   */
+  const span = Math.max(7, Math.min(730, Math.round(windowDays) || WINDOW));
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   // Kolikátého je dnes — minulý měsíc se srovnává po stejný den, jinak by
@@ -679,8 +726,8 @@ export function digestFacts(now = new Date()): DigestFacts {
    * měsíc jeden den a srovnává se s jedním dnem srpna — z toho vyjde cokoli
    * a jakýkoli závěr nad tím je náhoda. Třicet dní je stejně dlouhých pořád.
    */
-  const windowStart = shiftDays(now, -(WINDOW - 1));
-  const prevWindowStart = shiftDays(now, -(2 * WINDOW - 1));
+  const windowStart = shiftDays(now, -(span - 1));
+  const prevWindowStart = shiftDays(now, -(2 * span - 1));
 
   // Načte se to starší z obou začátků, ať mají obě srovnání z čeho brát
   const from = dayKey(prevWindowStart) < dayKey(prevMonthStart)
@@ -710,13 +757,22 @@ export function digestFacts(now = new Date()): DigestFacts {
    */
   const currency = windowTotals.revenue[0]?.currency ?? today.revenue[0]?.currency ?? 'CZK';
 
-  // Celé okno i s prázdnými dny — v grafu je díra po víkendu informace
+  /*
+   * Řada do grafu. U třiceti dnů den po dni — díra po víkendu je informace.
+   * U delších oken se shlukuje: sedm set sloupků vedle sebe není graf, ale
+   * čára, a týdenní i měsíční průběh se čte líp.
+   */
+  const bucketDays = span <= 62 ? 1 : span <= 200 ? 7 : 30;
   const days: DigestDay[] = [];
-  for (let back = WINDOW - 1; back >= 0; back--) {
-    const key = dayKey(shiftDays(now, -back));
-    const dayRows = rows.filter(row => (row.created_at || '').slice(0, 10) === key);
-    const totals = totalsOf(dayRows);
-    days.push({ day: key, orders: totals.orders, revenue: inCurrency(totals, currency) });
+  for (let back = span - 1; back >= 0; back -= bucketDays) {
+    const from = dayKey(shiftDays(now, -back));
+    const to = dayKey(shiftDays(now, -Math.max(0, back - bucketDays + 1)));
+    const bucket = rows.filter(row => {
+      const day = (row.created_at || '').slice(0, 10);
+      return day >= from && day <= to;
+    });
+    const totals = totalsOf(bucket);
+    days.push({ day: from, orders: totals.orders, revenue: inCurrency(totals, currency) });
   }
 
   /*
@@ -730,7 +786,13 @@ export function digestFacts(now = new Date()): DigestFacts {
    *    řádek, a jen když chybí, dopočítá se z ceny za kus.
    */
   const catalog = catalogIndex();
-  const sizes = new Map<string, { qty: number; products: Set<string> }>();
+  /*
+   * Velikosti po kategoriích. Napříč e-shopem to nedávalo smysl — délka
+   * kšand, šířka kravaty a obvod pasu jsou tři různé věci a sečíst je
+   * dohromady je nesmysl. Uvnitř kategorie je to naopak otázka, podle které
+   * se skládá sklad.
+   */
+  const sizes = new Map<string, Map<string, { qty: number; products: Set<string> }>>();
   const variantsOf = new Map<string, Map<string, number>>();
 
   const products = new Map<string, DigestProduct>();
@@ -764,13 +826,17 @@ export function digestFacts(now = new Date()): DigestFacts {
       if (!seen.has(base)) { one.orders++; seen.add(base); }
       products.set(base, one);
 
-      // Velikost sama o sobě: lidé si ji drží napříč barvami
+      // Velikost sama o sobě: lidé si ji drží napříč barvami — ale jen
+      // uvnitř jednoho druhu zboží
       const label = known?.label ?? '';
       if (label) {
-        const size = sizes.get(label) ?? { qty: 0, products: new Set<string>() };
+        const category = known?.category || 'Ostatní';
+        const perCategory = sizes.get(category) ?? new Map<string, { qty: number; products: Set<string> }>();
+        const size = perCategory.get(label) ?? { qty: 0, products: new Set<string>() };
         size.qty += qty;
         size.products.add(base);
-        sizes.set(label, size);
+        perCategory.set(label, size);
+        sizes.set(category, perCategory);
 
         const perProduct = variantsOf.get(base) ?? new Map<string, number>();
         perProduct.set(label, (perProduct.get(label) ?? 0) + qty);
@@ -840,13 +906,28 @@ export function digestFacts(now = new Date()): DigestFacts {
   const countries = sliceRows(windowRows, countryOf, key => key);
   // Dopravci a platby se ukazují ve zkratkách ze slovníku — pobočky by
   // jinak daly stovku řádků, jednu na výdejnu
-  const shipments = sliceRows(windowRows, row => shortFor('shipment', row.shipment), key => key);
-  const payments = sliceRows(windowRows, row => shortFor('payment', row.payment), key => key);
+  const shipments = withSplit(
+    sliceRows(windowRows, row => shortFor('shipment', row.shipment), key => key),
+    windowRows,
+    row => shortFor('shipment', row.shipment),
+    row => shortFor('payment', row.payment)
+  );
+  const payments = withSplit(
+    sliceRows(windowRows, row => shortFor('payment', row.payment), key => key),
+    windowRows,
+    row => shortFor('payment', row.payment),
+    row => shortFor('shipment', row.shipment)
+  );
   const prevRows = rows.filter(one => inRange(one, prevWindowStart, windowStart));
+  /*
+   * Nejprodávanější. Posílá se jich padesát a rozhraní si vybere, kolik jich
+   * ukáže — u dvouletého okna je „osm nejprodávanějších" k ničemu, kdežto
+   * druhý dotaz do hlavního procesu jen kvůli delšímu seznamu je zbytečný.
+   */
   const topProducts = [...products.values()]
     .map(one => ({ ...one, revenue: Math.round(one.revenue) }))
     .sort((a, b) => b.qty - a.qty)
-    .slice(0, 8);
+    .slice(0, 50);
 
   /*
    * Stavy objednávek. Není to jen ozdoba: „čeká na platbu" u třetiny
@@ -854,13 +935,25 @@ export function digestFacts(now = new Date()): DigestFacts {
    * objednávek se to nepozná.
    */
   const statuses = sliceRows(windowRows, row => (row.status || '').trim(), key => key);
-  const sizeList = [...sizes.entries()]
-    .map(([label, one]) => ({ label, qty: one.qty, products: one.products.size }))
+  /*
+   * Velikosti po kategoriích. Kategorie s jedinou velikostí se nevypisuje —
+   * „100 % kusů je jedna velikost" není zjištění, jen šum.
+   */
+  const sizeGroups = [...sizes.entries()]
+    .map(([category, list]) => ({
+      category,
+      qty: [...list.values()].reduce((sum, one) => sum + one.qty, 0),
+      sizes: [...list.entries()]
+        .map(([label, one]) => ({ label, qty: one.qty, products: one.products.size }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 8)
+    }))
+    .filter(one => one.sizes.length > 1)
     .sort((a, b) => b.qty - a.qty)
-    .slice(0, 6);
+    .slice(0, 4);
 
   const history = historyView(windowTotals.orders, currency, now);
-  const social = socialView(days, WINDOW);
+  const social = socialView(days, span);
 
   return {
     currency,
@@ -877,12 +970,12 @@ export function digestFacts(now = new Date()): DigestFacts {
     signals: signalsOf({
       currency, days, window: windowTotals, prevWindow, returning, purchases,
       duplicates, windowRows, prevRows, payments, shipments, countries,
-      products: topProducts, prevProducts, sizes: sizeList, history, social
+      products: topProducts, prevProducts, sizes: sizeGroups, history, social
     }),
     statuses,
     purchases,
     duplicates,
-    sizes: sizeList,
+    sizes: sizeGroups,
     history,
     social,
     feedAt,
@@ -950,6 +1043,49 @@ export function mailTasks(days = 7, limit = 12): DigestTask[] {
   return out
     .sort((a, b) => (Number(b.urgent) - Number(a.urgent)) || (a.at < b.at ? 1 : -1))
     .slice(0, limit);
+}
+
+/**
+ * Odeslaná objednávka.
+ *
+ * Stav je volný text z e-shopu, takže se hledají slova, ne hodnoty výčtu —
+ * „Předána dopravci" i „Doručeno" znamenají, že u ní není co dělat.
+ */
+function isShipped(status: string): boolean {
+  return /odesl|expedov|p[řr]ed[áa]n|na cest|doru[čc]en|vyzvednut|dokon[čc]en|uzav[řr]en|shipped|delivered|complete/i
+    .test(status ?? '');
+}
+
+/**
+ * Kolik práce leží.
+ *
+ * Ráno nejde o to, která objednávka je která — na to je balení. Jde o to,
+ * jestli něco nezůstalo viset: kolik objednávek ještě nikam neodešlo, kolik
+ * z nich čeká na zaplacení a jak dlouho leží ta nejstarší.
+ */
+export function pendingWork(tasks: DigestTask[]): Omit<DigestPending, 'mails' | 'urgentMails' | 'chats'> {
+  // Dva měsíce zpět: co leží dýl, není rozdělaná práce, ale mrtvá objednávka
+  const since = dayKey(shiftDays(new Date(), -60));
+  let rows: Row[] = [];
+  try {
+    rows = ordersFrom(since);
+  } catch {
+    rows = [];
+  }
+
+  const open = rows.filter(row => !isCancelled(row.status) && !isShipped(row.status));
+  const threeDaysAgo = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  const unpaidOld = open.filter(row => !row.paid && (row.created_at || '') < threeDaysAgo).length;
+
+  let oldestDays: number | null = null;
+  for (const row of open) {
+    const day = (row.created_at || '').slice(0, 10);
+    if (!day) continue;
+    const days = Math.floor((Date.now() - new Date(`${day}T12:00:00`).getTime()) / 86_400_000);
+    if (oldestDays === null || days > oldestDays) oldestDays = days;
+  }
+
+  return { unshipped: open.length, unpaidOld, oldestDays };
 }
 
 /** Otevřené konverzace, kde poslední slovo má zákazník */
@@ -1043,8 +1179,15 @@ function factsForAi(facts: DigestFacts): string {
         + (one.estimated ? ' [tržba dopočítaná z ceníku]' : '')
         + (one.variants.length ? ` [${one.variants.map(v => `${v.label} ${v.qty}`).join(', ')}]` : ''))
         .join('; ') || '—'),
-    `Velikosti napříč zbožím: `
-      + (facts.sizes.map(one => `${one.label} ${one.qty} ks u ${one.products} produktů`).join(', ') || '—'),
+    /*
+     * Velikosti po kategoriích. Napříč e-shodem by se sčítala délka kšand
+     * s šířkou kravaty — a model by z toho psal nesmysly o „nejžádanější
+     * velikosti".
+     */
+    `Velikosti (uvnitř kategorie): `
+      + (facts.sizes.map(group => `${group.category}: `
+        + group.sizes.map(one => `${one.label} ${one.qty} ks u ${one.products} produktů`).join(', '))
+        .join(' | ') || '—'),
     `Stavy objednávek: ${slice(facts.statuses)}`,
     `Nákupy (objednávky téhož zákazníka do 48 h sloučené): ${facts.purchases}`
       + `, z toho druhé pokusy nebo dokupy: ${facts.duplicates}`,
@@ -1271,17 +1414,26 @@ async function makeInsight(facts: DigestFacts, ga4: DigestGa4 | null = null): Pr
    * uložit jako postřeh dne, jinak by se celý den ukazoval zmetek. Zkusí
    * se proto ještě jednou a stručněji.
    */
-  let answer = await ask(s.draftModel, INSIGHT_SYSTEM, user, 2400);
+  /*
+   * Streamem a s dopsáním. Jednorázové volání skončí na stropu tokenů chybou
+   * „odpověď se nevešla" — a to je u postřehu k ničemu, protože delší
+   * a složitější rozbor je právě ten, který stojí za přečtení. `askLong`
+   * naváže druhým voláním tam, kde model přestal, takže dlouhá odpověď
+   * projde celá; `endMark` mu řekne, že má dokončit JSON.
+   */
+  let answer = await askLong(s.draftModel, INSIGHT_SYSTEM, user, { maxTokens: 4000, endMark: '}' });
   let insight = parseInsight(answer, s.draftModel);
   if (!insightUsable(insight)) {
-    answer = await ask(
+    // Nepovedlo se ani tak — model se minul formátem. Zkusí se jednou znovu
+    // a stručněji, ať se do okna nedostane zmetek.
+    answer = await askLong(
       s.draftModel,
-      `${INSIGHT_SYSTEM}\n\nMinulý pokus se nevešel do limitu. Piš výrazně stručněji: nejvýš dva body, každý do 140 znaků, "basis" do 60 znaků.`,
+      `${INSIGHT_SYSTEM}\n\nMinulá odpověď se nedala přečíst. Piš stručněji: nejvýš tři body, každý do 160 znaků.`,
       user,
-      2400
+      { maxTokens: 4000, endMark: '}' }
     );
     const second = parseInsight(answer, s.draftModel);
-    if (insightUsable(second) || !insightUsable(insight)) insight = second;
+    if (insightUsable(second)) insight = second;
   }
 
   ensureTable();
@@ -1359,11 +1511,19 @@ export async function digestReport(force = false): Promise<DigestReport> {
     ? new Date(new Date(insight.at).getTime() + EVERY_MS).toISOString()
     : null;
 
+  const all = [...tasks, ...chat.tasks].sort((a, b) =>
+    (Number(b.urgent) - Number(a.urgent)) || (a.at < b.at ? 1 : -1));
+
   return {
     facts,
     ga4,
-    tasks: [...tasks, ...chat.tasks].sort((a, b) =>
-      (Number(b.urgent) - Number(a.urgent)) || (a.at < b.at ? 1 : -1)),
+    pending: {
+      ...pendingWork(all),
+      mails: tasks.length,
+      urgentMails: tasks.filter(one => one.urgent).length,
+      chats: chat.tasks.length
+    },
+    tasks: all,
     insight,
     nextInsightAt,
     insightError,

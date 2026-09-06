@@ -222,20 +222,99 @@ enum DigestHistory {
             let startDay = Calendar.current.component(.day, from: startBy)
             let startMonth = Calendar.current.component(.month, from: startBy)
 
+            /*
+             Sílu měsíce spočítala data, jméno je z kalendáře — ale bez něj
+             je rada „chystej se na listopad" o polovinu míň užitečná než
+             „chystej se na Vánoce". A samotné „prosinec bývá silný" se nedá
+             použít, proto se k tomu přidává, co se tehdy prodávalo a které
+             příspěvky fungovaly.
+             */
+            let name = seasonName(index)
+            let months = seasonMonths(index)
+            let products = seasonProducts(months)
+            let posts = DigestSocial.bestPosts(months: months, limit: 2)
+            let inDays = max(0, Int((when.timeIntervalSince(now) / 86_400).rounded()))
+            let head = ahead == 0
+                ? "Běží \(name) (\(label))"
+                : inDays > 45
+                    ? "\(name.prefix(1).uppercased())\(name.dropFirst()) se blíží — začíná zhruba za "
+                      + "\(Int((Double(inDays) / 30).rounded())) měsíce"
+                    : "\(name.prefix(1).uppercased())\(name.dropFirst()) se blíží — začíná zhruba za \(inDays) dní"
+            let sold = products.isEmpty ? "" :
+                " Nejvíc se v ní prodávalo: "
+                + products.prefix(3).map { $0["title"] as? String ?? "" }.joined(separator: ", ") + "."
+
             var out: [String: Any] = [:]
             out["month"] = monthKey(when)
             out["label"] = label
+            out["name"] = name
             out["index"] = (ratio * 100).rounded() / 100
             out["startBy"] = dayKey(startBy)
-            out["text"] = ahead == 0
-                ? "Běží \(label) — bývá o \(percent) % silnější než průměrný měsíc."
-                : "\(label.prefix(1).uppercased())\(label.dropFirst()) bývá o \(percent) % silnější "
-                  + "než průměrný měsíc — chystat se má do \(startDay). \(startMonth)."
+            out["inDays"] = ahead == 0 ? 0 : inDays
+            out["text"] = "\(head); \(label) bývá o \(percent) % silnější než průměrný měsíc"
+                + (ahead == 0 ? "." : " — propagaci zahájit do \(startDay). \(startMonth).")
+                + sold
             out["basis"] = String(format: "průměrně %.1f objednávky na den proti celoročním %.1f, z %d měsíců historie",
                                   value, average, closed.count)
+            out["products"] = products
+            out["posts"] = posts
             return out
         }
         return nil
+    }
+
+    /**
+     Jméno sezóny.
+
+     Pro e-shop s kravatami a kšandami jsou svatby a Vánoce dvě různé sezóny
+     s jiným zbožím — jméno nic nepočítá, jen říká, o čem je řeč.
+     */
+    private static func seasonName(_ monthIndex: Int) -> String {
+        if monthIndex == 10 || monthIndex == 11 { return "vánoční sezóna" }
+        if monthIndex >= 4 && monthIndex <= 8 { return "svatební sezóna" }
+        return monthNames[max(0, min(11, monthIndex))]
+    }
+
+    /// Které měsíce k sezóně patří — Vánoce jsou listopad i prosinec
+    private static func seasonMonths(_ monthIndex: Int) -> [Int] {
+        if monthIndex == 10 || monthIndex == 11 { return [10, 11] }
+        if monthIndex >= 4 && monthIndex <= 8 { return [4, 5, 6, 7, 8] }
+        return [monthIndex]
+    }
+
+    /// Co se v sezóně prodávalo — napříč všemi roky, jeden prosinec je náhoda
+    private static func seasonProducts(_ months: [Int], limit: Int = 5) -> [[String: Any]] {
+        let rows = (try? SQLite.shared.query(
+            "SELECT status, created_at, items_json FROM shop_orders WHERE created_at != ''")) ?? []
+        let wanted = Set(months)
+        var quantity: [String: Int] = [:]
+        var titles: [String: String] = [:]
+
+        for row in rows {
+            let month = Int(String((row["created_at"] as? String ?? "").dropFirst(5).prefix(2))) ?? 0
+            guard wanted.contains(month - 1) else { continue }
+            let status = row["status"] as? String ?? ""
+            if status.range(of: "storn|zru[šs]en|vr[áa]cen|cancel|refund",
+                            options: [.regularExpression, .caseInsensitive]) != nil { continue }
+            guard let text = row["items_json"] as? String, let data = text.data(using: .utf8),
+                  let items = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { continue }
+            for item in items {
+                let code = ((item["code"] as? String) ?? (item["title"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                if code.isEmpty { continue }
+                let qty = item["quantity"] as? Int ?? Int(item["quantity"] as? Double ?? 0)
+                quantity[code] = (quantity[code] ?? 0) + qty
+                if titles[code] == nil { titles[code] = item["title"] as? String ?? code }
+            }
+        }
+
+        return quantity.sorted { $0.value > $1.value }.prefix(limit).map { pair in
+            var one: [String: Any] = [:]
+            one["code"] = pair.key
+            one["title"] = titles[pair.key] ?? pair.key
+            one["qty"] = pair.value
+            return one
+        }
     }
 
     /// Zasazení posledních třiceti dní do delší historie

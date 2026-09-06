@@ -214,6 +214,14 @@ extension Bridge {
          */
         register("digest:get") { args in await Digest.report(force: (args.first as? Bool) ?? false) }
         /*
+         Jen čísla, bez AI a bez chatu — přepínač období v přehledu. Třicet
+         dní na denní chod, dva roky na to, jestli má výrobek stálé místo
+         v sortimentu; nic z toho nemá platit volání modelu.
+         */
+        register("digest:facts") { args in
+            Digest.facts(now: Date(), windowDays: (args.first as? Int) ?? 30)
+        }
+        /*
          Návštěvnost z GA4 přes Sequel. Klíč se ukládá do klíčenky a ven
          z aplikace jde jeden dotaz denně.
          */
@@ -225,6 +233,13 @@ extension Bridge {
         register("ga4:get") { _ in Ga4.config() }
         register("ga4:save") { args in Ga4.save(args.first as? [String: Any] ?? [:]) }
         register("ga4:test") { _ in try await Ga4.test() }
+        /*
+         Sequel má pod jedním klíčem víc zdrojů (GA4, databáze, HubSpot…)
+         a u dotazu chce vědět který — bez toho odpovídá „app_id is required
+         when action='connect'". Zdroje se proto dají načíst a vybrat.
+         */
+        register("ga4:apps") { _ in try await Ga4.apps() }
+        register("ga4:diagnostics") { _ in try await Ga4.diagnostics() }
         register("digest:ask") { args in
             let question = args.first as? String ?? ""
             let history = args.count > 1 ? (args[1] as? [[String: Any]] ?? []) : []

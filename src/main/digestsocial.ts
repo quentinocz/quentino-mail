@@ -24,11 +24,16 @@ import { getDb } from './db';
 export interface SocialPost {
   at: string;
   caption: string;
+  /** Lajky a komentáře jsou vždycky z Instagramu — Facebook metriky nedává */
   likes: number;
   comments: number;
   permalink: string;
   /** Na kolik trhů se příspěvek rozeslal */
   markets: number;
+  /** Které trhy to byly — „CZ, SK, EN" */
+  marketLabels?: string[];
+  /** „IG" nebo „IG + FB" podle toho, kam se sdílelo */
+  channels?: string;
 }
 
 export interface SocialView {
@@ -45,6 +50,8 @@ export interface SocialView {
   ordersWithout: number;
   /** Kolik příspěvků bylo v předchozím okně — na srovnání aktivity */
   prevPosts: number;
+  /** Nejúspěšnější příspěvky za celou historii, ne jen za okno */
+  bestEver: SocialPost[];
 }
 
 /**
@@ -59,7 +66,7 @@ export function socialView(
   const d = getDb();
   const empty: SocialView = {
     posts: 0, likes: 0, comments: 0, best: null, daysWithPost: 0,
-    ordersWithPost: 0, ordersWithout: 0, prevPosts: 0
+    ordersWithPost: 0, ordersWithout: 0, prevPosts: 0, bestEver: []
   };
 
   let rows: any[] = [];
@@ -140,6 +147,96 @@ export function socialView(
     daysWithPost: postDays.size,
     ordersWithPost: avg(withPost),
     ordersWithout: avg(without),
-    prevPosts
+    prevPosts,
+    // Dlouhý pohled: co fungovalo nejlíp za celou dobu, ne jen tenhle měsíc
+    bestEver: bestPosts({ limit: 3 })
   };
+}
+
+/* ---------- dlouhodobě ---------- */
+
+/**
+ * Kudy příspěvek vyšel.
+ *
+ * Aplikace publikuje na Instagram a volitelně sdílí na Facebook — a to je
+ * jediné, co se o Facebooku dá z databáze zjistit. **Lajky a komentáře jsou
+ * vždycky z Instagramu**, protože metriky Facebooku se nikam neukládají;
+ * říká se to proto rovnou, ať se čísla nepřipisují oběma sítím.
+ */
+function channelsOf(sourceMediaId: string): string {
+  try {
+    const fb = Number((getDb().prepare(
+      `SELECT COUNT(*) AS n FROM ig_jobs j
+        WHERE j.fb_post_id IS NOT NULL AND j.fb_post_id != ''
+          AND j.ig_media_id IN (SELECT ig_media_id FROM ig_published WHERE source_media_id = ?)`
+    ).get(String(sourceMediaId)) as any)?.n ?? 0);
+    return fb > 0 ? 'IG + FB' : 'IG';
+  } catch {
+    return 'IG';
+  }
+}
+
+/** Na které trhy příspěvek šel — jazyky, ne jen počet */
+function marketsOf(sourceMediaId: string): string[] {
+  try {
+    const rows = getDb().prepare(
+      'SELECT lang FROM ig_published WHERE source_media_id = ? ORDER BY lang'
+    ).all(String(sourceMediaId)) as any[];
+    return rows.map(one => String(one.lang ?? '').toUpperCase()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Nejúspěšnější příspěvky za celou historii, případně jen z určitých měsíců.
+ *
+ * `months` (0 = leden) se hodí u sezóny: „co fungovalo loni v listopadu
+ * a prosinci" je pro chystanou kampaň lepší podklad než to, co se povedlo
+ * minulý týden. Řadí se podle lajků a komentářů, kde komentář váží víc —
+ * napsat ho dá víc práce než klepnout na srdíčko.
+ */
+export function bestPosts(options: { months?: number[]; limit?: number } = {}): SocialPost[] {
+  const limit = options.limit ?? 3;
+  let rows: any[] = [];
+  try {
+    rows = getDb().prepare(
+      `SELECT posted_at, caption, like_count, comment_count, permalink, ig_media_id
+         FROM ig_source_posts WHERE posted_at != '' ORDER BY posted_at DESC LIMIT 2000`
+    ).all() as any[];
+  } catch {
+    return [];
+  }
+
+  const wanted = options.months;
+  const picked = rows.filter(row => {
+    if (!wanted?.length) return true;
+    const month = Number(String(row.posted_at ?? '').slice(5, 7)) - 1;
+    return wanted.includes(month);
+  });
+
+  return picked
+    .map(row => ({
+      at: String(row.posted_at ?? ''),
+      caption: String(row.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 120),
+      likes: Number(row.like_count ?? 0),
+      comments: Number(row.comment_count ?? 0),
+      permalink: String(row.permalink ?? ''),
+      mediaId: String(row.ig_media_id ?? '')
+    }))
+    .sort((a, b) => (b.likes + b.comments * 3) - (a.likes + a.comments * 3))
+    .slice(0, limit)
+    .map(one => {
+      const markets = marketsOf(one.mediaId);
+      return {
+        at: one.at,
+        caption: one.caption,
+        likes: one.likes,
+        comments: one.comments,
+        permalink: one.permalink,
+        markets: markets.length,
+        marketLabels: markets,
+        channels: channelsOf(one.mediaId)
+      };
+    });
 }

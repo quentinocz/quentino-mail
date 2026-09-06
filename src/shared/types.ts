@@ -718,6 +718,14 @@ export interface DigestSlice {
   label: string;
   orders: number;
   revenue: number;
+  /**
+   * Rozpad uvnitř řádku — u dopravce podle platby.
+   *
+   * „Zásilkovna 44×" je půl odpovědi; jestli se u ní platí kartou nebo
+   * dobírkou, rozhoduje o penězích i o práci na výdejně. Ukazuje se po
+   * najetí myší, aby to nezabralo místo těm, koho to nezajímá.
+   */
+  split?: { label: string; orders: number }[];
 }
 
 export interface DigestProduct {
@@ -739,7 +747,22 @@ export interface DigestProduct {
   variants: { label: string; qty: number }[];
 }
 
-/** Jak se prodávají velikosti napříč zbožím — 110 cm vede u všech barev */
+/**
+ * Jak se prodávají velikosti — **uvnitř kategorie**.
+ *
+ * Napříč celým e-shopem to nedávalo smysl: kšandy se měří v centimetrech
+ * délky, kravaty v šířce, pásky v obvodu pasu. Sečíst je dohromady znamená
+ * sečíst různé věci. Uvnitř kategorie je to naopak přesně ta otázka, která
+ * rozhoduje o skladu: kterou délku kšand držet ve všech barvách.
+ */
+export interface DigestSizeGroup {
+  /** Kategorie z katalogu — „Kšandy", „Pásky" */
+  category: string;
+  /** Kolik kusů z kategorie mělo vůbec velikost */
+  qty: number;
+  sizes: DigestSize[];
+}
+
 export interface DigestSize {
   label: string;
   qty: number;
@@ -776,11 +799,32 @@ export interface DigestHistory {
   season: {
     month: string;
     label: string;
+    /** „vánoční sezóna", „svatební sezóna" — jméno, ne výpočet */
+    name: string;
     index: number;
     startBy: string;
+    /** Za kolik dní začíná; 0 = už běží */
+    inDays: number;
     text: string;
     basis: string;
+    /** Co se v ní historicky prodávalo nejvíc */
+    products: { code: string; title: string; qty: number }[];
+    /** Příspěvky, které v tom období fungovaly — podklad pro chystanou kampaň */
+    posts: DigestPost[];
   } | null;
+}
+
+/** Příspěvek na sítích — lajky a komentáře jsou vždy z Instagramu */
+export interface DigestPost {
+  at: string;
+  caption: string;
+  likes: number;
+  comments: number;
+  permalink: string;
+  markets: number;
+  marketLabels?: string[];
+  /** „IG" nebo „IG + FB" */
+  channels?: string;
 }
 
 /** Co se dělo na sociálních sítích — a jestli to bylo v dnech s objednávkami */
@@ -788,11 +832,18 @@ export interface DigestSocial {
   posts: number;
   likes: number;
   comments: number;
-  best: { at: string; caption: string; likes: number; comments: number; permalink: string; markets: number } | null;
+  best: DigestPost | null;
   daysWithPost: number;
   ordersWithPost: number;
   ordersWithout: number;
   prevPosts: number;
+  /**
+   * Nejúspěšnější příspěvky za celou historii.
+   *
+   * Co fungovalo loni v prosinci, je pro chystanou kampaň lepší podklad než
+   * to, co se povedlo minulý týden — a bez dlouhého pohledu to není vidět.
+   */
+  bestEver: DigestPost[];
 }
 
 /** Řádek v seznamu starších přehledů */
@@ -809,6 +860,15 @@ export interface Ga4Config {
   enabled: boolean;
   hasKey: boolean;
   endpoint: string;
+  /**
+   * Který zdroj v Sequelu se má ptát.
+   *
+   * Pod jedním klíčem jich bývá víc (GA4, databáze, HubSpot…) a dotaz bez
+   * něj skončí hláškou „app_id is required". Jediný zdroj se doplní sám.
+   */
+  appId: string;
+  /** Co se v Sequelu našlo — na výběr v nastavení */
+  apps: { id: string; name: string }[];
   lastAt: string | null;
   lastError: string | null;
   ready: boolean;
@@ -888,8 +948,8 @@ export interface DigestFacts {
   purchases: number;
   /** Kolik objednávek se do nákupů slilo (druhé pokusy, dokupy) */
   duplicates: number;
-  /** Velikosti napříč zbožím */
-  sizes: DigestSize[];
+  /** Velikosti po kategoriích — délka kšand a šířka kravaty se nesčítají */
+  sizes: DigestSizeGroup[];
   /** Dlouhodobý kontext — rok zpátky, loňské okno, sezóny */
   history: DigestHistory;
   /** Sociální sítě; null = Instagram v téhle instalaci není */
@@ -985,10 +1045,32 @@ export interface DigestTurn {
   text: string;
 }
 
+/**
+ * Souhrn rozdělané práce.
+ *
+ * Vypisovat každou objednávku a zprávu zvlášť nemá ráno smysl — jde o to,
+ * jestli něco leží, ne který kus to je. Detail se dá rozbalit.
+ */
+export interface DigestPending {
+  /** Objednávky, které ještě nikam neodešly (a nejsou stornované) */
+  unshipped: number;
+  /** Z nich ty, co čekají na zaplacení déle než tři dny */
+  unpaidOld: number;
+  /** Kolik dní čeká ta nejstarší neodeslaná */
+  oldestDays: number | null;
+  /** Zprávy bez odpovědi a z nich naléhavé */
+  mails: number;
+  urgentMails: number;
+  /** Chaty, kde poslední slovo má zákazník */
+  chats: number;
+}
+
 export interface DigestReport {
   facts: DigestFacts;
   /** Návštěvnost z GA4; null = není zapnutá */
   ga4: DigestGa4 | null;
+  /** Souhrn — to se ukazuje; jednotlivé řádky jsou až pod rozbalením */
+  pending: DigestPending;
   tasks: DigestTask[];
   insight: DigestInsight | null;
   /** Kdy se postřehy smějí dělat znovu (do té doby se ukazují uložené) */

@@ -31,7 +31,7 @@ import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from 
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { digestReport, digestAsk, digestArchive, digestFromArchive, digestFacts } from './digest';
 import { digestToPdf } from './digestpdf';
-import { getGa4Config, saveGa4Config, ga4Test } from './ga4';
+import { getGa4Config, saveGa4Config, ga4Test, ga4Apps, ga4Diagnostics } from './ga4';
 import { clearTrackingCache } from './ordertrack';
 import {
   scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder,
@@ -232,9 +232,18 @@ export function registerIpc() {
     const facts = stored?.facts?.window ? stored.facts : digestFacts();
     return digestToPdf(facts, insight, stored?.at ?? new Date().toISOString());
   });
+  /*
+   * Jen čísla, bez AI a bez chatu. Používá to přepínač období v přehledu:
+   * třicet dní na denní chod, dva roky na to, jestli má výrobek stálé místo
+   * v sortimentu — a nic z toho nemá platit volání modelu.
+   */
+  handle('digest:facts', (days?: number) => digestFacts(new Date(), Number(days) || 30));
   handle('ga4:get', () => getGa4Config());
   handle('ga4:save', (p: any) => saveGa4Config(p ?? {}));
   handle('ga4:test', () => ga4Test());
+  // Sequel má pod jedním klíčem víc zdrojů; bez vybraného odpoví „app_id is required"
+  handle('ga4:apps', () => ga4Apps());
+  handle('ga4:diagnostics', () => ga4Diagnostics());
 
   // Upgates API (objednávky zákazníka)
   handle('upgates:config', () => getUpgatesConfig());
