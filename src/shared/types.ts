@@ -743,6 +743,16 @@ export interface DigestProduct {
    * ale musí být poznat, že je to odhad.
    */
   estimated: boolean;
+  /**
+   * Odkud se cena vzala.
+   *
+   * `feed` = z objednávky, `ceník` = z katalogu, `jinde` = z ceny, za kterou
+   * se totéž prodalo v jiné objednávce, `cizí měna` = prodalo se jen na
+   * jiném trhu, `neznámá` = nedá se zjistit. Bez tohohle se „0 Kč"
+   * u kapesníčku nedalo odlišit od skutečné nuly — a v postřezích se z toho
+   * stalo tvrzení, že se zboží prodává zadarmo.
+   */
+  priceSource: 'feed' | 'ceník' | 'jinde' | 'cizí měna' | 'neznámá';
   /** Které varianty se pod produktem prodaly — 110 cm 4×, 120 cm 2× */
   variants: { label: string; qty: number }[];
 }

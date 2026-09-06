@@ -208,9 +208,22 @@ async function listTools(): Promise<ToolInfo[]> {
 const ASKS_QUESTION = /^(query|question|prompt|q|text|input|message|request|task)$/i;
 const ASKS_APP = /(app|application|source|connection|integration|database|datasource)_?id$/i;
 
-/** Akce, které něco vrací; `connect` je přihlášení, ne dotaz */
-const QUERY_ACTIONS = ['query', 'ask', 'run', 'execute', 'search', 'report', 'read', 'sql'];
-const LIST_ACTIONS = ['list_apps', 'list_sources', 'list_connections', 'apps', 'sources', 'list'];
+/**
+ * Akce nástroje.
+ *
+ * Sequel má jeden nástroj a v něm výčet akcí: `connect` naváže spojení,
+ * `list` vypíše napojené zdroje a teprve něco třetího se doopravdy ptá.
+ * Pořadí tady je pořadí, ve kterém se to zkouší — a `connect` ani `list`
+ * mezi dotazy nepatří ani jako poslední možnost. Když se totiž pošle `list`,
+ * server ochotně odpoví seznamem spojení a v přehledu z toho byly samé nuly.
+ */
+const QUERY_ACTIONS = [
+  'query', 'run_query', 'execute_query', 'sql_query', 'run_sql', 'ask',
+  'run', 'execute', 'search', 'report', 'analytics', 'fetch', 'read', 'sql', 'data'
+];
+const LIST_ACTIONS = ['list_apps', 'list_sources', 'list_connections', 'apps', 'sources', 'connections', 'list'];
+/** Akce, které nikdy nevrátí data — ať se na ně nikdy nespadne jako na náhradu */
+const NEVER_QUERY = /^(connect|disconnect|list|describe|schema|tables|status|health|ping|auth)/i;
 
 function enumOf(property: any): string[] {
   const values = property?.enum ?? property?.anyOf?.flatMap((one: any) => one?.enum ?? []) ?? [];
@@ -233,11 +246,7 @@ function argsFor(tool: ToolInfo, values: { question?: string; appId?: string; ac
   for (const [name, property] of Object.entries<any>(properties)) {
     const options = enumOf(property);
     if (name.toLowerCase() === 'action' && options.length) {
-      const wanted = values.action === 'list' ? LIST_ACTIONS : QUERY_ACTIONS;
-      const picked = wanted.map(one => options.find(o => o.toLowerCase() === one))
-        .find(Boolean)
-        ?? options.find(one => wanted.some(w => one.toLowerCase().includes(w)))
-        ?? options.find(one => one.toLowerCase() !== 'connect');
+      const picked = values.action === 'list' ? pickListAction(options) : pickQueryAction(options)[0];
       if (picked) out.action = picked;
       continue;
     }
@@ -258,6 +267,28 @@ function argsFor(tool: ToolInfo, values: { question?: string; appId?: string; ac
     out.action = values.action === 'list' ? 'list_apps' : 'query';
   }
   return out;
+}
+
+/**
+ * Akce, kterými má smysl se ptát — v pořadí, v jakém se zkusí.
+ *
+ * Vrací víc než jednu schválně: jak se u Sequelu ta správná jmenuje, se
+ * z výčtu poznat nedá (`query`, `run_query`, `execute`…), takže se první
+ * nepovedená prostě vymění za další.
+ */
+function pickQueryAction(options: string[]): string[] {
+  const byName = QUERY_ACTIONS
+    .map(want => options.find(one => one.toLowerCase() === want))
+    .filter((one): one is string => !!one);
+  const byPart = options.filter(one =>
+    !NEVER_QUERY.test(one) && QUERY_ACTIONS.some(want => one.toLowerCase().includes(want)));
+  const rest = options.filter(one => !NEVER_QUERY.test(one));
+  return [...new Set([...byName, ...byPart, ...rest])];
+}
+
+function pickListAction(options: string[]): string | undefined {
+  return LIST_ACTIONS.map(want => options.find(one => one.toLowerCase() === want)).find(Boolean)
+    ?? options.find(one => /list|apps|sources|connections/i.test(one));
 }
 
 /** Nástroj, který se umí zeptat na data */
@@ -313,33 +344,54 @@ export async function ga4Apps(): Promise<{ id: string; name: string }[]> {
     return [];
   }
 
-  const found: { id: string; name: string }[] = [];
-  const seen = new Set<string>();
+  const found = connectionsIn(text);
+  if (found.length) setSetting('ga4Apps', JSON.stringify(found.slice(0, 20)));
   /*
-   * Odpověď je volný text s JSONem uvnitř. Hledají se dvojice id + jméno,
-   * ať už jsou kdekoli — vyzobat je regulárním výrazem je spolehlivější než
-   * hádat, jak hluboko je server zabalil.
+   * Vybírat se nemusí, když je jasno: jediný zdroj, nebo jediný, který je
+   * Google Analytics. Sequel u každého spojení hlásí `type`, takže se
+   * databáze ani HubSpot na návštěvnost ptát nebudou.
    */
+  const analytics = found.filter(one => /analytic|ga4/i.test(`${one.type} ${one.name}`));
+  const obvious = analytics.length === 1 ? analytics[0] : (found.length === 1 ? found[0] : null);
+  if (obvious && !getSetting('ga4AppId', '')) setSetting('ga4AppId', obvious.id);
+  return found;
+}
+
+/**
+ * Spojení vytažená z odpovědi.
+ *
+ * Sequel je vrací jako `{"connections":[{"connection_id":"…","name":"GA4 —
+ * …","type":"google_analytics"}]}`, ale jistota to není — jiné verze mohou
+ * použít `app_id` nebo `id`. Hledá se proto v textu, ne v pevné cestě, a
+ * jméno se bere z okolí id.
+ */
+function connectionsIn(text: string): { id: string; name: string; type: string }[] {
+  const out: { id: string; name: string; type: string }[] = [];
+  const seen = new Set<string>();
+  const ID = '(?:connection_?id|datasource_?id|source_?id|app_?id|id)';
+  const NAME = '(?:name|title|label|app_?name)';
+
+  const add = (id: string, name: string, type: string) => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push({ id, name: name || id, type });
+  };
+
   for (const match of text.matchAll(
-    /"(?:app_?id|id)"\s*:\s*"([^"]{1,64})"[^}]{0,200}?"(?:name|title|label|app_?name)"\s*:\s*"([^"]{1,80})"/gi
+    new RegExp(`"${ID}"\\s*:\\s*"([^"]{1,64})"([^}]{0,300})`, 'gi')
   )) {
-    if (seen.has(match[1])) continue;
-    seen.add(match[1]);
-    found.push({ id: match[1], name: match[2] });
+    const around = match[2] ?? '';
+    add(match[1],
+      (around.match(new RegExp(`"${NAME}"\\s*:\\s*"([^"]{1,80})"`, 'i')) ?? [])[1] ?? '',
+      (around.match(/"type"\s*:\s*"([^"]{1,40})"/i) ?? [])[1] ?? '');
   }
   // Někdy je jméno první a id až za ním
   for (const match of text.matchAll(
-    /"(?:name|title|label|app_?name)"\s*:\s*"([^"]{1,80})"[^}]{0,200}?"(?:app_?id|id)"\s*:\s*"([^"]{1,64})"/gi
+    new RegExp(`"${NAME}"\\s*:\\s*"([^"]{1,80})"([^}]{0,300}?)"${ID}"\\s*:\\s*"([^"]{1,64})"`, 'gi')
   )) {
-    if (seen.has(match[2])) continue;
-    seen.add(match[2]);
-    found.push({ id: match[2], name: match[1] });
+    add(match[3], match[1], (match[2].match(/"type"\s*:\s*"([^"]{1,40})"/i) ?? [])[1] ?? '');
   }
-
-  if (found.length) setSetting('ga4Apps', JSON.stringify(found.slice(0, 20)));
-  // Jediný zdroj se nastaví sám — vybírat z jedné položky nemá smysl
-  if (found.length === 1 && !getSetting('ga4AppId', '')) setSetting('ga4AppId', found[0].id);
-  return found;
+  return out;
 }
 
 /**
@@ -367,21 +419,44 @@ export async function ga4Ask(question: string): Promise<string> {
     await connect();
   }
 
-  const result = await rpc('tools/call', {
-    name: tool.name,
-    arguments: argsFor(tool, { question, appId, action: 'query' })
-  }, 4);
-  const text = textOf(result);
-  if (!text) throw new Error('Sequel vrátil prázdnou odpověď.');
   /*
-   * Server umí vrátit chybu i jako obyčejný text s dvěstěkou — tohle je
-   * přesně ten případ „app_id is required", který se dřív tvářil jako
-   * platná odpověď a v přehledu z něj byla nula.
+   * Jak se u Sequelu jmenuje akce, která se doopravdy ptá, se z výčtu
+   * poznat nedá — `query`, `run_query`, `execute`… Zkusí se proto po řadě
+   * a odpověď se pokaždé přečte: když přišel **seznam spojení**, je to
+   * důkaz, že se poslala špatná akce (přesně z toho byly v přehledu nuly),
+   * a jde se na další. Chyba schovaná v textu se bere stejně.
    */
-  if (/"status"\s*:\s*"error"|"error"\s*:\s*"/.test(text)) {
-    throw new Error(`Sequel: ${text.slice(0, 200)}`);
+  const properties = tool.schema?.properties ?? {};
+  const actions = enumOf((properties as any).action ?? (properties as any).Action);
+  const candidates = actions.length ? pickQueryAction(actions) : [''];
+
+  let last = '';
+  for (const [index, action] of candidates.slice(0, 4).entries()) {
+    const args = argsFor(tool, { question, appId, action: 'query' });
+    if (action) args.action = action;
+
+    const text = textOf(await rpc('tools/call', { name: tool.name, arguments: args }, 4 + index));
+    if (!text) { last = 'Sequel vrátil prázdnou odpověď.'; continue; }
+    last = text;
+
+    if (looksLikeListing(text)) continue;
+    if (/"status"\s*:\s*"error"|"error"\s*:\s*"/.test(text)) continue;
+    return text;
   }
-  return text;
+
+  throw new Error(`Sequel: ${last.slice(0, 220)}`);
+}
+
+/**
+ * Je to seznam spojení místo odpovědi?
+ *
+ * Sequel na špatnou akci ochotně odpoví výpisem napojených zdrojů — a ten
+ * se pak tvářil jako platná odpověď, ze které vyšlo „0 návštěv". Pozná se
+ * podle toho, že v něm není nic z toho, na co jsme se ptali.
+ */
+function looksLikeListing(text: string): boolean {
+  if (/"connections"\s*:|"action"\s*:\s*"list/i.test(text)) return true;
+  return /"connection_?id"/i.test(text) && !/"sessions"/i.test(text);
 }
 
 /** Co server nabízí — do nastavení, když se automatika netrefí */

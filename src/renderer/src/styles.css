@@ -1148,8 +1148,41 @@ input:focus, textarea:focus, select:focus {
 /* Sloupce po dnech. Výška je pevná, šířka se roztáhne — SVG se nedeformuje,
    protože se kreslí obdélníky, ne text. */
 .dg-chart svg { width: 100%; height: 92px; display: block; }
-.dg-bar { fill: var(--accent); }
+.dg-bar { fill: var(--accent); transition: fill .1s; }
 .dg-bar.weekend { fill: var(--accent); opacity: .42; }
+/* Sloupec pod myší — tmavší, ať je jasné, ke kterému patří vypsaná věta */
+.dg-bar.on { fill: var(--accent-dark); opacity: 1; }
+/* Neviditelný pruh přes celou výšku: trefit se dá i do nulového dne */
+.dg-bar-hit { fill: transparent; }
+
+/*
+ * Řádek nad grafem. Drží místo i bez najetí, aby graf pod ním neposkakoval,
+ * a nahrazuje bublinu od prohlížeče — ta se objevovala se zpožděním a při
+ * rychlém přejetí se nedala přečíst.
+ */
+.dg-chart-read {
+  font-size: 12.5px;
+  color: var(--text-2);
+  min-height: 18px;
+  padding-bottom: 2px;
+}
+.dg-chart-read.on { color: var(--text); }
+.dg-chart-hint { color: var(--text-3); font-size: 11.5px; }
+
+/* Popisky pod osou — každý sloupec má svoje místo, popisek jen někde */
+.dg-chart-axis {
+  display: flex;
+  font-size: 10.5px;
+  color: var(--text-3);
+  padding-top: 3px;
+}
+.dg-chart-axis span {
+  text-align: left;
+  white-space: nowrap;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
 .dg-chart-x {
   display: flex;
   justify-content: space-between;
