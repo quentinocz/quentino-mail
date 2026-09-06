@@ -114,6 +114,22 @@ global.fetch = async (url, options) => {
   check('konverze se dopočítá', snapshot.conversion, 2.5);
   check('a je z čeho srovnávat', snapshot.prevWindow.sessions, 1000);
 
+  console.log('\nnuly nejsou odpověď:\n');
+  /*
+   * Sequel je jazykový překladač: když dostane vzorový JSON s nulami, umí ho
+   * opsat. Spojení pak „funguje" a v přehledu stojí 0 návštěv — což vypadá
+   * jako pravda a není. Kostra se proto do dotazu nepřikládá a samé nuly se
+   * berou jako nepřečtená odpověď.
+   */
+  const askText = calls.find(one => one.method === 'tools/call')?.params.arguments.query ?? '';
+  check('v dotazu není vzorová odpověď s nulami', /"sessions":0/.test(askText), false);
+  check('a jsou v něm konkrétní data', /\d{4}-\d{2}-\d{2} až \d{4}-\d{2}-\d{2}/.test(askText), true);
+
+  answer = '{"window":{"sessions":0,"users":0,"purchases":0,"revenue":0},'
+    + '"prevWindow":{"sessions":0,"users":0,"purchases":0,"revenue":0},"sources":[]}';
+  const zeros = await ga4.ga4Snapshot(true);
+  check('samé nuly se nevydávají za data', /samé nuly/.test(zeros.error ?? ''), true);
+
   console.log('\nchyba schovaná v odpovědi:\n');
   /*
    * Tohle je ta past: server odpoví dvěstěkou a chybu napíše do textu.

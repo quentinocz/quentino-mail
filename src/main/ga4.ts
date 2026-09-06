@@ -398,11 +398,44 @@ export async function ga4Diagnostics(): Promise<string> {
 
 /* ---------- denní snímek ---------- */
 
-const QUESTION = `Vrať čísla z Google Analytics 4 za dvě období: posledních 30 dní ("window") a předchozích 30 dní před nimi ("prevWindow").
-U každého období: sessions (návštěvy), users (uživatelé), purchases (počet nákupů / transakcí) a revenue (tržba).
-Dále 5 nejsilnějších zdrojů návštěv za posledních 30 dní (session source / medium) s počtem návštěv.
-Odpověz POUZE tímto JSONem, bez komentáře:
-{"window":{"sessions":0,"users":0,"purchases":0,"revenue":0},"prevWindow":{"sessions":0,"users":0,"purchases":0,"revenue":0},"sources":[{"name":"google / organic","sessions":0}]}`;
+/** `YYYY-MM-DD` pro dotaz — Sequel si má vzít přesná data, ne „posledních 30 dní" */
+function dayKey(back: number): string {
+  const when = new Date(Date.now() - back * 86_400_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`;
+}
+
+/**
+ * Zadání pro Sequel.
+ *
+ * Dvě věci, na kterých to poprvé selhalo:
+ *
+ *  - **Vzorová odpověď se samými nulami.** „Odpověz tímhle JSONem" a pod tím
+ *    kostra s nulami je pozvánka k tomu ji opsat — a přesně to se stalo:
+ *    spojení fungovalo a v přehledu stálo „0 návštěv". Kostra se proto
+ *    nepřikládá, jen se vyjmenují klíče, a rovnou se říká, že nuly nemají
+ *    co dělat tam, kde data jsou.
+ *  - **„Posledních 30 dní" si každý vyloží po svém.** Data se počítají tady
+ *    a do dotazu jdou jako konkrétní dny.
+ */
+function question(): string {
+  const from = dayKey(29);
+  const to = dayKey(0);
+  const prevFrom = dayKey(59);
+  const prevTo = dayKey(30);
+
+  return `Spusť v Google Analytics 4 dva reporty a vrať jejich skutečná čísla.
+
+Období A ("window"): ${from} až ${to}.
+Období B ("prevWindow"): ${prevFrom} až ${prevTo}.
+U obou období metriky: sessions, totalUsers, transactions (nebo purchases / ecommercePurchases) a purchaseRevenue.
+Dále za období A pět nejsilnějších hodnot dimenze sessionSourceMedium s počtem sessions.
+
+Odpověz jedním JSONem bez komentáře a bez uvozovacího textu, s klíči:
+window a prevWindow (v každém sessions, users, purchases, revenue) a sources (pole s name a sessions).
+Čísla musí být skutečné hodnoty z reportu — nuly piš jen tam, kde report opravdu vrátil nulu.
+Když se report nepodaří spustit, vrať {"error":"důvod"}.`;
+}
 
 function num(value: unknown): number | null {
   const one = Number(String(value ?? '').replace(/\s/g, '').replace(',', '.'));
@@ -449,7 +482,7 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
   if (!force && last && age < EVERY_MS) return last;
 
   try {
-    const text = await ga4Ask(QUESTION);
+    const text = await ga4Ask(question());
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     let parsed: any = null;
@@ -457,8 +490,19 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
       try { parsed = JSON.parse(text.slice(start, end + 1)); } catch { /* zůstane text */ }
     }
 
+    if (parsed?.error) throw new Error(`Sequel: ${String(parsed.error).slice(0, 200)}`);
+
     const windowPeriod = periodOf(parsed?.window);
     const prevPeriod = periodOf(parsed?.prevWindow);
+    /*
+     * Samé nuly nejsou odpověď. Buď se vrátila opsaná kostra dotazu, nebo
+     * report nic nenašel — v obou případech je poctivější říct, že se čísla
+     * nepodařilo přečíst, než ukazovat „0 návštěv" jako fakt.
+     */
+    const empty = !windowPeriod.sessions && !windowPeriod.users && !windowPeriod.purchases;
+    if (empty) {
+      throw new Error(`Sequel vrátil samé nuly — zkontroluj zdroj a přístup. Odpověď: ${text.slice(0, 200)}`);
+    }
     const snapshot: Ga4Snapshot = {
       at: new Date().toISOString(),
       window: windowPeriod,
@@ -486,13 +530,19 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
   }
 }
 
-/** Zkouška spojení do nastavení */
+/**
+ * Zkouška spojení do nastavení.
+ *
+ * Hlásí i to, co přišlo — „0 návštěv" bez odpovědi se nedalo rozlousknout:
+ * nevědělo se, jestli se Sequel nedostal k datům, nebo jen opsal kostru
+ * z dotazu.
+ */
 export async function ga4Test(): Promise<string> {
   const snapshot = await ga4Snapshot(true);
   if (!snapshot) throw new Error('GA4 není zapnuté nebo chybí klíč.');
   if (snapshot.error) throw new Error(snapshot.error);
   const sessions = snapshot.window.sessions;
-  return sessions != null
+  return sessions
     ? `Spojení funguje — za posledních 30 dní ${sessions} návštěv.`
-    : `Spojení funguje, ale čísla se nepodařilo přečíst. Odpověď: ${snapshot.text.slice(0, 160)}`;
+    : `Spojení funguje, ale čísla se nepodařilo přečíst. Odpověď: ${snapshot.text.slice(0, 200)}`;
 }
