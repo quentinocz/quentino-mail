@@ -107,9 +107,18 @@
         var orders = weekend ? 2 + (back % 3) : 6 + ((back * 7) % 9);
         days.push({ day: key, orders: orders, revenue: orders * 1650 });
       }
-      var slice = function (list) {
+      var slice = function (list, split) {
         return list.map(function (one) {
-          return { key: one[0], label: one[0], orders: one[1], revenue: one[1] * 1700 };
+          var row = { key: one[0], label: one[0], orders: one[1], revenue: one[1] * 1700 };
+          // Rozpad po najetí myší: u dopravce podle platby
+          if (split) {
+            row.split = [
+              { label: 'Karta', orders: Math.round(one[1] * 0.6) },
+              { label: 'Dobírka', orders: Math.round(one[1] * 0.3) },
+              { label: 'Převod', orders: one[1] - Math.round(one[1] * 0.6) - Math.round(one[1] * 0.3) }
+            ].filter(function (part) { return part.orders > 0; });
+          }
+          return row;
         });
       };
       return {
@@ -131,7 +140,7 @@
           monthLabel: 'září 2026',
           days: days,
           countries: slice([['CZ', 71], ['SK', 18], ['DE', 5], ['PL', 2]]),
-          shipments: slice([['Zásilkovna', 44], ['PPL', 26], ['Balíkovna', 14], ['Osobně', 7], ['Hermes', 5]]),
+          shipments: slice([['Zásilkovna', 44], ['PPL', 26], ['Balíkovna', 14], ['Osobně', 7], ['Hermes', 5]], true),
           payments: slice([['Karta', 58], ['Dobírka', 27], ['Převod', 11]]),
           products: [
             { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 34, orders: 31, revenue: 43860,
@@ -143,6 +152,23 @@
             { code: 'QW-311', title: 'Peněženka Slim', qty: 9, orders: 9, revenue: 11610,
               estimated: false, variants: [] }
           ],
+          sizes: [
+            {
+              category: 'Kšandy', qty: 46,
+              sizes: [
+                { label: '110 cm', qty: 26, products: 7 },
+                { label: '120 cm', qty: 14, products: 6 },
+                { label: '100 cm', qty: 6, products: 3 }
+              ]
+            },
+            {
+              category: 'Pásky', qty: 21,
+              sizes: [
+                { label: '95 cm', qty: 12, products: 4 },
+                { label: '105 cm', qty: 9, products: 4 }
+              ]
+            }
+          ],
           returning: 23,
           average: 1765,
           monthDays: 3,
@@ -153,11 +179,6 @@
             { key: 'Přijata', label: 'Přijata', orders: 28, revenue: 51000 },
             { key: 'Čeká na platbu', label: 'Čeká na platbu', orders: 7, revenue: 11400 },
             { key: 'Stornována', label: 'Stornována', orders: 4, revenue: 0 }
-          ],
-          sizes: [
-            { label: '110 cm', qty: 41, products: 7 },
-            { label: '120 cm', qty: 22, products: 6 },
-            { label: '100 cm', qty: 9, products: 4 }
           ],
           history: {
             coverage: 13,
@@ -176,14 +197,42 @@
               }
               return out;
             })(),
+            /*
+             * Sezóna i s tím, co se v ní prodávalo a které příspěvky tehdy
+             * fungovaly — samotné „prosinec bývá silný" se nedá použít.
+             */
             season: {
-              month: '2026-12', label: 'prosinec', index: 1.9, startBy: '2026-11-10',
-              text: 'Prosinec bývá o 90 % silnější než průměrný měsíc — chystat se má do 10. 11.',
-              basis: 'průměrně 6,8 objednávky na den proti celoročním 3,6, z 13 měsíců historie'
+              month: '2026-12', label: 'prosinec', name: 'vánoční sezóna', index: 1.9,
+              startBy: '2026-11-10', inDays: 86,
+              text: 'Vánoční sezóna se blíží — začíná zhruba za 3 měsíce; prosinec bývá o 90 % silnější '
+                + 'než průměrný měsíc — propagaci zahájit do 10. 11. Nejvíc se v ní prodávalo: '
+                + 'Kožený pásek Quentino, Kšandy tmavě modré, Manžetové knoflíčky Onyx.',
+              basis: 'průměrně 6,8 objednávky na den proti celoročním 3,6, z 13 měsíců historie',
+              products: [
+                { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 96 },
+                { code: 'QK-007', title: 'Kšandy tmavě modré', qty: 74 },
+                { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 51 }
+              ],
+              posts: [
+                { at: '2025-12-04T18:20:00Z', caption: 'Dárek, který sedne — pásek v dárkové krabičce',
+                  likes: 412, comments: 26, permalink: 'https://instagram.com/p/x1',
+                  markets: 3, marketLabels: ['CZ', 'SK', 'EN'], channels: 'IG + FB' },
+                { at: '2025-11-22T17:05:00Z', caption: 'Kšandy pod sako — tip na Vánoce',
+                  likes: 388, comments: 19, permalink: 'https://instagram.com/p/x2',
+                  markets: 2, marketLabels: ['CZ', 'SK'], channels: 'IG' }
+              ]
             }
           },
           social: {
             posts: 6, likes: 742, comments: 38,
+            bestEver: [
+              { at: '2025-12-04T18:20:00Z', caption: 'Dárek, který sedne — pásek v dárkové krabičce',
+                likes: 412, comments: 26, permalink: 'https://instagram.com/p/x1',
+                markets: 3, marketLabels: ['CZ', 'SK', 'EN'], channels: 'IG + FB' },
+              { at: '2026-05-18T16:40:00Z', caption: 'Svatební sety pro ženicha i svědky',
+                likes: 351, comments: 31, permalink: 'https://instagram.com/p/x3',
+                markets: 3, marketLabels: ['CZ', 'SK', 'EN'], channels: 'IG + FB' }
+            ],
             best: { at: new Date(Date.now() - 5 * 86400e3).toISOString(),
               caption: 'Nové kšandy v cihlové', likes: 214, comments: 12,
               permalink: 'https://instagram.com/p/x', markets: 3 },
@@ -207,6 +256,8 @@
           feedAt: new Date(Date.now() - 12 * 60e3).toISOString(),
           known: 1284
         },
+        // Souhrn místo seznamu — ráno jde o to, jestli něco leží
+        pending: { unshipped: 15, unpaidOld: 4, oldestDays: 6, mails: 2, urgentMails: 1, chats: 1 },
         tasks: [
           { kind: 'mail', id: '1', who: 'Jana Nováková', subject: 'Zásilka nedorazila',
             preview: 'Dobrý den, balík měl přijít v úterý…', at: new Date(Date.now() - 3 * 3600e3).toISOString(),

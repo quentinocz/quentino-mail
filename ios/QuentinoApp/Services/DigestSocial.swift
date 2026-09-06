@@ -87,7 +87,79 @@ enum DigestSocial {
         out["ordersWithPost"] = average(withPost)
         out["ordersWithout"] = average(without)
         out["prevPosts"] = prevPosts
+        // Dlouhý pohled: co fungovalo nejlíp za celou dobu, ne jen v okně
+        out["bestEver"] = bestPosts(limit: 3)
         return out
+    }
+
+    /**
+     Kudy příspěvek vyšel.
+
+     Aplikace publikuje na Instagram a volitelně sdílí na Facebook — a to je
+     jediné, co se o Facebooku dá z databáze zjistit. **Lajky a komentáře
+     jsou vždycky z Instagramu**, protože metriky Facebooku se nikam
+     neukládají; říká se to proto rovnou.
+     */
+    private static func channels(_ mediaId: String) -> String {
+        guard !mediaId.isEmpty else { return "IG" }
+        let count = ((try? SQLite.shared.query(
+            "SELECT COUNT(*) AS n FROM ig_jobs j WHERE j.fb_post_id IS NOT NULL AND j.fb_post_id != '' "
+            + "AND j.ig_media_id IN (SELECT ig_media_id FROM ig_published WHERE source_media_id = ?)",
+            [.text(mediaId)]
+        ))?.first?["n"] as? Int) ?? 0
+        return count > 0 ? "IG + FB" : "IG"
+    }
+
+    /// Na které trhy příspěvek šel — jazyky, ne jen počet
+    private static func marketLabels(_ mediaId: String) -> [String] {
+        guard !mediaId.isEmpty else { return [] }
+        let rows = (try? SQLite.shared.query(
+            "SELECT lang FROM ig_published WHERE source_media_id = ? ORDER BY lang", [.text(mediaId)])) ?? []
+        return rows.compactMap { ($0["lang"] as? String)?.uppercased() }.filter { !$0.isEmpty }
+    }
+
+    /**
+     Nejúspěšnější příspěvky za celou historii, případně jen z určitých měsíců.
+
+     `months` (0 = leden) se hodí u sezóny: „co fungovalo loni v listopadu
+     a prosinci" je pro chystanou kampaň lepší podklad než minulý týden.
+     */
+    static func bestPosts(months: [Int] = [], limit: Int = 3) -> [[String: Any]] {
+        let rows = (try? SQLite.shared.query(
+            "SELECT posted_at, caption, like_count, comment_count, permalink, ig_media_id "
+            + "FROM ig_source_posts WHERE posted_at != '' ORDER BY posted_at DESC LIMIT 2000")) ?? []
+
+        let wanted = Set(months)
+        var picked: [(row: [String: Any], score: Int)] = []
+        for row in rows {
+            if !wanted.isEmpty {
+                let month = Int(String((row["posted_at"] as? String ?? "").dropFirst(5).prefix(2))) ?? 0
+                if !wanted.contains(month - 1) { continue }
+            }
+            let like = row["like_count"] as? Int ?? 0
+            let comment = row["comment_count"] as? Int ?? 0
+            picked.append((row, like + comment * 3))
+        }
+
+        return picked.sorted { $0.score > $1.score }.prefix(limit).map { found in
+            let row = found.row
+            let mediaId = row["ig_media_id"] as? String ?? ""
+            let caption = (row["caption"] as? String ?? "")
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let labels = marketLabels(mediaId)
+
+            var one: [String: Any] = [:]
+            one["at"] = row["posted_at"] as? String ?? ""
+            one["caption"] = String(caption.prefix(120))
+            one["likes"] = row["like_count"] as? Int ?? 0
+            one["comments"] = row["comment_count"] as? Int ?? 0
+            one["permalink"] = row["permalink"] as? String ?? ""
+            one["markets"] = labels.count
+            one["marketLabels"] = labels
+            one["channels"] = channels(mediaId)
+            return one
+        }
     }
 
     private static func average(_ days: [[String: Any]]) -> Double {

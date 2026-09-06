@@ -44,6 +44,15 @@ function delta(now: number, before: number): { text: string; tone: 'up' | 'down'
   return { text: `${pct > 0 ? '+' : ''}${pct} %`, tone: pct > 0 ? 'up' : 'down' };
 }
 
+/** Jak se období jmenuje v nadpisech — čísla dní by se špatně četla */
+function rangeLabel(days: number): string {
+  if (days <= 30) return 'Posledních 30 dní';
+  if (days <= 90) return 'Poslední 3 měsíce';
+  if (days <= 180) return 'Posledních 6 měsíců';
+  if (days <= 365) return 'Poslední rok';
+  return 'Poslední 2 roky';
+}
+
 function dayLabel(day: string): string {
   const [, month, date] = day.split('-');
   return `${Number(date)}. ${Number(month)}.`;
@@ -69,7 +78,8 @@ function since(at: string): string {
  * světlého a tmavého motivu. Víkendy jsou světlejší — bez nich se v řadě
  * nedá poznat, jestli je propad problém, nebo neděle.
  */
-function DayChart({ days, currency, mode }: { days: DigestDay[]; currency: string; mode: 'orders' | 'revenue' }) {
+function DayChart({ days: given, currency, mode }: { days: DigestDay[] | undefined; currency: string; mode: 'orders' | 'revenue' }) {
+  const days = given ?? [];
   const value = (day: DigestDay) => (mode === 'orders' ? day.orders : day.revenue);
   const top = Math.max(1, ...days.map(value));
   const width = 100;
@@ -109,9 +119,11 @@ function DayChart({ days, currency, mode }: { days: DigestDay[]; currency: strin
 }
 
 /** Řez daty jako proužky — země, doprava, platba, zboží */
-function Bars({ title, icon, rows, currency, empty }: {
-  title: string; icon: string; rows: DigestSlice[]; currency: string; empty: string;
+function Bars({ title, icon, rows: given, currency, empty }: {
+  title: string; icon: string; rows: DigestSlice[] | undefined; currency: string; empty: string;
 }) {
+  // Starší přehled z archivu některé řezy nemá — prázdno je lepší než pád
+  const rows = given ?? [];
   const top = Math.max(1, ...rows.map(one => one.orders));
   return (
     <div className="dg-card">
@@ -122,6 +134,22 @@ function Bars({ title, icon, rows, currency, empty }: {
           <span className="dg-bar-label">{one.label}</span>
           <span className="dg-bar-track"><span className="dg-bar-fill" style={{ width: `${(one.orders / top) * 100}%` }} /></span>
           <span className="dg-bar-num">{one.orders}</span>
+          {/*
+            * Rozpad po najetí myší. „Zásilkovna 44×" je půl odpovědi —
+            * jestli se u ní platí kartou nebo dobírkou, rozhoduje o penězích
+            * i o práci s balíkem.
+            */}
+          {one.split && one.split.length > 1 && (
+            <span className="dg-pop">
+              <b>{one.label}</b> · {money(one.revenue, currency)}
+              {one.split.map(part => (
+                <span className="dg-pop-row" key={part.label}>
+                  {part.label}
+                  <b>{part.orders}× ({Math.round((part.orders / one.orders) * 100)} %)</b>
+                </span>
+              ))}
+            </span>
+          )}
         </div>
       ))}
     </div>
@@ -135,7 +163,8 @@ function Bars({ title, icon, rows, currency, empty }: {
  * v prosinci málo. Rozdělaný měsíc je světlejší, ať se nesrovnává celý
  * s půlkou.
  */
-function MonthChart({ months, currency }: { months: DigestMonth[]; currency: string }) {
+function MonthChart({ months: given, currency }: { months: DigestMonth[] | undefined; currency: string }) {
+  const months = given ?? [];
   const top = Math.max(1, ...months.map(one => one.orders));
   const width = 100;
   const step = width / Math.max(1, months.length);
@@ -186,7 +215,8 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   const toast = useToast();
   const [report, setReport] = useState<DigestReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  /** Co se počítá: čísla z databáze (hned), nebo postřehy od AI (dlouho) */
+  const [busy, setBusy] = useState<'numbers' | 'insight' | null>(null);
   const [mode, setMode] = useState<'orders' | 'revenue'>('orders');
   const [turns, setTurns] = useState<DigestTurn[]>([]);
   /*
@@ -196,17 +226,34 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   const [archive, setArchive] = useState<DigestArchiveRow[]>([]);
   const [showing, setShowing] = useState<string | null>(null);
   const [older, setOlder] = useState<{ at: string; facts: DigestFacts; insight: DigestInsight } | null>(null);
+  /** Jednotlivé zprávy jsou pod rozbalením — v souhrnu je jen počet */
+  const [openTasks, setOpenTasks] = useState(false);
+  /*
+   * Období, za které se čísla počítají. Třicet dní je denní chod, dva roky
+   * odpovídají na jinou otázku — jestli má výrobek stálé místo v sortimentu.
+   * Postřehy od AI zůstávají na třicítce, aby měly každý den stejné měřítko.
+   */
+  const [range, setRange] = useState(30);
+  const [ranged, setRanged] = useState<DigestFacts | null>(null);
+  const [rangeBusy, setRangeBusy] = useState(false);
+  /** Kolik nejprodávanějších ukázat — u dvouletého okna je osm málo */
+  const [topCount, setTopCount] = useState(8);
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const talkEnd = useRef<HTMLDivElement | null>(null);
 
+  /*
+   * Co se zrovna děje, ne jen „něco se děje". Přepočet čísel je hotový dřív,
+   * než se stihne mrknout, kdežto postřehy trvají deset i dvacet vteřin —
+   * a po kliknutí na „Přegenerovat" to do teď vypadalo, že se neděje nic.
+   */
   const load = (force: boolean) => {
-    setBusy(true);
+    setBusy(force ? 'insight' : 'numbers');
     setError(null);
     api.ai.digest(force)
       .then(setReport)
       .catch(e => setError(e.message))
-      .finally(() => setBusy(false));
+      .finally(() => setBusy(null));
   };
   useEffect(() => { load(false); }, []);
   useEffect(() => { api.ai.digestArchive().then(setArchive).catch(() => {}); }, [report]);
@@ -220,7 +267,11 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   }, [showing]);
 
   // Starší přehled má vlastní čísla; bez výběru platí ta dnešní
-  const facts = (showing && older?.facts?.window ? older.facts : report?.facts);
+  /*
+   * Čísla, která se ukazují: buď z otevřeného staršího přehledu, nebo
+   * z přepnutého období, jinak z dnešního přehledu.
+   */
+  const facts = (showing && older?.facts?.window ? older.facts : (ranged ?? report?.facts));
   const insight = showing ? (older?.insight ?? null) : (report?.insight ?? null);
   const currency = facts?.currency ?? 'CZK';
 
@@ -248,6 +299,29 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
       window.setTimeout(() => talkEnd.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }
   };
+
+  /*
+   * Přepnutí období nesahá na postřehy: `digest:facts` počítá jen čísla
+   * z místní databáze. Třicítka se bere z už načteného přehledu, aby se
+   * zbytečně nepočítala dvakrát.
+   */
+  useEffect(() => {
+    if (range === 30) { setRanged(null); return; }
+    let alive = true;
+    setRangeBusy(true);
+    api.ai.digestFacts(range)
+      .then(one => { if (alive) setRanged(one); })
+      .catch(e => toast(`Období se nepodařilo spočítat: ${e.message}`, 'error'))
+      .finally(() => { if (alive) setRangeBusy(false); });
+    return () => { alive = false; };
+  }, [range, toast]);
+
+  /*
+   * Souhrn nemusí přijít — starší hlavní proces ho neposílá a u přehledu
+   * z archivu se nepočítá vůbec. Prázdné počty jsou lepší než rozbité okno.
+   */
+  const pending = report?.pending
+    ?? { unshipped: 0, unpaidOld: 0, oldestDays: null, mails: 0, urgentMails: 0, chats: 0 };
 
   const openTask = (task: DigestTask) => {
     if (task.kind === 'mail') { onOpenMessage?.(Number(task.id)); onClose(); return; }
@@ -309,9 +383,9 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
               * „Přegenerovat" u nich, aby zvědavé kliknutí nestálo volání AI.
               */}
             <button
-              className="icon-btn"
-              data-tip="Přepočítat čísla"
-              disabled={busy}
+              className={`icon-btn${busy ? ' spinning' : ''}`}
+              data-tip={busy === 'insight' ? 'Sestavuji postřehy…' : 'Přepočítat čísla'}
+              disabled={!!busy}
               onClick={() => load(false)}
             >
               <Icon name="refresh" size={15} />
@@ -319,6 +393,9 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
             <button className="icon-btn" data-tip="Zavřít" onClick={onClose}><Icon name="x" size={15} /></button>
           </span>
         </div>
+
+        {/* Proužek přes celou šířku: na první pohled je vidět, že se pracuje */}
+        {busy && <div className="dg-progress" role="status" aria-label="Pracuji" />}
 
         <div className="modal-body dg-body">
           {!report && !error && (
@@ -330,6 +407,29 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
 
           {report && facts && (
             <>
+              {/*
+                * Přepínač období. Čísla se přepočítají z databáze — postřehy
+                * od AI zůstávají na třiceti dnech, aby měly každý den stejné
+                * měřítko a nestály volání modelu při každém přepnutí.
+                */}
+              <div className="dg-ranges">
+                <span className="dg-switch">
+                  {[[30, '30 dní'], [90, '3 měsíce'], [180, '6 měsíců'], [365, '1 rok'], [730, '2 roky']]
+                    .map(([days, label]) => (
+                      <button
+                        key={days}
+                        className={range === days ? 'on' : ''}
+                        disabled={rangeBusy || !!showing}
+                        onClick={() => setRange(Number(days))}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                </span>
+                {rangeBusy && <span className="dg-caption"><span className="spinner-inline" /> počítám…</span>}
+                {showing && <span className="dg-caption">u staršího přehledu platí čísla, která k němu patří</span>}
+              </div>
+
               {/* Dlaždice: dnešek proti včerejšku a měsíc proti minulému */}
               <div className="dg-tiles">
                 <div className="dg-tile">
@@ -353,10 +453,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   * a vycházely by z toho nesmysly. Měsíc je pod grafem jako údaj.
                   */}
                 <div className="dg-tile">
-                  <span className="dg-tile-label">Posledních 30 dní</span>
+                  <span className="dg-tile-label">{rangeLabel(range)}</span>
                   <span className="dg-tile-value">{facts.window.orders}</span>
                   <span className={`dg-tile-sub tone-${windowDelta?.tone ?? 'flat'}`}>
-                    {moneyOf(facts.window, currency)} · {windowDelta?.text} proti předchozím 30
+                    {moneyOf(facts.window, currency)} · {windowDelta?.text} proti předchozímu období
                   </span>
                 </div>
                 <div className="dg-tile">
@@ -374,12 +474,47 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
               <div className="dg-card">
                 <div className="dg-card-head">
                   <Icon name="inbox" size={14} /> Čeká na vyřízení
-                  <span className="dg-count">{report.tasks.length}</span>
+                  <span className="dg-count">{pending.unshipped + report.tasks.length}</span>
+                  {report.tasks.length > 0 && (
+                    <button className="dg-again" onClick={() => setOpenTasks(!openTasks)}>
+                      {openTasks ? 'Sbalit' : 'Rozbalit zprávy'}
+                    </button>
+                  )}
                 </div>
-                {report.tasks.length === 0 && (
-                  <div className="dg-empty">Nic nečeká — všechno je zodpovězené. 🎉</div>
+                {/*
+                  * Souhrn, ne seznam. Ráno nejde o to, která objednávka je
+                  * která — na to je balení — ale jestli něco leží. Jednotlivé
+                  * zprávy se dají rozbalit, protože u nich se klikáním
+                  * pokračuje v práci.
+                  */}
+                {pending.unshipped > 0 && (
+                  <p className="dg-note sig-watch">
+                    <Icon name="bag" size={13} />
+                    <span>
+                      {pending.unshipped} objednávek zatím není odesláno.
+                      <span className="dg-basis">
+                        {pending.unpaidOld > 0 && <>{pending.unpaidOld} z nich čeká na platbu déle než tři dny · </>}
+                        nejstarší leží {pending.oldestDays ?? 0} dní
+                      </span>
+                    </span>
+                  </p>
                 )}
-                {report.tasks.map(task => (
+                {pending.mails > 0 && (
+                  <p className={`dg-note ${pending.urgentMails > 0 ? 'sig-down' : 'sig-info'}`}>
+                    <Icon name="mail" size={13} />
+                    <span>
+                      {pending.mails} zpráv čeká na odpověď
+                      {pending.urgentMails > 0 && <> — {pending.urgentMails} naléhavě</>}.
+                      {pending.chats > 0 && (
+                        <span className="dg-basis">a {pending.chats} chatů, kde má poslední slovo zákazník</span>
+                      )}
+                    </span>
+                  </p>
+                )}
+                {report.tasks.length === 0 && pending.unshipped === 0 && (
+                  <div className="dg-empty">Nic neleží — všechno je odbavené. 🎉</div>
+                )}
+                {openTasks && (report.tasks ?? []).map(task => (
                   <button
                     key={`${task.kind}:${task.id}`}
                     className={`dg-task${task.urgent ? ' urgent' : ''}`}
@@ -405,13 +540,13 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 * pod každou větou je vidět, z čeho vznikla, takže se to dá
                 * ověřit očima na grafu vedle.
                 */}
-              {facts.signals.length > 0 && (
+              {(facts.signals ?? []).length > 0 && (
                 <div className="dg-card">
                   <div className="dg-card-head">
                     <Icon name="sliders" size={14} /> Čísla, co stojí za pozornost
                     <span className="dg-when">spočítáno z feedu</span>
                   </div>
-                  {facts.signals.map((one, i) => (
+                  {(facts.signals ?? []).map((one, i) => (
                     <p className={`dg-note sig-${one.kind}`} key={i}>
                       <Icon
                         name={one.kind === 'up' ? 'zap' : one.kind === 'down' ? 'chevDown' : one.kind === 'watch' ? 'alert' : 'eye'}
@@ -429,7 +564,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
               {/* Graf: počet objednávek, nebo tržba — jedno tlačítko, dvě čtení */}
               <div className="dg-card">
                 <div className="dg-card-head">
-                  <Icon name="zap" size={14} /> Posledních 30 dní
+                  <Icon name="zap" size={14} /> {rangeLabel(range)}
                   <span className="dg-switch">
                     <button className={mode === 'orders' ? 'on' : ''} onClick={() => setMode('orders')}>objednávky</button>
                     <button className={mode === 'revenue' ? 'on' : ''} onClick={() => setMode('revenue')}>tržba</button>
@@ -447,29 +582,77 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 * Dlouhodobě. Je to čistě z feedu, bez AI — proto se to dá
                 * prohlížet, i když se postřehy ten den negenerovaly.
                 */}
-              {facts.history.months.length > 1 && (
+              {(facts.history?.months ?? []).length > 1 && (
                 <div className="dg-card">
                   <div className="dg-card-head">
                     <Icon name="layers" size={14} /> Dlouhodobě
-                    <span className="dg-when">{facts.history.coverage} měsíců ve feedu</span>
+                    <span className="dg-when">{facts.history?.coverage ?? 0} měsíců ve feedu</span>
                   </div>
-                  <MonthChart months={facts.history.months} currency={currency} />
+                  <MonthChart months={facts.history?.months} currency={currency} />
                   <div className="dg-caption">
-                    {facts.history.lastYear
-                      ? <>Stejných 30 dní loni: {facts.history.lastYear.orders} objednávek
-                        {' '}za {money(facts.history.lastYear.revenue, currency)}. </>
+                    {facts.history?.lastYear
+                      ? <>Stejných 30 dní loni: {facts.history?.lastYear.orders} objednávek
+                        {' '}za {money(facts.history?.lastYear?.revenue ?? 0, currency)}. </>
                       : <>Na srovnání s loňskem zatím feed nesahá dost daleko. </>}
-                    {facts.history.rank && <>Slabších bylo {facts.history.rank.better}
-                      {' '}z {facts.history.rank.of} uzavřených měsíců.</>}
+                    {facts.history?.rank && <>Slabších bylo {facts.history?.rank?.better}
+                      {' '}z {facts.history?.rank?.of} uzavřených měsíců.</>}
                   </div>
-                  {facts.history.season && (
-                    <p className="dg-note sig-watch">
-                      <Icon name="clock" size={13} />
-                      <span>
-                        {facts.history.season.text}
-                        <span className="dg-basis">{facts.history.season.basis}</span>
-                      </span>
-                    </p>
+                  {/*
+                    * Sezóna. Samotné „prosinec bývá silný" se nedá použít —
+                    * proto je u ní i co se v ní prodávalo, dokdy se má začít
+                    * a které příspěvky tehdy fungovaly. To všechno je z dat,
+                    * ne od AI.
+                    */}
+                  {facts.history?.season && (
+                    <div className="dg-season">
+                      <p className="dg-note sig-watch">
+                        <Icon name="clock" size={13} />
+                        <span>
+                          {facts.history.season!.text}
+                          <span className="dg-basis">{facts.history.season!.basis}</span>
+                        </span>
+                      </p>
+                      {(facts.history.season!.products ?? []).length > 0 && (
+                        <div className="dg-season-list">
+                          <span className="dg-caption">Tehdy se prodávalo nejvíc</span>
+                          {(facts.history.season!.products ?? []).map(one => (
+                            <div className="dg-bar-row" key={one.code}>
+                              <span className="dg-bar-label" title={one.code}>{one.title}</span>
+                              <span className="dg-bar-num">{one.qty} ks</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {(facts.history.season!.posts ?? []).length > 0 && (
+                        <div className="dg-season-list">
+                          <span className="dg-caption">
+                            Nejúspěšnější příspěvky z toho období (lajky a komentáře jsou z Instagramu)
+                          </span>
+                          {(facts.history.season!.posts ?? []).map(post => (
+                            <a
+                              className="dg-post"
+                              key={post.at + post.permalink}
+                              href={post.permalink || undefined}
+                              onClick={e => {
+                                e.preventDefault();
+                                if (post.permalink) api.shell.openUrl(post.permalink).catch(() => {});
+                              }}
+                            >
+                              <Icon name="image" size={13} />
+                              <span className="dg-task-main">
+                                <b>{post.caption || 'bez popisku'}</b>
+                                <span className="dg-task-what">
+                                  {new Date(post.at).toLocaleDateString('cs-CZ')}
+                                  {' · '}{post.likes} lajků · {post.comments} komentářů
+                                  {post.channels && <> · {post.channels}</>}
+                                  {post.marketLabels?.length ? <> · {post.marketLabels.join(', ')}</> : null}
+                                </span>
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -487,24 +670,30 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 <Bars title="Stavy objednávek" icon="fileText" rows={facts.statuses} currency={currency}
                   empty="Feed stavy nenese." />
                 {/*
-                  * Velikosti napříč zbožím. Lidé si drží jednu délku bez ohledu
-                  * na barvu, takže se podle tohohle skládá sklad — ne podle barev.
+                  * Velikosti **po kategoriích**. Lidé si drží jednu délku bez
+                  * ohledu na barvu, takže se podle tohohle skládá sklad — ale
+                  * délka kšand a šířka kravaty se sčítat nedají, proto zvlášť.
                   */}
                 <div className="dg-card">
-                  <div className="dg-card-head"><Icon name="sliders" size={14} /> Velikosti</div>
-                  {facts.sizes.length === 0 && (
+                  <div className="dg-card-head"><Icon name="sliders" size={14} /> Velikosti po kategoriích</div>
+                  {(facts.sizes ?? []).length === 0 && (
                     <div className="dg-empty">Zboží v okně nemá varianty, nebo katalog není stažený.</div>
                   )}
-                  {facts.sizes.map(one => {
-                    const top = Math.max(1, ...facts.sizes.map(s => s.qty));
+                  {(facts.sizes ?? []).map(group => {
+                    const top = Math.max(1, ...group.sizes.map(s => s.qty));
                     return (
-                      <div className="dg-bar-row" key={one.label}>
-                        <span className="dg-bar-label">{one.label}</span>
-                        <span className="dg-bar-track">
-                          <span className="dg-bar-fill" style={{ width: `${(one.qty / top) * 100}%` }} />
-                        </span>
-                        <span className="dg-bar-num">{one.qty} ks</span>
-                        <span className="dg-bar-money">{one.products}× zboží</span>
+                      <div key={group.category}>
+                        <div className="dg-caption">{group.category} · {group.qty} ks</div>
+                        {group.sizes.map(one => (
+                          <div className="dg-bar-row" key={one.label}>
+                            <span className="dg-bar-label">{one.label}</span>
+                            <span className="dg-bar-track">
+                              <span className="dg-bar-fill" style={{ width: `${(one.qty / top) * 100}%` }} />
+                            </span>
+                            <span className="dg-bar-num">{one.qty} ks</span>
+                            <span className="dg-bar-money">{one.products}× zboží</span>
+                          </div>
+                        ))}
                       </div>
                     );
                   })}
@@ -525,6 +714,38 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                         <div className="dg-caption">
                           Ve dnech s příspěvkem {facts.social.ordersWithPost} objednávky na den,
                           {' '}bez něj {facts.social.ordersWithout} — souvislost, ne důkaz.
+                        </div>
+                      )}
+                      {/*
+                        * Dlouhý pohled. Co fungovalo za celou dobu je pro
+                        * chystanou kampaň lepší podklad než tenhle měsíc —
+                        * a bez tohohle to nebylo nikde vidět.
+                        */}
+                      {(facts.social.bestEver ?? []).length > 0 && (
+                        <div className="dg-season-list">
+                          <span className="dg-caption">Nejúspěšnější za celou dobu</span>
+                          {(facts.social.bestEver ?? []).map(post => (
+                            <a
+                              className="dg-post"
+                              key={post.at + post.permalink}
+                              href={post.permalink || undefined}
+                              onClick={e => {
+                                e.preventDefault();
+                                if (post.permalink) api.shell.openUrl(post.permalink).catch(() => {});
+                              }}
+                            >
+                              <Icon name="image" size={13} />
+                              <span className="dg-task-main">
+                                <b>{post.caption || 'bez popisku'}</b>
+                                <span className="dg-task-what">
+                                  {new Date(post.at).toLocaleDateString('cs-CZ')}
+                                  {' · '}{post.likes} lajků · {post.comments} komentářů
+                                  {post.channels && <> · {post.channels}</>}
+                                  {post.marketLabels?.length ? <> · {post.marketLabels.join(', ')}</> : null}
+                                </span>
+                              </span>
+                            </a>
+                          ))}
                         </div>
                       )}
                     </>
@@ -552,12 +773,29 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 </div>
               </div>
 
-              {/* Nejprodávanější zboží za posledních 30 dní */}
+              {/* Nejprodávanější zboží za zvolené období */}
               <div className="dg-card">
-                <div className="dg-card-head"><Icon name="bag" size={14} /> Nejprodávanější — 30 dní</div>
-                {facts.products.length === 0 && <div className="dg-empty">Za posledních 30 dní zatím nic neprošlo.</div>}
-                {facts.products.map(one => {
-                  const top = Math.max(1, ...facts.products.map(p => p.qty));
+                <div className="dg-card-head">
+                  <Icon name="bag" size={14} /> Nejprodávanější — {rangeLabel(range).toLowerCase()}
+                  {/*
+                    * Kolik jich ukázat. U dvouletého okna je osm položek
+                    * málo na to, aby se z toho dalo něco poznat.
+                    */}
+                  <span className="dg-switch">
+                    {[8, 20, 50].map(count => (
+                      <button
+                        key={count}
+                        className={topCount === count ? 'on' : ''}
+                        onClick={() => setTopCount(count)}
+                      >
+                        {count}
+                      </button>
+                    ))}
+                  </span>
+                </div>
+                {(facts.products ?? []).length === 0 && <div className="dg-empty">Za tohle období nic neprošlo.</div>}
+                {(facts.products ?? []).slice(0, topCount).map(one => {
+                  const top = Math.max(1, ...(facts.products ?? []).map(p => p.qty));
                   return (
                     <div className="dg-bar-row" key={one.code}>
                       <span className="dg-bar-label" title={one.variants.length
@@ -594,10 +832,20 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 <div className="dg-card-head">
                   <Icon name="brain" size={14} /> Postřehy
                   {insight && <span className="dg-when">{since(insight.at)}</span>}
-                  <button className="dg-again" disabled={busy} onClick={() => load(true)}>
-                    {busy ? 'Počítám…' : 'Přegenerovat'}
+                  <button className="dg-again" disabled={!!busy} onClick={() => load(true)}>
+                    {busy === 'insight' ? 'Sestavuji…' : 'Přegenerovat'}
                   </button>
                 </div>
+                {/*
+                  * Postřehy trvají deset i dvacet vteřin — bez tohohle řádku
+                  * to po kliknutí vypadalo, že tlačítko nic neudělalo.
+                  */}
+                {busy === 'insight' && (
+                  <div className="dg-working">
+                    <span className="spinner-inline" />
+                    Sestavuji postřehy nad čerstvými čísly — chvilku to trvá (10–20 s).
+                  </div>
+                )}
                 {!insight && !report.insightError && (
                   <div className="dg-empty">Postřehy se sestaví při prvním ranním otevření.</div>
                 )}

@@ -1415,7 +1415,7 @@ function Ga4Box() {
   useEffect(() => { api.ga4.get().then(setCfg).catch(() => {}); }, []);
   if (!cfg) return null;
 
-  const save = (patch: { enabled?: boolean; key?: string; endpoint?: string }) => {
+  const save = (patch: { enabled?: boolean; key?: string; endpoint?: string; appId?: string }) => {
     api.ga4.save(patch).then(next => {
       setCfg(next);
       if (patch.key !== undefined) setKey('');
@@ -1452,11 +1452,57 @@ function Ga4Box() {
         >
           {busy ? 'Zkouším…' : 'Vyzkoušet spojení'}
         </button>
+        {/*
+          * Sequel má pod jedním klíčem víc zdrojů a u dotazu chce vědět
+          * který — bez toho odpovídá „app_id is required". Jediný zdroj si
+          * aplikace doplní sama, z několika se vybere tady.
+          */}
+        <button
+          className="btn"
+          disabled={busy || !cfg.hasKey}
+          onClick={() => {
+            setBusy(true);
+            api.ga4.apps()
+              .then(list => {
+                setCfg({ ...cfg, apps: list });
+                toast(list.length ? `Našlo se ${list.length} zdrojů.` : 'Sequel žádné zdroje nevrátil.');
+                return api.ga4.get().then(setCfg);
+              })
+              .catch(e => toast(`Nepovedlo se: ${e.message}`, 'error'))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Načíst zdroje
+        </button>
       </div>
+      {cfg.apps.length > 0 && (
+        <select value={cfg.appId} onChange={e => save({ appId: e.target.value })}>
+          <option value="">— vyber zdroj v Sequelu —</option>
+          {cfg.apps.map(one => <option key={one.id} value={one.id}>{one.name}</option>)}
+        </select>
+      )}
+      {cfg.apps.length === 0 && cfg.appId && (
+        <input
+          value={cfg.appId}
+          onChange={e => save({ appId: e.target.value })}
+          placeholder="app_id zdroje v Sequelu"
+        />
+      )}
       <div className="desc">
         Klíč z sequel.sh (Bearer). Ukládá se šifrovaně, stejně jako ostatní.
         {cfg.lastAt && <> Naposledy staženo {new Date(cfg.lastAt).toLocaleString('cs-CZ')}.</>}
         {cfg.lastError && <> Poslední chyba: {cfg.lastError}</>}
+        {' '}
+        <button
+          className="linkish"
+          onClick={() => {
+            api.ga4.diagnostics()
+              .then(text => toast(text || 'Server nevrátil nic.'))
+              .catch(e => toast(`Nepovedlo se: ${e.message}`, 'error'));
+          }}
+        >
+          Zobrazit nástroje serveru
+        </button>
       </div>
     </div>
   );

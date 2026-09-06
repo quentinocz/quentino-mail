@@ -43,7 +43,8 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT, reply_to_db_id INTEGER, status TEXT NOT NULL DEFAULT 'scheduled');
   CREATE TABLE IF NOT EXISTS order_cache (message_pk INTEGER PRIMARY KEY, json TEXT, at TEXT NOT NULL DEFAULT '');
   CREATE TABLE IF NOT EXISTS products (
-    code TEXT PRIMARY KEY, title_cz TEXT NOT NULL DEFAULT '', price_num REAL);
+    code TEXT PRIMARY KEY, title_cz TEXT NOT NULL DEFAULT '', price_num REAL,
+    category TEXT NOT NULL DEFAULT '');
   CREATE TABLE IF NOT EXISTS product_variants (
     code TEXT PRIMARY KEY, product_code TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '',
     price TEXT NOT NULL DEFAULT '');
@@ -51,6 +52,8 @@ db.exec(`
     ig_media_id TEXT PRIMARY KEY, caption TEXT NOT NULL DEFAULT '', posted_at TEXT NOT NULL DEFAULT '',
     like_count INTEGER NOT NULL DEFAULT 0, comment_count INTEGER NOT NULL DEFAULT 0,
     permalink TEXT NOT NULL DEFAULT '');
+  CREATE TABLE IF NOT EXISTS ig_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ig_media_id TEXT, fb_post_id TEXT);
   CREATE TABLE IF NOT EXISTS ig_published (
     source_media_id TEXT NOT NULL, lang TEXT NOT NULL, at TEXT NOT NULL DEFAULT '',
     permalink TEXT NOT NULL DEFAULT '', ig_media_id TEXT NOT NULL DEFAULT '',
@@ -61,8 +64,8 @@ db.exec(`
  * Katalog. Šle mají dvě délky a každá svůj kód — pro otázku „co se prodává"
  * jsou to ale jedny šle, a právě to se tu zkouší.
  */
-db.prepare("INSERT INTO products (code, title_cz, price_num) VALUES ('PS120', 'Kšandy červené', 890)").run();
-db.prepare("INSERT INTO products (code, title_cz, price_num) VALUES ('QM-042', 'Knoflíčky', 595)").run();
+db.prepare("INSERT INTO products (code, title_cz, price_num, category) VALUES ('PS120', 'Kšandy červené', 890, 'Kšandy')").run();
+db.prepare("INSERT INTO products (code, title_cz, price_num, category) VALUES ('QM-042', 'Knoflíčky', 595, 'Doplňky')").run();
 db.prepare("INSERT INTO product_variants (code, product_code, label, price) VALUES ('PS120-110', 'PS120', '110 cm', '890 Kč')").run();
 db.prepare("INSERT INTO product_variants (code, product_code, label, price) VALUES ('PS120-120', 'PS120', '120 cm', '890 Kč')").run();
 
@@ -78,8 +81,13 @@ let answer = JSON.stringify({
   questions: ['Proč klesla dobírka?']
 });
 const aiPath = require.resolve(path.join(DIST, 'ai.js'));
+/*
+ * Postřehy jdou přes `askLong` — dlouhá odpověď se dopisuje druhým voláním,
+ * aby se rozbor nezasekl na stropu tokenů. Doptávání používá `ask`.
+ */
 require.cache[aiPath] = { id: aiPath, filename: aiPath, loaded: true, exports: {
-  ask: async (model, system, user) => { asked.push({ model, system, user }); return answer; }
+  ask: async (model, system, user) => { asked.push({ model, system, user }); return answer; },
+  askLong: async (model, system, user) => { asked.push({ model, system, user }); return answer; }
 } };
 
 const setPath = require.resolve(path.join(DIST, 'settings.js'));
@@ -229,7 +237,12 @@ console.log('\nvarianty a ceník:\n');
 const ksandy = facts.products.find(one => one.code === 'PS120');
 check('dvě délky jsou jedny šle', ksandy?.qty, 2);
 check('a je vidět, které to byly', ksandy?.variants.map(one => one.label).sort(), ['110 cm', '120 cm']);
-check('velikost se sleduje napříč zbožím', facts.sizes.map(one => one.label).sort(), ['110 cm', '120 cm']);
+/*
+ * Velikosti se sledují **uvnitř kategorie**: délka kšand a šířka kravaty
+ * jsou dvě různé věci a sečíst je dohromady je nesmysl.
+ */
+check('velikosti jsou po kategoriích', facts.sizes.map(one => one.category), ['Kšandy']);
+check('a uvnitř kategorie sedí', facts.sizes[0]?.sizes.map(one => one.label).sort(), ['110 cm', '120 cm']);
 // Dárek přišel bez ceny; nula u nejprodávanějšího zboží vypadá jako chyba,
 // tak se vezme cena z ceníku a řekne se, že je to odhad
 const knofliky = facts.products.find(one => one.code === 'QM-042');
@@ -295,7 +308,15 @@ check('a jde říct, kolikátý je současné okno', pohled.rank !== null, true)
 check('loňské okno se dohledá', pohled.lastYear !== null, true);
 // Silný měsíc je za tři měsíce — má se ozvat dopředu, ne až v něm
 check('sezóna se najde z vlastních dat', !!pohled.season, true);
-check('a řekne, do kdy se chystat', /chystat se má do \d+\. \d+\./.test(pohled.season?.text ?? ''), true);
+/*
+ * Samotné „prosinec bývá silný" se nedá použít. K sezóně proto patří i to,
+ * kdy začíná, dokdy zahájit propagaci a co se v ní prodávalo.
+ */
+check('a řekne, dokdy zahájit propagaci',
+  /propagaci zahájit do \d+\. \d+\./.test(pohled.season?.text ?? ''), true);
+check('a jak je daleko', typeof pohled.season?.inDays, 'number');
+check('má i jméno sezóny', typeof pohled.season?.name, 'string');
+check('a co se v ní prodávalo', Array.isArray(pohled.season?.products), true);
 
 // Cache: uzavřené měsíce se nepočítají znovu
 const znovu = historie.monthlyStats(13);

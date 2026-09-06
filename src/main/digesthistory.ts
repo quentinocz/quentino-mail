@@ -25,6 +25,7 @@
  * kterého ještě mohly dojít objednávky.
  */
 import { getDb } from './db';
+import { bestPosts, type SocialPost } from './digestsocial';
 
 export interface MonthStat {
   /** `YYYY-MM` */
@@ -45,12 +46,27 @@ export interface SeasonHint {
   /** `YYYY-MM` měsíce, o kterém je řeč */
   month: string;
   label: string;
+  /**
+   * Jak se té sezóně říká.
+   *
+   * Index měsíce je z dat, jméno z kalendáře: listopad a prosinec jsou
+   * Vánoce, květen až září svatby. Jméno nic nepočítá, jen říká, o čem
+   * je řeč — pro e-shop s kravatami a kšandami jsou to dvě různé věci
+   * s různým zbožím.
+   */
+  name: string;
   /** Kolikrát silnější než průměrný měsíc (1,6 = o 60 % víc) */
   index: number;
   /** Do kdy se má začít, ať to má náběh */
   startBy: string;
+  /** Za kolik dní sezóna začíná (0 = už běží) */
+  inDays: number;
   text: string;
   basis: string;
+  /** Co se v ní historicky prodávalo nejvíc */
+  products: { code: string; title: string; qty: number }[];
+  /** Které příspěvky v tom období fungovaly — podklad pro chystanou kampaň */
+  posts: SocialPost[];
 }
 
 export interface HistoryView {
@@ -269,20 +285,105 @@ function seasonFrom(months: MonthStat[], now: Date): SeasonHint | null {
     const running = ahead === 0;
     const startBy = new Date(when.getTime() - 21 * 86_400_000);
     const label = `${MONTHS[index]}`;
+    const name = seasonName(index);
+    const inDays = Math.max(0, Math.round((when.getTime() - now.getTime()) / 86_400_000));
+    const stronger = Math.round((ratio - 1) * 100);
+
+    /*
+     * Co se v té sezóně prodávalo a co se k ní hodilo napsat. Bez toho je
+     * z upozornění jen „prosinec bývá silný" — s tím se nedá nic dělat.
+     * Bere se **celá historie**, ne jen loňsko: dva prosince řeknou víc
+     * než jeden.
+     */
+    const months = seasonMonths(index);
+    const products = seasonProducts(months);
+    const posts = bestPosts({ months, limit: 2 });
+
+    const whenText = running
+      ? `Běží ${name} (${label})`
+      : inDays > 45
+        ? `${name.charAt(0).toUpperCase()}${name.slice(1)} se blíží — začíná zhruba za ${Math.round(inDays / 30)} měsíce`
+        : `${name.charAt(0).toUpperCase()}${name.slice(1)} se blíží — začíná zhruba za ${inDays} dní`;
+
     return {
       month: monthKey(when),
       label,
+      name,
       index: Math.round(ratio * 100) / 100,
       startBy: dayKey(startBy),
-      text: running
-        ? `Běží ${label} — bývá o ${Math.round((ratio - 1) * 100)} % silnější než průměrný měsíc.`
-        : `${label.charAt(0).toUpperCase()}${label.slice(1)} bývá o ${Math.round((ratio - 1) * 100)} %`
-          + ` silnější než průměrný měsíc — chystat se má do ${startBy.getDate()}. ${startBy.getMonth() + 1}.`,
+      inDays: running ? 0 : inDays,
+      text: `${whenText}; ${label} bývá o ${stronger} % silnější než průměrný měsíc`
+        + (running ? '.' : ` — propagaci zahájit do ${startBy.getDate()}. ${startBy.getMonth() + 1}.`)
+        + (products.length
+          ? ` Nejvíc se v ní prodávalo: ${products.slice(0, 3).map(one => one.title).join(', ')}.`
+          : ''),
       basis: `průměrně ${value.toFixed(1)} objednávky na den proti celoročním ${average.toFixed(1)}`
-        + `, z ${closed.length} měsíců historie`
+        + `, z ${closed.length} měsíců historie`,
+      products,
+      posts
     };
   }
   return null;
+}
+
+/**
+ * Jméno sezóny.
+ *
+ * Sílu měsíce spočítala data, tohle je jen popiska — ale bez ní je rada
+ * „chystej se na listopad" o polovinu míň užitečná než „chystej se na
+ * Vánoce". Pro e-shop s kravatami a kšandami jsou svatby a Vánoce dvě různé
+ * sezóny s jiným zbožím.
+ */
+function seasonName(monthIndex: number): string {
+  if (monthIndex === 10 || monthIndex === 11) return 'vánoční sezóna';
+  if (monthIndex >= 4 && monthIndex <= 8) return 'svatební sezóna';
+  return `${MONTHS[monthIndex]}`;
+}
+
+/** Které měsíce k sezóně patří — Vánoce jsou listopad i prosinec */
+function seasonMonths(monthIndex: number): number[] {
+  if (monthIndex === 10 || monthIndex === 11) return [10, 11];
+  if (monthIndex >= 4 && monthIndex <= 8) return [4, 5, 6, 7, 8];
+  return [monthIndex];
+}
+
+/**
+ * Co se v sezóně prodávalo.
+ *
+ * Napříč všemi roky, které feed pokrývá — jeden prosinec může být náhoda,
+ * dva už ne. Stornované objednávky se nepočítají.
+ */
+function seasonProducts(months: number[], limit = 5): { code: string; title: string; qty: number }[] {
+  let rows: any[] = [];
+  try {
+    rows = getDb().prepare(
+      'SELECT status, created_at, items_json FROM shop_orders WHERE created_at != \'\''
+    ).all() as any[];
+  } catch {
+    return [];
+  }
+
+  const wanted = new Set(months);
+  const qty = new Map<string, number>();
+  const titles = new Map<string, string>();
+  for (const row of rows) {
+    const month = Number(String(row.created_at ?? '').slice(5, 7)) - 1;
+    if (!wanted.has(month)) continue;
+    if (isCancelled(String(row.status ?? ''))) continue;
+    let items: any[] = [];
+    try { items = JSON.parse(row.items_json || '[]'); } catch { continue; }
+    for (const item of items) {
+      const code = String(item?.code || item?.title || '').trim();
+      if (!code) continue;
+      qty.set(code, (qty.get(code) ?? 0) + (Number(item?.quantity) || 0));
+      if (!titles.has(code)) titles.set(code, String(item?.title || code));
+    }
+  }
+
+  return [...qty.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([code, count]) => ({ code, title: titles.get(code) ?? code, qty: count }));
 }
 
 /**

@@ -349,6 +349,13 @@ export const api = {
      * za 24 hodin — `force` je tlačítko „Přegenerovat".
      */
     digest: (force = false) => call<DigestReport>('digest:get', force),
+    /**
+     * Jen čísla za zvolené období — bez AI a bez chatu.
+     *
+     * Přepínač 30 dní / 3 měsíce / … si tím přepočítá dlaždice a grafy,
+     * aniž by to stálo volání modelu.
+     */
+    digestFacts: (days: number) => call<DigestFacts>('digest:facts', days),
     /** Doptání nad týmiž čísly, která jsou v přehledu vidět */
     digestAsk: (question: string, history: DigestTurn[] = []) =>
       call<string>('digest:ask', question, history),
@@ -361,8 +368,12 @@ export const api = {
   ga4: {
     /** Napojení na Google Analytics přes Sequel */
     get: () => call<Ga4Config>('ga4:get'),
-    save: (p: { enabled?: boolean; key?: string; endpoint?: string }) => call<Ga4Config>('ga4:save', p),
-    test: () => call<string>('ga4:test')
+    save: (p: { enabled?: boolean; key?: string; endpoint?: string; appId?: string }) => call<Ga4Config>('ga4:save', p),
+    test: () => call<string>('ga4:test'),
+    /** Které zdroje jsou v Sequelu napojené — u dotazu se musí vybrat */
+    apps: () => call<{ id: string; name: string }[]>('ga4:apps'),
+    /** Co server nabízí za nástroje — když se automatika netrefí */
+    diagnostics: () => call<string>('ga4:diagnostics')
   },
   upgates: {
     config: () => call<UpgatesConfig>('upgates:config'),

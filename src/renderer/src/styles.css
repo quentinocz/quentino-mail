@@ -1199,6 +1199,85 @@ input:focus, textarea:focus, select:focus {
 .dg-note.sig-down > svg, .dg-note.sig-watch > svg { color: var(--danger); }
 .dg-note.sig-up > svg { color: var(--ok); }
 .dg-note.sig-info > svg { color: var(--text-3); }
+/*
+ * Že se pracuje, musí být vidět bez čtení. Proužek běží přes celou šířku
+ * okna, kolečko v hlavičce se točí a u postřehů stojí věta, jak dlouho to
+ * potrvá — po kliknutí na „Přegenerovat" dřív zdánlivě nedělalo nic.
+ */
+.dg-progress {
+  height: 3px;
+  background: var(--accent-soft);
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+.dg-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  background: var(--accent);
+  border-radius: 999px;
+  animation: dg-slide 1.1s ease-in-out infinite;
+}
+@keyframes dg-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+.icon-btn.spinning > svg { animation: dg-spin 1s linear infinite; }
+@keyframes dg-spin { to { transform: rotate(360deg); } }
+.dg-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  background: var(--panel);
+  border-radius: 9px;
+  padding: 8px 10px;
+}
+
+.dg-ranges { display: flex; align-items: center; gap: 10px; }
+.dg-ranges .dg-switch { margin-left: 0; }
+
+/* Rozpad dopravce po platbách — až po najetí, ať nezabírá místo */
+.dg-bar-row { position: relative; }
+.dg-pop {
+  display: none;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 100%;
+  z-index: 5;
+  min-width: 190px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  padding: 8px 10px;
+  font-size: 12px;
+  flex-direction: column;
+  gap: 3px;
+}
+.dg-bar-row:hover .dg-pop { display: flex; }
+.dg-pop-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); }
+
+/* Sezóna a příspěvky */
+.dg-season { display: flex; flex-direction: column; gap: 8px; }
+.dg-season-list { display: flex; flex-direction: column; gap: 3px; }
+.dg-post {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+.dg-post:hover { background: var(--bg); }
+.dg-post > svg { color: var(--accent-dark); flex-shrink: 0; margin-top: 2px; }
+.dg-post b { font-size: 12.5px; font-weight: 600; }
+
 /* Podklad pod tvrzením — malý, ale vždycky vidět, ať jde ověřit */
 .dg-basis { display: block; font-size: 11.5px; color: var(--text-3); padding-top: 1px; }
 .dg-caption { font-size: 11.5px; color: var(--text-3); line-height: 1.5; }
