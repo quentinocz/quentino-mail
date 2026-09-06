@@ -53,6 +53,12 @@ function rangeLabel(days: number): string {
   return 'Poslední 2 roky';
 }
 
+/** Proč u zboží není cena — pomlčka sama o sobě mate víc než nula */
+function priceHint(source: string, currency: string): string {
+  if (source === 'cizí měna') return `Prodalo se jen na jiném trhu — do tržby v ${currency} to nepatří.`;
+  return 'Feed u téhle položky cenu nenese a v ceníku ani v jiných objednávkách se nenašla.';
+}
+
 function dayLabel(day: string): string {
   const [, month, date] = day.split('-');
   return `${Number(date)}. ${Number(month)}.`;
@@ -70,49 +76,112 @@ function since(at: string): string {
 
 /* ---------- graf ---------- */
 
+/** Popiska bloku v grafu — den, týden od–do, nebo měsíc */
+function bucketLabel(day: string, bucketDays: number): string {
+  if (bucketDays <= 1) return dayLabel(day);
+  if (bucketDays >= 28) {
+    const [year, month] = day.split('-');
+    return `${MONTH_SHORT[Number(month) - 1] ?? month} ${year.slice(2)}`;
+  }
+  const from = new Date(`${day}T12:00:00`);
+  const to = new Date(from.getTime() + (bucketDays - 1) * 86_400_000);
+  return `${from.getDate()}. ${from.getMonth() + 1}. – ${to.getDate()}. ${to.getMonth() + 1}.`;
+}
+
+const MONTH_SHORT = ['led', 'úno', 'bře', 'dub', 'kvě', 'čvn', 'čvc', 'srp', 'zář', 'říj', 'lis', 'pro'];
+const WEEKDAY_SHORT = ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'];
+
 /**
- * Sloupce za posledních třicet dní.
+ * Sloupcový graf.
  *
- * Kreslí se rovnou do SVG, bez knihovny: je to třicet obdélníků a všechno,
- * co by knihovna přidala navíc, by se stejně muselo přebarvovat podle
- * světlého a tmavého motivu. Víkendy jsou světlejší — bez nich se v řadě
- * nedá poznat, jestli je propad problém, nebo neděle.
+ * Kreslí se rovnou do SVG, bez knihovny: jsou to obdélníky a všechno, co by
+ * knihovna přidala navíc, by se stejně muselo přebarvovat podle světlého
+ * a tmavého motivu.
+ *
+ * ## Proč tolik práce s popiskami
+ *
+ * Třicet sloupků vedle sebe vypadá hezky a neřekne nic — nedalo se poznat,
+ * který je který den. Proto:
+ *
+ *  - **pod osou jsou popisky**, ale jen tam, kde se vejdou (u třiceti dnů
+ *    každý pátý, u měsíců každý),
+ *  - **najetím myší** se sloupec zvýrazní a nad grafem se vypíše celá věta
+ *    („čtvrtek 4. 9. — 7 objednávek, 11 430 Kč"); bublina od prohlížeče
+ *    se objevovala se zpožděním a v rychlém přejetí se nedala přečíst,
+ *  - **víkendy jsou světlejší**, aby se propad po neděli nepletl s propadem
+ *    v obchodě.
  */
-function DayChart({ days: given, currency, mode }: { days: DigestDay[] | undefined; currency: string; mode: 'orders' | 'revenue' }) {
+function DayChart({ days: given, currency, mode, bucketDays = 1 }: {
+  days: DigestDay[] | undefined;
+  currency: string;
+  mode: 'orders' | 'revenue';
+  /** Kolik dní je v jednom sloupci — u delších období se shlukuje */
+  bucketDays?: number;
+}) {
   const days = given ?? [];
+  const [hover, setHover] = useState<number | null>(null);
   const value = (day: DigestDay) => (mode === 'orders' ? day.orders : day.revenue);
   const top = Math.max(1, ...days.map(value));
   const width = 100;
-  const gap = 0.6;
-  const step = width / days.length;
+  const gap = days.length > 40 ? 0.3 : 0.6;
+  const step = width / Math.max(1, days.length);
+
+  // Popisky jen tam, kde se vejdou — jinak se slijí do šedé kaše
+  const everyNth = Math.max(1, Math.ceil(days.length / 7));
+  const active = hover != null ? days[hover] : null;
 
   return (
     <div className="dg-chart">
-      <svg viewBox={`0 0 ${width} 34`} preserveAspectRatio="none" role="img" aria-label="Objednávky po dnech">
+      {/*
+        * Řádek nad grafem drží místo i bez najetí, aby graf pod ním
+        * neposkakoval sem a tam.
+        */}
+      <div className={`dg-chart-read${active ? ' on' : ''}`}>
+        {active
+          ? <>
+            <b>{bucketDays <= 1
+              ? `${WEEKDAY_SHORT[new Date(`${active.day}T12:00:00`).getDay()]} ${dayLabel(active.day)}`
+              : bucketLabel(active.day, bucketDays)}</b>
+            {' — '}{active.orders} {active.orders === 1 ? 'objednávka' : 'objednávek'}
+            {' · '}{money(active.revenue, currency)}
+          </>
+          : <span className="dg-chart-hint">najeď myší na sloupec</span>}
+      </div>
+      <svg
+        viewBox={`0 0 ${width} 34`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="Objednávky po dnech"
+        onMouseLeave={() => setHover(null)}
+      >
         {days.map((day, i) => {
           const height = (value(day) / top) * 30;
-          const weekend = [0, 6].includes(new Date(`${day.day}T12:00:00`).getDay());
+          const weekend = bucketDays <= 1 && [0, 6].includes(new Date(`${day.day}T12:00:00`).getDay());
+          const classes = ['dg-bar'];
+          if (weekend) classes.push('weekend');
+          if (hover === i) classes.push('on');
           return (
-            <rect
-              key={day.day}
-              x={i * step + gap / 2}
-              y={32 - height}
-              width={step - gap}
-              height={Math.max(value(day) > 0 ? 0.8 : 0, height)}
-              rx={0.6}
-              className={weekend ? 'dg-bar weekend' : 'dg-bar'}
-            >
-              <title>
-                {`${dayLabel(day.day)} — ${day.orders} objednávek, ${money(day.revenue, currency)}`}
-              </title>
-            </rect>
+            <g key={day.day} onMouseEnter={() => setHover(i)}>
+              {/* Neviditelný pruh přes celou výšku: trefit se dá i do nuly */}
+              <rect x={i * step} y={0} width={step} height={34} className="dg-bar-hit" />
+              <rect
+                x={i * step + gap / 2}
+                y={32 - height}
+                width={step - gap}
+                height={Math.max(value(day) > 0 ? 0.8 : 0, height)}
+                rx={0.6}
+                className={classes.join(' ')}
+              />
+            </g>
           );
         })}
       </svg>
-      <div className="dg-chart-x">
-        <span>{dayLabel(days[0]?.day ?? '')}</span>
-        <span>{dayLabel(days[Math.floor(days.length / 2)]?.day ?? '')}</span>
-        <span>dnes</span>
+      <div className="dg-chart-axis">
+        {days.map((day, i) => (
+          <span key={day.day} style={{ width: `${step}%` }}>
+            {i % everyNth === 0 ? bucketLabel(day.day, bucketDays) : ''}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -165,36 +234,59 @@ function Bars({ title, icon, rows: given, currency, empty }: {
  */
 function MonthChart({ months: given, currency }: { months: DigestMonth[] | undefined; currency: string }) {
   const months = given ?? [];
+  const [hover, setHover] = useState<number | null>(null);
   const top = Math.max(1, ...months.map(one => one.orders));
   const width = 100;
   const step = width / Math.max(1, months.length);
+  const active = hover != null ? months[hover] : null;
 
   return (
     <div className="dg-chart">
-      <svg viewBox={`0 0 ${width} 34`} preserveAspectRatio="none" role="img" aria-label="Objednávky po měsících">
+      <div className={`dg-chart-read${active ? ' on' : ''}`}>
+        {active
+          ? <>
+            <b>{bucketLabel(`${active.month}-01`, 30)}</b>
+            {' — '}{active.orders} objednávek · {money(active.revenue, active.currency || currency)}
+            {active.complete ? '' : ' · měsíc ještě běží'}
+          </>
+          : <span className="dg-chart-hint">najeď myší na měsíc</span>}
+      </div>
+      <svg
+        viewBox={`0 0 ${width} 34`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="Objednávky po měsících"
+        onMouseLeave={() => setHover(null)}
+      >
         {months.map((one, i) => {
           const height = (one.orders / top) * 30;
+          const classes = ['dg-bar'];
+          // Rozdělaný měsíc je světlejší, ať se nesrovnává celý s půlkou
+          if (!one.complete) classes.push('weekend');
+          if (hover === i) classes.push('on');
           return (
-            <rect
-              key={one.month}
-              x={i * step + 0.6}
-              y={32 - height}
-              width={step - 1.2}
-              height={Math.max(one.orders > 0 ? 0.8 : 0, height)}
-              rx={0.6}
-              className={one.complete ? 'dg-bar' : 'dg-bar weekend'}
-            >
-              <title>
-                {`${one.month} — ${one.orders} objednávek, ${money(one.revenue, one.currency || currency)}`}
-                {one.complete ? '' : ' (měsíc ještě běží)'}
-              </title>
-            </rect>
+            <g key={one.month} onMouseEnter={() => setHover(i)}>
+              <rect x={i * step} y={0} width={step} height={34} className="dg-bar-hit" />
+              <rect
+                x={i * step + 0.6}
+                y={32 - height}
+                width={step - 1.2}
+                height={Math.max(one.orders > 0 ? 0.8 : 0, height)}
+                rx={0.6}
+                className={classes.join(' ')}
+              />
+            </g>
           );
         })}
       </svg>
-      <div className="dg-chart-x">
-        <span>{months[0]?.month ?? ''}</span>
-        <span>{months[months.length - 1]?.month ?? ''}</span>
+      {/* U dvanácti měsíců se popisky vejdou všechny — a bez nich se nedá
+          poznat, který sloupec je prosinec */}
+      <div className="dg-chart-axis">
+        {months.map(one => (
+          <span key={one.month} style={{ width: `${step}%` }}>
+            {MONTH_SHORT[Number(one.month.slice(5, 7)) - 1] ?? ''}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -570,7 +662,8 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     <button className={mode === 'revenue' ? 'on' : ''} onClick={() => setMode('revenue')}>tržba</button>
                   </span>
                 </div>
-                <DayChart days={facts.days} currency={currency} mode={mode} />
+                <DayChart days={facts.days} currency={currency} mode={mode}
+                  bucketDays={range <= 62 ? 1 : range <= 200 ? 7 : 30} />
                 {/* Kalendářní měsíc zůstává jako údaj — jen se z něj nedělají závěry */}
                 <div className="dg-caption">
                   {facts.monthLabel} zatím {facts.month.orders} objednávek za {moneyOf(facts.month, currency)}
@@ -816,9 +909,9 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                         */}
                       <span
                         className="dg-bar-money"
-                        title={one.estimated
-                          ? 'Část tržby dopočítaná z ceníku — feed u položky cenu nenesl'
-                          : (one.revenue ? '' : `Tržba jen z objednávek v ${currency}`)}
+                        title={one.revenue
+                          ? (one.estimated ? `Odhad ceny podle: ${one.priceSource}` : 'Cena z objednávek')
+                          : priceHint(one.priceSource, currency)}
                       >
                         {one.revenue ? `${one.estimated ? '≈ ' : ''}${money(one.revenue, currency)}` : '—'}
                       </span>

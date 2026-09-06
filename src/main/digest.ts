@@ -241,6 +241,40 @@ function catalogIndex(): Map<string, CatalogEntry> {
   return out;
 }
 
+/**
+ * Za kolik se totéž zboží prodalo jinde.
+ *
+ * Poslední záchrana ceny. Feed u části položek cenu nenese (dárek, bonus,
+ * sada) a katalog ji nemusí mít v korunách u zboží, které jde hlavně na
+ * zahraniční trh. Cena z jiné objednávky je pořád **skutečná cena**, za
+ * kterou to někdo koupil — a rozhodně lepší než nula, ze které se v postřehu
+ * stane „prodává se zadarmo".
+ *
+ * Bere se **medián**, ne průměr: jedna sleva nebo jeden dárek zdarma by
+ * průměr strhly, medián ne.
+ */
+function knownUnitPrices(rows: Row[], currency: string): Map<string, number> {
+  const prices = new Map<string, number[]>();
+  for (const row of rows) {
+    if (isCancelled(row.status)) continue;
+    if ((row.currency || 'CZK').toUpperCase() !== currency) continue;
+    for (const item of itemsOf(row)) {
+      const code = String(item.code || item.title || '').trim().toLowerCase();
+      if (!code) continue;
+      const qty = Number(item.quantity) || 0;
+      const unit = Number(item.price) || (qty > 0 ? (Number(item.total) || 0) / qty : 0);
+      if (unit > 0) prices.set(code, [...(prices.get(code) ?? []), unit]);
+    }
+  }
+
+  const out = new Map<string, number>();
+  for (const [code, list] of prices) {
+    list.sort((a, b) => a - b);
+    out.set(code, list[Math.floor(list.length / 2)]);
+  }
+  return out;
+}
+
 /* ---------- nákupy místo objednávek ---------- */
 
 /** Do kolika hodin se dvě objednávky téhož zákazníka počítají jako jeden nákup */
@@ -795,6 +829,15 @@ export function digestFacts(now = new Date(), windowDays = WINDOW): DigestFacts 
   const sizes = new Map<string, Map<string, { qty: number; products: Set<string> }>>();
   const variantsOf = new Map<string, Map<string, number>>();
 
+  /*
+   * Ceny, za které se totéž zboží prodalo jinde. Feed u části položek cenu
+   * nenese vůbec (dárek, sada, bonus k objednávce) a katalog nemusí mít
+   * korunovou cenu u zboží, které jde jen na zahraniční trh. Bez tohohle
+   * z toho v přehledu byla nula — a z nuly pak v postřezích tvrzení, že se
+   * kapesníček prodává zadarmo.
+   */
+  const seenPrice = knownUnitPrices(rows, currency);
+
   const products = new Map<string, DigestProduct>();
   for (const row of windowRows) {
     if (isCancelled(row.status)) continue;
@@ -809,19 +852,35 @@ export function digestFacts(now = new Date(), windowDays = WINDOW): DigestFacts 
       const one = products.get(base)
         ?? {
           code: base, title: known?.title || String(item.title || base),
-          qty: 0, orders: 0, revenue: 0, estimated: false, variants: []
+          qty: 0, orders: 0, revenue: 0, estimated: false,
+          priceSource: 'neznámá' as DigestProduct['priceSource'], variants: []
         };
       const qty = Number(item.quantity) || 0;
       one.qty += qty;
+      /*
+       * Cena po krocích, od nejjistější k nejslabší: co je v objednávce,
+       * pak ceník, pak cena, za kterou se totéž prodalo jinde. Odkud se
+       * vzala, se drží u produktu — „0 Kč" se nesmí tvářit jako fakt.
+       */
       if (sameCurrency) {
         const line = Number(item.total) || (Number(item.price) || 0) * qty;
-        // Feed u dárků a sad cenu nenese; ceník je pořád lepší než nula
+        const fromCatalog = known?.price ?? 0;
+        const fromOthers = seenPrice.get(code.toLowerCase()) ?? seenPrice.get(base.toLowerCase()) ?? 0;
         if (line > 0) {
           one.revenue += line;
-        } else if (known?.price) {
-          one.revenue += known.price * qty;
+          if (one.priceSource === 'neznámá') one.priceSource = 'feed';
+        } else if (fromCatalog > 0) {
+          one.revenue += fromCatalog * qty;
           one.estimated = true;
+          if (one.priceSource !== 'feed') one.priceSource = 'ceník';
+        } else if (fromOthers > 0) {
+          one.revenue += fromOthers * qty;
+          one.estimated = true;
+          if (one.priceSource !== 'feed') one.priceSource = 'jinde';
         }
+      } else if (one.priceSource === 'neznámá') {
+        // Prodalo se, ale na jiném trhu — do korunové tržby to nepatří
+        one.priceSource = 'cizí měna';
       }
       if (!seen.has(base)) { one.orders++; seen.add(base); }
       products.set(base, one);
@@ -1174,9 +1233,15 @@ function factsForAi(facts: DigestFacts): string {
     `Země (30 dní): ${slice(facts.countries)}`,
     `Doprava (30 dní): ${slice(facts.shipments)}`,
     `Platba (30 dní): ${slice(facts.payments)}`,
+    /*
+     * Cena se do zadání píše, jen když ji známe. Nula je „nevíme", ne
+     * „zadarmo" — model z ní jinak udělal tvrzení, že se zboží prodává
+     * za nula korun.
+     */
     `Nejprodávanější (30 dní, varianty sloučené pod produkt): `
-      + (facts.products.map(one => `${one.title} (${one.code}) ${one.qty} ks za ${one.revenue} ${facts.currency}`
-        + (one.estimated ? ' [tržba dopočítaná z ceníku]' : '')
+      + (facts.products.map(one => `${one.title} (${one.code}) ${one.qty} ks`
+        + (one.revenue > 0 ? ` za ${one.revenue} ${facts.currency}` : ` [cenu neznáme: ${one.priceSource}]`)
+        + (one.estimated && one.revenue > 0 ? ` [odhad podle: ${one.priceSource}]` : '')
         + (one.variants.length ? ` [${one.variants.map(v => `${v.label} ${v.qty}`).join(', ')}]` : ''))
         .join('; ') || '—'),
     /*

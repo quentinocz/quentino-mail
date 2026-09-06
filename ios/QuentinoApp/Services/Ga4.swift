@@ -139,8 +139,48 @@ enum Ga4 {
         return tools[0]
     }
 
-    private static let queryActions = ["query", "ask", "run", "execute", "search", "report", "read", "sql"]
-    private static let listActions = ["list_apps", "list_sources", "list_connections", "apps", "sources", "list"]
+    /*
+     Sequel má jeden nástroj a v něm výčet akcí: `connect` naváže spojení,
+     `list` vypíše napojené zdroje a teprve něco třetího se doopravdy ptá.
+     Když se pošle `list`, server ochotně odpoví seznamem spojení — a z toho
+     byly v přehledu samé nuly.
+     */
+    private static let queryActions = [
+        "query", "run_query", "execute_query", "sql_query", "run_sql", "ask",
+        "run", "execute", "search", "report", "analytics", "fetch", "read", "sql", "data"
+    ]
+    private static let listActions = [
+        "list_apps", "list_sources", "list_connections", "apps", "sources", "connections", "list"
+    ]
+    /// Akce, které nikdy nevrátí data
+    private static let neverQuery = "^(connect|disconnect|list|describe|schema|tables|status|health|ping|auth)"
+
+    /// Akce, kterými má smysl se ptát — v pořadí, v jakém se zkusí
+    private static func queryActionOptions(_ options: [String]) -> [String] {
+        var out: [String] = []
+        for want in queryActions {
+            if let match = options.first(where: { $0.lowercased() == want }), !out.contains(match) {
+                out.append(match)
+            }
+        }
+        for one in options where !out.contains(one) {
+            let isNever = one.range(of: neverQuery, options: [.regularExpression, .caseInsensitive]) != nil
+            if isNever { continue }
+            if queryActions.contains(where: { one.lowercased().contains($0) }) { out.append(one) }
+        }
+        for one in options where !out.contains(one) {
+            if one.range(of: neverQuery, options: [.regularExpression, .caseInsensitive]) == nil { out.append(one) }
+        }
+        return out
+    }
+
+    private static func listActionOption(_ options: [String]) -> String? {
+        for want in listActions {
+            if let match = options.first(where: { $0.lowercased() == want }) { return match }
+        }
+        return options.first { $0.range(of: "list|apps|sources|connections",
+                                        options: [.regularExpression, .caseInsensitive]) != nil }
+    }
 
     /// Argumenty podle schématu nástroje, ne podle domněnky
     private static func argsFor(_ tool: [String: Any], question: String?, appId: String?,
@@ -152,16 +192,11 @@ enum Ga4 {
 
         for (name, raw) in properties {
             let property = raw as? [String: Any] ?? [:]
-            let options = (property["enum"] as? [Any] ?? []).map { "\($0)" }
+            let options = enumOf(property)
             let lower = name.lowercased()
 
             if lower == "action", !options.isEmpty {
-                let wanted = action == "list" ? listActions : queryActions
-                var picked = wanted.compactMap { want in options.first { $0.lowercased() == want } }.first
-                if picked == nil {
-                    picked = options.first { one in wanted.contains { one.lowercased().contains($0) } }
-                }
-                if picked == nil { picked = options.first { $0.lowercased() != "connect" } }
+                let picked = action == "list" ? listActionOption(options) : queryActionOptions(options).first
                 if let picked { out["action"] = picked }
                 continue
             }
@@ -218,38 +253,66 @@ enum Ga4 {
         params["arguments"] = argsFor(lister, question: nil, appId: nil, action: "list")
         let text = textOf(try? await rpc("tools/call", params, id: 5))
 
+        /*
+         Spojení z odpovědi. Sequel je vrací jako `{"connections":[{"connection_id":
+         "…","name":"GA4 — …","type":"google_analytics"}]}`, ale jistota to není —
+         jiné verze mohou použít `app_id` nebo `id`. Hledá se proto v textu, ne
+         v pevné cestě.
+         */
         var found: [[String: Any]] = []
         var seen = Set<String>()
-        let patterns = [
-            "\"(?:app_?id|id)\"\\s*:\\s*\"([^\"]{1,64})\"[^}]{0,200}?\"(?:name|title|label|app_?name)\"\\s*:\\s*\"([^\"]{1,80})\"",
-            "\"(?:name|title|label|app_?name)\"\\s*:\\s*\"([^\"]{1,80})\"[^}]{0,200}?\"(?:app_?id|id)\"\\s*:\\s*\"([^\"]{1,64})\""
-        ]
-        for (index, pattern) in patterns.enumerated() {
-            var search = text.startIndex..<text.endIndex
-            while let range = text.range(of: pattern, options: .regularExpression, range: search) {
-                let chunk = String(text[range])
-                search = range.upperBound..<text.endIndex
-                let values = chunk.components(separatedBy: "\"").filter { !$0.contains(":") && !$0.isEmpty }
-                guard values.count >= 4 else { continue }
-                let id = index == 0 ? values[1] : values[3]
-                let name = index == 0 ? values[3] : values[1]
-                if seen.contains(id) { continue }
-                seen.insert(id)
-                var one: [String: Any] = [:]
-                one["id"] = id
-                one["name"] = name
-                found.append(one)
-            }
+        let idKey = "(?:connection_?id|datasource_?id|source_?id|app_?id|id)"
+        let nameKey = "(?:name|title|label|app_?name)"
+        var search = text.startIndex..<text.endIndex
+        while let range = text.range(of: "\"\(idKey)\"\\s*:\\s*\"[^\"]{1,64}\"[^}]{0,300}",
+                                     options: [.regularExpression, .caseInsensitive], range: search) {
+            let chunk = String(text[range])
+            search = range.upperBound..<text.endIndex
+
+            let parts = chunk.components(separatedBy: "\"")
+            guard parts.count >= 4 else { continue }
+            let id = parts[3]
+            if id.isEmpty || seen.contains(id) { continue }
+            seen.insert(id)
+
+            let name = firstMatch(chunk, "\"\(nameKey)\"\\s*:\\s*\"([^\"]{1,80})\"") ?? id
+            let type = firstMatch(chunk, "\"type\"\\s*:\\s*\"([^\"]{1,40})\"") ?? ""
+
+            var one: [String: Any] = [:]
+            one["id"] = id
+            one["name"] = name
+            one["type"] = type
+            found.append(one)
         }
 
         if !found.isEmpty, let data = try? JSONSerialization.data(withJSONObject: found),
            let json = String(data: data, encoding: .utf8) {
             Store.setSetting("ga4Apps", json)
         }
-        if found.count == 1, (Store.setting("ga4AppId", "") ?? "").isEmpty {
-            Store.setSetting("ga4AppId", found[0]["id"] as? String ?? "")
+        /*
+         Vybírat se nemusí, když je jasno: jediný zdroj, nebo jediný, který
+         je Google Analytics. Na návštěvnost se databáze skladu ptát nemá
+         smysl, a Sequel u každého spojení hlásí `type`.
+         */
+        let analytics = found.filter { one in
+            "\(one["type"] as? String ?? "") \(one["name"] as? String ?? "")"
+                .range(of: "analytic|ga4", options: [.regularExpression, .caseInsensitive]) != nil
+        }
+        let obvious = analytics.count == 1 ? analytics.first : (found.count == 1 ? found.first : nil)
+        if let obvious, (Store.setting("ga4AppId", "") ?? "").isEmpty {
+            Store.setSetting("ga4AppId", obvious["id"] as? String ?? "")
         }
         return found
+    }
+
+    /// První skupina z regulárního výrazu — jen aby se to nepsalo pětkrát
+    private static func firstMatch(_ text: String, _ pattern: String) -> String? {
+        guard let range = text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else {
+            return nil
+        }
+        let chunk = String(text[range])
+        let parts = chunk.components(separatedBy: "\"")
+        return parts.count >= 4 ? parts[3] : nil
     }
 
     /// Co server nabízí za nástroje — do nastavení, když se automatika netrefí
@@ -311,21 +374,57 @@ enum Ga4 {
         }
 
         var params: [String: Any] = [:]
-        params["name"] = tool["name"] as? String ?? ""
-        params["arguments"] = argsFor(tool, question: question, appId: appId, action: "query")
-
-        let text = textOf(try await rpc("tools/call", params, id: 4))
-        guard !text.isEmpty else { throw BridgeError.message("Sequel vrátil prázdnou odpověď.") }
         /*
-         Server umí vrátit chybu i jako obyčejný text s dvěstěkou — tohle je
-         ten případ „app_id is required", ze kterého se dřív v přehledu stala
-         nula návštěv.
+         Jak se u Sequelu jmenuje akce, která se doopravdy ptá, se z výčtu
+         poznat nedá — `query`, `run_query`, `execute`… Zkusí se proto po
+         řadě a odpověď se pokaždé přečte: když přišel **seznam spojení**,
+         je to důkaz, že se poslala špatná akce (přesně z toho byly nuly),
+         a jde se na další.
          */
-        if text.range(of: "\"status\"\\s*:\\s*\"error\"|\"error\"\\s*:\\s*\"",
-                      options: .regularExpression) != nil {
-            throw BridgeError.message("Sequel: \(String(text.prefix(200)))")
+        let actionOptions = enumOf((schemaOf(tool)["properties"] as? [String: Any] ?? [:])["action"])
+        let candidates = actionOptions.isEmpty ? [""] : queryActionOptions(actionOptions)
+
+        var last = ""
+        for (index, action) in candidates.prefix(4).enumerated() {
+            var args = argsFor(tool, question: question, appId: appId, action: "query")
+            if !action.isEmpty { args["action"] = action }
+            params["name"] = tool["name"] as? String ?? ""
+            params["arguments"] = args
+
+            let text = textOf(try await rpc("tools/call", params, id: 4 + index))
+            if text.isEmpty { last = "Sequel vrátil prázdnou odpověď."; continue }
+            last = text
+            if looksLikeListing(text) { continue }
+            if text.range(of: "\"status\"\\s*:\\s*\"error\"|\"error\"\\s*:\\s*\"",
+                          options: .regularExpression) != nil { continue }
+            return text
         }
-        return text
+        throw BridgeError.message("Sequel: \(String(last.prefix(220)))")
+    }
+
+    /**
+     Je to seznam spojení místo odpovědi?
+
+     Sequel na špatnou akci ochotně odpoví výpisem napojených zdrojů — a ten
+     se pak tvářil jako platná odpověď, ze které vyšlo „0 návštěv".
+     */
+    private static func looksLikeListing(_ text: String) -> Bool {
+        if text.range(of: "\"connections\"\\s*:|\"action\"\\s*:\\s*\"list",
+                      options: [.regularExpression, .caseInsensitive]) != nil { return true }
+        let hasConnection = text.range(of: "\"connection_?id\"",
+                                       options: [.regularExpression, .caseInsensitive]) != nil
+        let hasSessions = text.range(of: "\"sessions\"", options: .caseInsensitive) != nil
+        return hasConnection && !hasSessions
+    }
+
+    /// Hodnoty výčtu ve schématu — `enum`, případně schované v `anyOf`
+    private static func enumOf(_ property: Any?) -> [String] {
+        guard let one = property as? [String: Any] else { return [] }
+        if let values = one["enum"] as? [Any] { return values.map { "\($0)" } }
+        if let variants = one["anyOf"] as? [[String: Any]] {
+            return variants.flatMap { ($0["enum"] as? [Any] ?? []).map { "\($0)" } }
+        }
+        return []
     }
 
     // MARK: - Denní snímek

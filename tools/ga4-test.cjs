@@ -44,8 +44,14 @@ const TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['connect', 'list_apps', 'query'] },
+      /*
+       * Skutečná jména akcí. Dotaz se nejmenuje `query`, ale `run_query` —
+       * a přesně na tom to spadlo: kód sáhl po `list`, server ochotně
+       * odpověděl seznamem spojení a v přehledu z toho byly nuly.
+       */
+      action: { type: 'string', enum: ['connect', 'list', 'run_query', 'disconnect'] },
       app_id: { type: 'string' },
+      connection_id: { type: 'string' },
       query: { type: 'string' }
     },
     required: ['action']
@@ -75,11 +81,17 @@ global.fetch = async (url, options) => {
   if (body.method === 'tools/call') {
     const args = body.params?.arguments ?? {};
     // Přesně to, co dělá skutečný server: bez zdroje se ptát nedá
-    if (args.action === 'connect' || (args.action === 'query' && !args.app_id)) {
+    if (args.action === 'connect' || (args.action === 'run_query' && !args.connection_id)) {
       return reply({ content: [{ type: 'text', text: '{"status":"error","error":"app_id is required when action=\'connect\'"}' }] });
     }
-    if (args.action === 'list_apps') {
-      return reply({ content: [{ type: 'text', text: '{"apps":[{"id":"app_ga4","name":"Quentino GA4"}]}' }] });
+    /*
+     * Seznam spojení. Tohle je ta past: na špatnou akci server neodpoví
+     * chybou, ale ochotně vrátí výpis — a ten se dřív bral jako odpověď.
+     */
+    if (args.action === 'list') {
+      return reply({ content: [{ type: 'text', text: '{"status":"success","data":{"action":"list","connections":'
+        + '[{"connection_id":"s6f02zyp","name":"GA4 — Quentino.cz","type":"google_analytics","expired":false},'
+        + '{"connection_id":"pg01","name":"Sklad","type":"postgres","expired":false}]}}' }] });
     }
     return reply({ content: [{ type: 'text', text: answer }] });
   }
@@ -93,23 +105,29 @@ global.fetch = async (url, options) => {
 
   console.log('\nzdroje se dohledají:\n');
   const apps = await ga4.ga4Apps();
-  check('server vrátí zdroj', apps, [{ id: 'app_ga4', name: 'Quentino GA4' }]);
-  check('a jediný se rovnou vybere', ga4.getGa4Config().appId, 'app_ga4');
-  // Pro vypsání zdrojů se nesmí použít `connect` — ta chce app_id, které
+  check('server vrátí obě spojení', apps.map(one => one.id), ['s6f02zyp', 'pg01']);
+  /*
+   * Vybrat se má **Google Analytics**, ne první v pořadí — na návštěvnost se
+   * databáze skladu ptát nemá smysl.
+   */
+  check('a vybere se to, které je analytika', ga4.getGa4Config().appId, 's6f02zyp');
+  // Pro vypsání zdrojů se nesmí použít `connect` — ta chce zdroj, který
   // teprve hledáme
   const listCall = calls.find(one => one.method === 'tools/call');
   check('na vypsání se použije akce, která nechce zdroj',
-    listCall.params.arguments.action, 'list_apps');
+    listCall.params.arguments.action, 'list');
 
   console.log('\ndotaz jde se zdrojem:\n');
   calls = [];
   const snapshot = await ga4.ga4Snapshot(true);
   const askCall = calls.find(one => one.method === 'tools/call');
-  check('akce je dotaz, ne připojení', askCall.params.arguments.action, 'query');
-  check('a zdroj je vyplněný', askCall.params.arguments.app_id, 'app_ga4');
+  // Ne `list` ani `connect` — dotaz se u Sequelu jmenuje jinak a musí se najít
+  check('akce je dotaz, ne výpis ani připojení', askCall.params.arguments.action, 'run_query');
+  check('a zdroj je vyplněný', askCall.params.arguments.connection_id, 's6f02zyp');
   check('otázka jde pod jménem ze schématu',
     typeof askCall.params.arguments.query === 'string' && askCall.params.arguments.query.length > 20, true);
-  check('nic navíc se neposílá', Object.keys(askCall.params.arguments).sort(), ['action', 'app_id', 'query']);
+  check('nic navíc se neposílá', Object.keys(askCall.params.arguments).sort(),
+    ['action', 'app_id', 'connection_id', 'query']);
   check('čísla se přečtou', snapshot.window.sessions, 1234);
   check('konverze se dopočítá', snapshot.conversion, 2.5);
   check('a je z čeho srovnávat', snapshot.prevWindow.sessions, 1000);
@@ -149,7 +167,7 @@ global.fetch = async (url, options) => {
 
   console.log('\ndiagnostika:\n');
   const tools = await ga4.ga4Diagnostics();
-  check('vypíše, co server umí', /sequel\(action, app_id, query\)/.test(tools), true);
+  check('vypíše, co server umí', /sequel\(action, app_id, connection_id, query\)/.test(tools), true);
   check('a co je povinné', /povinné: action/.test(tools), true);
 
   console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ napojení na Sequel sedí\n');
