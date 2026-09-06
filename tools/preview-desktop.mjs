@@ -200,6 +200,21 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(250);
 await overflow('přehled dne — postřehy'); await snap('09d-prehled-postrehy');
+
+/*
+ * Starší přehled. Ukládaly se u něj jen souhrny, takže mu chybí včerejšek,
+ * graf i signály — a okno na tom padalo na šedou plochu. Náhled proto
+ * schválně přepne do archivu a podívá se, že se pořád má co číst.
+ */
+await page.evaluate(() => {
+  const body = document.querySelector('.dg-body');
+  if (body) body.scrollTop = 0;
+});
+await page.selectOption('.dg-pick', { index: 1 });
+await page.waitForTimeout(400);
+await overflow('přehled dne — starší'); await snap('09e-prehled-starsi');
+await page.selectOption('.dg-pick', '');
+await page.waitForTimeout(300);
 await click('.dg-modal .modal-head .icon-btn:last-child');
 
 await click('.ig-switch button', { hasText: 'Funkce' });

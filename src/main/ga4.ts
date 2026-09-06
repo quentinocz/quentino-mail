@@ -222,8 +222,16 @@ const QUERY_ACTIONS = [
   'run', 'execute', 'search', 'report', 'analytics', 'fetch', 'read', 'sql', 'data'
 ];
 const LIST_ACTIONS = ['list_apps', 'list_sources', 'list_connections', 'apps', 'sources', 'connections', 'list'];
-/** Akce, které nikdy nevrátí data — ať se na ně nikdy nespadne jako na náhradu */
-const NEVER_QUERY = /^(connect|disconnect|list|describe|schema|tables|status|health|ping|auth)/i;
+/**
+ * Akce, které nikdy nevrátí data — ať se na ně nikdy nespadne jako na náhradu.
+ *
+ * Kotva na začátku tady byla chyba: `reconnect` jí prošel, poslal se jako
+ * dotaz a Sequel na něj odpověděl `{"action":"reconnect","status":"pending"}`
+ * — což vypadalo jako odpověď a v přehledu z toho nebylo nic. Hledá se proto
+ * kdekoli ve jméně.
+ */
+const NEVER_QUERY =
+  /(connect|disconnect|list|describe|schema|tables|status|health|ping|auth|oauth|install|register|create|update|delete|remove|refresh|login|signin|token)/i;
 
 function enumOf(property: any): string[] {
   const values = property?.enum ?? property?.anyOf?.flatMap((one: any) => one?.enum ?? []) ?? [];
@@ -439,12 +447,15 @@ export async function ga4Ask(question: string): Promise<string> {
     if (!text) { last = 'Sequel vrátil prázdnou odpověď.'; continue; }
     last = text;
 
+    const reconnect = needsReconnect(text);
+    if (reconnect) throw new Error(reconnect);
     if (looksLikeListing(text)) continue;
     if (/"status"\s*:\s*"error"|"error"\s*:\s*"/.test(text)) continue;
     return text;
   }
 
-  throw new Error(`Sequel: ${last.slice(0, 220)}`);
+  const reconnect = needsReconnect(last);
+  throw new Error(reconnect ?? `Sequel: ${last.slice(0, 220)}`);
 }
 
 /**
@@ -457,6 +468,23 @@ export async function ga4Ask(question: string): Promise<string> {
 function looksLikeListing(text: string): boolean {
   if (/"connections"\s*:|"action"\s*:\s*"list/i.test(text)) return true;
   return /"connection_?id"/i.test(text) && !/"sessions"/i.test(text);
+}
+
+/**
+ * Čeká napojení na nové přihlášení?
+ *
+ * Když v Sequelu vyprší souhlas s Google účtem, každý dotaz skončí
+ * `{"action":"reconnect","status":"pending"}`. Bez pojmenování z toho byla
+ * jen záhadná hláška s kusem JSONu — a přitom se to spraví jedním klikem
+ * na sequel.sh.
+ */
+function needsReconnect(text: string): string | null {
+  const pending = /"status"\s*:\s*"pending"/i.test(text);
+  const asks = /"action"\s*:\s*"re[-_]?connect"|reconnect_url|needs?[-_]?reconnect|re[-_]?authorize/i.test(text);
+  if (!pending && !asks) return null;
+  const url = text.match(/https?:\/\/[^"'\s]+/)?.[0];
+  return 'Napojení na Google Analytics v Sequelu čeká na nové přihlášení — '
+    + `otevři ${url ?? 'sequel.sh'} a povol přístup znovu.`;
 }
 
 /** Co server nabízí — do nastavení, když se automatika netrefí */
@@ -621,3 +649,6 @@ export async function ga4Test(): Promise<string> {
     ? `Spojení funguje — za posledních 30 dní ${sessions} návštěv.`
     : `Spojení funguje, ale čísla se nepodařilo přečíst. Odpověď: ${snapshot.text.slice(0, 200)}`;
 }
+
+/** Jen pro zkoušky — vnitřní rozhodování, které se jinak nedá zvenku vidět */
+export const __test = { pickQueryAction, needsReconnect, looksLikeListing };

@@ -165,6 +165,21 @@ global.fetch = async (url, options) => {
   check('poslední známá čísla zůstanou', broken.window.sessions, 1234);
   check('ale nevydávají se za čerstvá', broken.at, before);
 
+  console.log('\nvypršené přihlášení:\n');
+  /*
+   * Když v Sequelu vyprší souhlas s Google účtem, odpoví na dotaz
+   * `{"action":"reconnect","status":"pending"}`. Vypadá to jako úspěch,
+   * data v tom nejsou žádná a hláška s kusem JSONu nikomu nic neřekne.
+   */
+  answer = '{"status":"success","data":{"action":"reconnect","status":"pending",'
+    + '"connection_id":"s6f02zyp","url":"https://sequel.sh/connections/s6f02zyp"}}';
+  const stale = await ga4.ga4Snapshot(true);
+  check('řekne se, že čeká přihlášení', /čeká na nové přihlášení/.test(stale.error ?? ''), true);
+  check('a kam se má kliknout', /sequel\.sh\/connections/.test(stale.error ?? ''), true);
+  // `reconnect` se nesmí poslat jako dotaz — z výběru akcí musí vypadnout
+  check('reconnect se nebere jako dotaz',
+    ga4.__test.pickQueryAction(['connect', 'reconnect', 'run_query', 'list']), ['run_query']);
+
   console.log('\ndiagnostika:\n');
   const tools = await ga4.ga4Diagnostics();
   check('vypíše, co server umí', /sequel\(action, app_id, connection_id, query\)/.test(tools), true);

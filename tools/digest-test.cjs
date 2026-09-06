@@ -317,9 +317,16 @@ check('a řekne, dokdy zahájit propagaci',
 check('a jak je daleko', typeof pohled.season?.inDays, 'number');
 check('má i jméno sezóny', typeof pohled.season?.name, 'string');
 check('a co se v ní prodávalo', Array.isArray(pohled.season?.products), true);
+/*
+ * Když sezóna není, nesmí zůstat prázdné místo: z ničeho se nepozná, jestli
+ * se nepočítalo, nebo jestli fakt žádná nepřichází.
+ */
+const bezSezony = historie.historyView(16, 'CZK', new Date(NOW.getTime() - 120 * 86400000));
+check('bez sezóny se řekne proč',
+  !bezSezony.season ? (bezSezony.seasonNote ?? '').length > 20 : true, true);
 
-// Cache: uzavřené měsíce se nepočítají znovu
-const znovu = historie.monthlyStats(13);
+// Cache: uzavřené měsíce se nepočítají znovu (přehled si jich bere dva roky)
+const znovu = historie.monthlyStats(25);
 check('uzavřené měsíce se berou z tabulky',
   db.prepare('SELECT COUNT(*) AS n FROM digest_months').get().n >= 12, true);
 check('a vyjdou stejně', znovu.length, pohled.months.length);

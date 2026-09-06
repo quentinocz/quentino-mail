@@ -302,6 +302,91 @@ interface Props {
   onOpenChat?: (id: string) => void;
 }
 
+/*
+ * Starší přehled se ukládal jen jako hrst souhrnů. Okno ale sahá na
+ * včerejšek, na graf dnů i na signály — a na chybějící hodnotě spadlo celé
+ * vykreslení, takže po přepnutí zůstalo jen šedé okno. Nové přehledy se
+ * ukládají celé; tenhle doplněk drží při životě ty, které se uložily dřív.
+ */
+const NIC: DigestTotals = { orders: 0, cancelled: 0, unpaid: 0, revenue: [], items: 0 };
+
+function safeFacts(one: any): DigestFacts {
+  const totals = (value: any): DigestTotals =>
+    value && typeof value === 'object' ? { ...NIC, ...value } : { ...NIC };
+  const list = (value: any): any[] => (Array.isArray(value) ? value : []);
+  // Zboží ze starého archivu nemá varianty ani původ ceny — okno je čte obojí
+  const products = list(one?.products).map((item: any) => ({
+    code: item?.code ?? '',
+    title: item?.title ?? '',
+    qty: item?.qty ?? 0,
+    orders: item?.orders ?? 0,
+    revenue: item?.revenue ?? 0,
+    estimated: item?.estimated ?? false,
+    priceSource: item?.priceSource ?? 'feed',
+    variants: list(item?.variants)
+  }));
+  const slice = (value: any): any[] => list(value).map((row: any) => ({
+    key: row?.key ?? '',
+    label: row?.label ?? row?.key ?? '',
+    orders: row?.orders ?? 0,
+    revenue: row?.revenue ?? 0,
+    split: Array.isArray(row?.split) ? row.split : undefined
+  }));
+  return {
+    currency: one?.currency ?? 'CZK',
+    today: totals(one?.today),
+    yesterday: totals(one?.yesterday),
+    window: totals(one?.window),
+    prevWindow: totals(one?.prevWindow),
+    month: totals(one?.month),
+    prevMonth: totals(one?.prevMonth),
+    monthLabel: one?.monthLabel ?? '',
+    monthDays: one?.monthDays ?? 0,
+    days: list(one?.days).map((day: any) => ({
+      day: day?.day ?? '', orders: day?.orders ?? 0, revenue: day?.revenue ?? 0
+    })),
+    countries: slice(one?.countries),
+    shipments: slice(one?.shipments),
+    payments: slice(one?.payments),
+    products,
+    returning: one?.returning ?? 0,
+    average: one?.average ?? 0,
+    signals: list(one?.signals),
+    statuses: slice(one?.statuses),
+    purchases: one?.purchases ?? 0,
+    duplicates: one?.duplicates ?? 0,
+    sizes: list(one?.sizes).map((group: any) => ({
+      category: group?.category ?? '',
+      qty: group?.qty ?? 0,
+      sizes: list(group?.sizes).map((row: any) => ({
+        label: row?.label ?? '', qty: row?.qty ?? 0, products: row?.products ?? 0
+      }))
+    })),
+    history: {
+      months: list(one?.history?.months),
+      coverage: one?.history?.coverage ?? 0,
+      lastYear: one?.history?.lastYear ?? null,
+      rank: one?.history?.rank ?? null,
+      season: one?.history?.season ?? null
+    },
+    social: one?.social
+      ? {
+          posts: one.social.posts ?? 0,
+          likes: one.social.likes ?? 0,
+          comments: one.social.comments ?? 0,
+          best: one.social.best ?? null,
+          daysWithPost: one.social.daysWithPost ?? 0,
+          ordersWithPost: one.social.ordersWithPost ?? 0,
+          ordersWithout: one.social.ordersWithout ?? 0,
+          prevPosts: one.social.prevPosts ?? 0,
+          bestEver: list(one.social.bestEver)
+        }
+      : null,
+    feedAt: one?.feedAt ?? null,
+    known: one?.known ?? 0
+  };
+}
+
 export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Props) {
   const phone = useIsPhone();
   const toast = useToast();
@@ -340,10 +425,25 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
    * a po kliknutí na „Přegenerovat" to do teď vypadalo, že se neděje nic.
    */
   const load = (force: boolean) => {
+    /*
+     * Přegenerování se vždycky týká **dnešního** přehledu. Když zůstal
+     * otevřený starší, nový postřeh se sice spočítal, ale na obrazovce dál
+     * visel ten archivní — a vypadalo to, že tlačítko nic nedělá.
+     */
+    if (force) { setShowing(null); setRanged(null); setRange(30); }
     setBusy(force ? 'insight' : 'numbers');
     setError(null);
+    const before = report?.insight?.at ?? '';
     api.ai.digest(force)
-      .then(setReport)
+      .then(fresh => {
+        setReport(fresh);
+        // Po dlouhém čekání se musí říct, jak to dopadlo — jinak se nepozná,
+        // jestli se ukazuje nový postřeh, nebo pořád ten včerejší
+        if (!force) return;
+        if (fresh.insightError) toast(`Postřehy se nepovedly: ${fresh.insightError}`, 'error');
+        else if (fresh.insight && fresh.insight.at !== before) toast('Postřehy jsou nové');
+        else toast('Postřehy zůstaly beze změny — model nic nového nepřidal');
+      })
       .catch(e => setError(e.message))
       .finally(() => setBusy(null));
   };
@@ -363,9 +463,20 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
    * Čísla, která se ukazují: buď z otevřeného staršího přehledu, nebo
    * z přepnutého období, jinak z dnešního přehledu.
    */
-  const facts = (showing && older?.facts?.window ? older.facts : (ranged ?? report?.facts));
+  const facts = useMemo(
+    () => (showing && older?.facts?.window ? safeFacts(older.facts) : (ranged ?? report?.facts)),
+    [showing, older, ranged, report]
+  );
   const insight = showing ? (older?.insight ?? null) : (report?.insight ?? null);
   const currency = facts?.currency ?? 'CZK';
+  /*
+   * Prohlíží se starší přehled? Pak některé části prostě nejsou — dřív se
+   * ukládaly jen souhrny. Prázdno se musí vysvětlit jinak než u dnešního
+   * přehledu: tam „ve feedu to není", tady „tenkrát se to neukládalo".
+   */
+  const archived = !!showing;
+  const missing = (what: string) =>
+    archived ? `Starší přehled ${what} neuchoval.` : `Ve feedu zatím není ${what}.`;
 
   const windowDelta = useMemo(() => {
     if (!facts) return null;
@@ -567,6 +678,8 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 <div className="dg-card-head">
                   <Icon name="inbox" size={14} /> Čeká na vyřízení
                   <span className="dg-count">{pending.unshipped + report.tasks.length}</span>
+                  {/* U staršího přehledu je to jediná část, která platí teď, ne tehdy */}
+                  {archived && <span className="dg-when">stav teď, ne k datu přehledu</span>}
                   {report.tasks.length > 0 && (
                     <button className="dg-again" onClick={() => setOpenTasks(!openTasks)}>
                       {openTasks ? 'Sbalit' : 'Rozbalit zprávy'}
@@ -662,8 +775,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     <button className={mode === 'revenue' ? 'on' : ''} onClick={() => setMode('revenue')}>tržba</button>
                   </span>
                 </div>
-                <DayChart days={facts.days} currency={currency} mode={mode}
-                  bucketDays={range <= 62 ? 1 : range <= 200 ? 7 : 30} />
+                {(facts.days ?? []).length > 0 ? (
+                  <DayChart days={facts.days} currency={currency} mode={mode}
+                    bucketDays={range <= 62 ? 1 : range <= 200 ? 7 : 30} />
+                ) : (
+                  <div className="dg-empty">
+                    {archived
+                      ? 'Starší přehled si graf jednotlivých dnů neuchoval — zůstala jen souhrnná čísla.'
+                      : 'Za tohle období nejsou žádné dny s objednávkami.'}
+                  </div>
+                )}
                 {/* Kalendářní měsíc zůstává jako údaj — jen se z něj nedělají závěry */}
                 <div className="dg-caption">
                   {facts.monthLabel} zatím {facts.month.orders} objednávek za {moneyOf(facts.month, currency)}
@@ -696,6 +817,12 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     * a které příspěvky tehdy fungovaly. To všechno je z dat,
                     * ne od AI.
                     */}
+                  {!facts.history?.season && facts.history?.seasonNote && (
+                    <p className="dg-note sig-eye">
+                      <Icon name="clock" size={13} />
+                      <span>{facts.history.seasonNote}</span>
+                    </p>
+                  )}
                   {facts.history?.season && (
                     <div className="dg-season">
                       <p className="dg-note sig-watch">
@@ -752,16 +879,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
 
               <div className="dg-grid">
                 <Bars title="Země" icon="globe" rows={facts.countries} currency={currency}
-                  empty="Feed u objednávek nenese adresu." />
+                  empty={archived ? 'Starší přehled země neuchoval.' : 'Feed u objednávek nenese adresu.'} />
                 <Bars title="Doprava" icon="truck" rows={facts.shipments} currency={currency}
-                  empty="Ve feedu zatím není doprava." />
+                  empty={missing('dopravu')} />
                 <Bars title="Platba" icon="card" rows={facts.payments} currency={currency}
-                  empty="Ve feedu zatím není platba." />
+                  empty={missing('platbu')} />
               </div>
 
               <div className="dg-grid">
                 <Bars title="Stavy objednávek" icon="fileText" rows={facts.statuses} currency={currency}
-                  empty="Feed stavy nenese." />
+                  empty={archived ? 'Starší přehled stavy neuchoval.' : 'Feed stavy nenese.'} />
                 {/*
                   * Velikosti **po kategoriích**. Lidé si drží jednu délku bez
                   * ohledu na barvu, takže se podle tohohle skládá sklad — ale
@@ -956,7 +1083,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                       * ozdoba: tvrzení bez čísla se tím pozná na první pohled
                       * a nedá se schovat za sebejistou větu.
                       */}
-                    {insight.notes.map((note, i) => (
+                    {(insight.notes ?? []).map((note, i) => (
                       <p className={`dg-note ${note.kind}`} key={i}>
                         <Icon name={note.kind === 'pozor' ? 'alert' : note.kind === 'napad' ? 'sparkles' : 'zap'} size={13} />
                         <span>

@@ -32,6 +32,14 @@ export function getSettings(): Settings {
     secretsLocked: secretsLocked(),
     brandPrompt: getSetting('brandPrompt', DEFAULT_BRAND_PROMPT)!,
     draftModel: getSetting('draftModel', 'claude-sonnet-5')!,
+    /*
+     * Model na rozbor v AI Přehledu. Postřehy jsou jediná úloha v aplikaci,
+     * kde nejde o formulaci, ale o **uvažování**: spojit posun v platbě
+     * s propadem v pátek a s tím, co se prodalo loni v prosinci. Sonnet to
+     * napíše hezky, ale souvislosti hledá mělčeji — proto vlastní pole
+     * a proto se ptá jednou denně, ne při každém kliknutí.
+     */
+    insightModel: getSetting('insightModel', 'claude-opus-4-5')!,
     fastModel: getSetting('fastModel', 'claude-haiku-4-5-20251001')!,
     autoSummarize: getSetting('autoSummarize', '1') === '1',
     autoCategorize: getSetting('autoCategorize', '1') === '1',
@@ -65,6 +73,7 @@ export function saveSettings(s: Partial<Settings>) {
   }
   if (s.brandPrompt !== undefined) setSetting('brandPrompt', s.brandPrompt);
   if (s.draftModel !== undefined) setSetting('draftModel', s.draftModel);
+  if (s.insightModel !== undefined) setSetting('insightModel', s.insightModel);
   if (s.fastModel !== undefined) setSetting('fastModel', s.fastModel);
   if (s.autoSummarize !== undefined) setSetting('autoSummarize', s.autoSummarize ? '1' : '0');
   if (s.autoCategorize !== undefined) setSetting('autoCategorize', s.autoCategorize ? '1' : '0');
