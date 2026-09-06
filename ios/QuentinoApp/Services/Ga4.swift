@@ -330,15 +330,42 @@ enum Ga4 {
 
     // MARK: - Denní snímek
 
-    private static let question = """
-    Vrať čísla z Google Analytics 4 za dvě období: posledních 30 dní ("window") a předchozích 30 dní před nimi \
-    ("prevWindow"). U každého období: sessions (návštěvy), users (uživatelé), purchases (počet nákupů / transakcí) \
-    a revenue (tržba). Dále 5 nejsilnějších zdrojů návštěv za posledních 30 dní (session source / medium) s počtem \
-    návštěv. Odpověz POUZE tímto JSONem, bez komentáře:
-    {"window":{"sessions":0,"users":0,"purchases":0,"revenue":0},\
-    "prevWindow":{"sessions":0,"users":0,"purchases":0,"revenue":0},\
-    "sources":[{"name":"google / organic","sessions":0}]}
-    """
+    /// `YYYY-MM-DD` pro dotaz — Sequel si má vzít přesná data, ne „posledních 30 dní"
+    private static func dayKey(_ back: Int) -> String {
+        let when = Date().addingTimeInterval(-Double(back) * 86_400)
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: when)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    /**
+     Zadání pro Sequel.
+
+     Dvě věci, na kterých to poprvé selhalo: **vzorová odpověď se samými
+     nulami** (kostra v dotazu je pozvánka ji opsat — a v přehledu pak stálo
+     „0 návštěv") a **„posledních 30 dní"**, které si každý vyloží po svém.
+     Kostra se proto nepřikládá a data se počítají tady.
+     */
+    private static func question() -> String {
+        let from = dayKey(29)
+        let to = dayKey(0)
+        let prevFrom = dayKey(59)
+        let prevTo = dayKey(30)
+
+        return """
+        Spusť v Google Analytics 4 dva reporty a vrať jejich skutečná čísla.
+
+        Období A ("window"): \(from) až \(to).
+        Období B ("prevWindow"): \(prevFrom) až \(prevTo).
+        U obou období metriky: sessions, totalUsers, transactions (nebo purchases / ecommercePurchases) \
+        a purchaseRevenue.
+        Dále za období A pět nejsilnějších hodnot dimenze sessionSourceMedium s počtem sessions.
+
+        Odpověz jedním JSONem bez komentáře a bez uvozovacího textu, s klíči:
+        window a prevWindow (v každém sessions, users, purchases, revenue) a sources (pole s name a sessions).
+        Čísla musí být skutečné hodnoty z reportu — nuly piš jen tam, kde report opravdu vrátil nulu.
+        Když se report nepodaří spustit, vrať {"error":"důvod"}.
+        """
+    }
 
     private static func number(_ value: Any?) -> Any {
         if let one = value as? Int { return one }
@@ -387,7 +414,7 @@ enum Ga4 {
         if !force, let last, age < everySeconds { return last }
 
         do {
-            let text = try await ask(question)
+            let text = try await ask(question())
             var parsed: [String: Any] = [:]
             if let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end,
                let data = String(text[start...end]).data(using: .utf8),
@@ -395,8 +422,24 @@ enum Ga4 {
                 parsed = one
             }
 
+            if let reason = parsed["error"] as? String, !reason.isEmpty {
+                throw BridgeError.message("Sequel: \(String(reason.prefix(200)))")
+            }
+
             let window = period(parsed["window"])
             let prev = period(parsed["prevWindow"])
+            /*
+             Samé nuly nejsou odpověď. Buď se vrátila opsaná kostra dotazu,
+             nebo report nic nenašel — v obou případech je poctivější říct,
+             že se čísla nepodařilo přečíst, než ukazovat „0 návštěv".
+             */
+            let anything = ["sessions", "users", "purchases"].contains { key in
+                (window[key] as? Int ?? 0) > 0
+            }
+            if !anything {
+                throw BridgeError.message(
+                    "Sequel vrátil samé nuly — zkontroluj zdroj a přístup. Odpověď: \(String(text.prefix(200)))")
+            }
             var sources: [[String: Any]] = []
             for row in (parsed["sources"] as? [[String: Any]] ?? []).prefix(5) {
                 let name = (row["name"] as? String ?? "").trimmingCharacters(in: .whitespaces)
@@ -448,10 +491,11 @@ enum Ga4 {
         }
         if let error = snapshot["error"] as? String { throw BridgeError.message(error) }
         let window = snapshot["window"] as? [String: Any] ?? [:]
-        if let sessions = window["sessions"] as? Int {
+        // Nula není odpověď — hlásí se i to, co přišlo, ať se to dá rozlousknout
+        if let sessions = window["sessions"] as? Int, sessions > 0 {
             return "Spojení funguje — za posledních 30 dní \(sessions) návštěv."
         }
         let text = snapshot["text"] as? String ?? ""
-        return "Spojení funguje, ale čísla se nepodařilo přečíst. Odpověď: \(text.prefix(160))"
+        return "Spojení funguje, ale čísla se nepodařilo přečíst. Odpověď: \(text.prefix(200))"
     }
 }
