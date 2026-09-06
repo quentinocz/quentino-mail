@@ -1270,11 +1270,13 @@ function historyForAi(history: DigestHistory): string {
   if (history.rank) {
     parts.push(`slabších než současné okno bylo ${history.rank.better} z ${history.rank.of} uzavřených měsíců`);
   }
-  const months = history.months.slice(-13)
+  const months = history.months.slice(-25)
     .map(one => `${one.month}:${one.orders}`)
     .join(' ');
   if (months) parts.push(`měsíce (počet objednávek): ${months}`);
   if (history.season) parts.push(`sezóna: ${history.season.text} (${history.season.basis})`);
+  // I „žádná sezóna" je zjištění — bez něj si ji AI klidně domyslí
+  else if (history.seasonNote) parts.push(`sezóna: ${history.seasonNote}`);
   if (!parts.length) return '';
   return `Dlouhodobě (feed pokrývá ${history.coverage} měsíců): ${parts.join('; ')}`;
 }
@@ -1463,6 +1465,28 @@ function insightUsable(one: DigestInsight): boolean {
   return one.headline.length > 0 && !one.headline.startsWith('{') && one.notes.length > 0;
 }
 
+
+/**
+ * Čísla, která se k přehledu uloží do archivu.
+ *
+ * Dřív se ukládala jen hrstka souhrnů a okno se staršímu přehledu pak
+ * rozsypalo — chyběl mu včerejšek, graf i signály, a okno spadlo na prázdné
+ * hodnotě. Teď se odkládá celý přehled; jen se seřízne to, co by archiv
+ * nafouklo (dvě stě zápisů × padesát výrobků) a co nikdo zpětně nečte.
+ */
+function archiveFacts(facts: DigestFacts): any {
+  return {
+    ...facts,
+    products: facts.products.slice(0, 20),
+    history: facts.history
+      ? { ...facts.history, months: (facts.history.months ?? []).slice(-24) }
+      : facts.history,
+    social: facts.social
+      ? { ...facts.social, bestEver: (facts.social.bestEver ?? []).slice(0, 3) }
+      : facts.social
+  };
+}
+
 async function makeInsight(facts: DigestFacts, ga4: DigestGa4 | null = null): Promise<DigestInsight> {
   const s = getSettings();
   const history = storedInsights();
@@ -1486,30 +1510,41 @@ async function makeInsight(facts: DigestFacts, ga4: DigestGa4 | null = null): Pr
    * naváže druhým voláním tam, kde model přestal, takže dlouhá odpověď
    * projde celá; `endMark` mu řekne, že má dokončit JSON.
    */
-  let answer = await askLong(s.draftModel, INSIGHT_SYSTEM, user, { maxTokens: 4000, endMark: '}' });
-  let insight = parseInsight(answer, s.draftModel);
+  // Rozbor dělá silnější model než psaní e-mailů — hledají se souvislosti
+  const model = s.insightModel || s.draftModel;
+  let answer = await askLong(model, INSIGHT_SYSTEM, user, { maxTokens: 4000, endMark: '}' });
+  let insight = parseInsight(answer, model);
   if (!insightUsable(insight)) {
     // Nepovedlo se ani tak — model se minul formátem. Zkusí se jednou znovu
     // a stručněji, ať se do okna nedostane zmetek.
     answer = await askLong(
-      s.draftModel,
+      model,
       `${INSIGHT_SYSTEM}\n\nMinulá odpověď se nedala přečíst. Piš stručněji: nejvýš tři body, každý do 160 znaků.`,
       user,
       { maxTokens: 4000, endMark: '}' }
     );
-    const second = parseInsight(answer, s.draftModel);
+    const second = parseInsight(answer, model);
     if (insightUsable(second)) insight = second;
+  }
+
+  /*
+   * Ani napodruhé se nedalo nic přečíst. Uložit takový postřeh by znamenalo
+   * přepsat ten včerejší prázdnem a tvářit se, že je hotovo — po kliknutí
+   * na „Přegenerovat" to pak jen bliklo a nic se nezměnilo. Radši chyba,
+   * která se dá přečíst: starý postřeh zůstane a je vidět proč.
+   */
+  if (!insightUsable(insight)) {
+    throw new Error(
+      `Model ${model} vrátil odpověď, ze které se postřeh nedal přečíst`
+      + `${answer ? ` (začínala „${answer.slice(0, 80).replace(/\s+/g, ' ')}…")` : ' (prázdná odpověď)'}.`
+    );
   }
 
   ensureTable();
   const d = getDb();
   d.prepare('INSERT OR REPLACE INTO digest_reports (at, facts, insight) VALUES (?,?,?)').run(
     insight.at,
-    JSON.stringify({
-      today: facts.today, window: facts.window, prevWindow: facts.prevWindow, month: facts.month,
-      currency: facts.currency, average: facts.average, returning: facts.returning,
-      products: facts.products.slice(0, 5), countries: facts.countries.slice(0, 5)
-    }),
+    JSON.stringify(archiveFacts(facts)),
     JSON.stringify(insight)
   );
   /*
@@ -1640,7 +1675,7 @@ export async function digestAsk(
     .join('\n');
 
   return ask(
-    s.draftModel,
+    s.insightModel || s.draftModel,
     ASK_SYSTEM,
     `# Spočítané signály\n${signalsForAi(facts)}\n\n`
     + `# Čísla\n${factsForAi(facts)}\n\n`

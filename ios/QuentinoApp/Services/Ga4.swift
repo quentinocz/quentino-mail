@@ -153,7 +153,14 @@ enum Ga4 {
         "list_apps", "list_sources", "list_connections", "apps", "sources", "connections", "list"
     ]
     /// Akce, které nikdy nevrátí data
-    private static let neverQuery = "^(connect|disconnect|list|describe|schema|tables|status|health|ping|auth)"
+    /*
+     Kotva na začátku tady byla chyba: `reconnect` jí prošel, poslal se jako
+     dotaz a Sequel odpověděl `{"action":"reconnect","status":"pending"}` —
+     což vypadalo jako odpověď a v přehledu z toho nebylo nic.
+     */
+    private static let neverQuery =
+        "(connect|disconnect|list|describe|schema|tables|status|health|ping|auth|oauth"
+        + "|install|register|create|update|delete|remove|refresh|login|signin|token)"
 
     /// Akce, kterými má smysl se ptát — v pořadí, v jakém se zkusí
     private static func queryActionOptions(_ options: [String]) -> [String] {
@@ -394,12 +401,34 @@ enum Ga4 {
             let text = textOf(try await rpc("tools/call", params, id: 4 + index))
             if text.isEmpty { last = "Sequel vrátil prázdnou odpověď."; continue }
             last = text
+            if let reconnect = needsReconnect(text) { throw BridgeError.message(reconnect) }
             if looksLikeListing(text) { continue }
             if text.range(of: "\"status\"\\s*:\\s*\"error\"|\"error\"\\s*:\\s*\"",
                           options: .regularExpression) != nil { continue }
             return text
         }
+        if let reconnect = needsReconnect(last) { throw BridgeError.message(reconnect) }
         throw BridgeError.message("Sequel: \(String(last.prefix(220)))")
+    }
+
+    /**
+     Čeká napojení na nové přihlášení?
+
+     Když v Sequelu vyprší souhlas s Google účtem, každý dotaz skončí
+     `{"action":"reconnect","status":"pending"}`. Bez pojmenování je z toho
+     jen záhadná hláška s kusem JSONu — přitom se to spraví jedním klikem.
+     */
+    private static func needsReconnect(_ text: String) -> String? {
+        let pending = text.range(of: "\"status\"\\s*:\\s*\"pending\"",
+                                 options: [.regularExpression, .caseInsensitive]) != nil
+        let asks = text.range(
+            of: "\"action\"\\s*:\\s*\"re[-_]?connect\"|reconnect_url|needs?[-_]?reconnect|re[-_]?authorize",
+            options: [.regularExpression, .caseInsensitive]) != nil
+        guard pending || asks else { return nil }
+        let url = text.range(of: "https?://[^\"'\\s]+", options: .regularExpression)
+            .map { String(text[$0]) } ?? "sequel.sh"
+        return "Napojení na Google Analytics v Sequelu čeká na nové přihlášení — "
+            + "otevři \(url) a povol přístup znovu."
     }
 
     /**

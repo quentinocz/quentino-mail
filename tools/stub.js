@@ -313,6 +313,33 @@
       }
       return out;
     })(),
+    /*
+     * Starší přehled **ve starém formátu** — jen hrstka souhrnů, tak jak se
+     * ukládaly dřív. Přesně na tomhle okno padalo na šedou plochu, takže se
+     * v náhledu schválně vrací takový.
+     */
+    'digest:old': {
+      at: new Date(Date.now() - 3 * 86400e3).toISOString(),
+      facts: {
+        currency: 'CZK',
+        today: { orders: 3, cancelled: 0, unpaid: 1, revenue: [{ currency: 'CZK', amount: 5400 }], items: 4 },
+        window: { orders: 96, cancelled: 5, unpaid: 8, revenue: [{ currency: 'CZK', amount: 163400 }], items: 141 },
+        prevWindow: { orders: 84, cancelled: 4, unpaid: 6, revenue: [{ currency: 'CZK', amount: 148900 }], items: 121 },
+        month: { orders: 41, cancelled: 2, unpaid: 3, revenue: [{ currency: 'CZK', amount: 71200 }], items: 60 },
+        average: 1702, returning: 22,
+        products: [{ code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 18, revenue: 23220,
+          estimated: false, priceSource: 'feed' }],
+        countries: [{ key: 'cz', label: 'Česko', orders: 74, revenue: 126000 }]
+      },
+      insight: {
+        at: new Date(Date.now() - 3 * 86400e3).toISOString(),
+        model: 'claude-opus-4-5',
+        headline: 'Před třemi dny: tržba držela, dobírka ubývala.',
+        followUp: null,
+        notes: [{ kind: 'trend', text: 'Podíl dobírky klesl na 18 %.', basis: 'z 96 objednávek okna', check: null }],
+        focus: null, questions: []
+      }
+    },
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
       + 'Kdyby dobírka měla příplatek 30 Kč, spadla by nejspíš i ta zbylá čtvrtina.',
     'orders:card': {

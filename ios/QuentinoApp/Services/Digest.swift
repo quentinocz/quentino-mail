@@ -1101,6 +1101,9 @@ enum Digest {
         if !months.isEmpty { parts.append("měsíce (počet objednávek): \(months)") }
         if let season = history["season"] as? [String: Any] {
             parts.append("sezóna: \(season["text"] as? String ?? "") (\(season["basis"] as? String ?? ""))")
+        } else if let note = history["seasonNote"] as? String, !note.isEmpty {
+            // I „žádná sezóna" je zjištění — bez něj si ji AI klidně domyslí
+            parts.append("sezóna: \(note)")
         }
         if parts.isEmpty { return "" }
         return "Dlouhodobě (feed pokrývá \(history["coverage"] as? Int ?? 0) měsíců): "
@@ -1360,28 +1363,54 @@ enum Digest {
          zůstane JSON rozseknutý uprostřed věty — a takový postřeh se nesmí
          uložit jako postřeh dne, jinak by se celý den ukazoval zmetek.
          */
-        var answer = try await AI.ask(
-            model: AI.draftModel, system: insightSystem, user: user, maxTokens: 2400)
-        var insight = parseInsight(answer, model: AI.draftModel)
+        let model = AI.insightModel
+        var answer = try await AI.askLong(
+            model: model, system: insightSystem, user: user, maxTokens: 4000, endMark: "}")
+        var insight = parseInsight(answer, model: model)
         if !usable(insight) {
-            answer = try await AI.ask(
-                model: AI.draftModel,
+            answer = try await AI.askLong(
+                model: model,
                 system: insightSystem + "\n\nMinulý pokus se nevešel do limitu. Piš výrazně stručněji: "
                     + "nejvýš dva body, každý do 140 znaků, \"basis\" do 60 znaků.",
                 user: user,
-                maxTokens: 2400
+                maxTokens: 4000,
+                endMark: "}"
             )
-            let second = parseInsight(answer, model: AI.draftModel)
+            let second = parseInsight(answer, model: model)
             if usable(second) { insight = second }
         }
 
-        ensureTable()
-        var snapshot: [String: Any] = [:]
-        for key in ["today", "window", "prevWindow", "month", "currency", "average", "returning"] {
-            snapshot[key] = facts[key]
+        /*
+         Ani napodruhé se nedalo nic přečíst. Uložit takový postřeh by
+         znamenalo přepsat ten včerejší prázdnem a tvářit se, že je hotovo.
+         Radši chyba, která se dá přečíst — starý postřeh zůstane.
+         */
+        guard usable(insight) else {
+            let start = answer.prefix(80).replacingOccurrences(
+                of: "\\s+", with: " ", options: .regularExpression)
+            throw BridgeError.message(
+                "Model \(model) vrátil odpověď, ze které se postřeh nedal přečíst"
+                + (answer.isEmpty ? " (prázdná odpověď)." : " (začínala „\(start)…")."))
         }
-        snapshot["products"] = Array((facts["products"] as? [[String: Any]] ?? []).prefix(5))
-        snapshot["countries"] = Array((facts["countries"] as? [[String: Any]] ?? []).prefix(5))
+
+        ensureTable()
+        /*
+         Do archivu jde **celý** přehled, ne jen hrstka souhrnů. Dřív mu
+         chyběl včerejšek, graf i signály — a okno na starším přehledu
+         padalo na prázdné hodnotě. Seřízne se jen to, co by archiv
+         nafouklo a co nikdo zpětně nečte.
+         */
+        var snapshot = facts
+        snapshot["products"] = Array((facts["products"] as? [[String: Any]] ?? []).prefix(20))
+        if var history = facts["history"] as? [String: Any] {
+            let months = history["months"] as? [[String: Any]] ?? []
+            history["months"] = Array(months.suffix(24))
+            snapshot["history"] = history
+        }
+        if var social = facts["social"] as? [String: Any] {
+            social["bestEver"] = Array((social["bestEver"] as? [[String: Any]] ?? []).prefix(3))
+            snapshot["social"] = social
+        }
 
         let factsText = OrderFeed.jsonText(snapshot) ?? "{}"
         let insightText = OrderFeed.jsonText(insight) ?? "{}"
@@ -1606,6 +1635,6 @@ enum Digest {
         if !talk.isEmpty { user += "\n\n# Dosavadní hovor\n\(talk)" }
         user += "\n\n# Otázka\n\(asked)"
 
-        return try await AI.ask(model: AI.draftModel, system: askSystem, user: user, maxTokens: 900)
+        return try await AI.ask(model: AI.insightModel, system: askSystem, user: user, maxTokens: 900)
     }
 }

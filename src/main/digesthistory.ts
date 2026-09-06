@@ -79,6 +79,14 @@ export interface HistoryView {
   rank: { better: number; of: number } | null;
   /** Nejbližší sezóna, na kterou se vyplatí chystat */
   season: SeasonHint | null;
+  /**
+   * Proč sezóna není.
+   *
+   * Prázdné místo je nejhorší odpověď: nedá se z něj poznat, jestli se
+   * nepočítalo, nebo jestli fakt žádná sezóna nepřichází. Tohle se ukáže
+   * vždycky, když `season` chybí.
+   */
+  seasonNote: string;
 }
 
 const MONTHS = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen',
@@ -246,10 +254,22 @@ function dayKey(date: Date): string {
  * Tři týdny předem je odhad postavený na tom, že objednávky na dárky
  * začínají chodit dřív než v samotném měsíci.
  */
-function seasonFrom(months: MonthStat[], now: Date): SeasonHint | null {
-  // Pod rok dat se sezóna nedá odlišit od náhody
+function seasonFrom(months: MonthStat[], now: Date): { season: SeasonHint | null; note: string } {
+  /*
+   * Kolik měsíců stačí. Dvanáct byl původní požadavek a v praxi znamenal,
+   * že se sezóna neukázala nikdy — feed tak daleko nesahá. Půl roku stačí
+   * na to, aby se dal porovnat nejbližší měsíc s ostatními; jistota je
+   * menší, tak se u kratší historie chce výraznější rozdíl a v podkladu
+   * je vidět, z kolika měsíců se počítalo.
+   */
   const closed = months.filter(one => one.complete);
-  if (closed.length < 12) return null;
+  if (closed.length < 6) {
+    return {
+      season: null,
+      note: `Na sezónu zatím není dost historie — uzavřených měsíců je ${closed.length}, `
+        + 'porovnávat se dá od šesti.'
+    };
+  }
 
   const perMonth = new Map<number, { orders: number; days: number }>();
   for (const one of closed) {
@@ -270,16 +290,24 @@ function seasonFrom(months: MonthStat[], now: Date): SeasonHint | null {
     sum += value;
   }
   const average = sum / Math.max(1, daily.size);
-  if (average <= 0) return null;
+  if (average <= 0) return { season: null, note: 'Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.' };
+  // Kratší historie snese víc náhody, proto se u ní chce větší rozdíl
+  const threshold = closed.length >= 12 ? 1.2 : 1.3;
 
-  // Nejbližší měsíc, který teprve přijde (dívá se čtyři měsíce dopředu)
-  for (let ahead = 0; ahead <= 3; ahead++) {
+  /*
+   * Nejbližší měsíc, který teprve přijde. Půl roku dopředu: na Vánoce se
+   * kampaň chystá v září a „za dva měsíce" je přesně ta zpráva, která se
+   * hodí — se čtyřměsíčním výhledem se v létě neukázalo nic.
+   */
+  const upcoming: { index: number; ratio: number }[] = [];
+  for (let ahead = 0; ahead <= 5; ahead++) {
     const when = new Date(now.getFullYear(), now.getMonth() + ahead, 1);
     const index = when.getMonth();
     const value = daily.get(index);
     if (value == null) continue;
     const ratio = value / average;
-    if (ratio < 1.25) continue;
+    upcoming.push({ index, ratio });
+    if (ratio < threshold) continue;
 
     // Už běží? Pak se nemá co chystat, jen ať se ví, v čem se je
     const running = ahead === 0;
@@ -305,7 +333,7 @@ function seasonFrom(months: MonthStat[], now: Date): SeasonHint | null {
         ? `${name.charAt(0).toUpperCase()}${name.slice(1)} se blíží — začíná zhruba za ${Math.round(inDays / 30)} měsíce`
         : `${name.charAt(0).toUpperCase()}${name.slice(1)} se blíží — začíná zhruba za ${inDays} dní`;
 
-    return {
+    const hint: SeasonHint = {
       month: monthKey(when),
       label,
       name,
@@ -322,8 +350,23 @@ function seasonFrom(months: MonthStat[], now: Date): SeasonHint | null {
       products,
       posts
     };
+    return { season: hint, note: '' };
   }
-  return null;
+
+  /*
+   * Nic nevybočilo. I to je odpověď — jen se musí říct nahlas a s čísly,
+   * ať je poznat, že se počítalo a nic se nenašlo.
+   */
+  const best = upcoming.sort((a, b) => b.ratio - a.ratio)[0];
+  const nearest = upcoming.map(one => MONTHS[one.index]).slice(0, 3).join(', ');
+  return {
+    season: null,
+    note: best
+      ? `Nejbližší měsíce (${nearest}) z průměru nevybočují — nejsilnější z nich `
+        + `${MONTHS[best.index]} je na ${Math.round(best.ratio * 100)} % celoročního průměru, `
+        + `sezóna se hlásí od ${Math.round(threshold * 100)} %.`
+      : 'Pro nejbližší měsíce zatím nejsou v historii žádná data k porovnání.'
+  };
 }
 
 /**
@@ -395,7 +438,11 @@ function seasonProducts(months: number[], limit = 5): { code: string; title: str
 export function historyView(
   windowOrders: number, currency: string, now = new Date()
 ): HistoryView {
-  const months = monthlyStats(13);
+  /*
+   * Dva roky. Třináct měsíců stačí na „stejné okno loni", ale na sezónu ne:
+   * dva prosince řeknou víc než jeden a s třinácti měsíci nebylo z čeho brát.
+   */
+  const months = monthlyStats(25);
 
   // Stejné okno loni — jediné srovnání, které nemate sezónou
   const from = new Date(now.getTime() - 29 * 86_400_000);
@@ -418,11 +465,13 @@ export function historyView(
     ? { better: closed.filter(one => one.orders < windowOrders).length, of: closed.length }
     : null;
 
+  const season = seasonFrom(months, now);
   return {
     months,
     coverage: months.length,
     lastYear,
     rank,
-    season: seasonFrom(months, now)
+    season: season.season,
+    seasonNote: season.note
   };
 }

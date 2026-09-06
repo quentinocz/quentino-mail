@@ -200,6 +200,7 @@ export default function SettingsModal(p: Props) {
       ...(apiKeyInput ? { anthropicApiKey: apiKeyInput } : {}),
       brandPrompt: settings.brandPrompt,
       draftModel: settings.draftModel,
+      insightModel: settings.insightModel,
       fastModel: settings.fastModel,
       autoSummarize: settings.autoSummarize,
       autoCategorize: settings.autoCategorize,
@@ -684,6 +685,17 @@ export default function SettingsModal(p: Props) {
                 <div className="field">
                   <label>Rychlý model (shrnutí, třídění)</label>
                   <input value={settings.fastModel} onChange={e => setSettings(s => s ? { ...s, fastModel: e.target.value } : s)} />
+                </div>
+                {/*
+                  * Postřehy v AI Přehledu jsou jediná úloha, kde nejde
+                  * o formulaci, ale o uvažování — a ptá se jednou denně,
+                  * takže silnější model tu skoro nic nestojí.
+                  */}
+                <div className="field">
+                  <label>Model pro AI Přehled (rozbor čísel)</label>
+                  <input value={settings.insightModel}
+                    onChange={e => setSettings(s => s ? { ...s, insightModel: e.target.value } : s)} />
+                  <div className="desc">Hledá souvislosti v číslech, ptá se jednou denně — vyplatí se silnější.</div>
                 </div>
               </div>
               <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>

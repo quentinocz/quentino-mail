@@ -202,6 +202,8 @@ export interface Settings {
   brandPrompt: string;
   draftModel: string;
   fastModel: string;
+  /** Model na rozbor v AI Přehledu — tam jde o uvažování, ne o formulaci */
+  insightModel: string;
   autoSummarize: boolean;
   autoCategorize: boolean;
   autoTranslate: boolean;
@@ -822,6 +824,14 @@ export interface DigestHistory {
     /** Příspěvky, které v tom období fungovaly — podklad pro chystanou kampaň */
     posts: DigestPost[];
   } | null;
+  /**
+   * Proč sezóna není.
+   *
+   * Prázdné místo je nejhorší odpověď — z ničeho se nepozná, jestli se
+   * nepočítalo, nebo jestli fakt žádná sezóna nepřichází. Tohle se ukáže
+   * vždycky, když `season` chybí.
+   */
+  seasonNote?: string;
 }
 
 /** Příspěvek na sítích — lajky a komentáře jsou vždy z Instagramu */

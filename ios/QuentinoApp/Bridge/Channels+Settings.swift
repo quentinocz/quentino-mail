@@ -88,6 +88,8 @@ enum Settings {
             "brandPrompt": Store.setting("brandPrompt", "") ?? "",
             "draftModel": Store.setting("draftModel", "claude-sonnet-5") ?? "claude-sonnet-5",
             "fastModel": Store.setting("fastModel", "claude-haiku-4-5-20251001") ?? "claude-haiku-4-5-20251001",
+            // Rozbor čísel v AI Přehledu — silnější model najde souvislosti
+            "insightModel": Store.setting("insightModel", "claude-opus-4-5") ?? "claude-opus-4-5",
             "autoSummarize": Store.bool("autoSummarize", true),
             "autoCategorize": Store.bool("autoCategorize", true),
             "autoTranslate": Store.bool("autoTranslate", true),
@@ -120,7 +122,7 @@ enum Settings {
         if let key = patch["anthropicApiKey"] as? String {
             Secrets.set("anthropicApiKey", key)
         }
-        for key in ["brandPrompt", "draftModel", "fastModel", "contactInfo",
+        for key in ["brandPrompt", "draftModel", "fastModel", "insightModel", "contactInfo",
                     "productFeedUrl", "stockFeedUrl", "adminOrderRef", "voucherLogo", "theme",
                     "notifyServer", "notifyTopic"] {
             if let value = patch[key] as? String { Store.setSetting(key, value) }

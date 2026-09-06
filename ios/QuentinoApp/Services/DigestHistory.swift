@@ -177,9 +177,17 @@ enum DigestHistory {
      průměrem. Hlásí se nejbližší měsíc s indexem aspoň o čtvrtinu nad
      průměrem — a datum, do kterého se má začít chystat.
      */
-    private static func season(_ months: [[String: Any]], _ now: Date) -> [String: Any]? {
+    private static func season(_ months: [[String: Any]], _ now: Date) -> (one: [String: Any]?, note: String) {
+        /*
+         Dvanáct uzavřených měsíců byl původní požadavek a v praxi znamenal,
+         že se sezóna neukázala nikdy — feed tak daleko nesahá. Půl roku
+         stačí; u kratší historie se jen chce výraznější rozdíl.
+         */
         let closed = months.filter { ($0["complete"] as? Bool ?? false) }
-        guard closed.count >= 12 else { return nil }
+        guard closed.count >= 6 else {
+            return (nil, "Na sezónu zatím není dost historie — uzavřených měsíců je "
+                + "\(closed.count), porovnávat se dá od šesti.")
+        }
 
         var orders: [Int: Int] = [:]
         var days: [Int: Int] = [:]
@@ -205,16 +213,29 @@ enum DigestHistory {
             daily[index] = value
             sum += value
         }
-        guard !daily.isEmpty else { return nil }
+        guard !daily.isEmpty, sum > 0 else {
+            return (nil, "Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.")
+        }
         let average = sum / Double(daily.count)
-        guard average > 0 else { return nil }
+        guard average > 0 else {
+            return (nil, "Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.")
+        }
+        // Kratší historie snese víc náhody, proto se u ní chce větší rozdíl
+        let threshold = closed.count >= 12 ? 1.2 : 1.3
 
-        for ahead in 0...3 {
+        /*
+         Půl roku dopředu: na Vánoce se kampaň chystá v září a „za dva měsíce"
+         je přesně ta zpráva, která se hodí — se čtyřměsíčním výhledem se
+         v létě neukázalo nic.
+         */
+        var upcoming: [(index: Int, ratio: Double)] = []
+        for ahead in 0...5 {
             guard let when = Calendar.current.date(byAdding: .month, value: ahead, to: now) else { continue }
             let index = Calendar.current.component(.month, from: when) - 1
             guard let value = daily[index] else { continue }
             let ratio = value / average
-            if ratio < 1.25 { continue }
+            upcoming.append((index, ratio))
+            if ratio < threshold { continue }
 
             let startBy = when.addingTimeInterval(-21 * 86_400)
             let label = monthNames[max(0, min(11, index))]
@@ -258,9 +279,22 @@ enum DigestHistory {
                                   value, average, closed.count)
             out["products"] = products
             out["posts"] = posts
-            return out
+            return (out, "")
         }
-        return nil
+
+        /*
+         Nic nevybočilo. I to je odpověď — jen se musí říct nahlas a s čísly,
+         ať je poznat, že se počítalo a nic se nenašlo.
+         */
+        let best = upcoming.max { $0.ratio < $1.ratio }
+        let nearest = upcoming.prefix(3)
+            .map { monthNames[max(0, min(11, $0.index))] }.joined(separator: ", ")
+        guard let best else {
+            return (nil, "Pro nejbližší měsíce zatím nejsou v historii žádná data k porovnání.")
+        }
+        return (nil, "Nejbližší měsíce (\(nearest)) z průměru nevybočují — nejsilnější z nich "
+            + "\(monthNames[max(0, min(11, best.index))]) je na \(Int((best.ratio * 100).rounded())) % "
+            + "celoročního průměru, sezóna se hlásí od \(Int((threshold * 100).rounded())) %.")
     }
 
     /**
@@ -319,7 +353,8 @@ enum DigestHistory {
 
     /// Zasazení posledních třiceti dní do delší historie
     static func view(windowOrders: Int, currency: String, now: Date = Date()) -> [String: Any] {
-        let months = monthlyStats(13, now: now)
+        // Dva roky: dva prosince řeknou o sezóně víc než jeden
+        let months = monthlyStats(25, now: now)
 
         let from = now.addingTimeInterval(-29 * 86_400)
         var lastYear: Any = NSNull()
@@ -351,7 +386,9 @@ enum DigestHistory {
         out["coverage"] = months.count
         out["lastYear"] = lastYear
         out["rank"] = rank
-        out["season"] = season(months, now) ?? NSNull()
+        let found = season(months, now)
+        out["season"] = found.one ?? NSNull()
+        out["seasonNote"] = found.note
         return out
     }
 }
