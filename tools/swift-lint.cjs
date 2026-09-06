@@ -57,6 +57,20 @@
  * být obal, takže se to píše špatně pokaždé.
  *
  * Náprava: `.int(Int64(limit))`.
+ *
+ * ## 5. Volání funkce, která nikde není
+ *
+ * Když se pomocná funkce přejmenuje nebo nahradí, ale někde zůstane staré
+ * volání, překlad spadne na „cannot find 'x' in scope" — a protože se Swift
+ * v tomhle prostředí nepřekládá, přijde se na to až za čtvrt hodiny
+ * z GitHubu. Přesně tohle se stalo dvakrát: `pickTool()` zůstal ve staré
+ * cestě, kterou přepis minul.
+ *
+ * Hlídají se **nekvalifikovaná volání** (`neco(...)`, ne `Type.neco(...)`):
+ * jméno musí být někde v projektu jako `func`, nebo v souboru jako `let`,
+ * `var` či parametr. Známé funkce ze Swiftu a Foundationu jsou ve výjimkách;
+ * volání na typ (`String(...)`, `Int(...)`) se nekontrolují, ta začínají
+ * velkým písmenem.
  */
 const fs = require('fs');
 const path = require('path');
@@ -115,6 +129,63 @@ function endOfLiteral(lines, from) {
   return lines.length - 1;
 }
 
+/* ---------- 5. volání funkce, která nikde není ---------- */
+
+/** Co umí Swift a Foundation samy — volá se to bez tečky, ale nikde to není psané */
+const BUILTIN = new Set([
+  'abs', 'min', 'max', 'stride', 'zip', 'print', 'round', 'floor', 'ceil', 'pow', 'sqrt',
+  'fabs', 'assert', 'precondition', 'fatalError', 'swap', 'type', 'withUnsafePointer',
+  'withUnsafeMutableBytes', 'withUnsafeBytes', 'unsafeBitCast', 'dump', 'sequence',
+  'repeatElement', 'numericCast', 'isKnownUniquelyReferenced', 'autoreleasepool',
+  'dispatchMain', 'exit', 'getenv', 'strtod', 'sleep', 'usleep', 'time', 'log', 'log2',
+  'log10', 'exp', 'sin', 'cos', 'tan', 'atan2', 'hypot', 'fmod', 'trunc', 'sqrtf',
+  'NSLocalizedString', 'objc_getAssociatedObject', 'objc_setAssociatedObject', 'main',
+  'if', 'for', 'while', 'switch', 'guard', 'return', 'catch', 'init', 'self', 'super',
+  'try', 'await', 'throw', 'defer', 'where', 'in', 'is', 'as', 'do', 'else', 'repeat',
+  // Modifikátory a klíčová slova, za kterými bývá závorka
+  'private', 'fileprivate', 'internal', 'public', 'open', 'set', 'get', 'didSet', 'willSet',
+  'subscript', 'deinit', 'throws', 'rethrows', 'some', 'any', 'inout', 'weak', 'unowned',
+  // `let (a, b) = …` a direktivy překladače
+  'let', 'var', 'canImport', 'available', 'os', 'swift', 'compiler', 'selector', 'keyPath',
+  'withExtendedLifetime', 'withoutActuallyEscaping'
+]);
+
+/** `func jmeno(` kdekoli v projektu */
+function definedFunctions(files) {
+  const out = new Set();
+  for (const file of files) {
+    for (const found of fs.readFileSync(file, 'utf8').matchAll(/\bfunc\s+([A-Za-z_]\w*)\s*[(<]/g)) {
+      out.add(found[1]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Kód bez komentářů a řetězců, ale se zachovanými řádky.
+ *
+ * Bez tohohle by kontrola nadávala na příklady v dokumentačních komentářích
+ * a na JavaScript vlepený v uvozovkách — v `Shim.swift` je ho půl souboru.
+ */
+function codeOnly(text) {
+  const blank = (match) => match.replace(/[^\n]/g, ' ');
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/"""[\s\S]*?"""/g, blank)
+    .replace(/\/\/[^\n]*/g, blank)
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
+}
+
+/** Co je v souboru vidět jako proměnná, vlastnost nebo parametr */
+function localNames(text) {
+  const out = new Set();
+  for (const found of text.matchAll(/\b(?:let|var)\s+([A-Za-z_]\w*)/g)) out.add(found[1]);
+  // Parametry: `jmeno:` uvnitř závorek i popisky argumentů
+  for (const found of text.matchAll(/([A-Za-z_]\w*)\s*:\s*(?:@escaping\s*)?[A-Z(\[]/g)) out.add(found[1]);
+  for (const found of text.matchAll(/\bcase\s+([A-Za-z_]\w*)\s*\(/g)) out.add(found[1]);
+  return out;
+}
+
 let found = 0;
 for (const file of swiftFiles(ROOT)) {
   const lines = fs.readFileSync(file, 'utf8').split('\n');
@@ -170,6 +241,42 @@ for (const file of swiftFiles(ROOT)) {
       console.log(`      obal to: .int(Int64(${inside}))`);
     }
   });
+}
+
+/*
+ * Nekvalifikovaná volání. Jméno před závorkou, před kterým není tečka —
+ * takové volání musí někde být, jinak překlad spadne na „cannot find in
+ * scope" a dozví se to až GitHub.
+ */
+{
+  const files = swiftFiles(ROOT);
+  const functions = definedFunctions(files);
+  /*
+   * Kontroluje se jen tam, kde má smysl: v modulech, které jsou `enum`
+   * s vlastními funkcemi. V třídách a v rozšířeních cizích typů se běžně
+   * volají metody zděděné z UIKitu nebo Foundationu bez tečky, a ty
+   * v projektu nikde napsané nejsou — hlásit je by znamenalo hlásit šum.
+   */
+  const FOREIGN = /\bclass\b|\bextension\s+(String|Data|Date|Array|Dictionary|Set|URL|UI[A-Z]\w*|WK[A-Z]\w*|NS[A-Z]\w*|View|Text|Color)\b/;
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8');
+    if (FOREIGN.test(text)) continue;
+    const clean = codeOnly(text);
+    const local = localNames(clean);
+    const lines = clean.split('\n');
+    const original = text.split('\n');
+    lines.forEach((code, i) => {
+      const line = original[i] ?? code;
+      for (const call of code.matchAll(/(^|[^\w.$#@])([a-z_]\w*)\s*\(/g)) {
+        const name = call[2];
+        if (BUILTIN.has(name) || functions.has(name) || local.has(name)) continue;
+        found++;
+        console.log(`  ✗ ${path.relative(REPO, file)}:${i + 1} — volá se ${name}(), které nikde není`);
+        console.log(`      ${line.trim()}`);
+        console.log('      přejmenovalo se, nebo zůstalo staré volání po přepisu?');
+      }
+    });
+  }
 }
 
 console.log(found === 0 ? '  ✓ swift: nic podezřelého' : `\n✗ ${found} k opravě`);
