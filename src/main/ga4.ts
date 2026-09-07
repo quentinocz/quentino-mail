@@ -598,7 +598,29 @@ export async function ga4Ask(question: string): Promise<string> {
      * (`tool_calls`) — čísla v tom nejsou. Teprve `sequel_execute` je
      * provede. Bez tohohle kroku se v přehledu ukazoval plán místo dat.
      */
-    const plan = findArray(jsonIn(text), 'tool_calls');
+    /*
+     * Návod k použití zdroje.
+     *
+     * `sequel_search` nevrací hotové kroky, ale **výsledky hledání** — a
+     * u nich číslo návodu (`skill_id`). Ten návod je jediné místo, kde je
+     * napsané, co se dá spustit; přečte se a přiloží k odpovědi, aby se
+     * z toho daly poskládat kroky pro spuštění.
+     */
+    const results = findArray(jsonIn(text), 'results');
+    const reader = tools.find(one => /read_skill|skill|docs|help/i.test(one.name));
+    const skillId = results?.map(one => one?.skill_id ?? one?.id ?? one?.skill)
+      .find(one => typeof one === 'string' && one);
+    if (skillId && reader) {
+      const readArgs = argsFor(reader, { question, appId, why: whyWeAsk });
+      for (const name of Object.keys(reader.schema?.properties ?? {})) {
+        if (/skill_?id|doc_?id|id$/i.test(name)) readArgs[name] = skillId;
+      }
+      const manual = textOf(await rpc('tools/call', { name: reader.name, arguments: readArgs }, 60 + index));
+      tried.push(`${reader.name} (${skillId})`);
+      if (manual) { last = `${text}\n\n--- návod ${skillId} ---\n${manual}`; }
+    }
+
+    const plan = findArray(jsonIn(text), 'tool_calls') ?? findArray(jsonIn(last), 'tool_calls');
     const runner = runTool(tools);
     if (plan?.length && runner) {
       const runArgs = argsFor(runner, { question, appId, why: whyWeAsk });
@@ -830,7 +852,16 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
      */
     const empty = !windowPeriod.sessions && !windowPeriod.users && !windowPeriod.purchases;
     if (empty) {
-      throw new Error(`Sequel vrátil samé nuly — zkontroluj zdroj a přístup. Odpověď: ${text.slice(0, 200)}`);
+      /*
+       * Odpověď přišla, ale čísla v ní nejsou — typicky je to návrh, co
+       * spustit, ne výsledek. Do bubliny se nevejde, tak se schová celá
+       * do nastavení: bez ní se nedá poznat, co po nás Sequel chce.
+       */
+      setSetting('ga4LastDetail', `${new Date().toISOString()}\nodpověď bez čísel:\n${text}`.slice(0, 8000));
+      throw new Error(
+        'Sequel odpověděl, ale čísla návštěvnosti v tom nejsou — nejspíš vrátil návrh, co spustit. '
+        + 'Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.'
+      );
     }
     const snapshot: Ga4Snapshot = {
       at: new Date().toISOString(),
