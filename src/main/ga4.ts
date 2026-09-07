@@ -219,7 +219,23 @@ async function rpc(method: string, params: unknown, id: number | null): Promise<
   if (given) sessionId = given;
 
   const text = await res.text();
-  if (!res.ok) throw new Error(`Sequel: ${res.status} ${text.slice(0, 200)}`);
+  /*
+   * Stavový kód se vyplatí přeložit do češtiny. „404" u koncového bodu
+   * neznamená chybu dat, ale že na téhle adrese MCP vůbec není — a „401"
+   * že neplatí klíč. Bez toho se obojí čte jako záhadné číslo.
+   */
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 405) {
+      throw new Error(
+        `Na adrese ${endpoint} žádné MCP není (${res.status}). Zkontroluj adresu koncového bodu `
+        + 'v nastavení — Sequel ji ukazuje u napojení.'
+      );
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`Sequel klíč nepřijal (${res.status}) — vlož nový v nastavení.`);
+    }
+    throw new Error(`Sequel: ${res.status} ${text.slice(0, 200)}`);
+  }
   if (id === null) return null;
 
   const type = res.headers.get('content-type') ?? '';

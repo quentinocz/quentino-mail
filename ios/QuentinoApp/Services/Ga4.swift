@@ -138,6 +138,19 @@ enum Ga4 {
 
         let text = String(data: data, encoding: .utf8) ?? ""
         let status = http?.statusCode ?? 0
+        /*
+         Stavový kód se vyplatí přeložit do češtiny. „404" u koncového bodu
+         neznamená chybu dat, ale že na téhle adrese MCP vůbec není — a „401"
+         že neplatí klíč. Bez toho se obojí čte jako záhadné číslo.
+         */
+        if status == 404 || status == 405 {
+            throw BridgeError.message(
+                "Na adrese \(endpoint) žádné MCP není (\(status)). Zkontroluj adresu koncového bodu"
+                + " v nastavení — Sequel ji ukazuje u napojení.")
+        }
+        if status == 401 || status == 403 {
+            throw BridgeError.message("Sequel klíč nepřijal (\(status)) — vlož nový v nastavení.")
+        }
         if status >= 400 { throw BridgeError.message("Sequel: \(status) \(text.prefix(200))") }
         guard let id else { return nil }
 
