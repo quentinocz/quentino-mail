@@ -176,6 +176,42 @@ function codeOnly(text) {
     .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
 }
 
+/**
+ * Řádky, na kterých zůstal otevřený řetězec.
+ *
+ * Swift nezná text přes víc řádků jinak než přes trojité uvozovky, takže
+ * otevřená uvozovka na konci řádku je vždycky chyba — nejčastěji zavírací
+ * česká uvozovka napsaná jako `"`.
+ */
+function unterminatedStrings(text) {
+  const blank = (match) => match.replace(/[^\n]/g, ' ');
+  const lines = text
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/"""[\s\S]*?"""/g, blank)
+    // Doslovný text `#"…"#` smí uvozovku nést a končí až `"#`
+    .replace(/#"(?:[^"]|"(?!#))*"#/g, '""')
+    .split('\n');
+
+  const out = [];
+  lines.forEach((line, index) => {
+    let inString = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inString) {
+        // `\"` je uvozovka v textu, `\(` začátek vsuvky — obojí se přeskočí
+        if (ch === '\\') { i++; continue; }
+        if (ch === '"') inString = false;
+      } else if (ch === '"') {
+        inString = true;
+      } else if (ch === '/' && line[i + 1] === '/') {
+        break;
+      }
+    }
+    if (inString) out.push(index);
+  });
+  return out;
+}
+
 /** Co je v souboru vidět jako proměnná, vlastnost nebo parametr */
 function localNames(text) {
   const out = new Set();
@@ -199,6 +235,13 @@ for (const file of swiftFiles(ROOT)) {
     console.log(`  ✗ ${path.relative(REPO, file)}:${i + 1} — vnořený slovník s NSNull()`);
     console.log(`      ${lines[i].trim()}`);
     console.log('      vytáhni ho do proměnné s uvedeným typem: let x: [String: Any] = [ … ]');
+  }
+
+  for (const index of unterminatedStrings(lines.join('\n'))) {
+    found++;
+    console.log(`  ✗ ${path.relative(REPO, file)}:${index + 1} — na řádku zůstal otevřený řetězec`);
+    console.log(`      ${lines[index].trim()}`);
+    console.log('      česká uvozovka se zavírá „ … “, ne obyčejným "');
   }
 
   lines.forEach((line, i) => {

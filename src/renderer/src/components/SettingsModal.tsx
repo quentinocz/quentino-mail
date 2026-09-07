@@ -1423,9 +1423,21 @@ function Ga4Box() {
   const [cfg, setCfg] = useState<Ga4Config | null>(null);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Celá poslední odpověď Sequelu — ukazuje se pod nastavením, ne v bublině */
+  const [detail, setDetail] = useState('');
 
-  useEffect(() => { api.ga4.get().then(setCfg).catch(() => {}); }, []);
+  /*
+   * Starší telefonní aplikace posílá nastavení bez seznamu zdrojů — a
+   * `apps.length` nad `undefined` shodilo celé okno nastavení do šedé
+   * plochy. Chybějící pole se proto doplní hned při načtení.
+   */
+  useEffect(() => {
+    api.ga4.get()
+      .then(one => setCfg({ ...one, apps: Array.isArray(one?.apps) ? one.apps : [], appId: one?.appId ?? '' }))
+      .catch(() => {});
+  }, []);
   if (!cfg) return null;
+  const apps = cfg.apps ?? [];
 
   const save = (patch: { enabled?: boolean; key?: string; endpoint?: string; appId?: string }) => {
     api.ga4.save(patch).then(next => {
@@ -1476,8 +1488,8 @@ function Ga4Box() {
             setBusy(true);
             api.ga4.apps()
               .then(list => {
-                setCfg({ ...cfg, apps: list });
-                toast(list.length ? `Našlo se ${list.length} zdrojů.` : 'Sequel žádné zdroje nevrátil.');
+                setCfg({ ...cfg, apps: Array.isArray(list) ? list : [] });
+                toast(list?.length ? `Našlo se ${list.length} zdrojů.` : 'Sequel žádné zdroje nevrátil.');
                 return api.ga4.get().then(setCfg);
               })
               .catch(e => toast(`Nepovedlo se: ${e.message}`, 'error'))
@@ -1487,13 +1499,13 @@ function Ga4Box() {
           Načíst zdroje
         </button>
       </div>
-      {cfg.apps.length > 0 && (
-        <select value={cfg.appId} onChange={e => save({ appId: e.target.value })}>
+      {apps.length > 0 && (
+        <select value={cfg.appId ?? ''} onChange={e => save({ appId: e.target.value })}>
           <option value="">— vyber zdroj v Sequelu —</option>
-          {cfg.apps.map(one => <option key={one.id} value={one.id}>{one.name}</option>)}
+          {apps.map(one => <option key={one.id} value={one.id}>{one.name}</option>)}
         </select>
       )}
-      {cfg.apps.length === 0 && cfg.appId && (
+      {apps.length === 0 && cfg.appId && (
         <input
           value={cfg.appId}
           onChange={e => save({ appId: e.target.value })}
@@ -1515,7 +1527,26 @@ function Ga4Box() {
         >
           Zobrazit nástroje serveru
         </button>
+        {' · '}
+        {/*
+          * Celá odpověď Sequelu. Do bubliny se vejde jen shrnutí, ale když
+          * dotaz nevyjde, je právě ta odpověď jediné, z čeho se dá poznat
+          * proč — dřív se ztratila.
+          */}
+        <button
+          className="linkish"
+          onClick={() => {
+            api.ga4.detail()
+              .then(text => setDetail(text || 'Zatím se nic neuložilo.'))
+              .catch(e => toast(`Nepovedlo se: ${e.message}`, 'error'));
+          }}
+        >
+          Zobrazit poslední odpověď
+        </button>
       </div>
+      {detail && (
+        <pre className="dg-detail" onClick={() => setDetail('')} title="Klepnutím zavřeš">{detail}</pre>
+      )}
     </div>
   );
 }

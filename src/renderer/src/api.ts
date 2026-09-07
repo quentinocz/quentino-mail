@@ -373,7 +373,9 @@ export const api = {
     /** Které zdroje jsou v Sequelu napojené — u dotazu se musí vybrat */
     apps: () => call<{ id: string; name: string }[]>('ga4:apps'),
     /** Co server nabízí za nástroje — když se automatika netrefí */
-    diagnostics: () => call<string>('ga4:diagnostics')
+    diagnostics: () => call<string>('ga4:diagnostics'),
+    /** Celá poslední odpověď Sequelu — v bublině se ukáže jen shrnutí */
+    detail: () => call<string>('ga4:detail')
   },
   upgates: {
     config: () => call<UpgatesConfig>('upgates:config'),

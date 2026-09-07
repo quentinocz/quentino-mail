@@ -182,11 +182,29 @@ const HISTORY_FIELDS =
   'id,media_type,media_url,thumbnail_url,permalink,caption,timestamp,like_count,comments_count,'
   + 'children{id,media_type,media_url,thumbnail_url}';
 
+/**
+ * Propagace navíc.
+ *
+ * `boost_ads_list` řekne, jestli za příspěvkem stála placená propagace —
+ * a bez toho se nedá poznat, co fungovalo samo a co se koupilo. Není ale
+ * na všech verzích napojení: když ho účet nemá, Instagram odpoví chybou
+ * a stahování by skončilo. Proto se zkusí jednou a pak už se na něj
+ * nesahá — raději „nevíme" než žádná historie.
+ */
+const BOOST_FIELD = 'boost_ads_list{ad_id,ad_status}';
+
 export async function fetchHistory(igUserId: string, token: string, since: string | null, max = 2000): Promise<any[]> {
-  let url = `${GRAPH}/${igUserId}/media?fields=${HISTORY_FIELDS}&limit=50&access_token=${encodeURIComponent(token)}`;
+  let fields = `${HISTORY_FIELDS},${BOOST_FIELD}`;
+  let url = `${GRAPH}/${igUserId}/media?fields=${fields}&limit=50&access_token=${encodeURIComponent(token)}`;
   const all: any[] = [];
   while (url) {
     const page = await fetch(url).then(r => r.json());
+    if (page.error && fields !== HISTORY_FIELDS) {
+      // Propagaci tenhle účet nehlásí — zbytek historie stáhnout jde
+      fields = HISTORY_FIELDS;
+      url = `${GRAPH}/${igUserId}/media?fields=${fields}&limit=50&access_token=${encodeURIComponent(token)}`;
+      continue;
+    }
     if (page.error) throw new Error(page.error.message);
     for (const m of page.data ?? []) {
       if (since && new Date(m.timestamp) <= new Date(since)) return all;

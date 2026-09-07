@@ -1311,6 +1311,118 @@ input:focus, textarea:focus, select:focus {
 .dg-post > svg { color: var(--accent-dark); flex-shrink: 0; margin-top: 2px; }
 .dg-post b { font-size: 12.5px; font-weight: 600; }
 
+/* Hlavička sezóny — co, kdy, jak silné; všechno na jednom řádku */
+.dg-season-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.dg-season-head > svg { color: var(--accent-dark); flex-shrink: 0; }
+.dg-season-when { color: var(--text-2); font-size: 12px; }
+.dg-season-index {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.dg-season-do { font-size: 12.5px; color: var(--text-2); margin: 0; }
+.dg-paid { color: var(--accent-dark); font-weight: 600; }
+
+/* Zboží sezóny s obrázky — pruh, který se dá projet do strany */
+.dg-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.dg-thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 96px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+}
+.dg-thumb img, .dg-thumb-ph {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.dg-thumb-ph { display: flex; align-items: center; justify-content: center; color: var(--text-3); }
+.dg-thumb-title {
+  color: var(--text-2);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dg-thumb-qty { font-weight: 600; }
+
+/* Varianty ve vlastním sloupci — podle nich se objednává sklad */
+.dg-bar-var {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+  width: 150px;
+  overflow: hidden;
+}
+.dg-var-chip {
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.dg-var-chip b { color: var(--text); font-weight: 600; }
+.dg-var-more { font-size: 11px; color: var(--text-3); }
+
+/* Miniatura u řádku zboží a rozklik s podrobnostmi */
+.dg-row-thumb {
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.dg-row-thumb.ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  background: var(--bg);
+}
+.dg-clickable { cursor: pointer; }
+.dg-clickable:hover { background: var(--bg); border-radius: 8px; }
+.dg-bar-row.open { flex-wrap: wrap; background: var(--bg); border-radius: 8px; }
+.dg-drill {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 8px 4px 4px;
+  cursor: default;
+}
+.dg-drill-note { flex-basis: 100%; margin: 0; font-size: 12.5px; color: var(--text-2); }
+.dg-drill-cols { display: flex; flex-direction: column; gap: 2px; min-width: 150px; font-size: 12px; }
+
+/* Celá odpověď Sequelu — dlouhá, tak ať se dá projet a zavřít klepnutím */
+.dg-detail {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11.5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
 /* Podklad pod tvrzením — malý, ale vždycky vidět, ať jde ověřit */
 .dg-basis { display: block; font-size: 11.5px; color: var(--text-3); padding-top: 1px; }
 .dg-caption { font-size: 11.5px; color: var(--text-3); line-height: 1.5; }
@@ -6616,6 +6728,56 @@ html[data-form-factor="phone"] .cl-list { max-height: none; }
   border-bottom: 1px solid var(--border);
 }
 .kat-line-main { flex: 1; min-width: 0; }
+/* Fotka u řádku naskladnění — u regálu se zboží pozná dřív očima */
+.kat-line-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: zoom-in;
+  background: var(--bg);
+}
+.kat-line-thumb.ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  cursor: default;
+}
+/* Varianta ve vlastním sloupci — naskladnit cizí velikost je chyba, co se nenajde */
+.kat-line-var {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 3px 10px;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Zvětšená fotka přes celé okno */
+.kat-zoom {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 15, 25, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+}
+.kat-zoom img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+}
 .kat-line-main .ig-muted { font-size: 11.5px; }
 .kat-line-qty { display: flex; align-items: center; gap: 4px; }
 .kat-line-qty button {

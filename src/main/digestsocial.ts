@@ -34,6 +34,18 @@ export interface SocialPost {
   marketLabels?: string[];
   /** „IG" nebo „IG + FB" podle toho, kam se sdílelo */
   channels?: string;
+  /**
+   * Byl za příspěvkem placený dosah?
+   *
+   * `null` znamená **nevíme** — starší napojení propagaci nehlásí a „nevíme"
+   * se nesmí tvářit jako „ne". Bez tohohle se úspěch koupeného dosahu čte
+   * jako úspěch příspěvku a starší propagovaný kus přebije všechno ostatní.
+   */
+  boosted?: boolean | null;
+  /** O kolik % víc objednávek chodilo kolem vydání; null = nedá se spočítat */
+  lift?: number | null;
+  /** Proč je tenhle příspěvek v seznamu — počítáno z čísel vedle */
+  why?: string;
 }
 
 export interface SocialView {
@@ -50,8 +62,19 @@ export interface SocialView {
   ordersWithout: number;
   /** Kolik příspěvků bylo v předchozím okně — na srovnání aktivity */
   prevPosts: number;
-  /** Nejúspěšnější příspěvky za celou historii, ne jen za okno */
+  /**
+   * Nejúspěšnější příspěvky **z poslední doby** (půl roku).
+   *
+   * Hlavní pohled je na to, co funguje teď — co zabralo před dvěma lety, je
+   * zajímavé u sezóny, ne u rozhodnutí, co postnout příští týden.
+   */
   bestEver: SocialPost[];
+  /** Doplněk: co fungovalo dávno, ale stojí za připomenutí */
+  bestOlder: SocialPost[];
+  /** Čerstvé neplacené příspěvky, kterým by rozpočet mohl pomoct */
+  candidates: SocialPost[];
+  /** Hlásí Instagram u tohohle napojení propagaci? Bez toho se nedá odlišit placené */
+  boostKnown: boolean;
 }
 
 /**
@@ -66,7 +89,8 @@ export function socialView(
   const d = getDb();
   const empty: SocialView = {
     posts: 0, likes: 0, comments: 0, best: null, daysWithPost: 0,
-    ordersWithPost: 0, ordersWithout: 0, prevPosts: 0, bestEver: []
+    ordersWithPost: 0, ordersWithout: 0, prevPosts: 0, bestEver: [],
+    bestOlder: [], candidates: [], boostKnown: false
   };
 
   let rows: any[] = [];
@@ -148,8 +172,16 @@ export function socialView(
     ordersWithPost: avg(withPost),
     ordersWithout: avg(without),
     prevPosts,
-    // Dlouhý pohled: co fungovalo nejlíp za celou dobu, ne jen tenhle měsíc
-    bestEver: bestPosts({ limit: 3 })
+    /*
+     * Dva pohledy zvlášť. Hlavní je poslední půlrok — podle něj se
+     * rozhoduje, co postnout teď. Starší úspěchy se přidávají jako
+     * připomenutí, ne jako měřítko: co fungovalo před dvěma lety, mohlo
+     * mít zaplacený dosah nebo docela jinou nabídku.
+     */
+    bestEver: bestPosts({ limit: 3, sinceDays: 180 }),
+    bestOlder: bestPosts({ limit: 2, beforeDays: 180 }),
+    candidates: boostCandidates(days),
+    boostKnown: knowsBoost()
   };
 }
 
@@ -196,12 +228,14 @@ function marketsOf(sourceMediaId: string): string[] {
  * minulý týden. Řadí se podle lajků a komentářů, kde komentář váží víc —
  * napsat ho dá víc práce než klepnout na srdíčko.
  */
-export function bestPosts(options: { months?: number[]; limit?: number } = {}): SocialPost[] {
+export function bestPosts(
+  options: { months?: number[]; limit?: number; sinceDays?: number; beforeDays?: number } = {}
+): SocialPost[] {
   const limit = options.limit ?? 3;
   let rows: any[] = [];
   try {
     rows = getDb().prepare(
-      `SELECT posted_at, caption, like_count, comment_count, permalink, ig_media_id
+      `SELECT posted_at, caption, like_count, comment_count, permalink, ig_media_id, boosted
          FROM ig_source_posts WHERE posted_at != '' ORDER BY posted_at DESC LIMIT 2000`
     ).all() as any[];
   } catch {
@@ -209,34 +243,156 @@ export function bestPosts(options: { months?: number[]; limit?: number } = {}): 
   }
 
   const wanted = options.months;
+  const now = Date.now();
   const picked = rows.filter(row => {
-    if (!wanted?.length) return true;
-    const month = Number(String(row.posted_at ?? '').slice(5, 7)) - 1;
-    return wanted.includes(month);
+    if (wanted?.length) {
+      const month = Number(String(row.posted_at ?? '').slice(5, 7)) - 1;
+      if (!wanted.includes(month)) return false;
+    }
+    /*
+     * Stáří. Hlavní seznam se dívá na poslední půlrok — podle něj se
+     * rozhoduje, co postnout teď; starší se ukazují zvlášť jako připomenutí.
+     */
+    const when = new Date(String(row.posted_at ?? '')).getTime();
+    if (!Number.isFinite(when)) return !options.sinceDays;
+    const age = (now - when) / 86_400_000;
+    if (options.sinceDays != null && age > options.sinceDays) return false;
+    if (options.beforeDays != null && age <= options.beforeDays) return false;
+    return true;
   });
 
   return picked
-    .map(row => ({
-      at: String(row.posted_at ?? ''),
-      caption: String(row.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 120),
-      likes: Number(row.like_count ?? 0),
-      comments: Number(row.comment_count ?? 0),
-      permalink: String(row.permalink ?? ''),
-      mediaId: String(row.ig_media_id ?? '')
-    }))
-    .sort((a, b) => (b.likes + b.comments * 3) - (a.likes + a.comments * 3))
+    .sort((a, b) => score(b) - score(a))
     .slice(0, limit)
-    .map(one => {
-      const markets = marketsOf(one.mediaId);
-      return {
-        at: one.at,
-        caption: one.caption,
-        likes: one.likes,
-        comments: one.comments,
-        permalink: one.permalink,
-        markets: markets.length,
-        marketLabels: markets,
-        channels: channelsOf(one.mediaId)
-      };
+    .map(row => toPost(row));
+}
+
+/**
+ * Ví se u téhle instalace, které příspěvky byly propagované?
+ *
+ * Stačí jeden příspěvek s vyplněnou hodnotou — pak Instagram propagaci
+ * hlásí a dá se rozlišovat. Když ne, řekne se to nahlas: bez toho by
+ * „neplacený úspěch" byl jen dohad.
+ */
+export function knowsBoost(): boolean {
+  try {
+    return Number((getDb().prepare(
+      'SELECT COUNT(*) AS n FROM ig_source_posts WHERE boosted IS NOT NULL'
+    ).get() as any)?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/* ---------- co má smysl propagovat ---------- */
+
+/**
+ * Příspěvky, které si říkají o rozpočet.
+ *
+ * Úspěch placeného příspěvku není zásluha příspěvku — je koupený. Když se
+ * pak žebříček řadí jen podle lajků, starší propagovaný příspěvek přebije
+ * všechno ostatní a vypadá to, že „tohle funguje", i když to jen mělo
+ * zaplacený dosah. Proto se hledá opak: **čerstvý příspěvek, který si vede
+ * nadprůměrně bez placení** — u toho má přidání rozpočtu smysl, protože
+ * začíná z něčeho, co lidi zabralo samo.
+ *
+ * Měřítko je medián nedávných neplacených příspěvků, ne průměr: jeden
+ * virál by průměr vytáhl tak, že by pak neprošlo nic.
+ *
+ * `days` je denní řada objednávek z přehledu — u každého kandidáta se
+ * přidá, kolik objednávek chodilo v den vydání a dva dny po něm proti
+ * běžnému dni. Je to **souvislost, ne důkaz**, a tak se to i píše.
+ */
+export function boostCandidates(
+  days: { day: string; orders: number }[], limit = 3
+): SocialPost[] {
+  let rows: any[] = [];
+  try {
+    rows = getDb().prepare(
+      `SELECT posted_at, caption, like_count, comment_count, permalink, ig_media_id, boosted
+         FROM ig_source_posts WHERE posted_at != '' ORDER BY posted_at DESC LIMIT 200`
+    ).all() as any[];
+  } catch {
+    return [];
+  }
+  if (rows.length === 0) return [];
+
+  const now = Date.now();
+  const fresh = rows.filter(row => {
+    const when = new Date(String(row.posted_at ?? '')).getTime();
+    return Number.isFinite(when) && now - when <= 60 * 86_400_000;
+  });
+  if (fresh.length === 0) return [];
+
+  // Měřítko: medián neplacených z posledního půlroku
+  const organic = rows
+    .filter(row => row.boosted !== 1)
+    .map(row => score(row))
+    .sort((a, b) => a - b);
+  if (organic.length === 0) return [];
+  const median = organic[Math.floor(organic.length / 2)] || 1;
+
+  const daily = new Map(days.map(one => [one.day, one.orders]));
+  const average = days.length
+    ? days.reduce((sum, one) => sum + one.orders, 0) / days.length
+    : 0;
+
+  return fresh
+    .filter(row => row.boosted !== 1 && score(row) >= median * 1.3)
+    .sort((a, b) => score(b) - score(a))
+    .slice(0, limit)
+    .map(row => {
+      const post = toPost(row);
+      /*
+       * Objednávky kolem vydání. Den vydání a dva dny po něm — déle už se
+       * to míchá s čímkoli jiným, co se ten týden dělo.
+       */
+      const day = String(row.posted_at ?? '').slice(0, 10);
+      const around: number[] = [];
+      for (let ahead = 0; ahead <= 2; ahead++) {
+        const key = new Date(new Date(`${day}T12:00:00`).getTime() + ahead * 86_400_000)
+          .toISOString().slice(0, 10);
+        const found = daily.get(key);
+        if (found != null) around.push(found);
+      }
+      const mine = around.length
+        ? around.reduce((sum, one) => sum + one, 0) / around.length
+        : 0;
+      const lift = average > 0 && around.length
+        ? Math.round(((mine - average) / average) * 100)
+        : null;
+
+      const times = Math.round((score(row) / Math.max(1, median)) * 10) / 10;
+      post.lift = lift;
+      post.why = `Zaujal ${times}× víc než běžný neplacený příspěvek`
+        + (post.boosted === false ? ' a rozpočet za ním nestál' : '')
+        + (lift != null
+          ? `; v den vydání a dva dny po něm chodilo ${lift > 0 ? `o ${lift} % víc` : lift < 0 ? `o ${-lift} % míň` : 'stejně'} objednávek než obvykle (souvislost, ne důkaz)`
+          : '')
+        + '.';
+      return post;
     });
+}
+
+/** Lajk je klepnutí, komentář práce — proto váží víc */
+function score(row: any): number {
+  return Number(row.like_count ?? 0) + Number(row.comment_count ?? 0) * 3;
+}
+
+/** Řádek z databáze na příspěvek i s trhy, kanály a propagací */
+function toPost(row: any): SocialPost {
+  const mediaId = String(row.ig_media_id ?? '');
+  const markets = marketsOf(mediaId);
+  return {
+    at: String(row.posted_at ?? ''),
+    caption: String(row.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 120),
+    likes: Number(row.like_count ?? 0),
+    comments: Number(row.comment_count ?? 0),
+    permalink: String(row.permalink ?? ''),
+    markets: markets.length,
+    marketLabels: markets,
+    channels: channelsOf(mediaId),
+    // `null` = Instagram propagaci u tohohle napojení nehlásí
+    boosted: row.boosted == null ? null : row.boosted === 1
+  };
 }

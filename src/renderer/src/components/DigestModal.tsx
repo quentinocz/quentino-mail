@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DigestArchiveRow, DigestDay, DigestFacts, DigestInsight, DigestMonth, DigestReport,
-  DigestSlice, DigestTask, DigestTotals, DigestTurn
+  DigestMoney, DigestPost, DigestSlice, DigestTask, DigestTotals, DigestTurn
 } from '@shared/types';
 import { api } from '../api';
 import { useIsPhone } from '../mobile';
@@ -54,9 +54,24 @@ function rangeLabel(days: number): string {
 }
 
 /** Proč u zboží není cena — pomlčka sama o sobě mate víc než nula */
-function priceHint(source: string, currency: string): string {
-  if (source === 'cizí měna') return `Prodalo se jen na jiném trhu — do tržby v ${currency} to nepatří.`;
+function priceHint(source: string, _currency: string): string {
+  if (source === 'jiná měna') return 'Prodalo se jen na jiném trhu — částka je v měně toho trhu.';
   return 'Feed u téhle položky cenu nenese a v ceníku ani v jiných objednávkách se nenašla.';
+}
+
+/**
+ * Tržba zboží ve všech měnách, ve kterých se prodalo.
+ *
+ * Kapesníček prodaný jen do zahraničí měl v korunách nulu — a „0 Kč"
+ * vypadalo jako cena, i když se prodával za 14 €. Měny se nesčítají,
+ * píšou se za sebou; hlavní je vždycky první.
+ */
+function productMoney(all: DigestMoney[] | undefined, currency: string): string {
+  const list = (all ?? []).filter(one => one.amount > 0);
+  if (!list.length) return '';
+  const main = list.filter(one => one.currency === currency);
+  const rest = list.filter(one => one.currency !== currency);
+  return [...main, ...rest].map(one => money(one.amount, one.currency)).join(' + ');
 }
 
 function dayLabel(day: string): string {
@@ -184,6 +199,42 @@ function DayChart({ days: given, currency, mode, bucketDays = 1 }: {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * Příspěvek ze sítí.
+ *
+ * Ukazuje se na třech místech (sezóna, nejlepší za půlrok, kandidáti na
+ * propagaci) a všude má stejnou podobu: co to bylo, jak si vedl a jestli
+ * za tím stál placený dosah. **Nevíme** je vlastní stav — u staršího
+ * napojení Instagram propagaci nehlásí a mlčet o tom by znamenalo tvářit
+ * se, že příspěvek placený nebyl.
+ */
+function Post({ post }: { post: DigestPost }) {
+  return (
+    <a
+      className="dg-post"
+      href={post.permalink || undefined}
+      onClick={e => {
+        e.preventDefault();
+        if (post.permalink) api.shell.openUrl(post.permalink).catch(() => {});
+      }}
+    >
+      <Icon name="image" size={13} />
+      <span className="dg-task-main">
+        <b>{post.caption || 'bez popisku'}</b>
+        <span className="dg-task-what">
+          {new Date(post.at).toLocaleDateString('cs-CZ')}
+          {' · '}{post.likes} lajků · {post.comments} komentářů
+          {post.channels && <> · {post.channels}</>}
+          {post.marketLabels?.length ? <> · {post.marketLabels.join(', ')}</> : null}
+          {post.boosted === true && <> · <b className="dg-paid">propagovaný</b></>}
+          {post.boosted === false && <> · bez propagace</>}
+        </span>
+        {post.why && <span className="dg-basis">{post.why}</span>}
+      </span>
+    </a>
   );
 }
 
@@ -323,7 +374,11 @@ function safeFacts(one: any): DigestFacts {
     revenue: item?.revenue ?? 0,
     estimated: item?.estimated ?? false,
     priceSource: item?.priceSource ?? 'feed',
-    variants: list(item?.variants)
+    variants: list(item?.variants),
+    // Starší archiv zná jen korunovou tržbu — ať se má co ukázat
+    revenueAll: Array.isArray(item?.revenueAll) && item.revenueAll.length
+      ? item.revenueAll
+      : (item?.revenue > 0 ? [{ currency: one?.currency ?? 'CZK', amount: item.revenue }] : [])
   }));
   const slice = (value: any): any[] => list(value).map((row: any) => ({
     key: row?.key ?? '',
@@ -367,7 +422,9 @@ function safeFacts(one: any): DigestFacts {
       coverage: one?.history?.coverage ?? 0,
       lastYear: one?.history?.lastYear ?? null,
       rank: one?.history?.rank ?? null,
-      season: one?.history?.season ?? null
+      season: one?.history?.season ?? null,
+      seasons: list(one?.history?.seasons),
+      seasonNote: one?.history?.seasonNote ?? ''
     },
     social: one?.social
       ? {
@@ -405,6 +462,8 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   const [older, setOlder] = useState<{ at: string; facts: DigestFacts; insight: DigestInsight } | null>(null);
   /** Jednotlivé zprávy jsou pod rozbalením — v souhrnu je jen počet */
   const [openTasks, setOpenTasks] = useState(false);
+  /** Rozkliknuté zboží — pod řádkem se ukáže, kam se prodávalo a jak si vede */
+  const [openProduct, setOpenProduct] = useState<string | null>(null);
   /*
    * Období, za které se čísla počítají. Třicet dní je denní chod, dva roky
    * odpovídají na jinou otázku — jestli má výrobek stálé místo v sortimentu.
@@ -823,57 +882,65 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                       <span>{facts.history.seasonNote}</span>
                     </p>
                   )}
-                  {facts.history?.season && (
-                    <div className="dg-season">
-                      <p className="dg-note sig-watch">
-                        <Icon name="clock" size={13} />
-                        <span>
-                          {facts.history.season!.text}
-                          <span className="dg-basis">{facts.history.season!.basis}</span>
+                  {/*
+                    * Sezón může být na půl roku dopředu víc: leden bývá
+                    * silnější než prosinec a kdo se chystá jen na tu
+                    * nejbližší, druhou vlnu prošvihne. U každé je vidět
+                    * hlavička (co, kdy, jak silné), věta „co s tím",
+                    * zboží s obrázky a příspěvky, které tehdy fungovaly —
+                    * všechno spočítané z feedu, ne od AI.
+                    */}
+                  {(facts.history?.seasons ?? (facts.history?.season ? [facts.history.season] : []))
+                    .map(season => (
+                    <div className="dg-season" key={season.month}>
+                      <div className="dg-season-head">
+                        <Icon name="clock" size={14} />
+                        <b>{season.name.charAt(0).toUpperCase()}{season.name.slice(1)}</b>
+                        <span className="dg-season-when">
+                          {season.inDays === 0 ? 'právě běží' : `za ${season.inDays} dní · ${season.label}`}
                         </span>
+                        <span className="dg-season-index" title="Kolikrát silnější než průměrný měsíc">
+                          {season.index.toFixed(1)}× průměr
+                        </span>
+                      </div>
+                      <p className="dg-season-do">
+                        {season.inDays === 0
+                          ? 'Sezóna běží — teď se hodí držet zásobu toho, co se v ní prodává nejvíc.'
+                          : `Propagaci zahájit do ${new Date(season.startBy)
+                            .toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' })}`
+                            + ' — tři týdny předem, ať má náběh a stihne se doskladnit.'}
+                        <span className="dg-basis">{season.basis}</span>
                       </p>
-                      {(facts.history.season!.products ?? []).length > 0 && (
-                        <div className="dg-season-list">
-                          <span className="dg-caption">Tehdy se prodávalo nejvíc</span>
-                          {(facts.history.season!.products ?? []).map(one => (
-                            <div className="dg-bar-row" key={one.code}>
-                              <span className="dg-bar-label" title={one.code}>{one.title}</span>
-                              <span className="dg-bar-num">{one.qty} ks</span>
-                            </div>
-                          ))}
-                        </div>
+                      {(season.products ?? []).length > 0 && (
+                        <>
+                          <span className="dg-caption">
+                            Co se v ní prodávalo nejvíc (za celou historii, ne jen loni)
+                          </span>
+                          <div className="dg-thumbs">
+                            {(season.products ?? []).map(one => (
+                              <div className="dg-thumb" key={one.code} title={one.code}>
+                                {one.image
+                                  ? <img src={one.image} alt="" loading="lazy" />
+                                  : <span className="dg-thumb-ph"><Icon name="bag" size={18} /></span>}
+                                <span className="dg-thumb-title">{one.title}</span>
+                                <span className="dg-thumb-qty">{one.qty} ks</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
                       )}
-                      {(facts.history.season!.posts ?? []).length > 0 && (
+                      {(season.posts ?? []).length > 0 && (
                         <div className="dg-season-list">
                           <span className="dg-caption">
-                            Nejúspěšnější příspěvky z toho období (lajky a komentáře jsou z Instagramu)
+                            Příspěvky, které v tom období fungovaly — s čím se dá začít
                           </span>
-                          {(facts.history.season!.posts ?? []).map(post => (
-                            <a
-                              className="dg-post"
-                              key={post.at + post.permalink}
-                              href={post.permalink || undefined}
-                              onClick={e => {
-                                e.preventDefault();
-                                if (post.permalink) api.shell.openUrl(post.permalink).catch(() => {});
-                              }}
-                            >
-                              <Icon name="image" size={13} />
-                              <span className="dg-task-main">
-                                <b>{post.caption || 'bez popisku'}</b>
-                                <span className="dg-task-what">
-                                  {new Date(post.at).toLocaleDateString('cs-CZ')}
-                                  {' · '}{post.likes} lajků · {post.comments} komentářů
-                                  {post.channels && <> · {post.channels}</>}
-                                  {post.marketLabels?.length ? <> · {post.marketLabels.join(', ')}</> : null}
-                                </span>
-                              </span>
-                            </a>
+                          {(season.posts ?? []).map(post => (
+                            <Post key={post.at + post.permalink} post={post} />
                           ))}
                         </div>
                       )}
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
 
@@ -896,6 +963,18 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   */}
                 <div className="dg-card">
                   <div className="dg-card-head"><Icon name="sliders" size={14} /> Velikosti po kategoriích</div>
+                  {/*
+                    * Poslední sloupec dřív říkal jen „6× zboží" a nikdo
+                    * nevěděl, co to znamená. Je to počet **různých výrobků**,
+                    * u kterých se ta velikost prodala — velikost, kterou chce
+                    * jeden model, je něco jiného než velikost, kterou lidi
+                    * kupují napříč sortimentem.
+                    */}
+                  {(facts.sizes ?? []).length > 0 && (
+                    <div className="dg-caption">
+                      Vlevo kusy, vpravo u kolika různých výrobků se ta velikost prodala.
+                    </div>
+                  )}
                   {(facts.sizes ?? []).length === 0 && (
                     <div className="dg-empty">Zboží v okně nemá varianty, nebo katalog není stažený.</div>
                   )}
@@ -911,7 +990,9 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                               <span className="dg-bar-fill" style={{ width: `${(one.qty / top) * 100}%` }} />
                             </span>
                             <span className="dg-bar-num">{one.qty} ks</span>
-                            <span className="dg-bar-money">{one.products}× zboží</span>
+                            <span className="dg-bar-money" title={`Tuhle velikost mělo ${one.products} různých výrobků`}>
+                              u {one.products} {one.products === 1 ? 'výrobku' : one.products < 5 ? 'výrobků' : 'výrobků'}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -937,35 +1018,48 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                         </div>
                       )}
                       {/*
-                        * Dlouhý pohled. Co fungovalo za celou dobu je pro
-                        * chystanou kampaň lepší podklad než tenhle měsíc —
-                        * a bez tohohle to nebylo nikde vidět.
+                        * Co si říká o rozpočet. Úspěch placeného příspěvku je
+                        * koupený — přidávat peníze má smysl tam, kde už něco
+                        * zabralo samo. Proto je tenhle seznam první.
                         */}
+                      {(facts.social.candidates ?? []).length > 0 && (
+                        <div className="dg-season-list">
+                          <span className="dg-caption">
+                            Stálo by za propagaci — čerstvé a nadprůměrné bez placeného dosahu
+                          </span>
+                          {(facts.social.candidates ?? []).map(post => (
+                            <Post key={post.at + post.permalink} post={post} />
+                          ))}
+                        </div>
+                      )}
                       {(facts.social.bestEver ?? []).length > 0 && (
                         <div className="dg-season-list">
-                          <span className="dg-caption">Nejúspěšnější za celou dobu</span>
+                          <span className="dg-caption">Nejúspěšnější za poslední půlrok</span>
                           {(facts.social.bestEver ?? []).map(post => (
-                            <a
-                              className="dg-post"
-                              key={post.at + post.permalink}
-                              href={post.permalink || undefined}
-                              onClick={e => {
-                                e.preventDefault();
-                                if (post.permalink) api.shell.openUrl(post.permalink).catch(() => {});
-                              }}
-                            >
-                              <Icon name="image" size={13} />
-                              <span className="dg-task-main">
-                                <b>{post.caption || 'bez popisku'}</b>
-                                <span className="dg-task-what">
-                                  {new Date(post.at).toLocaleDateString('cs-CZ')}
-                                  {' · '}{post.likes} lajků · {post.comments} komentářů
-                                  {post.channels && <> · {post.channels}</>}
-                                  {post.marketLabels?.length ? <> · {post.marketLabels.join(', ')}</> : null}
-                                </span>
-                              </span>
-                            </a>
+                            <Post key={post.at + post.permalink} post={post} />
                           ))}
+                        </div>
+                      )}
+                      {/*
+                        * Starší úspěchy zvlášť a až za tím. Co fungovalo před
+                        * dvěma lety, mohlo mít zaplacený dosah nebo docela
+                        * jinou nabídku — jako měřítko pro dnešek to neplatí,
+                        * jako připomenutí ano.
+                        */}
+                      {(facts.social.bestOlder ?? []).length > 0 && (
+                        <div className="dg-season-list">
+                          <span className="dg-caption">
+                            Ze starších — jen na připomenutí, měřítko pro dnešek to není
+                          </span>
+                          {(facts.social.bestOlder ?? []).map(post => (
+                            <Post key={post.at + post.permalink} post={post} />
+                          ))}
+                        </div>
+                      )}
+                      {facts.social.boostKnown === false && (facts.social.posts > 0) && (
+                        <div className="dg-caption">
+                          Instagram u tohohle napojení nehlásí, které příspěvky byly propagované —
+                          {' '}placený dosah se proto od neplaceného odlišit nedá.
                         </div>
                       )}
                     </>
@@ -980,6 +1074,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                       {report.ga4.sources[0] && (
                         <div className="dg-caption">
                           Nejvíc z „{report.ga4.sources[0].name}" ({report.ga4.sources[0].sessions})
+                        </div>
+                      )}
+                      {/*
+                        * Čí návštěvy to jsou. GA4 měří zatím jen jeden web,
+                        * objednávky chodí ze všech trhů — dělit jedno druhým
+                        * dá nesmysl, tak ať je vidět, co s čím nejde srovnat.
+                        */}
+                      {report.ga4.scope && (
+                        <div className="dg-caption">
+                          Měří {report.ga4.scope}; objednávky výš jsou ze všech trhů.
                         </div>
                       )}
                     </>
@@ -1016,32 +1120,107 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 {(facts.products ?? []).length === 0 && <div className="dg-empty">Za tohle období nic neprošlo.</div>}
                 {(facts.products ?? []).slice(0, topCount).map(one => {
                   const top = Math.max(1, ...(facts.products ?? []).map(p => p.qty));
+                  const sold = productMoney(one.revenueAll, currency);
+                  const open = openProduct === one.code;
                   return (
-                    <div className="dg-bar-row" key={one.code}>
+                    <div
+                      className={`dg-bar-row dg-clickable${open ? ' open' : ''}`}
+                      key={one.code}
+                      onClick={() => setOpenProduct(open ? null : one.code)}
+                      title="Klepnutím ukážeš podrobnosti"
+                    >
+                      {/* Obrázek z katalogu — zboží se pozná dřív očima než čtením */}
+                      {one.image
+                        ? <img className="dg-row-thumb" src={one.image} alt="" loading="lazy" />
+                        : <span className="dg-row-thumb ph"><Icon name="bag" size={13} /></span>}
                       <span className="dg-bar-label" title={one.variants.length
                         ? `${one.code} — ${one.variants.map(v => `${v.label} ${v.qty}×`).join(', ')}`
                         : one.code}>
                         {one.title}
-                        {/* Varianty jsou sloučené pod produkt; co se pod ním prodalo, je vidět po najetí */}
-                        {one.variants.length > 1 && <span className="dg-sub"> {one.variants.length} velikostí</span>}
+                      </span>
+                      {/*
+                        * Varianty mají vlastní sloupec. Jako šedý dovětek za
+                        * názvem se přehlédly — přitom „prodalo se 110 cm"
+                        * je u kšand a pásků ta hlavní informace: podle ní se
+                        * objednává sklad.
+                        */}
+                      <span className="dg-bar-var" title={one.variants.length
+                        ? one.variants.map(v => `${v.label} ${v.qty}×`).join(', ')
+                        : 'Zboží bez variant'}>
+                        {one.variants.slice(0, 2).map(v => (
+                          <span className="dg-var-chip" key={v.label}>{v.label} <b>{v.qty}×</b></span>
+                        ))}
+                        {one.variants.length > 2 && (
+                          <span className="dg-var-more">+{one.variants.length - 2}</span>
+                        )}
                       </span>
                       <span className="dg-bar-track">
                         <span className="dg-bar-fill" style={{ width: `${(one.qty / top) * 100}%` }} />
                       </span>
                       <span className="dg-bar-num">{one.qty} ks</span>
                       {/*
-                        * Nula není tržba, ale „nevíme": zboží prodané v jiné měně
-                        * se do korunového sloupce nepočítá a u dárků cena chybí.
-                        * Vypsaná „0 Kč" vypadala jako chyba ve feedu.
+                        * Tržba ve všech měnách, ve kterých se prodalo. Kapesníček
+                        * prodaný jen do zahraničí měl v korunách nulu a „0 Kč"
+                        * vypadalo jako cena — přitom se prodával za 14 €.
+                        * Pomlčka zůstává jen tam, kde cena vážně není.
                         */}
                       <span
                         className="dg-bar-money"
-                        title={one.revenue
+                        title={sold
                           ? (one.estimated ? `Odhad ceny podle: ${one.priceSource}` : 'Cena z objednávek')
                           : priceHint(one.priceSource, currency)}
                       >
-                        {one.revenue ? `${one.estimated ? '≈ ' : ''}${money(one.revenue, currency)}` : '—'}
+                        {sold ? `${one.estimated ? '≈ ' : ''}${sold}` : '—'}
                       </span>
+                      {/*
+                        * Drobná statistika pod řádkem. „18 ks" se přečte za
+                        * vteřinu a nic z něj nevyplyne; kam se to prodává,
+                        * jestli to roste a za kolik — z toho už se dá
+                        * rozhodnout o skladu i o tom, který trh podpořit.
+                        * Všechno spočítané z týchž objednávek.
+                        */}
+                      {open && (
+                        <div className="dg-drill" onClick={e => e.stopPropagation()}>
+                          {one.note && <p className="dg-drill-note">{one.note}</p>}
+                          {(one.countries ?? []).length > 0 && (
+                            <div className="dg-drill-cols">
+                              <span className="dg-caption">Kam se prodávalo</span>
+                              {(one.countries ?? []).map(country => (
+                                <div className="dg-pop-row" key={country.key}>
+                                  <span>{country.label}</span>
+                                  <span>{country.qty} ks</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {(one.variants ?? []).length > 0 && (
+                            <div className="dg-drill-cols">
+                              <span className="dg-caption">Které varianty</span>
+                              {(one.variants ?? []).map(variant => (
+                                <div className="dg-pop-row" key={variant.label}>
+                                  <span>{variant.label}</span>
+                                  <span>{variant.qty} ks</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="dg-drill-cols">
+                            <span className="dg-caption">Čísla</span>
+                            <div className="dg-pop-row"><span>objednávek</span><span>{one.orders}</span></div>
+                            <div className="dg-pop-row">
+                              <span>předchozí období</span><span>{one.prevQty ?? 0} ks</span>
+                            </div>
+                            {(one.unit ?? 0) > 0 && (
+                              <div className="dg-pop-row">
+                                <span>průměrná cena</span><span>{money(one.unit ?? 0, currency)}</span>
+                              </div>
+                            )}
+                            <div className="dg-pop-row">
+                              <span>kód</span><span>{one.code}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

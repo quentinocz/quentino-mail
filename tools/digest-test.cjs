@@ -165,6 +165,13 @@ order({ day: today, total: 1780, email: 'karel@seznam.cz',
 // zboží za 32 Kč
 order({ day: today, total: 800, currency: 'EUR', country: 'sk', shipment: 'Packeta CZ',
   items: [{ code: 'QP-118', title: 'Pásek hnědý', quantity: 1, price: 8, total: 8 }] });
+/*
+ * Kapesníček se prodává **jen do zahraničí**. Dřív z něj v korunovém sloupci
+ * byla nula a z nuly v postřezích tvrzení, že se prodává zadarmo — přitom
+ * je v objednávce za 14 €.
+ */
+order({ day: today, total: 1400, currency: 'EUR', country: 'de', code: '023748',
+  items: [{ code: 'QH-009', title: 'Bílý pánský kapesníček', quantity: 1, price: 14, total: 14 }] });
 // Storno se do tržby nesmí dostat, ale spočítat se musí
 order({ day: today, total: 5000, status: 'Stornována' });
 order({ day: yesterday, total: 1000, paid: false, payment: 'Dobírka', shipment: 'PPL ParcelShop',
@@ -193,23 +200,23 @@ for (let i = 0; i < 12; i++) {
 
 console.log('\nčísla z feedu:\n');
 const facts = dg.digestFacts(NOW);
-check('dnešní objednávky i se stornem', facts.today.orders, 4);
+check('dnešní objednávky i se stornem', facts.today.orders, 5);
 check('storno se počítá zvlášť', facts.today.cancelled, 1);
 // 1200 Kč + 800 EUR; stornovaných 5000 Kč se do tržby nedostane
-check('a do tržby nespadne', facts.today.revenue, [{ currency: 'CZK', amount: 2980 }, { currency: 'EUR', amount: 800 }]);
+check('a do tržby nespadne', facts.today.revenue, [{ currency: 'CZK', amount: 2980 }, { currency: 'EUR', amount: 2200 }]);
 check('koruny se nesčítají s eury', facts.currency, 'CZK');
 check('včerejšek zvlášť', facts.yesterday.orders, 2);
 check('nezaplacené se počítají', facts.yesterday.unpaid, 1);
 
 // Okno: 3 dnes + 2 včera + 1 před třemi dny + 8 výplně
-check('hlavní okno je posledních 30 dní', facts.window.orders, 16);
+check('hlavní okno je posledních 30 dní', facts.window.orders, 17);
 check('a srovnává se s předchozími třiceti', facts.prevWindow.orders, 12);
 check('kalendářní měsíc zůstává jako údaj', typeof facts.month.orders, 'number');
 check('i s tím, kolikátého je', facts.monthDays, NOW.getDate());
 
 check('graf má třicet dní', facts.days.length, 30);
 check('a poslední je dnešek', facts.days[29].day, today);
-check('země se sečtou za okno', facts.countries.map(one => [one.key, one.orders]), [['CZ', 15], ['SK', 1]]);
+check('země se sečtou za okno', facts.countries.map(one => [one.key, one.orders]), [['CZ', 15], ['DE', 1], ['SK', 1]]);
 // Výdejny se slučují po dopravcích — jinak by tu byla jedna položka na pobočku
 check('doprava po dopravcích', facts.shipments.map(one => one.key).sort(), ['PPL', 'Zásilkovna']);
 check('platba taky', facts.payments.map(one => one.key).sort(), ['Dobírka', 'Karta']);
@@ -219,9 +226,13 @@ check('nejprodávanější sečte kusy', pasek.qty, 4);
 check('a objednávky počítá po jedné', pasek.orders, 3);
 /*
  * Tržba u zboží: 1200 (jeden kus) + 2000 (dva kusy na jednom řádku, cena za
- * řádek se nenásobí ještě jednou) a osm eur se nepřipočítá vůbec.
+ * řádek se nenásobí ještě jednou). Eura se do korunového sloupce nepřičtou,
+ * ale **nesmí zmizet** — z nuly u zboží prodávaného do zahraničí se
+ * v postřezích stalo „prodává se zadarmo".
  */
 check('tržba u zboží nemíchá měny a nenásobí řádek', pasek.revenue, 3200);
+check('a cizí měna se drží zvlášť, ne v nule',
+  pasek.revenueAll, [{ currency: 'CZK', amount: 3200 }, { currency: 'EUR', amount: 8 }]);
 /*
  * Nákupy, ne objednávky. Jana objednala dnes i včera — to je jeden nákup,
  * ne návrat; vracejícím se zákazníkem ji dělá až nákup před třemi týdny.
@@ -248,6 +259,14 @@ check('a uvnitř kategorie sedí', facts.sizes[0]?.sizes.map(one => one.label).s
 const knofliky = facts.products.find(one => one.code === 'QM-042');
 check('cena z ceníku doplní chybějící', knofliky.revenue > 0, true);
 check('a je označená jako odhad', knofliky.estimated, true);
+/*
+ * Zboží prodané jen v eurech: v korunách nemá co ukázat, ale cenu známe.
+ * Nula by se v postřezích četla jako „prodává se zadarmo".
+ */
+const kapesnik = facts.products.find(one => one.code === 'QH-009');
+check('zboží prodané jen v eurech není zadarmo',
+  [kapesnik?.revenue, kapesnik?.revenueAll, kapesnik?.priceSource],
+  [0, [{ currency: 'EUR', amount: 14 }], 'jiná měna']);
 check('stavy objednávek se počítají', facts.statuses.some(one => one.key === 'Stornována'), true);
 
 /* ---------- signály: závěry, které spočítá kód ---------- */
@@ -262,7 +281,7 @@ const signals = facts.signals;
 check('každý signál nese podklad', signals.every(one => one.basis && one.text), true);
 const growth = signals.find(one => one.text.startsWith('Objednávek'));
 check('růst proti předchozím 30 dnům se najde', !!growth, true);
-check('a je v něm poměr, ne dojem', growth?.basis, '16 proti 12');
+check('a je v něm poměr, ne dojem', growth?.basis, '17 proti 12');
 check('posun v platbě se pozná',
   signals.some(one => one.text.startsWith('Platba: Dobírka roste')), true);
 check('opakovaný nákup se hlásí vždy',
@@ -317,6 +336,12 @@ check('a řekne, dokdy zahájit propagaci',
 check('a jak je daleko', typeof pohled.season?.inDays, 'number');
 check('má i jméno sezóny', typeof pohled.season?.name, 'string');
 check('a co se v ní prodávalo', Array.isArray(pohled.season?.products), true);
+/*
+ * Sezón může být na půl roku dopředu víc. Leden bývá silnější než prosinec —
+ * a kdo se chystá jen na tu nejbližší, druhou vlnu prošvihne.
+ */
+check('sezóny se hlásí postupně, ne jen ta první', Array.isArray(pohled.seasons), true);
+check('a ta nejbližší je první', pohled.seasons[0]?.month, pohled.season?.month);
 /*
  * Když sezóna není, nesmí zůstat prázdné místo: z ničeho se nepozná, jestli
  * se nepočítalo, nebo jestli fakt žádná nepřichází.
@@ -408,7 +433,7 @@ check('a je označené', tasks[0].urgent, true);
   check('postřeh se rozebere na body', first.insight.headline, 'Klidný den, tržba drží.');
   check('i s otázkami k doptání', first.insight.questions, ['Proč klesla dobírka?']);
   check('a s poznámkou pro sebe na příště', first.insight.focus, 'ověřit propad ve čtvrtek');
-  check('čísla jsou vždy čerstvá', first.facts.today.orders, 4);
+  check('čísla jsou vždy čerstvá', first.facts.today.orders, 5);
   check('chat bez nastavení přehled neshodí', first.chatError, null);
 
   const second = await dg.digestReport();
@@ -468,11 +493,23 @@ check('a je označené', tasks[0].urgent, true);
   // Uložená čísla jsou ta, která platila při vzniku postřehu — ne dnešní
   check('starší přehled se dohledá i s čísly', typeof jeden?.facts?.window?.orders, 'number');
   /*
-   * Uložená čísla jsou ta z chvíle, kdy postřeh vznikl. V téhle zkoušce
-   * mezitím přibyla historie, takže se dnešnímu oknu rovnat nemají — a to je
-   * přesně to, co má archiv umět: ukázat, jak to vypadalo tehdy.
+   * Uložená čísla jsou ta z chvíle, kdy postřeh vznikl. Přibude objednávka —
+   * dnešní okno o ní ví, archiv ne. To je přesně to, co má archiv umět:
+   * ukázat, jak to vypadalo tehdy.
    */
-  check('a drží stav z té chvíle, ne dnešní', jeden.facts.window.orders !== facts.window.orders, true);
+  const tehdy = jeden.facts.window.orders;
+  order({ day: today, total: 1111, email: 'pozdeji@seznam.cz' });
+  check('a drží stav z té chvíle, ne dnešní',
+    [dg.digestFacts().window.orders > tehdy, dg.digestFromArchive(seznam[0].at).facts.window.orders],
+    [true, tehdy]);
+  /*
+   * Do archivu jde **celý** přehled, ne jen hrstka souhrnů. Bez včerejška,
+   * grafu dnů a signálů okno na starším přehledu padalo na šedou plochu.
+   */
+  check('a je v něm všechno, na co se okno ptá',
+    [typeof jeden.facts.yesterday?.orders, Array.isArray(jeden.facts.days),
+      Array.isArray(jeden.facts.signals), Array.isArray(jeden.facts.sizes)],
+    ['number', true, true, true]);
 
   const pdf = require(path.join(DIST, 'digestpdf.js'));
   const html = pdf.digestHtml(facts, jeden.insight, seznam[0].at);

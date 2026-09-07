@@ -72,12 +72,22 @@ console.log('\nkód posílaný do administrace:\n');
   const vars = sent[sent.length - 1];
   ok('kód hledání varianty se dá přeložit', vars.length > 0);
   ok('ptá se administrace na varianty', vars.includes('do=getVariants'));
-  // Kód se do porovnání dostává v malých písmenech, ať se štítek najde
-  // i když ho administrace píše jinak
-  ok('hledá podle kódu varianty', vars.includes('"DS60KM".toLowerCase()'));
+  /*
+   * Porovnává se bez diakritiky, mezer a jednotek — „Délka: 60cm" a „60 cm"
+   * je totéž. Kromě kódu a popisku se zkusí i samotné číslo z popisku:
+   * velikost je to jediné, co mají obě strany spolehlivě stejné.
+   */
+  ok('hledá podle kódu varianty', vars.includes('norm("DS60KM")'));
   ok('a záložně podle popisku', vars.includes('Délka: 60cm'));
+  ok('a nakonec podle čísla velikosti', vars.includes('digits'));
+  ok('srovnává bez diakritiky a mezer', vars.includes('normalize(\'NFD\')'));
   // „Asi to bude tenhle" znamená naskladnit cizí velikost
-  ok('při nejednoznačné shodě nevrací nic', vars.includes('hits.length === 1'));
+  ok('při nejednoznačné shodě nevrací nic', vars.includes('found.length === 1'));
+  /*
+   * Když se varianta nenajde, musí být vidět **co administrace nabídla** —
+   * ze samotného „nenašla se" se ta chyba opravit nedala.
+   */
+  ok('vrací i to, co administrace nabídla', vars.includes('seen'));
 
   await __test.gridCount(win);
   const count = sent[sent.length - 1];

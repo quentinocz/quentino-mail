@@ -551,6 +551,8 @@ function Stockin({ phone, openId: startWith, onPrintLabels, onScanPanel }: {
   const [plan, setPlan] = useState<StockinPlanRow[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  /** Zvětšená fotka zboží — klepnutím kamkoli zmizí */
+  const [zoom, setZoom] = useState<string | null>(null);
   /*
    * Po vložení do administrace se čeká na člověka: ukládá tam on. Dokud
    * nepotvrdí, zůstává naskladnění rozpracované — jinak by se stav aplikace
@@ -930,13 +932,28 @@ function Stockin({ phone, openId: startWith, onPrintLabels, onScanPanel }: {
         )}
         {items.map(item => (
           <div key={item.code} className="kat-line">
+            {/*
+              * Fotka. U regálu se zboží pozná dřív očima než čtením kódu —
+              * a když pípnutí sedne na cizí kus, je to na miniatuře vidět
+              * hned, ne až v administraci. Klepnutím se zvětší.
+              */}
+            {item.image
+              ? <img className="kat-line-thumb" src={item.image} alt="" loading="lazy"
+                onClick={() => setZoom(item.image ?? null)} title="Klepnutím zvětšíš" />
+              : <span className="kat-line-thumb ph"><Icon name="image" size={16} /></span>}
             <div className="kat-line-main">
               <b>{item.title}</b>
               <div className="ig-muted">
-                {item.code}{item.label ? ` · ${item.label}` : ''}
+                {item.code}
                 {item.stockBefore !== null ? ` · skladem bylo ${item.stockBefore}` : ''}
               </div>
             </div>
+            {/*
+              * Varianta ve vlastním sloupci. Jako dovětek za kódem se
+              * přehlédla, přitom právě ona rozhoduje: naskladnit 110 cm
+              * místo 120 cm je chyba, kterou pak nikdo nenajde.
+              */}
+            {item.label && <span className="kat-line-var">{item.label}</span>}
             {/*
               * Počet se dá přepsat, ne jen naklikat: u dvaceti kusů je mačkání
               * plus dvacetkrát trest, ne ovládání.
@@ -1000,6 +1017,13 @@ function Stockin({ phone, openId: startWith, onPrintLabels, onScanPanel }: {
         * po jednom i po deseti. Tatáž hodnota jde i do hledáčku, takže
         * v něm je vidět, co se právě přičte.
         */}
+      {/* Zvětšená fotka — přes celé okno, klepnutím zmizí */}
+      {zoom && (
+        <div className="kat-zoom" onClick={() => setZoom(null)} title="Klepnutím zavřeš">
+          <img src={zoom} alt="" />
+        </div>
+      )}
+
       <div className="kat-qtybar">
         <span className="kat-qty-label">Kusů na pípnutí</span>
         <div className="kat-qty-steps">

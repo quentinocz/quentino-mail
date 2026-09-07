@@ -144,13 +144,39 @@
           payments: slice([['Karta', 58], ['Dobírka', 27], ['Převod', 11]]),
           products: [
             { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 34, orders: 31, revenue: 43860,
-              estimated: false, variants: [{ label: '110 cm', qty: 20 }, { label: '120 cm', qty: 14 }] },
+              revenueAll: [{ currency: 'CZK', amount: 43860 }, { currency: 'EUR', amount: 214 }],
+              estimated: false, priceSource: 'feed', image: null, prevQty: 24, unit: 1290,
+              countries: [{ key: 'CZ', label: 'CZ', qty: 22 }, { key: 'SK', label: 'SK', qty: 8 },
+                { key: 'DE', label: 'DE', qty: 4 }],
+              note: 'Nejvíc jde do CZ — 65 % kusů; proti předchozímu období +42 % (bylo 24 ks); '
+                + 'průměrně 1 290 Kč za kus.',
+              variants: [{ label: '110 cm', qty: 20 }, { label: '120 cm', qty: 14 }] },
             { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 21, orders: 19, revenue: 12495,
-              estimated: false, variants: [] },
+              revenueAll: [{ currency: 'CZK', amount: 12495 }], estimated: false, priceSource: 'feed',
+              image: null, prevQty: 20, unit: 595, countries: [{ key: 'CZ', label: 'CZ', qty: 21 }],
+              note: 'Prodává se jen do CZ (21 z 21 ks); drží se na svém (předtím 20 ks); průměrně 595 Kč za kus.',
+              variants: [] },
             { code: 'QK-007', title: 'Kšandy tmavě modré', qty: 12, orders: 12, revenue: 10680,
-              estimated: true, variants: [{ label: '110 cm', qty: 7 }, { label: '120 cm', qty: 5 }] },
+              revenueAll: [{ currency: 'CZK', amount: 10680 }], estimated: true, priceSource: 'ceník',
+              image: null, prevQty: 4, unit: 890,
+              countries: [{ key: 'CZ', label: 'CZ', qty: 9 }, { key: 'SK', label: 'SK', qty: 3 }],
+              note: 'Nejvíc jde do CZ — 75 % kusů; proti předchozímu období +200 % (byly 4 ks).',
+              variants: [{ label: '110 cm', qty: 7 }, { label: '120 cm', qty: 5 }] },
+            /*
+             * Kapesníček prodaný jen do zahraničí. V korunách má nulu —
+             * a dřív se z ní v postřezích stalo „prodává se zadarmo".
+             */
+            { code: 'QH-009', title: 'Bílý pánský kapesníček s vínovým lemem', qty: 7, orders: 7,
+              revenue: 0, revenueAll: [{ currency: 'EUR', amount: 98 }], estimated: false,
+              priceSource: 'jiná měna', image: null, prevQty: 5, unit: 0,
+              countries: [{ key: 'DE', label: 'DE', qty: 5 }, { key: 'AT', label: 'AT', qty: 2 }],
+              note: 'Prodává se jen do DE (5 ze 7 ks); proti předchozímu období +40 % (bylo 5 ks).',
+              variants: [] },
             { code: 'QW-311', title: 'Peněženka Slim', qty: 9, orders: 9, revenue: 11610,
-              estimated: false, variants: [] }
+              revenueAll: [{ currency: 'CZK', amount: 11610 }], estimated: false, priceSource: 'feed',
+              image: null, prevQty: 11, unit: 1290, countries: [{ key: 'CZ', label: 'CZ', qty: 9 }],
+              note: 'Prodává se jen do CZ (9 z 9 ks); proti předchozímu období −18 % (bylo 11 ks).',
+              variants: [] }
           ],
           sizes: [
             {
@@ -209,9 +235,9 @@
                 + 'Kožený pásek Quentino, Kšandy tmavě modré, Manžetové knoflíčky Onyx.',
               basis: 'průměrně 6,8 objednávky na den proti celoročním 3,6, z 13 měsíců historie',
               products: [
-                { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 96 },
-                { code: 'QK-007', title: 'Kšandy tmavě modré', qty: 74 },
-                { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 51 }
+                { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 96, image: null },
+                { code: 'QK-007', title: 'Kšandy tmavě modré', qty: 74, image: null },
+                { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 51, image: null }
               ],
               posts: [
                 { at: '2025-12-04T18:20:00Z', caption: 'Dárek, který sedne — pásek v dárkové krabičce',
@@ -221,7 +247,40 @@
                   likes: 388, comments: 19, permalink: 'https://instagram.com/p/x2',
                   markets: 2, marketLabels: ['CZ', 'SK'], channels: 'IG' }
               ]
-            }
+            },
+            /*
+             * Sezóny postupně: leden bývá silnější než prosinec a kdo se
+             * chystá jen na tu nejbližší, druhou vlnu prošvihne.
+             */
+            seasons: [
+              {
+                month: '2026-12', label: 'prosinec', name: 'vánoční sezóna', index: 1.9,
+                startBy: '2026-11-10', inDays: 86,
+                text: 'Vánoční sezóna se blíží — začíná zhruba za 3 měsíce.',
+                basis: 'průměrně 6,8 objednávky na den proti celoročním 3,6, z 19 měsíců historie',
+                products: [
+                  { code: 'QP-118', title: 'Kožený pásek Quentino — hnědý', qty: 96, image: null },
+                  { code: 'QK-007', title: 'Kšandy tmavě modré', qty: 74, image: null },
+                  { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 51, image: null }
+                ],
+                posts: [
+                  { at: '2025-12-04T18:20:00Z', caption: 'Dárek, který sedne — pásek v dárkové krabičce',
+                    likes: 412, comments: 26, permalink: 'https://instagram.com/p/x1',
+                    markets: 3, marketLabels: ['CZ', 'SK', 'EN'], channels: 'IG + FB', boosted: false }
+                ]
+              },
+              {
+                month: '2027-01', label: 'leden', name: 'povánoční výprodej', index: 2.1,
+                startBy: '2026-12-11', inDays: 117,
+                text: 'Povánoční výprodej se blíží — začíná zhruba za 4 měsíce.',
+                basis: 'průměrně 7,5 objednávky na den proti celoročním 3,6, z 19 měsíců historie',
+                products: [
+                  { code: 'QW-311', title: 'Peněženka Slim', qty: 61, image: null },
+                  { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 44, image: null }
+                ],
+                posts: []
+              }
+            ]
           },
           social: {
             posts: 6, likes: 742, comments: 38,
@@ -236,7 +295,26 @@
             best: { at: new Date(Date.now() - 5 * 86400e3).toISOString(),
               caption: 'Nové kšandy v cihlové', likes: 214, comments: 12,
               permalink: 'https://instagram.com/p/x', markets: 3 },
-            daysWithPost: 6, ordersWithPost: 5.2, ordersWithout: 3.4, prevPosts: 2
+            daysWithPost: 6, ordersWithPost: 5.2, ordersWithout: 3.4, prevPosts: 2,
+            /*
+             * Placené a neplacené zvlášť. Starší propagovaný příspěvek by
+             * jinak přebil všechno ostatní a vypadal by jako recept.
+             */
+            boostKnown: true,
+            candidates: [
+              { at: new Date(Date.now() - 9 * 86400e3).toISOString(),
+                caption: 'Jak vybrat šířku kravaty podle postavy',
+                likes: 268, comments: 34, permalink: 'https://instagram.com/p/x7',
+                markets: 3, marketLabels: ['CZ', 'SK', 'EN'], channels: 'IG + FB', boosted: false, lift: 22,
+                why: 'Zaujal 2,4× víc než běžný neplacený příspěvek a rozpočet za ním nestál; '
+                  + 'v den vydání a dva dny po něm chodilo o 22 % víc objednávek než obvykle '
+                  + '(souvislost, ne důkaz).' }
+            ],
+            bestOlder: [
+              { at: '2024-11-28T18:20:00Z', caption: 'Černý pátek — sety se slevou',
+                likes: 540, comments: 41, permalink: 'https://instagram.com/p/x9',
+                markets: 3, marketLabels: ['CZ', 'SK', 'EN'], channels: 'IG + FB', boosted: true }
+            ]
           },
           /*
            * Signály. Spočítal je kód, ne AI — proto je pod každou větou
@@ -298,7 +376,9 @@
             { name: 'google / cpc', sessions: 1180 },
             { name: '(direct) / (none)', sessions: 760 }
           ],
-          conversion: 2.2, prevConversion: 2, text: '', error: null
+          conversion: 2.2, prevConversion: 2, text: '', error: null,
+          // GA4 měří zatím jen český web; objednávky chodí ze všech trhů
+          scope: 'český web (.cz)'
         }
       };
     })(),

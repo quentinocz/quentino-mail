@@ -34,7 +34,26 @@ enum Ga4 {
         out["lastError"] = (Store.setting("ga4LastError", "") ?? "").isEmpty
             ? NSNull() : Store.setting("ga4LastError", "")!
         out["ready"] = isReady
+        /*
+         Zdroj a seznam zdrojů. Bez nich okno nastavení na telefonu padalo:
+         čte `apps.length`, a `undefined.length` shodí celé vykreslení do
+         šedé plochy. Sequel má pod jedním klíčem víc zdrojů a u dotazu chce
+         vědět který.
+         */
+        out["appId"] = Store.setting("ga4AppId", "") ?? ""
+        var apps: [[String: Any]] = []
+        if let raw = Store.setting("ga4Apps", "[]"), let data = raw.data(using: .utf8),
+           let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            apps = list
+        }
+        out["apps"] = apps
         return out
+    }
+
+    /// Poslední celá odpověď Sequelu — do nastavení, když se dotaz nepovedl
+    static func lastDetail() -> String {
+        let value = Store.setting("ga4LastDetail", "") ?? ""
+        return value.isEmpty ? "Zatím se nic neuložilo." : value
     }
 
     static func save(_ patch: [String: Any]) -> [String: Any] {
@@ -46,6 +65,9 @@ enum Ga4 {
         if let value = patch["endpoint"] as? String {
             let clean = value.trimmingCharacters(in: .whitespaces)
             Store.setSetting("ga4Endpoint", clean.isEmpty ? defaultEndpoint : clean)
+        }
+        if let value = patch["appId"] as? String {
+            Store.setSetting("ga4AppId", value.trimmingCharacters(in: .whitespaces))
         }
         return config()
     }
@@ -580,6 +602,12 @@ enum Ga4 {
 
             var out: [String: Any] = [:]
             out["at"] = Formats.iso(Date())
+        /*
+         Který web ta čísla měří. GA4 je zatím napojené jen na český web,
+         kdežto objednávky chodí ze všech trhů — dělit jedno druhým dá
+         nesmysl, tak ať je vidět, co s čím nejde srovnat.
+         */
+        out["scope"] = Store.setting("ga4Scope", "český web (.cz)") ?? "český web (.cz)"
             out["window"] = window
             out["prevWindow"] = prev
             out["sources"] = sources
