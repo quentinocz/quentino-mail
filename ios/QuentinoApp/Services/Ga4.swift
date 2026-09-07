@@ -870,6 +870,14 @@ enum Ga4 {
         let found = textOf(try await rpc("tools/call", searchParams, id: 4))
         let plan = jsonIn(found)
         let results = findArray(plan, key: "results") ?? []
+        /*
+         Ke kterému spojení plán patří. Volání bez `connection_id` a `plan_id`
+         skončilo šestkrát po sobě stejně — „UNDEFINED_VALUE: Undefined values
+         are not allowed", ať se vstup jmenoval jakkoli. Server si tedy
+         z volání skládá vlastní záznam a obojí v něm čekal.
+         */
+        var connectionId = appId
+        var planId = ""
         var report: [String: Any]?
         for one in results {
             for tool in (one["tools"] as? [[String: Any]] ?? []) {
@@ -877,6 +885,8 @@ enum Ga4 {
                 if id.range(of: "run_report|report|query",
                             options: [.regularExpression, .caseInsensitive]) != nil {
                     report = tool
+                    if let found = one["connection_id"] as? String, !found.isEmpty { connectionId = found }
+                    if let found = one["plan_id"] as? String, !found.isEmpty { planId = found }
                     break
                 }
             }
@@ -947,21 +957,16 @@ enum Ga4 {
             let list: [[String: Any]] = calls.map { call in
                 let input = call["input"] as? [String: Any] ?? [:]
                 /*
-                 „holé" je volání bez ničeho navíc: jen jméno nástroje a jeho
-                 vstup naplocho. Schéma vstupu má `additionalProperties: false`,
-                 takže `id` ani `tool_id` v něm být nesmí.
+                 Ke každému volání patří i to, komu ho poslat: jméno nástroje
+                 (`tool` i `tool_id`, server si vezme, co zná), spojení a plán,
+                 ze kterého vzešlo. Bez těch dvou se volání neuložilo vůbec.
                  */
-                if shape == "holé" {
-                    var bare: [String: Any] = [:]
-                    bare["tool"] = call["tool_id"]
-                    for (key, value) in input { bare[key] = value }
-                    return bare
-                }
-                // Jinde `tool` i `tool_id` schválně obojí — server si vezme, co zná
                 var other: [String: Any] = [:]
                 other["id"] = call["id"]
                 other["tool"] = call["tool_id"]
                 other["tool_id"] = call["tool_id"]
+                if !connectionId.isEmpty { other["connection_id"] = connectionId }
+                if !planId.isEmpty { other["plan_id"] = planId }
                 other[shape] = input
                 return other
             }
@@ -996,7 +1001,7 @@ enum Ga4 {
          */
         var answer = ""
         var attempts: [String] = []
-        for (index, shape) in ["input", "params", "arguments", "parameters", "args", "holé"].enumerated() {
+        for (index, shape) in ["input", "params", "arguments"].enumerated() {
             answer = try await runOnce(shape, id: 41 + index)
             attempts.append("— tvar \(shape): \(answer.prefix(700))")
             if answer.range(of: "\"rows\"") != nil { break }
