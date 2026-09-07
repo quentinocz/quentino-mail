@@ -1390,7 +1390,7 @@ enum Digest {
                 of: "\\s+", with: " ", options: .regularExpression)
             throw BridgeError.message(
                 "Model \(model) vrátil odpověď, ze které se postřeh nedal přečíst"
-                + (answer.isEmpty ? " (prázdná odpověď)." : " (začínala „\(start)…")."))
+                + (answer.isEmpty ? " (prázdná odpověď)." : " (začínala „\(start)…“)."))
         }
 
         ensureTable()

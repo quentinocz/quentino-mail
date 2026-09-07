@@ -468,11 +468,23 @@ check('a je označené', tasks[0].urgent, true);
   // Uložená čísla jsou ta, která platila při vzniku postřehu — ne dnešní
   check('starší přehled se dohledá i s čísly', typeof jeden?.facts?.window?.orders, 'number');
   /*
-   * Uložená čísla jsou ta z chvíle, kdy postřeh vznikl. V téhle zkoušce
-   * mezitím přibyla historie, takže se dnešnímu oknu rovnat nemají — a to je
-   * přesně to, co má archiv umět: ukázat, jak to vypadalo tehdy.
+   * Uložená čísla jsou ta z chvíle, kdy postřeh vznikl. Přibude objednávka —
+   * dnešní okno o ní ví, archiv ne. To je přesně to, co má archiv umět:
+   * ukázat, jak to vypadalo tehdy.
    */
-  check('a drží stav z té chvíle, ne dnešní', jeden.facts.window.orders !== facts.window.orders, true);
+  const tehdy = jeden.facts.window.orders;
+  order({ day: today, total: 1111, email: 'pozdeji@seznam.cz' });
+  check('a drží stav z té chvíle, ne dnešní',
+    [dg.digestFacts().window.orders > tehdy, dg.digestFromArchive(seznam[0].at).facts.window.orders],
+    [true, tehdy]);
+  /*
+   * Do archivu jde **celý** přehled, ne jen hrstka souhrnů. Bez včerejška,
+   * grafu dnů a signálů okno na starším přehledu padalo na šedou plochu.
+   */
+  check('a je v něm všechno, na co se okno ptá',
+    [typeof jeden.facts.yesterday?.orders, Array.isArray(jeden.facts.days),
+      Array.isArray(jeden.facts.signals), Array.isArray(jeden.facts.sizes)],
+    ['number', true, true, true]);
 
   const pdf = require(path.join(DIST, 'digestpdf.js'));
   const html = pdf.digestHtml(facts, jeden.insight, seznam[0].at);

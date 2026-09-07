@@ -1536,7 +1536,7 @@ async function makeInsight(facts: DigestFacts, ga4: DigestGa4 | null = null): Pr
   if (!insightUsable(insight)) {
     throw new Error(
       `Model ${model} vrátil odpověď, ze které se postřeh nedal přečíst`
-      + `${answer ? ` (začínala „${answer.slice(0, 80).replace(/\s+/g, ' ')}…")` : ' (prázdná odpověď)'}.`
+      + `${answer ? ` (začínala „${answer.slice(0, 80).replace(/\s+/g, ' ')}…“)` : ' (prázdná odpověď)'}.`
     );
   }
 
