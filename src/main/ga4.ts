@@ -924,6 +924,57 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
   if (!force && last && age < EVERY_MS) return last;
 
   try {
+    /*
+     * Nejdřív reporty přímo. Sequel umí spustit `google_analytics.run_report`
+     * a vrátit řádky — čísla se pak nikde nepřekládají do řeči a zpátky.
+     * Když to nevyjde (jiný server, jiné nástroje), zbývá stará cesta: zeptat
+     * se slovy a přečíst JSON z odpovědi.
+     */
+    try {
+      await connect();
+      const tools = await listTools();
+      const direct = await runReports(tools, queryTool(tools), getSetting('ga4AppId', '')!);
+      if (direct) {
+        const snapshot: Ga4Snapshot = { at: new Date().toISOString(), scope: ga4Scope(), ...direct.snapshot };
+        const anything = snapshot.window.sessions || snapshot.window.users || snapshot.window.purchases;
+        if (anything) {
+          setSetting(SNAPSHOT_KEY, JSON.stringify(snapshot));
+          setSetting('ga4LastAt', snapshot.at);
+          setSetting('ga4LastError', '');
+          setSetting('ga4LastDetail', `${new Date().toISOString()}\nreporty:\n${direct.detail}`.slice(0, 8000));
+          return snapshot;
+        }
+        /*
+         * Report doběhl a je prázdný. To je taky odpověď — ne důvod zkoušet
+         * oklikou přes řeč a skončit u obecnější hlášky.
+         */
+        setSetting('ga4LastDetail', `${new Date().toISOString()}\nreport bez čísel:\n${direct.detail}`.slice(0, 8000));
+        const message = 'Report z Google Analytics doběhl, ale nevrátil žádná čísla — '
+          + 'zkontroluj, jestli je ve zdroji vybraná správná služba. '
+          + 'Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.';
+        setSetting('ga4LastError', message);
+        return last ? { ...last, error: message } : {
+          at: '', scope: ga4Scope(), window: periodOf(null), prevWindow: periodOf(null),
+          sources: [], conversion: null, prevConversion: null, text: '', error: message
+        };
+      }
+    } catch (e: any) {
+      /*
+       * Report se spustil a nedopadl — to je konkrétní zjištění a nemá se
+       * přebít obecnější chybou z náhradní cesty. Ta se zkusí jen tehdy,
+       * když se k reportu vůbec nedošlo (jiný server, jiné nástroje).
+       */
+      const message = String(e?.message ?? e);
+      if (/report/i.test(message)) {
+        setSetting('ga4LastError', message);
+        return last ? { ...last, error: message } : {
+          at: '', scope: ga4Scope(), window: periodOf(null), prevWindow: periodOf(null),
+          sources: [], conversion: null, prevConversion: null, text: '', error: message
+        };
+      }
+      setSetting('ga4LastDetail', `${new Date().toISOString()}\nreporty selhaly: ${message}`);
+    }
+
     const text = await ga4Ask(question());
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
@@ -985,6 +1036,175 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
         sources: [], conversion: null, prevConversion: null, text: '', error: message
       };
   }
+}
+
+
+/* ---------- reporty přímo, bez překládání do řeči ---------- */
+
+/**
+ * Čísla z Google Analytics **bez prostředníka**.
+ *
+ * Ukázalo se, jak Sequel doopravdy funguje: `sequel_search` nevrací data,
+ * ale **plán** — u napojeného zdroje vypíše nástroje i s jejich schématem
+ * (`google_analytics.run_report`), a teprve `sequel_execute` je spustí.
+ * Prosba typu „vrať mi JSON s návštěvností" tudy neprojde: co se má spustit,
+ * musí sestavit ten, kdo se ptá.
+ *
+ * Sestavuje to tedy aplikace sama, a je to tak i poctivější — čísla se
+ * nikde nepřekládají do řeči a zpátky. Tři reporty:
+ *
+ *  1. **okno** (30 dní): návštěvy, uživatelé, nákupy, tržba,
+ *  2. **předchozích 30 dní** — s čím se to srovnává,
+ *  3. **zdroje** za okno: pět nejsilnějších `sessionSourceMedium`.
+ *
+ * Metriky se berou z výčtu ve schématu, ne z hlavy: kdyby Sequel jména
+ * změnil, vezmou se ta, která nabízí.
+ */
+async function runReports(
+  tools: ToolInfo[], searchTool: ToolInfo, appId: string
+): Promise<{ snapshot: Omit<Ga4Snapshot, 'at' | 'scope'>; detail: string } | null> {
+  const runner = runTool(tools);
+  if (!runner) return null;
+
+  const why = 'Denní přehled e-shopu Quentino — návštěvnost za posledních 30 dní.';
+  const searchArgs = argsFor(searchTool, { question: question(), appId, why });
+  const found = textOf(await rpc('tools/call', { name: searchTool.name, arguments: searchArgs }, 4));
+  const plan = jsonIn(found);
+  const results = findArray(plan, 'results') ?? [];
+  const report = results
+    .flatMap((one: any) => (Array.isArray(one?.tools) ? one.tools : []))
+    .find((one: any) => /run_report|report|query/i.test(String(one?.tool_id ?? one?.id ?? '')));
+  if (!report) return null;
+
+  const schema = report.input_schema ?? report.inputSchema ?? {};
+  const offered = (name: string): string[] => enumOf(schema?.properties?.[name]?.items ?? {});
+  const pick = (wanted: string[], name: string): string[] => {
+    const list = offered(name);
+    const usable = wanted.filter(one => !list.length || list.includes(one));
+    return usable.length ? usable : wanted.slice(0, 1);
+  };
+
+  // Sessions a users musí být; nákupy a tržba jen když je zdroj zná
+  const metrics = pick(['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue'], 'metrics');
+  /*
+   * Souhrn potřebuje aspoň jednu dimenzi (schéma jinou možnost nedává).
+   * `year` je nejmíň rozsekaná: třicetidenní okno je jeden řádek, na
+   * přelomu roku dva — a uživatelé se sčítají po roce, ne po dnech, takže
+   * se nenafouknou opakovanými návštěvami.
+   */
+  const totals = (from: string, to: string, id: string) => ({
+    id,
+    tool_id: String(report.tool_id ?? report.id),
+    input: { startDate: from, endDate: to, dimensions: ['year'], metrics, limit: 10 }
+  });
+  const calls = [
+    totals(dayKey(29), dayKey(0), 'window'),
+    totals(dayKey(59), dayKey(30), 'prevWindow'),
+    {
+      id: 'sources',
+      tool_id: String(report.tool_id ?? report.id),
+      input: {
+        startDate: dayKey(29),
+        endDate: dayKey(0),
+        dimensions: pick(['sessionSourceMedium'], 'dimensions'),
+        metrics: ['sessions'],
+        limit: 5,
+        orderBy: [{ metric: 'sessions', desc: true }]
+      }
+    }
+  ];
+
+  const session = String(plan?.session_id ?? plan?.data?.session_id ?? '');
+  const runOnce = async (shape: 'input' | 'arguments'): Promise<string> => {
+    const runArgs = argsFor(runner, { question: question(), appId, why });
+    const list = calls.map(one => (shape === 'input' ? one : {
+      id: one.id, tool_id: one.tool_id, arguments: one.input
+    }));
+    for (const [name, property] of Object.entries<any>(runner.schema?.properties ?? {})) {
+      if (/^(tool_?calls|calls|steps|plan)$/i.test(name)) {
+        runArgs[name] = isArray(property) ? list : JSON.stringify(list);
+      }
+      if (/^session_?id$/i.test(name) && session) runArgs[name] = session;
+    }
+    return textOf(await rpc('tools/call', { name: runner.name, arguments: runArgs }, 41));
+  };
+
+  /*
+   * Jak se u volání jmenuje vstup, se ze schématu nedozvíme — `tool_calls`
+   * je jen „pole". Zkusí se `input`, a když si server postěžuje, `arguments`.
+   */
+  let answer = await runOnce('input');
+  if (/"error"|argument|invalid|required/i.test(answer) && !/"rows"/.test(answer)) {
+    answer = await runOnce('arguments');
+  }
+  /*
+   * Report se spustil a nedopadl. To není důvod zkoušet oklikou přes řeč —
+   * je to konkrétní chyba, kterou je vidět v nastavení, a hlásí se rovnou.
+   */
+  if (!/"rows"/.test(answer)) {
+    const why = String(jsonIn(answer)?.error ?? jsonIn(answer)?.data?.error ?? '').slice(0, 160);
+    setSetting('ga4LastDetail', `${new Date().toISOString()}\nreport se nepovedl:\n${found}\n\n--- spuštění ---\n${answer}`.slice(0, 8000));
+    throw new Error(
+      why
+        ? `Sequel report odpověděl chybou: ${why}. Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.`
+        : 'Sequel report nevrátil žádné řádky. Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.'
+    );
+  }
+
+  const parsed = jsonIn(answer);
+  const tables = collectRows(parsed);
+  if (!tables.length) return null;
+
+  const sum = (rows: any[], key: string): number | null => {
+    let total = 0;
+    let seen = false;
+    for (const row of rows) {
+      const value = num(row?.[key]);
+      if (value != null) { total += value; seen = true; }
+    }
+    return seen ? Math.round(total) : null;
+  };
+  const period = (rows: any[] | undefined): Ga4Period => ({
+    sessions: rows ? sum(rows, 'sessions') : null,
+    users: rows ? sum(rows, 'totalUsers') ?? sum(rows, 'users') : null,
+    purchases: rows ? sum(rows, 'ecommercePurchases') ?? sum(rows, 'conversions') : null,
+    revenue: rows ? sum(rows, 'totalRevenue') ?? sum(rows, 'revenue') : null
+  });
+
+  const windowRows = tables[0];
+  const prevRows = tables[1];
+  const sourceRows = tables[2] ?? [];
+  const windowPeriod = period(windowRows);
+  const prevPeriod = period(prevRows);
+
+  return {
+    snapshot: {
+      window: windowPeriod,
+      prevWindow: prevPeriod,
+      sources: sourceRows
+        .map((row: any) => ({
+          name: String(row?.sessionSourceMedium ?? row?.name ?? '').trim(),
+          sessions: num(row?.sessions) ?? 0
+        }))
+        .filter((one: { name: string }) => one.name)
+        .slice(0, 5),
+      conversion: conversionOf(windowPeriod),
+      prevConversion: conversionOf(prevPeriod),
+      text: answer.slice(0, 2000),
+      error: null
+    },
+    detail: `${found}\n\n--- spuštění ---\n${answer}`
+  };
+}
+
+/** Všechny tabulky z odpovědi — v pořadí, v jakém se posílaly reporty */
+function collectRows(node: any, out: any[][] = [], depth = 0): any[][] {
+  if (!node || typeof node !== 'object' || depth > 8) return out;
+  if (Array.isArray(node.rows)) out.push(node.rows);
+  for (const value of Array.isArray(node) ? node : Object.values(node)) {
+    collectRows(value, out, depth + 1);
+  }
+  return out;
 }
 
 /**

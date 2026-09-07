@@ -101,6 +101,11 @@ const TOOLS = [
 ];
 
 let calls = [];
+// Přepínače pro zkoušky: report bez řádků a report, který skončí chybou
+let zeroReports = false;
+let failReports = false;
+// Vypršelý souhlas s Google účtem — server pak na všechno hlásí reconnect
+let pendingReconnect = false;
 let answer = '{"window":{"sessions":1234,"users":900,"purchases":31,"revenue":54000},'
   + '"prevWindow":{"sessions":1000,"users":800,"purchases":25,"revenue":45000},'
   + '"sources":[{"name":"google / organic","sessions":700}]}';
@@ -126,6 +131,8 @@ global.fetch = async (url, options) => {
     const tool = body.params?.name ?? '';
     // Povinná věta „proč se ptáme" — bez ní server dotaz odmítá
     if (!args.action_info) return text('{"status":"error","error":"action_info is required"}');
+    // Vypršené přihlášení do Googlu: na cokoli přijde „čeká na reconnect"
+    if (pendingReconnect) return text(answer);
 
     /*
      * Seznam spojení. Vedle napojených zdrojů nese i **katalog toho, co by
@@ -141,18 +148,75 @@ global.fetch = async (url, options) => {
         + '{"app_id":"hubspot","name":"HubSpot"}]}}');
     }
 
-    // Hledání samo čísla nevrací — jen návrh, co spustit
+    /*
+     * Hledání čísla nevrací — vrátí **plán**: u napojeného zdroje vypíše
+     * nástroje i s jejich schématem. Co se má spustit, musí sestavit ten,
+     * kdo se ptá.
+     */
     if (tool === 'sequel_search') {
       if (!args.use_case) return text('{"status":"error","error":"use_case is required"}');
-      return text('{"status":"success","session_id":"sess-1","data":{"tool_calls":'
-        + '[{"id":"c1","name":"ga4_report","arguments":{"metrics":["sessions"]}}]}}');
+      return text(JSON.stringify({
+        status: 'success',
+        data: {
+          results: [{
+            connection_id: 's6f02zyp',
+            connection_name: 'GA4 — Quentino.cz – GA4',
+            app_id: 'google_analytics',
+            plan_id: 'sp_1',
+            instructions: 'Run two Google Analytics 4 reports…',
+            tools: [{
+              tool_id: 'google_analytics.run_report',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  startDate: { type: 'string' },
+                  endDate: { type: 'string' },
+                  dimensions: { type: 'array', items: { type: 'string',
+                    enum: ['date', 'year', 'country', 'sessionSourceMedium'] } },
+                  metrics: { type: 'array', items: { type: 'string',
+                    enum: ['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue', 'conversions'] } },
+                  limit: { type: 'integer' },
+                  orderBy: { type: 'array' }
+                },
+                required: ['startDate', 'endDate', 'dimensions', 'metrics', 'limit']
+              }
+            }]
+          }],
+          skills: []
+        },
+        session_id: 'gvauhe'
+      }));
     }
 
     if (tool === 'sequel_execute') {
       if (!Array.isArray(args.tool_calls) || args.tool_calls.length === 0) {
         return text('{"status":"error","error":"tool_calls is required"}');
       }
-      return text(answer);
+      if (failReports) {
+        return text('{"status":"error","error":"app_id is required when action=\'connect\'"}');
+      }
+      if (zeroReports) {
+        return text(JSON.stringify({ status: 'success', data: { results: args.tool_calls.map(() => ({
+          rows: [], rowCount: 0, fields: []
+        })) } }));
+      }
+      /*
+       * Odpovědi v pořadí, v jakém volání přišla: okno, předchozí okno,
+       * zdroje. Uživatelé se sčítají po roce, ne po dnech — jinak by je
+       * opakované návštěvy nafoukly.
+       */
+      return text(JSON.stringify({
+        status: 'success',
+        data: {
+          results: [
+            { rows: [{ year: '2026', sessions: 1234, totalUsers: 900,
+              ecommercePurchases: 31, totalRevenue: 54000 }], rowCount: 1, fields: [] },
+            { rows: [{ year: '2026', sessions: 1000, totalUsers: 800,
+              ecommercePurchases: 25, totalRevenue: 45000 }], rowCount: 1, fields: [] },
+            { rows: [{ sessionSourceMedium: 'google / organic', sessions: 700 }], rowCount: 1, fields: [] }
+          ]
+        }
+      }));
     }
     return text('{"status":"error","error":"unsupported tool"}');
   }
@@ -215,10 +279,28 @@ global.fetch = async (url, options) => {
    */
   const runCall = calls.filter(one => one.method === 'tools/call')
     .find(one => one.params.name === 'sequel_execute');
-  check('návrh z hledání se opravdu spustí', !!runCall, true);
-  check('a jde do něj to, co hledání vrátilo',
-    runCall?.params.arguments.tool_calls?.[0]?.name, 'ga4_report');
-  check('i sezení z prvního kroku', runCall?.params.arguments.session_id, 'sess-1');
+  check('plán z hledání se opravdu spustí', !!runCall, true);
+  const spusteno = runCall?.params.arguments.tool_calls ?? [];
+  check('spouští se nástroj ze schématu, ne vymyšlený',
+    spusteno[0]?.tool_id, 'google_analytics.run_report');
+  // Okno, předchozí okno a zdroje — tři reporty jedním voláním
+  check('a tři reporty naráz', spusteno.map(one => one.id), ['window', 'prevWindow', 'sources']);
+  /*
+   * Metriky se berou z výčtu ve schématu, ne z hlavy: `transactions` ani
+   * `purchaseRevenue` v GA4 přes Sequel nejsou, jsou to `ecommercePurchases`
+   * a `totalRevenue`. Kdyby je Sequel přejmenoval, vezmou se ty nabízené.
+   */
+  check('metriky jsou ty, které nástroj nabízí', spusteno[0]?.input.metrics,
+    ['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue']);
+  /*
+   * Souhrn potřebuje aspoň jednu dimenzi. `year` je nejmíň rozsekaná —
+   * uživatelé se sčítají po roce, ne po dnech, takže je opakované návštěvy
+   * nenafouknou.
+   */
+  check('souhrn se počítá po roce, ne po dnech', spusteno[0]?.input.dimensions, ['year']);
+  check('zdroje jdou podle sessionSourceMedium', spusteno[2]?.input.dimensions, ['sessionSourceMedium']);
+  check('a je jich pět', spusteno[2]?.input.limit, 5);
+  check('i sezení z hledání', runCall?.params.arguments.session_id, 'gvauhe');
   check('čísla se přečtou', snapshot.window.sessions, 1234);
   check('konverze se dopočítá', snapshot.conversion, 2.5);
   check('a je z čeho srovnávat', snapshot.prevWindow.sessions, 1000);
@@ -236,10 +318,12 @@ global.fetch = async (url, options) => {
 
   answer = '{"window":{"sessions":0,"users":0,"purchases":0,"revenue":0},'
     + '"prevWindow":{"sessions":0,"users":0,"purchases":0,"revenue":0},"sources":[]}';
+  zeroReports = true;
   const zeros = await ga4.ga4Snapshot(true);
-  check('samé nuly se nevydávají za data', /čísla návštěvnosti v tom nejsou/.test(zeros.error ?? ''), true);
+  zeroReports = false;
+  check('samé nuly se nevydávají za data', /nevrátil žádná čísla/.test(zeros.error ?? ''), true);
   // Celá odpověď se schová do nastavení — v bublině na ni není místo
-  check('a celá odpověď se schová do nastavení', /"sessions":0/.test(ga4.ga4LastDetail()), true);
+  check('a celá odpověď se schová do nastavení', /"rows":\[\]/.test(ga4.ga4LastDetail()), true);
 
   console.log('\nchyba schovaná v odpovědi:\n');
   /*
@@ -247,13 +331,15 @@ global.fetch = async (url, options) => {
    * Dřív se z ní stala nula návštěv, což vypadalo jako pravda.
    */
   answer = '{"status":"error","error":"app_id is required when action=\'connect\'"}';
+  failReports = true;
   const before = snapshot.at;
   const broken = await ga4.ga4Snapshot(true);
+  failReports = false;
   /*
    * Hláška se čte z bubliny na telefonu, takže musí být krátká a říct, co
    * dál — celý JSON se do ní nevejde. Ten se schová do nastavení.
    */
-  check('pozná se jako chyba', /odpověděl chybou/.test(broken.error ?? ''), true);
+  check('pozná se jako chyba', /odpověděl chybou.*app_id is required/.test(broken.error ?? ''), true);
   check('a řekne, kde je celá odpověď', /v nastavení/.test(broken.error ?? ''), true);
   check('celá odpověď se uloží', /app_id is required/.test(ga4.ga4LastDetail()), true);
   /*
@@ -304,7 +390,9 @@ global.fetch = async (url, options) => {
    */
   answer = '{"status":"success","data":{"action":"reconnect","status":"pending",'
     + '"connection_id":"s6f02zyp","url":"https://sequel.sh/connections/s6f02zyp"}}';
+  pendingReconnect = true;
   const stale = await ga4.ga4Snapshot(true);
+  pendingReconnect = false;
   check('řekne se, že čeká přihlášení', /čeká na nové přihlášení/.test(stale.error ?? ''), true);
   check('a kam se má kliknout', /sequel\.sh\/connections/.test(stale.error ?? ''), true);
   // `reconnect` se nesmí poslat jako dotaz — z výběru akcí musí vypadnout

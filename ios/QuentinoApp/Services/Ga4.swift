@@ -833,6 +833,223 @@ enum Ga4 {
      Když se dotaz nepovede, vrátí se poslední známý snímek i s poznámkou,
      proč je starý — prázdná karta by neřekla nic.
      */
+
+    /// Prázdný snímek jen s vysvětlením — starý není a mlčet se nemá
+    private static func emptySnapshot(_ message: String) -> [String: Any] {
+        var out: [String: Any] = [:]
+        out["at"] = ""
+        out["scope"] = Store.setting("ga4Scope", "český web (.cz)") ?? "český web (.cz)"
+        out["window"] = period(nil)
+        out["prevWindow"] = period(nil)
+        out["sources"] = [[String: Any]]()
+        out["conversion"] = NSNull()
+        out["prevConversion"] = NSNull()
+        out["text"] = ""
+        out["error"] = message
+        return out
+    }
+
+    /* ---------- reporty přímo, bez překládání do řeči ---------- */
+
+    /**
+     Čísla z Google Analytics **bez prostředníka**.
+
+     Sequel na dotaz nevrací data, ale plán: u napojeného zdroje vypíše
+     nástroje i s jejich schématem (`google_analytics.run_report`) a teprve
+     spuštění je provede. Co se má spustit, tedy musí sestavit ten, kdo se
+     ptá — a je to tak i poctivější, protože se čísla nikde nepřekládají do
+     řeči a zpátky. Tři reporty: okno, předchozích třicet dní a zdroje.
+     */
+    private static func runReports(_ tools: [[String: Any]], search: [String: Any],
+                                   appId: String) async throws -> [String: Any]? {
+        guard let runner = runTool(tools) else { return nil }
+
+        var searchParams: [String: Any] = [:]
+        searchParams["name"] = search["name"] as? String ?? ""
+        searchParams["arguments"] = argsFor(search, question: question(), appId: appId, action: "query")
+        let found = textOf(try await rpc("tools/call", searchParams, id: 4))
+        let plan = jsonIn(found)
+        let results = findArray(plan, key: "results") ?? []
+        var report: [String: Any]?
+        for one in results {
+            for tool in (one["tools"] as? [[String: Any]] ?? []) {
+                let id = (tool["tool_id"] as? String) ?? (tool["id"] as? String) ?? ""
+                if id.range(of: "run_report|report|query",
+                            options: [.regularExpression, .caseInsensitive]) != nil {
+                    report = tool
+                    break
+                }
+            }
+            if report != nil { break }
+        }
+        guard let report else { return nil }
+
+        let schema = (report["input_schema"] as? [String: Any])
+            ?? (report["inputSchema"] as? [String: Any]) ?? [:]
+        let properties = schema["properties"] as? [String: Any] ?? [:]
+        func offered(_ name: String) -> [String] {
+            let field = properties[name] as? [String: Any] ?? [:]
+            return enumOf(field["items"])
+        }
+        func pick(_ wanted: [String], _ name: String) -> [String] {
+            let list = offered(name)
+            let usable = wanted.filter { list.isEmpty || list.contains($0) }
+            return usable.isEmpty ? Array(wanted.prefix(1)) : usable
+        }
+
+        let toolId = (report["tool_id"] as? String) ?? (report["id"] as? String) ?? ""
+        let metrics = pick(["sessions", "totalUsers", "ecommercePurchases", "totalRevenue"], "metrics")
+        /*
+         Souhrn potřebuje aspoň jednu dimenzi. `year` je nejmíň rozsekaná:
+         uživatelé se sčítají po roce, ne po dnech, takže je opakované
+         návštěvy nenafouknou.
+         */
+        func totals(_ from: String, _ to: String, _ id: String) -> [String: Any] {
+            var input: [String: Any] = [:]
+            input["startDate"] = from
+            input["endDate"] = to
+            input["dimensions"] = ["year"]
+            input["metrics"] = metrics
+            input["limit"] = 10
+            var call: [String: Any] = [:]
+            call["id"] = id
+            call["tool_id"] = toolId
+            call["input"] = input
+            return call
+        }
+        var sourceInput: [String: Any] = [:]
+        sourceInput["startDate"] = dayKey(29)
+        sourceInput["endDate"] = dayKey(0)
+        sourceInput["dimensions"] = pick(["sessionSourceMedium"], "dimensions")
+        sourceInput["metrics"] = ["sessions"]
+        sourceInput["limit"] = 5
+        sourceInput["orderBy"] = [["metric": "sessions", "desc": true]]
+        var sourceCall: [String: Any] = [:]
+        sourceCall["id"] = "sources"
+        sourceCall["tool_id"] = toolId
+        sourceCall["input"] = sourceInput
+
+        let calls: [[String: Any]] = [
+            totals(dayKey(29), dayKey(0), "window"),
+            totals(dayKey(59), dayKey(30), "prevWindow"),
+            sourceCall
+        ]
+        let session = (plan?["session_id"] as? String)
+            ?? ((plan?["data"] as? [String: Any])?["session_id"] as? String) ?? ""
+
+        /*
+         Jak se u volání jmenuje vstup, se ze schématu nedozvíme — `tool_calls`
+         je jen „pole". Zkusí se `input`, a když si server postěžuje,
+         `arguments`.
+         */
+        func runOnce(_ shape: String) async throws -> String {
+            var runArgs = argsFor(runner, question: question(), appId: appId, action: "query")
+            let list: [[String: Any]] = calls.map { call in
+                guard shape == "arguments" else { return call }
+                var other: [String: Any] = [:]
+                other["id"] = call["id"]
+                other["tool_id"] = call["tool_id"]
+                other["arguments"] = call["input"]
+                return other
+            }
+            for (name, raw) in (schemaOf(runner)["properties"] as? [String: Any] ?? [:]) {
+                let property = raw as? [String: Any] ?? [:]
+                let lower = name.lowercased()
+                if lower.range(of: "^(tool_?calls|calls|steps|plan)$", options: .regularExpression) != nil {
+                    runArgs[name] = (property["type"] as? String) == "array"
+                        ? list
+                        : (OrderFeed.jsonText(["calls": list]) ?? "")
+                }
+                if lower.range(of: "^session_?id$", options: .regularExpression) != nil, !session.isEmpty {
+                    runArgs[name] = session
+                }
+            }
+            var runParams: [String: Any] = [:]
+            runParams["name"] = runner["name"] as? String ?? ""
+            runParams["arguments"] = runArgs
+            return textOf(try await rpc("tools/call", runParams, id: 41))
+        }
+
+        var answer = try await runOnce("input")
+        let broken = answer.range(of: "\"error\"|argument|invalid|required",
+                                  options: [.regularExpression, .caseInsensitive]) != nil
+        if broken, answer.range(of: "\"rows\"") == nil { answer = try await runOnce("arguments") }
+
+        let detail = found + "\n\n--- spuštění ---\n" + answer
+        if answer.range(of: "\"rows\"") == nil {
+            /*
+             Report se spustil a nedopadl. To není důvod zkoušet oklikou přes
+             řeč — je to konkrétní chyba, kterou je vidět v nastavení.
+             */
+            Store.setSetting("ga4LastDetail", String(("report se nepovedl:\n" + detail).prefix(8000)))
+            let why = (jsonIn(answer)?["error"] as? String)
+                ?? ((jsonIn(answer)?["data"] as? [String: Any])?["error"] as? String) ?? ""
+            throw BridgeError.message(
+                why.isEmpty
+                    ? "Sequel report nevrátil žádné řádky. Celou odpověď ukáže „Zobrazit poslední odpověď“ v nastavení."
+                    : "Sequel report odpověděl chybou: \(why.prefix(160)). Celou odpověď ukáže"
+                      + " „Zobrazit poslední odpověď“ v nastavení.")
+        }
+
+        var tables: [[[String: Any]]] = []
+        collectRows(jsonIn(answer), into: &tables)
+        guard !tables.isEmpty else { return nil }
+
+        func sum(_ rows: [[String: Any]], _ key: String) -> Int? {
+            var total = 0.0
+            var seen = false
+            for row in rows {
+                if let value = row[key] as? Double { total += value; seen = true }
+                else if let value = row[key] as? Int { total += Double(value); seen = true }
+                else if let text = row[key] as? String, let value = Double(text) { total += value; seen = true }
+            }
+            return seen ? Int(total.rounded()) : nil
+        }
+        func period(_ rows: [[String: Any]]?) -> [String: Any] {
+            var one: [String: Any] = [:]
+            one["sessions"] = rows.flatMap { sum($0, "sessions") } ?? NSNull()
+            one["users"] = rows.flatMap { sum($0, "totalUsers") ?? sum($0, "users") } ?? NSNull()
+            one["purchases"] = rows.flatMap {
+                sum($0, "ecommercePurchases") ?? sum($0, "conversions") } ?? NSNull()
+            one["revenue"] = rows.flatMap { sum($0, "totalRevenue") ?? sum($0, "revenue") } ?? NSNull()
+            return one
+        }
+
+        let windowPeriod = period(tables.first)
+        let prevPeriod = period(tables.count > 1 ? tables[1] : nil)
+        var sources: [[String: Any]] = []
+        for row in (tables.count > 2 ? tables[2] : []) {
+            let name = ((row["sessionSourceMedium"] as? String) ?? (row["name"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespaces)
+            if name.isEmpty { continue }
+            var one: [String: Any] = [:]
+            one["name"] = name
+            one["sessions"] = (row["sessions"] as? Int) ?? Int(row["sessions"] as? Double ?? 0)
+            sources.append(one)
+        }
+
+        var out: [String: Any] = [:]
+        out["window"] = windowPeriod
+        out["prevWindow"] = prevPeriod
+        out["sources"] = Array(sources.prefix(5))
+        out["text"] = String(answer.prefix(2000))
+        out["detail"] = detail
+        return out
+    }
+
+    /// Všechny tabulky z odpovědi — v pořadí, v jakém se posílaly reporty
+    private static func collectRows(_ node: Any?, into out: inout [[[String: Any]]], depth: Int = 0) {
+        guard depth <= 8 else { return }
+        if let map = node as? [String: Any] {
+            if let rows = map["rows"] as? [[String: Any]] { out.append(rows) }
+            for value in map.values { collectRows(value, into: &out, depth: depth + 1) }
+            return
+        }
+        if let list = node as? [Any] {
+            for value in list { collectRows(value, into: &out, depth: depth + 1) }
+        }
+    }
+
     static func snapshot(force: Bool = false) async -> [String: Any]? {
         guard isReady else { return nil }
         let last = stored()
@@ -840,6 +1057,60 @@ enum Ga4 {
         let age = lastAt.isEmpty ? Double.greatestFiniteMagnitude
             : Date().timeIntervalSince(Formats.date(lastAt) ?? Date(timeIntervalSince1970: 0))
         if !force, let last, age < everySeconds { return last }
+
+        /*
+         Nejdřív reporty přímo. Sequel umí spustit `google_analytics.run_report`
+         a vrátit řádky — čísla se pak nikde nepřekládají do řeči a zpátky.
+         Když se k reportu vůbec nedojde (jiný server, jiné nástroje), zbývá
+         stará cesta: zeptat se slovy a přečíst JSON z odpovědi.
+         */
+        do {
+            try await connect()
+            let tools = try await listTools()
+            if let direct = try await runReports(tools, search: queryTool(tools),
+                                                 appId: Store.setting("ga4AppId", "") ?? "") {
+                let window = direct["window"] as? [String: Any] ?? [:]
+                let anything = ["sessions", "users", "purchases"].contains { key in
+                    (window[key] as? Int ?? 0) > 0
+                }
+                var out = direct
+                // Podrobný výpis patří do nastavení, ne do uloženého snímku
+                out.removeValue(forKey: "detail")
+                out["at"] = Formats.iso(Date())
+                out["scope"] = Store.setting("ga4Scope", "český web (.cz)") ?? "český web (.cz)"
+                out["conversion"] = conversion(window)
+                out["prevConversion"] = conversion(direct["prevWindow"] as? [String: Any] ?? [:])
+                out["error"] = NSNull()
+                if anything {
+                    if let json = OrderFeed.jsonText(out) { Store.setSetting(snapshotKey, json) }
+                    Store.setSetting("ga4LastAt", out["at"] as? String ?? "")
+                    Store.setSetting("ga4LastError", "")
+                    Store.setSetting("ga4LastDetail",
+                                     String(("reporty:\n" + (direct["detail"] as? String ?? "")).prefix(8000)))
+                    return out
+                }
+                /*
+                 Report doběhl a je prázdný. To je taky odpověď — ne důvod
+                 zkoušet oklikou přes řeč a skončit u obecnější hlášky.
+                 */
+                Store.setSetting("ga4LastDetail",
+                                 String(("report bez čísel:\n" + (direct["detail"] as? String ?? "")).prefix(8000)))
+                let message = "Report z Google Analytics doběhl, ale nevrátil žádná čísla —"
+                    + " zkontroluj, jestli je ve zdroji vybraná správná služba."
+                    + " Celou odpověď ukáže „Zobrazit poslední odpověď“ v nastavení."
+                Store.setSetting("ga4LastError", message)
+                if var last { last["error"] = message; return last }
+                return emptySnapshot(message)
+            }
+        } catch {
+            let message = error.localizedDescription
+            if message.range(of: "report", options: .caseInsensitive) != nil {
+                Store.setSetting("ga4LastError", message)
+                if var last { last["error"] = message; return last }
+                return emptySnapshot(message)
+            }
+            Store.setSetting("ga4LastDetail", "reporty selhaly: \(message)")
+        }
 
         do {
             let text = try await ask(question())
