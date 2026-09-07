@@ -379,6 +379,12 @@ global.fetch = async (url, options) => {
   check('a řekne, kde je celá odpověď', /v nastavení/.test(broken.error ?? ''), true);
   check('celá odpověď se uloží', /app_id is required/.test(ga4.ga4LastDetail()), true);
   /*
+   * Do výpisu patří **každý** pokus i s tím, jak dopadl. Dokud se ukládal jen
+   * ten poslední, nedalo se poznat, který tvar volání server odmítl a proč.
+   */
+  check('a je u něj vidět, který tvar volání to byl',
+    /tvar/.test(ga4.ga4LastDetail()), true);
+  /*
    * Čísla zůstanou ta poslední známá — starý snímek je lepší než prázdno —
    * ale musí být poznat, že jsou stará: čas se nepřepíše a chyba je vidět.
    * Dřív se z chybové odpovědi stala nula návštěv, což vypadalo jako pravda.

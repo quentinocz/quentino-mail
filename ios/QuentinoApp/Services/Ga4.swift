@@ -945,17 +945,24 @@ enum Ga4 {
         func runOnce(_ shape: String, id: Int) async throws -> String {
             var runArgs = argsFor(runner, question: question(), appId: appId, action: "query")
             let list: [[String: Any]] = calls.map { call in
-                // `tool` i `tool_id` schválně obojí — server si vezme, co zná
+                let input = call["input"] as? [String: Any] ?? [:]
+                /*
+                 „holé" je volání bez ničeho navíc: jen jméno nástroje a jeho
+                 vstup naplocho. Schéma vstupu má `additionalProperties: false`,
+                 takže `id` ani `tool_id` v něm být nesmí.
+                 */
+                if shape == "holé" {
+                    var bare: [String: Any] = [:]
+                    bare["tool"] = call["tool_id"]
+                    for (key, value) in input { bare[key] = value }
+                    return bare
+                }
+                // Jinde `tool` i `tool_id` schválně obojí — server si vezme, co zná
                 var other: [String: Any] = [:]
                 other["id"] = call["id"]
                 other["tool"] = call["tool_id"]
                 other["tool_id"] = call["tool_id"]
-                let input = call["input"] as? [String: Any] ?? [:]
-                if shape == "flat" {
-                    for (key, value) in input { other[key] = value }
-                } else {
-                    other[shape] = input
-                }
+                other[shape] = input
                 return other
             }
             for (name, raw) in (schemaOf(runner)["properties"] as? [String: Any] ?? [:]) {
@@ -983,15 +990,22 @@ enum Ga4 {
          nástroje čte z pole `tool`. Jak se jmenuje vstup, se z ničeho
          nepozná, tak se zkusí obvyklá jména po řadě, dokud nepřijdou řádky.
          */
+        /*
+         Každý pokus se zapíše i s tím, jak dopadl. Dokud se ukládal jen ten
+         poslední, nedalo se poznat, který tvar server odmítl a proč.
+         */
         var answer = ""
-        for (index, shape) in ["input", "params", "arguments", "flat"].enumerated() {
+        var attempts: [String] = []
+        for (index, shape) in ["input", "params", "arguments", "parameters", "args", "holé"].enumerated() {
             answer = try await runOnce(shape, id: 41 + index)
+            attempts.append("— tvar \(shape): \(answer.prefix(700))")
             if answer.range(of: "\"rows\"") != nil { break }
             // Chyba ve tvaru volání — zkusí se další pojmenování vstupu
             if answer.range(of: "\"error\"", options: .caseInsensitive) == nil { break }
         }
 
-        let detail = found + "\n\n--- spuštění ---\n" + answer
+        let detail = found + "\n\n--- spuštění (\(attempts.count) tvarů) ---\n"
+            + attempts.joined(separator: "\n\n")
         if answer.range(of: "\"rows\"") == nil {
             /*
              Report se spustil a nedopadl. To není důvod zkoušet oklikou přes

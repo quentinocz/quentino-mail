@@ -1123,13 +1123,19 @@ async function runReports(
    * `tool_id`. Jak se jmenuje vstup, se z ničeho nepozná, tak se zkusí
    * obvyklá jména po řadě, dokud nepřijdou řádky.
    */
-  const shapes = ['input', 'params', 'arguments', 'flat'] as const;
+  const shapes = ['input', 'params', 'arguments', 'parameters', 'args', 'holé'] as const;
   const runOnce = async (shape: typeof shapes[number], id: number): Promise<string> => {
     const runArgs = argsFor(runner, { question: question(), appId, why });
     const list = calls.map(one => {
-      // `tool` i `tool_id` schválně obojí — server si vezme, co zná
+      /*
+       * `holé` je volání bez ničeho navíc: jen jméno nástroje a jeho vstup
+       * naplocho. Schéma vstupu má `additionalProperties: false`, takže
+       * `id` ani `tool_id` v něm být nesmí — a právě na přebytečném poli
+       * server hlásí „UNDEFINED_VALUE".
+       */
+      if (shape === 'holé') return { tool: one.tool_id, ...one.input };
+      // Jinde `tool` i `tool_id` schválně obojí — server si vezme, co zná
       const head = { id: one.id, tool: one.tool_id, tool_id: one.tool_id };
-      if (shape === 'flat') return { ...head, ...one.input };
       return { ...head, [shape]: one.input };
     });
     for (const [name, property] of Object.entries<any>(runner.schema?.properties ?? {})) {
@@ -1141,9 +1147,16 @@ async function runReports(
     return textOf(await rpc('tools/call', { name: runner.name, arguments: runArgs }, id));
   };
 
+  /*
+   * Každý pokus se zapíše i s tím, jak dopadl. Dokud se ukládal jen ten
+   * poslední, nedalo se poznat, který tvar server odmítl a proč — a bez
+   * toho se to hádalo dokola.
+   */
   let answer = '';
+  const attempts: string[] = [];
   for (const [index, shape] of shapes.entries()) {
     answer = await runOnce(shape, 41 + index);
+    attempts.push(`— tvar „${shape}": ${answer.slice(0, 700)}`);
     if (/"rows"/.test(answer)) break;
     // Chyba ve tvaru volání — zkusí se další pojmenování vstupu
     if (!/"error"/i.test(answer)) break;
@@ -1154,7 +1167,8 @@ async function runReports(
    */
   if (!/"rows"/.test(answer)) {
     const why = String(jsonIn(answer)?.error ?? jsonIn(answer)?.data?.error ?? '').slice(0, 160);
-    setSetting('ga4LastDetail', `${new Date().toISOString()}\nreport se nepovedl:\n${found}\n\n--- spuštění ---\n${answer}`.slice(0, 8000));
+    setSetting('ga4LastDetail', `${new Date().toISOString()}\nreport se nepovedl:\n${found}`
+      + `\n\n--- spuštění (${attempts.length} tvarů) ---\n${attempts.join('\n\n')}`.slice(0, 8000));
     throw new Error(
       why
         ? `Sequel report odpověděl chybou: ${why}. Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.`
@@ -1204,7 +1218,7 @@ async function runReports(
       text: answer.slice(0, 2000),
       error: null
     },
-    detail: `${found}\n\n--- spuštění ---\n${answer}`
+    detail: `${found}\n\n--- spuštění (${attempts.length} tvarů) ---\n${attempts.join('\n\n')}`
   };
 }
 
