@@ -214,8 +214,23 @@ async function listTools(): Promise<ToolInfo[]> {
 }
 
 /** Co ve schématu odpovídá kterému údaji — podle jména, ne podle pořadí */
-const ASKS_QUESTION = /^(query|question|prompt|q|text|input|message|request|task)$/i;
-const ASKS_APP = /(app|application|source|connection|integration|database|datasource)_?id$/i;
+const ASKS_QUESTION = /^(query|question|prompt|q|text|input|message|request|task|use_?case|goal|objective|ask)$/i;
+const ASKS_APP = /^(app|application|source|connection|integration|database|datasource)_?ids?$/i;
+/**
+ * Popis toho, co zrovna děláme.
+ *
+ * Sequel chce u každého nástroje `action_info` — větu, proč se ptáme. Je to
+ * povinné pole bez výčtu, takže se nedalo vyplnit ničím a server dotaz
+ * odmítal. Píše se tam prostá čeština; nic se z ní nepočítá, jen se to
+ * u něj objeví v přehledu volání.
+ */
+const ASKS_WHY = /^(action_?info|reason|purpose|why|description|note|context|intent)$/i;
+
+/** Je parametr pole? Pak se hodnota musí zabalit, jinak ji server odmítne */
+function isArray(property: any): boolean {
+  if (property?.type === 'array') return true;
+  return Array.isArray(property?.anyOf) && property.anyOf.some((one: any) => one?.type === 'array');
+}
 
 /**
  * Akce nástroje.
@@ -254,8 +269,10 @@ function enumOf(property: any): string[] {
  * povinných polí dostane první hodnotu z výčtu — víc se z popisu vyčíst nedá
  * a prázdný povinný parametr server odmítne.
  */
-function argsFor(tool: ToolInfo, values: { question?: string; appId?: string; action?: 'query' | 'list' }):
-  Record<string, unknown> {
+function argsFor(
+  tool: ToolInfo,
+  values: { question?: string; appId?: string; action?: 'query' | 'list'; why?: string }
+): Record<string, unknown> {
   const properties = tool.schema?.properties ?? {};
   const required: string[] = Array.isArray(tool.schema?.required) ? tool.schema.required : [];
   const out: Record<string, unknown> = {};
@@ -267,8 +284,20 @@ function argsFor(tool: ToolInfo, values: { question?: string; appId?: string; ac
       if (picked) out.action = picked;
       continue;
     }
-    if (ASKS_QUESTION.test(name) && values.question) { out[name] = values.question; continue; }
-    if (ASKS_APP.test(name) && values.appId) { out[name] = values.appId; continue; }
+    if (ASKS_QUESTION.test(name) && values.question) {
+      out[name] = isArray(property) ? [values.question] : values.question;
+      continue;
+    }
+    if (ASKS_APP.test(name) && values.appId) {
+      // `connection_ids` je pole, `connection_id` text — řídí se to schématem
+      out[name] = isArray(property) ? [values.appId] : values.appId;
+      continue;
+    }
+    // Povinná věta „proč se ptáme" — bez ní Sequel dotaz odmítne
+    if (ASKS_WHY.test(name) && (required.includes(name) || values.why)) {
+      out[name] = values.why ?? 'Denní přehled e-shopu Quentino — návštěvnost za posledních 30 dní.';
+      continue;
+    }
     // Povinný výčet, kterému nerozumíme: první hodnota je lepší než chybějící
     if (required.includes(name) && options.length && out[name] === undefined) out[name] = options[0];
   }
@@ -322,9 +351,53 @@ function pickListAction(options: string[]): string | undefined {
 }
 
 /** Nástroj, který se umí zeptat na data */
+/**
+ * Nástroj, který se umí zeptat na data.
+ *
+ * Sequel jich nabízí víc a jeden z nich je **správce spojení**
+ * (`sequel_manage_connections`) — ten umí `list`, `connect` a `reconnect`
+ * a na návštěvnost se ho ptát nedá. Přesně na něm napojení uvázlo: vybral se
+ * jako dotazovací, žádná jeho akce nevypadala jako dotaz a v okně z toho
+ * bylo „zkoušené akce: ".
+ *
+ * Rozhoduje proto **schéma, ne jméno**: nástroj, který se umí zeptat, má
+ * v parametrech místo pro otázku (`query`, `question`, `prompt`…). Správci
+ * spojení se vyhýbáme rovnou — ten má jen `action`, `app_id` a
+ * `connection_id`.
+ */
+const MANAGES = /manage|connection|auth|admin|setup|install|integration/i;
+
+function asksQuestion(tool: ToolInfo): boolean {
+  return Object.keys(tool.schema?.properties ?? {}).some(name => ASKS_QUESTION.test(name));
+}
+
 function queryTool(tools: ToolInfo[]): ToolInfo {
-  const likely = tools.find(one => /query|ask|analytics|report|run|sql/i.test(`${one.name} ${one.description}`));
-  return likely ?? tools[0];
+  const usable = tools.filter(one => !MANAGES.test(one.name));
+  return usable.find(asksQuestion)
+    ?? tools.find(asksQuestion)
+    ?? usable.find(one => /query|ask|analytics|report|run|sql|data/i.test(`${one.name} ${one.description}`))
+    ?? usable[0]
+    ?? tools[0];
+}
+
+/**
+ * Nástroj, který dotaz teprve **spustí**.
+ *
+ * Sequel nemá jeden nástroj na dotaz, ale dva kroky: `sequel_search` řekne,
+ * co se s napojeným zdrojem dá dělat, a `sequel_execute` to provede —
+ * hledání samo o sobě čísla nevrátí. Pozná se podle `tool_calls`
+ * v parametrech; když takový nástroj není, druhý krok se přeskočí.
+ */
+function runTool(tools: ToolInfo[]): ToolInfo | null {
+  return tools.find(one => Object.keys(one.schema?.properties ?? {})
+    .some(name => /^(tool_?calls|calls|steps|plan)$/i.test(name))) ?? null;
+}
+
+/** Nástroj, který vypíše napojené zdroje — u Sequelu je to správce spojení */
+function listTool(tools: ToolInfo[]): ToolInfo {
+  return tools.find(one => MANAGES.test(one.name))
+    ?? tools.find(one => /app|source|connection|integration|list/i.test(`${one.name} ${one.description}`))
+    ?? queryTool(tools);
 }
 
 async function connect(): Promise<void> {
@@ -360,8 +433,7 @@ function textOf(result: any): string {
 export async function ga4Apps(): Promise<{ id: string; name: string }[]> {
   await connect();
   const tools = await listTools();
-  const lister = tools.find(one => /app|source|connection|integration|list/i.test(`${one.name} ${one.description}`))
-    ?? queryTool(tools);
+  const lister = listTool(tools);
 
   let text = '';
   try {
@@ -398,6 +470,31 @@ export async function ga4Apps(): Promise<{ id: string; name: string }[]> {
 function connectionsIn(text: string): { id: string; name: string; type: string }[] {
   const out: { id: string; name: string; type: string }[] = [];
   const seen = new Set<string>();
+
+  /*
+   * Napojená spojení, ne nabídka.
+   *
+   * Odpověď nese vedle `connections` i `available_apps` — **katalog toho, co
+   * by se dalo napojit** (PostgreSQL, Stripe, HubSpot…). Bez rozlišení se do
+   * výběru zdrojů dostalo šestnáct věcí, které nikdo nemá, a ta jediná
+   * skutečná se v nich ztratila. Když v odpovědi `connections` je, platí
+   * jenom ono.
+   */
+  const parsed = jsonIn(text);
+  const listed = parsed ? findArray(parsed, 'connections') : null;
+  if (Array.isArray(listed) && listed.length) {
+    for (const one of listed) {
+      const id = String(one?.connection_id ?? one?.id ?? one?.app_id ?? '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id,
+        name: String(one?.name ?? one?.title ?? id),
+        type: String(one?.type ?? one?.app_id ?? '')
+      });
+    }
+    return out;
+  }
   const ID = '(?:connection_?id|datasource_?id|source_?id|app_?id|id)';
   const NAME = '(?:name|title|label|app_?name)';
 
@@ -422,6 +519,25 @@ function connectionsIn(text: string): { id: string; name: string; type: string }
     add(match[3], match[1], (match[2].match(/"type"\s*:\s*"([^"]{1,40})"/i) ?? [])[1] ?? '');
   }
   return out;
+}
+
+/** Největší JSON v textu — servery ho rády obalí větou */
+function jsonIn(text: string): any {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try { return JSON.parse(text.slice(start, end + 1)); } catch { return null; }
+}
+
+/** Pole pod daným klíčem, ať je v odpovědi zanořené jakkoli hluboko */
+function findArray(node: any, key: string, depth = 0): any[] | null {
+  if (!node || typeof node !== 'object' || depth > 6) return null;
+  if (Array.isArray(node[key])) return node[key];
+  for (const value of Object.values(node)) {
+    const found = findArray(value, key, depth + 1);
+    if (found) return found;
+  }
+  return null;
 }
 
 /**
@@ -464,17 +580,43 @@ export async function ga4Ask(question: string): Promise<string> {
 
   let last = '';
   const tried: string[] = [];
+  const whyWeAsk = 'Denní přehled e-shopu Quentino — návštěvnost za posledních 30 dní.';
   for (const [index, action] of candidates.slice(0, 4).entries()) {
-    const args = argsFor(tool, { question, appId, action: 'query' });
+    const args = argsFor(tool, { question, appId, action: 'query', why: whyWeAsk });
     if (action) args.action = action;
     tried.push(action || tool.name);
 
-    const text = textOf(await rpc('tools/call', { name: tool.name, arguments: args }, 4 + index));
+    let text = textOf(await rpc('tools/call', { name: tool.name, arguments: args }, 4 + index));
     if (!text) { last = 'prázdná odpověď'; continue; }
     last = text;
 
     const reconnect = needsReconnect(text);
     if (reconnect) throw new Error(reconnect);
+
+    /*
+     * Druhý krok. Sequel na dotaz nejdřív odpoví **návrhem, co spustit**
+     * (`tool_calls`) — čísla v tom nejsou. Teprve `sequel_execute` je
+     * provede. Bez tohohle kroku se v přehledu ukazoval plán místo dat.
+     */
+    const plan = findArray(jsonIn(text), 'tool_calls');
+    const runner = runTool(tools);
+    if (plan?.length && runner) {
+      const runArgs = argsFor(runner, { question, appId, why: whyWeAsk });
+      for (const [name, property] of Object.entries<any>(runner.schema?.properties ?? {})) {
+        if (/^(tool_?calls|calls|steps|plan)$/i.test(name)) {
+          runArgs[name] = isArray(property) ? plan : JSON.stringify(plan);
+        }
+        // Sezení z prvního kroku, když ho druhý chce
+        if (/^session_?id$/i.test(name)) {
+          const session = String(jsonIn(text)?.session_id ?? jsonIn(text)?.data?.session_id ?? '');
+          if (session) runArgs[name] = session;
+        }
+      }
+      const done = textOf(await rpc('tools/call', { name: runner.name, arguments: runArgs }, 40 + index));
+      tried.push(`${runner.name} (${plan.length} kroků)`);
+      if (done) { text = done; last = done; }
+    }
+
     if (looksLikeListing(text)) continue;
     if (/"status"\s*:\s*"error"|"error"\s*:\s*"/.test(text)) continue;
     return text;
@@ -570,10 +712,17 @@ export async function ga4Diagnostics(): Promise<string> {
       .map(name => ({ name, values: enumOf((properties as any)[name]) }))
       .filter(item => item.values.length)
       .map(item => `${item.name}: ${item.values.join(' | ')}`);
+    /*
+     * Popis od serveru. Je to jediná dokumentace, kterou k Sequelu máme —
+     * a právě z ní je poznat, že `search` jen navrhne, co spustit, kdežto
+     * čísla vrátí až `execute`.
+     */
+    const about = one.description ? `\n    ${one.description.replace(/\s+/g, ' ').slice(0, 200)}` : '';
     return `${one.name}(${names.join(', ') || '—'})`
       + `${required.length ? ` · povinné: ${required.join(', ')}` : ''}`
+      + about
       + (enums.length ? `\n    ${enums.join('\n    ')}` : '');
-  }).join('\n');
+  }).join('\n\n');
 }
 
 /* ---------- denní snímek ---------- */

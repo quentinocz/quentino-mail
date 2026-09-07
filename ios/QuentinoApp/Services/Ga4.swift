@@ -149,17 +149,78 @@ enum Ga4 {
         (tool["inputSchema"] as? [String: Any]) ?? (tool["input_schema"] as? [String: Any]) ?? [:]
     }
 
+    /*
+     Sequel nabízí víc nástrojů a jeden z nich je **správce spojení**
+     (`sequel_manage_connections`) — ten umí jen list, connect a reconnect.
+     Přesně na něm napojení uvázlo: vybral se jako dotazovací a žádná jeho
+     akce nevypadala jako dotaz. Rozhoduje proto schéma, ne jméno: nástroj,
+     který se umí zeptat, má v parametrech místo pro otázku.
+     */
+    private static let manages = "manage|connection|auth|admin|setup|install|integration"
+
+    private static func asksQuestion(_ tool: [String: Any]) -> Bool {
+        let properties = schemaOf(tool)["properties"] as? [String: Any] ?? [:]
+        return properties.keys.contains { $0.range(of: asksQuestionPattern, options: [.regularExpression, .caseInsensitive]) != nil }
+    }
+
     /// Nástroj, který se umí zeptat na data
     private static func queryTool(_ tools: [[String: Any]]) -> [String: Any] {
-        for one in tools {
+        let usable = tools.filter {
+            ($0["name"] as? String ?? "").range(
+                of: manages, options: [.regularExpression, .caseInsensitive]) == nil
+        }
+        if let found = usable.first(where: { asksQuestion($0) }) { return found }
+        if let found = tools.first(where: { asksQuestion($0) }) { return found }
+        for one in usable {
             let text = "\(one["name"] as? String ?? "") \(one["description"] as? String ?? "")"
-            if text.range(of: "query|ask|analytics|report|run|sql",
+            if text.range(of: "query|ask|analytics|report|run|sql|data",
                           options: [.regularExpression, .caseInsensitive]) != nil {
                 return one
             }
         }
-        return tools[0]
+        return usable.first ?? tools[0]
     }
+
+    /// Nástroj, který vypíše napojené zdroje — u Sequelu je to správce spojení
+    private static func listTool(_ tools: [[String: Any]]) -> [String: Any] {
+        if let found = tools.first(where: {
+            ($0["name"] as? String ?? "").range(
+                of: manages, options: [.regularExpression, .caseInsensitive]) != nil
+        }) { return found }
+        if let found = tools.first(where: {
+            "\($0["name"] as? String ?? "") \($0["description"] as? String ?? "")".range(
+                of: "app|source|connection|integration|list",
+                options: [.regularExpression, .caseInsensitive]) != nil
+        }) { return found }
+        return queryTool(tools)
+    }
+
+    /**
+     Nástroj, který dotaz teprve **spustí**.
+
+     Sequel nemá jeden nástroj na dotaz, ale dva kroky: hledání řekne, co se
+     s napojeným zdrojem dá dělat, a spuštění to provede — hledání samo
+     čísla nevrátí. Pozná se podle `tool_calls` v parametrech.
+     */
+    private static func runTool(_ tools: [[String: Any]]) -> [String: Any]? {
+        tools.first { tool in
+            let properties = schemaOf(tool)["properties"] as? [String: Any] ?? [:]
+            return properties.keys.contains {
+                $0.range(of: "^(tool_?calls|calls|steps|plan)$",
+                         options: [.regularExpression, .caseInsensitive]) != nil
+            }
+        }
+    }
+
+    /// Jména parametrů, do kterých patří otázka, zdroj a věta „proč se ptáme"
+    private static let asksQuestionPattern =
+        "^(query|question|prompt|q|text|input|message|request|task|use_?case|goal|objective|ask)$"
+    private static let asksAppPattern =
+        "^(app|application|source|connection|integration|database|datasource)_?ids?$"
+    private static let asksWhyPattern =
+        "^(action_?info|reason|purpose|why|description|note|context|intent)$"
+    /// Sequel chce u každého nástroje větu, proč se ptáme — bez ní dotaz odmítne
+    static let whyWeAsk = "Denní přehled e-shopu Quentino — návštěvnost za posledních 30 dní."
 
     /*
      Sequel má jeden nástroj a v něm výčet akcí: `connect` naváže spojení,
@@ -245,16 +306,19 @@ enum Ga4 {
                 if let picked { out["action"] = picked }
                 continue
             }
-            if let question, lower.range(
-                of: "^(query|question|prompt|q|text|input|message|request|task)$",
-                options: .regularExpression) != nil {
-                out[name] = question
+            // Pole se musí zabalit — `connection_ids` je pole, `connection_id` text
+            let wantsArray = (property["type"] as? String) == "array"
+            if let question, lower.range(of: asksQuestionPattern, options: .regularExpression) != nil {
+                out[name] = wantsArray ? [question] : question
                 continue
             }
-            if let appId, !appId.isEmpty, lower.range(
-                of: "(app|application|source|connection|integration|database|datasource)_?id$",
-                options: .regularExpression) != nil {
-                out[name] = appId
+            if let appId, !appId.isEmpty, lower.range(of: asksAppPattern, options: .regularExpression) != nil {
+                out[name] = wantsArray ? [appId] : appId
+                continue
+            }
+            // Povinná věta „proč se ptáme" — bez ní Sequel dotaz odmítne
+            if lower.range(of: asksWhyPattern, options: .regularExpression) != nil, required.contains(name) {
+                out[name] = whyWeAsk
                 continue
             }
             if required.contains(name), !options.isEmpty, out[name] == nil { out[name] = options[0] }
@@ -283,15 +347,7 @@ enum Ga4 {
     static func apps() async throws -> [[String: Any]] {
         try await connect()
         let tools = try await listTools()
-        var lister = queryTool(tools)
-        for one in tools {
-            let text = "\(one["name"] as? String ?? "") \(one["description"] as? String ?? "")"
-            if text.range(of: "app|source|connection|integration|list",
-                          options: [.regularExpression, .caseInsensitive]) != nil {
-                lister = one
-                break
-            }
-        }
+        let lister = listTool(tools)
 
         var params: [String: Any] = [:]
         params["name"] = lister["name"] as? String ?? ""
@@ -306,6 +362,28 @@ enum Ga4 {
          */
         var found: [[String: Any]] = []
         var seen = Set<String>()
+
+        /*
+         Napojená spojení, ne nabídka. Odpověď nese vedle `connections` i
+         `available_apps` — katalog toho, co by se dalo napojit (PostgreSQL,
+         Stripe, HubSpot…). Bez rozlišení se do výběru dostalo šestnáct věcí,
+         které nikdo nemá, a ta jediná skutečná se v nich ztratila.
+         */
+        if let listed = findArray(jsonIn(text), key: "connections"), !listed.isEmpty {
+            for one in listed {
+                let id = ((one["connection_id"] as? String) ?? (one["id"] as? String)
+                    ?? (one["app_id"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
+                if id.isEmpty || seen.contains(id) { continue }
+                seen.insert(id)
+                var entry: [String: Any] = [:]
+                entry["id"] = id
+                entry["name"] = (one["name"] as? String) ?? (one["title"] as? String) ?? id
+                entry["type"] = (one["type"] as? String) ?? (one["app_id"] as? String) ?? ""
+                found.append(entry)
+            }
+        }
+        if !found.isEmpty { return finishApps(found) }
+
         let idKey = "(?:connection_?id|datasource_?id|source_?id|app_?id|id)"
         let nameKey = "(?:name|title|label|app_?name)"
         var search = text.startIndex..<text.endIndex
@@ -330,15 +408,22 @@ enum Ga4 {
             found.append(one)
         }
 
-        if !found.isEmpty, let data = try? JSONSerialization.data(withJSONObject: found),
+        return finishApps(found)
+    }
+
+    /**
+     Uloží nalezené zdroje a vybere ten zřejmý.
+
+     Vybírat se nemusí, když je jasno: jediný zdroj, nebo jediný, který je
+     Google Analytics. Na návštěvnost se databáze skladu ptát nemá smysl,
+     a Sequel u každého spojení hlásí `type`.
+     */
+    private static func finishApps(_ found: [[String: Any]]) -> [[String: Any]] {
+        if !found.isEmpty, JSONSerialization.isValidJSONObject(found),
+           let data = try? JSONSerialization.data(withJSONObject: found),
            let json = String(data: data, encoding: .utf8) {
             Store.setSetting("ga4Apps", json)
         }
-        /*
-         Vybírat se nemusí, když je jasno: jediný zdroj, nebo jediný, který
-         je Google Analytics. Na návštěvnost se databáze skladu ptát nemá
-         smysl, a Sequel u každého spojení hlásí `type`.
-         */
         let analytics = found.filter { one in
             "\(one["type"] as? String ?? "") \(one["name"] as? String ?? "")"
                 .range(of: "analytic|ga4", options: [.regularExpression, .caseInsensitive]) != nil
@@ -383,6 +468,26 @@ enum Ga4 {
             let head = "\(name)(\(list))" + (required.isEmpty ? "" : " · povinné: \(required)")
             return enums.isEmpty ? head : head + "\n    " + enums.joined(separator: "\n    ")
         }.joined(separator: "\n")
+    }
+
+    /// Největší JSON v textu — servery ho rády obalí větou
+    private static func jsonIn(_ text: String) -> [String: Any]? {
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end else {
+            return nil
+        }
+        let slice = String(text[start...end])
+        guard let data = slice.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// Pole pod daným klíčem, ať je v odpovědi zanořené jakkoli hluboko
+    private static func findArray(_ node: Any?, key: String, depth: Int = 0) -> [[String: Any]]? {
+        guard depth <= 6, let map = node as? [String: Any] else { return nil }
+        if let found = map[key] as? [[String: Any]] { return found }
+        for value in map.values {
+            if let found = findArray(value, key: key, depth: depth + 1) { return found }
+        }
+        return nil
     }
 
     private static func textOf(_ result: Any?) -> String {
@@ -451,10 +556,43 @@ enum Ga4 {
             params["name"] = tool["name"] as? String ?? ""
             params["arguments"] = args
 
-            let text = textOf(try await rpc("tools/call", params, id: 4 + index))
+            var text = textOf(try await rpc("tools/call", params, id: 4 + index))
             if text.isEmpty { last = "Sequel vrátil prázdnou odpověď."; continue }
             last = text
             if let reconnect = needsReconnect(text) { throw BridgeError.message(reconnect) }
+
+            /*
+             Druhý krok. Sequel na dotaz nejdřív odpoví návrhem, co spustit
+             (`tool_calls`) — čísla v tom nejsou. Teprve spuštění je provede;
+             bez tohohle kroku se v přehledu ukazoval plán místo dat.
+             */
+            let parsed = jsonIn(text)
+            if let plan = findArray(parsed, key: "tool_calls"), !plan.isEmpty,
+               let runner = runTool(tools) {
+                var runArgs = argsFor(runner, question: question, appId: appId, action: "query")
+                let runProperties = schemaOf(runner)["properties"] as? [String: Any] ?? [:]
+                for (name, raw) in runProperties {
+                    let property = raw as? [String: Any] ?? [:]
+                    let lower = name.lowercased()
+                    if lower.range(of: "^(tool_?calls|calls|steps|plan)$", options: .regularExpression) != nil {
+                        runArgs[name] = (property["type"] as? String) == "array"
+                            ? plan
+                            : (OrderFeed.jsonText(["calls": plan]) ?? "")
+                    }
+                    if lower.range(of: "^session_?id$", options: .regularExpression) != nil {
+                        let session = (parsed?["session_id"] as? String)
+                            ?? ((parsed?["data"] as? [String: Any])?["session_id"] as? String)
+                        if let session, !session.isEmpty { runArgs[name] = session }
+                    }
+                }
+                var runParams: [String: Any] = [:]
+                runParams["name"] = runner["name"] as? String ?? ""
+                runParams["arguments"] = runArgs
+                tried.append(runner["name"] as? String ?? "spuštění")
+                let done = textOf(try await rpc("tools/call", runParams, id: 40 + index))
+                if !done.isEmpty { text = done; last = done }
+            }
+
             if looksLikeListing(text) { continue }
             if text.range(of: "\"status\"\\s*:\\s*\"error\"|\"error\"\\s*:\\s*\"",
                           options: .regularExpression) != nil { continue }
