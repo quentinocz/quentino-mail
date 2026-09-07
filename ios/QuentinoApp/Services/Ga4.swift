@@ -98,7 +98,28 @@ enum Ga4 {
         if let sessionId { request.setValue(sessionId, forHTTPHeaderField: "Mcp-Session-Id") }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        /*
+         Spojení se svým stropem a jedním opakováním.
+
+         Sequel na dotaz do Google Analytics klidně počítá minutu a spojení
+         se mezitím rozpadne — z toho v okně bylo holé „fetch failed", ve
+         kterém není ani adresa, ani důvod. Strop jsou dvě minuty a jedno
+         klopýtnutí sítě se zkusí znovu; druhý pokus obvykle projde.
+         */
+        request.timeoutInterval = 120
+        var data: Data
+        var response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            do {
+                (data, response) = try await URLSession.shared.data(for: request)
+            } catch let again {
+                throw BridgeError.message(
+                    "Nepodařilo se spojit se Sequelem (\(url.host ?? endpoint)): "
+                    + "\(again.localizedDescription) Zkontroluj internet a adresu v nastavení.")
+            }
+        }
         let http = response as? HTTPURLResponse
         if let given = http?.value(forHTTPHeaderField: "Mcp-Session-Id"), !given.isEmpty { sessionId = given }
 
@@ -583,7 +604,13 @@ enum Ga4 {
                 readParams["name"] = reader["name"] as? String ?? ""
                 readParams["arguments"] = readArgs
                 tried.append("\(reader["name"] as? String ?? "") (\(skillId))")
-                let manual = textOf(try await rpc("tools/call", readParams, id: 60 + index))
+                /*
+                 Návod je jen k pochopení, ne k výsledku — když se ho
+                 nepodaří přečíst, nesmí to shodit celý dotaz. První krok
+                 už proběhl a jeho odpověď se hodí víc než holá chyba sítě.
+                 */
+                let manual = (try? await rpc("tools/call", readParams, id: 60 + index))
+                    .map { textOf($0) } ?? ""
                 if !manual.isEmpty { last = text + "\n\n--- návod \(skillId) ---\n" + manual }
             }
 
@@ -615,7 +642,10 @@ enum Ga4 {
                 runParams["name"] = runner["name"] as? String ?? ""
                 runParams["arguments"] = runArgs
                 tried.append(runner["name"] as? String ?? "spuštění")
-                let done = textOf(try await rpc("tools/call", runParams, id: 40 + index))
+                // Spuštění taky nesmí shodit celý dotaz — návrh z prvního
+                // kroku je pořád k něčemu a v nastavení je vidět, kde to stálo
+                let done = (try? await rpc("tools/call", runParams, id: 40 + index))
+                    .map { textOf($0) } ?? ""
                 if !done.isEmpty { text = done; last = done }
             }
 

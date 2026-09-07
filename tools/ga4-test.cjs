@@ -264,6 +264,25 @@ global.fetch = async (url, options) => {
   check('poslední známá čísla zůstanou', broken.window.sessions, 1234);
   check('ale nevydávají se za čerstvá', broken.at, before);
 
+  console.log('\nsíť selže:\n');
+  /*
+   * `fetch failed` samo o sobě neřekne nic — ani adresu, ani důvod. A když
+   * spadne až druhý krok, nesmí se kvůli tomu ztratit ten první.
+   */
+  const puvodni = global.fetch;
+  let pokusy = 0;
+  global.fetch = async () => {
+    pokusy++;
+    const chyba = new Error('fetch failed');
+    chyba.cause = { message: 'getaddrinfo ENOTFOUND api.sequel.sh' };
+    throw chyba;
+  };
+  const spadlo = await ga4.ga4Snapshot(true);
+  check('jedno klopýtnutí se zkusí znovu', pokusy >= 2, true);
+  check('a v hlášce je adresa i důvod',
+    /api\.sequel\.sh.*ENOTFOUND/.test(spadlo.error ?? ''), true);
+  global.fetch = puvodni;
+
   console.log('\nvypršené přihlášení:\n');
   /*
    * Když v Sequelu vyprší souhlas s Google účtem, odpoví na dotaz
