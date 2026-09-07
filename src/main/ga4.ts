@@ -129,6 +129,27 @@ function secrets(): { endpoint: string; key: string } {
 
 /* ---------- MCP přes HTTP ---------- */
 
+/**
+ * Volání ven **přes síťovou vrstvu Electronu**, ne přes Node.
+ *
+ * `fetch` v Node má vlastní stack: neumí systémový proxy, jinak si poradí
+ * s IPv6 a na navázání spojení má napevno deset vteřin. Když se k Sequelu
+ * nedostal, hlásil „Connect Timeout Error (api.sequel.sh:443, 10000ms)" —
+ * přestože týž server v prohlížeči na stejném počítači běžně odpoví.
+ *
+ * `net.fetch` jde přes Chromium: stejné proxy, stejné DNS, stejné střídání
+ * IPv6/IPv4 jako v prohlížeči. Mimo Electron (zkoušky) se použije obyčejný
+ * `fetch`, aby se dalo napojení zkoušet i bez okna.
+ */
+async function httpFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { net } = require('electron');
+    if (net?.fetch) return await net.fetch(url, init as any);
+  } catch { /* mimo Electron: zkouší se obyčejným fetchem */ }
+  return fetch(url, init);
+}
+
 let sessionId: string | null = null;
 
 /**
@@ -153,7 +174,7 @@ async function rpc(method: string, params: unknown, id: number | null): Promise<
    * trvat může), a jedno klopýtnutí sítě se zkusí znovu, protože druhý
    * pokus obvykle projde.
    */
-  const send = () => fetch(endpoint, {
+  const send = () => httpFetch(endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${key}`,
@@ -174,6 +195,18 @@ async function rpc(method: string, params: unknown, id: number | null): Promise<
     } catch (again: any) {
       const why = String(again?.cause?.message ?? again?.cause?.code ?? again?.message ?? again);
       const host = (() => { try { return new URL(endpoint).host; } catch { return endpoint; } })();
+      /*
+       * „Connect Timeout" znamená, že spojení se vůbec nenavázalo — server
+       * neodpověděl na zaklepání. Za to nemůže klíč ani zdroj, a rada
+       * „zkontroluj adresu" je tu k ničemu: buď je server dole, nebo se
+       * k němu tahle síť nedostane.
+       */
+      if (/connect timeout|ETIMEDOUT|ENOTFOUND|ECONNREFUSED|EAI_AGAIN/i.test(why)) {
+        throw new Error(
+          `Server ${host} se neozval (${why.slice(0, 80)}). Buď je dočasně nedostupný, `
+          + 'nebo se k němu tahle síť nedostane — zkus to za chvíli.'
+        );
+      }
       throw new Error(
         again?.name === 'TimeoutError'
           ? `Sequel (${host}) neodpověděl do dvou minut — zkus to znovu později.`
