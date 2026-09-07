@@ -144,7 +144,16 @@ async function rpc(method: string, params: unknown, id: number | null): Promise<
   if (params !== undefined) body.params = params;
   if (id !== null) body.id = id;
 
-  const res = await fetch(endpoint, {
+  /*
+   * Spojení se svým stropem a jedním opakováním.
+   *
+   * Sequel na dotaz do Google Analytics klidně počítá minutu a spojení se
+   * mezitím rozpadne — z toho v okně bylo holé „fetch failed", ve kterém
+   * není ani adresa, ani důvod. Strop je dvě minuty (report tak dlouho
+   * trvat může), a jedno klopýtnutí sítě se zkusí znovu, protože druhý
+   * pokus obvykle projde.
+   */
+  const send = () => fetch(endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${key}`,
@@ -152,8 +161,26 @@ async function rpc(method: string, params: unknown, id: number | null): Promise<
       Accept: 'application/json, text/event-stream',
       ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {})
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120_000)
   });
+
+  let res: Response;
+  try {
+    res = await send();
+  } catch (first: any) {
+    try {
+      res = await send();
+    } catch (again: any) {
+      const why = String(again?.cause?.message ?? again?.cause?.code ?? again?.message ?? again);
+      const host = (() => { try { return new URL(endpoint).host; } catch { return endpoint; } })();
+      throw new Error(
+        again?.name === 'TimeoutError'
+          ? `Sequel (${host}) neodpověděl do dvou minut — zkus to znovu později.`
+          : `Nepodařilo se spojit se Sequelem (${host}): ${why}. Zkontroluj internet a adresu v nastavení.`
+      );
+    }
+  }
 
   const given = res.headers.get('mcp-session-id');
   if (given) sessionId = given;
@@ -611,13 +638,22 @@ export async function ga4Ask(question: string): Promise<string> {
     const skillId = results?.map(one => one?.skill_id ?? one?.id ?? one?.skill)
       .find(one => typeof one === 'string' && one);
     if (skillId && reader) {
-      const readArgs = argsFor(reader, { question, appId, why: whyWeAsk });
-      for (const name of Object.keys(reader.schema?.properties ?? {})) {
-        if (/skill_?id|doc_?id|id$/i.test(name)) readArgs[name] = skillId;
+      /*
+       * Návod je jen k pochopení, ne k výsledku. Když se ho nepodaří
+       * přečíst, nesmí to shodit celý dotaz — první krok už proběhl a jeho
+       * odpověď se pořád hodí víc než holé „fetch failed".
+       */
+      try {
+        const readArgs = argsFor(reader, { question, appId, why: whyWeAsk });
+        for (const name of Object.keys(reader.schema?.properties ?? {})) {
+          if (/skill_?id|doc_?id|id$/i.test(name)) readArgs[name] = skillId;
+        }
+        const manual = textOf(await rpc('tools/call', { name: reader.name, arguments: readArgs }, 60 + index));
+        tried.push(`${reader.name} (${skillId})`);
+        if (manual) { last = `${text}\n\n--- návod ${skillId} ---\n${manual}`; }
+      } catch (e: any) {
+        last = `${text}\n\n--- návod ${skillId} se nepodařilo přečíst: ${String(e?.message ?? e)} ---`;
       }
-      const manual = textOf(await rpc('tools/call', { name: reader.name, arguments: readArgs }, 60 + index));
-      tried.push(`${reader.name} (${skillId})`);
-      if (manual) { last = `${text}\n\n--- návod ${skillId} ---\n${manual}`; }
     }
 
     const plan = findArray(jsonIn(text), 'tool_calls') ?? findArray(jsonIn(last), 'tool_calls');
@@ -634,9 +670,15 @@ export async function ga4Ask(question: string): Promise<string> {
           if (session) runArgs[name] = session;
         }
       }
-      const done = textOf(await rpc('tools/call', { name: runner.name, arguments: runArgs }, 40 + index));
-      tried.push(`${runner.name} (${plan.length} kroků)`);
-      if (done) { text = done; last = done; }
+      // Spuštění taky nesmí shodit celý dotaz — návrh z prvního kroku je
+      // pořád k něčemu a v nastavení je pak vidět, na čem to skončilo
+      try {
+        const done = textOf(await rpc('tools/call', { name: runner.name, arguments: runArgs }, 40 + index));
+        tried.push(`${runner.name} (${plan.length} kroků)`);
+        if (done) { text = done; last = done; }
+      } catch (e: any) {
+        last = `${last}\n\n--- spuštění selhalo: ${String(e?.message ?? e)} ---`;
+      }
     }
 
     if (looksLikeListing(text)) continue;
