@@ -281,6 +281,19 @@ global.fetch = async (url, options) => {
   check('jedno klopýtnutí se zkusí znovu', pokusy >= 2, true);
   check('a v hlášce je adresa i důvod',
     /api\.sequel\.sh.*ENOTFOUND/.test(spadlo.error ?? ''), true);
+
+  /*
+   * Nenavázané spojení není chyba nastavení. „Zkontroluj adresu" u toho radit
+   * nemá smysl — server buď neběží, nebo se k němu tahle síť nedostane.
+   */
+  global.fetch = async () => {
+    const chyba = new Error('fetch failed');
+    chyba.cause = { message: 'Connect Timeout Error (attempted address: api.sequel.sh:443, timeout: 10000ms)' };
+    throw chyba;
+  };
+  const mlci = await ga4.ga4Snapshot(true);
+  check('nenavázané spojení se nesvádí na nastavení',
+    /neozval/.test(mlci.error ?? '') && !/adresu v nastavení/.test(mlci.error ?? ''), true);
   global.fetch = puvodni;
 
   console.log('\nvypršené přihlášení:\n');

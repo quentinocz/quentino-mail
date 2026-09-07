@@ -115,9 +115,22 @@ enum Ga4 {
             do {
                 (data, response) = try await URLSession.shared.data(for: request)
             } catch let again {
+                /*
+                 Nenavázané spojení není chyba nastavení. Rada „zkontroluj
+                 adresu" je tu k ničemu: server buď neběží, nebo se k němu
+                 tahle síť nedostane.
+                 */
+                let why = again.localizedDescription
+                let code = (again as NSError).code
+                let unreachable = [NSURLErrorTimedOut, NSURLErrorCannotConnectToHost,
+                                   NSURLErrorCannotFindHost, NSURLErrorNetworkConnectionLost,
+                                   NSURLErrorNotConnectedToInternet].contains(code)
                 throw BridgeError.message(
-                    "Nepodařilo se spojit se Sequelem (\(url.host ?? endpoint)): "
-                    + "\(again.localizedDescription) Zkontroluj internet a adresu v nastavení.")
+                    unreachable
+                        ? "Server \(url.host ?? endpoint) se neozval (\(why)) Buď je dočasně nedostupný,"
+                          + " nebo se k němu tahle síť nedostane — zkus to za chvíli."
+                        : "Nepodařilo se spojit se Sequelem (\(url.host ?? endpoint)): \(why)"
+                          + " Zkontroluj internet a adresu v nastavení.")
             }
         }
         let http = response as? HTTPURLResponse
