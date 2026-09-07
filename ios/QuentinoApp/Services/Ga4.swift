@@ -200,7 +200,23 @@ enum Ga4 {
         for one in options where !out.contains(one) {
             if one.range(of: neverQuery, options: [.regularExpression, .caseInsensitive]) == nil { out.append(one) }
         }
-        return out
+        if !out.isEmpty { return out }
+
+        /*
+         Ani jedna akce nevypadá jako dotaz.
+
+         Tohle už jednou zabolelo: seznam se přefiltroval do prázdna, smyčka
+         neproběhla vůbec a v okně stálo „zkoušené akce: " — bez jediné akce
+         a bez odpovědi, ze které by se dalo poznat proč. Zkusit se má
+         vždycky něco: připojení a odpojení jsou jediné dvě, které opravdu
+         nemají co vrátit.
+         */
+        let usable = options.filter {
+            $0.trimmingCharacters(in: .whitespaces).range(
+                of: "^(re)?connect$|^disconnect$",
+                options: [.regularExpression, .caseInsensitive]) == nil
+        }
+        return usable.isEmpty ? options : usable
     }
 
     private static func listActionOption(_ options: [String]) -> String? {
@@ -349,11 +365,23 @@ enum Ga4 {
         try await connect()
         let tools = try await listTools()
         return tools.map { one -> String in
-            let properties = (schemaOf(one)["properties"] as? [String: Any] ?? [:]).keys.sorted()
+            let schema = schemaOf(one)["properties"] as? [String: Any] ?? [:]
+            let properties = schema.keys.sorted()
             let required = (schemaOf(one)["required"] as? [String] ?? []).joined(separator: ", ")
             let name = one["name"] as? String ?? ""
             let list = properties.isEmpty ? "—" : properties.joined(separator: ", ")
-            return "\(name)(\(list))" + (required.isEmpty ? "" : " · povinné: \(required)")
+            /*
+             Výčty patří do výpisu. Jméno parametru („action") neřekne nic;
+             teprve jeho hodnoty ukážou, jestli tam vůbec je něco, čím se dá
+             zeptat — a přesně na tom se napojení jednou zaseklo.
+             */
+            var enums: [String] = []
+            for key in properties {
+                let values = enumOf(schema[key])
+                if !values.isEmpty { enums.append("\(key): \(values.joined(separator: " | "))") }
+            }
+            let head = "\(name)(\(list))" + (required.isEmpty ? "" : " · povinné: \(required)")
+            return enums.isEmpty ? head : head + "\n    " + enums.joined(separator: "\n    ")
         }.joined(separator: "\n")
     }
 
@@ -414,9 +442,12 @@ enum Ga4 {
         let candidates = actionOptions.isEmpty ? [""] : queryActionOptions(actionOptions)
 
         var last = ""
+        var tried: [String] = []
+        let offered = actionOptions.isEmpty ? "nástroj žádné akce nenabízí" : actionOptions.joined(separator: ", ")
         for (index, action) in candidates.prefix(4).enumerated() {
             var args = argsFor(tool, question: question, appId: appId, action: "query")
             if !action.isEmpty { args["action"] = action }
+            tried.append(action.isEmpty ? (tool["name"] as? String ?? "nástroj") : action)
             params["name"] = tool["name"] as? String ?? ""
             params["arguments"] = args
 
@@ -430,7 +461,34 @@ enum Ga4 {
             return text
         }
         if let reconnect = needsReconnect(last) { throw BridgeError.message(reconnect) }
-        throw BridgeError.message("Sequel: \(String(last.prefix(220)))")
+
+        /*
+         Hláška se čte z bubliny na telefonu, takže musí být krátká a říct,
+         co dál. Celá odpověď serveru se schová do nastavení — tam je na ni
+         místo a dá se z ní poznat, co Sequel vlastně poslal.
+         */
+        let detail = [
+            Formats.iso(Date()),
+            "nástroj: \(tool["name"] as? String ?? "")",
+            "nabízené akce: \(offered)",
+            "zkoušené akce: \(tried.isEmpty ? "—" : tried.joined(separator: ", "))",
+            "",
+            last.isEmpty ? "(server neposlal nic)" : last
+        ].joined(separator: "\n")
+        Store.setSetting("ga4LastDetail", String(detail.prefix(4000)))
+
+        let why: String
+        if last.range(of: "\"error\"") != nil {
+            why = "odpověděl chybou"
+        } else if last.isEmpty {
+            why = "neposlal žádná data"
+        } else {
+            why = "poslal něco, co nejsou čísla návštěvnosti"
+        }
+        throw BridgeError.message(
+            "Sequel \(why). Zkoušeno: \(tried.isEmpty ? "—" : tried.joined(separator: ", "));"
+            + " nabízí: \(String(offered.prefix(120))). Celou odpověď ukáže"
+            + " „Zobrazit poslední odpověď“ v nastavení.")
     }
 
     /**
