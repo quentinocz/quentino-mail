@@ -1115,27 +1115,38 @@ async function runReports(
   ];
 
   const session = String(plan?.session_id ?? plan?.data?.session_id ?? '');
-  const runOnce = async (shape: 'input' | 'arguments'): Promise<string> => {
+  /*
+   * Jak vypadá jedno volání, ve schématu není: `tool_calls` je jen „pole"
+   * bez popisu položek. Server to prozradil až chybou —
+   * „undefined is not an object (evaluating 'callParams.tool.toLowerCase')"
+   * — z čehož je jasné, že jméno nástroje čte z pole **`tool`**, ne
+   * `tool_id`. Jak se jmenuje vstup, se z ničeho nepozná, tak se zkusí
+   * obvyklá jména po řadě, dokud nepřijdou řádky.
+   */
+  const shapes = ['input', 'params', 'arguments', 'flat'] as const;
+  const runOnce = async (shape: typeof shapes[number], id: number): Promise<string> => {
     const runArgs = argsFor(runner, { question: question(), appId, why });
-    const list = calls.map(one => (shape === 'input' ? one : {
-      id: one.id, tool_id: one.tool_id, arguments: one.input
-    }));
+    const list = calls.map(one => {
+      // `tool` i `tool_id` schválně obojí — server si vezme, co zná
+      const head = { id: one.id, tool: one.tool_id, tool_id: one.tool_id };
+      if (shape === 'flat') return { ...head, ...one.input };
+      return { ...head, [shape]: one.input };
+    });
     for (const [name, property] of Object.entries<any>(runner.schema?.properties ?? {})) {
       if (/^(tool_?calls|calls|steps|plan)$/i.test(name)) {
         runArgs[name] = isArray(property) ? list : JSON.stringify(list);
       }
       if (/^session_?id$/i.test(name) && session) runArgs[name] = session;
     }
-    return textOf(await rpc('tools/call', { name: runner.name, arguments: runArgs }, 41));
+    return textOf(await rpc('tools/call', { name: runner.name, arguments: runArgs }, id));
   };
 
-  /*
-   * Jak se u volání jmenuje vstup, se ze schématu nedozvíme — `tool_calls`
-   * je jen „pole". Zkusí se `input`, a když si server postěžuje, `arguments`.
-   */
-  let answer = await runOnce('input');
-  if (/"error"|argument|invalid|required/i.test(answer) && !/"rows"/.test(answer)) {
-    answer = await runOnce('arguments');
+  let answer = '';
+  for (const [index, shape] of shapes.entries()) {
+    answer = await runOnce(shape, 41 + index);
+    if (/"rows"/.test(answer)) break;
+    // Chyba ve tvaru volání — zkusí se další pojmenování vstupu
+    if (!/"error"/i.test(answer)) break;
   }
   /*
    * Report se spustil a nedopadl. To není důvod zkoušet oklikou přes řeč —
