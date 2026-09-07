@@ -37,26 +37,68 @@ function check(label, got, want) {
 
 /* ---------- podstrčený server ---------- */
 
-// Takhle vypadá nástroj Sequelu: akce, zdroj a teprve pak otázka
-const TOOL = {
-  name: 'sequel',
-  description: 'Query connected data sources',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      /*
-       * Skutečná jména akcí. Dotaz se nejmenuje `query`, ale `run_query` —
-       * a přesně na tom to spadlo: kód sáhl po `list`, server ochotně
-       * odpověděl seznamem spojení a v přehledu z toho byly nuly.
-       */
-      action: { type: 'string', enum: ['connect', 'list', 'run_query', 'disconnect'] },
-      app_id: { type: 'string' },
-      connection_id: { type: 'string' },
-      query: { type: 'string' }
-    },
-    required: ['action']
+/*
+ * Nástroje tak, jak je posílá skutečný Sequel (vypsané z provozu):
+ * správce spojení, hledání a spuštění. Dotaz se neposílá jedním voláním —
+ * `sequel_search` jen navrhne, co spustit, a čísla vrátí až `sequel_execute`.
+ * Každý nástroj navíc chce `action_info`, tedy větu, proč se ptáme.
+ */
+const TOOLS = [
+  {
+    name: 'sequel_manage_connections',
+    description: 'List, connect or reconnect data sources',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action_info: { type: 'string' },
+        action: { type: 'string', enum: ['list', 'connect', 'reconnect'] },
+        app_id: { type: 'string' },
+        connection_id: { type: 'string' }
+      },
+      required: ['action_info', 'action']
+    }
+  },
+  {
+    name: 'sequel_search',
+    description: 'Find what can be asked of the connected sources',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action_info: { type: 'string' },
+        use_case: { type: 'string' },
+        connection_ids: { type: 'array', items: { type: 'string' } }
+      },
+      required: ['action_info', 'use_case']
+    }
+  },
+  {
+    name: 'sequel_execute',
+    description: 'Run the tool calls returned by search',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action_info: { type: 'string' },
+        tool_calls: { type: 'array' },
+        session_id: { type: 'string' }
+      },
+      required: ['action_info', 'tool_calls']
+    }
+  },
+  {
+    name: 'sequel_workbench',
+    description: 'Run python or bash',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action_info: { type: 'string' },
+        language: { type: 'string', enum: ['python', 'bash'] },
+        code: { type: 'string' },
+        session_id: { type: 'string' }
+      },
+      required: ['action_info', 'language', 'code']
+    }
   }
-};
+];
 
 let calls = [];
 let answer = '{"window":{"sessions":1234,"users":900,"purchases":31,"revenue":54000},'
@@ -72,28 +114,47 @@ global.fetch = async (url, options) => {
     headers: { get: (name) => (name.toLowerCase() === 'content-type' ? 'application/json' : null) },
     text: async () => JSON.stringify({ jsonrpc: '2.0', id: body.id, result })
   });
+  const text = (value) => reply({ content: [{ type: 'text', text: value }] });
 
   if (body.method === 'initialize') return reply({ protocolVersion: '2025-06-18' });
   if (body.method === 'notifications/initialized') {
     return { ok: true, status: 202, headers: { get: () => null }, text: async () => '' };
   }
-  if (body.method === 'tools/list') return reply({ tools: [TOOL] });
+  if (body.method === 'tools/list') return reply({ tools: TOOLS });
   if (body.method === 'tools/call') {
     const args = body.params?.arguments ?? {};
-    // Přesně to, co dělá skutečný server: bez zdroje se ptát nedá
-    if (args.action === 'connect' || (args.action === 'run_query' && !args.connection_id)) {
-      return reply({ content: [{ type: 'text', text: '{"status":"error","error":"app_id is required when action=\'connect\'"}' }] });
-    }
+    const tool = body.params?.name ?? '';
+    // Povinná věta „proč se ptáme" — bez ní server dotaz odmítá
+    if (!args.action_info) return text('{"status":"error","error":"action_info is required"}');
+
     /*
-     * Seznam spojení. Tohle je ta past: na špatnou akci server neodpoví
-     * chybou, ale ochotně vrátí výpis — a ten se dřív bral jako odpověď.
+     * Seznam spojení. Vedle napojených zdrojů nese i **katalog toho, co by
+     * se dalo napojit** (`available_apps`) — a ten se dřív dostal do výběru
+     * jako šestnáct zdrojů, které nikdo nemá.
      */
-    if (args.action === 'list') {
-      return reply({ content: [{ type: 'text', text: '{"status":"success","data":{"action":"list","connections":'
+    if (tool === 'sequel_manage_connections') {
+      if (args.action !== 'list') return text('{"status":"error","error":"nothing to do"}');
+      return text('{"status":"success","data":{"action":"list","connections":'
         + '[{"connection_id":"s6f02zyp","name":"GA4 — Quentino.cz","type":"google_analytics","expired":false},'
-        + '{"connection_id":"pg01","name":"Sklad","type":"postgres","expired":false}]}}' }] });
+        + '{"connection_id":"pg01","name":"Sklad","type":"postgres","expired":false}],'
+        + '"available_apps":[{"app_id":"postgres","name":"PostgreSQL"},{"app_id":"stripe","name":"Stripe"},'
+        + '{"app_id":"hubspot","name":"HubSpot"}]}}');
     }
-    return reply({ content: [{ type: 'text', text: answer }] });
+
+    // Hledání samo čísla nevrací — jen návrh, co spustit
+    if (tool === 'sequel_search') {
+      if (!args.use_case) return text('{"status":"error","error":"use_case is required"}');
+      return text('{"status":"success","session_id":"sess-1","data":{"tool_calls":'
+        + '[{"id":"c1","name":"ga4_report","arguments":{"metrics":["sessions"]}}]}}');
+    }
+
+    if (tool === 'sequel_execute') {
+      if (!Array.isArray(args.tool_calls) || args.tool_calls.length === 0) {
+        return text('{"status":"error","error":"tool_calls is required"}');
+      }
+      return text(answer);
+    }
+    return text('{"status":"error","error":"unsupported tool"}');
   }
   throw new Error(`neznámá metoda ${body.method}`);
 };
@@ -106,6 +167,13 @@ global.fetch = async (url, options) => {
   console.log('\nzdroje se dohledají:\n');
   const apps = await ga4.ga4Apps();
   check('server vrátí obě spojení', apps.map(one => one.id), ['s6f02zyp', 'pg01']);
+  /*
+   * Vedle napojených zdrojů posílá Sequel i katalog toho, co by se dalo
+   * napojit (`available_apps`). Do výběru nepatří — jinak si člověk vybírá
+   * mezi šestnácti věcmi, které nemá.
+   */
+  check('nabídka toho, co se dá napojit, mezi zdroje nepatří',
+    apps.some(one => ['postgres', 'stripe', 'hubspot'].includes(one.id)), false);
   /*
    * Vybrat se má **Google Analytics**, ne první v pořadí — na návštěvnost se
    * databáze skladu ptát nemá smysl.
@@ -121,13 +189,36 @@ global.fetch = async (url, options) => {
   calls = [];
   const snapshot = await ga4.ga4Snapshot(true);
   const askCall = calls.find(one => one.method === 'tools/call');
-  // Ne `list` ani `connect` — dotaz se u Sequelu jmenuje jinak a musí se najít
-  check('akce je dotaz, ne výpis ani připojení', askCall.params.arguments.action, 'run_query');
-  check('a zdroj je vyplněný', askCall.params.arguments.connection_id, 's6f02zyp');
+  /*
+   * Ptát se má **dotazovací** nástroj, ne správce spojení. Přesně na tomhle
+   * napojení uvázlo: vybral se `sequel_manage_connections`, jehož akce jsou
+   * jen list/connect/reconnect — žádná nevypadala jako dotaz a v okně z toho
+   * bylo „zkoušené akce: " bez jediné akce.
+   */
+  check('ptá se nástroj na data, ne správce spojení', askCall.params.name, 'sequel_search');
   check('otázka jde pod jménem ze schématu',
-    typeof askCall.params.arguments.query === 'string' && askCall.params.arguments.query.length > 20, true);
+    typeof askCall.params.arguments.use_case === 'string'
+    && askCall.params.arguments.use_case.length > 20, true);
+  // `connection_ids` je pole, `connection_id` text — řídí se to schématem
+  check('zdroj je vyplněný a zabalený podle schématu',
+    askCall.params.arguments.connection_ids, ['s6f02zyp']);
+  // Povinná věta „proč se ptáme"; bez ní Sequel dotaz odmítne
+  check('a je vyplněné, proč se ptáme',
+    typeof askCall.params.arguments.action_info === 'string'
+    && askCall.params.arguments.action_info.length > 10, true);
   check('nic navíc se neposílá', Object.keys(askCall.params.arguments).sort(),
-    ['action', 'app_id', 'connection_id', 'query']);
+    ['action_info', 'connection_ids', 'use_case']);
+  /*
+   * Druhý krok. Hledání samo čísla nevrací — vrátí návrh, co spustit,
+   * a teprve `sequel_execute` ho provede. Bez toho se v přehledu ukazoval
+   * plán místo dat.
+   */
+  const runCall = calls.filter(one => one.method === 'tools/call')
+    .find(one => one.params.name === 'sequel_execute');
+  check('návrh z hledání se opravdu spustí', !!runCall, true);
+  check('a jde do něj to, co hledání vrátilo',
+    runCall?.params.arguments.tool_calls?.[0]?.name, 'ga4_report');
+  check('i sezení z prvního kroku', runCall?.params.arguments.session_id, 'sess-1');
   check('čísla se přečtou', snapshot.window.sessions, 1234);
   check('konverze se dopočítá', snapshot.conversion, 2.5);
   check('a je z čeho srovnávat', snapshot.prevWindow.sessions, 1000);
@@ -139,7 +230,7 @@ global.fetch = async (url, options) => {
    * jako pravda a není. Kostra se proto do dotazu nepřikládá a samé nuly se
    * berou jako nepřečtená odpověď.
    */
-  const askText = calls.find(one => one.method === 'tools/call')?.params.arguments.query ?? '';
+  const askText = calls.find(one => one.method === 'tools/call')?.params.arguments.use_case ?? '';
   check('v dotazu není vzorová odpověď s nulami', /"sessions":0/.test(askText), false);
   check('a jsou v něm konkrétní data', /\d{4}-\d{2}-\d{2} až \d{4}-\d{2}-\d{2}/.test(askText), true);
 
@@ -198,15 +289,17 @@ global.fetch = async (url, options) => {
 
   console.log('\ndiagnostika:\n');
   const tools = await ga4.ga4Diagnostics();
-  check('vypíše, co server umí', /sequel\(action, app_id, connection_id, query\)/.test(tools), true);
+  check('vypíše, co server umí',
+    /sequel_manage_connections\(action_info, action, app_id, connection_id\)/.test(tools), true);
+  // Popis od serveru je jediná dokumentace, kterou k Sequelu máme
+  check('i s tím, co k nim server sám píše', /Run the tool calls returned by search/.test(tools), true);
   check('a co je povinné', /povinné: action/.test(tools), true);
   /*
    * Výčet akcí patří do výpisu. Jméno „action" neřekne nic — teprve hodnoty
    * ukážou, jestli je tam vůbec něco, čím se dá zeptat. Přesně na tom se
    * napojení jednou zaseklo a z okna se to nedalo poznat.
    */
-  check('a jaké hodnoty akce nabízí',
-    /action: connect \| list \| run_query \| disconnect/.test(tools), true);
+  check('a jaké hodnoty akce nabízí', /action: list \| connect \| reconnect/.test(tools), true);
 
   console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ napojení na Sequel sedí\n');
   process.exit(failed ? 1 : 0);
