@@ -1071,10 +1071,19 @@ async function runReports(
   const found = textOf(await rpc('tools/call', { name: searchTool.name, arguments: searchArgs }, 4));
   const plan = jsonIn(found);
   const results = findArray(plan, 'results') ?? [];
+  /*
+   * Ke kterému spojení plán patří. Volání bez `connection_id` a `plan_id`
+   * skončilo šestkrát po sobě stejně — „UNDEFINED_VALUE: Undefined values
+   * are not allowed", ať se vstup jmenoval jakkoli. Server si tedy z volání
+   * skládá vlastní záznam a obojí v něm čekal; v plánu přitom obojí je.
+   */
+  const owner = results.find((one: any) => Array.isArray(one?.tools) && one.tools.length) ?? results[0];
   const report = results
     .flatMap((one: any) => (Array.isArray(one?.tools) ? one.tools : []))
     .find((one: any) => /run_report|report|query/i.test(String(one?.tool_id ?? one?.id ?? '')));
   if (!report) return null;
+  const connectionId = String(owner?.connection_id ?? appId ?? '');
+  const planId = String(owner?.plan_id ?? plan?.plan_id ?? '');
 
   const schema = report.input_schema ?? report.inputSchema ?? {};
   const offered = (name: string): string[] => enumOf(schema?.properties?.[name]?.items ?? {});
@@ -1123,21 +1132,22 @@ async function runReports(
    * `tool_id`. Jak se jmenuje vstup, se z ničeho nepozná, tak se zkusí
    * obvyklá jména po řadě, dokud nepřijdou řádky.
    */
-  const shapes = ['input', 'params', 'arguments', 'parameters', 'args', 'holé'] as const;
+  const shapes = ['input', 'params', 'arguments'] as const;
   const runOnce = async (shape: typeof shapes[number], id: number): Promise<string> => {
     const runArgs = argsFor(runner, { question: question(), appId, why });
-    const list = calls.map(one => {
+    const list = calls.map(one => ({
       /*
-       * `holé` je volání bez ničeho navíc: jen jméno nástroje a jeho vstup
-       * naplocho. Schéma vstupu má `additionalProperties: false`, takže
-       * `id` ani `tool_id` v něm být nesmí — a právě na přebytečném poli
-       * server hlásí „UNDEFINED_VALUE".
+       * Ke každému volání patří i to, **komu** ho poslat: jméno nástroje
+       * (`tool` i `tool_id`, server si vezme, co zná), spojení a plán,
+       * ze kterého vzešlo. Bez těch dvou se volání neuložilo vůbec.
        */
-      if (shape === 'holé') return { tool: one.tool_id, ...one.input };
-      // Jinde `tool` i `tool_id` schválně obojí — server si vezme, co zná
-      const head = { id: one.id, tool: one.tool_id, tool_id: one.tool_id };
-      return { ...head, [shape]: one.input };
-    });
+      id: one.id,
+      tool: one.tool_id,
+      tool_id: one.tool_id,
+      ...(connectionId ? { connection_id: connectionId } : {}),
+      ...(planId ? { plan_id: planId } : {}),
+      [shape]: one.input
+    }));
     for (const [name, property] of Object.entries<any>(runner.schema?.properties ?? {})) {
       if (/^(tool_?calls|calls|steps|plan)$/i.test(name)) {
         runArgs[name] = isArray(property) ? list : JSON.stringify(list);

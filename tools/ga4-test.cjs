@@ -210,6 +210,19 @@ global.fetch = async (url, options) => {
           error: "undefined is not an object (evaluating 'callParams.tool.toLowerCase')"
         })) } }));
       }
+      /*
+       * Ke každému volání patří i to, komu ho poslat: spojení a plán,
+       * ze kterého vzešlo. Bez nich si server neuloží ani záznam a spadne
+       * na `undefined` — přesně touhle hláškou, ať se vstup jmenuje jakkoli.
+       */
+      const bezSpojeni = args.tool_calls.find(one => !one.connection_id || !one.plan_id);
+      if (bezSpojeni) {
+        return text(JSON.stringify({ status: 'success', data: { results: args.tool_calls.map(() => ({
+          tool: 'google_analytics.run_report',
+          output: null,
+          error: 'UNDEFINED_VALUE: Undefined values are not allowed'
+        })) } }));
+      }
       // Vstup čte z `params`; pod jiným jménem si stěžuje na chybějící pole
       const bezVstupu = args.tool_calls.find(one => typeof one.params !== 'object' || !one.params);
       if (bezVstupu) {
@@ -329,6 +342,13 @@ global.fetch = async (url, options) => {
    * „undefined is not an object (evaluating 'callParams.tool.toLowerCase')".
    */
   check('jméno nástroje jde i pod `tool`', spusteno[0]?.tool, 'google_analytics.run_report');
+  /*
+   * Ke každému volání patří i to, komu ho poslat. Bez `connection_id`
+   * a `plan_id` z plánu server spadl na `undefined` — a hlásil to stejně,
+   * ať se vstup jmenoval jakkoli, takže to dlouho vypadalo na tvar volání.
+   */
+  check('a s ním spojení i plán z hledání',
+    [spusteno[0]?.connection_id, spusteno[0]?.plan_id], ['s6f02zyp', 'sp_1']);
   /*
    * Jak se jmenuje vstup, ve schématu není. Zkouší se obvyklá jména po řadě,
    * dokud nepřijdou řádky — tenhle server chce `params`, a to je druhý pokus.
