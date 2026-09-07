@@ -942,14 +942,20 @@ enum Ga4 {
          je jen „pole". Zkusí se `input`, a když si server postěžuje,
          `arguments`.
          */
-        func runOnce(_ shape: String) async throws -> String {
+        func runOnce(_ shape: String, id: Int) async throws -> String {
             var runArgs = argsFor(runner, question: question(), appId: appId, action: "query")
             let list: [[String: Any]] = calls.map { call in
-                guard shape == "arguments" else { return call }
+                // `tool` i `tool_id` schválně obojí — server si vezme, co zná
                 var other: [String: Any] = [:]
                 other["id"] = call["id"]
+                other["tool"] = call["tool_id"]
                 other["tool_id"] = call["tool_id"]
-                other["arguments"] = call["input"]
+                let input = call["input"] as? [String: Any] ?? [:]
+                if shape == "flat" {
+                    for (key, value) in input { other[key] = value }
+                } else {
+                    other[shape] = input
+                }
                 return other
             }
             for (name, raw) in (schemaOf(runner)["properties"] as? [String: Any] ?? [:]) {
@@ -967,13 +973,23 @@ enum Ga4 {
             var runParams: [String: Any] = [:]
             runParams["name"] = runner["name"] as? String ?? ""
             runParams["arguments"] = runArgs
-            return textOf(try await rpc("tools/call", runParams, id: 41))
+            return textOf(try await rpc("tools/call", runParams, id: id))
         }
 
-        var answer = try await runOnce("input")
-        let broken = answer.range(of: "\"error\"|argument|invalid|required",
-                                  options: [.regularExpression, .caseInsensitive]) != nil
-        if broken, answer.range(of: "\"rows\"") == nil { answer = try await runOnce("arguments") }
+        /*
+         Jak vypadá jedno volání, ve schématu není: `tool_calls` je jen „pole"
+         bez popisu položek. Server to prozradil až chybou — „undefined is not
+         an object (evaluating 'callParams.tool.toLowerCase')" — takže jméno
+         nástroje čte z pole `tool`. Jak se jmenuje vstup, se z ničeho
+         nepozná, tak se zkusí obvyklá jména po řadě, dokud nepřijdou řádky.
+         */
+        var answer = ""
+        for (index, shape) in ["input", "params", "arguments", "flat"].enumerated() {
+            answer = try await runOnce(shape, id: 41 + index)
+            if answer.range(of: "\"rows\"") != nil { break }
+            // Chyba ve tvaru volání — zkusí se další pojmenování vstupu
+            if answer.range(of: "\"error\"", options: .caseInsensitive) == nil { break }
+        }
 
         let detail = found + "\n\n--- spuštění ---\n" + answer
         if answer.range(of: "\"rows\"") == nil {

@@ -192,8 +192,30 @@ global.fetch = async (url, options) => {
       if (!Array.isArray(args.tool_calls) || args.tool_calls.length === 0) {
         return text('{"status":"error","error":"tool_calls is required"}');
       }
+      // Zkouška „report se spustil a nedopadl" — na tvaru volání nezáleží
       if (failReports) {
         return text('{"status":"error","error":"app_id is required when action=\'connect\'"}');
+      }
+      /*
+       * Jméno nástroje čte server z pole `tool`. Když tam není, spadne
+       * uvnitř sebe — a přesně tuhle hlášku poslal v provozu, když se
+       * posílalo jen `tool_id`.
+       */
+      const bezJmena = args.tool_calls.find(one => typeof one.tool !== 'string');
+      if (bezJmena) {
+        return text(JSON.stringify({ status: 'success', data: { results: args.tool_calls.map(() => ({
+          output: null,
+          file: { filename: '', path: '' },
+          next_steps: null,
+          error: "undefined is not an object (evaluating 'callParams.tool.toLowerCase')"
+        })) } }));
+      }
+      // Vstup čte z `params`; pod jiným jménem si stěžuje na chybějící pole
+      const bezVstupu = args.tool_calls.find(one => typeof one.params !== 'object' || !one.params);
+      if (bezVstupu) {
+        return text(JSON.stringify({ status: 'success', data: { results: args.tool_calls.map(() => ({
+          output: null, error: 'params is required'
+        })) } }));
       }
       if (zeroReports) {
         return text(JSON.stringify({ status: 'success', data: { results: args.tool_calls.map(() => ({
@@ -301,6 +323,20 @@ global.fetch = async (url, options) => {
   check('zdroje jdou podle sessionSourceMedium', spusteno[2]?.input.dimensions, ['sessionSourceMedium']);
   check('a je jich pět', spusteno[2]?.input.limit, 5);
   check('i sezení z hledání', runCall?.params.arguments.session_id, 'gvauhe');
+  /*
+   * Jméno nástroje čte server z pole `tool`, ne `tool_id` — přestože ve svém
+   * vlastním plánu posílá `tool_id`. Prozradil to až pádem uvnitř sebe:
+   * „undefined is not an object (evaluating 'callParams.tool.toLowerCase')".
+   */
+  check('jméno nástroje jde i pod `tool`', spusteno[0]?.tool, 'google_analytics.run_report');
+  /*
+   * Jak se jmenuje vstup, ve schématu není. Zkouší se obvyklá jména po řadě,
+   * dokud nepřijdou řádky — tenhle server chce `params`, a to je druhý pokus.
+   */
+  const tvary = calls.filter(one => one.params?.name === 'sequel_execute');
+  check('tvar volání se dohledá zkoušením', tvary.length >= 2, true);
+  check('a nakonec projde ten, který server bere',
+    typeof tvary[tvary.length - 1]?.params.arguments.tool_calls[0].params, 'object');
   check('čísla se přečtou', snapshot.window.sessions, 1234);
   check('konverze se dopočítá', snapshot.conversion, 2.5);
   check('a je z čeho srovnávat', snapshot.prevWindow.sessions, 1000);
