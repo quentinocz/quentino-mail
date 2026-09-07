@@ -562,12 +562,38 @@ enum Ga4 {
             if let reconnect = needsReconnect(text) { throw BridgeError.message(reconnect) }
 
             /*
+             Návod k použití zdroje. `sequel_search` nevrací hotové kroky,
+             ale výsledky hledání — a u nich číslo návodu (`skill_id`). Ten
+             návod je jediné místo, kde je napsané, co se dá spustit.
+             */
+            let parsed = jsonIn(text)
+            if let results = findArray(parsed, key: "results"),
+               let skillId = results.compactMap({ ($0["skill_id"] as? String) ?? ($0["id"] as? String) }).first,
+               let reader = tools.first(where: {
+                   ($0["name"] as? String ?? "").range(
+                       of: "read_skill|skill|docs|help",
+                       options: [.regularExpression, .caseInsensitive]) != nil
+               }) {
+                var readArgs = argsFor(reader, question: question, appId: appId, action: "query")
+                for name in (schemaOf(reader)["properties"] as? [String: Any] ?? [:]).keys
+                where name.range(of: "skill_?id|doc_?id|id$", options: [.regularExpression, .caseInsensitive]) != nil {
+                    readArgs[name] = skillId
+                }
+                var readParams: [String: Any] = [:]
+                readParams["name"] = reader["name"] as? String ?? ""
+                readParams["arguments"] = readArgs
+                tried.append("\(reader["name"] as? String ?? "") (\(skillId))")
+                let manual = textOf(try await rpc("tools/call", readParams, id: 60 + index))
+                if !manual.isEmpty { last = text + "\n\n--- návod \(skillId) ---\n" + manual }
+            }
+
+            /*
              Druhý krok. Sequel na dotaz nejdřív odpoví návrhem, co spustit
              (`tool_calls`) — čísla v tom nejsou. Teprve spuštění je provede;
              bez tohohle kroku se v přehledu ukazoval plán místo dat.
              */
-            let parsed = jsonIn(text)
-            if let plan = findArray(parsed, key: "tool_calls"), !plan.isEmpty,
+            if let plan = findArray(parsed, key: "tool_calls") ?? findArray(jsonIn(last), key: "tool_calls"),
+               !plan.isEmpty,
                let runner = runTool(tools) {
                 var runArgs = argsFor(runner, question: question, appId: appId, action: "query")
                 let runProperties = schemaOf(runner)["properties"] as? [String: Any] ?? [:]
@@ -783,8 +809,17 @@ enum Ga4 {
                 (window[key] as? Int ?? 0) > 0
             }
             if !anything {
+                /*
+                 Odpověď přišla, ale čísla v ní nejsou — typicky je to návrh,
+                 co spustit, ne výsledek. Do bubliny se nevejde, tak se
+                 schová celá do nastavení: bez ní se nedá poznat, co po nás
+                 Sequel vlastně chce.
+                 */
+                Store.setSetting("ga4LastDetail",
+                                 String(("\(Formats.iso(Date()))\nodpověď bez čísel:\n\(text)").prefix(8000)))
                 throw BridgeError.message(
-                    "Sequel vrátil samé nuly — zkontroluj zdroj a přístup. Odpověď: \(String(text.prefix(200)))")
+                    "Sequel odpověděl, ale čísla návštěvnosti v tom nejsou — nejspíš vrátil návrh,"
+                    + " co spustit. Celou odpověď ukáže „Zobrazit poslední odpověď“ v nastavení.")
             }
             var sources: [[String: Any]] = []
             for row in (parsed["sources"] as? [[String: Any]] ?? []).prefix(5) {

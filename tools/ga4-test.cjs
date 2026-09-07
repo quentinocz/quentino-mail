@@ -237,7 +237,9 @@ global.fetch = async (url, options) => {
   answer = '{"window":{"sessions":0,"users":0,"purchases":0,"revenue":0},'
     + '"prevWindow":{"sessions":0,"users":0,"purchases":0,"revenue":0},"sources":[]}';
   const zeros = await ga4.ga4Snapshot(true);
-  check('samé nuly se nevydávají za data', /samé nuly/.test(zeros.error ?? ''), true);
+  check('samé nuly se nevydávají za data', /čísla návštěvnosti v tom nejsou/.test(zeros.error ?? ''), true);
+  // Celá odpověď se schová do nastavení — v bublině na ni není místo
+  check('a celá odpověď se schová do nastavení', /"sessions":0/.test(ga4.ga4LastDetail()), true);
 
   console.log('\nchyba schovaná v odpovědi:\n');
   /*
