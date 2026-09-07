@@ -185,11 +185,28 @@ global.fetch = async (url, options) => {
   // `reconnect` se nesmí poslat jako dotaz — z výběru akcí musí vypadnout
   check('reconnect se nebere jako dotaz',
     ga4.__test.pickQueryAction(['connect', 'reconnect', 'run_query', 'list']), ['run_query']);
+  /*
+   * A když se přefiltruje všechno? Přesně tohle se stalo v provozu: seznam
+   * skončil prázdný, smyčka neproběhla vůbec a v okně stálo „zkoušené
+   * akce: " — bez akce a bez odpovědi. Zkusit se má vždycky něco.
+   */
+  check('prázdno se nevrací nikdy, i když nic nevypadá jako dotaz',
+    ga4.__test.pickQueryAction(['connect', 'disconnect', 'list_apps', 'refresh_token']),
+    ['list_apps', 'refresh_token']);
+  check('a když jsou jen připojení, zkusí se i ta',
+    ga4.__test.pickQueryAction(['connect', 'disconnect']), ['connect', 'disconnect']);
 
   console.log('\ndiagnostika:\n');
   const tools = await ga4.ga4Diagnostics();
   check('vypíše, co server umí', /sequel\(action, app_id, connection_id, query\)/.test(tools), true);
   check('a co je povinné', /povinné: action/.test(tools), true);
+  /*
+   * Výčet akcí patří do výpisu. Jméno „action" neřekne nic — teprve hodnoty
+   * ukážou, jestli je tam vůbec něco, čím se dá zeptat. Přesně na tom se
+   * napojení jednou zaseklo a z okna se to nedalo poznat.
+   */
+  check('a jaké hodnoty akce nabízí',
+    /action: connect \| list \| run_query \| disconnect/.test(tools), true);
 
   console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ napojení na Sequel sedí\n');
   process.exit(failed ? 1 : 0);

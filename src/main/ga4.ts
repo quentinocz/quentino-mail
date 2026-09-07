@@ -300,7 +300,20 @@ function pickQueryAction(options: string[]): string[] {
   const byPart = options.filter(one =>
     !NEVER_QUERY.test(one) && QUERY_ACTIONS.some(want => one.toLowerCase().includes(want)));
   const rest = options.filter(one => !NEVER_QUERY.test(one));
-  return [...new Set([...byName, ...byPart, ...rest])];
+  const picked = [...new Set([...byName, ...byPart, ...rest])];
+  if (picked.length) return picked;
+
+  /*
+   * Ani jedna akce nevypadá jako dotaz.
+   *
+   * Tohle už jednou zabolelo: seznam se přefiltroval do prázdna, smyčka
+   * neproběhla vůbec a v okně stálo „zkoušené akce: " — bez jediné akce
+   * a bez odpovědi, ze které by se dalo poznat proč. Zkusit se má vždycky
+   * něco: připojení a odpojení jsou jediné dvě, které opravdu nemají co
+   * vrátit, zbytek za pokus stojí.
+   */
+  const usable = options.filter(one => !/^(re)?connect$|^disconnect$/i.test(one.trim()));
+  return usable.length ? usable : options;
 }
 
 function pickListAction(options: string[]): string | undefined {
@@ -445,7 +458,9 @@ export async function ga4Ask(question: string): Promise<string> {
    */
   const properties = tool.schema?.properties ?? {};
   const actions = enumOf((properties as any).action ?? (properties as any).Action);
+  // Prázdný seznam znamená „zkus to bez akce" — ne „nezkoušej nic"
   const candidates = actions.length ? pickQueryAction(actions) : [''];
+  const offered = actions.length ? actions.join(', ') : 'nástroj žádné akce nenabízí';
 
   let last = '';
   const tried: string[] = [];
@@ -472,12 +487,22 @@ export async function ga4Ask(question: string): Promise<string> {
    */
   const reconnect = needsReconnect(last);
   if (reconnect) throw new Error(reconnect);
-  setSetting('ga4LastDetail', `${new Date().toISOString()}\nakce: ${tried.join(', ')}\n${last}`.slice(0, 4000));
+  setSetting('ga4LastDetail', [
+    new Date().toISOString(),
+    `nástroj: ${tool.name}`,
+    `parametry: ${Object.keys(properties).join(', ') || '—'}`,
+    `nabízené akce: ${offered}`,
+    `zkoušené akce: ${tried.join(', ') || '—'}`,
+    '',
+    last || '(server neposlal nic)'
+  ].join('\n').slice(0, 4000));
+
   const why = /"error"/.test(last) ? 'odpověděl chybou'
-    : last === 'prázdná odpověď' ? 'neposlal žádná data'
-      : 'poslal něco, co nejsou čísla návštěvnosti';
+    : !last ? 'neposlal žádná data'
+      : last === 'prázdná odpověď' ? 'neposlal žádná data'
+        : 'poslal něco, co nejsou čísla návštěvnosti';
   throw new Error(
-    `Sequel ${why} (zkoušené akce: ${tried.join(', ')}). `
+    `Sequel ${why}. Zkoušeno: ${tried.join(', ') || '—'}; nabízí: ${offered.slice(0, 120)}. `
     + 'Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.'
   );
 }
@@ -533,10 +558,21 @@ export async function ga4Diagnostics(): Promise<string> {
   await connect();
   const tools = await listTools();
   return tools.map(one => {
-    const properties = Object.keys(one.schema?.properties ?? {});
+    const properties = one.schema?.properties ?? {};
+    const names = Object.keys(properties);
     const required = Array.isArray(one.schema?.required) ? one.schema.required : [];
-    return `${one.name}(${properties.join(', ') || '—'})`
-      + `${required.length ? ` · povinné: ${required.join(', ')}` : ''}`;
+    /*
+     * Výčty patří do výpisu. Jméno parametru („action") neřekne nic; teprve
+     * jeho hodnoty ukážou, jestli tam vůbec je něco, čím se dá zeptat —
+     * a přesně na tom se napojení jednou zaseklo.
+     */
+    const enums = names
+      .map(name => ({ name, values: enumOf((properties as any)[name]) }))
+      .filter(item => item.values.length)
+      .map(item => `${item.name}: ${item.values.join(' | ')}`);
+    return `${one.name}(${names.join(', ') || '—'})`
+      + `${required.length ? ` · povinné: ${required.join(', ')}` : ''}`
+      + (enums.length ? `\n    ${enums.join('\n    ')}` : '');
   }).join('\n');
 }
 
