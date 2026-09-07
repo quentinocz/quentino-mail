@@ -749,12 +749,37 @@ export interface DigestProduct {
    * Odkud se cena vzala.
    *
    * `feed` = z objednávky, `ceník` = z katalogu, `jinde` = z ceny, za kterou
-   * se totéž prodalo v jiné objednávce, `cizí měna` = prodalo se jen na
-   * jiném trhu, `neznámá` = nedá se zjistit. Bez tohohle se „0 Kč"
-   * u kapesníčku nedalo odlišit od skutečné nuly — a v postřezích se z toho
-   * stalo tvrzení, že se zboží prodává zadarmo.
+   * se totéž prodalo v jiné objednávce, `jiná měna` = prodalo se, ale jen na
+   * jiném trhu (částka je v `revenueAll`), `neznámá` = nedá se zjistit. Bez
+   * tohohle se „0 Kč" u kapesníčku nedalo odlišit od skutečné nuly — a
+   * v postřezích se z toho stalo tvrzení, že se zboží prodává zadarmo.
    */
-  priceSource: 'feed' | 'ceník' | 'jinde' | 'cizí měna' | 'neznámá';
+  priceSource: 'feed' | 'ceník' | 'jinde' | 'jiná měna' | 'neznámá';
+  /**
+   * Tržba ve **všech** měnách, ve kterých se zboží prodalo.
+   *
+   * `revenue` je jen převažující měna — podle ní se řadí a kreslí pruhy.
+   * Zboží, které jde hlavně do zahraničí, by v ní ale mělo nulu, a z nuly
+   * se v postřezích stalo „prodává se zadarmo". Tady je vidět celá pravda:
+   * 350 Kč + 14 €.
+   */
+  revenueAll: DigestMoney[];
+  /** Obrázek z katalogu — v seznamu se zboží pozná dřív očima než čtením */
+  image?: string | null;
+  /** Kam se prodávalo — první tři země podle kusů */
+  countries?: { key: string; label: string; qty: number }[];
+  /** Kusů za předchozí stejně dlouhé období — z toho je vidět pohyb */
+  prevQty?: number;
+  /** Průměrná cena za kus v převažující měně; 0 = neznáme */
+  unit?: number;
+  /**
+   * Věta, proč to tady je.
+   *
+   * Číslo bez výkladu se čte deset vteřin a stejně z něj nic nevyplyne.
+   * Tahle věta se **počítá v kódu** z týchž čísel, co jsou vedle — není to
+   * odhad od AI a dá se ověřit.
+   */
+  note?: string;
   /** Které varianty se pod produktem prodaly — 110 cm 4×, 120 cm 2× */
   variants: { label: string; qty: number }[];
 }
@@ -808,22 +833,15 @@ export interface DigestHistory {
   lastYear: { orders: number; revenue: number } | null;
   /** Kolik z uzavřených měsíců bylo slabších než současné okno */
   rank: { better: number; of: number } | null;
-  season: {
-    month: string;
-    label: string;
-    /** „vánoční sezóna", „svatební sezóna" — jméno, ne výpočet */
-    name: string;
-    index: number;
-    startBy: string;
-    /** Za kolik dní začíná; 0 = už běží */
-    inDays: number;
-    text: string;
-    basis: string;
-    /** Co se v ní historicky prodávalo nejvíc */
-    products: { code: string; title: string; qty: number }[];
-    /** Příspěvky, které v tom období fungovaly — podklad pro chystanou kampaň */
-    posts: DigestPost[];
-  } | null;
+  /** Ta nejbližší; celý seznam je v `seasons` */
+  season: DigestSeason | null;
+  /**
+   * Všechny sezóny na půl roku dopředu (nejvýš tři).
+   *
+   * Leden může být silnější než prosinec — kdo se chystá jen na tu
+   * nejbližší, druhou vlnu prošvihne. `season` je první z nich.
+   */
+  seasons?: DigestSeason[];
   /**
    * Proč sezóna není.
    *
@@ -832,6 +850,25 @@ export interface DigestHistory {
    * vždycky, když `season` chybí.
    */
   seasonNote?: string;
+}
+
+/** Sezóna spočítaná z vlastních dat — i s tím, co se v ní prodávalo */
+export interface DigestSeason {
+  /** `YYYY-MM` měsíce, o kterém je řeč */
+  month: string;
+  label: string;
+  /** „vánoční sezóna", „svatební sezóna" — jméno, ne výpočet */
+  name: string;
+  index: number;
+  startBy: string;
+  /** Za kolik dní začíná; 0 = už běží */
+  inDays: number;
+  text: string;
+  basis: string;
+  /** Co se v ní historicky prodávalo nejvíc — i s obrázkem z katalogu */
+  products: { code: string; title: string; qty: number; image?: string | null }[];
+  /** Příspěvky, které v tom období fungovaly — podklad pro chystanou kampaň */
+  posts: DigestPost[];
 }
 
 /** Příspěvek na sítích — lajky a komentáře jsou vždy z Instagramu */
@@ -845,6 +882,12 @@ export interface DigestPost {
   marketLabels?: string[];
   /** „IG" nebo „IG + FB" */
   channels?: string;
+  /** Placený dosah; `null` = Instagram to u tohohle napojení nehlásí */
+  boosted?: boolean | null;
+  /** O kolik % víc objednávek chodilo kolem vydání; null = nedá se spočítat */
+  lift?: number | null;
+  /** Proč je tenhle příspěvek v seznamu — počítáno z čísel vedle */
+  why?: string;
 }
 
 /** Co se dělo na sociálních sítích — a jestli to bylo v dnech s objednávkami */
@@ -858,12 +901,24 @@ export interface DigestSocial {
   ordersWithout: number;
   prevPosts: number;
   /**
-   * Nejúspěšnější příspěvky za celou historii.
+   * Nejúspěšnější příspěvky **z poslední doby** (půl roku).
    *
-   * Co fungovalo loni v prosinci, je pro chystanou kampaň lepší podklad než
-   * to, co se povedlo minulý týden — a bez dlouhého pohledu to není vidět.
+   * Hlavní pohled je na to, co funguje teď — podle toho se rozhoduje, co
+   * postnout příští týden. Starší úspěchy jsou zvlášť v `bestOlder`.
    */
   bestEver: DigestPost[];
+  /** Co fungovalo dávno — připomenutí, ne měřítko */
+  bestOlder?: DigestPost[];
+  /**
+   * Čerstvé neplacené příspěvky, kterým by rozpočet mohl pomoct.
+   *
+   * Úspěch placeného příspěvku je koupený; přidávat rozpočet má smysl tam,
+   * kde už něco zabralo samo. U každého je i to, jak se kolem vydání hnuly
+   * objednávky — souvislost, ne důkaz.
+   */
+  candidates?: DigestPost[];
+  /** Hlásí Instagram propagaci? Bez toho se placené od neplaceného nepozná */
+  boostKnown?: boolean;
 }
 
 /** Řádek v seznamu starších přehledů */
@@ -897,6 +952,8 @@ export interface Ga4Config {
 /** Návštěvnost z Google Analytics (přes Sequel) */
 export interface DigestGa4 {
   at: string;
+  /** Který web ta čísla měří — zatím jen český, objednávky jsou ze všech trhů */
+  scope?: string;
   window: { sessions: number | null; users: number | null; purchases: number | null; revenue: number | null };
   prevWindow: { sessions: number | null; users: number | null; purchases: number | null; revenue: number | null };
   sources: { name: string; sessions: number }[];
@@ -2017,6 +2074,8 @@ export interface StockinItem {
   /** Zásoba v okamžiku načtení — podle ní se pozná, že se mezitím prodalo */
   stockBefore: number | null;
   addedAt: string;
+  /** Fotka z katalogu — u regálu se zboží pozná dřív očima než čtením kódu */
+  image?: string | null;
 }
 
 /** Řádek připravený k zápisu do e-shopu. */

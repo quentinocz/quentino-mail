@@ -87,8 +87,15 @@ enum DigestSocial {
         out["ordersWithPost"] = average(withPost)
         out["ordersWithout"] = average(without)
         out["prevPosts"] = prevPosts
-        // Dlouhý pohled: co fungovalo nejlíp za celou dobu, ne jen v okně
-        out["bestEver"] = bestPosts(limit: 3)
+        /*
+         Dva pohledy zvlášť. Hlavní je poslední půlrok — podle něj se
+         rozhoduje, co postnout teď. Starší úspěchy se přidávají jako
+         připomenutí, ne jako měřítko: mohly mít zaplacený dosah.
+         */
+        out["bestEver"] = bestPosts(limit: 3, sinceDays: 180)
+        out["bestOlder"] = bestPosts(limit: 2, beforeDays: 180)
+        out["candidates"] = boostCandidates(days)
+        out["boostKnown"] = knowsBoost()
         return out
     }
 
@@ -124,42 +131,156 @@ enum DigestSocial {
      `months` (0 = leden) se hodí u sezóny: „co fungovalo loni v listopadu
      a prosinci" je pro chystanou kampaň lepší podklad než minulý týden.
      */
-    static func bestPosts(months: [Int] = [], limit: Int = 3) -> [[String: Any]] {
-        let rows = (try? SQLite.shared.query(
-            "SELECT posted_at, caption, like_count, comment_count, permalink, ig_media_id "
-            + "FROM ig_source_posts WHERE posted_at != '' ORDER BY posted_at DESC LIMIT 2000")) ?? []
+    static func bestPosts(
+        months: [Int] = [], limit: Int = 3, sinceDays: Int? = nil, beforeDays: Int? = nil
+    ) -> [[String: Any]] {
+        let rows = sourceRows()
 
         let wanted = Set(months)
+        let now = Date().timeIntervalSince1970
         var picked: [(row: [String: Any], score: Int)] = []
         for row in rows {
             if !wanted.isEmpty {
                 let month = Int(String((row["posted_at"] as? String ?? "").dropFirst(5).prefix(2))) ?? 0
                 if !wanted.contains(month - 1) { continue }
             }
-            let like = row["like_count"] as? Int ?? 0
-            let comment = row["comment_count"] as? Int ?? 0
-            picked.append((row, like + comment * 3))
+            /*
+             Stáří. Hlavní seznam se dívá na poslední půlrok — podle něj se
+             rozhoduje, co postnout teď; starší se ukazují zvlášť jako
+             připomenutí, protože mohly mít zaplacený dosah.
+             */
+            if sinceDays != nil || beforeDays != nil {
+                guard let when = Formats.date(row["posted_at"] as? String ?? "") else {
+                    if sinceDays != nil { continue }
+                    picked.append((row, score(row)))
+                    continue
+                }
+                let age = (now - when.timeIntervalSince1970) / 86_400
+                if let sinceDays, age > Double(sinceDays) { continue }
+                if let beforeDays, age <= Double(beforeDays) { continue }
+            }
+            picked.append((row, score(row)))
         }
 
-        return picked.sorted { $0.score > $1.score }.prefix(limit).map { found in
-            let row = found.row
-            let mediaId = row["ig_media_id"] as? String ?? ""
-            let caption = (row["caption"] as? String ?? "")
-                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let labels = marketLabels(mediaId)
+        return picked.sorted { $0.score > $1.score }.prefix(limit).map { found in post(found.row) }
+    }
 
-            var one: [String: Any] = [:]
-            one["at"] = row["posted_at"] as? String ?? ""
-            one["caption"] = String(caption.prefix(120))
-            one["likes"] = row["like_count"] as? Int ?? 0
-            one["comments"] = row["comment_count"] as? Int ?? 0
-            one["permalink"] = row["permalink"] as? String ?? ""
-            one["markets"] = labels.count
-            one["marketLabels"] = labels
-            one["channels"] = channels(mediaId)
+    /// Lajk je klepnutí, komentář práce — proto váží víc
+    private static func score(_ row: [String: Any]) -> Int {
+        (row["like_count"] as? Int ?? 0) + (row["comment_count"] as? Int ?? 0) * 3
+    }
+
+    /// Zdrojové příspěvky i s propagací; starší databáze sloupec nemá
+    private static func sourceRows() -> [[String: Any]] {
+        let withBoost = (try? SQLite.shared.query(
+            "SELECT posted_at, caption, like_count, comment_count, permalink, ig_media_id, boosted "
+            + "FROM ig_source_posts WHERE posted_at != '' ORDER BY posted_at DESC LIMIT 2000")) ?? []
+        if !withBoost.isEmpty { return withBoost }
+        return (try? SQLite.shared.query(
+            "SELECT posted_at, caption, like_count, comment_count, permalink, ig_media_id "
+            + "FROM ig_source_posts WHERE posted_at != '' ORDER BY posted_at DESC LIMIT 2000")) ?? []
+    }
+
+    /// Řádek z databáze na příspěvek i s trhy, kanály a propagací
+    private static func post(_ row: [String: Any]) -> [String: Any] {
+        let mediaId = row["ig_media_id"] as? String ?? ""
+        let caption = (row["caption"] as? String ?? "")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let labels = marketLabels(mediaId)
+
+        var one: [String: Any] = [:]
+        one["at"] = row["posted_at"] as? String ?? ""
+        one["caption"] = String(caption.prefix(120))
+        one["likes"] = row["like_count"] as? Int ?? 0
+        one["comments"] = row["comment_count"] as? Int ?? 0
+        one["permalink"] = row["permalink"] as? String ?? ""
+        one["markets"] = labels.count
+        one["marketLabels"] = labels
+        one["channels"] = channels(mediaId)
+        // Prázdná hodnota znamená nevíme — a nevíme se nesmí tvářit jako ne
+        if let boosted = row["boosted"] as? Int {
+            one["boosted"] = boosted == 1
+        } else {
+            one["boosted"] = NSNull()
+        }
+        return one
+    }
+
+    /**
+     Příspěvky, které si říkají o rozpočet.
+
+     Úspěch placeného příspěvku není zásluha příspěvku — je koupený. Hledá se
+     proto opak: čerstvý příspěvek, který si vede nadprůměrně bez placení.
+     Měřítko je medián neplacených, ne průměr — jeden virál by průměr vytáhl
+     tak, že by pak neprošlo nic.
+     */
+    static func boostCandidates(_ days: [[String: Any]], limit: Int = 3) -> [[String: Any]] {
+        let rows = sourceRows()
+        guard !rows.isEmpty else { return [] }
+
+        let now = Date().timeIntervalSince1970
+        let fresh = rows.filter { row in
+            guard let when = Formats.date(row["posted_at"] as? String ?? "") else { return false }
+            return now - when.timeIntervalSince1970 <= 60 * 86_400
+        }
+        guard !fresh.isEmpty else { return [] }
+
+        let organic = rows.filter { ($0["boosted"] as? Int) != 1 }.map { score($0) }.sorted()
+        guard !organic.isEmpty else { return [] }
+        let median = max(1, organic[organic.count / 2])
+
+        var daily: [String: Int] = [:]
+        for day in days { daily[day["day"] as? String ?? ""] = day["orders"] as? Int ?? 0 }
+        let average = days.isEmpty
+            ? 0.0
+            : Double(days.reduce(0) { $0 + ($1["orders"] as? Int ?? 0) }) / Double(days.count)
+
+        let picked = fresh
+            .filter { ($0["boosted"] as? Int) != 1 && Double(score($0)) >= Double(median) * 1.3 }
+            .sorted { score($0) > score($1) }
+            .prefix(limit)
+
+        return picked.map { row in
+            var one = post(row)
+            /*
+             Objednávky kolem vydání — den vydání a dva dny po něm. Déle už
+             se to míchá s čímkoli jiným, co se ten týden dělo. Je to
+             souvislost, ne důkaz, a tak se to i píše.
+             */
+            let day = String((row["posted_at"] as? String ?? "").prefix(10))
+            var around: [Int] = []
+            if let start = Formats.date(day + "T12:00:00Z") {
+                for ahead in 0...2 {
+                    let key = String(Formats.iso(start.addingTimeInterval(Double(ahead) * 86_400)).prefix(10))
+                    if let value = daily[key] { around.append(value) }
+                }
+            }
+            let mine = around.isEmpty ? 0 : Double(around.reduce(0, +)) / Double(around.count)
+            let lift: Int? = (average > 0 && !around.isEmpty)
+                ? Int((((mine - average) / average) * 100).rounded())
+                : nil
+            let times = (Double(score(row)) / Double(median) * 10).rounded() / 10
+
+            var why = "Zaujal \(times)× víc než běžný neplacený příspěvek"
+            if (row["boosted"] as? Int) == 0 { why += " a rozpočet za ním nestál" }
+            if let lift {
+                let how = lift > 0 ? "o \(lift) % víc" : (lift < 0 ? "o \(-lift) % míň" : "stejně")
+                why += "; v den vydání a dva dny po něm chodilo \(how) objednávek než obvykle"
+                    + " (souvislost, ne důkaz)"
+            }
+            one["why"] = why + "."
+            one["lift"] = lift ?? NSNull()
             return one
         }
+    }
+
+    /// Ví se u téhle instalace, které příspěvky byly propagované?
+    static func knowsBoost() -> Bool {
+        let count = ((try? SQLite.shared.query(
+            "SELECT COUNT(*) AS n FROM ig_source_posts WHERE boosted IS NOT NULL"
+        ))?.first?["n"] as? Int) ?? 0
+        return count > 0
     }
 
     private static func average(_ days: [[String: Any]]) -> Double {

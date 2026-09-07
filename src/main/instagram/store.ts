@@ -241,17 +241,26 @@ export function saveBrand(b: Partial<IgBrand>): IgBrand {
 export function upsertSourcePosts(items: any[]): number {
   const d = getDb();
   const stmt = d.prepare(
-    `INSERT INTO ig_source_posts (ig_media_id, media_type, permalink, caption, posted_at, like_count, comment_count, children_json)
-     VALUES (?,?,?,?,?,?,?,?)
+    `INSERT INTO ig_source_posts (ig_media_id, media_type, permalink, caption, posted_at, like_count, comment_count, children_json, boosted)
+     VALUES (?,?,?,?,?,?,?,?,?)
      ON CONFLICT(ig_media_id) DO UPDATE SET
        caption = excluded.caption, like_count = excluded.like_count,
-       comment_count = excluded.comment_count, children_json = excluded.children_json`
+       comment_count = excluded.comment_count, children_json = excluded.children_json,
+       boosted = COALESCE(excluded.boosted, ig_source_posts.boosted)`
   );
   const tx = d.transaction((rows: any[]) => {
     for (const m of rows) {
+      /*
+       * Propagace: `null` znamená **nevíme** — starší napojení ji nehlásí
+       * a „nevíme" se nesmí tvářit jako „ne". Když ji Instagram pošle,
+       * bere se prázdný seznam jako „neplacené".
+       */
+      const boosted = m.boost_ads_list === undefined
+        ? null
+        : ((m.boost_ads_list?.data?.length ?? 0) > 0 ? 1 : 0);
       stmt.run(
         m.id, m.media_type ?? 'IMAGE', m.permalink ?? '', m.caption ?? '', m.timestamp ?? '',
-        m.like_count ?? 0, m.comments_count ?? 0, JSON.stringify(m.children?.data ?? [])
+        m.like_count ?? 0, m.comments_count ?? 0, JSON.stringify(m.children?.data ?? []), boosted
       );
     }
   });

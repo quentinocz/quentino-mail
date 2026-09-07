@@ -129,8 +129,23 @@ enum Stockin {
         let rows = (try? SQLite.shared.query(
             "SELECT * FROM stockin_items WHERE session_id = ? ORDER BY added_at DESC", [.text(id)]
         )) ?? []
+
+        /*
+         Fotka z katalogu. U regálu se zboží pozná dřív podle obrázku než
+         podle kódu — a když pípnutí sedne na cizí kus, je to vidět hned.
+         Kód varianty v katalogu není, tak se sáhne i po nadřazeném produktu.
+         */
+        var photos: [String: String] = [:]
+        for row in (try? SQLite.shared.query(
+            "SELECT code, image FROM products WHERE image IS NOT NULL")) ?? [] {
+            let image = row["image"] as? String ?? ""
+            if !image.isEmpty { photos[(row["code"] as? String ?? "").lowercased()] = image }
+        }
+
         return rows.map { row in
-            [
+            let productCode = (row["product_code"] as? String ?? "").lowercased()
+            let code = (row["code"] as? String ?? "").lowercased()
+            var one: [String: Any] = [
                 "code": row["code"] ?? "",
                 "productCode": row["product_code"] ?? "",
                 "title": row["title"] ?? "",
@@ -139,6 +154,8 @@ enum Stockin {
                 "stockBefore": row["stock_before"] ?? NSNull(),
                 "addedAt": row["added_at"] ?? ""
             ]
+            one["image"] = photos[productCode] ?? photos[code] ?? NSNull()
+            return one
         }
     }
 

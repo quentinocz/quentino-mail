@@ -63,8 +63,8 @@ export interface SeasonHint {
   inDays: number;
   text: string;
   basis: string;
-  /** Co se v ní historicky prodávalo nejvíc */
-  products: { code: string; title: string; qty: number }[];
+  /** Co se v ní historicky prodávalo nejvíc — i s obrázkem z katalogu */
+  products: { code: string; title: string; qty: number; image: string | null }[];
   /** Které příspěvky v tom období fungovaly — podklad pro chystanou kampaň */
   posts: SocialPost[];
 }
@@ -79,6 +79,13 @@ export interface HistoryView {
   rank: { better: number; of: number } | null;
   /** Nejbližší sezóna, na kterou se vyplatí chystat */
   season: SeasonHint | null;
+  /**
+   * Všechny sezóny na půl roku dopředu (nejvýš tři).
+   *
+   * Leden může být silnější než Vánoce — a kdo se chystá jen na tu
+   * nejbližší, druhou vlnu prošvihne. Proto se hlásí postupně obě.
+   */
+  seasons: SeasonHint[];
   /**
    * Proč sezóna není.
    *
@@ -254,7 +261,7 @@ function dayKey(date: Date): string {
  * Tři týdny předem je odhad postavený na tom, že objednávky na dárky
  * začínají chodit dřív než v samotném měsíci.
  */
-function seasonFrom(months: MonthStat[], now: Date): { season: SeasonHint | null; note: string } {
+function seasonFrom(months: MonthStat[], now: Date): { seasons: SeasonHint[]; note: string } {
   /*
    * Kolik měsíců stačí. Dvanáct byl původní požadavek a v praxi znamenal,
    * že se sezóna neukázala nikdy — feed tak daleko nesahá. Půl roku stačí
@@ -265,7 +272,7 @@ function seasonFrom(months: MonthStat[], now: Date): { season: SeasonHint | null
   const closed = months.filter(one => one.complete);
   if (closed.length < 6) {
     return {
-      season: null,
+      seasons: [],
       note: `Na sezónu zatím není dost historie — uzavřených měsíců je ${closed.length}, `
         + 'porovnávat se dá od šesti.'
     };
@@ -290,16 +297,18 @@ function seasonFrom(months: MonthStat[], now: Date): { season: SeasonHint | null
     sum += value;
   }
   const average = sum / Math.max(1, daily.size);
-  if (average <= 0) return { season: null, note: 'Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.' };
+  if (average <= 0) return { seasons: [], note: 'Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.' };
   // Kratší historie snese víc náhody, proto se u ní chce větší rozdíl
   const threshold = closed.length >= 12 ? 1.2 : 1.3;
 
   /*
-   * Nejbližší měsíc, který teprve přijde. Půl roku dopředu: na Vánoce se
-   * kampaň chystá v září a „za dva měsíce" je přesně ta zpráva, která se
-   * hodí — se čtyřměsíčním výhledem se v létě neukázalo nic.
+   * Měsíce, které teprve přijdou. Půl roku dopředu a **všechny**, které
+   * vybočují, ne jen ten první: leden může být silnější než Vánoce a
+   * kdo se chystá jen na nejbližší, ten druhou vlnu prošvihne. Chystat se
+   * dá na obojí, když se o obojím ví včas.
    */
   const upcoming: { index: number; ratio: number }[] = [];
+  const seasons: SeasonHint[] = [];
   for (let ahead = 0; ahead <= 5; ahead++) {
     const when = new Date(now.getFullYear(), now.getMonth() + ahead, 1);
     const index = when.getMonth();
@@ -307,13 +316,16 @@ function seasonFrom(months: MonthStat[], now: Date): { season: SeasonHint | null
     if (value == null) continue;
     const ratio = value / average;
     upcoming.push({ index, ratio });
-    if (ratio < threshold) continue;
+    if (ratio < threshold || seasons.length >= 3) continue;
+    // Dvě sezóny za sebou pod stejným jménem (listopad a prosinec) jsou
+    // jedny Vánoce — druhá by jen opakovala tutéž radu
+    const name = seasonName(index);
+    if (seasons.some(one => one.name === name)) continue;
 
     // Už běží? Pak se nemá co chystat, jen ať se ví, v čem se je
     const running = ahead === 0;
     const startBy = new Date(when.getTime() - 21 * 86_400_000);
     const label = `${MONTHS[index]}`;
-    const name = seasonName(index);
     const inDays = Math.max(0, Math.round((when.getTime() - now.getTime()) / 86_400_000));
     const stronger = Math.round((ratio - 1) * 100);
 
@@ -333,7 +345,7 @@ function seasonFrom(months: MonthStat[], now: Date): { season: SeasonHint | null
         ? `${name.charAt(0).toUpperCase()}${name.slice(1)} se blíží — začíná zhruba za ${Math.round(inDays / 30)} měsíce`
         : `${name.charAt(0).toUpperCase()}${name.slice(1)} se blíží — začíná zhruba za ${inDays} dní`;
 
-    const hint: SeasonHint = {
+    seasons.push({
       month: monthKey(when),
       label,
       name,
@@ -349,18 +361,18 @@ function seasonFrom(months: MonthStat[], now: Date): { season: SeasonHint | null
         + `, z ${closed.length} měsíců historie`,
       products,
       posts
-    };
-    return { season: hint, note: '' };
+    });
   }
+  if (seasons.length) return { seasons, note: '' };
 
   /*
    * Nic nevybočilo. I to je odpověď — jen se musí říct nahlas a s čísly,
    * ať je poznat, že se počítalo a nic se nenašlo.
    */
-  const best = upcoming.sort((a, b) => b.ratio - a.ratio)[0];
+  const best = [...upcoming].sort((a, b) => b.ratio - a.ratio)[0];
   const nearest = upcoming.map(one => MONTHS[one.index]).slice(0, 3).join(', ');
   return {
-    season: null,
+    seasons: [],
     note: best
       ? `Nejbližší měsíce (${nearest}) z průměru nevybočují — nejsilnější z nich `
         + `${MONTHS[best.index]} je na ${Math.round(best.ratio * 100)} % celoročního průměru, `
@@ -396,7 +408,9 @@ function seasonMonths(monthIndex: number): number[] {
  * Napříč všemi roky, které feed pokrývá — jeden prosinec může být náhoda,
  * dva už ne. Stornované objednávky se nepočítají.
  */
-function seasonProducts(months: number[], limit = 5): { code: string; title: string; qty: number }[] {
+function seasonProducts(
+  months: number[], limit = 5
+): { code: string; title: string; qty: number; image: string | null }[] {
   let rows: any[] = [];
   try {
     rows = getDb().prepare(
@@ -423,10 +437,45 @@ function seasonProducts(months: number[], limit = 5): { code: string; title: str
     }
   }
 
+  /*
+   * Obrázek a jméno z katalogu. Kód varianty (`PS120-110`) se v katalogu
+   * nenajde, tak se zkusí i produkt, pod který varianta patří — bez toho by
+   * u poloviny zboží zůstalo prázdné místo.
+   */
+  const photos = new Map<string, { title: string; image: string | null }>();
+  let catalogRows: any[] = [];
+  // Obrázek přibyl do katalogu později — starší databáze sloupec nemá
+  try {
+    catalogRows = getDb().prepare('SELECT code, title_cz, image FROM products').all() as any[];
+  } catch {
+    try { catalogRows = getDb().prepare('SELECT code, title_cz FROM products').all() as any[]; }
+    catch { catalogRows = []; }
+  }
+  try {
+    for (const row of catalogRows) {
+      photos.set(String(row.code ?? '').toLowerCase(),
+        { title: String(row.title_cz ?? ''), image: row.image || null });
+    }
+    for (const row of getDb().prepare(
+      'SELECT code, product_code FROM product_variants'
+    ).all() as any[]) {
+      const parent = photos.get(String(row.product_code ?? '').toLowerCase());
+      if (parent) photos.set(String(row.code ?? '').toLowerCase(), parent);
+    }
+  } catch { /* katalog nemusí být stažený */ }
+
   return [...qty.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([code, count]) => ({ code, title: titles.get(code) ?? code, qty: count }));
+    .map(([code, count]) => {
+      const known = photos.get(code.toLowerCase());
+      return {
+        code,
+        title: known?.title || titles.get(code) || code,
+        qty: count,
+        image: known?.image ?? null
+      };
+    });
 }
 
 /**
@@ -471,7 +520,10 @@ export function historyView(
     coverage: months.length,
     lastYear,
     rank,
-    season: season.season,
+    // `season` je ta nejbližší; `seasons` jsou i ty za ní — leden bývá
+    // silnější než prosinec a chystat se dá na obojí, když se o obojím ví
+    season: season.seasons[0] ?? null,
+    seasons: season.seasons,
     seasonNote: season.note
   };
 }

@@ -42,7 +42,10 @@ export const igSchema = `
     like_count INTEGER NOT NULL DEFAULT 0,
     comment_count INTEGER NOT NULL DEFAULT 0,
     children_json TEXT NOT NULL DEFAULT '[]',
-    thumb_path TEXT
+    thumb_path TEXT,
+    -- Byl příspěvek propagovaný? Prázdná hodnota znamená nevíme (Instagram
+    -- to u téhle verze napojení neposlal) — a nevíme se nesmí tvářit jako ne.
+    boosted INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_ig_source_date ON ig_source_posts(posted_at DESC);
 
@@ -137,7 +140,8 @@ export const igAlters: string[] = [
   'ALTER TABLE ig_accounts ADD COLUMN share_fb INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE ig_jobs ADD COLUMN fb_post_id TEXT',
   'ALTER TABLE ig_jobs ADD COLUMN fb_error TEXT',
-  "ALTER TABLE ig_jobs ADD COLUMN channels TEXT NOT NULL DEFAULT 'ig'"
+  "ALTER TABLE ig_jobs ADD COLUMN channels TEXT NOT NULL DEFAULT 'ig'",
+  'ALTER TABLE ig_source_posts ADD COLUMN boosted INTEGER'
 ];
 
 /** Trhy, se kterými se začíná. Uživatel je v rozhraní přepíše. */

@@ -34,6 +34,39 @@ function emit(channel: string, payload: unknown): void {
 
 /* ---------- cesta 1: okno administrace ---------- */
 
+/**
+ * Skript v okně administrace — vždycky s koncem.
+ *
+ * `executeJavaScript` nad zavřeným oknem se nemusí nikdy vrátit, a tím se
+ * zaseklo celé odesílání: uživatel zavřel okno, aby to po chybě zkusil
+ * znovu, a tlačítko zůstalo viset na „Vkládám…" napořád. Proto se každé
+ * volání závodí se zavřením okna a s časovým stropem — po nich se vrací
+ * `null` a odesílání se ukončí normální cestou.
+ */
+async function runIn(win: BrowserWindow, code: string, timeoutMs = 10_000): Promise<unknown> {
+  if (win.isDestroyed()) return null;
+  let timer: NodeJS.Timeout | undefined;
+  let onClosed: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      win.webContents.executeJavaScript(code, true).catch(() => null),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), timeoutMs); }),
+      new Promise<null>(resolve => {
+        // Zkušební okno v testu posluchače nemá — a nemusí, jen se nečeká
+        if (typeof win.once !== 'function') return;
+        onClosed = () => resolve(null);
+        win.once('closed', onClosed);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onClosed && !win.isDestroyed() && typeof win.removeListener === 'function') {
+      win.removeListener('closed', onClosed);
+    }
+  }
+}
+
+
 let sending: BrowserWindow | null = null;
 
 /**
@@ -88,8 +121,9 @@ export async function sendViaWindow(sessionId: string):
    */
   const skipped: SkippedRow[] = [];
 
+  let closed = false;
   for (const row of rows) {
-    if (win.isDestroyed()) break;
+    if (win.isDestroyed()) { closed = true; break; }
     if (!row.productId) { skipped.push({ ...row, reason: 'chybí ve feedu' }); continue; }
 
     emit('stockin:progress', { done: added + skipped.length, total: rows.length, code: row.code });
@@ -105,9 +139,21 @@ export async function sendViaWindow(sessionId: string):
      */
     let optionSet: string | null = null;
     if (row.variantId || row.label) {
-      optionSet = await optionSetFor(win, row);
+      const found = await optionSetFor(win, row);
+      optionSet = found.value;
       if (!optionSet) {
-        skipped.push({ ...row, reason: 'varianta se v administraci nenašla' });
+        /*
+         * Proč se nenašla. Samotné „nenašla se" se nedalo opravit —
+         * teď je v důvodu vidět, co administrace nabídla, takže je poznat,
+         * jestli neposlala nic, nebo jen jinak pojmenované řádky.
+         */
+        skipped.push({
+          ...row,
+          reason: found.seen.length
+            ? `varianta „${row.label || row.code}" se v administraci nenašla `
+              + `(nabízí: ${found.seen.slice(0, 4).join(' | ')})`
+            : 'administrace k tomuhle zboží žádné varianty nevrátila'
+        });
         continue;
       }
     }
@@ -123,6 +169,16 @@ export async function sendViaWindow(sessionId: string):
   }
 
   emit('stockin:progress', { done: rows.length, total: rows.length, code: '' });
+  /*
+   * Okno se mezitím zavřelo. Zbylé řádky se neztratí do ticha — je vidět,
+   * že na ně nedošlo, a dá se to spustit znovu.
+   */
+  if (closed || win.isDestroyed()) {
+    const done = new Set(skipped.map(one => one.code));
+    for (const row of rows.slice(added + skipped.length)) {
+      if (!done.has(row.code)) skipped.push({ ...row, reason: 'okno administrace se zavřelo' });
+    }
+  }
   return { added, skipped, needsLogin: false };
 }
 
@@ -138,7 +194,7 @@ export async function sendViaWindow(sessionId: string):
  * `#product_preview_count`, takže se vyplní obojí.
  */
 async function addOne(win: BrowserWindow, row: StockinPlanRow, optionSet: string | null): Promise<boolean> {
-  return win.webContents.executeJavaScript(`
+  return await runIn(win, `
     (function () {
       return new Promise(function (done) {
         if (typeof $ === 'undefined') { done(false); return; }
@@ -177,7 +233,7 @@ async function addOne(win: BrowserWindow, row: StockinPlanRow, optionSet: string
         });
       });
     })()
-  `, true).catch(() => false);
+  `, 20_000) === true;
 }
 
 /**
@@ -185,73 +241,98 @@ async function addOne(win: BrowserWindow, row: StockinPlanRow, optionSet: string
  *
  * Ve feedu má varianta `VARIANT_ID`, administrace pracuje s číslem „sady
  * voleb" (`option_set_id`) a jsou to dvě různé věci. Společný mají jen kód
- * varianty, takže se vytáhne seznam z administrace a hledá se v něm podle
- * kódu; když ten nesedí, tak podle popisku („Délka: 120cm"). Když nesedí nic
- * jednoznačně, **nevrací se nic** — uhodnout, která varianta to je, znamená
- * naskladnit cizí velikost.
+ * varianty a popisek, takže se vytáhne seznam z administrace a hledá se
+ * v něm. Když nesedí nic jednoznačně, **nevrací se nic** — uhodnout, která
+ * varianta to je, znamená naskladnit cizí velikost.
  *
  * ## Proč se čte z odpovědi, a ne ze stránky
  *
  * První verze četla `$('#optionSetDialog tbody tr')` hned po `$.nette.success`.
  * Jenže Nette snippety překreslí a jQuery UI dialog otevře **až v dalším
  * kole smyčky událostí** — v tu chvíli na stránce žádné řádky nejsou a
- * varianta se „nenašla". Produkty s variantami se proto do formuláře
- * nepřidaly vůbec, kdežto ty bez variant ano; vypadalo to jako náhoda.
+ * varianta se „nenašla". Odpověď serveru je přitom celá k dispozici hned:
+ * v `payload.snippets` je HTML dialogu, tak se čte z ní.
  *
- * Odpověď serveru je přitom celá k dispozici hned: v `payload.snippets` je
- * HTML dialogu. Čte se tedy z ní, a na stránku se sáhne až jako na náhradní
- * řešení — a to s čekáním, ne naslepo.
+ * ## Proč se vrací i to, co se našlo
+ *
+ * Když se varianta nenajde, „nenašla se" nestačí — nedá se z toho poznat,
+ * jestli administrace neposlala nic, nebo poslala tři řádky, které se jen
+ * jinak jmenují. Vrací se proto i **výpis řádků**, který skončí v důvodu
+ * u přeskočené položky. Bez toho se ta chyba nedala opravit jinak než
+ * hádáním.
+ *
+ * ## Jak se porovnává
+ *
+ * Text se srovná bez diakritiky, bez mezer a bez jednotek: „Délka: 120 cm"
+ * a „120cm" je totéž. Kromě celého kódu a popisku se zkusí i **samotné
+ * číslo** z popisku — velikost je to jediné, co v obou seznamech spolehlivě
+ * je.
  */
-async function optionSetFor(win: BrowserWindow, row: StockinPlanRow): Promise<string | null> {
-  const found = await win.webContents.executeJavaScript(`
+async function optionSetFor(
+  win: BrowserWindow, row: StockinPlanRow
+): Promise<{ value: string | null; seen: string[] }> {
+  const found = await runIn(win, `
     (function () {
       return new Promise(function (done) {
-        if (typeof $ === 'undefined') { done(''); return; }
+        if (typeof $ === 'undefined') { done({ value: '', seen: [] }); return; }
 
-        var code = ${JSON.stringify(row.code)}.toLowerCase();
-        var label = ${JSON.stringify(row.label ?? '')}.toLowerCase();
+        /* Bez diakritiky, bez mezer, bez jednotek — „Délka: 120 cm" = „120cm" */
+        function norm(text) {
+          return String(text || '')
+            .toLowerCase()
+            .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+            .replace(/\\s+/g, '')
+            .replace(/[.,;:()\\[\\]]/g, '');
+        }
 
-        /* Řádky z libovolného kusu HTML — hledá se input s hodnotou a text řádku */
-        function rowsFrom(html) {
-          var box = document.createElement('div');
-          box.innerHTML = html;
+        var code = norm(${JSON.stringify(row.code)});
+        var label = norm(${JSON.stringify(row.label ?? '')});
+        /* Číslo z popisku — velikost je to jediné, co mají obě strany jistě */
+        var digits = (${JSON.stringify(row.label ?? '')}.match(/\\d+/) || [''])[0];
+
+        /* Řádky z libovolného kusu HTML: hodnota je v inputu, nebo v data- */
+        function rowsFrom(root) {
           var out = [];
-          box.querySelectorAll('tr').forEach(function (tr) {
-            var input = tr.querySelector('input[value]');
-            var value = input && input.getAttribute('value');
-            if (value) out.push({ value: String(value), text: (tr.textContent || '').toLowerCase() });
+          root.querySelectorAll('tr, li, .option-set, [data-option-set-id]').forEach(function (el) {
+            var input = el.querySelector && el.querySelector('input[value]');
+            var value = (input && input.getAttribute('value'))
+              || el.getAttribute('data-option-set-id')
+              || el.getAttribute('data-id')
+              || '';
+            var text = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+            if (value && text) out.push({ value: String(value), text: text, key: norm(text) });
           });
           return out;
         }
 
-        /* Totéž ze stránky — až když v odpovědi nic není */
-        function rowsFromPage() {
-          var out = [];
-          document.querySelectorAll(
-            '#optionSetDialog tr, [id*="optionSet"] tr, .ui-dialog:visible tr'
-          ).forEach(function (tr) {
-            var input = tr.querySelector('input[value]');
-            var value = input && input.getAttribute('value');
-            if (value) out.push({ value: String(value), text: (tr.textContent || '').toLowerCase() });
-          });
-          return out;
+        function fromHtml(html) {
+          var box = document.createElement('div');
+          box.innerHTML = html;
+          return rowsFrom(box);
         }
 
         function pick(rows) {
-          var byCode = [], byLabel = [];
-          rows.forEach(function (one) {
-            if (code && one.text.indexOf(code) >= 0) byCode.push(one.value);
-            else if (label && one.text.indexOf(label) >= 0) byLabel.push(one.value);
-          });
-          var hits = byCode.length ? byCode : byLabel;
-          // Víc shod znamená, že se to nedá rozhodnout — radši nic
-          return hits.length === 1 ? hits[0] : '';
+          function hits(test) {
+            var found = [];
+            rows.forEach(function (one) { if (test(one)) found.push(one.value); });
+            return found;
+          }
+          var tries = [];
+          if (code) tries.push(function (one) { return one.key.indexOf(code) >= 0; });
+          if (label) tries.push(function (one) { return one.key.indexOf(label) >= 0; });
+          if (digits) tries.push(function (one) { return one.key.indexOf(norm(digits)) >= 0; });
+          for (var i = 0; i < tries.length; i++) {
+            var found = hits(tries[i]);
+            // Víc shod znamená, že se to nedá rozhodnout — zkusí se další klíč
+            if (found.length === 1) return found[0];
+          }
+          return '';
         }
 
-        function finish(value) {
+        function finish(value, rows) {
           try { $('#optionSetDialog').dialog('close'); } catch (e) { /* nemusí být otevřený */ }
           try { $('.ui-dialog-content').dialog('close'); } catch (e) { /* ani tenhle */ }
-          done(value);
+          done({ value: value, seen: (rows || []).slice(0, 8).map(function (one) { return one.text; }) });
         }
 
         $.ajax({
@@ -273,8 +354,9 @@ async function optionSetFor(win: BrowserWindow, row: StockinPlanRow): Promise<st
             }
             if (typeof payload === 'string') html += payload;
 
-            var chosen = html ? pick(rowsFrom(html)) : '';
-            if (chosen) { finish(chosen); return; }
+            var rows = html ? fromHtml(html) : [];
+            var chosen = pick(rows);
+            if (chosen) { finish(chosen, rows); return; }
 
             /*
              * Náhradní cesta přes stránku. Nette snippet překreslí a dialog
@@ -284,31 +366,36 @@ async function optionSetFor(win: BrowserWindow, row: StockinPlanRow): Promise<st
             try { $.nette.success(payload); } catch (e) { /* jen překreslení */ }
             var tries = 0;
             var timer = setInterval(function () {
-              var value = pick(rowsFromPage());
+              var page = rowsFrom(document);
+              var value = pick(page);
               if (value || ++tries >= 20) {
                 clearInterval(timer);
-                finish(value);
+                finish(value, page.length ? page : rows);
               }
             }, 100);
           },
-          error: function () { finish(''); }
+          error: function (xhr) {
+            finish('', [{ text: 'administrace odpověděla chybou ' + (xhr && xhr.status) }]);
+          }
         });
       });
     })()
-  `, true).catch(() => '');
-  return found ? String(found) : null;
+  `, 15_000);
+  const value = String((found as any)?.value ?? '');
+  const seen = Array.isArray((found as any)?.seen) ? (found as any).seen.map(String) : [];
+  return { value: value || null, seen };
 }
 
 /** Kolik řádků má seznam položek — podle toho se pozná, že další opravdu přibyl. */
 async function gridCount(win: BrowserWindow): Promise<number> {
-  const value = await win.webContents.executeJavaScript(`
+  const value = await runIn(win, `
     (function () {
       var grid = document.querySelector('#grid-productsBulkOperationsGrid');
       var count = grid && grid.getAttribute('data-data_count');
       if (count !== null && count !== undefined && count !== '') return Number(count);
       return document.querySelectorAll('#snippet-productsBulkOperationsGrid-rows tbody tr').length;
     })()
-  `, true).catch(() => 0);
+  `, 8_000);
   return Number(value) || 0;
 }
 
@@ -317,10 +404,10 @@ async function waitForStocking(win: BrowserWindow, timeoutMs = 5 * 60_000): Prom
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     if (win.isDestroyed()) return false;
-    const hasForm = await win.webContents.executeJavaScript(
-      "!!document.querySelector('#search-product') && typeof $ !== 'undefined'", true
-    ).catch(() => false);
-    if (hasForm) return true;
+    const hasForm = await runIn(
+      win, "!!document.querySelector('#search-product') && typeof $ !== 'undefined'", 8_000
+    );
+    if (hasForm === true) return true;
     await new Promise(resolve => setTimeout(resolve, 800));
   }
   return false;

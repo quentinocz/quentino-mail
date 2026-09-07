@@ -156,7 +156,13 @@ global.fetch = async (url, options) => {
   answer = '{"status":"error","error":"app_id is required when action=\'connect\'"}';
   const before = snapshot.at;
   const broken = await ga4.ga4Snapshot(true);
-  check('pozná se jako chyba', /app_id is required/.test(broken.error ?? ''), true);
+  /*
+   * Hláška se čte z bubliny na telefonu, takže musí být krátká a říct, co
+   * dál — celý JSON se do ní nevejde. Ten se schová do nastavení.
+   */
+  check('pozná se jako chyba', /odpověděl chybou/.test(broken.error ?? ''), true);
+  check('a řekne, kde je celá odpověď', /v nastavení/.test(broken.error ?? ''), true);
+  check('celá odpověď se uloží', /app_id is required/.test(ga4.ga4LastDetail()), true);
   /*
    * Čísla zůstanou ta poslední známá — starý snímek je lepší než prázdno —
    * ale musí být poznat, že jsou stará: čas se nepřepíše a chyba je vidět.

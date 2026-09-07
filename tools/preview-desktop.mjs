@@ -202,6 +202,14 @@ await page.waitForTimeout(250);
 await overflow('přehled dne — postřehy'); await snap('09d-prehled-postrehy');
 
 /*
+ * Rozklik zboží. Samotné „18 ks" nic neřekne — kam se to prodává, jestli to
+ * roste a za kolik, to je až ta odpověď, podle které se objednává sklad.
+ */
+await click('.dg-bar-row.dg-clickable');
+await overflow('přehled dne — zboží rozkliknuté'); await snap('09d2-prehled-zbozi');
+await click('.dg-bar-row.dg-clickable');
+
+/*
  * Starší přehled. Ukládaly se u něj jen souhrny, takže mu chybí včerejšek,
  * graf i signály — a okno na tom padalo na šedou plochu. Náhled proto
  * schválně přepne do archivu a podívá se, že se pořád má co číst.

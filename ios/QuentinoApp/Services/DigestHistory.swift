@@ -177,7 +177,7 @@ enum DigestHistory {
      průměrem. Hlásí se nejbližší měsíc s indexem aspoň o čtvrtinu nad
      průměrem — a datum, do kterého se má začít chystat.
      */
-    private static func season(_ months: [[String: Any]], _ now: Date) -> (one: [String: Any]?, note: String) {
+    private static func season(_ months: [[String: Any]], _ now: Date) -> (all: [[String: Any]], note: String) {
         /*
          Dvanáct uzavřených měsíců byl původní požadavek a v praxi znamenal,
          že se sezóna neukázala nikdy — feed tak daleko nesahá. Půl roku
@@ -185,7 +185,7 @@ enum DigestHistory {
          */
         let closed = months.filter { ($0["complete"] as? Bool ?? false) }
         guard closed.count >= 6 else {
-            return (nil, "Na sezónu zatím není dost historie — uzavřených měsíců je "
+            return ([], "Na sezónu zatím není dost historie — uzavřených měsíců je "
                 + "\(closed.count), porovnávat se dá od šesti.")
         }
 
@@ -214,11 +214,11 @@ enum DigestHistory {
             sum += value
         }
         guard !daily.isEmpty, sum > 0 else {
-            return (nil, "Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.")
+            return ([], "Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.")
         }
         let average = sum / Double(daily.count)
         guard average > 0 else {
-            return (nil, "Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.")
+            return ([], "Ve feedu nejsou objednávky, ze kterých by šla sezóna poznat.")
         }
         // Kratší historie snese víc náhody, proto se u ní chce větší rozdíl
         let threshold = closed.count >= 12 ? 1.2 : 1.3
@@ -229,13 +229,19 @@ enum DigestHistory {
          v létě neukázalo nic.
          */
         var upcoming: [(index: Int, ratio: Double)] = []
+        // Sezón se hlásí víc: leden bývá silnější než prosinec a kdo se
+        // chystá jen na tu nejbližší, druhou vlnu prošvihne
+        var found: [[String: Any]] = []
+        var names = Set<String>()
         for ahead in 0...5 {
             guard let when = Calendar.current.date(byAdding: .month, value: ahead, to: now) else { continue }
             let index = Calendar.current.component(.month, from: when) - 1
             guard let value = daily[index] else { continue }
             let ratio = value / average
             upcoming.append((index, ratio))
-            if ratio < threshold { continue }
+            if ratio < threshold || found.count >= 3 { continue }
+            // Listopad a prosinec pod jedním jménem jsou jedny Vánoce
+            if names.contains(seasonName(index)) { continue }
 
             let startBy = when.addingTimeInterval(-21 * 86_400)
             let label = monthNames[max(0, min(11, index))]
@@ -279,8 +285,10 @@ enum DigestHistory {
                                   value, average, closed.count)
             out["products"] = products
             out["posts"] = posts
-            return (out, "")
+            names.insert(name)
+            found.append(out)
         }
+        if !found.isEmpty { return (found, "") }
 
         /*
          Nic nevybočilo. I to je odpověď — jen se musí říct nahlas a s čísly,
@@ -290,9 +298,9 @@ enum DigestHistory {
         let nearest = upcoming.prefix(3)
             .map { monthNames[max(0, min(11, $0.index))] }.joined(separator: ", ")
         guard let best else {
-            return (nil, "Pro nejbližší měsíce zatím nejsou v historii žádná data k porovnání.")
+            return ([], "Pro nejbližší měsíce zatím nejsou v historii žádná data k porovnání.")
         }
-        return (nil, "Nejbližší měsíce (\(nearest)) z průměru nevybočují — nejsilnější z nich "
+        return ([], "Nejbližší měsíce (\(nearest)) z průměru nevybočují — nejsilnější z nich "
             + "\(monthNames[max(0, min(11, best.index))]) je na \(Int((best.ratio * 100).rounded())) % "
             + "celoročního průměru, sezóna se hlásí od \(Int((threshold * 100).rounded())) %.")
     }
@@ -342,11 +350,35 @@ enum DigestHistory {
             }
         }
 
+        /*
+         Obrázek a jméno z katalogu. Kód varianty se v katalogu nenajde, tak
+         se zkusí i produkt, pod který varianta patří — bez toho by u půlky
+         zboží zůstalo prázdné místo.
+         */
+        var photos: [String: (title: String, image: String?)] = [:]
+        var catalogRows = (try? SQLite.shared.query("SELECT code, title_cz, image FROM products")) ?? []
+        if catalogRows.isEmpty {
+            catalogRows = (try? SQLite.shared.query("SELECT code, title_cz FROM products")) ?? []
+        }
+        for row in catalogRows {
+            let code = (row["code"] as? String ?? "").lowercased()
+            if code.isEmpty { continue }
+            photos[code] = (row["title_cz"] as? String ?? "",
+                            (row["image"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+        }
+        for row in (try? SQLite.shared.query("SELECT code, product_code FROM product_variants")) ?? [] {
+            let parent = photos[(row["product_code"] as? String ?? "").lowercased()]
+            if let parent { photos[(row["code"] as? String ?? "").lowercased()] = parent }
+        }
+
         return quantity.sorted { $0.value > $1.value }.prefix(limit).map { pair in
+            let known = photos[pair.key.lowercased()]
             var one: [String: Any] = [:]
             one["code"] = pair.key
-            one["title"] = titles[pair.key] ?? pair.key
+            let fromCatalog = (known?.title).flatMap { $0.isEmpty ? nil : $0 }
+            one["title"] = fromCatalog ?? titles[pair.key] ?? pair.key
             one["qty"] = pair.value
+            one["image"] = known?.image ?? NSNull()
             return one
         }
     }
@@ -386,9 +418,10 @@ enum DigestHistory {
         out["coverage"] = months.count
         out["lastYear"] = lastYear
         out["rank"] = rank
-        let found = season(months, now)
-        out["season"] = found.one ?? NSNull()
-        out["seasonNote"] = found.note
+        let seasons = season(months, now)
+        out["season"] = seasons.all.first ?? NSNull()
+        out["seasons"] = seasons.all
+        out["seasonNote"] = seasons.note
         return out
     }
 }

@@ -57,8 +57,9 @@ import { historyView } from './digesthistory';
 import { socialView } from './digestsocial';
 import { ga4Snapshot } from './ga4';
 import type {
-  DigestDay, DigestFacts, DigestGa4, DigestHistory, DigestInsight, DigestNote, DigestPending, DigestProduct,
-  DigestReport, DigestSignal, DigestSizeGroup, DigestSlice, DigestSocial, DigestTask, DigestTotals
+  DigestDay, DigestFacts, DigestGa4, DigestHistory, DigestInsight, DigestNote, DigestPending, DigestPost,
+  DigestProduct, DigestReport, DigestSignal, DigestSizeGroup, DigestSlice, DigestSocial, DigestTask,
+  DigestTotals
 } from '../shared/types';
 
 /** Délka hlavního okna ve dnech */
@@ -180,6 +181,8 @@ interface CatalogEntry {
   label: string;
   /** Cena z ceníku; použije se, jen když ji feed u položky nemá */
   price: number;
+  /** Obrázek z feedu — v seznamu se zboží pozná dřív očima než čtením */
+  image: string | null;
 }
 
 /**
@@ -198,10 +201,20 @@ function catalogIndex(): Map<string, CatalogEntry> {
   const out = new Map<string, CatalogEntry>();
   const d = getDb();
 
+  /*
+   * Obrázek přibyl do katalogu později. Starší databáze sloupec nemá a celý
+   * dotaz by na něm spadl — katalog by zmizel a s ním kategorie u velikostí.
+   */
+  let catalogRows: any[] = [];
   try {
-    for (const row of d.prepare(
-      'SELECT code, title_cz, price_num, category FROM products'
-    ).all() as any[]) {
+    catalogRows = d.prepare('SELECT code, title_cz, price_num, category, image FROM products').all() as any[];
+  } catch {
+    try {
+      catalogRows = d.prepare('SELECT code, title_cz, price_num, category FROM products').all() as any[];
+    } catch { catalogRows = []; }
+  }
+  try {
+    for (const row of catalogRows) {
       const code = String(row.code ?? '').trim();
       if (!code) continue;
       out.set(code.toLowerCase(), {
@@ -209,6 +222,7 @@ function catalogIndex(): Map<string, CatalogEntry> {
         title: String(row.title_cz ?? code),
         label: '',
         price: Number(row.price_num) || 0,
+        image: row.image || null,
         /*
          * Kategorie kvůli velikostem. „110 cm vede" napříč celým e-shopem
          * nedává smysl — kšandy, pásky a kravaty mají každé jiné velikosti
@@ -233,7 +247,8 @@ function catalogIndex(): Map<string, CatalogEntry> {
         category: parent?.category ?? '',
         label: String(row.label ?? '').trim(),
         // Cena varianty je text („499 Kč"), tak z ní vytáhneme číslo
-        price: Number(String(row.price ?? '').replace(/[^\d.,]/g, '').replace(',', '.')) || parent?.price || 0
+        price: Number(String(row.price ?? '').replace(/[^\d.,]/g, '').replace(',', '.')) || parent?.price || 0,
+        image: parent?.image ?? null
       });
     }
   } catch { /* varianty jsou v databázi až od novější verze */ }
@@ -242,35 +257,44 @@ function catalogIndex(): Map<string, CatalogEntry> {
 }
 
 /**
- * Za kolik se totéž zboží prodalo jinde.
+ * Za kolik se totéž zboží prodalo jinde — **v každé měně zvlášť**.
  *
  * Poslední záchrana ceny. Feed u části položek cenu nenese (dárek, bonus,
- * sada) a katalog ji nemusí mít v korunách u zboží, které jde hlavně na
- * zahraniční trh. Cena z jiné objednávky je pořád **skutečná cena**, za
- * kterou to někdo koupil — a rozhodně lepší než nula, ze které se v postřehu
- * stane „prodává se zadarmo".
+ * sada). Cena z jiné objednávky je pořád **skutečná cena**, za kterou to
+ * někdo koupil — a rozhodně lepší než nula, ze které se v postřehu stane
+ * „prodává se zadarmo".
+ *
+ * Měny se nemíchají: eurová cena je odpověď na eurovou objednávku, korunová
+ * na korunovou. Dřív se braly jen koruny, takže zboží prodávané jen do
+ * zahraničí zůstalo bez ceny úplně.
  *
  * Bere se **medián**, ne průměr: jedna sleva nebo jeden dárek zdarma by
  * průměr strhly, medián ne.
  */
-function knownUnitPrices(rows: Row[], currency: string): Map<string, number> {
-  const prices = new Map<string, number[]>();
+function knownUnitPrices(rows: Row[]): Map<string, Map<string, number>> {
+  const prices = new Map<string, Map<string, number[]>>();
   for (const row of rows) {
     if (isCancelled(row.status)) continue;
-    if ((row.currency || 'CZK').toUpperCase() !== currency) continue;
+    const currency = (row.currency || 'CZK').toUpperCase();
+    const perCurrency = prices.get(currency) ?? new Map<string, number[]>();
     for (const item of itemsOf(row)) {
       const code = String(item.code || item.title || '').trim().toLowerCase();
       if (!code) continue;
       const qty = Number(item.quantity) || 0;
       const unit = Number(item.price) || (qty > 0 ? (Number(item.total) || 0) / qty : 0);
-      if (unit > 0) prices.set(code, [...(prices.get(code) ?? []), unit]);
+      if (unit > 0) perCurrency.set(code, [...(perCurrency.get(code) ?? []), unit]);
     }
+    prices.set(currency, perCurrency);
   }
 
-  const out = new Map<string, number>();
-  for (const [code, list] of prices) {
-    list.sort((a, b) => a - b);
-    out.set(code, list[Math.floor(list.length / 2)]);
+  const out = new Map<string, Map<string, number>>();
+  for (const [currency, perCurrency] of prices) {
+    const median = new Map<string, number>();
+    for (const [code, list] of perCurrency) {
+      list.sort((a, b) => a - b);
+      median.set(code, list[Math.floor(list.length / 2)]);
+    }
+    out.set(currency, median);
   }
   return out;
 }
@@ -649,9 +673,14 @@ export function signalsOf(input: SignalInput): DigestSignal[] {
     }
   }
 
-  // 10c) Sezóna — z vlastních dat, ne z kalendáře
-  const season = input.history.season;
-  if (season) {
+  /*
+   * 10c) Sezóny — z vlastních dat, ne z kalendáře. Hlásí se i ta druhá
+   * v pořadí: leden bývá silnější než prosinec a chystat se dá na obojí.
+   */
+  const seasons = input.history.seasons?.length
+    ? input.history.seasons
+    : (input.history.season ? [input.history.season] : []);
+  for (const season of seasons.slice(0, 2)) {
     out.push({ kind: 'watch', text: season.text, basis: season.basis });
   }
 
@@ -678,6 +707,18 @@ export function signalsOf(input: SignalInput): DigestSignal[] {
             + ` ${social.daysWithPost} dní s příspěvkem`
         });
       }
+    }
+    /*
+     * Co si říká o rozpočet. Úspěch placeného příspěvku je koupený —
+     * přidávat peníze má smysl tam, kde už něco zabralo samo.
+     */
+    for (const post of (social.candidates ?? []).slice(0, 2)) {
+      out.push({
+        kind: 'up',
+        text: `Stálo by za propagaci: „${post.caption.slice(0, 60)}" —`
+          + ` ${post.likes} lajků, ${post.comments} komentářů bez placeného dosahu.`,
+        basis: post.why ?? ''
+      });
     }
   }
 
@@ -836,12 +877,16 @@ export function digestFacts(now = new Date(), windowDays = WINDOW): DigestFacts 
    * z toho v přehledu byla nula — a z nuly pak v postřezích tvrzení, že se
    * kapesníček prodává zadarmo.
    */
-  const seenPrice = knownUnitPrices(rows, currency);
+  const seenPrice = knownUnitPrices(rows);
 
   const products = new Map<string, DigestProduct>();
+  /* Tržba zboží po měnách — koruny s eury se nesčítají, ale ani neztrácejí */
+  const productMoney = new Map<string, Map<string, number>>();
+  /* Kam se které zboží prodávalo — podklad pro „hlavně do Německa" */
+  const productCountries = new Map<string, Map<string, number>>();
   for (const row of windowRows) {
     if (isCancelled(row.status)) continue;
-    const sameCurrency = (row.currency || 'CZK').toUpperCase() === currency;
+    const rowCurrency = (row.currency || 'CZK').toUpperCase();
     const seen = new Set<string>();
     for (const item of itemsOf(row)) {
       const code = String(item.code || item.title || '').trim();
@@ -852,39 +897,47 @@ export function digestFacts(now = new Date(), windowDays = WINDOW): DigestFacts 
       const one = products.get(base)
         ?? {
           code: base, title: known?.title || String(item.title || base),
-          qty: 0, orders: 0, revenue: 0, estimated: false,
-          priceSource: 'neznámá' as DigestProduct['priceSource'], variants: []
+          qty: 0, orders: 0, revenue: 0, revenueAll: [], estimated: false,
+          priceSource: 'neznámá' as DigestProduct['priceSource'], variants: [],
+          image: known?.image ?? null, countries: [], prevQty: 0, unit: 0, note: ''
         };
+      const money = productMoney.get(base) ?? new Map<string, number>();
       const qty = Number(item.quantity) || 0;
       one.qty += qty;
+      // Kam se to prodávalo. „Prodává se hlavně do Německa" je rada, „18 ks"
+      // je jen číslo — a obojí stojí na týchž řádcích objednávek.
+      const country = countryOf(row) || '—';
+      const perCountry = productCountries.get(base) ?? new Map<string, number>();
+      perCountry.set(country, (perCountry.get(country) ?? 0) + qty);
+      productCountries.set(base, perCountry);
+
       /*
        * Cena po krocích, od nejjistější k nejslabší: co je v objednávce,
-       * pak ceník, pak cena, za kterou se totéž prodalo jinde. Odkud se
-       * vzala, se drží u produktu — „0 Kč" se nesmí tvářit jako fakt.
+       * pak ceník, pak cena, za kterou se totéž prodalo jinde. Všechno
+       * v měně té objednávky — eurová objednávka je eurová tržba, ne nula.
+       * Odkud se cena vzala, se drží u produktu: „0 Kč" se nesmí tvářit
+       * jako fakt.
        */
-      if (sameCurrency) {
-        const line = Number(item.total) || (Number(item.price) || 0) * qty;
-        const fromCatalog = known?.price ?? 0;
-        const fromOthers = seenPrice.get(code.toLowerCase()) ?? seenPrice.get(base.toLowerCase()) ?? 0;
-        if (line > 0) {
-          one.revenue += line;
-          if (one.priceSource === 'neznámá') one.priceSource = 'feed';
-        } else if (fromCatalog > 0) {
-          one.revenue += fromCatalog * qty;
+      const line = Number(item.total) || (Number(item.price) || 0) * qty;
+      const fromCatalog = rowCurrency === currency ? (known?.price ?? 0) : 0;
+      const perCurrency = seenPrice.get(rowCurrency);
+      const fromOthers = perCurrency?.get(code.toLowerCase())
+        ?? perCurrency?.get(base.toLowerCase()) ?? 0;
+      const add = (amount: number, source: DigestProduct['priceSource']) => {
+        money.set(rowCurrency, (money.get(rowCurrency) ?? 0) + amount);
+        if (source === 'feed') one.priceSource = 'feed';
+        else {
           one.estimated = true;
-          if (one.priceSource !== 'feed') one.priceSource = 'ceník';
-        } else if (fromOthers > 0) {
-          one.revenue += fromOthers * qty;
-          one.estimated = true;
-          if (one.priceSource !== 'feed') one.priceSource = 'jinde';
+          if (one.priceSource !== 'feed') one.priceSource = source;
         }
-      } else if (one.priceSource === 'neznámá') {
-        // Prodalo se, ale na jiném trhu — do korunové tržby to nepatří
-        one.priceSource = 'cizí měna';
-      }
+      };
+      if (line > 0) add(line, 'feed');
+      else if (fromCatalog > 0) add(fromCatalog * qty, 'ceník');
+      else if (fromOthers > 0) add(fromOthers * qty, 'jinde');
+
       if (!seen.has(base)) { one.orders++; seen.add(base); }
       products.set(base, one);
-
+      productMoney.set(base, money);
       // Velikost sama o sobě: lidé si ji drží napříč barvami — ale jen
       // uvnitř jednoho druhu zboží
       const label = known?.label ?? '';
@@ -911,6 +964,24 @@ export function digestFacts(now = new Date(), windowDays = WINDOW): DigestFacts 
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 4);
   }
+  /*
+   * Tržba do tvaru, ve kterém se ukazuje. `revenue` je převažující měna
+   * (v ní se řadí a kreslí), `revenueAll` je všechno — kapesníček prodaný
+   * jen do zahraničí má „14 €", ne „0 Kč".
+   */
+  for (const [base, money] of productMoney) {
+    const one = products.get(base);
+    if (!one) continue;
+    one.revenue = Math.round(money.get(currency) ?? 0);
+    one.revenueAll = [...money.entries()]
+      .map(([code, amount]) => ({ currency: code, amount: Math.round(amount) }))
+      .filter(item => item.amount > 0)
+      .sort((a, b) => (a.currency === currency ? -1 : b.currency === currency ? 1 : b.amount - a.amount));
+    // Prodalo se to jen jinde: cena je známá, jen v jiné měně
+    if (!one.revenue && one.revenueAll.length && one.priceSource === 'feed') {
+      one.priceSource = 'jiná měna';
+    }
+  }
 
   // Totéž za předchozích třicet dní — jen kvůli srovnání, na obrazovku nejde
   const prevProducts = new Map<string, number>();
@@ -924,6 +995,46 @@ export function digestFacts(now = new Date(), windowDays = WINDOW): DigestFacts 
     }
   }
 
+
+  /*
+   * Drobná statistika u každého zboží — a k ní věta, proč to tam je.
+   *
+   * Samotné „18 ks" se přečte za vteřinu a nic z něj nevyplyne. Kam se to
+   * prodává, jestli to roste nebo padá a za kolik se to prodává jsou tři
+   * čísla, která už rozhodují o objednávce do skladu i o tom, jaký trh má
+   * smysl podpořit. **Všechno se počítá z týchž řádků objednávek**, žádný
+   * odhad od AI — proto se to dá ověřit.
+   */
+  for (const one of products.values()) {
+    const perCountry = productCountries.get(one.code);
+    one.countries = perCountry
+      ? [...perCountry.entries()]
+        .map(([key, qty]) => ({ key, label: key, qty }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 4)
+      : [];
+    one.prevQty = prevProducts.get(one.code) ?? 0;
+    one.unit = one.qty > 0 && one.revenue > 0 ? Math.round(one.revenue / one.qty) : 0;
+
+    const parts: string[] = [];
+    const top = one.countries[0];
+    if (top && one.qty > 0) {
+      const share = Math.round((top.qty / one.qty) * 100);
+      parts.push(share >= 80 && one.countries.length === 1
+        ? `Prodává se jen do ${top.label} (${top.qty} z ${one.qty} ks)`
+        : `Nejvíc jde do ${top.label} — ${share} % kusů`);
+    }
+    if (one.prevQty > 0) {
+      const change = Math.round(((one.qty - one.prevQty) / one.prevQty) * 100);
+      if (Math.abs(change) >= 20) {
+        parts.push(`proti předchozímu období ${change > 0 ? '+' : ''}${change} % (bylo ${one.prevQty} ks)`);
+      } else parts.push(`drží se na svém (předtím ${one.prevQty} ks)`);
+    } else if (one.qty > 0) {
+      parts.push('v předchozím období se neprodalo ani kus — je to novinka, nebo se to rozjelo teď');
+    }
+    if (one.unit > 0) parts.push(`průměrně ${one.unit} ${currency} za kus`);
+    one.note = parts.join('; ') + (parts.length ? '.' : '');
+  }
   /*
    * Vracející se zákazníci. Počítá se proti celé historii ve feedu, ne jen
    * proti načtenému oknu — jinak by každý zákazník vypadal jako nový.
@@ -1234,14 +1345,16 @@ function factsForAi(facts: DigestFacts): string {
     `Doprava (30 dní): ${slice(facts.shipments)}`,
     `Platba (30 dní): ${slice(facts.payments)}`,
     /*
-     * Cena se do zadání píše, jen když ji známe. Nula je „nevíme", ne
-     * „zadarmo" — model z ní jinak udělal tvrzení, že se zboží prodává
-     * za nula korun.
+     * Cena se do zadání píše ve **všech** měnách, ve kterých se prodalo.
+     * Nula je „nevíme", ne „zadarmo" — model z ní jinak udělal tvrzení, že
+     * se kapesníček prodává za nula korun, přestože se prodával za 14 €.
      */
     `Nejprodávanější (30 dní, varianty sloučené pod produkt): `
       + (facts.products.map(one => `${one.title} (${one.code}) ${one.qty} ks`
-        + (one.revenue > 0 ? ` za ${one.revenue} ${facts.currency}` : ` [cenu neznáme: ${one.priceSource}]`)
-        + (one.estimated && one.revenue > 0 ? ` [odhad podle: ${one.priceSource}]` : '')
+        + ((one.revenueAll ?? []).length
+          ? ` za ${(one.revenueAll ?? []).map(m => `${m.amount} ${m.currency}`).join(' + ')}`
+          : ` [cenu neznáme: ${one.priceSource}; nula tu neznamená zadarmo]`)
+        + (one.estimated && (one.revenueAll ?? []).length ? ` [odhad podle: ${one.priceSource}]` : '')
         + (one.variants.length ? ` [${one.variants.map(v => `${v.label} ${v.qty}`).join(', ')}]` : ''))
         .join('; ') || '—'),
     /*
@@ -1274,9 +1387,18 @@ function historyForAi(history: DigestHistory): string {
     .map(one => `${one.month}:${one.orders}`)
     .join(' ');
   if (months) parts.push(`měsíce (počet objednávek): ${months}`);
-  if (history.season) parts.push(`sezóna: ${history.season.text} (${history.season.basis})`);
-  // I „žádná sezóna" je zjištění — bez něj si ji AI klidně domyslí
-  else if (history.seasonNote) parts.push(`sezóna: ${history.seasonNote}`);
+  /*
+   * Sezóny na půl roku dopředu — všechny, ne jen ta nejbližší. Leden bývá
+   * silnější než prosinec a rada „chystej se na leden" bez zmínky o Vánocích
+   * je půlka pravdy. I „žádná sezóna" je zjištění: bez něj si ji AI domyslí.
+   */
+  const seasons = history.seasons?.length
+    ? history.seasons
+    : (history.season ? [history.season] : []);
+  if (seasons.length) {
+    parts.push(`sezóny (nejbližší první): ${seasons.map(one =>
+      `${one.text} (${one.basis})`).join(' | ')}`);
+  } else if (history.seasonNote) parts.push(`sezóna: ${history.seasonNote}`);
   if (!parts.length) return '';
   return `Dlouhodobě (feed pokrývá ${history.coverage} měsíců): ${parts.join('; ')}`;
 }
@@ -1293,11 +1415,29 @@ function socialForAi(social: DigestSocial | null): string {
   const best = social.best
     ? `; nejúspěšnější „${social.best.caption.slice(0, 60)}" (${social.best.likes} lajků, ${social.best.comments} komentářů)`
     : '';
+  const list = (posts: DigestPost[] | undefined, label: string) =>
+    posts?.length
+      ? ` ${label}: ${posts.map(one => `„${one.caption.slice(0, 50)}" (${one.likes}/${one.comments}`
+        + `${one.boosted === true ? ', propagovaný' : one.boosted === false ? ', bez propagace' : ''}`
+        + `${one.lift != null ? `, kolem vydání ${one.lift > 0 ? '+' : ''}${one.lift} % objednávek` : ''})`)
+        .join('; ')}.`
+      : '';
   return `Sociální sítě (30 dní): ${social.posts} příspěvků`
     + ` (předchozích 30 dní ${social.prevPosts}), ${social.likes} lajků, ${social.comments} komentářů`
     + `; ve dnech s příspěvkem průměrně ${social.ordersWithPost} objednávky, ve dnech bez ${social.ordersWithout}`
     + ` — je to souvislost, ne důkaz, příspěvky se pouští právě když je co nabídnout${best}.`
-    + ` Zhlédnutí ani dosah aplikace nemá.`;
+    + ` Zhlédnutí ani dosah aplikace nemá.`
+    /*
+     * Placené a neplacené zvlášť. Bez toho se koupený dosah čte jako úspěch
+     * příspěvku a starší propagovaný kus přebije všechno ostatní.
+     */
+    + (social.boostKnown
+      ? ''
+      : ' U příspěvků nevíme, které byly propagované — Instagram to u tohohle napojení nehlásí,'
+        + ' takže o placeném dosahu netvrď nic.')
+    + list(social.bestEver, 'Nejlepší za poslední půlrok')
+    + list(social.bestOlder, 'Starší úspěchy (jen na připomenutí, mohly mít placený dosah)')
+    + list(social.candidates, 'Čerstvé neplacené, které si vedou nadprůměrně (kandidáti na rozpočet)');
 }
 
 /** Návštěvnost do zadání — jen když se povedla stáhnout */
@@ -1306,11 +1446,21 @@ function ga4ForAi(ga4: DigestGa4 | null): string {
   const period = (one: DigestGa4['window']) =>
     `${one.sessions ?? '?'} návštěv, ${one.users ?? '?'} uživatelů, ${one.purchases ?? '?'} nákupů`;
   const sources = ga4.sources.map(one => `${one.name} ${one.sessions}`).join(', ');
+  /*
+   * Čí návštěvy to vlastně jsou. GA4 je napojené jen na jeden web, kdežto
+   * objednávky chodí ze všech trhů — dělit jedno druhým dá nesmysl a model
+   * to bez upozornění udělá.
+   */
+  const scope = ga4.scope
+    ? ` Pozor: návštěvnost je jen z ${ga4.scope}, kdežto objednávky výš jsou ze všech trhů —`
+      + ' konverzi přes ně nepočítej a u zboží, které jde hlavně do zahraničí, se o návštěvnost neopírej.'
+    : '';
   return `Návštěvnost z GA4 (30 dní): ${period(ga4.window)}`
     + `; předchozích 30 dní: ${period(ga4.prevWindow)}`
     + (ga4.conversion != null ? `; konverzní poměr ${ga4.conversion} %` : '')
     + (ga4.prevConversion != null ? ` proti ${ga4.prevConversion} %` : '')
-    + (sources ? `; zdroje: ${sources}` : '');
+    + (sources ? `; zdroje: ${sources}` : '')
+    + scope;
 }
 
 /**

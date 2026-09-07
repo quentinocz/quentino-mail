@@ -240,6 +240,8 @@ extension Bridge {
          */
         register("ga4:apps") { _ in try await Ga4.apps() }
         register("ga4:diagnostics") { _ in try await Ga4.diagnostics() }
+        // Celá poslední odpověď Sequelu — do bubliny se nevejde, do nastavení ano
+        register("ga4:detail") { _ in Ga4.lastDetail() }
         register("digest:ask") { args in
             let question = args.first as? String ?? ""
             let history = args.count > 1 ? (args[1] as? [[String: Any]] ?? []) : []

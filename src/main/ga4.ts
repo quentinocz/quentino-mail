@@ -68,6 +68,15 @@ export interface Ga4Period {
 
 export interface Ga4Snapshot {
   at: string;
+  /**
+   * Který web ta čísla měří.
+   *
+   * GA4 je zatím napojené jen na český web, kdežto objednávky chodí ze všech
+   * trhů. Bez tohohle by konverze vycházela nesmyslně — návštěvy jednoho
+   * webu proti objednávkám ze čtyř. Až přibude .sk a .com, přidají se do
+   * `ga4Sources` a tohle bude jejich soupis.
+   */
+  scope: string;
   window: Ga4Period;
   prevWindow: Ga4Period;
   /** Odkud lidé chodí — jméno zdroje a počet návštěv */
@@ -439,12 +448,14 @@ export async function ga4Ask(question: string): Promise<string> {
   const candidates = actions.length ? pickQueryAction(actions) : [''];
 
   let last = '';
+  const tried: string[] = [];
   for (const [index, action] of candidates.slice(0, 4).entries()) {
     const args = argsFor(tool, { question, appId, action: 'query' });
     if (action) args.action = action;
+    tried.push(action || tool.name);
 
     const text = textOf(await rpc('tools/call', { name: tool.name, arguments: args }, 4 + index));
-    if (!text) { last = 'Sequel vrátil prázdnou odpověď.'; continue; }
+    if (!text) { last = 'prázdná odpověď'; continue; }
     last = text;
 
     const reconnect = needsReconnect(text);
@@ -454,8 +465,21 @@ export async function ga4Ask(question: string): Promise<string> {
     return text;
   }
 
+  /*
+   * Hláška se čte z bubliny na telefonu, takže musí být krátká a říct, co
+   * dál. Celá odpověď serveru se schová do nastavení — tam je na ni místo
+   * a dá se z ní poznat, co Sequel vlastně poslal.
+   */
   const reconnect = needsReconnect(last);
-  throw new Error(reconnect ?? `Sequel: ${last.slice(0, 220)}`);
+  if (reconnect) throw new Error(reconnect);
+  setSetting('ga4LastDetail', `${new Date().toISOString()}\nakce: ${tried.join(', ')}\n${last}`.slice(0, 4000));
+  const why = /"error"/.test(last) ? 'odpověděl chybou'
+    : last === 'prázdná odpověď' ? 'neposlal žádná data'
+      : 'poslal něco, co nejsou čísla návštěvnosti';
+  throw new Error(
+    `Sequel ${why} (zkoušené akce: ${tried.join(', ')}). `
+    + 'Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.'
+  );
 }
 
 /**
@@ -485,6 +509,23 @@ function needsReconnect(text: string): string | null {
   const url = text.match(/https?:\/\/[^"'\s]+/)?.[0];
   return 'Napojení na Google Analytics v Sequelu čeká na nové přihlášení — '
     + `otevři ${url ?? 'sequel.sh'} a povol přístup znovu.`;
+}
+
+/**
+ * Který web měří napojený zdroj.
+ *
+ * Zatím jeden — český web. Text se dá přepsat v nastavení, protože jméno
+ * zdroje v Sequelu („GA4 quentino.cz") o trhu nemusí říkat nic. Až se
+ * napojí i slovenský a mezinárodní web, budou tady vyjmenované všechny
+ * a přehled si přestane přisuzovat cizí návštěvy.
+ */
+export function ga4Scope(): string {
+  return getSetting('ga4Scope', 'český web (.cz)')!;
+}
+
+/** Poslední celá odpověď Sequelu — do nastavení, když se dotaz nepovedl */
+export function ga4LastDetail(): string {
+  return getSetting('ga4LastDetail', '') || 'Zatím se nic neuložilo.';
 }
 
 /** Co server nabízí — do nastavení, když se automatika netrefí */
@@ -608,6 +649,7 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
     }
     const snapshot: Ga4Snapshot = {
       at: new Date().toISOString(),
+      scope: ga4Scope(),
       window: windowPeriod,
       prevWindow: prevPeriod,
       sources: Array.isArray(parsed?.sources)
@@ -629,7 +671,12 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
     const message = String(e?.message ?? e);
     setSetting('ga4LastError', message);
     // Starý snímek je pořád lepší než prázdno — jen se řekne, že je starý
-    return last ? { ...last, error: message } : { at: '', window: periodOf(null), prevWindow: periodOf(null), sources: [], conversion: null, prevConversion: null, text: '', error: message };
+    return last
+      ? { ...last, error: message }
+      : {
+        at: '', scope: ga4Scope(), window: periodOf(null), prevWindow: periodOf(null),
+        sources: [], conversion: null, prevConversion: null, text: '', error: message
+      };
   }
 }
 

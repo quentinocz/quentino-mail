@@ -129,7 +129,10 @@ enum Schema {
       like_count INTEGER NOT NULL DEFAULT 0,
       comment_count INTEGER NOT NULL DEFAULT 0,
       children_json TEXT NOT NULL DEFAULT '[]',
-      thumb_path TEXT
+      thumb_path TEXT,
+      -- Byl příspěvek propagovaný? Prázdná hodnota znamená nevíme (Instagram
+      -- to u téhle verze napojení neposlal) — a nevíme není totéž co ne.
+      boosted INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_ig_source_date ON ig_source_posts(posted_at DESC);
 
@@ -444,6 +447,7 @@ enum Schema {
         "ALTER TABLE ig_accounts ADD COLUMN page_id TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE ig_accounts ADD COLUMN page_name TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE ig_accounts ADD COLUMN share_fb INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE ig_source_posts ADD COLUMN boosted INTEGER",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE voucher_codes ADD COLUMN used_by TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE voucher_codes ADD COLUMN claimed_by TEXT NOT NULL DEFAULT ''",

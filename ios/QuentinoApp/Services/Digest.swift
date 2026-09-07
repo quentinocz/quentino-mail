@@ -79,12 +79,24 @@ enum Digest {
         let category: String
         let label: String
         let price: Double
+        /// Obrázek z katalogu — v seznamu se zboží pozná dřív očima než čtením
+        let image: String?
     }
 
     static func catalogIndex() -> [String: CatalogEntry] {
         var out: [String: CatalogEntry] = [:]
-        for row in (try? SQLite.shared.query(
-            "SELECT code, title_cz, price_num, category FROM products")) ?? [] {
+        /*
+         Obrázek přibyl do katalogu později. Starší databáze sloupec nemá
+         a celý dotaz by na něm spadl — katalog by zmizel a s ním kategorie
+         u velikostí.
+         */
+        var catalogRows = (try? SQLite.shared.query(
+            "SELECT code, title_cz, price_num, category, image FROM products")) ?? []
+        if catalogRows.isEmpty {
+            catalogRows = (try? SQLite.shared.query(
+                "SELECT code, title_cz, price_num, category FROM products")) ?? []
+        }
+        for row in catalogRows {
             let code = (row["code"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             if code.isEmpty { continue }
             let price = row["price_num"] as? Double ?? Double(row["price_num"] as? Int ?? 0)
@@ -93,7 +105,8 @@ enum Digest {
                 title: row["title_cz"] as? String ?? code,
                 category: (row["category"] as? String ?? "").trimmingCharacters(in: .whitespaces),
                 label: "",
-                price: price)
+                price: price,
+                image: (row["image"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
         for row in (try? SQLite.shared.query("SELECT code, product_code, label, price FROM product_variants")) ?? [] {
             let code = (row["code"] as? String ?? "").trimmingCharacters(in: .whitespaces)
@@ -109,7 +122,48 @@ enum Digest {
                 title: parent?.title ?? base,
                 category: parent?.category ?? "",
                 label: (row["label"] as? String ?? "").trimmingCharacters(in: .whitespaces),
-                price: price)
+                price: price,
+                image: parent?.image)
+        }
+        return out
+    }
+
+
+    /**
+     Za kolik se totéž zboží prodalo jinde — **v každé měně zvlášť**.
+
+     Poslední záchrana ceny. Feed u části položek cenu nenese (dárek, bonus,
+     sada). Cena z jiné objednávky je pořád skutečná cena, za kterou to někdo
+     koupil — a rozhodně lepší než nula, ze které se v postřehu stane
+     „prodává se zadarmo". Měny se nemíchají: eurová cena je odpověď na
+     eurovou objednávku.
+
+     Bere se medián, ne průměr: jedna sleva by průměr strhla, medián ne.
+     */
+    private static func knownUnitPrices(_ rows: [[String: Any]]) -> [String: [String: Double]] {
+        var prices: [String: [String: [Double]]] = [:]
+        for row in rows where !isCancelled(row["status"] as? String ?? "") {
+            let currency = (row["currency"] as? String ?? "CZK").uppercased()
+            for item in items(row) {
+                let code = ((item["code"] as? String) ?? (item["title"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespaces).lowercased()
+                if code.isEmpty { continue }
+                let qty = item["quantity"] as? Int ?? Int(item["quantity"] as? Double ?? 0)
+                let price = item["price"] as? Double ?? Double(item["price"] as? Int ?? 0)
+                let total = item["total"] as? Double ?? Double(item["total"] as? Int ?? 0)
+                let unit = price > 0 ? price : (qty > 0 ? total / Double(qty) : 0)
+                if unit > 0 { prices[currency, default: [:]][code, default: []].append(unit) }
+            }
+        }
+
+        var out: [String: [String: Double]] = [:]
+        for (currency, perCode) in prices {
+            var median: [String: Double] = [:]
+            for (code, list) in perCode {
+                let sorted = list.sorted()
+                median[code] = sorted[sorted.count / 2]
+            }
+            out[currency] = median
         }
         return out
     }
@@ -638,15 +692,23 @@ enum Digest {
         var titles: [String: String] = [:]
         var quantity: [String: Int] = [:]
         var inOrders: [String: Int] = [:]
-        var earned: [String: Double] = [:]
+        /* Tržba po měnách — koruny s eury se nesčítají, ale ani neztrácejí */
+        var money: [String: [String: Double]] = [:]
+        /* Kam se které zboží prodávalo — podklad pro „hlavně do Německa" */
+        var perCountry: [String: [String: Int]] = [:]
         var estimated = Set<String>()
+        var priceSource: [String: String] = [:]
         // Velikosti po kategoriích: kategorie → velikost → kusy / produkty
         var sizeQty: [String: [String: Int]] = [:]
         var sizeProducts: [String: [String: Set<String>]] = [:]
         var variantQty: [String: [String: Int]] = [:]
 
+        // Ceny, za které se totéž prodalo jinde — v každé měně zvlášť
+        let seenPrice = knownUnitPrices(rows)
+
         for row in windowRows where !isCancelled(row["status"] as? String ?? "") {
-            let sameCurrency = (row["currency"] as? String ?? "CZK").uppercased() == currency
+            let rowCurrency = (row["currency"] as? String ?? "CZK").uppercased()
+            let market = country(row).isEmpty ? "—" : country(row)
             var counted = Set<String>()
             for item in items(row) {
                 let code = ((item["code"] as? String) ?? (item["title"] as? String) ?? "")
@@ -661,16 +723,34 @@ enum Digest {
 
                 titles[base] = titles[base] ?? known?.title ?? (item["title"] as? String ?? base)
                 quantity[base] = (quantity[base] ?? 0) + qty
-                if sameCurrency {
-                    let value = line > 0 ? line : unit * Double(qty)
-                    if value > 0 {
-                        earned[base] = (earned[base] ?? 0) + value
-                    } else if let price = known?.price, price > 0 {
-                        // Feed u dárků a sad cenu nenese; ceník je lepší než nula
-                        earned[base] = (earned[base] ?? 0) + price * Double(qty)
-                        estimated.insert(base)
-                    }
+                perCountry[base, default: [:]][market] = (perCountry[base]?[market] ?? 0) + qty
+
+                /*
+                 Cena po krocích, od nejjistější k nejslabší: co je
+                 v objednávce, pak ceník, pak cena, za kterou se totéž prodalo
+                 jinde. Všechno v měně té objednávky — eurová objednávka je
+                 eurová tržba, ne nula. Z nuly se v postřezích stalo tvrzení,
+                 že se kapesníček prodává zadarmo, přestože šel za 14 €.
+                 */
+                let value = line > 0 ? line : unit * Double(qty)
+                let fromCatalog = rowCurrency == currency ? (known?.price ?? 0) : 0
+                let fromOthers = seenPrice[rowCurrency]?[code.lowercased()]
+                    ?? seenPrice[rowCurrency]?[base.lowercased()] ?? 0
+                if value > 0 {
+                    money[base, default: [:]][rowCurrency] = (money[base]?[rowCurrency] ?? 0) + value
+                    priceSource[base] = "feed"
+                } else if fromCatalog > 0 {
+                    money[base, default: [:]][rowCurrency] =
+                        (money[base]?[rowCurrency] ?? 0) + fromCatalog * Double(qty)
+                    estimated.insert(base)
+                    if priceSource[base] != "feed" { priceSource[base] = "ceník" }
+                } else if fromOthers > 0 {
+                    money[base, default: [:]][rowCurrency] =
+                        (money[base]?[rowCurrency] ?? 0) + fromOthers * Double(qty)
+                    estimated.insert(base)
+                    if priceSource[base] != "feed" { priceSource[base] = "jinde" }
                 }
+
                 if !counted.contains(base) {
                     inOrders[base] = (inOrders[base] ?? 0) + 1
                     counted.insert(base)
@@ -703,21 +783,94 @@ enum Digest {
             }
         }
         let products: [[String: Any]] = quantity.sorted { $0.value > $1.value }.prefix(50).map { pair in
-            let variants: [[String: Any]] = (variantQty[pair.key] ?? [:])
+            let base = pair.key
+            let variants: [[String: Any]] = (variantQty[base] ?? [:])
                 .sorted { $0.value > $1.value }.prefix(4).map { one in
                     var entry: [String: Any] = [:]
                     entry["label"] = one.key
                     entry["qty"] = one.value
                     return entry
                 }
+            /*
+             Tržba ve všech měnách. `revenue` je převažující měna (v ní se
+             řadí a kreslí), `revenueAll` je celá pravda — kapesníček prodaný
+             jen do zahraničí má „14 €", ne „0 Kč".
+             */
+            let perCurrency = money[base] ?? [:]
+            let main = Int((perCurrency[currency] ?? 0).rounded())
+            let revenueAll: [[String: Any]] = perCurrency
+                .map { (code: $0.key, amount: Int($0.value.rounded())) }
+                .filter { $0.amount > 0 }
+                .sorted { first, second in
+                    if first.code == currency { return true }
+                    if second.code == currency { return false }
+                    return first.amount > second.amount
+                }
+                .map { entry in
+                    var one: [String: Any] = [:]
+                    one["currency"] = entry.code
+                    one["amount"] = entry.amount
+                    return one
+                }
+
+            var source = priceSource[base] ?? "neznámá"
+            // Prodalo se to jen jinde: cena je známá, jen v jiné měně
+            if main == 0 && !revenueAll.isEmpty && source == "feed" { source = "jiná měna" }
+
+            let countries: [[String: Any]] = (perCountry[base] ?? [:])
+                .sorted { $0.value > $1.value }.prefix(4).map { one in
+                    var entry: [String: Any] = [:]
+                    entry["key"] = one.key
+                    entry["label"] = one.key
+                    entry["qty"] = one.value
+                    return entry
+                }
+
+            let sold = pair.value
+            let before = prevQuantity[base] ?? 0
+            let unitPrice = sold > 0 && main > 0 ? Int((Double(main) / Double(sold)).rounded()) : 0
+
+            /*
+             Věta, proč to tady je. Samotné „18 ks" se přečte za vteřinu a nic
+             z něj nevyplyne; kam se to prodává, jestli to roste a za kolik —
+             z toho už se dá rozhodnout o skladu. Počítá se z týchž čísel, co
+             jsou vedle, takže se to dá ověřit.
+             */
+            var parts: [String] = []
+            if let top = countries.first, let topQty = top["qty"] as? Int, sold > 0 {
+                let label = top["label"] as? String ?? ""
+                let share = Int(((Double(topQty) / Double(sold)) * 100).rounded())
+                parts.append(share >= 80 && countries.count == 1
+                    ? "Prodává se jen do \(label) (\(topQty) z \(sold) ks)"
+                    : "Nejvíc jde do \(label) — \(share) % kusů")
+            }
+            if before > 0 {
+                let change = Int((((Double(sold) - Double(before)) / Double(before)) * 100).rounded())
+                if abs(change) >= 20 {
+                    parts.append("proti předchozímu období \(change > 0 ? "+" : "")\(change) % (bylo \(before) ks)")
+                } else {
+                    parts.append("drží se na svém (předtím \(before) ks)")
+                }
+            } else if sold > 0 {
+                parts.append("v předchozím období se neprodalo ani kus — je to novinka, nebo se to rozjelo teď")
+            }
+            if unitPrice > 0 { parts.append("průměrně \(unitPrice) \(currency) za kus") }
+
             var one: [String: Any] = [:]
-            one["code"] = pair.key
-            one["title"] = titles[pair.key] ?? pair.key
-            one["qty"] = pair.value
-            one["orders"] = inOrders[pair.key] ?? 0
-            one["revenue"] = Int((earned[pair.key] ?? 0).rounded())
-            one["estimated"] = estimated.contains(pair.key)
+            one["code"] = base
+            one["title"] = titles[base] ?? base
+            one["qty"] = sold
+            one["orders"] = inOrders[base] ?? 0
+            one["revenue"] = main
+            one["revenueAll"] = revenueAll
+            one["estimated"] = estimated.contains(base)
+            one["priceSource"] = source
             one["variants"] = variants
+            one["countries"] = countries
+            one["prevQty"] = before
+            one["unit"] = unitPrice
+            one["image"] = catalog[base.lowercased()]?.image ?? NSNull()
+            one["note"] = parts.isEmpty ? "" : parts.joined(separator: "; ") + "."
             return one
         }
 
@@ -1030,8 +1183,19 @@ enum Digest {
             let title = one["title"] as? String ?? ""
             let code = one["code"] as? String ?? ""
             let qty = one["qty"] as? Int ?? 0
-            let revenue = one["revenue"] as? Int ?? 0
-            return "\(title) (\(code)) \(qty) ks za \(revenue) \(currency)"
+            /*
+             Cena ve všech měnách, ve kterých se prodalo. Nula je „nevíme",
+             ne „zadarmo" — model z ní udělal tvrzení, že se kapesníček
+             prodává za nula korun, přestože šel za 14 €.
+             */
+            let all = (one["revenueAll"] as? [[String: Any]] ?? []).map { entry in
+                "\(entry["amount"] as? Int ?? 0) \(entry["currency"] as? String ?? "")"
+            }.joined(separator: " + ")
+            let source = one["priceSource"] as? String ?? "neznámá"
+            let price = all.isEmpty
+                ? " [cenu neznáme: \(source); nula tu neznamená zadarmo]"
+                : " za \(all)"
+            return "\(title) (\(code)) \(qty) ks\(price)"
         }.joined(separator: "; ")
 
         let monthDays = facts["monthDays"] as? Int ?? 0
@@ -1152,6 +1316,16 @@ enum Digest {
         if let conversion = ga4["conversion"] as? Double { text += "; konverzní poměr \(conversion) %" }
         if let previous = ga4["prevConversion"] as? Double { text += " proti \(previous) %" }
         if !sources.isEmpty { text += "; zdroje: \(sources)" }
+        /*
+         Čí návštěvy to vlastně jsou. GA4 je napojené jen na jeden web,
+         kdežto objednávky chodí ze všech trhů — dělit jedno druhým dá
+         nesmysl a model to bez upozornění udělá.
+         */
+        if let scope = ga4["scope"] as? String, !scope.isEmpty {
+            text += " Pozor: návštěvnost je jen z \(scope), kdežto objednávky výš jsou ze všech trhů"
+                + " — konverzi přes ně nepočítej a u zboží, které jde hlavně do zahraničí,"
+                + " se o návštěvnost neopírej."
+        }
         return text
     }
 

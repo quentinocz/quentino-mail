@@ -31,7 +31,7 @@ import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from 
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { digestReport, digestAsk, digestArchive, digestFromArchive, digestFacts } from './digest';
 import { digestToPdf } from './digestpdf';
-import { getGa4Config, saveGa4Config, ga4Test, ga4Apps, ga4Diagnostics } from './ga4';
+import { getGa4Config, saveGa4Config, ga4Test, ga4Apps, ga4Diagnostics, ga4LastDetail } from './ga4';
 import { clearTrackingCache } from './ordertrack';
 import {
   scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder,
@@ -244,6 +244,8 @@ export function registerIpc() {
   // Sequel má pod jedním klíčem víc zdrojů; bez vybraného odpoví „app_id is required"
   handle('ga4:apps', () => ga4Apps());
   handle('ga4:diagnostics', () => ga4Diagnostics());
+  // Celá poslední odpověď Sequelu — do bubliny se nevejde, sem ano
+  handle('ga4:detail', () => ga4LastDetail());
 
   // Upgates API (objednávky zákazníka)
   handle('upgates:config', () => getUpgatesConfig());

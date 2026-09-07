@@ -132,6 +132,22 @@ export function itemsOf(id: string): StockinItem[] {
   const rows = getDb().prepare(
     'SELECT * FROM stockin_items WHERE session_id = ? ORDER BY added_at DESC'
   ).all(id) as any[];
+
+  /*
+   * Obrázek z katalogu. U regálu se zboží pozná dřív podle fotky než podle
+   * kódu — a když se pípne cizí kus, je to na miniatuře vidět hned. Kód
+   * varianty (`PS120-110`) v katalogu není, tak se sáhne i po nadřazeném
+   * produktu.
+   */
+  const photos = new Map<string, string>();
+  try {
+    for (const row of getDb().prepare('SELECT code, image FROM products WHERE image IS NOT NULL')
+      .all() as any[]) {
+      const image = String(row.image ?? '');
+      if (image) photos.set(String(row.code ?? '').toLowerCase(), image);
+    }
+  } catch { /* starší databáze sloupec s obrázkem nemá */ }
+
   return rows.map(r => ({
     code: r.code,
     productCode: r.product_code ?? '',
@@ -139,7 +155,10 @@ export function itemsOf(id: string): StockinItem[] {
     label: r.label ?? '',
     qty: r.qty ?? 0,
     stockBefore: r.stock_before ?? null,
-    addedAt: r.added_at ?? ''
+    addedAt: r.added_at ?? '',
+    image: photos.get(String(r.product_code ?? '').toLowerCase())
+      ?? photos.get(String(r.code ?? '').toLowerCase())
+      ?? null
   }));
 }
 
