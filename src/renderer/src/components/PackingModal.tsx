@@ -21,17 +21,65 @@ const WINDOWS: { days: number; label: string }[] = [
   { days: 2, label: '2 dny' },
   { days: 3, label: '3 dny' },
   { days: 7, label: 'týden' },
+  { days: 14, label: '14 dní' },
   { days: 30, label: 'měsíc' }
 ];
 
 /**
- * Stavy, které při balení nezajímají — nabídnou se rovnou skryté. Jde jen
- * o výchozí nastavení; co uživatel jednou přepne, tomu se už nepřepisuje.
+ * Fáze objednávky.
+ *
+ * Stavů má e-shop dvacet a jmenují se pokaždé trochu jinak („Vyřizuje se",
+ * „Připraveno k odeslání", „Předáno dopravci"). Při balení jich ale
+ * rozhoduje pět a jde v nich o jednu otázku: **mám to teď zabalit?**
+ *
+ * Dřív se stavy jen schovávaly — seznam pak ukazoval jen to nezabalené a
+ * nešlo se podívat, co se za ten den vlastně odeslalo. Teď je v seznamu celé
+ * období a fáze je vidět barvou; schovat se dá cokoli, ale nic se neschovává
+ * samo za zády.
+ *
+ * Pořadí je pořadí práce: čeká na platbu → k zabalení → zabaleno → odesláno
+ * → doručeno, a stranou storno.
  */
-const HIDE_BY_DEFAULT = /odesl[áa]n|expedov|p[řr]ed[áa]n|doru[čc]en|vyzvednut|dokon[čc]en|storn|zru[šs]en|vr[áa]cen|odstoup|reklamac/i;
+export type PackPhase = 'unpaid' | 'todo' | 'packed' | 'sent' | 'delivered' | 'canceled';
 
-const LS_HIDDEN = 'packingHiddenStatuses';
-const LS_KNOWN = 'packingKnownStatuses';
+const PHASES: { key: PackPhase; label: string; hint: string }[] = [
+  { key: 'unpaid', label: 'Čeká na platbu', hint: 'Nezaplacené — balit se nemá, dokud peníze nedorazí' },
+  { key: 'todo', label: 'K zabalení', hint: 'Tohle je práce na dnešek' },
+  { key: 'packed', label: 'Zabaleno', hint: 'Odškrtnuté v aplikaci, ale e-shop je ještě nemá jako odeslané' },
+  { key: 'sent', label: 'Odesláno', hint: 'Předáno dopravci' },
+  { key: 'delivered', label: 'Doručeno', hint: 'U zákazníka nebo vyzvednuté' },
+  { key: 'canceled', label: 'Storno', hint: 'Zrušené, vrácené nebo reklamované' }
+];
+
+const CANCELED = /storn|zru[šs]en|vr[áa]cen|odstoup|reklamac|nevyzvednut|zam[íi]tnut/i;
+const DELIVERED = /doru[čc]en|vyzvednut|dokon[čc]en|uzav[řr]en/i;
+const SENT = /odesl[áa]n|expedov|p[řr]ed[áa]n|na\s*cest|v\s*p[řr]eprav|vypraven/i;
+const UNPAID = /nezaplac|[čc]ek[áa]\s*na\s*(platb|[úu]hrad)|neuhrazen|nepotvrzen[áa]\s*platb/i;
+
+/**
+ * Do jaké fáze objednávka patří.
+ *
+ * Pořadí testů je pořadí jistoty: storno přebije všechno (stornovaná
+ * objednávka se nebalí, i kdyby byla zaplacená), doručení přebije odeslání
+ * a teprve pak se řeší platba. „Zabaleno" je naše vlastní odškrtnutí, ne
+ * stav z e-shopu — proto se ptá až nakonec, když e-shop ještě nic neví.
+ */
+export function phaseOf(order: PackingOrder): PackPhase {
+  const status = order.shop?.status ?? order.card.tracking?.status ?? order.card.live?.status ?? '';
+  if (CANCELED.test(status)) return 'canceled';
+  if (DELIVERED.test(status)) return 'delivered';
+  if (SENT.test(status)) return 'sent';
+  if (order.done) return 'packed';
+  if (UNPAID.test(status)) return 'unpaid';
+  return 'todo';
+}
+
+/** Dobírka se pozná z názvu platby — a při balení na ní záleží nejvíc. */
+export function isCod(order: PackingOrder): boolean {
+  return /dob[íi]rk|cash\s*on|nachnahme/i.test(order.card.paymentName ?? '');
+}
+
+const LS_HIDDEN = 'packingHiddenPhases';
 
 function loadSet(key: string): Set<string> {
   try {
@@ -169,10 +217,17 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
   const toast = useToast();
   const [days, setDays] = useState(3);
   const [orders, setOrders] = useState<PackingOrder[]>([]);
-  const [statuses, setStatuses] = useState<string[]>([]);
+  /**
+   * Fáze, které se zrovna neukazují.
+   *
+   * Výchozí je **prázdná množina** — v seznamu je celé zvolené období včetně
+   * odeslaného a stornovaného. Dřív se stavy schovávaly samy a nešlo se
+   * podívat, co se za ten den odeslalo; kdo chce mít před sebou jen práci,
+   * klikne na „K zabalení".
+   */
   const [hidden, setHidden] = useState<Set<string>>(() => loadSet(LS_HIDDEN));
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [hidePacked, setHidePacked] = useState(true);
+  /** Nejstarší napřed je pořadí balení; nejnovější napřed pořadí přehledu */
+  const [oldestFirst, setOldestFirst] = useState(true);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<PackingProgress | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -217,22 +272,6 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     try {
       const res = await api.packing.scan(d, force);
       setOrders(res.orders);
-      setStatuses(res.statuses);
-
-      // Nový stav se poprvé zařadí podle toho, jestli se při balení hodí.
-      // Jakmile ho uživatel jednou přepne, zůstane po jeho.
-      const known = loadSet(LS_KNOWN);
-      const fresh = res.statuses.filter(s => !known.has(s));
-      if (fresh.length > 0) {
-        setHidden(prev => {
-          const next = new Set(prev);
-          for (const s of fresh) if (HIDE_BY_DEFAULT.test(s)) next.add(s);
-          saveSet(LS_HIDDEN, next);
-          return next;
-        });
-        for (const s of fresh) known.add(s);
-        saveSet(LS_KNOWN, known);
-      }
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
@@ -258,15 +297,51 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     return () => { clearInterval(t); window.removeEventListener('focus', tick); };
   }, [days, load, loading]);
 
+  /** Fáze u každé objednávky se počítá jednou — čte se z ní na třech místech */
+  const phases = useMemo(() => {
+    const map = new Map<number, PackPhase>();
+    for (const one of orders) map.set(one.messageId, phaseOf(one));
+    return map;
+  }, [orders]);
+
+  const counts = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const one of orders) {
+      const key = phases.get(one.messageId) ?? 'todo';
+      out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
+  }, [orders, phases]);
+
   const visible = useMemo(() => {
-    return orders.filter(o => {
+    const list = orders.filter(o => {
       if (o.messageId === pinned) return true;
-      if (hidePacked && o.done) return false;
-      const status = o.card.tracking?.status ?? o.card.live?.status ?? null;
-      // Objednávka bez zjištěného stavu se nikdy neschovává — je nejspíš čerstvá
-      return !(status && hidden.has(status));
+      return !hidden.has(phases.get(o.messageId) ?? 'todo');
     });
-  }, [orders, hidePacked, hidden, pinned]);
+    /*
+     * Nejstarší napřed je výchozí, protože tak se balí: co čeká nejdél, jde
+     * z fronty ven první. Kdo si jen prohlíží, co dnes přišlo, přepne.
+     */
+    return list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) * (oldestFirst ? 1 : -1));
+  }, [orders, hidden, pinned, phases, oldestFirst]);
+
+  /**
+   * Rozdělení do dnů.
+   *
+   * Při měsíčním okně je v seznamu i dvě stě objednávek a bez data se v nich
+   * nedá orientovat — „před 12 dny" u každého řádku je k ničemu, hlavička
+   * s datem řekne totéž jednou pro celou skupinu.
+   */
+  const byDay = useMemo(() => {
+    const out: { day: string; rows: PackingOrder[] }[] = [];
+    for (const one of visible) {
+      const day = dayOf(one.date);
+      const last = out[out.length - 1];
+      if (last && last.day === day) last.rows.push(one);
+      else out.push({ day, rows: [one] });
+    }
+    return out;
+  }, [visible]);
 
   /* ---------- faktury hromadně ---------- */
 
@@ -313,6 +388,40 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
   }, [withInvoice, phone]);
   useEffect(() => api.on('invoices:ready', p => setInvReady((p as { ready: number }).ready)), []);
 
+  /**
+   * Zásilky pro PPL.
+   *
+   * Bere se totéž, co je v seznamu — a z toho jen ty objednávky, které jedou
+   * PPL. Soubor se uloží a rovnou se otevře import v jejich administraci
+   * i s vloženým souborem; poslední kliknutí („Vlož") zůstává na člověku,
+   * protože nahrání zásilek je nevratné.
+   */
+  const [pplBusy, setPplBusy] = useState(false);
+  const pplCandidates = useMemo(
+    () => visible.map(o => o.card.orderNumber ?? '').filter(Boolean),
+    [visible]
+  );
+
+  const exportPpl = useCallback(async () => {
+    setPplBusy(true);
+    try {
+      const out = await api.ppl.export(pplCandidates);
+      if (!out.file) {
+        toast(out.skipped.length > 0
+          ? `Ve výběru není žádná zásilka PPL (${out.skipped.length} objednávek jede jinak).`
+          : 'Nic k vývozu.', 'info');
+        return;
+      }
+      toast(`Vyvezeno ${out.rows} zásilek${out.skipped.length ? `, ${out.skipped.length} vynecháno` : ''}.`);
+      const opened = await api.ppl.openImport(out.file);
+      toast(opened.note, opened.filled ? 'info' : 'error');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setPplBusy(false);
+    }
+  }, [pplCandidates, toast]);
+
   const grabInvoices = useCallback(async () => {
     if (withInvoice.length === 0) return;
     setInvoicing(true);
@@ -356,30 +465,41 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     }
   }, [withInvoice, toast]);
 
-  const toggleStatus = (s: string) => setHidden(prev => {
-    const next = new Set(prev);
-    if (next.has(s)) next.delete(s); else next.add(s);
+  /** Klik na dlaždici fázi schová nebo vrátí; s Altem zůstane jen ona */
+  const togglePhase = (key: PackPhase, only = false) => setHidden(prev => {
+    const next = only
+      ? new Set(PHASES.map(one => one.key).filter(one => one !== key) as string[])
+      : new Set(prev);
+    if (!only) { if (next.has(key)) next.delete(key); else next.add(key); }
+    // Všechno schované by byl prázdný seznam bez vysvětlení — to je chyba, ne filtr
+    if (next.size >= PHASES.length) next.delete(key);
     saveSet(LS_HIDDEN, next);
     return next;
   });
 
-  const setAllStatuses = (show: boolean) => setHidden(() => {
-    const next = show ? new Set<string>() : new Set(statuses);
-    saveSet(LS_HIDDEN, next);
-    return next;
-  });
+  /**
+   * Co se otevře samo.
+   *
+   * První k zabalení, ne první v seznamu. Od chvíle, kdy je v seznamu celé
+   * období, je nahoře většinou něco stornovaného nebo doručeného — a otevřít
+   * po startu výstrahu „stará objednávka" místo práce je špatně.
+   *
+   * Na telefonu se nevybírá nic: je vidět vždy jen jedna část, takže by se
+   * rovnou otevřela objednávka a seznam by uživatel nikdy neviděl.
+   */
+  const firstToPack = useCallback(() => {
+    const work = visible.find(o => (phases.get(o.messageId) ?? 'todo') === 'todo');
+    return (work ?? visible[0]).messageId;
+  }, [visible, phases]);
 
-  // Vybraná objednávka musí zůstat ve viditelném seznamu. Na telefonu se ale
-  // nic nevybírá samo — je vidět vždy jen jedna část, takže by se rovnou
-  // otevřela objednávka a seznam by uživatel nikdy neviděl.
   useEffect(() => {
     if (visible.length === 0) { setSelected(null); return; }
     if (selected !== null && !visible.some(o => o.messageId === selected)) {
-      setSelected(phone ? null : visible[0].messageId);
+      setSelected(phone ? null : firstToPack());
       return;
     }
-    if (selected === null && !phone) setSelected(visible[0].messageId);
-  }, [visible, selected, phone]);
+    if (selected === null && !phone) setSelected(firstToPack());
+  }, [visible, selected, phone, firstToPack]);
 
   const current = visible.find(o => o.messageId === selected) ?? null;
 
@@ -477,7 +597,9 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
       // Po dokončení rovnou skočíme na další objednávku ve frontě
       const idx = visible.findIndex(o => o.messageId === id);
       const next = visible[idx + 1] ?? visible[idx - 1] ?? null;
-      if (hidePacked && next) setSelected(next.messageId);
+      // Skok na další jen tehdy, když zabalené ze seznamu mizí — jinak by
+      // aplikace odskočila jinam, než kam se člověk dívá
+      if (next && hidden.has('packed')) setSelected(next.messageId);
     }
   };
 
@@ -723,34 +845,27 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                 onClick={() => setDays(w.days)}>{w.label}</button>
             ))}
           </div>
-          <div className="pk-status-wrap">
-            <button className={`filter-chip ${hidden.size > 0 ? 'on' : ''}`} onClick={() => setStatusOpen(v => !v)}>
-              Stavy {statuses.length > 0 && `(${statuses.length - hidden.size}/${statuses.length})`}
-              <Icon name="chevDown" size={11} />
-            </button>
-            {statusOpen && (
-              <>
-                <div className="pk-status-catch" onClick={() => setStatusOpen(false)} />
-                <div className="pk-status-pop">
-                  <div className="pk-status-head">
-                    Které stavy zobrazit
-                    <span style={{ flex: 1 }} />
-                    <button onClick={() => setAllStatuses(true)}>vše</button>
-                    <button onClick={() => setAllStatuses(false)}>nic</button>
-                  </div>
-                  {statuses.length === 0 && <div className="pk-status-empty">Zatím žádné stavy</div>}
-                  {statuses.map(s => (
-                    <label key={s} className="pk-status-row">
-                      <input type="checkbox" checked={!hidden.has(s)} onChange={() => toggleStatus(s)} />
-                      <span>{s}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
+          {/*
+            Fáze místo seznamu stavů. Stavů má e-shop dvacet, ale při balení
+            rozhoduje jedna otázka — mám to teď zabalit? — a na tu stačí pět
+            skupin. Číslo u každé je zároveň odpověď na „kolik toho ještě je".
+            Klik fázi schová nebo vrátí, klik se Shiftem nechá jen ji.
+          */}
+          <div className="pk-phases">
+            {PHASES.filter(one => (counts[one.key] ?? 0) > 0).map(one => (
+              <button key={one.key}
+                className={`pk-phase ${one.key} ${hidden.has(one.key) ? 'off' : ''}`}
+                data-tip={`${one.hint}${hidden.has(one.key) ? ' · schované' : ''} — Shift+klik nechá jen tuhle skupinu`}
+                onClick={e => togglePhase(one.key, e.shiftKey)}>
+                <span className="pk-phase-dot" />
+                {one.label}
+                <b>{counts[one.key]}</b>
+              </button>
+            ))}
           </div>
-          <button className={`filter-chip ${hidePacked ? 'on' : ''}`} onClick={() => setHidePacked(v => !v)}>
-            Skrýt zabalené
+          <button className="filter-chip" onClick={() => setOldestFirst(v => !v)}
+            data-tip="Nejstarší napřed je pořadí balení — co čeká nejdéle, jde z fronty první">
+            <Icon name="sort" size={12} /> {oldestFirst ? 'nejstarší' : 'nejnovější'}
           </button>
           {/*
             Faktury ke všemu, co je zrovna v seznamu — jeden PDF, jeden tisk.
@@ -771,6 +886,19 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                     {invReady > 0 && invReady < withInvoice.length && <span className="pk-inv-ready"> · {invReady} hotovo</span>}
                     {invReady > 0 && invReady >= withInvoice.length && <Icon name="check" size={11} />}
                   </>}
+            </button>
+          )}
+          {/*
+            Zásilky do PPL. Soubor se sestaví z toho, co je v seznamu, a
+            otevře se import v jejich administraci — jako u naskladnění.
+          */}
+          {!phone && (
+            <button className="filter-chip" disabled={pplBusy || pplCandidates.length === 0}
+              onClick={() => void exportPpl()}
+              data-tip="Sestaví CSV pro PPL ze zobrazených objednávek a otevře import v jejich administraci">
+              {pplBusy
+                ? <><span className="spinner-inline" /> chystám…</>
+                : <><Icon name="truck" size={12} /> PPL</>}
             </button>
           )}
           {/*
@@ -802,7 +930,12 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
             {loading && progress
               ? `Načítám ${progress.done}/${progress.total}…`
               : <>
-                  {visible.length} k zabalení
+                  {/*
+                    Práce, ne celkový počet. „48 objednávek" nic neříká;
+                    „12 k zabalení" je odpověď na to, proč je okno otevřené.
+                  */}
+                  <b>{counts.todo ?? 0} k zabalení</b>
+                  {orders.length > (counts.todo ?? 0) && <> · {orders.length} za období</>}
                   {loadedAt && <span className="pk-fresh"> · stav {relTime(new Date(loadedAt).toISOString())}</span>}
                 </>}
           </span>
@@ -816,40 +949,73 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
             {!loading && visible.length === 0 && (
               <div className="pk-empty">
                 <Icon name="check" size={26} />
-                <div>Nic k balení</div>
-                <div className="pk-empty-sub">Ve zvoleném období není žádná nezabalená objednávka.</div>
+                <div>{hidden.size > 0 ? 'Nic k zobrazení' : 'Nic k balení'}</div>
+                <div className="pk-empty-sub">
+                  {hidden.size > 0
+                    ? 'Zvolené fáze jsou schované — klikni na dlaždici nahoře a vrátí se.'
+                    : 'Ve zvoleném období není žádná objednávka.'}
+                </div>
               </div>
             )}
-            {visible.map(o => {
-              const items = o.card.items;
-              const packedCount = packedPieces(o);
-              const many = items.some(i => (i.qty || 1) > 1);
-              const status = o.card.tracking?.status ?? o.card.live?.status ?? null;
-              return (
-                <button key={o.messageId}
-                  className={`pk-row ${o.messageId === selected ? 'active' : ''} ${o.done ? 'done' : ''}`}
-                  onClick={() => setSelected(o.messageId)}>
-                  <div className="pk-row-top">
-                    <span className="pk-row-num">{numbers(o).main}</span>
-                    {/* Číslo objednávky drobně vedle — hlavní je to z faktury */}
-                    {numbers(o).sub && <span className="pk-row-code">obj. {numbers(o).sub}</span>}
-                    {o.done && <Icon name="check" size={13} className="pk-row-done" />}
-                    <span style={{ flex: 1 }} />
-                    <span className="pk-row-age">{relTime(o.date)}</span>
-                  </div>
-                  <div className="pk-row-name">{customerName(o)}</div>
-                  <div className="pk-row-bot">
-                    <span>{items.length} pol. · {totalPieces(items)} ks</span>
-                    {many && <span className="pk-row-many" data-tip="Obsahuje více kusů jedné položky">víc kusů</span>}
-                    {packedCount > 0 && !o.done && (
-                      <span className="pk-row-prog">{packedCount}/{totalPieces(items)} ks</span>
-                    )}
-                    <span style={{ flex: 1 }} />
-                    {status && <span className="pk-row-status">{status}</span>}
-                  </div>
-                </button>
-              );
-            })}
+            {byDay.map(group => (
+              <div className="pk-day" key={group.day}>
+                {/*
+                  Datum jednou pro celou skupinu. U měsíčního okna je v seznamu
+                  i dvě stě objednávek a „před 12 dny" u každého řádku se nedá
+                  číst; hlavička řekne totéž jednou.
+                */}
+                <div className="pk-day-head">
+                  <span>{group.day}</span>
+                  <span className="pk-day-count">{group.rows.length}</span>
+                </div>
+                {group.rows.map(o => {
+                  const items = o.card.items;
+                  const packedCount = packedPieces(o);
+                  const many = items.some(i => (i.qty || 1) > 1);
+                  const status = o.shop?.status ?? o.card.tracking?.status ?? o.card.live?.status ?? null;
+                  const phase = phases.get(o.messageId) ?? 'todo';
+                  const cod = isCod(o);
+                  return (
+                    <button key={o.messageId}
+                      className={`pk-row ${phase} ${o.messageId === selected ? 'active' : ''} ${o.done ? 'done' : ''}`}
+                      onClick={() => setSelected(o.messageId)}>
+                      <div className="pk-row-top">
+                        <span className="pk-row-num">{numbers(o).main}</span>
+                        {numbers(o).sub && <span className="pk-row-code">obj. {numbers(o).sub}</span>}
+                        {o.done && <Icon name="check" size={13} className="pk-row-done" />}
+                        <span style={{ flex: 1 }} />
+                        <span className="pk-row-age">{relTime(o.date)}</span>
+                      </div>
+                      <div className="pk-row-name">{customerName(o)}</div>
+                      {/*
+                        Doprava a platba přímo v řádku. Podle dopravce se vybírá
+                        štítek a krabice, a dobírka je ta jediná věc, na kterou
+                        se při balení nesmí zapomenout — proto je zvýrazněná.
+                      */}
+                      <div className="pk-row-ship">
+                        {o.card.shipmentName && (
+                          <span className="pk-row-carrier"><Icon name="truck" size={11} /> {o.card.shipmentName}</span>
+                        )}
+                        {cod
+                          ? <span className="pk-row-cod" data-tip="Dobírka — peníze vybírá dopravce">
+                              dobírka {o.card.total ?? ''}
+                            </span>
+                          : o.card.paymentName && <span className="pk-row-pay">{o.card.paymentName}</span>}
+                      </div>
+                      <div className="pk-row-bot">
+                        <span>{items.length} pol. · {totalPieces(items)} ks</span>
+                        {many && <span className="pk-row-many" data-tip="Obsahuje více kusů jedné položky">víc kusů</span>}
+                        {packedCount > 0 && !o.done && (
+                          <span className="pk-row-prog">{packedCount}/{totalPieces(items)} ks</span>
+                        )}
+                        <span style={{ flex: 1 }} />
+                        {status && <span className={`pk-row-status ${phase}`} title={status}>{status}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
 
           <div className="pk-detail">

@@ -393,6 +393,14 @@ await page.waitForTimeout(300);
 await click('.ig-switch button', { hasText: 'Funkce' });
 await click('.ws-menu-item', { hasText: 'Balení objednávek' });
 await overflow('balení — hledání podle čísla'); await snap('26b-baleni');
+/*
+ * Celé období, ne jen práce. Dlaždice fází nesou počty a barvu, kterou má
+ * i proužek u řádku — hlídá se, že se všechno vejde a že je poznat, co je
+ * k zabalení a co už je pryč.
+ */
+await click('.pk-phase.sent');
+await overflow('balení — schovaná fáze'); await snap('26b2-baleni-faze');
+await click('.pk-phase.sent');
 await click('.pk-as button', { hasText: 'objednávka' });
 await overflow('balení — hledání podle objednávky'); await snap('26c-baleni-objednavka');
 

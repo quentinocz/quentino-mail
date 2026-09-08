@@ -1331,20 +1331,49 @@
     live: Object.assign({}, answers['orders:card'].live, { status: 'Přijata' }),
     tracking: Object.assign({}, answers['orders:card'].tracking, { status: 'Přijata' })
   });
+  /*
+   * Balení: v seznamu je celé období, ne jen práce. Náhled proto míchá
+   * všechny fáze — čekání na platbu, k zabalení, zabalené, odeslané,
+   * doručené i storno — a k tomu dobírku, protože právě ta se v řádku
+   * zvýrazňuje. Bez toho by se nedalo poznat, jestli barvy a dlaždice sedí.
+   */
+  var packOrder = function (id, hoursBack, number, invoice, status, opts) {
+    var card = Object.assign({}, toPack(number), {
+      shipmentName: (opts && opts.shipment) || 'Zásilkovna',
+      paymentName: (opts && opts.payment) || 'Platba kartou online',
+      total: (opts && opts.total) || '2\u00a0480 Kč'
+    });
+    return {
+      messageId: id,
+      date: new Date(Date.now() - hoursBack * 3600e3).toISOString(),
+      card: card,
+      packed: (opts && opts.packed) || [],
+      counts: (opts && opts.counts) || {},
+      done: !!(opts && opts.done),
+      doneAt: opts && opts.done ? new Date().toISOString() : null,
+      source: 'feed',
+      shop: { code: number, invoice: invoice, status: status,
+        at: new Date(Date.now() - hoursBack * 3600e3).toISOString(),
+        final: /doru|storn/i.test(status) }
+    };
+  };
+
   answers['packing:scan'] = {
     orders: [
       // Rozdělaná: pásek hotový, z manžetových knoflíčků jeden ze dvou —
       // právě na tomhle je vidět, že se počítá po kusech, ne po položkách
-      { messageId: 1, date: new Date(Date.now() - 3 * 3600e3).toISOString(),
-        card: toPack('20260819'), packed: [0], counts: { '0': 1, '1': 1 }, done: false, doneAt: null,
-        source: 'feed',
-        shop: { code: '022605', invoice: '999111', status: 'Přijata', at: '2026-08-19', final: false } },
-      { messageId: 2, date: new Date(Date.now() - 26 * 3600e3).toISOString(),
-        card: toPack('20260812'), packed: [], counts: {}, done: false, doneAt: null,
-        source: 'feed',
-        shop: { code: '022600', invoice: '999100', status: 'Přijata', at: '2026-08-12', final: false } }
+      packOrder(1, 3, '022605', '999111', 'Přijata', { packed: [0], counts: { '0': 1, '1': 1 } }),
+      packOrder(2, 5, '022604', '999110', 'Přijata',
+        { payment: 'Dobírka', shipment: 'PPL ParcelBox', total: '1\u00a0890 Kč' }),
+      packOrder(3, 9, '022603', '999109', 'Čeká na platbu', { payment: 'Bankovním převodem' }),
+      packOrder(4, 26, '022600', '999100', 'Přijata', { shipment: 'Balíkovna' }),
+      packOrder(5, 28, '022599', '999099', 'Vyřizuje se', { done: true }),
+      packOrder(6, 30, '022598', '999098', 'Odesláno', { shipment: 'PPL' }),
+      packOrder(7, 52, '022596', '999096', 'Odesláno', { payment: 'Dobírka', total: '790 Kč' }),
+      packOrder(8, 74, '022590', '999090', 'Doručeno'),
+      packOrder(9, 76, '022589', '999089', 'Stornováno', { shipment: 'Osobní odběr' })
     ],
-    statuses: ['Přijata'],
+    statuses: ['Přijata', 'Čeká na platbu', 'Vyřizuje se', 'Odesláno', 'Doručeno', 'Stornováno'],
     scannedAt: new Date().toISOString()
   };
 

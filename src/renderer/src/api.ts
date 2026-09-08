@@ -18,7 +18,7 @@ import type {
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
-  InvoiceSetup, InvoiceJob, InvoiceRun
+  InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -609,6 +609,24 @@ export const api = {
       call<{ ready: number; fetched: number; stopped: string | null }>('invoices:prefetch', codes),
     /** Kolik z nich už je po ruce */
     ready: (codes: string[]) => call<{ ready: number; total: number }>('invoices:ready', codes)
+  },
+
+  /**
+   * Zásilky pro PPL.
+   *
+   * PPL nemá volné API — přístup schvalují. Cesta, která funguje hned, je
+   * soubor CSV nahraný do klientské administrace; aplikace ho sestaví přesně
+   * v podobě, na jakou je tam nastavená uložená úloha.
+   */
+  ppl: {
+    setup: () => call<PplSetup>('ppl:setup'),
+    saveSetup: (next: Partial<PplSetup>) => call<PplSetup>('ppl:saveSetup', next),
+    /** Náhled — co se vyveze a co se vynechá a proč */
+    rows: (codes: string[]) =>
+      call<{ rows: PplRow[]; skipped: { code: string; reason: string }[] }>('ppl:rows', codes),
+    export: (codes: string[]) => call<PplExport>('ppl:export', codes),
+    /** Otevře import v administraci PPL i se souborem; odeslání zůstává na člověku */
+    openImport: (file: string) => call<{ filled: boolean; note: string }>('ppl:import', file)
   },
 
   /**

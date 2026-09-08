@@ -92,6 +92,8 @@ const ALLOWED_INVOKE = [
   // Faktury se stahují z administrace v okně — to má jen počítač
   'invoices:setup', 'invoices:saveSetup', 'invoices:learn', 'invoices:login',
   'invoices:since', 'invoices:download', 'invoices:detail', 'invoices:prefetch', 'invoices:ready',
+  // Zásilky pro PPL: soubor i import do jejich administrace dělá počítač
+  'ppl:setup', 'ppl:saveSetup', 'ppl:rows', 'ppl:export', 'ppl:import',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
   // Verze aplikace do hlavičky nastavení
   'app:version'

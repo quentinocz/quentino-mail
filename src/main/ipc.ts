@@ -59,6 +59,7 @@ import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import { articleStats, articleStat } from './artstats';
+import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport } from './ppl';
 import { refreshWatchers } from './idle';
 import {
   downloadInvoices, learnInvoiceUrl, invoiceSetup, saveInvoiceSetup,
@@ -459,6 +460,14 @@ export function registerIpc() {
   // Stahování dopředu: u tiskárny se nemá čekat na síť
   handle('invoices:prefetch', (codes: string[]) => prefetchInvoices(codes ?? []));
   handle('invoices:ready', (codes: string[]) => invoicesReady(codes ?? []));
+
+  /* ---------- PPL ---------- */
+  handle('ppl:setup', () => pplSetup());
+  handle('ppl:saveSetup', (next: any) => savePplSetup(next ?? {}));
+  // Náhled: co se do souboru dostane a co se z výběru vynechá a proč
+  handle('ppl:rows', (codes: string[]) => pplRows(codes ?? []));
+  handle('ppl:export', (codes: string[]) => exportPpl(codes ?? []));
+  handle('ppl:import', (file: string) => openPplImport(file));
 
   /*
    * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka

@@ -2406,3 +2406,46 @@ export interface ArticleStatDetail {
   note: string;
   error: string | null;
 }
+
+/* ---------- vývoz zásilek pro PPL ---------- */
+
+export interface PplRow {
+  /** Číslo objednávky, ze které řádek vznikl — do souboru nejde, ale hlásí se v přehledu */
+  code: string;
+  name: string;
+  /** U výdejního místa jeho název, jinak firma příjemce */
+  company: string;
+  street: string;
+  /** U výdejního místa i s kódem: „KM10439155 Chýnov" */
+  city: string;
+  zip: string;
+  country: string;
+  /** Kolik vybrat na dobírku; 0 u placených předem */
+  cod: number;
+  currency: string;
+  variableSymbol: string;
+  phone: string;
+  email: string;
+  /** 46 = výdejní místo, 14 = adresa */
+  type: 46 | 14;
+  total: number;
+  /** Obsah zásilky složený z položek — „2 kravaty, motýlek" */
+  content: string;
+}
+
+export interface PplExport {
+  file: string | null;
+  rows: number;
+  skipped: { code: string; reason: string }[];
+  content: boolean;
+}
+
+export interface PplSetup {
+  /** Podle čeho se pozná, že objednávka jede PPL */
+  carrier: string;
+  /** Přidat sloupec s obsahem zásilky */
+  content: boolean;
+  importUrl: string;
+  /** Název uložené úlohy v administraci PPL */
+  mapping: string;
+}
