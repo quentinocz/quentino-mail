@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DigestArchiveRow, DigestDay, DigestFacts, DigestInsight, DigestMonth, DigestReport,
-  DigestMoney, DigestPost, DigestSlice, DigestTask, DigestTotals, DigestTurn
+  DigestMoney, DigestPost, DigestSlice, DigestTask, DigestTotals, DigestTurn,
+  Ga4Deep, Ga4Funnel, Ga4Month, Ga4Slice
 } from '@shared/types';
 import { api } from '../api';
 import { useIsPhone } from '../mobile';
@@ -198,6 +199,157 @@ function DayChart({ days: given, currency, mode, bucketDays = 1 }: {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Návštěvnost po měsících.
+ *
+ * Dvě řady v jednom obrázku: sloupce jsou návštěvy, tečkovaná čára nákupy.
+ * Samotné návštěvy klamou — měsíc s dvojnásobným provozem a stejným počtem
+ * nákupů je špatná zpráva, ne dobrá, a to je vidět, až když jsou vedle sebe.
+ */
+function TrafficChart({ months }: { months: Ga4Month[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const top = Math.max(1, ...months.map(one => one.sessions));
+  const topBuy = Math.max(1, ...months.map(one => one.purchases));
+  const width = 100;
+  const step = width / Math.max(1, months.length);
+  const active = hover != null ? months[hover] : null;
+  const line = months
+    .map((one, i) => `${i * step + step / 2},${32 - (one.purchases / topBuy) * 26}`)
+    .join(' ');
+
+  return (
+    <div className="dg-chart">
+      <div className={`dg-chart-read${active ? ' on' : ''}`}>
+        {active
+          ? <>
+            <b>{bucketLabel(`${active.month}-01`, 30)}</b>
+            {' — '}{active.sessions} návštěv · {active.users} uživatelů
+            {active.purchases ? ` · ${active.purchases} nákupů` : ''}
+            {active.revenue ? ` · ${money(active.revenue, 'CZK')}` : ''}
+          </>
+          : <span className="dg-chart-hint">sloupce = návštěvy, čára = nákupy</span>}
+      </div>
+      <svg
+        viewBox={`0 0 ${width} 34`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="Návštěvnost po měsících"
+        onMouseLeave={() => setHover(null)}
+      >
+        {months.map((one, i) => {
+          const height = (one.sessions / top) * 26;
+          return (
+            <g key={one.month} onMouseEnter={() => setHover(i)}>
+              <rect x={i * step} y={0} width={step} height={34} className="dg-bar-hit" />
+              <rect
+                x={i * step + 0.6}
+                y={32 - height}
+                width={step - 1.2}
+                height={Math.max(one.sessions > 0 ? 0.8 : 0, height)}
+                rx={0.6}
+                className={`dg-bar${hover === i ? ' on' : ''}`}
+              />
+            </g>
+          );
+        })}
+        {months.length > 1 && (
+          <polyline points={line} className="dg-line-buy" vectorEffect="non-scaling-stroke" />
+        )}
+      </svg>
+      <div className="dg-chart-axis">
+        {months.map((one, i) => (
+          <span key={one.month} style={{ width: `${step}%` }}>
+            {months.length <= 14 || i % 2 === 0 ? bucketLabel(`${one.month}-01`, 30) : ''}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Řez návštěvnosti — kanály, stránky, země.
+ *
+ * Vedle návštěv je vždycky **konverze a tržba**, protože to je ta otázka:
+ * kanál, který přivede tisíc lidí a nic neprodá, není lepší než ten, co
+ * přivede sto a prodá. Konverze se ukazuje až od sta návštěv — z pěti se
+ * poctivě spočítat nedá a procento z mála mate nejvíc.
+ */
+function TrafficSlice({ title, icon, rows, note, sales = true }: {
+  title: string; icon: string; rows: Ga4Slice[]; note?: string;
+  /*
+   * Má u téhle sestavy smysl mluvit o konverzi? U kanálů a vstupních
+   * stránek ano. U čtených stránek ne: nákup se připisuje vstupní stránce,
+   * takže u článku by pořád svítilo „0 %" a četlo by se to jako „nefunguje",
+   * i kdyby ten článek přivedl polovinu objednávek.
+   */
+  sales?: boolean;
+}) {
+  const top = Math.max(1, ...rows.map(one => one.sessions));
+  return (
+    <div className="dg-card">
+      <div className="dg-card-head"><Icon name={icon} size={14} /> {title}</div>
+      {note && <div className="dg-caption">{note}</div>}
+      {rows.length === 0 && <div className="dg-empty">Zatím není z čeho brát.</div>}
+      {rows.slice(0, 8).map(one => (
+        <div className="dg-bar-row" key={one.name} title={`${one.sessions} návštěv, ${one.users} uživatelů`}>
+          <span className="dg-bar-label">{one.name}</span>
+          <span className="dg-bar-track">
+            <span className="dg-bar-fill" style={{ width: `${(one.sessions / top) * 100}%` }} />
+          </span>
+          <span className="dg-bar-num">{one.sessions}</span>
+          <span className="dg-bar-money" title={sales ? 'Konverze a tržba' : 'Kolik různých lidí to vidělo'}>
+            {sales
+              ? <>{one.conversion != null ? `${one.conversion} %` : '—'}
+                {one.revenue ? ` · ${money(one.revenue, 'CZK')}` : ''}</>
+              : `${one.users} lidí`}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Cesta k nákupu.
+ *
+ * Kolik návštěv skončilo košíkem, kolik pokladnou a kolik nákupem. Samotná
+ * konverze řekne jen „málo"; tohle řekne **kde** se lidé ztrácejí — jestli
+ * na produktu, nebo až v pokladně, což jsou dvě různé opravy.
+ */
+function Funnel({ funnel }: { funnel: Ga4Funnel }) {
+  const steps = [
+    { label: 'Návštěvy', value: funnel.sessions },
+    { label: 'Do košíku', value: funnel.addToCarts },
+    { label: 'Do pokladny', value: funnel.checkouts },
+    { label: 'Nákup', value: funnel.purchases }
+  ];
+  const top = Math.max(1, funnel.sessions);
+  return (
+    <div className="dg-card">
+      <div className="dg-card-head"><Icon name="sliders" size={14} /> Cesta k nákupu</div>
+      {steps.map((step, i) => {
+        const before = i > 0 ? steps[i - 1].value : 0;
+        const drop = i > 0 && before > 0
+          ? Math.round(((before - step.value) / before) * 100)
+          : null;
+        return (
+          <div className="dg-bar-row" key={step.label}>
+            <span className="dg-bar-label">{step.label}</span>
+            <span className="dg-bar-track">
+              <span className="dg-bar-fill" style={{ width: `${(step.value / top) * 100}%` }} />
+            </span>
+            <span className="dg-bar-num">{step.value}</span>
+            <span className="dg-bar-money">
+              {drop != null ? `−${drop} % oproti kroku výš` : `${Math.round((step.value / top) * 100)} %`}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -465,6 +617,14 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   /** Rozkliknuté zboží — pod řádkem se ukáže, kam se prodávalo a jak si vede */
   const [openProduct, setOpenProduct] = useState<string | null>(null);
   /*
+   * Hlubší rozbor návštěvnosti. Je to sedm reportů přes síť, takže se drží
+   * den a přepočítává na vyžádání; období má vlastní přepínač, protože
+   * u sezónního zboží dává smysl dívat se rok i dva zpátky.
+   */
+  const [deep, setDeep] = useState<Ga4Deep | null>(null);
+  const [deepDays, setDeepDays] = useState(365);
+  const [deepBusy, setDeepBusy] = useState(false);
+  /*
    * Období, za které se čísla počítají. Třicet dní je denní chod, dva roky
    * odpovídají na jinou otázku — jestli má výrobek stálé místo v sortimentu.
    * Postřehy od AI zůstávají na třicítce, aby měly každý den stejné měřítko.
@@ -508,6 +668,21 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   };
   useEffect(() => { load(false); }, []);
   useEffect(() => { api.ai.digestArchive().then(setArchive).catch(() => {}); }, [report]);
+
+  /*
+   * Rozbor návštěvnosti. Na telefonu se nenačítá vůbec — je to tabulka na
+   * šířku a sedm volání přes síť; denní snímek tam zůstává.
+   */
+  useEffect(() => {
+    if (phone) return;
+    let alive = true;
+    setDeepBusy(true);
+    api.ga4.deep(deepDays)
+      .then(one => { if (alive) setDeep(one); })
+      .catch(() => {})
+      .finally(() => { if (alive) setDeepBusy(false); });
+    return () => { alive = false; };
+  }, [deepDays, phone]);
 
   // Přepnutí na starší přehled: čísla i postřeh se berou tak, jak byly tehdy
   useEffect(() => {
@@ -1096,6 +1271,87 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   )}
                 </div>
               </div>
+
+
+              {/*
+                * Návštěvnost do hloubky. Denní snímek výš odpovídá na „kolik
+                * jich přišlo"; tohle na „odkud, kudy a co z toho bylo" — a dá
+                * se dívat dva roky zpátky, což je u sezónního zboží to jediné
+                * měřítko, které dává smysl. Na telefonu se to nenačítá.
+                */}
+              {!phone && (deep || deepBusy) && (
+                <div className="dg-card dg-deep">
+                  <div className="dg-card-head">
+                    <Icon name="globe" size={14} /> Návštěvnost do hloubky
+                    <span className="dg-switch">
+                      {[90, 180, 365, 730].map(days => (
+                        <button
+                          key={days}
+                          className={deepDays === days ? 'on' : ''}
+                          onClick={() => setDeepDays(days)}
+                        >
+                          {days === 90 ? '3 měsíce' : days === 180 ? '6 měsíců' : days === 365 ? '1 rok' : '2 roky'}
+                        </button>
+                      ))}
+                    </span>
+                    <button
+                      className="dg-again"
+                      disabled={deepBusy}
+                      onClick={() => {
+                        setDeepBusy(true);
+                        api.ga4.deep(deepDays, true)
+                          .then(one => { setDeep(one); toast('Rozbor je čerstvý.'); })
+                          .catch(e => toast(`Nepovedlo se: ${e.message}`, 'error'))
+                          .finally(() => setDeepBusy(false));
+                      }}
+                    >
+                      {deepBusy ? 'Počítám…' : 'Přepočítat'}
+                    </button>
+                  </div>
+                  {deepBusy && !deep && (
+                    <div className="dg-working">
+                      <span className="spinner-inline" />
+                      Sedm reportů z Google Analytics — chvilku to trvá.
+                    </div>
+                  )}
+                  {deep?.error && (
+                    <div className="dg-empty">Rozbor se nepovedl: {deep.error}</div>
+                  )}
+                  {deep && deep.months.length > 0 && (
+                    <>
+                      <div className="dg-caption">
+                        Měří {deep.scope}; objednávky v přehledu výš jsou ze všech trhů,
+                        {' '}takže konverze tady sedí jen na tenhle web.
+                      </div>
+                      <TrafficChart months={deep.months} />
+                      <div className="dg-grid">
+                        <TrafficSlice
+                          title="Kanály" icon="globe" rows={deep.channels}
+                          note="Vpravo konverze a tržba — kanál, který přivede lidi, a kanál, který přivede peníze, jsou dvě různé věci."
+                        />
+                        <Funnel funnel={deep.funnel} />
+                      </div>
+                      <div className="dg-grid">
+                        <TrafficSlice
+                          title="Vstupní stránky" icon="fileText" rows={deep.landings}
+                          note="Kudy se do e-shopu chodí — sem míří reklama i vyhledávání."
+                        />
+                        <TrafficSlice
+                          title="Nejčtenější stránky" icon="fileText" rows={deep.pages} sales={false}
+                          note="Články, kategorie a produkty podle návštěv. Konverze se tu neukazuje — nákup se připisuje vstupní stránce, ne té, kde se čte."
+                        />
+                      </div>
+                      <div className="dg-grid">
+                        <TrafficSlice title="Zařízení" icon="sliders" rows={deep.devices} />
+                        <TrafficSlice
+                          title="Země návštěvníků" icon="globe" rows={deep.countries}
+                          note="Proti zemím objednávek je vidět, kde se dívají a nekupují."
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Nejprodávanější zboží za zvolené období */}
               <div className="dg-card">

@@ -31,7 +31,9 @@ import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from 
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { digestReport, digestAsk, digestArchive, digestFromArchive, digestFacts } from './digest';
 import { digestToPdf } from './digestpdf';
-import { getGa4Config, saveGa4Config, ga4Test, ga4Apps, ga4Diagnostics, ga4LastDetail } from './ga4';
+import {
+  getGa4Config, saveGa4Config, ga4Test, ga4Apps, ga4Diagnostics, ga4LastDetail, ga4Deep
+} from './ga4';
 import { clearTrackingCache } from './ordertrack';
 import {
   scanOrders, setItemPacked, setItemCount, setOrderDone, resetPacking, scanItem, openOrder,
@@ -246,6 +248,11 @@ export function registerIpc() {
   handle('ga4:diagnostics', () => ga4Diagnostics());
   // Celá poslední odpověď Sequelu — do bubliny se nevejde, sem ano
   handle('ga4:detail', () => ga4LastDetail());
+  /*
+   * Hlubší rozbor návštěvnosti. Drží se den, takže přepnutí období je
+   * okamžité — a přepočítat se dá tlačítkem.
+   */
+  handle('ga4:deep', (days?: number, force?: boolean) => ga4Deep(Number(days) || 365, force === true));
 
   // Upgates API (objednávky zákazníka)
   handle('upgates:config', () => getUpgatesConfig());

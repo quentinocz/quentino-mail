@@ -963,6 +963,71 @@ export interface DigestGa4 {
   error: string | null;
 }
 
+/** Jeden měsíc návštěvnosti — na graf dlouhodobého vývoje */
+export interface Ga4Month {
+  /** `YYYYMM` z GA4, převedené na `YYYY-MM` */
+  month: string;
+  sessions: number;
+  users: number;
+  purchases: number;
+  revenue: number;
+}
+
+/** Kanál, stránka nebo zařízení — všechno má stejný tvar */
+export interface Ga4Slice {
+  name: string;
+  sessions: number;
+  users: number;
+  purchases: number;
+  revenue: number;
+  /** Konverzní poměr v procentech; null = nedá se spočítat */
+  conversion: number | null;
+  /** Průměrná útrata na návštěvu — podle ní se pozná drahý kanál */
+  perSession: number | null;
+}
+
+/**
+ * Cesta k nákupu.
+ *
+ * GA4 umí spočítat, kolik návštěv skončilo košíkem, kolik pokladnou a kolik
+ * nákupem. Tři čísla stačí na to, aby bylo vidět, kde se lidé ztrácejí —
+ * a to je otázka, kterou samotná konverze nezodpoví.
+ */
+export interface Ga4Funnel {
+  sessions: number;
+  addToCarts: number;
+  checkouts: number;
+  purchases: number;
+}
+
+/**
+ * Hlubší rozbor návštěvnosti.
+ *
+ * Denní snímek odpovídá na „kolik jich přišlo". Tohle odpovídá na „odkud,
+ * kudy a co z toho bylo" — a dá se dívat až dva roky zpátky, protože
+ * u sezónního zboží je roční pohled to jediné, co má smysl.
+ */
+export interface Ga4Deep {
+  at: string;
+  /** Za kolik dní zpátky se to počítalo */
+  days: number;
+  scope: string;
+  /** Měsíční řada za celé období — na graf */
+  months: Ga4Month[];
+  /** Odkud lidé chodí (`sessionSourceMedium`) */
+  channels: Ga4Slice[];
+  /** Kde přistávají — nejčastější vstupní stránky */
+  landings: Ga4Slice[];
+  /** Které stránky se čtou nejvíc — články, kategorie, produkty */
+  pages: Ga4Slice[];
+  /** Mobil, počítač, tablet */
+  devices: Ga4Slice[];
+  /** Země návštěvníků — proti zemím objednávek je vidět, kde se neprodává */
+  countries: Ga4Slice[];
+  funnel: Ga4Funnel;
+  error: string | null;
+}
+
 export interface DigestDay {
   /** YYYY-MM-DD */
   day: string;
