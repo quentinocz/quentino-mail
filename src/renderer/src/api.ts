@@ -18,7 +18,8 @@ import type {
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
-  InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport
+  InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
+  PacketaSetup, PacketaPacket, PacketaResult
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -626,7 +627,28 @@ export const api = {
       call<{ rows: PplRow[]; skipped: { code: string; reason: string }[] }>('ppl:rows', codes),
     export: (codes: string[]) => call<PplExport>('ppl:export', codes),
     /** Otevře import v administraci PPL i se souborem; odeslání zůstává na člověku */
-    openImport: (file: string) => call<{ filled: boolean; note: string }>('ppl:import', file)
+    openImport: (file: string) => call<{ filled: boolean; note: string }>('ppl:import', file),
+    /** Otevře seznam zásilek v administraci PPL, odkud se tisknou štítky */
+    openLabels: () => call<boolean>('ppl:labels')
+  },
+
+  /**
+   * Zásilkovna.
+   *
+   * Tady API veřejné je, takže se zásilka založí přímo z aplikace a štítek
+   * přijde jako hotový PDF arch. Podací list se neodesílá — to je krok, po
+   * kterém se u dopravce účtuje.
+   */
+  packeta: {
+    setup: () => call<PacketaSetup>('packeta:setup'),
+    saveSetup: (next: Partial<PacketaSetup> & { password?: string }) =>
+      call<PacketaSetup>('packeta:saveSetup', next),
+    test: () => call<string>('packeta:test'),
+    packets: (codes: string[]) => call<PacketaPacket[]>('packeta:packets', codes),
+    create: (codes: string[]) => call<PacketaResult>('packeta:create', codes),
+    labels: (codes: string[], format?: string, offset?: number) =>
+      call<{ file: string | null; count: number; missing: string[] }>('packeta:labels', codes, format, offset),
+    formats: () => call<string[]>('packeta:formats')
   },
 
   /**

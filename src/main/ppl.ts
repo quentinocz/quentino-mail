@@ -137,6 +137,12 @@ export function pplSetup(): PplSetup {
     content: saved.content !== false,
     /** Adresa importu v klientské administraci */
     importUrl: saved.importUrl ?? 'https://klient.ppl.cz/import.aspx?loadedControl=importZasilek',
+    /*
+     * Kde se tisknou štítky. Bez API se štítek stáhnout nedá — vystavuje ho
+     * jejich administrace až z nahrané zásilky. Aplikace tedy aspoň otevře
+     * ten správný seznam, aby se k němu nemuselo proklikávat.
+     */
+    labelsUrl: saved.labelsUrl ?? 'https://klient.ppl.cz/zasilka.aspx?loadedControl=zasilkaList',
     /** Název uložené úlohy, kterou má import použít */
     mapping: saved.mapping ?? 'Upgates'
   };
@@ -340,6 +346,28 @@ export async function openPplImport(file: string): Promise<{ filled: boolean; no
       note: `Soubor se nepodařilo vložit (${String(e?.message ?? e)}). Je uložený v ${file} — vyber ho v okně ručně.`
     };
   }
+}
+
+/**
+ * Otevře seznam zásilek, odkud se tisknou štítky.
+ *
+ * Štítek PPL vystavuje jejich administrace až z nahrané zásilky a bez API
+ * se stáhnout nedá. Tohle je tedy poctivá zkratka, ne polovičatá náhrada:
+ * okno je přihlášené a rovnou na tom seznamu.
+ */
+export async function openPplLabels(): Promise<boolean> {
+  const setup = pplSetup();
+  const win = importWin && !importWin.isDestroyed() ? importWin : new BrowserWindow({
+    width: 1200, height: 860,
+    title: 'Zásilky a štítky PPL',
+    webPreferences: { partition: 'persist:ppl', sandbox: true }
+  });
+  importWin = win;
+  win.on('closed', () => { importWin = null; });
+  await win.loadURL(setup.labelsUrl);
+  win.show();
+  win.focus();
+  return true;
 }
 
 /** Volba uložené úlohy v rozbalovacím seznamu; stránka se pak sama znovu načte. */

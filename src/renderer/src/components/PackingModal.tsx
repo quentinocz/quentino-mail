@@ -422,6 +422,40 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     }
   }, [pplCandidates, toast]);
 
+  /**
+   * Zásilkovna: založit zásilky a stáhnout štítky.
+   *
+   * Dva kroky za sebou, protože tak to při balení jde: nejdřív se zásilky
+   * založí (a co nešlo, řekne se proč), a hned nato se stáhne jeden arch se
+   * štítky. Zásilka už jednou založená se nezakládá znovu — z jedné
+   * objednávky by byly dva balíky.
+   */
+  const [zasBusy, setZasBusy] = useState(false);
+
+  const sendPacketa = useCallback(async () => {
+    setZasBusy(true);
+    try {
+      const out = await api.packeta.create(pplCandidates);
+      if (out.created.length === 0) {
+        toast(out.failed[0]?.reason
+          ? `Zásilkovna: ${out.failed[0].reason}`
+          : 'Ve výběru není žádná zásilka pro Zásilkovnu.', 'error');
+        return;
+      }
+      toast(`Založeno ${out.created.length} zásilek${out.failed.length ? `, ${out.failed.length} ne` : ''}. Stahuji štítky…`);
+      const labels = await api.packeta.labels(out.created.map(one => one.code));
+      if (labels.file) toast(`Štítky uložené (${labels.count} ks) — ${labels.file}`);
+      else toast('Uložení štítků zrušeno.', 'info');
+      if (out.failed.length > 0) {
+        toast(`Nepovedlo se: ${out.failed.map(one => `${one.code} — ${one.reason}`).join(' · ')}`, 'error');
+      }
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setZasBusy(false);
+    }
+  }, [pplCandidates, toast]);
+
   const grabInvoices = useCallback(async () => {
     if (withInvoice.length === 0) return;
     setInvoicing(true);
@@ -899,6 +933,29 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
               {pplBusy
                 ? <><span className="spinner-inline" /> chystám…</>
                 : <><Icon name="truck" size={12} /> PPL</>}
+            </button>
+          )}
+          {/*
+            Štítky PPL vystavuje jejich administrace až z nahrané zásilky —
+            bez API se stáhnout nedají. Tohle na ten seznam aspoň odveze.
+          */}
+          {!phone && (
+            <button className="filter-chip" onClick={() => { void api.ppl.openLabels(); }}
+              data-tip="Otevře v administraci PPL seznam zásilek, odkud se štítky tisknou">
+              <Icon name="printer" size={12} /> Štítky PPL
+            </button>
+          )}
+          {/*
+            Zásilkovna má API, takže se zásilka založí rovnou a štítek přijde
+            jako hotový arch — na rozdíl od PPL, kde se jde přes soubor.
+          */}
+          {!phone && (
+            <button className="filter-chip" disabled={zasBusy || pplCandidates.length === 0}
+              onClick={() => void sendPacketa()}
+              data-tip="Založí zásilky u Zásilkovny a stáhne arch se štítky">
+              {zasBusy
+                ? <><span className="spinner-inline" /> zakládám…</>
+                : <><Icon name="bag" size={12} /> Zásilkovna</>}
             </button>
           )}
           {/*

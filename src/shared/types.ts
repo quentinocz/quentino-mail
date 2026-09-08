@@ -388,6 +388,16 @@ export interface ShopOrder {
   phone: string;
   shipment: string;
   payment: string;
+  /**
+   * Výdejní místo.
+   *
+   * `pickupId` je číslo, kterým ho zná dopravce — bez něj se u Zásilkovny
+   * zásilka založit nedá, protože jejich API chce číslo místa, ne adresu.
+   * `pickupName` je jeho název; podle něj se místo pozná i tehdy, když
+   * číslo ve feedu není.
+   */
+  pickupId: string;
+  pickupName: string;
   items: ShopOrderItem[];
   /**
    * Fakturační a doručovací adresa.
@@ -2446,6 +2456,36 @@ export interface PplSetup {
   /** Přidat sloupec s obsahem zásilky */
   content: boolean;
   importUrl: string;
+  /** Seznam zásilek, odkud se tisknou štítky */
+  labelsUrl: string;
   /** Název uložené úlohy v administraci PPL */
   mapping: string;
+}
+
+/* ---------- Zásilkovna (Packeta) ---------- */
+
+export interface PacketaSetup {
+  hasPassword: boolean;
+  /** Označení e-shopu, pod kterým Zásilkovna vede zásilky */
+  eshop: string;
+  /** Podle čeho se pozná, že objednávka jede Zásilkovnou */
+  carrier: string;
+  labelFormat: string;
+  /** Kolik štítků na archu přeskočit — načatý arch se tím dotiskne */
+  labelOffset: number;
+  defaultWeight: number;
+}
+
+export interface PacketaPacket {
+  code: string;
+  packetId: string;
+  barcode: string;
+  at: string;
+}
+
+export interface PacketaResult {
+  created: PacketaPacket[];
+  failed: { code: string; reason: string }[];
+  /** Kolik objednávek se ve feedu vůbec nenašlo */
+  skipped: number;
 }

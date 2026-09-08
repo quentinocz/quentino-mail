@@ -59,7 +59,10 @@ import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import { articleStats, articleStat } from './artstats';
-import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport } from './ppl';
+import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabels } from './ppl';
+import {
+  packetaSetup, savePacketaSetup, testPacketa, packetsFor, createPackets, labelsPdf, LABEL_FORMATS
+} from './packeta';
 import { refreshWatchers } from './idle';
 import {
   downloadInvoices, learnInvoiceUrl, invoiceSetup, saveInvoiceSetup,
@@ -468,6 +471,18 @@ export function registerIpc() {
   handle('ppl:rows', (codes: string[]) => pplRows(codes ?? []));
   handle('ppl:export', (codes: string[]) => exportPpl(codes ?? []));
   handle('ppl:import', (file: string) => openPplImport(file));
+  // Štítky PPL vystavuje jejich administrace — aplikace otevře ten správný seznam
+  handle('ppl:labels', () => openPplLabels());
+
+  /* ---------- Zásilkovna ---------- */
+  handle('packeta:setup', () => packetaSetup());
+  handle('packeta:saveSetup', (next: any) => savePacketaSetup(next ?? {}));
+  handle('packeta:test', () => testPacketa());
+  handle('packeta:packets', (codes: string[]) => packetsFor(codes ?? []));
+  handle('packeta:create', (codes: string[]) => createPackets(codes ?? []));
+  handle('packeta:labels', (codes: string[], format?: string, offset?: number) =>
+    labelsPdf(codes ?? [], format, offset));
+  handle('packeta:formats', () => LABEL_FORMATS);
 
   /*
    * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka

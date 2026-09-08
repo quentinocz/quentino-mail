@@ -550,6 +550,18 @@
         error: null
       };
     })(),
+    // Doprava a doklady — nastavení faktur, PPL a Zásilkovny
+    'invoices:setup': { template: 'https://eshop.admin.s1.upgates.com/manager/invoices/pdf/default/{invoice}/',
+      parallel: 4, openAfter: true },
+    'invoices:ready': { ready: 6, total: 9 },
+    'invoices:prefetch': { ready: 9, fetched: 3, stopped: null },
+    'ppl:setup': { carrier: 'PPL', content: true,
+      importUrl: 'https://klient.ppl.cz/import.aspx?loadedControl=importZasilek',
+      labelsUrl: 'https://klient.ppl.cz/zasilka.aspx?loadedControl=zasilkaList', mapping: 'Upgates' },
+    'packeta:setup': { hasPassword: true, eshop: 'quentino.cz', carrier: 'Zásilkovna|Zasilkovna|Packeta',
+      labelFormat: 'A6 on A4', labelOffset: 0, defaultWeight: 0.5 },
+    'packeta:formats': ['A6 on A4', 'A6 on A6', 'A7 on A7', 'A7 on A4', 'A8 on A8', '105x35mm on A4'],
+    'packeta:packets': [],
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
       + 'Kdyby dobírka měla příplatek 30 Kč, spadla by nejspíš i ta zbylá čtvrtina.',
     'orders:card': {

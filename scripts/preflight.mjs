@@ -626,7 +626,9 @@ const DESKTOP_ONLY = [
    */
   'invoices:setup', 'invoices:saveSetup', 'invoices:learn', 'invoices:login',
   'invoices:since', 'invoices:download', 'invoices:detail', 'invoices:prefetch', 'invoices:ready',
-  'ppl:setup', 'ppl:saveSetup', 'ppl:rows', 'ppl:export', 'ppl:import'
+  'ppl:setup', 'ppl:saveSetup', 'ppl:rows', 'ppl:export', 'ppl:import', 'ppl:labels',
+  'packeta:setup', 'packeta:saveSetup', 'packeta:test', 'packeta:packets',
+  'packeta:create', 'packeta:labels', 'packeta:formats'
 ];
 
 /**

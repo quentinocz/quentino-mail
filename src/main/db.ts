@@ -422,6 +422,17 @@ function migrate(d: Database.Database) {
   // aplikace by se spustila a neotevřela okno.
   try { d.exec('CREATE INDEX IF NOT EXISTS idx_voucher_codes_claim ON voucher_codes(template_id, claimed_by, used_at)'); } catch { /* index už existuje */ }
 
+  /*
+   * Výdejní místo objednávky.
+   *
+   * Bez jeho čísla se u Zásilkovny nedá zásilka založit — jejich API chce
+   * `addressId`, ne adresu. Ve feedu to číslo je, jen se dosud nečetlo;
+   * název se drží vedle, protože podle něj se místo dá poznat i tehdy, když
+   * číslo chybí (u cizích dopravců bývá jen kód typu „KM10439155").
+   */
+  try { d.exec("ALTER TABLE shop_orders ADD COLUMN pickup_id TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  try { d.exec("ALTER TABLE shop_orders ADD COLUMN pickup_name TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+
   // Katalog produktů: kategorie a dostupnost pro prohlížeč produktů v kompozeru.
   // Hodnoty se doplní při nejbližší synchronizaci feedu (feedNeedsCategories()).
   try { d.exec("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }

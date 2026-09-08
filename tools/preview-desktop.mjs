@@ -324,6 +324,18 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(250);
 await overflow('nastavení — zkratky dopravy'); await snap('22c-nastaveni-zkratky');
+/*
+ * Doprava a doklady. Tři cesty vedle sebe — faktury z administrace, PPL přes
+ * soubor a Zásilkovna přes API — a v nich se dá snadno přetéct, protože jsou
+ * to samé řádky s poli.
+ */
+await page.evaluate(() => {
+  const head = [...document.querySelectorAll('.field > label')]
+    .find(el => el.textContent.includes('Doprava a doklady'));
+  head?.scrollIntoView({ block: 'start' });
+});
+await page.waitForTimeout(250);
+await overflow('nastavení — doprava a doklady'); await snap('22c2-nastaveni-doprava');
 // Zpátky na Telefon — další kroky pokračují tam
 await click('.tabs .tab', { hasText: 'Telefon' });
 await page.waitForTimeout(200);
