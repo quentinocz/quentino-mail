@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, DigestFacts, DigestInsight, DigestArchiveRow, Ga4Config, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, DigestFacts, DigestInsight, DigestArchiveRow, Ga4Config, Ga4Deep, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -375,7 +375,9 @@ export const api = {
     /** Co server nabízí za nástroje — když se automatika netrefí */
     diagnostics: () => call<string>('ga4:diagnostics'),
     /** Celá poslední odpověď Sequelu — v bublině se ukáže jen shrnutí */
-    detail: () => call<string>('ga4:detail')
+    detail: () => call<string>('ga4:detail'),
+    /** Hlubší rozbor návštěvnosti — kanály, stránky, cesta k nákupu */
+    deep: (days = 365, force = false) => call<Ga4Deep | null>('ga4:deep', days, force)
   },
   upgates: {
     config: () => call<UpgatesConfig>('upgates:config'),

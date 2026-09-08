@@ -420,6 +420,65 @@
         focus: null, questions: []
       }
     },
+    /*
+     * Hlubší rozbor návštěvnosti — sedm reportů z GA4. Na telefonu se
+     * nenačítá, na počítači je to celá spodní část přehledu.
+     */
+    'ga4:deep': (function () {
+      var months = [];
+      for (var back = 11; back >= 0; back--) {
+        var d = new Date(Date.now() - back * 30 * 86400e3);
+        var vanoce = d.getMonth() === 11;
+        var sessions = vanoce ? 9800 : 3800 + ((back * 311) % 1500);
+        months.push({
+          month: d.toISOString().slice(0, 7),
+          sessions: sessions,
+          users: Math.round(sessions * 0.78),
+          purchases: Math.round(sessions * (vanoce ? 0.031 : 0.022)),
+          revenue: Math.round(sessions * (vanoce ? 62 : 41))
+        });
+      }
+      var slice = function (name, sessions, purchases, revenue) {
+        return {
+          name: name, sessions: sessions, users: Math.round(sessions * 0.8),
+          purchases: purchases, revenue: revenue,
+          conversion: sessions >= 100 ? Math.round((purchases / sessions) * 1000) / 10 : null,
+          perSession: sessions >= 100 ? Math.round((revenue / sessions) * 10) / 10 : null
+        };
+      };
+      return {
+        at: new Date().toISOString(),
+        days: 365,
+        scope: 'český web (.cz)',
+        months: months,
+        channels: [
+          slice('google / organic', 21400, 512, 892000),
+          slice('seznam / organic', 6200, 141, 233000),
+          slice('google / cpc', 5400, 63, 96000),
+          slice('(direct) / (none)', 4900, 118, 201000),
+          slice('instagram / social', 2600, 24, 33000),
+          slice('facebook / referral', 900, 4, 5200)
+        ],
+        landings: [
+          slice('/kravaty', 5200, 168, 291000),
+          slice('/ksandy', 3900, 121, 214000),
+          slice('/', 3100, 74, 132000),
+          slice('/blog/jak-vybrat-kravatu', 2400, 21, 37000)
+        ],
+        pages: [
+          slice('/kravaty', 9800, 0, 0),
+          slice('/blog/jak-vybrat-kravatu', 4100, 0, 0),
+          slice('/ksandy', 3600, 0, 0),
+          slice('/kosik', 2100, 0, 0)
+        ],
+        devices: [slice('mobile', 26000, 540, 902000), slice('desktop', 13400, 402, 704000),
+          slice('tablet', 2100, 31, 51000)],
+        countries: [slice('Czechia', 33000, 880, 1420000), slice('Slovakia', 5200, 71, 121000),
+          slice('Germany', 1900, 12, 22000)],
+        funnel: { sessions: 41500, addToCarts: 5900, checkouts: 2100, purchases: 973 },
+        error: null
+      };
+    })(),
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
       + 'Kdyby dobírka měla příplatek 30 Kč, spadla by nejspíš i ta zbylá čtvrtina.',
     'orders:card': {

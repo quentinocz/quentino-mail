@@ -210,6 +210,17 @@ await overflow('přehled dne — zboží rozkliknuté'); await snap('09d2-prehle
 await click('.dg-bar-row.dg-clickable');
 
 /*
+ * Rozbor návštěvnosti. Denní snímek říká, kolik jich přišlo; tohle odkud,
+ * kudy a co z toho bylo — a je to jediné místo, kde se dá dívat dva roky.
+ */
+await page.evaluate(() => {
+  const card = document.querySelector('.dg-deep');
+  if (card) card.scrollIntoView({ block: 'start' });
+});
+await page.waitForTimeout(300);
+await overflow('přehled — návštěvnost'); await snap('09f-prehled-navstevnost');
+
+/*
  * Starší přehled. Ukládaly se u něj jen souhrny, takže mu chybí včerejšek,
  * graf i signály — a okno na tom padalo na šedou plochu. Náhled proto
  * schválně přepne do archivu a podívá se, že se pořád má co číst.

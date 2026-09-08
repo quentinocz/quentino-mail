@@ -32,6 +32,7 @@
  * a přehled ho dá modelu tak, jak je. Lepší nepřesná věta než prázdno.
  */
 import { getSetting, setSetting } from './db';
+import type { Ga4Deep, Ga4Slice } from '../shared/types';
 import { encrypt, decrypt } from './secure';
 
 const DEFAULT_ENDPOINT = 'https://api.sequel.sh/mcp';
@@ -1060,15 +1061,32 @@ export async function ga4Snapshot(force = false): Promise<Ga4Snapshot | null> {
  * Metriky se berou z výčtu ve schématu, ne z hlavy: kdyby Sequel jména
  * změnil, vezmou se ta, která nabízí.
  */
-async function runReports(
-  tools: ToolInfo[], searchTool: ToolInfo, appId: string
-): Promise<{ snapshot: Omit<Ga4Snapshot, 'at' | 'scope'>; detail: string } | null> {
+/**
+ * Plán od Sequelu — nástroj, jeho schéma a k čemu patří.
+ *
+ * `sequel_search` nevrací data, ale plán: u napojeného zdroje vypíše
+ * nástroje i s jejich schématem. Tenhle krok je společný pro denní snímek
+ * i pro hlubší rozbor, proto je zvlášť.
+ */
+interface Planned {
+  runner: ToolInfo;
+  toolId: string;
+  connectionId: string;
+  planId: string;
+  session: string;
+  found: string;
+  /** Vybere z výčtu ve schématu jen to, co nástroj opravdu nabízí */
+  pick: (wanted: string[], name: string) => string[];
+}
+
+async function planReport(
+  tools: ToolInfo[], searchTool: ToolInfo, appId: string, why: string, id = 4
+): Promise<Planned | null> {
   const runner = runTool(tools);
   if (!runner) return null;
 
-  const why = 'Denní přehled e-shopu Quentino — návštěvnost za posledních 30 dní.';
   const searchArgs = argsFor(searchTool, { question: question(), appId, why });
-  const found = textOf(await rpc('tools/call', { name: searchTool.name, arguments: searchArgs }, 4));
+  const found = textOf(await rpc('tools/call', { name: searchTool.name, arguments: searchArgs }, id));
   const plan = jsonIn(found);
   const results = findArray(plan, 'results') ?? [];
   /*
@@ -1082,19 +1100,111 @@ async function runReports(
     .flatMap((one: any) => (Array.isArray(one?.tools) ? one.tools : []))
     .find((one: any) => /run_report|report|query/i.test(String(one?.tool_id ?? one?.id ?? '')));
   if (!report) return null;
-  const connectionId = String(owner?.connection_id ?? appId ?? '');
-  const planId = String(owner?.plan_id ?? plan?.plan_id ?? '');
 
   const schema = report.input_schema ?? report.inputSchema ?? {};
   const offered = (name: string): string[] => enumOf(schema?.properties?.[name]?.items ?? {});
-  const pick = (wanted: string[], name: string): string[] => {
-    const list = offered(name);
-    const usable = wanted.filter(one => !list.length || list.includes(one));
-    return usable.length ? usable : wanted.slice(0, 1);
+  return {
+    runner,
+    toolId: String(report.tool_id ?? report.id),
+    connectionId: String(owner?.connection_id ?? appId ?? ''),
+    planId: String(owner?.plan_id ?? plan?.plan_id ?? ''),
+    session: String(plan?.session_id ?? plan?.data?.session_id ?? ''),
+    found,
+    pick: (wanted, name) => {
+      const list = offered(name);
+      const usable = wanted.filter(one => !list.length || list.includes(one));
+      return usable.length ? usable : wanted.slice(0, 1);
+    }
+  };
+}
+
+/**
+ * Spustí připravená volání a vrátí tabulky.
+ *
+ * Jak vypadá jedno volání, ve schématu není: `tool_calls` je jen „pole"
+ * bez popisu položek. Server to prozradil až chybami — jméno nástroje čte
+ * z pole **`tool`** (ne `tool_id`, který sám poslal) a bez `connection_id`
+ * a `plan_id` volání vůbec neuloží. Jak se jmenuje vstup, se z ničeho
+ * nepozná, tak se zkusí obvyklá jména po řadě, dokud nepřijdou řádky.
+ */
+async function runCalls(
+  plan: Planned,
+  calls: { id: string; input: Record<string, unknown> }[],
+  firstId = 41
+): Promise<{ tables: any[][]; answer: string; detail: string }> {
+  const shapes = ['input', 'params', 'arguments'] as const;
+  const runOnce = async (shape: typeof shapes[number], id: number): Promise<string> => {
+    const runArgs = argsFor(plan.runner, { question: question(), why: 'Přehled návštěvnosti Quentino.' });
+    const list = calls.map(one => ({
+      id: one.id,
+      tool: plan.toolId,
+      tool_id: plan.toolId,
+      ...(plan.connectionId ? { connection_id: plan.connectionId } : {}),
+      ...(plan.planId ? { plan_id: plan.planId } : {}),
+      [shape]: one.input
+    }));
+    for (const [name, property] of Object.entries<any>(plan.runner.schema?.properties ?? {})) {
+      if (/^(tool_?calls|calls|steps|plan)$/i.test(name)) {
+        runArgs[name] = isArray(property) ? list : JSON.stringify(list);
+      }
+      if (/^session_?id$/i.test(name) && plan.session) runArgs[name] = plan.session;
+    }
+    return textOf(await rpc('tools/call', { name: plan.runner.name, arguments: runArgs }, id));
   };
 
+  /*
+   * Každý pokus se zapíše i s tím, jak dopadl. Dokud se ukládal jen ten
+   * poslední, nedalo se poznat, který tvar server odmítl a proč.
+   */
+  let answer = '';
+  const attempts: string[] = [];
+  for (const [index, shape] of shapes.entries()) {
+    answer = await runOnce(shape, firstId + index);
+    attempts.push(`— tvar „${shape}": ${answer.slice(0, 700)}`);
+    if (/"rows"/.test(answer)) break;
+    if (!/"error"/i.test(answer)) break;
+  }
+
+  const detail = `${plan.found}\n\n--- spuštění (${attempts.length} tvarů) ---\n${attempts.join('\n\n')}`;
+  if (!/"rows"/.test(answer)) {
+    const why = String(jsonIn(answer)?.error ?? jsonIn(answer)?.data?.error ?? '').slice(0, 160);
+    setSetting('ga4LastDetail', `${new Date().toISOString()}\nreport se nepovedl:\n${detail}`.slice(0, 8000));
+    throw new Error(
+      why
+        ? `Sequel report odpověděl chybou: ${why}. Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.`
+        : 'Sequel report nevrátil žádné řádky. Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.'
+    );
+  }
+  return { tables: collectRows(jsonIn(answer)), answer, detail };
+}
+
+/** Součet sloupce přes řádky; `null` = sloupec tam vůbec nebyl */
+function sumOf(rows: any[], key: string): number | null {
+  let total = 0;
+  let seen = false;
+  for (const row of rows) {
+    const value = num(row?.[key]);
+    if (value != null) { total += value; seen = true; }
+  }
+  return seen ? Math.round(total) : null;
+}
+
+/**
+ * Čísla z Google Analytics **bez prostředníka**.
+ *
+ * Sestavuje si volání aplikace sama, a je to tak i poctivější — čísla se
+ * nikde nepřekládají do řeči a zpátky. Tři reporty: okno, předchozích
+ * třicet dní a zdroje.
+ */
+async function runReports(
+  tools: ToolInfo[], searchTool: ToolInfo, appId: string
+): Promise<{ snapshot: Omit<Ga4Snapshot, 'at' | 'scope'>; detail: string } | null> {
+  const plan = await planReport(
+    tools, searchTool, appId, 'Denní přehled e-shopu Quentino — návštěvnost za posledních 30 dní.');
+  if (!plan) return null;
+
   // Sessions a users musí být; nákupy a tržba jen když je zdroj zná
-  const metrics = pick(['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue'], 'metrics');
+  const metrics = plan.pick(['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue'], 'metrics');
   /*
    * Souhrn potřebuje aspoň jednu dimenzi (schéma jinou možnost nedává).
    * `year` je nejmíň rozsekaná: třicetidenní okno je jeden řádek, na
@@ -1103,120 +1213,39 @@ async function runReports(
    */
   const totals = (from: string, to: string, id: string) => ({
     id,
-    tool_id: String(report.tool_id ?? report.id),
     input: { startDate: from, endDate: to, dimensions: ['year'], metrics, limit: 10 }
   });
-  const calls = [
+  const { tables, answer, detail } = await runCalls(plan, [
     totals(dayKey(29), dayKey(0), 'window'),
     totals(dayKey(59), dayKey(30), 'prevWindow'),
     {
       id: 'sources',
-      tool_id: String(report.tool_id ?? report.id),
       input: {
         startDate: dayKey(29),
         endDate: dayKey(0),
-        dimensions: pick(['sessionSourceMedium'], 'dimensions'),
+        dimensions: plan.pick(['sessionSourceMedium'], 'dimensions'),
         metrics: ['sessions'],
         limit: 5,
         orderBy: [{ metric: 'sessions', desc: true }]
       }
     }
-  ];
-
-  const session = String(plan?.session_id ?? plan?.data?.session_id ?? '');
-  /*
-   * Jak vypadá jedno volání, ve schématu není: `tool_calls` je jen „pole"
-   * bez popisu položek. Server to prozradil až chybou —
-   * „undefined is not an object (evaluating 'callParams.tool.toLowerCase')"
-   * — z čehož je jasné, že jméno nástroje čte z pole **`tool`**, ne
-   * `tool_id`. Jak se jmenuje vstup, se z ničeho nepozná, tak se zkusí
-   * obvyklá jména po řadě, dokud nepřijdou řádky.
-   */
-  const shapes = ['input', 'params', 'arguments'] as const;
-  const runOnce = async (shape: typeof shapes[number], id: number): Promise<string> => {
-    const runArgs = argsFor(runner, { question: question(), appId, why });
-    const list = calls.map(one => ({
-      /*
-       * Ke každému volání patří i to, **komu** ho poslat: jméno nástroje
-       * (`tool` i `tool_id`, server si vezme, co zná), spojení a plán,
-       * ze kterého vzešlo. Bez těch dvou se volání neuložilo vůbec.
-       */
-      id: one.id,
-      tool: one.tool_id,
-      tool_id: one.tool_id,
-      ...(connectionId ? { connection_id: connectionId } : {}),
-      ...(planId ? { plan_id: planId } : {}),
-      [shape]: one.input
-    }));
-    for (const [name, property] of Object.entries<any>(runner.schema?.properties ?? {})) {
-      if (/^(tool_?calls|calls|steps|plan)$/i.test(name)) {
-        runArgs[name] = isArray(property) ? list : JSON.stringify(list);
-      }
-      if (/^session_?id$/i.test(name) && session) runArgs[name] = session;
-    }
-    return textOf(await rpc('tools/call', { name: runner.name, arguments: runArgs }, id));
-  };
-
-  /*
-   * Každý pokus se zapíše i s tím, jak dopadl. Dokud se ukládal jen ten
-   * poslední, nedalo se poznat, který tvar server odmítl a proč — a bez
-   * toho se to hádalo dokola.
-   */
-  let answer = '';
-  const attempts: string[] = [];
-  for (const [index, shape] of shapes.entries()) {
-    answer = await runOnce(shape, 41 + index);
-    attempts.push(`— tvar „${shape}": ${answer.slice(0, 700)}`);
-    if (/"rows"/.test(answer)) break;
-    // Chyba ve tvaru volání — zkusí se další pojmenování vstupu
-    if (!/"error"/i.test(answer)) break;
-  }
-  /*
-   * Report se spustil a nedopadl. To není důvod zkoušet oklikou přes řeč —
-   * je to konkrétní chyba, kterou je vidět v nastavení, a hlásí se rovnou.
-   */
-  if (!/"rows"/.test(answer)) {
-    const why = String(jsonIn(answer)?.error ?? jsonIn(answer)?.data?.error ?? '').slice(0, 160);
-    setSetting('ga4LastDetail', `${new Date().toISOString()}\nreport se nepovedl:\n${found}`
-      + `\n\n--- spuštění (${attempts.length} tvarů) ---\n${attempts.join('\n\n')}`.slice(0, 8000));
-    throw new Error(
-      why
-        ? `Sequel report odpověděl chybou: ${why}. Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.`
-        : 'Sequel report nevrátil žádné řádky. Celou odpověď ukáže „Zobrazit poslední odpověď" v nastavení.'
-    );
-  }
-
-  const parsed = jsonIn(answer);
-  const tables = collectRows(parsed);
+  ]);
   if (!tables.length) return null;
 
-  const sum = (rows: any[], key: string): number | null => {
-    let total = 0;
-    let seen = false;
-    for (const row of rows) {
-      const value = num(row?.[key]);
-      if (value != null) { total += value; seen = true; }
-    }
-    return seen ? Math.round(total) : null;
-  };
   const period = (rows: any[] | undefined): Ga4Period => ({
-    sessions: rows ? sum(rows, 'sessions') : null,
-    users: rows ? sum(rows, 'totalUsers') ?? sum(rows, 'users') : null,
-    purchases: rows ? sum(rows, 'ecommercePurchases') ?? sum(rows, 'conversions') : null,
-    revenue: rows ? sum(rows, 'totalRevenue') ?? sum(rows, 'revenue') : null
+    sessions: rows ? sumOf(rows, 'sessions') : null,
+    users: rows ? sumOf(rows, 'totalUsers') ?? sumOf(rows, 'users') : null,
+    purchases: rows ? sumOf(rows, 'ecommercePurchases') ?? sumOf(rows, 'conversions') : null,
+    revenue: rows ? sumOf(rows, 'totalRevenue') ?? sumOf(rows, 'revenue') : null
   });
 
-  const windowRows = tables[0];
-  const prevRows = tables[1];
-  const sourceRows = tables[2] ?? [];
-  const windowPeriod = period(windowRows);
-  const prevPeriod = period(prevRows);
-
+  const windowPeriod = period(tables[0]);
+  const prevPeriod = period(tables[1]);
   return {
     snapshot: {
       window: windowPeriod,
       prevWindow: prevPeriod,
-      sources: sourceRows
+      sources: (tables[2] ?? [])
         .map((row: any) => ({
           name: String(row?.sessionSourceMedium ?? row?.name ?? '').trim(),
           sessions: num(row?.sessions) ?? 0
@@ -1228,7 +1257,7 @@ async function runReports(
       text: answer.slice(0, 2000),
       error: null
     },
-    detail: `${found}\n\n--- spuštění (${attempts.length} tvarů) ---\n${attempts.join('\n\n')}`
+    detail
   };
 }
 
@@ -1240,6 +1269,194 @@ function collectRows(node: any, out: any[][] = [], depth = 0): any[][] {
     collectRows(value, out, depth + 1);
   }
   return out;
+}
+
+
+/* ---------- hlubší rozbor návštěvnosti ---------- */
+
+const DEEP_KEY = 'ga4Deep';
+
+/**
+ * Odkud, kudy a co z toho bylo — až dva roky zpátky.
+ *
+ * Denní snímek odpovídá na „kolik jich přišlo". Tohle je druhá otázka:
+ * **který kanál se vyplatí**, kde lidé přistávají, co čtou, kde se ztrácejí
+ * cestou do košíku a jak to celé vypadá v čase. Jedno volání, sedm reportů:
+ *
+ *  1. měsíční řada (`month`) — graf vývoje, u sezónního zboží to jediné,
+ *     co dává smysl,
+ *  2. kanály (`sessionSourceMedium`) — a u každého i nákupy a tržba, takže
+ *     je vidět, který přivádí lidi a který peníze; to jsou dvě různé věci,
+ *  3. vstupní stránky (`landingPage`) — kudy se do e-shopu chodí,
+ *  4. čtené stránky (`pagePath`) — články, kategorie, produkty,
+ *  5. zařízení (`deviceCategory`),
+ *  6. země (`country`) — proti zemím objednávek je vidět, kde se dívají
+ *     a nekupují,
+ *  7. cesta k nákupu: návštěvy → košík → pokladna → nákup.
+ *
+ * Drží se den; přepočítávat dvouletý rozbor při každém otevření přehledu by
+ * bylo drahé a čísla se za hodinu nezmění.
+ */
+export async function ga4Deep(days = 365, force = false): Promise<Ga4Deep | null> {
+  const cfg = getGa4Config();
+  if (!cfg.ready) return null;
+
+  const span = Math.max(30, Math.min(730, Math.round(days) || 365));
+  const key = `${DEEP_KEY}${span}`;
+  const last = ((): Ga4Deep | null => {
+    try { return JSON.parse(getSetting(key, '') || 'null'); } catch { return null; }
+  })();
+  const age = last?.at ? Date.now() - new Date(last.at).getTime() : Number.POSITIVE_INFINITY;
+  if (!force && last && age < EVERY_MS) return last;
+
+  try {
+    await connect();
+    const tools = await listTools();
+    const plan = await planReport(
+      tools, queryTool(tools), getSetting('ga4AppId', '')!,
+      `Rozbor návštěvnosti e-shopu Quentino za ${span} dní.`, 6
+    );
+    if (!plan) return last;
+
+    const from = dayKey(span - 1);
+    const to = dayKey(0);
+    const metrics = plan.pick(['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue'], 'metrics');
+    const slice = (id: string, dimension: string, limit: number) => ({
+      id,
+      input: {
+        startDate: from,
+        endDate: to,
+        dimensions: plan.pick([dimension], 'dimensions'),
+        metrics,
+        limit,
+        orderBy: [{ metric: 'sessions', desc: true }]
+      }
+    });
+
+    const { tables, detail } = await runCalls(plan, [
+      // Měsíční řada: u dvouletého okna je to 24 řádků, ne 730
+      { id: 'months', input: { startDate: from, endDate: to, dimensions: plan.pick(['month'], 'dimensions'), metrics, limit: 400 } },
+      slice('channels', 'sessionSourceMedium', 12),
+      slice('landings', 'landingPage', 12),
+      slice('pages', 'pagePath', 12),
+      slice('devices', 'deviceCategory', 5),
+      slice('countries', 'country', 10),
+      {
+        id: 'funnel',
+        input: {
+          startDate: from,
+          endDate: to,
+          dimensions: plan.pick(['year'], 'dimensions'),
+          metrics: plan.pick(['sessions', 'addToCarts', 'checkouts', 'ecommercePurchases'], 'metrics'),
+          limit: 10
+        }
+      }
+    ], 61);
+
+    const rows = (index: number): any[] => tables[index] ?? [];
+    const one = (row: any, dimension: string): Ga4Slice => {
+      const sessions = num(row?.sessions) ?? 0;
+      const purchases = num(row?.ecommercePurchases) ?? num(row?.conversions) ?? 0;
+      const revenue = num(row?.totalRevenue) ?? 0;
+      return {
+        name: String(row?.[dimension] ?? row?.name ?? '—').trim() || '—',
+        sessions,
+        users: num(row?.totalUsers) ?? 0,
+        purchases,
+        revenue: Math.round(revenue),
+        // Konverze má smysl až od stovky návštěv; z pěti se počítat nedá
+        conversion: sessions >= 100 ? Math.round((purchases / sessions) * 1000) / 10 : null,
+        perSession: sessions >= 100 ? Math.round((revenue / sessions) * 10) / 10 : null
+      };
+    };
+    const list = (index: number, dimension: string): Ga4Slice[] =>
+      rows(index).map(row => one(row, dimension)).filter(item => item.sessions > 0);
+
+    const funnelRows = rows(6);
+    const deep: Ga4Deep = {
+      at: new Date().toISOString(),
+      days: span,
+      scope: ga4Scope(),
+      months: rows(0)
+        .map(row => {
+          // GA4 posílá měsíc jako `YYYYMM`; na graf se hodí `YYYY-MM`
+          const raw = String(row?.month ?? row?.yearMonth ?? '').replace(/\D/g, '');
+          return {
+            month: raw.length >= 6 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}` : raw,
+            sessions: num(row?.sessions) ?? 0,
+            users: num(row?.totalUsers) ?? 0,
+            purchases: num(row?.ecommercePurchases) ?? num(row?.conversions) ?? 0,
+            revenue: Math.round(num(row?.totalRevenue) ?? 0)
+          };
+        })
+        .filter(month => month.month)
+        .sort((a, b) => (a.month < b.month ? -1 : 1)),
+      channels: list(1, 'sessionSourceMedium'),
+      landings: list(2, 'landingPage'),
+      pages: list(3, 'pagePath'),
+      devices: list(4, 'deviceCategory'),
+      countries: list(5, 'country'),
+      funnel: {
+        sessions: sumOf(funnelRows, 'sessions') ?? 0,
+        addToCarts: sumOf(funnelRows, 'addToCarts') ?? 0,
+        checkouts: sumOf(funnelRows, 'checkouts') ?? 0,
+        purchases: sumOf(funnelRows, 'ecommercePurchases') ?? 0
+      },
+      error: null
+    };
+
+    setSetting(key, JSON.stringify(deep));
+    setSetting('ga4LastDetail', `${new Date().toISOString()}\nrozbor ${span} dní:\n${detail}`.slice(0, 8000));
+    return deep;
+  } catch (e: any) {
+    const message = String(e?.message ?? e);
+    // Starý rozbor je pořád lepší než prázdno — jen se řekne, že je starý
+    return last
+      ? { ...last, error: message }
+      : {
+        at: '', days: span, scope: ga4Scope(), months: [], channels: [], landings: [],
+        pages: [], devices: [], countries: [],
+        funnel: { sessions: 0, addToCarts: 0, checkouts: 0, purchases: 0 },
+        error: message
+      };
+  }
+}
+
+/**
+ * Rozbor do zadání pro AI.
+ *
+ * Píše se z něj krátce a jen to, co má váhu: kanály se řadí podle tržby, ne
+ * podle návštěv — kanál, který přivede tisíc lidí a nic neprodá, je jiná
+ * zpráva než ten, který přivede sto a prodá za dvacet tisíc.
+ */
+export function ga4DeepForAi(deep: Ga4Deep | null): string {
+  if (!deep || deep.error || !deep.months.length) return '';
+  const money = (value: number) => `${value} Kč`;
+  const slice = (list: Ga4Slice[], label: string, limit = 5) => {
+    const rows = list.slice(0, limit).map(one =>
+      `${one.name}: ${one.sessions} návštěv`
+      + (one.purchases ? `, ${one.purchases} nákupů` : '')
+      + (one.revenue ? `, ${money(one.revenue)}` : '')
+      + (one.conversion != null ? `, konverze ${one.conversion} %` : ''));
+    return rows.length ? `${label}: ${rows.join('; ')}.` : '';
+  };
+  const byRevenue = [...deep.channels].sort((a, b) => b.revenue - a.revenue);
+  const months = deep.months.map(one => `${one.month}:${one.sessions}/${one.purchases}`).join(' ');
+  const funnel = deep.funnel.sessions
+    ? `Cesta k nákupu: ${deep.funnel.sessions} návštěv → ${deep.funnel.addToCarts} do košíku`
+      + ` → ${deep.funnel.checkouts} do pokladny → ${deep.funnel.purchases} nákupů.`
+    : '';
+
+  return [
+    `Návštěvnost za ${deep.days} dní (${deep.scope}; objednávky výš jsou ze všech trhů):`,
+    `měsíce (návštěvy/nákupy): ${months}.`,
+    slice(byRevenue, 'Kanály podle tržby'),
+    slice(deep.landings, 'Vstupní stránky'),
+    slice(deep.pages, 'Nejčtenější stránky'),
+    slice(deep.devices, 'Zařízení', 3),
+    slice(deep.countries, 'Země návštěvníků', 5),
+    funnel
+  ].filter(Boolean).join('\n');
 }
 
 /**

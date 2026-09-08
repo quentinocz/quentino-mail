@@ -172,9 +172,11 @@ global.fetch = async (url, options) => {
                   startDate: { type: 'string' },
                   endDate: { type: 'string' },
                   dimensions: { type: 'array', items: { type: 'string',
-                    enum: ['date', 'year', 'country', 'sessionSourceMedium'] } },
+                    enum: ['date', 'month', 'year', 'country', 'deviceCategory', 'pagePath',
+                      'landingPage', 'sessionSourceMedium'] } },
                   metrics: { type: 'array', items: { type: 'string',
-                    enum: ['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue', 'conversions'] } },
+                    enum: ['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue', 'conversions',
+                      'addToCarts', 'checkouts'] } },
                   limit: { type: 'integer' },
                   orderBy: { type: 'array' }
                 },
@@ -234,6 +236,35 @@ global.fetch = async (url, options) => {
         return text(JSON.stringify({ status: 'success', data: { results: args.tool_calls.map(() => ({
           rows: [], rowCount: 0, fields: []
         })) } }));
+      }
+      /*
+       * Hlubší rozbor: sedm reportů jedním voláním. Odpovědi chodí
+       * v pořadí, v jakém volání přišla.
+       */
+      if (args.tool_calls.length === 7) {
+        const table = (rows) => ({ rows, rowCount: rows.length, fields: [] });
+        return text(JSON.stringify({ status: 'success', data: { results: [
+          table([
+            { month: '202607', sessions: 900, totalUsers: 700, ecommercePurchases: 18, totalRevenue: 32000 },
+            { month: '202608', sessions: 1100, totalUsers: 830, ecommercePurchases: 26, totalRevenue: 41000 }
+          ]),
+          table([
+            { sessionSourceMedium: 'google / organic', sessions: 700, totalUsers: 540,
+              ecommercePurchases: 21, totalRevenue: 38000 },
+            { sessionSourceMedium: 'seznam / cpc', sessions: 300, totalUsers: 250,
+              ecommercePurchases: 2, totalRevenue: 2600 }
+          ]),
+          table([{ landingPage: '/kravaty', sessions: 400, totalUsers: 330,
+            ecommercePurchases: 12, totalRevenue: 19000 }]),
+          table([{ pagePath: '/jak-vybrat-kravatu', sessions: 260, totalUsers: 240,
+            ecommercePurchases: 3, totalRevenue: 4200 }]),
+          table([{ deviceCategory: 'mobile', sessions: 1300, totalUsers: 1000,
+            ecommercePurchases: 24, totalRevenue: 36000 }]),
+          table([{ country: 'Czechia', sessions: 1500, totalUsers: 1200,
+            ecommercePurchases: 40, totalRevenue: 60000 }]),
+          table([{ year: '2026', sessions: 2000, addToCarts: 320, checkouts: 120,
+            ecommercePurchases: 44 }])
+        ] } }));
       }
       /*
        * Odpovědi v pořadí, v jakém volání přišla: okno, předchozí okno,
@@ -360,6 +391,46 @@ global.fetch = async (url, options) => {
   check('čísla se přečtou', snapshot.window.sessions, 1234);
   check('konverze se dopočítá', snapshot.conversion, 2.5);
   check('a je z čeho srovnávat', snapshot.prevWindow.sessions, 1000);
+
+  console.log('\nrozbor návštěvnosti:\n');
+  /*
+   * Druhá otázka po „kolik jich přišlo": odkud, kudy a co z toho bylo.
+   * Sedm reportů jedním voláním, až dva roky zpátky.
+   */
+  calls = [];
+  const rozbor = await ga4.ga4Deep(365, true);
+  // Poslední pokus je ten, který server přijal — tvar se dohledává zkoušením
+  const deepTries = calls.filter(one => one.params?.name === 'sequel_execute');
+  const deepCall = deepTries[deepTries.length - 1];
+  check('rozbor jde jedním voláním', deepCall?.params.arguments.tool_calls.length, 7);
+  check('a ptá se na to, co se dá vyhodnotit',
+    deepCall?.params.arguments.tool_calls.map(one => one.id),
+    ['months', 'channels', 'landings', 'pages', 'devices', 'countries', 'funnel']);
+  // Dimenze i metriky se berou z výčtu ve schématu, ne z hlavy
+  check('měsíční řada jde po měsících',
+    deepCall?.params.arguments.tool_calls[0].params.dimensions, ['month']);
+  check('a cesta k nákupu chce košík i pokladnu',
+    deepCall?.params.arguments.tool_calls[6].params.metrics,
+    ['sessions', 'addToCarts', 'checkouts', 'ecommercePurchases']);
+  // Měsíc chodí z GA4 jako `YYYYMM`; na graf se hodí `YYYY-MM`
+  check('měsíce se převedou na tvar pro graf', rozbor.months.map(one => one.month),
+    ['2026-07', '2026-08']);
+  /*
+   * U kanálu je vedle návštěv i konverze a tržba — kanál, který přivede
+   * lidi, a kanál, který přivede peníze, jsou dvě různé věci.
+   */
+  const organic = rozbor.channels.find(one => one.name === 'google / organic');
+  check('u kanálu je i konverze a tržba', [organic?.conversion, organic?.revenue], [3, 38000]);
+  const cpc = rozbor.channels.find(one => one.name === 'seznam / cpc');
+  check('a slabý kanál je vidět', cpc?.conversion, 0.7);
+  check('cesta k nákupu má všechny kroky',
+    [rozbor.funnel.sessions, rozbor.funnel.addToCarts, rozbor.funnel.checkouts, rozbor.funnel.purchases],
+    [2000, 320, 120, 44]);
+  // Do zadání pro AI jde krátký výtah, ne celá tabulka
+  const proAi = ga4.ga4DeepForAi(rozbor);
+  check('do zadání pro AI jde výtah', /Kanály podle tržby/.test(proAi), true);
+  check('a je v něm i cesta k nákupu', /Cesta k nákupu/.test(proAi), true);
+  check('i upozornění, že měří jen jeden web', /objednávky výš jsou ze všech trhů/.test(proAi), true);
 
   console.log('\nnuly nejsou odpověď:\n');
   /*

@@ -55,7 +55,7 @@ import { isConfigured as chatConfigured } from './chat/config';
 import * as live from './live';
 import { historyView } from './digesthistory';
 import { socialView } from './digestsocial';
-import { ga4Snapshot } from './ga4';
+import { ga4Snapshot, ga4Deep, ga4DeepForAi } from './ga4';
 import type {
   DigestDay, DigestFacts, DigestGa4, DigestHistory, DigestInsight, DigestNote, DigestPending, DigestPost,
   DigestProduct, DigestReport, DigestSignal, DigestSizeGroup, DigestSlice, DigestSocial, DigestTask,
@@ -1506,7 +1506,8 @@ Tvrdá pravidla:
 - Nikdy nepiš obecné rady typu „zaměřte se na marketing" nebo „zlepšete komunikaci se zákazníky".
 - Radši dva podložené body než pět dojmů. Když data na nic nestačí (málo objednávek, krátké období), napiš jeden bod, že zatím není z čeho soudit.
 - Když už jsi něco navrhoval dřív, navaž: co se potvrdilo, co ne.
-- Česky, věcně, bez oslovení a bez marketingových frází. Každý bod jedna věta, nejvýš čtyři body. Celá odpověď do 1200 znaků.
+- Když je v zadání návštěvnost, spoj ji s objednávkami: jmenuj konkrétní kanál, vstupní stránku nebo krok cesty k nákupu (košík, pokladna), kde je největší ztráta nebo příležitost. Pozor na to, že návštěvnost je jen z jednoho webu, kdežto objednávky ze všech trhů — konverzi přes ně nepočítej.
+- Česky, věcně, bez oslovení a bez marketingových frází. Každý bod jedna věta, nejvýš pět bodů. Celá odpověď do 1600 znaků.
 
 Vrať POUZE JSON, nic dalšího, a hlídej, ať se celý vejde:
 {"headline":"jedna až dvě věty souhrnu",
@@ -1642,9 +1643,18 @@ async function makeInsight(facts: DigestFacts, ga4: DigestGa4 | null = null): Pr
   const history = storedInsights();
   const memory = memoryForAi(history);
   const traffic = ga4ForAi(ga4);
+  /*
+   * Roční rozbor návštěvnosti. Denní čísla řeknou, co se stalo včera;
+   * tohle, který kanál se dlouhodobě vyplatí a kde lidé odpadají cestou
+   * do košíku — a z toho se teprve dá radit, co změnit. Bere se uložený
+   * (počítá se jednou denně), takže postřehy kvůli němu nečekají na síť.
+   */
+  let deep = '';
+  try { deep = ga4DeepForAi(await ga4Deep(365)); } catch { /* rozbor je doplněk */ }
   const user = `# Spočítané signály (z nich vycházej)\n${signalsForAi(facts)}\n\n`
     + `# Čísla\n${factsForAi(facts)}\n\n`
     + `${traffic ? `# Návštěvnost\n${traffic}\n\n` : ''}`
+    + `${deep ? `# Návštěvnost dlouhodobě\n${deep}\n\n` : ''}`
     + `${memory ? `# Co jsi psal dřív (nejnovější nahoře)\n${memory}\n` : ''}`;
 
   /*

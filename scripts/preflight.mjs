@@ -613,7 +613,13 @@ const DESKTOP_ONLY = [
   // Zápis do Upgates dělá počítač; telefon má místo toho kanál s vysvětlením
   'stockin:apiCheck',
   // Přehled do PDF ukládá počítač — na telefonu není kam
-  'digest:pdf'
+  'digest:pdf',
+  /*
+   * Hlubší rozbor návštěvnosti je sedm reportů přes síť a tabulka na šířku;
+   * na telefonu se nečte ani nepočítá. Denní snímek s návštěvností tam
+   * zůstává, ten se sdílí spolu s postřehy.
+   */
+  'ga4:deep'
 ];
 
 /**
