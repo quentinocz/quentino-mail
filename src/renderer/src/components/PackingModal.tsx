@@ -290,6 +290,29 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     [visible]
   );
 
+  /**
+   * Stahování dopředu.
+   *
+   * Tisk faktur přijde ve chvíli, kdy člověk stojí u tiskárny — a tam je
+   * čekání na sto stažení nejhorší. Jakmile je tedy seznam objednávek
+   * načtený, začnou se faktury po jedné stahovat na pozadí. Když se to
+   * nepovede (třeba kvůli odhlášení), nic se neoznamuje: pozná se to až při
+   * tisku, kde se s tím dá něco udělat.
+   */
+  const [invReady, setInvReady] = useState(0);
+  useEffect(() => {
+    if (phone || withInvoice.length === 0) return;
+    let alive = true;
+    api.invoices.ready(withInvoice).then(one => { if (alive) setInvReady(one.ready); }).catch(() => {});
+    const timer = setTimeout(() => {
+      api.invoices.prefetch(withInvoice)
+        .then(one => { if (alive) setInvReady(one.ready); })
+        .catch(() => {});
+    }, 1500);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [withInvoice, phone]);
+  useEffect(() => api.on('invoices:ready', p => setInvReady((p as { ready: number }).ready)), []);
+
   const grabInvoices = useCallback(async () => {
     if (withInvoice.length === 0) return;
     setInvoicing(true);
@@ -738,10 +761,16 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
               onClick={() => void grabInvoices()}
               data-tip={withInvoice.length === 0
                 ? 'K žádné zobrazené objednávce zatím není vystavená faktura'
-                : 'Stáhne faktury k zobrazeným objednávkám do jednoho PDF k tisku'}>
+                : invReady >= withInvoice.length
+                  ? 'Všechny faktury jsou stažené — tisk bude okamžitý'
+                  : `Stáhne faktury k zobrazeným objednávkám do jednoho PDF k tisku (${invReady} už je po ruce)`}>
               {invoicing
                 ? <><span className="spinner-inline" /> {invDone ? `${invDone.done}/${invDone.total}` : 'stahuji…'}</>
-                : <><Icon name="printer" size={12} /> Faktury ({withInvoice.length})</>}
+                : <><Icon name="printer" size={12} /> Faktury ({withInvoice.length})
+                    {/* Kolik z nich je stažených dopředu — ať je vidět, že se čekat nebude */}
+                    {invReady > 0 && invReady < withInvoice.length && <span className="pk-inv-ready"> · {invReady} hotovo</span>}
+                    {invReady > 0 && invReady >= withInvoice.length && <Icon name="check" size={11} />}
+                  </>}
             </button>
           )}
           {/*

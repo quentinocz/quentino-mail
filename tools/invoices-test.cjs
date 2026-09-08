@@ -44,6 +44,9 @@ for (const [code, invoice, name] of [['023748', '2600412', 'Novák'], ['023749',
 db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('adminOrderRef', '23748:9100')").run();
 
 const electron = require('electron');
+// Mezisklad stažených faktur leží v datech aplikace; v testu je to /tmp,
+// a musí se před během vyprázdnit, jinak by druhý běh nic nestahoval
+fs.rmSync(path.join(os.tmpdir(), 'faktury'), { recursive: true, force: true });
 const invoices = require(path.join(DIST, 'invoices.js'));
 const { __test } = invoices;
 
@@ -157,6 +160,58 @@ async function samplePdf(pages, text) {
   invoices.saveInvoiceSetup({ template: '' });
   const none = await invoices.downloadInvoices(['023748']);
   ok('bez naučené adresy se řekne, že chybí vzor', none.needsTemplate);
+
+  /* ---------- stahování dopředu ---------- */
+
+  /*
+   * Smysl je jediný: u tiskárny se nemá čekat na síť. Zkouší se proto obojí —
+   * že se stažené faktury podruhé netahají, a že se z meziskladu opravdu
+   * tiskne (druhý tisk nesmí sáhnout na server ani jednou).
+   */
+  fs.rmSync(path.join(os.tmpdir(), 'faktury'), { recursive: true, force: true });
+  invoices.saveInvoiceSetup({ template: 'https://x/f/{invoice}.pdf', parallel: 2, openAfter: false });
+
+  asked.length = 0;
+  __test.setFetch(async url => {
+    asked.push(url);
+    if (url.includes('2600413')) return { status: 404, type: 'text/html', body: Buffer.from('nenalezeno') };
+    return { status: 200, type: 'application/pdf', body: await samplePdf(1, url) };
+  });
+
+  const pre = await invoices.prefetchInvoices(['023748', '023749', '023750']);
+  // Chybějící faktura je běžná věc, dávku zastavit nesmí — odhlášení ano
+  check('dopředu se stáhne, co jde', pre.fetched, 2);
+  check('a chybějící faktura zbytek nezastaví', pre.stopped, null);
+
+  asked.length = 0;
+  const again = await invoices.prefetchInvoices(['023748', '023749', '023750']);
+  check('podruhé se už nestahuje nic', [again.fetched, asked.length], [0, 0]);
+  check('a ví se, kolik je po ruce', invoices.invoicesReady(['023748', '023750']).ready, 2);
+
+  /*
+   * Odhlášení je jiný případ: tam se dávka zastaví hned. Sto marných dotazů
+   * na pozadí by jen zatěžovalo administraci a nikdo by se to nedozvěděl.
+   */
+  fs.rmSync(path.join(os.tmpdir(), 'faktury'), { recursive: true, force: true });
+  asked.length = 0;
+  __test.setFetch(async url => {
+    asked.push(url);
+    return { status: 200, type: 'text/html', body: Buffer.from('<form><input type="password">') };
+  });
+  const off2 = await invoices.prefetchInvoices(['023748', '023749', '023750']);
+  check('odhlášení stahování na pozadí zastaví', [asked.length, off2.fetched], [1, 0]);
+
+  __test.setFetch(async url => {
+    asked.push(url);
+    if (url.includes('2600413')) return { status: 404, type: 'text/html', body: Buffer.from('nenalezeno') };
+    return { status: 200, type: 'application/pdf', body: await samplePdf(1, url) };
+  });
+  await invoices.prefetchInvoices(['023748', '023750']);
+
+  asked.length = 0;
+  const fast = await invoices.downloadInvoices(['023748', '023750']);
+  check('tisk vezme faktury z meziskladu', asked.length, 0);
+  check('a je jich tam tolik, kolik má být', fast.ok, 2);
 
   __test.setFetch(null);
   console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);

@@ -252,6 +252,8 @@ export async function mergePdfs(parts: { name: string; body: Buffer }[]):
  */
 export async function downloadInvoices(codes: string[]): Promise<InvoiceRun> {
   lastDetail = [];
+  // O tisk si člověk řekl — i to, co se na pozadí nepovedlo, se zkusí znovu
+  skipUntilRestart.clear();
   const setup = invoiceSetup();
   const jobs = jobsFor(codes).filter(job => job.invoice || job.adminId);
   const empty: InvoiceRun = { file: null, ok: 0, pages: 0, failed: [], needsLogin: false, needsTemplate: false };
@@ -266,42 +268,60 @@ export async function downloadInvoices(codes: string[]): Promise<InvoiceRun> {
   const ready = targets.filter(one => one.url) as { job: InvoiceJob; url: string }[];
   if (ready.length === 0) return { ...empty, failed };
 
-  // Zkouška na první faktuře: přihlášení se řeší jednou, ne stokrát
-  const first = await grab(ready[0].url).catch(error => ({ status: 0, type: '', body: Buffer.from(String((error as Error).message)) }));
-  note(`1. ${ready[0].url} → ${first.status} ${first.type} ${first.body.length} B`);
-  if (!isPdf(first)) {
-    const reason = whyNot(first);
-    note(`   ${reason}`);
-    const login = /nepřihlášeno|přihlašovací/.test(reason);
-    if (login) return { ...empty, failed, needsLogin: true };
-    failed.push({ code: ready[0].job.code, invoice: ready[0].job.invoice, ok: false, pages: 0, reason });
-  }
-
   const parts: { name: string; body: Buffer }[] = [];
-  if (isPdf(first)) parts.push({ name: ready[0].job.invoice || ready[0].job.code, body: first.body });
 
-  let done = 1;
-  const rest = ready.slice(1);
-  emit('invoices:progress', { done, total: ready.length, code: ready[0].job.code });
+  /*
+   * Nejdřív mezisklad. Faktury se stahují na pozadí už při procházení
+   * objednávek, takže při tisku jich většina bývá po ruce a čeká se jen na
+   * ty zbylé — což je celý smysl toho stahování dopředu.
+   */
+  const todo: { job: InvoiceJob; url: string }[] = [];
+  for (const one of ready) {
+    const cached = fromCache(one.job);
+    if (cached) parts.push({ name: one.job.invoice || one.job.code, body: cached });
+    else todo.push(one);
+  }
+  note(`z meziskladu ${parts.length}, stáhnout ${todo.length}`);
 
-  const got = await pool(rest, setup.parallel, async one => {
-    let out: Fetched;
-    try {
-      out = await grab(one.url);
-    } catch (error) {
-      out = { status: 0, type: '', body: Buffer.from(String((error as Error).message)) };
+  if (todo.length > 0) {
+    // Zkouška na první chybějící faktuře: přihlášení se řeší jednou, ne stokrát
+    const first = await grab(todo[0].url).catch(error => ({ status: 0, type: '', body: Buffer.from(String((error as Error).message)) }));
+    note(`1. ${todo[0].url} → ${first.status} ${first.type} ${first.body.length} B`);
+    if (!isPdf(first)) {
+      const reason = whyNot(first);
+      note(`   ${reason}`);
+      const login = /nepřihlášeno|přihlašovací/.test(reason);
+      if (login) return { ...empty, failed, needsLogin: true };
+      failed.push({ code: todo[0].job.code, invoice: todo[0].job.invoice, ok: false, pages: 0, reason });
+    } else {
+      parts.push({ name: todo[0].job.invoice || todo[0].job.code, body: first.body });
+      toCache(todo[0].job, first.body);
     }
-    done++;
-    emit('invoices:progress', { done, total: ready.length, code: one.job.code });
-    return { one, out };
-  });
 
-  for (const { one, out } of got) {
-    if (isPdf(out)) parts.push({ name: one.job.invoice || one.job.code, body: out.body });
-    else {
-      const reason = whyNot(out);
-      note(`× ${one.url} → ${out.status} ${out.type} · ${reason}`);
-      failed.push({ code: one.job.code, invoice: one.job.invoice, ok: false, pages: 0, reason });
+    let done = 1;
+    emit('invoices:progress', { done, total: todo.length, code: todo[0].job.code });
+
+    const got = await pool(todo.slice(1), setup.parallel, async one => {
+      let out: Fetched;
+      try {
+        out = await grab(one.url);
+      } catch (error) {
+        out = { status: 0, type: '', body: Buffer.from(String((error as Error).message)) };
+      }
+      done++;
+      emit('invoices:progress', { done, total: todo.length, code: one.job.code });
+      return { one, out };
+    });
+
+    for (const { one, out } of got) {
+      if (isPdf(out)) {
+        parts.push({ name: one.job.invoice || one.job.code, body: out.body });
+        toCache(one.job, out.body);
+      } else {
+        const reason = whyNot(out);
+        note(`× ${one.url} → ${out.status} ${out.type} · ${reason}`);
+        failed.push({ code: one.job.code, invoice: one.job.invoice, ok: false, pages: 0, reason });
+      }
     }
   }
 
@@ -333,6 +353,134 @@ export async function downloadInvoices(codes: string[]): Promise<InvoiceRun> {
     needsLogin: false,
     needsTemplate: false
   };
+}
+
+/* ---------- zásoba stažených faktur ---------- */
+
+/**
+ * Faktury stažené dopředu.
+ *
+ * Tisk faktur přijde ve chvíli, kdy člověk stojí u tiskárny a chce balit —
+ * a tam je čekání na sto stažení nejhorší. Proto se faktury stahují na
+ * pozadí už při procházení objednávek: jedna po druhé, pomalu, a když je
+ * potřeba tisknout, je většina z nich na disku.
+ *
+ * Uloženo je to v datech aplikace, ne v Downloads: je to mezisklad, ne
+ * výsledek. Starší než měsíc se maže — faktura z loňska se tiskne jednou
+ * a držet ji tu není proč.
+ */
+function cacheDir(): string {
+  const dir = path.join(app.getPath('userData'), 'faktury');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Název souboru z čísla faktury — bez lomítek a diakritiky, ať projde všude. */
+function cacheFile(job: InvoiceJob): string {
+  const name = (job.invoice || job.code).replace(/[^\w-]/g, '_');
+  return path.join(cacheDir(), `${name}.pdf`);
+}
+
+function fromCache(job: InvoiceJob): Buffer | null {
+  try {
+    const file = cacheFile(job);
+    if (!fs.existsSync(file)) return null;
+    const body = fs.readFileSync(file);
+    // Poškozený soubor v meziskladu by tiše zkazil celý tisk
+    return body.length > 4 && body.subarray(0, 4).toString('latin1') === '%PDF' ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+function toCache(job: InvoiceJob, body: Buffer): void {
+  try { fs.writeFileSync(cacheFile(job), body); } catch { /* mezisklad je doplněk */ }
+}
+
+/** Úklid: co je starší než měsíc, se už tisknout nebude. */
+function sweepCache(): void {
+  try {
+    const dir = cacheDir();
+    const old = Date.now() - 30 * 86_400_000;
+    for (const name of fs.readdirSync(dir)) {
+      const file = path.join(dir, name);
+      if (fs.statSync(file).mtimeMs < old) fs.rmSync(file, { force: true });
+    }
+  } catch { /* úklid nesmí nic zastavit */ }
+}
+
+let prefetching = false;
+/**
+ * Faktury, které v tomhle běhu aplikace nešly stáhnout.
+ *
+ * Bez tohohle seznamu by se objednávka bez faktury zkoušela znovu při
+ * každém načtení seznamu — a to je dotaz do cizí administrace zadarmo.
+ * Při tisku se zkouší znovu: tam si o to člověk řekl.
+ */
+const skipUntilRestart = new Set<string>();
+
+/**
+ * Stažení dopředu, na pozadí.
+ *
+ * Tři pravidla, každé kvůli tomu, že se sahá do cizí administrace:
+ *
+ *  - **jen to, co chybí** — stažené faktury se znovu netahají,
+ *  - **po jedné** — na pozadí není kam spěchat a zahltit administraci při
+ *    běžné práci by bylo horší než pomalý tisk,
+ *  - **odhlášení to zastaví, chybějící faktura ne** — když administrace
+ *    chce přihlásit, je dalších sto dotazů zbytečných; ale objednávka, ke
+ *    které faktura vystavená není, je běžná věc a zbytek dávky kvůli ní
+ *    stát nemá.
+ */
+export async function prefetchInvoices(codes: string[]): Promise<{ ready: number; fetched: number; stopped: string | null }> {
+  const setup = invoiceSetup();
+  if (!setup.template || prefetching) return { ready: 0, fetched: 0, stopped: null };
+
+  const jobs = jobsFor(codes).filter(job => job.invoice || job.adminId);
+  const missing = jobs.filter(job => !fromCache(job) && !skipUntilRestart.has(job.code));
+  const ready = jobs.filter(job => !!fromCache(job)).length;
+  if (missing.length === 0) return { ready, fetched: 0, stopped: null };
+
+  prefetching = true;
+  let fetched = 0;
+  let stopped: string | null = null;
+  try {
+    sweepCache();
+    for (const job of missing) {
+      const url = fillTemplate(setup.template, job);
+      if (!url) continue;
+      let out: Fetched;
+      try {
+        out = await grab(url);
+      } catch (error) {
+        stopped = String((error as Error).message);
+        break;
+      }
+      if (!isPdf(out)) {
+        const reason = whyNot(out);
+        // Odhlášení platí pro všechny; chybějící faktura jen pro tuhle jednu
+        if (/nepřihlášeno|přihlašovací/.test(reason)) { stopped = reason; break; }
+        skipUntilRestart.add(job.code);
+        note(`× ${url} → ${reason}`);
+        continue;
+      }
+      toCache(job, out.body);
+      fetched++;
+      emit('invoices:ready', { ready: ready + fetched, total: jobs.length });
+      // Malá pauza mezi dotazy: na pozadí se nespěchá a administrace to pozná
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  } finally {
+    prefetching = false;
+  }
+  if (stopped) note(`stahování dopředu zastaveno: ${stopped}`);
+  return { ready: ready + fetched, fetched, stopped };
+}
+
+/** Kolik z těch objednávek už má fakturu po ruce — rozhraní to říká u tlačítka. */
+export function invoicesReady(codes: string[]): { ready: number; total: number } {
+  const jobs = jobsFor(codes).filter(job => job.invoice || job.adminId);
+  return { ready: jobs.filter(job => !!fromCache(job)).length, total: jobs.length };
 }
 
 /* ---------- učení adresy ---------- */

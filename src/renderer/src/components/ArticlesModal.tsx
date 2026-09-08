@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ArticleDetail, ArticleListRow, ArticleOverview, ArticleProgress, ArticleCheckProgress,
-  ArticleLinkCheck
+  ArticleLinkCheck, ArticleStatDetail
 } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -46,7 +46,7 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [progress, setProgress] = useState<ArticleProgress | null>(null);
-  const [pane, setPane] = useState<'brief' | 'text' | 'links'>('brief');
+  const [pane, setPane] = useState<'brief' | 'text' | 'links' | 'stats'>('brief');
   const [loading, setLoading] = useState(false);
 
   const langs = useMemo(
@@ -248,6 +248,11 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
                       <button className={pane === 'brief' ? 'active' : ''} onClick={() => setPane('brief')}>Zadání</button>
                       <button className={pane === 'text' ? 'active' : ''} onClick={() => setPane('text')}>Text</button>
                       <button className={pane === 'links' ? 'active' : ''} onClick={() => setPane('links')}>Odkazy</button>
+                      {/*
+                        Statistika. Napsat článek je práce na půl dne a doteď
+                        nebylo kde zjistit, jestli k něčemu byla.
+                      */}
+                      <button className={pane === 'stats' ? 'active' : ''} onClick={() => setPane('stats')}>Statistika</button>
                     </div>
                     <span style={{ flex: 1 }} />
                     {article.articleId && (
@@ -286,6 +291,7 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
                       onChanged={() => loadArticle(article.id)}
                     />
                   )}
+                  {pane === 'stats' && <ArticleStatsPanel id={article.id} />}
                 </>
               )}
             </div>
@@ -581,5 +587,120 @@ function UrlMapPanel({ langs }: { langs: { code: string; label: string }[] }) {
         ))}
       </div>
     </>
+  );
+}
+
+/* ==================== Statistika článku ==================== */
+
+const STAT_RANGES = [
+  { days: 90, label: '3 měsíce' },
+  { days: 180, label: '6 měsíců' },
+  { days: 365, label: '1 rok' },
+  { days: 730, label: '2 roky' }
+];
+
+const MONTH_SHORT = ['led', 'úno', 'bře', 'dub', 'kvě', 'čvn', 'čvc', 'srp', 'zář', 'říj', 'lis', 'pro'];
+
+/**
+ * Jak si článek vede.
+ *
+ * Dvě čísla, která se pletou a proto jsou tu obě: **čtenost** je kolikrát se
+ * článek otevřel, **vstupy** kolikrát byl tou první stránkou návštěvy.
+ * Objednávka se v Analytics připisuje vstupní stránce, takže větu „článek
+ * přivedl zákazníka" lze říct jen o vstupech. Článek s vysokou čteností a
+ * nulou vstupů čtou lidé, kteří na webu už jsou — což není špatně, jen je to
+ * jiná zpráva.
+ *
+ * Měří se český web; překlady na .sk a .com zatím napojené nejsou a
+ * předstírat se to nemá.
+ */
+function ArticleStatsPanel({ id }: { id: number }) {
+  const [days, setDays] = useState(365);
+  const [data, setData] = useState<ArticleStatDetail | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setBusy(true);
+    setData(null);
+    api.articles.stat(id, days)
+      .then(one => { if (alive) setData(one); })
+      .catch(() => {})
+      .finally(() => { if (alive) setBusy(false); });
+    return () => { alive = false; };
+  }, [id, days]);
+
+  const months = data?.months ?? [];
+  const top = Math.max(1, ...months.map(one => one.sessions));
+
+  return (
+    <div className="ar-pane ar-stats">
+      <div className="ar-stats-head">
+        <div className="ig-seg">
+          {STAT_RANGES.map(one => (
+            <button key={one.days} className={days === one.days ? 'active' : ''}
+              onClick={() => setDays(one.days)}>{one.label}</button>
+          ))}
+        </div>
+        <span style={{ flex: 1 }} />
+        {data && <span className="ig-muted">{data.scope}</span>}
+      </div>
+
+      {busy && <div className="ig-muted"><span className="spinner-inline" /> Načítám z Analytics…</div>}
+      {!busy && !data && (
+        <div className="ig-muted">
+          Statistika není. Buď není napojené Analytics (Nastavení → AI → Google Analytics),
+          nebo tenhle článek zatím nikdo neotevřel.
+        </div>
+      )}
+
+      {data && (
+        <>
+          <div className="ar-stats-nums">
+            <div className="ar-stat">
+              <b>{data.stat.views.toLocaleString('cs-CZ')}</b>
+              <span>otevření</span>
+              <em>kolikrát se článek zobrazil</em>
+            </div>
+            <div className="ar-stat">
+              <b>{data.stat.readers.toLocaleString('cs-CZ')}</b>
+              <span>čtenářů</span>
+              <em>různých lidí</em>
+            </div>
+            <div className="ar-stat">
+              <b>{data.stat.entries.toLocaleString('cs-CZ')}</b>
+              <span>vstupů</span>
+              <em>přišli na web rovnou sem</em>
+            </div>
+            <div className="ar-stat">
+              <b>{data.stat.purchases}</b>
+              <span>objednávek</span>
+              <em>{data.stat.revenue ? `${data.stat.revenue.toLocaleString('cs-CZ')} Kč` : 'z těch vstupů'}</em>
+            </div>
+          </div>
+
+          <div className="ar-stats-note">{data.note}</div>
+
+          {months.length > 1 && (
+            <div className="ar-stats-chart">
+              <div className="ar-stats-chart-head">Čtenost po měsících</div>
+              <div className="ar-stats-bars">
+                {months.map(one => (
+                  <div className="ar-stats-bar" key={one.month}
+                    title={`${one.month}: ${one.sessions} otevření, ${one.users} lidí`}>
+                    <span style={{ height: `${Math.max(2, (one.sessions / top) * 100)}%` }} />
+                    <em>{MONTH_SHORT[Number(one.month.split('-')[1]) - 1] ?? ''}</em>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="ig-muted ar-stats-path">
+            Adresa, podle které se článek hledá: <code>{data.stat.path}</code>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
