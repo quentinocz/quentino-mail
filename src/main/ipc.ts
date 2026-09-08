@@ -57,10 +57,12 @@ import { listOutbox, cancelOutbox, processOutbox } from './scheduler';
 import { getDb } from './db';
 import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
+import { ga4Notes } from './ga4notes';
+import { articleStats, articleStat } from './artstats';
 import { refreshWatchers } from './idle';
 import {
   downloadInvoices, learnInvoiceUrl, invoiceSetup, saveInvoiceSetup,
-  invoicesLastDetail, jobsSince, openAdminLogin
+  invoicesLastDetail, jobsSince, openAdminLogin, prefetchInvoices, invoicesReady
 } from './invoices';
 
 /** Zpráva do všech oken — po stažení feedu se musí překreslit, co je otevřené. */
@@ -257,6 +259,9 @@ export function registerIpc() {
    * okamžité — a přepočítat se dá tlačítkem.
    */
   handle('ga4:deep', (days?: number, force?: boolean) => ga4Deep(Number(days) || 365, force === true));
+  // Závěry k číslům — jen doplněk k rozboru, proto zvlášť: tabulka se ukáže
+  // hned a věty k ní doběhnou, až doběhnou
+  handle('ga4:notes', (days?: number, force?: boolean) => ga4Notes(Number(days) || 365, force === true));
 
   // Upgates API (objednávky zákazníka)
   handle('upgates:config', () => getUpgatesConfig());
@@ -451,6 +456,9 @@ export function registerIpc() {
   handle('invoices:since', (days: number) => jobsSince(days ?? 7));
   handle('invoices:download', (codes: string[]) => downloadInvoices(codes ?? []));
   handle('invoices:detail', () => invoicesLastDetail());
+  // Stahování dopředu: u tiskárny se nemá čekat na síť
+  handle('invoices:prefetch', (codes: string[]) => prefetchInvoices(codes ?? []));
+  handle('invoices:ready', (codes: string[]) => invoicesReady(codes ?? []));
 
   /*
    * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka
@@ -679,6 +687,12 @@ export function registerIpc() {
   handle('articles:saveSettings', (patch: any) => articles.saveArticleSettings(patch ?? {}));
   handle('articles:defaultPrompt', () => articles.defaultArticlePrompt());
   handle('articles:list', (filter: any) => articles.listArticles(filter ?? {}));
+  /*
+   * Statistika článků. Bere se z Analytics (jen český web) a je to jediné
+   * místo, kde se dá poznat, jestli se článek vyplatilo psát.
+   */
+  handle('articles:stats', (days?: number) => articleStats(Number(days) || 365));
+  handle('articles:stat', (id: number, days?: number) => articleStat(Number(id), Number(days) || 365));
   handle('articles:get', (id: number) => articles.getArticle(id));
   handle('articles:save', (input: any) => articles.saveArticle(input ?? {}));
   handle('articles:delete', (id: number) => { articles.deleteArticle(id); return true; });

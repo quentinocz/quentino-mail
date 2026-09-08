@@ -479,6 +479,77 @@
         error: null
       };
     })(),
+    /*
+     * Závěry k rozboru. Do náhledu patří dlouhé věty schválně — právě na
+     * nich se pozná, jestli se text v kartě zalomí, nebo přeteče.
+     */
+    'ga4:notes': {
+      at: new Date().toISOString(),
+      from: new Date().toISOString(),
+      days: 365,
+      summary: 'Nejvíc peněz nosí vyhledávání na Googlu (892 000 Kč z 21 400 návštěv), zatímco placená '
+        + 'reklama přivede skoro stejně lidí a prodá čtvrtinu. Největší ztráta je mezi košíkem '
+        + 'a pokladnou — z 5 900 košíků dojde do pokladny 2 100. Jako první bych se podíval na dopravu '
+        + 'a platbu v košíku, tam se ztrácí nejvíc.',
+      notes: [
+        { where: 'channels', row: 'google / cpc', kind: 'slabé',
+          text: 'Placená reklama přivedla 5 400 návštěv, ale konverze 1,2 % je proti neplacenému '
+            + 'vyhledávání (2,4 %) poloviční. Zkus omezit obecná slova a nechat jen kravaty a kšandy.' },
+        { where: 'channels', row: 'google / organic', kind: 'dobré',
+          text: 'Nejsilnější kanál: 512 nákupů a 892 000 Kč. Za to se neplatí, takže články a popisy '
+            + 'zboží mají větší návratnost než reklama.' },
+        { where: 'funnel', row: 'Do pokladny', kind: 'slabé',
+          text: 'Z 5 900 košíků došlo do pokladny 2 100, tedy 64 % lidí odpadne s plným košíkem. '
+            + 'Obvykle za to může cena dopravy, která se ukáže až tady.' },
+        { where: 'pages', row: null, kind: 'zvážit',
+          text: 'Článek o výběru kravaty čte 4 100 lidí měsíčně. Odkaz na kravaty rovnou v článku '
+            + 'je nejlevnější způsob, jak z toho udělat objednávky.' }
+      ],
+      error: null
+    },
+    /* Statistika článků — čtenost proti vstupům, na tom stojí celý smysl */
+    'articles:stats': {
+      at: new Date().toISOString(), days: 365, scope: 'český web (.cz)',
+      views: 14200, entries: 5100, revenue: 121000, missing: 3, error: null,
+      rows: [
+        { id: 1, title: 'Jak vybrat kravatu k obleku', path: '/a/jak-vybrat-kravatu', status: 'done',
+          updatedAt: '2026-03-04', views: 4100, readers: 3280, entries: 2900, purchases: 41,
+          revenue: 74000, found: true },
+        { id: 2, title: 'Motýlek nebo kravata na svatbu?', path: '/a/motylek-nebo-kravata', status: 'done',
+          updatedAt: '2026-02-11', views: 3100, readers: 2610, entries: 1800, purchases: 22,
+          revenue: 34000, found: true },
+        { id: 3, title: 'Kšandy: jak si vybrat délku', path: '/a/ksandy-delka', status: 'done',
+          updatedAt: '2026-01-20', views: 2400, readers: 2050, entries: 300, purchases: 6,
+          revenue: 13000, found: true },
+        { id: 4, title: 'Jak se váže windsorský uzel', path: '/a/windsorsky-uzel', status: 'done',
+          updatedAt: '2025-12-02', views: 2100, readers: 1900, entries: 60, purchases: 0,
+          revenue: 0, found: true },
+        { id: 5, title: 'Péče o hedvábnou kravatu', path: '/a/pece-o-kravatu', status: 'done',
+          updatedAt: '2025-11-14', views: 1400, readers: 1210, entries: 40, purchases: 0,
+          revenue: 0, found: true },
+        { id: 6, title: 'Dárkové balení pro pány', path: '/a/darkove-baleni', status: 'draft',
+          updatedAt: '2026-04-01', views: 0, readers: 0, entries: 0, purchases: 0,
+          revenue: 0, found: false }
+      ]
+    },
+    'articles:stat': (function () {
+      var months = [];
+      for (var back = 11; back >= 0; back--) {
+        var d = new Date(Date.now() - back * 30 * 86400e3);
+        var sessions = 180 + ((back * 137) % 420);
+        months.push({ month: d.toISOString().slice(0, 7), sessions: sessions, users: Math.round(sessions * 0.84) });
+      }
+      return {
+        stat: { id: 1, title: 'Jak vybrat kravatu k obleku', path: '/a/jak-vybrat-kravatu', status: 'done',
+          updatedAt: '2026-03-04', views: 4100, readers: 3280, entries: 2900, purchases: 41,
+          revenue: 74000, found: true },
+        months: months, scope: 'český web (.cz)', days: 365,
+        note: 'Většina čtenářů (71 %) přichází na tenhle článek rovnou z vyhledávání nebo z odkazu — '
+          + 'je to vstupní brána do e-shopu. Z těch příchodů bylo 41 objednávek za 74 000 Kč. '
+          + 'Je to 29 % veškeré čtenosti článků.',
+        error: null
+      };
+    })(),
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
       + 'Kdyby dobírka měla příplatek 30 Kč, spadla by nejspíš i ta zbylá čtvrtina.',
     'orders:card': {

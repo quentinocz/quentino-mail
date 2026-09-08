@@ -244,9 +244,15 @@ global.fetch = async (url, options) => {
       if (args.tool_calls.length === 7) {
         const table = (rows) => ({ rows, rowCount: rows.length, fields: [] });
         return text(JSON.stringify({ status: 'success', data: { results: [
+          /*
+           * Měsíc chodí z GA4 jako dvojčíslí bez roku a rok zvlášť — přesně
+           * proto se dvouletý graf slil do dvanácti sloupců a pod každým
+           * stálo „led". Atrapa to napodobuje, ať se to znovu neztratí.
+           */
           table([
-            { month: '202607', sessions: 900, totalUsers: 700, ecommercePurchases: 18, totalRevenue: 32000 },
-            { month: '202608', sessions: 1100, totalUsers: 830, ecommercePurchases: 26, totalRevenue: 41000 }
+            { year: '2025', month: '08', sessions: 700, totalUsers: 560, ecommercePurchases: 12, totalRevenue: 21000 },
+            { year: '2026', month: '07', sessions: 900, totalUsers: 700, ecommercePurchases: 18, totalRevenue: 32000 },
+            { year: '2026', month: '08', sessions: 1100, totalUsers: 830, ecommercePurchases: 26, totalRevenue: 41000 }
           ]),
           table([
             { sessionSourceMedium: 'google / organic', sessions: 700, totalUsers: 540,
@@ -407,14 +413,17 @@ global.fetch = async (url, options) => {
     deepCall?.params.arguments.tool_calls.map(one => one.id),
     ['months', 'channels', 'landings', 'pages', 'devices', 'countries', 'funnel']);
   // Dimenze i metriky se berou z výčtu ve schématu, ne z hlavy
-  check('měsíční řada jde po měsících',
-    deepCall?.params.arguments.tool_calls[0].params.dimensions, ['month']);
+  check('měsíční řada jde po roce i měsíci',
+    deepCall?.params.arguments.tool_calls[0].params.dimensions, ['year', 'month']);
   check('a cesta k nákupu chce košík i pokladnu',
     deepCall?.params.arguments.tool_calls[6].params.metrics,
     ['sessions', 'addToCarts', 'checkouts', 'ecommercePurchases']);
-  // Měsíc chodí z GA4 jako `YYYYMM`; na graf se hodí `YYYY-MM`
-  check('měsíce se převedou na tvar pro graf', rozbor.months.map(one => one.month),
-    ['2026-07', '2026-08']);
+  /*
+   * Rok a měsíc se skládají dohromady a řadí se podle času. Bez roku byl
+   * srpen 2025 a srpen 2026 pro graf tentýž sloupec.
+   */
+  check('měsíce se poskládají z roku a měsíce', rozbor.months.map(one => one.month),
+    ['2025-08', '2026-07', '2026-08']);
   /*
    * U kanálu je vedle návštěv i konverze a tržba — kanál, který přivede
    * lidi, a kanál, který přivede peníze, jsou dvě různé věci.

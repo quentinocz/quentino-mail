@@ -619,13 +619,13 @@ const DESKTOP_ONLY = [
    * na telefonu se nečte ani nepočítá. Denní snímek s návštěvností tam
    * zůstává, ten se sdílí spolu s postřehy.
    */
-  'ga4:deep',
+  'ga4:deep', 'ga4:notes',
   /*
    * Faktury se stahují z okna administrace a slučují do PDF k tisku —
    * telefon nemá ani okno, ani tiskárnu.
    */
   'invoices:setup', 'invoices:saveSetup', 'invoices:learn', 'invoices:login',
-  'invoices:since', 'invoices:download', 'invoices:detail'
+  'invoices:since', 'invoices:download', 'invoices:detail', 'invoices:prefetch', 'invoices:ready'
 ];
 
 /**

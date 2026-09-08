@@ -23,7 +23,7 @@ const ALLOWED_INVOKE = [
   'contacts:search',
   'appsync:get', 'appsync:save', 'appsync:run', 'appsync:pickFolder',
   'ai:summarize', 'ai:reply', 'ai:improve', 'ai:translateIncoming', 'ai:translateText',
-  'ai:usage', 'digest:get', 'digest:facts', 'digest:ask', 'digest:archive', 'digest:old', 'digest:pdf', 'ga4:get', 'ga4:save', 'ga4:test', 'ga4:apps', 'ga4:diagnostics', 'ga4:detail', 'ga4:deep', 'quota:get', 'mail:cleanupScan', 'mail:cleanupRun', 'shell:openUrl',
+  'ai:usage', 'digest:get', 'digest:facts', 'digest:ask', 'digest:archive', 'digest:old', 'digest:pdf', 'ga4:get', 'ga4:save', 'ga4:test', 'ga4:apps', 'ga4:diagnostics', 'ga4:detail', 'ga4:deep', 'ga4:notes', 'quota:get', 'mail:cleanupScan', 'mail:cleanupRun', 'shell:openUrl',
   'upgates:config', 'upgates:saveConfig', 'upgates:test', 'upgates:orders',
   'orders:card', 'orders:badge', 'orders:shorts', 'orders:refresh', 'orders:shipment',
   'shorthand:list', 'shorthand:save',
@@ -74,6 +74,7 @@ const ALLOWED_INVOKE = [
   'ptrans:sourceGaps', 'ptrans:fillSource', 'ptrans:tidy', 'ptrans:tidyPreview',
   // Články — psaní, překlad, kontrola odkazů (jen na počítači)
   'articles:overview', 'articles:saveSettings', 'articles:defaultPrompt', 'articles:list',
+  'articles:stats', 'articles:stat',
   'articles:get', 'articles:save', 'articles:delete', 'articles:editVersion',
   'articles:generate', 'articles:translate', 'articles:progress', 'articles:stop',
   'articles:terms', 'articles:products', 'articles:preview', 'articles:links',
@@ -90,7 +91,7 @@ const ALLOWED_INVOKE = [
   'stockin:sendApi', 'stockin:apiCheck', 'stockin:confirm',
   // Faktury se stahují z administrace v okně — to má jen počítač
   'invoices:setup', 'invoices:saveSetup', 'invoices:learn', 'invoices:login',
-  'invoices:since', 'invoices:download', 'invoices:detail',
+  'invoices:since', 'invoices:download', 'invoices:detail', 'invoices:prefetch', 'invoices:ready',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
   // Verze aplikace do hlavičky nastavení
   'app:version'
@@ -102,7 +103,7 @@ const ALLOWED_EVENTS = [
   'ptrans:progress', 'ptrans:changed',
   'articles:progress', 'articles:changed', 'articles:check',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
-  'stockin:changed', 'stockin:progress', 'invoices:progress', 'scan:code', 'scan:qty', 'scan:closed',
+  'stockin:changed', 'stockin:progress', 'invoices:progress', 'invoices:ready', 'scan:code', 'scan:qty', 'scan:closed',
   'live:state', 'live:offers', 'live:work', 'packing:changed'
 ];
 

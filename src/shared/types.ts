@@ -2331,3 +2331,78 @@ export interface InvoiceSetup {
   parallel: number;
   openAfter: boolean;
 }
+
+/** Závěr k jednomu řádku rozboru návštěvnosti — nebo k celé sestavě. */
+export interface Ga4Note {
+  /** months | channels | landings | pages | devices | countries | funnel */
+  where: string;
+  /** Přesný název řádku; null = platí pro celou sestavu */
+  row: string | null;
+  kind: 'dobré' | 'slabé' | 'zvážit';
+  text: string;
+}
+
+export interface Ga4Notes {
+  at: string;
+  /** Datum rozboru, ze kterého závěry vznikly */
+  from: string;
+  days: number;
+  summary: string;
+  notes: Ga4Note[];
+  error: string | null;
+}
+
+/** Stránky do šířky — podklad pro statistiku článků. */
+export interface Ga4Pages {
+  at: string;
+  days: number;
+  scope: string;
+  /** Návštěvy stránky (kdekoli v cestě) */
+  pages: Ga4Slice[];
+  /** Návštěvy, kde byla stránka tou první — u ní se počítá i nákup */
+  landings: Ga4Slice[];
+  months: { path: string; month: string; sessions: number; users: number }[];
+  error: string | null;
+}
+
+/* ---------- statistika článků ---------- */
+
+export interface ArticleStat {
+  id: number;
+  title: string;
+  path: string;
+  status: string;
+  updatedAt: string;
+  /** Kolikrát se článek otevřel — i lidmi, kteří přišli odjinud z webu */
+  views: number;
+  readers: number;
+  /** Kolikrát byl článek tou první stránkou návštěvy */
+  entries: number;
+  /** Nákupy připsané těmhle vstupům */
+  purchases: number;
+  revenue: number;
+  /** Našla se stránka v Analytics? */
+  found: boolean;
+}
+
+export interface ArticleStatsView {
+  at: string;
+  days: number;
+  scope: string;
+  rows: ArticleStat[];
+  views: number;
+  entries: number;
+  revenue: number;
+  missing: number;
+  error: string | null;
+}
+
+export interface ArticleStatDetail {
+  stat: ArticleStat;
+  months: { month: string; sessions: number; users: number }[];
+  scope: string;
+  days: number;
+  /** Věta „co s tím" — spočítaná, ne od AI */
+  note: string;
+  error: string | null;
+}

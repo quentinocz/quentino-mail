@@ -1197,12 +1197,89 @@ input:focus, textarea:focus, select:focus {
 
 .dg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 
+/*
+ * Řádek řezu: název, proužek, číslo, peníze.
+ *
+ * Sloupce mají pevnou šířku a zmenšuje se **jen název** — jinak se stalo
+ * tohle: dlouhá adresa stránky roztlačila řádek a „124 143 Kč" i „−90 %
+ * oproti kroku výš" přetekly přes okraj karty. Proto je `min-width: 0`
+ * u názvu (bez něj se text v gridu nezkracuje) a čísla mají svoje místo.
+ */
 .dg-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 0; }
-.dg-bar-label { flex: 0 0 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dg-bar-track { flex: 1; height: 7px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+.dg-bar-label { flex: 1 1 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-bar-track { flex: 1 1 34px; min-width: 24px; height: 7px; background: var(--bg); border-radius: 999px; overflow: hidden; }
 .dg-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
-.dg-bar-num { flex: 0 0 auto; min-width: 44px; text-align: right; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.dg-bar-money { flex: 0 0 auto; min-width: 78px; text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.dg-bar-num { flex: 0 0 auto; min-width: 48px; text-align: right; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.dg-bar-money {
+  flex: 0 0 auto;
+  min-width: 96px;
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dg-bar-rev { color: var(--text-2); }
+
+/*
+ * Závěr od AI. Barva říká, co to je — pochvala, problém, nebo námět —
+ * a hvězdička to odlišuje od spočítaných čísel, aby bylo pokaždé jasné,
+ * co je změřené a co je názor.
+ */
+.dg-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--text-2);
+  border-left: 3px solid var(--border);
+}
+.dg-note > svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
+.dg-note.good { border-left-color: #2e9e6b; }
+.dg-note.bad { border-left-color: #d4574a; }
+.dg-note.idea { border-left-color: var(--accent); }
+
+/* Závěr nad tabulkami — první věta, kterou má člověk přečíst */
+.dg-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--accent-soft, var(--bg));
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.dg-summary > svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
+.dg-summary.waiting { color: var(--text-3); }
+
+/* Meziroční změna v popisku grafu */
+.dg-yoy { font-weight: 600; }
+.dg-yoy.up { color: #2e9e6b; }
+.dg-yoy.down { color: #d4574a; }
+
+/* Vysvětlení řádku — víc řádků textu, takže širší než rozpad po platbách */
+.dg-pop-note { min-width: 260px; max-width: 340px; text-align: left; }
+.dg-pop-title { font-weight: 600; font-size: 12px; word-break: break-all; }
+.dg-pop-line { color: var(--text-2); line-height: 1.45; }
+.dg-pop-ai {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 3px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
+  line-height: 1.45;
+}
+.dg-pop-ai > svg { flex-shrink: 0; margin-top: 2px; }
+.dg-pop-ai.good { color: #2e9e6b; }
+.dg-pop-ai.bad { color: #d4574a; }
+.dg-pop-ai.idea { color: var(--accent-dark); }
 
 /* Řádek k vyřízení je tlačítko — klik otevře tu zprávu nebo konverzaci */
 .dg-task {
@@ -1293,6 +1370,11 @@ input:focus, textarea:focus, select:focus {
   gap: 3px;
 }
 .dg-bar-row:hover .dg-pop { display: flex; }
+/*
+ * U posledních řádků se bublina otevírá nahoru. Dole v kartě se jinak
+ * schovala pod její okraj a poslední čtyři řádky byly bez vysvětlení.
+ */
+.dg-bar-row:nth-last-child(-n+3) .dg-pop { top: auto; bottom: 100%; }
 .dg-pop-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); }
 
 /* Sezóna a příspěvky */
@@ -1319,7 +1401,11 @@ input:focus, textarea:focus, select:focus {
   stroke-dasharray: 3 2;
   opacity: 0.85;
 }
-.dg-deep .dg-grid { margin-top: 2px; }
+/*
+ * Rozbor má dvě karty vedle sebe, ne tři. Ve třísloupcovém rastru zbývala
+ * napravo prázdná třetina a tabulky se mačkaly do zbylých dvou.
+ */
+.dg-deep .dg-grid { margin-top: 2px; grid-template-columns: repeat(2, 1fr); }
 
 /* Hlavička sezóny — co, kdy, jak silné; všechno na jednom řádku */
 .dg-season-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
@@ -1472,6 +1558,7 @@ input:focus, textarea:focus, select:focus {
   .dg-tiles { grid-template-columns: repeat(2, 1fr); }
   .dg-grid { grid-template-columns: 1fr; }
   .dg-bar-label { flex-basis: 34%; }
+  .dg-bar-money { min-width: 84px; }
   .dg-tile-value { font-size: 20px; }
 }
 
@@ -7140,3 +7227,50 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .sh-row .sh-name-in { flex: 1; min-width: 0; width: auto; }
 .sh-row .btn { padding: 4px 10px; font-size: 12px; flex-shrink: 0; }
 .sh-add { align-self: flex-start; padding: 4px 10px; font-size: 11.5px; gap: 4px; }
+
+/* ---------- statistika článku ---------- */
+
+.ar-stats { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; overflow-y: auto; }
+.ar-stats-head { display: flex; align-items: center; gap: 10px; }
+
+/*
+ * Čtyři čísla vedle sebe a pod každým, co znamená. Bez vysvětlení se
+ * „otevření" a „vstupy" pletou — a přitom je to ten rozdíl, na kterém stojí
+ * odpověď, jestli článek někoho přivedl.
+ */
+.ar-stats-nums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.ar-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.ar-stat b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ar-stat span { font-size: 12px; color: var(--text-2); }
+.ar-stat em { font-size: 11px; color: var(--text-3); font-style: normal; }
+
+.ar-stats-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ar-stats-chart { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.ar-stats-chart-head { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+.ar-stats-bars { display: flex; align-items: flex-end; gap: 4px; height: 110px; }
+.ar-stats-bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; gap: 3px; }
+.ar-stats-bar > span { display: block; background: var(--accent); border-radius: 3px 3px 0 0; }
+.ar-stats-bar > em { font-size: 10px; color: var(--text-3); font-style: normal; text-align: center; }
+.ar-stats-path code { font-size: 11.5px; }
+
+@media (max-width: 900px) {
+  .ar-stats-nums { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Kolik faktur je stažených dopředu — drobně vedle počtu */
+.pk-inv-ready { color: var(--text-3); font-size: 11px; }

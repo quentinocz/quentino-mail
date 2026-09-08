@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, DigestFacts, DigestInsight, DigestArchiveRow, Ga4Config, Ga4Deep, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, DigestFacts, DigestInsight, DigestArchiveRow, Ga4Config, Ga4Deep, Ga4Notes, Ga4Note, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -14,7 +14,7 @@ import type {
   PtransGoogleView, PtransColorRule, PtransBaseColor, PtransBundleRule, PtransAttributeRules,
   PtransAudit, PtransAuditSummary,
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
-  ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
+  ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct, ArticleStatsView, ArticleStatDetail,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
@@ -261,6 +261,9 @@ export const api = {
     saveSettings: (patch: Partial<ArticleSettings>) => call<ArticleSettings>('articles:saveSettings', patch),
     defaultPrompt: () => call<string>('articles:defaultPrompt'),
     list: (filter: { search?: string; status?: string } = {}) => call<ArticleListRow[]>('articles:list', filter),
+    /** Jak si články vedou — návštěvy, vstupy a objednávky z nich */
+    stats: (days = 365) => call<ArticleStatsView | null>('articles:stats', days),
+    stat: (id: number, days = 365) => call<ArticleStatDetail | null>('articles:stat', id, days),
     get: (id: number) => call<ArticleDetail | null>('articles:get', id),
     save: (input: Record<string, unknown>) => call<number>('articles:save', input),
     delete: (id: number) => call<boolean>('articles:delete', id),
@@ -378,7 +381,9 @@ export const api = {
     /** Celá poslední odpověď Sequelu — v bublině se ukáže jen shrnutí */
     detail: () => call<string>('ga4:detail'),
     /** Hlubší rozbor návštěvnosti — kanály, stránky, cesta k nákupu */
-    deep: (days = 365, force = false) => call<Ga4Deep | null>('ga4:deep', days, force)
+    deep: (days = 365, force = false) => call<Ga4Deep | null>('ga4:deep', days, force),
+    /** Závěry k číslům — doběhnou po tabulce, protože jdou přes AI */
+    notes: (days = 365, force = false) => call<Ga4Notes | null>('ga4:notes', days, force)
   },
   upgates: {
     config: () => call<UpgatesConfig>('upgates:config'),
@@ -598,7 +603,12 @@ export const api = {
     since: (days: number) => call<InvoiceJob[]>('invoices:since', days),
     /** Stáhne faktury k daným objednávkám a uloží je jako jeden PDF k tisku */
     download: (codes: string[]) => call<InvoiceRun>('invoices:download', codes),
-    detail: () => call<string>('invoices:detail')
+    detail: () => call<string>('invoices:detail'),
+    /** Stáhne chybějící faktury na pozadí, ať je tisk okamžitý */
+    prefetch: (codes: string[]) =>
+      call<{ ready: number; fetched: number; stopped: string | null }>('invoices:prefetch', codes),
+    /** Kolik z nich už je po ruce */
+    ready: (codes: string[]) => call<{ ready: number; total: number }>('invoices:ready', codes)
   },
 
   /**
