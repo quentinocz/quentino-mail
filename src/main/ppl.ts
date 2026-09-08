@@ -144,7 +144,13 @@ export function pplSetup(): PplSetup {
      */
     labelsUrl: saved.labelsUrl ?? 'https://klient.ppl.cz/zasilka.aspx?loadedControl=zasilkaList',
     /** Název uložené úlohy, kterou má import použít */
-    mapping: saved.mapping ?? 'Upgates'
+    mapping: saved.mapping ?? 'Upgates',
+    /*
+     * Co je v kolonce `total`. PPL si ji mapuje na hodnotu zásilky, tedy na
+     * to, co se pojišťuje — a to je cena zboží, ne částka i s dopravou.
+     * Kdo to má v úloze nastavené jinak, přepne.
+     */
+    value: saved.value === 'order' ? 'order' : 'goods'
   };
 }
 
@@ -154,13 +160,51 @@ export function savePplSetup(next: Partial<PplSetup>): PplSetup {
   return merged;
 }
 
-/** Výdejní místo se pozná podle kódu v obci — PPL ho tam samo píše. */
-const POINT_CITY = /^KM\d+/i;
+/**
+ * Hodnota zásilky.
+ *
+ * `goods` je součet položek — cena zboží, které se pojišťuje. `order` je
+ * celá částka objednávky včetně dopravy a dobírky. Rozdíl je vidět právě
+ * u dobírky: vybírá se celá částka, ale pojišťuje se zboží.
+ */
+function valueOf(setup: PplSetup, order: any, items: ShopOrderItem[]): number {
+  if (setup.value === 'order') return Math.round((Number(order.total) || 0) * 100) / 100;
+  const goods = items.reduce((sum, item) =>
+    sum + (Number(item.price) || 0) * Math.max(1, Number(item.quantity) || 1), 0);
+  /*
+   * Objednávka bez rozepsaných položek by měla nulovou hodnotu — pak je
+   * poctivější poslat celkovou částku než nulu.
+   */
+  return Math.round((goods || Number(order.total) || 0) * 100) / 100;
+}
+
+/**
+ * Kód výdejního místa PPL.
+ *
+ * Ve feedu je v `<SHIPMENT><BRANCH_ID>` a vypadá jako `KM10873991`. **Není
+ * v adrese** — tam je jen obec („Jablunkov"). Do souboru se ale píše obojí
+ * dohromady, `KM10873991 Jablunkov`, protože přesně tak to čte uložená úloha
+ * v administraci PPL: podle toho kódu se zásilka přiřadí k výdejně.
+ *
+ * První verze brala obec z adresy tak, jak byla — zásilky by dorazily bez
+ * kódu a PPL by je vzalo jako doručení na adresu výdejny, ne do výdejny.
+ */
+const POINT_CODE = /^KM\d+$/i;
 const POINT_SHIP = /parcelshop|parcelbox|abox|v[ýy]dejn|depo\b/i;
 
+/** Obec s kódem výdejny, jak ji import očekává. */
+export function cityWithPoint(city: string, pickupId: string): string {
+  const clean = (city ?? '').trim();
+  const code = (pickupId ?? '').trim();
+  if (!POINT_CODE.test(code)) return clean;
+  // Kód už v obci být může (jiná šablona feedu) — dvakrát tam nepatří
+  return clean.toUpperCase().startsWith(code.toUpperCase()) ? clean : `${code} ${clean}`;
+}
+
 /** 46 = výdejní místo, 14 = adresa. Jiné typy Quentino neposílá. */
-export function typeOf(city: string, shipment: string): 46 | 14 {
-  if (POINT_CITY.test(city.trim())) return 46;
+export function typeOf(city: string, shipment: string, pickupId = ''): 46 | 14 {
+  if (POINT_CODE.test((pickupId ?? '').trim())) return 46;
+  if (/^KM\d+/i.test((city ?? '').trim())) return 46;
   return POINT_SHIP.test(shipment) ? 46 : 14;
 }
 
@@ -183,7 +227,7 @@ export function pplRows(codes: string[]): { rows: PplRow[]; skipped: { code: str
   const marks = codes.map(() => '?').join(',');
   const orders = getDb().prepare(
     `SELECT code, market, name, email, phone, currency, total, shipment, payment,
-            items_json, billing_json, postal_json
+            pickup_id, items_json, billing_json, postal_json
      FROM shop_orders WHERE code IN (${marks}) ORDER BY code`
   ).all(...codes) as any[];
 
@@ -202,7 +246,8 @@ export function pplRows(codes: string[]): { rows: PplRow[]; skipped: { code: str
     const where = postal ?? billing;
     if (!where) { skipped.push({ code: order.code, reason: 'objednávka nemá adresu' }); continue; }
 
-    const city = String(where.city ?? '');
+    const pickup = String(order.pickup_id ?? '').trim();
+    const city = cityWithPoint(String(where.city ?? ''), pickup);
     const items: ShopOrderItem[] = (() => {
       try { return JSON.parse(order.items_json ?? '[]'); } catch { return []; }
     })();
@@ -231,8 +276,8 @@ export function pplRows(codes: string[]): { rows: PplRow[]; skipped: { code: str
       variableSymbol: String(order.code ?? '').replace(/^0+/, ''),
       phone: String(order.phone ?? '').trim(),
       email: String(order.email ?? '').trim(),
-      type: typeOf(city, shipment),
-      total: Math.round((Number(order.total) || 0) * 100) / 100,
+      type: typeOf(city, shipment, pickup),
+      total: valueOf(setup, order, items),
       content: contentOf(items)
     });
   }
@@ -422,4 +467,4 @@ async function setFile(win: BrowserWindow, file: string): Promise<void> {
   }
 }
 
-export const __test = { toCp1250, contentOf, typeOf, pplCsv, cell };
+export const __test = { toCp1250, contentOf, typeOf, cityWithPoint, valueOf, pplCsv, cell };

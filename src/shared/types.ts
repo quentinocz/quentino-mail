@@ -398,6 +398,8 @@ export interface ShopOrder {
    */
   pickupId: string;
   pickupName: string;
+  /** Váha celé objednávky v gramech, jak ji spočítal e-shop */
+  weight: number;
   items: ShopOrderItem[];
   /**
    * Fakturační a doručovací adresa.
@@ -2460,6 +2462,8 @@ export interface PplSetup {
   labelsUrl: string;
   /** Název uložené úlohy v administraci PPL */
   mapping: string;
+  /** Co se píše do kolonky `total`: cena zboží, nebo celá objednávka */
+  value: 'goods' | 'order';
 }
 
 /* ---------- Zásilkovna (Packeta) ---------- */

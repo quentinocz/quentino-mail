@@ -175,6 +175,13 @@ function remember(code: string, packetId: string, barcode: string): void {
   ).run(code, packetId, barcode, new Date().toISOString());
 }
 
+/** Váha v kilogramech; feed ji vede v gramech. */
+function weightOf(order: any, setup: PacketaSetup): number | undefined {
+  const grams = Number(order?.weight) || 0;
+  if (grams > 0) return Math.round(grams) / 1000;
+  return setup.defaultWeight || undefined;
+}
+
 function addressOf(raw: string | null): any {
   if (!raw) return null;
   try { return JSON.parse(raw); } catch { return null; }
@@ -195,7 +202,7 @@ export async function createPackets(codes: string[]): Promise<PacketaResult> {
   const marks = codes.map(() => '?').join(',');
   const orders = codes.length === 0 ? [] : getDb().prepare(
     `SELECT code, market, name, email, phone, currency, total, shipment, payment,
-            pickup_id, pickup_name, items_json, billing_json, postal_json
+            pickup_id, pickup_name, weight, items_json, billing_json, postal_json
      FROM shop_orders WHERE code IN (${marks}) ORDER BY code`
   ).all(...codes) as any[];
 
@@ -256,7 +263,12 @@ export async function createPackets(codes: string[]): Promise<PacketaResult> {
       currency: String(order.currency ?? 'CZK'),
       cod: cod || undefined,
       value: Math.round((Number(order.total) || 0) * 100) / 100,
-      weight: setup.defaultWeight || undefined,
+      /*
+       * Váha z feedu, ne paušál. E-shop ji počítá z položek a posílá
+       * v gramech; paušál se použije, jen když ji feed nemá — u zásilky
+       * s pěti kravatami by 0,5 kg neseděla.
+       */
+      weight: weightOf(order, setup),
       eshop: setup.eshop,
       // Obsah zásilky se skládá stejně jako u PPL — je to tentýž údaj
       note: contentOf(items)
@@ -323,4 +335,4 @@ export async function testPacketa(): Promise<string> {
   return 'Heslo platí a Zásilkovna odpovídá.';
 }
 
-export const __test = { pick, faultOf, elems, esc };
+export const __test = { pick, faultOf, elems, esc, weightOf };

@@ -432,6 +432,8 @@ function migrate(d: Database.Database) {
    */
   try { d.exec("ALTER TABLE shop_orders ADD COLUMN pickup_id TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE shop_orders ADD COLUMN pickup_name TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  // Váha objednávky v gramech — Zásilkovna ji u zásilky chce a feed ji počítá
+  try { d.exec('ALTER TABLE shop_orders ADD COLUMN weight REAL NOT NULL DEFAULT 0'); } catch { /* sloupec už existuje */ }
 
   // Katalog produktů: kategorie a dostupnost pro prohlížeč produktů v kompozeru.
   // Hodnoty se doplní při nejbližší synchronizaci feedu (feedNeedsCategories()).

@@ -55,6 +55,16 @@ const xml = fs.readFileSync(path.join(__dirname, 'fixtures/objednavky.xml'), 'ut
 const orders = feed.parseOrders(xml, 'cz');
 const byCode = code => orders.find(o => o.code === code);
 
+/*
+ * Výdejní místo. Ve feedu je jako `BRANCH_ID` uvnitř `<SHIPMENT>` a u každého
+ * dopravce vypadá jinak: Zásilkovna má číslo pobočky, PPL kód `KM…`.
+ * U zásilky na adresu je tam nula, což znamená „žádné místo" — vzít ji jako
+ * číslo výdejny by znamenalo zakládat zásilku na neexistující pobočku.
+ */
+check('číslo výdejny Zásilkovny', byCode('023688').pickupId, '16194');
+check('kód výdejny PPL', byCode('023687').pickupId, 'KM10873991');
+check('nula znamená žádné místo', byCode('023689').pickupId, '');
+
 const first = byCode('023687');
 check('doručovací adresa i s výdejním místem', first.postal, {
   name: 'Jana Nováková',

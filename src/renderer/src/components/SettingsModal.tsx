@@ -1411,6 +1411,18 @@ function ShippingField() {
               onChange={e => setPpl(v => v ? { ...v, content: e.target.checked } : v)} />
             přidat sloupec s obsahem zásilky („2 kravaty, motýlek")
           </label>
+          {/*
+            Hodnota zásilky. PPL si kolonku `total` mapuje na to, co se
+            pojišťuje — a to je cena zboží, ne částka i s dopravou a dobírkou.
+          */}
+          <div className="field">
+            <label>Hodnota zásilky (kolonka total)</label>
+            <select value={ppl.value}
+              onChange={e => setPpl(v => v ? { ...v, value: e.target.value as 'goods' | 'order' } : v)}>
+              <option value="goods">cena zboží (to, co se pojišťuje)</option>
+              <option value="order">celá objednávka včetně dopravy</option>
+            </select>
+          </div>
           <div className="desc">
             Obsah zásilky PPL nově chce, ale uložená úloha v jejich administraci o tom sloupci
             zatím vědět nemusí. Dokud si ho tam nenamapuješ, nech to vypnuté — jinak import spadne.

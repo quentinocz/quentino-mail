@@ -453,6 +453,7 @@ enum Schema {
         // nedá založit. Sloupce drží obě aplikace, ať se databáze neliší.
         "ALTER TABLE shop_orders ADD COLUMN pickup_id TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE shop_orders ADD COLUMN pickup_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE shop_orders ADD COLUMN weight REAL NOT NULL DEFAULT 0",
         "ALTER TABLE voucher_codes ADD COLUMN used_by TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE voucher_codes ADD COLUMN claimed_by TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE voucher_codes ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''",

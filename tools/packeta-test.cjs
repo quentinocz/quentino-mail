@@ -26,7 +26,7 @@ db.exec(`
     currency TEXT NOT NULL DEFAULT '', total REAL NOT NULL DEFAULT 0, tracking TEXT NOT NULL DEFAULT '',
     customer_id TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '', shipment TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '',
-    pickup_id TEXT NOT NULL DEFAULT '', pickup_name TEXT NOT NULL DEFAULT '',
+    pickup_id TEXT NOT NULL DEFAULT '', pickup_name TEXT NOT NULL DEFAULT '', weight REAL NOT NULL DEFAULT 0,
     items_json TEXT NOT NULL DEFAULT '[]', billing_json TEXT, postal_json TEXT, seen_at TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (code, market)
   );
@@ -35,14 +35,14 @@ db.exec(`
 const add = (row) => db.prepare(
   `INSERT OR REPLACE INTO shop_orders
    (code, market, name, email, phone, currency, total, shipment, payment, pickup_id, pickup_name,
-    items_json, postal_json)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    weight, items_json, postal_json)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 ).run(row.code, 'cz', row.name, row.email, row.phone, 'CZK', row.total, row.shipment, row.payment,
-  row.pickupId ?? '', row.pickupName ?? '', JSON.stringify(row.items ?? []),
+  row.pickupId ?? '', row.pickupName ?? '', row.weight ?? 0, JSON.stringify(row.items ?? []),
   row.postal ? JSON.stringify(row.postal) : null);
 
 add({ code: '024100', name: 'Jana Nováková', email: 'jana@example.cz', phone: '+420777123456',
-  total: 1290, shipment: 'Zásilkovna Z-Box', payment: 'Dobírka', pickupId: '12345',
+  total: 1290, shipment: 'Zásilkovna Z-Box', payment: 'Dobírka', pickupId: '12345', weight: 380,
   items: [{ title: 'Kravata vínová', quantity: 1 }],
   postal: { name: 'Jana Nováková', company: 'Z-BOX Praha 1', street: 'Dlouhá 12', city: 'Praha', zip: '110 00', country: 'CZ' } });
 // Výdejní místo bez čísla — zásilka se nesmí založit naslepo
@@ -110,6 +110,13 @@ global.fetch = async (url, init) => {
     request.includes('<addressId>12345</addressId>') && !request.includes('<street>'));
   ok('dobírka se přenese', request.includes('<cod>1290</cod>'));
   ok('a obsah zásilky taky', request.includes('<note>kravata</note>'));
+  /*
+   * Váha se bere z feedu, ne paušálem. E-shop ji počítá z položek a posílá
+   * v gramech; u zásilky s pěti kravatami by půl kila nesedělo.
+   */
+  ok('váha jde z feedu v kilogramech', request.includes('<weight>0.38</weight>'));
+  check('bez váhy ve feedu se použije výchozí',
+    __test.weightOf({ weight: 0 }, { defaultWeight: 0.5 }), 0.5);
 
   // Podruhé se táž objednávka nezakládá — byly by z ní dva balíky
   sent.length = 0;

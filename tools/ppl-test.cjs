@@ -26,6 +26,7 @@ db.exec(`
     currency TEXT NOT NULL DEFAULT '', total REAL NOT NULL DEFAULT 0, tracking TEXT NOT NULL DEFAULT '',
     customer_id TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '', shipment TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '',
+    pickup_id TEXT NOT NULL DEFAULT '', pickup_name TEXT NOT NULL DEFAULT '', weight REAL NOT NULL DEFAULT 0,
     items_json TEXT NOT NULL DEFAULT '[]', billing_json TEXT, postal_json TEXT, seen_at TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (code, market)
   );
@@ -33,19 +34,20 @@ db.exec(`
 
 const add = (row) => db.prepare(
   `INSERT OR REPLACE INTO shop_orders
-   (code, market, name, email, phone, currency, total, shipment, payment, items_json, billing_json, postal_json)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+   (code, market, name, email, phone, currency, total, shipment, payment, pickup_id,
+    items_json, billing_json, postal_json)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
 ).run(row.code, 'cz', row.name, row.email, row.phone, row.currency ?? 'CZK', row.total,
-  row.shipment, row.payment, JSON.stringify(row.items ?? []),
+  row.shipment, row.payment, row.pickupId ?? '', JSON.stringify(row.items ?? []),
   JSON.stringify(row.billing ?? null), row.postal ? JSON.stringify(row.postal) : null);
 
 // Výdejní místo: název v `company`, kód s obcí v `city` — přesně jak to chodí z e-shopu
 add({
   code: '023758', name: 'Tomáš Bartoník', email: 'tomas.bartonik12@gmail.com', phone: '+420 735829763',
-  total: 978.98, shipment: 'PPL ParcelBox', payment: 'Platba kartou online',
+  total: 1049, shipment: 'PPL ParcelBox', payment: 'Platba kartou online', pickupId: 'KM10439155',
   items: [{ title: 'Vínová kravata s jemným vzorem', code: 'K-118', quantity: 2, price: 490 }],
   postal: { name: 'Tomáš Bartoník', company: 'ABOX CHV Gabrielovo nám. (Flop)',
-    street: 'Gabrielovo náměstí 452', city: 'KM10439155 Chýnov', zip: '39155', country: 'CZ' }
+    street: 'Gabrielovo náměstí 452', city: 'Chýnov', zip: '39155', country: 'CZ' }
 });
 // Adresa a dobírka
 add({
@@ -99,7 +101,17 @@ ok('prázdná objednávka má aspoň něco', __test.contentOf([]).length > 0);
 
 /* ---------- typ zásilky ---------- */
 
-check('kód v obci znamená výdejnu', __test.typeOf('KM10439155 Chýnov', 'PPL ParcelBox'), 46);
+/*
+ * Kód výdejny je ve feedu u dopravy (`BRANCH_ID`), ne v adrese — tam je jen
+ * obec. Do souboru se ale píše obojí dohromady, protože přesně tak to čte
+ * uložená úloha v administraci PPL.
+ */
+check('kód výdejny se přilepí k obci', __test.cityWithPoint('Jablunkov', 'KM10873991'), 'KM10873991 Jablunkov');
+check('podruhé se nepřilepuje', __test.cityWithPoint('KM10873991 Jablunkov', 'KM10873991'), 'KM10873991 Jablunkov');
+check('u zásilky na adresu zůstane obec sama', __test.cityWithPoint('Praha 5', ''), 'Praha 5');
+// Balíkovna má v BRANCH_ID PSČ, ne kód výdejny PPL — to se nesmí plést
+check('cizí číslo v BRANCH_ID se nepřilepuje', __test.cityWithPoint('Brno', '63404'), 'Brno');
+check('kód výdejny znamená typ 46', __test.typeOf('Jablunkov', 'PPL ParcelBox', 'KM10873991'), 46);
 check('bez kódu rozhodne dopravce', __test.typeOf('Chýnov', 'PPL ParcelShop'), 46);
 check('adresa je 14', __test.typeOf('Praha 5', 'PPL'), 14);
 
@@ -110,6 +122,12 @@ check('do PPL jdou jen zásilky PPL', rows.map(r => r.code), ['023758', '023845'
 check('a ostatní se vypíšou i s důvodem', skipped.map(s => s.code), ['023900']);
 check('variabilní symbol je číslo objednávky bez nul', rows[0].variableSymbol, '23758');
 check('u výdejny se přenese název místa', rows[0].company, 'ABOX CHV Gabrielovo nám. (Flop)');
+check('a obec nese kód výdejny', rows[0].city, 'KM10439155 Chýnov');
+/*
+ * Hodnota zásilky je cena zboží, ne částka i s dopravou: PPL si ji mapuje na
+ * to, co se pojišťuje. U dobírky je rozdíl vidět — vybírá se celá částka.
+ */
+check('hodnota zásilky je cena zboží', rows[0].total, 980);
 check('placené předem má dobírku nula', rows[0].cod, 0);
 check('dobírka vybírá celou částku', rows[1].cod, 487);
 check('obsah zásilky se složí z položek', rows[0].content, '2 kravaty');
@@ -128,6 +146,7 @@ check('hlavička sedí s tou, na kterou je PPL nastavené',
 ok('jméno s mezerou je v uvozovkách', lines[1].startsWith('"Tom'));
 ok('e-mail bez mezery uvozovky nemá', lines[1].includes(';tomas.bartonik12@gmail.com;'));
 ok('PSČ s mezerou je v uvozovkách', lines[2].includes('"500 03"'));
+ok('obec s kódem výdejny je v uvozovkách', lines[1].includes('"KM10439155 Chýnov"'));
 ok('firma u adresní zásilky zůstane prázdná', lines[2].split(';')[1] === '');
 check('řádků je tolik jako zásilek plus hlavička', lines.filter(Boolean).length, 3);
 // Bez sloupce navíc musí soubor sedět se starým vzorem

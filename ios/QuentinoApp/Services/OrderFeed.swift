@@ -232,12 +232,25 @@ enum OrderFeed {
                 "email": tag(customerBlock, "EMAIL").lowercased(),
                 "phone": normalizePhone(tag(customerBlock, "PHONE"), market: market),
                 "shipment": tag(shipmentBlock, "NAME"),
+                // Číslo výdejního místa je ve feedu jako `BRANCH_ID` uvnitř
+                // `<SHIPMENT>`; nula znamená „žádné místo", ne místo číslo nula
+                "pickupId": pickupId(tag(shipmentBlock, "BRANCH_ID", "PICKUP_POINT_ID")),
+                "pickupName": tag(shipmentBlock, "BRANCH_NAME", "PICKUP_POINT_NAME"),
+                // Váha celé objednávky v gramech, jak ji spočítal e-shop
+                "weight": Double(tag(block, "TOTAL_WEIGHT")) ?? 0,
                 "payment": tag(paymentBlock, "NAME"),
                 "items": items,
                 "billing": billing ?? NSNull(),
                 "postal": postal ?? NSNull()
             ]
         }
+    }
+
+    /// Nula i prázdno znamenají „místo se nezadává" — u zásilky na adresu je
+    /// `<BRANCH_ID>0</BRANCH_ID>` běžné a jako číslo výdejny by nedávalo smysl.
+    private static func pickupId(_ raw: String) -> String {
+        let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean == "0" ? "" : clean
     }
 
     /**
@@ -297,8 +310,9 @@ enum OrderFeed {
             _ = try? SQLite.shared.run("""
                 INSERT INTO shop_orders (code, market, status, paid, paid_date, resolved, invoice,
                   created_at, updated_at, currency, total, tracking, customer_id, name, email, phone,
-                  shipment, payment, items_json, billing_json, postal_json, seen_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  shipment, payment, pickup_id, pickup_name, weight,
+                  items_json, billing_json, postal_json, seen_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(code, market) DO UPDATE SET
                   status = excluded.status, paid = excluded.paid, paid_date = excluded.paid_date,
                   resolved = excluded.resolved, invoice = excluded.invoice,
@@ -309,6 +323,13 @@ enum OrderFeed {
                   phone = CASE WHEN excluded.phone <> '' THEN excluded.phone ELSE shop_orders.phone END,
                   shipment = excluded.shipment, payment = excluded.payment,
                   items_json = excluded.items_json, seen_at = excluded.seen_at,
+                  -- Prázdné číslo výdejny ani nulovou váhu nepřepisujeme:
+                  -- rychlý feed je nemusí nést
+                  pickup_id = CASE WHEN excluded.pickup_id <> ''
+                    THEN excluded.pickup_id ELSE shop_orders.pickup_id END,
+                  pickup_name = CASE WHEN excluded.pickup_name <> ''
+                    THEN excluded.pickup_name ELSE shop_orders.pickup_name END,
+                  weight = CASE WHEN excluded.weight > 0 THEN excluded.weight ELSE shop_orders.weight END,
                   -- Adresu přepisuje jen ta, která za něco stojí: rychlý feed
                   -- ji nemusí nést vůbec a prázdnou hodnotou by se ztratila
                   billing_json = CASE WHEN excluded.billing_json IS NOT NULL
@@ -334,6 +355,9 @@ enum OrderFeed {
                 .text(order["phone"] as? String ?? ""),
                 .text(order["shipment"] as? String ?? ""),
                 .text(order["payment"] as? String ?? ""),
+                .text(order["pickupId"] as? String ?? ""),
+                .text(order["pickupName"] as? String ?? ""),
+                .double(order["weight"] as? Double ?? 0),
                 .text(items),
                 json(order["billing"]),
                 json(order["postal"]),
