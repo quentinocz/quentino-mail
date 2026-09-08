@@ -561,6 +561,20 @@
       value: 'goods' },
     'packeta:setup': { hasPassword: true, eshop: 'quentino.cz', carrier: 'Zásilkovna|Zasilkovna|Packeta',
       labelFormat: 'A6 on A4', labelOffset: 0, defaultWeight: 0.5 },
+    'balikovna:setup': { carrier: 'Balíkovna|Balikovna',
+      order: 'prijmeni,jmeno,ic,dic,obec,castObce,ulice,cisloPopisne,cisloOrientacni,psc,stat,'
+        + 'telefon,mobil,email,typ,hmotnost,cena,vs,sluzby,dobirka,mena,pocetVk,vsPoukazka',
+      header: false, type: 'NB', services: '',
+      portalUrl: 'https://podanionline.ceskaposta.cz/', value: 'goods' },
+    'balikovna:fields': [
+      { key: 'prijmeni', label: 'Příjmení/Název', hint: 'Jméno příjemce' },
+      { key: 'jmeno', label: 'Jméno', hint: 'Křestní jméno' },
+      { key: 'obec', label: 'Obec', hint: 'Město z doručovací adresy' },
+      { key: 'ulice', label: 'Ulice', hint: 'Název ulice bez čísla' },
+      { key: 'psc', label: 'PSČ', hint: 'Bez mezery' },
+      { key: 'dobirka', label: 'Dobírka', hint: 'Částka k vybrání' },
+      { key: 'obsah', label: 'Obsah zásilky', hint: 'Složený z položek' }
+    ],
     'packeta:formats': ['A6 on A4', 'A6 on A6', 'A7 on A7', 'A7 on A4', 'A8 on A8', '105x35mm on A4'],
     'packeta:packets': [],
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '

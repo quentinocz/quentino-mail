@@ -1,7 +1,8 @@
 import { BrowserWindow, dialog, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getDb, getSetting, setSetting } from './db';
+import { getSetting, setSetting } from './db';
+import { shipOrders, cell } from './shipexport';
 import type { PplRow, PplExport, PplSetup, ShopOrderItem } from '../shared/types';
 
 /**
@@ -161,24 +162,6 @@ export function savePplSetup(next: Partial<PplSetup>): PplSetup {
 }
 
 /**
- * Hodnota zásilky.
- *
- * `goods` je součet položek — cena zboží, které se pojišťuje. `order` je
- * celá částka objednávky včetně dopravy a dobírky. Rozdíl je vidět právě
- * u dobírky: vybírá se celá částka, ale pojišťuje se zboží.
- */
-function valueOf(setup: PplSetup, order: any, items: ShopOrderItem[]): number {
-  if (setup.value === 'order') return Math.round((Number(order.total) || 0) * 100) / 100;
-  const goods = items.reduce((sum, item) =>
-    sum + (Number(item.price) || 0) * Math.max(1, Number(item.quantity) || 1), 0);
-  /*
-   * Objednávka bez rozepsaných položek by měla nulovou hodnotu — pak je
-   * poctivější poslat celkovou částku než nulu.
-   */
-  return Math.round((goods || Number(order.total) || 0) * 100) / 100;
-}
-
-/**
  * Kód výdejního místa PPL.
  *
  * Ve feedu je v `<SHIPMENT><BRANCH_ID>` a vypadá jako `KM10873991`. **Není
@@ -208,11 +191,6 @@ export function typeOf(city: string, shipment: string, pickupId = ''): 46 | 14 {
   return POINT_SHIP.test(shipment) ? 46 : 14;
 }
 
-function addressOf(raw: string | null): any {
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
 /**
  * Objednávky do řádků pro PPL.
  *
@@ -222,65 +200,32 @@ function addressOf(raw: string | null): any {
  * dopočítávat nemusí.
  */
 export function pplRows(codes: string[]): { rows: PplRow[]; skipped: { code: string; reason: string }[] } {
-  if (codes.length === 0) return { rows: [], skipped: [] };
   const setup = pplSetup();
-  const marks = codes.map(() => '?').join(',');
-  const orders = getDb().prepare(
-    `SELECT code, market, name, email, phone, currency, total, shipment, payment,
-            pickup_id, items_json, billing_json, postal_json
-     FROM shop_orders WHERE code IN (${marks}) ORDER BY code`
-  ).all(...codes) as any[];
+  // Cesta k datům je u všech dopravců stejná; liší se až sloupce v souboru
+  const { rows: orders, skipped } = shipOrders(codes, setup.carrier);
 
-  const rows: PplRow[] = [];
-  const skipped: { code: string; reason: string }[] = [];
-
-  for (const order of orders) {
-    const shipment = String(order.shipment ?? '');
-    if (setup.carrier && !new RegExp(setup.carrier, 'i').test(shipment)) {
-      skipped.push({ code: order.code, reason: `jiný dopravce (${shipment || 'neuvedený'})` });
-      continue;
-    }
-
-    const postal = addressOf(order.postal_json);
-    const billing = addressOf(order.billing_json);
-    const where = postal ?? billing;
-    if (!where) { skipped.push({ code: order.code, reason: 'objednávka nemá adresu' }); continue; }
-
-    const pickup = String(order.pickup_id ?? '').trim();
-    const city = cityWithPoint(String(where.city ?? ''), pickup);
-    const items: ShopOrderItem[] = (() => {
-      try { return JSON.parse(order.items_json ?? '[]'); } catch { return []; }
-    })();
-
-    /*
-     * Dobírka. Vybírá se celá částka objednávky včetně dopravy — to je to,
-     * co dopravce od zákazníka vybere. U placených předem je nula, ne
-     * prázdno: prázdná kolonka se v importu chová jako chyba.
-     */
-    const cod = /dob[íi]rk|cash\s*on|nachnahme/i.test(String(order.payment ?? ''))
-      ? Math.round((Number(order.total) || 0) * 100) / 100
-      : 0;
-
-    rows.push({
-      code: String(order.code ?? ''),
-      name: String(where.name ?? order.name ?? '').trim(),
-      company: String(where.company ?? '').trim(),
-      street: String(where.street ?? '').trim(),
-      city: city.trim(),
-      zip: String(where.zip ?? '').trim(),
-      country: (String(where.country ?? 'CZ').trim() || 'CZ').toUpperCase(),
-      cod,
-      currency: String(order.currency ?? 'CZK').trim() || 'CZK',
+  const rows: PplRow[] = orders.map(order => {
+    const city = cityWithPoint(order.city, order.pickupId);
+    return {
+      code: order.code,
+      name: order.name,
+      company: order.company,
+      street: order.street,
+      city,
+      zip: order.zip,
+      country: order.country,
+      cod: order.cod,
+      currency: order.currency,
       // Variabilní symbol je číslo objednávky bez vodicích nul — pod ním se
       // zásilka páruje s objednávkou na obou stranách
-      variableSymbol: String(order.code ?? '').replace(/^0+/, ''),
-      phone: String(order.phone ?? '').trim(),
-      email: String(order.email ?? '').trim(),
-      type: typeOf(city, shipment, pickup),
-      total: valueOf(setup, order, items),
-      content: contentOf(items)
-    });
-  }
+      variableSymbol: order.code.replace(/^0+/, ''),
+      phone: order.phone,
+      email: order.email,
+      type: typeOf(city, order.shipment, order.pickupId),
+      total: setup.value === 'order' ? order.total : order.goods,
+      content: contentOf(order.items)
+    };
+  });
 
   return { rows, skipped };
 }
@@ -289,21 +234,6 @@ export function pplRows(codes: string[]): { rows: PplRow[]; skipped: { code: str
 
 const HEAD = ['name', 'company', 'street', 'city', 'zip', 'country', 'cash_on_delivery',
   'currency', 'variable_symbol', 'phone', 'email', 'type', 'total'];
-
-/**
- * Uvozovky jen tam, kde je vzor z PPL má.
- *
- * Vypadá to jako drobnost, ale uložená úloha čte soubor doslova: kolonka
- * s mezerou musí být v uvozovkách, číslo bez nich. Řídí se to tedy podle
- * hodnoty, ne podle sloupce — přesně jako v exportu, podle kterého je úloha
- * v PPL nastavená.
- */
-function cell(value: string | number): string {
-  const text = String(value ?? '');
-  if (!text) return '';
-  if (/[";\s]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
 
 export function pplCsv(rows: PplRow[], withContent: boolean): Buffer {
   const head = withContent ? [...HEAD, 'content'] : HEAD;
@@ -467,4 +397,4 @@ async function setFile(win: BrowserWindow, file: string): Promise<void> {
   }
 }
 
-export const __test = { toCp1250, contentOf, typeOf, cityWithPoint, valueOf, pplCsv, cell };
+export const __test = { toCp1250, contentOf, typeOf, cityWithPoint, pplCsv, cell };

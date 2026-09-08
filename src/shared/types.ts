@@ -2493,3 +2493,34 @@ export interface PacketaResult {
   /** Kolik objednávek se ve feedu vůbec nenašlo */
   skipped: number;
 }
+
+/* ---------- Balíkovna (Podání Online České pošty) ---------- */
+
+export interface BalikovnaSetup {
+  /** Podle čeho se pozná, že objednávka jede Balíkovnou */
+  carrier: string;
+  /**
+   * Pořadí sloupců, čárkami.
+   *
+   * Podání Online si mapuje pole na čísla sloupců, takže tohle musí sedět
+   * s konfigurací importu — a mění se to v nastavení, ne v kódu.
+   */
+  order: string;
+  /** První řádek s názvy sloupců */
+  header: boolean;
+  /** Kód produktu České pošty („Typ zásilky") */
+  type: string;
+  /** Kódy doplňkových služeb, pokud je potřeba */
+  services: string;
+  portalUrl: string;
+  /** Co je v „Udané ceně": cena zboží, nebo celá objednávka */
+  value: 'goods' | 'order';
+}
+
+export interface BalikovnaExport {
+  file: string | null;
+  rows: number;
+  skipped: { code: string; reason: string }[];
+  /** Kolik sloupců soubor má — proti konfiguraci v Podání Online */
+  columns: number;
+}

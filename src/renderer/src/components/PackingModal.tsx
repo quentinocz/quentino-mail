@@ -456,6 +456,34 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     }
   }, [pplCandidates, toast]);
 
+  /**
+   * Balíkovna přes Podání Online.
+   *
+   * Stejná cesta jako u PPL — soubor a ruční nahrání — jen jiný formát
+   * a jiné místo. Podání se neodesílá: je nevratné a účtuje se.
+   */
+  const [balBusy, setBalBusy] = useState(false);
+
+  const exportBalikovna = useCallback(async () => {
+    setBalBusy(true);
+    try {
+      const out = await api.balikovna.export(pplCandidates);
+      if (!out.file) {
+        toast(out.skipped.length > 0
+          ? `Ve výběru není žádná zásilka Balíkovny (${out.skipped.length} objednávek jede jinak).`
+          : 'Nic k vývozu.', 'info');
+        return;
+      }
+      toast(`Vyvezeno ${out.rows} zásilek do ${out.columns} sloupců — ${out.file}`);
+      await api.balikovna.open();
+      toast('Otevírám Podání Online: nahraj soubor a vyber svoji konfiguraci importu.', 'info');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBalBusy(false);
+    }
+  }, [pplCandidates, toast]);
+
   const grabInvoices = useCallback(async () => {
     if (withInvoice.length === 0) return;
     setInvoicing(true);
@@ -943,6 +971,19 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
             <button className="filter-chip" onClick={() => { void api.ppl.openLabels(); }}
               data-tip="Otevře v administraci PPL seznam zásilek, odkud se štítky tisknou">
               <Icon name="printer" size={12} /> Štítky PPL
+            </button>
+          )}
+          {/*
+            Balíkovna jde přes Podání Online České pošty — zase souborem,
+            jen s jiným formátem a v UTF-8.
+          */}
+          {!phone && (
+            <button className="filter-chip" disabled={balBusy || pplCandidates.length === 0}
+              onClick={() => void exportBalikovna()}
+              data-tip="Sestaví CSV pro Podání Online a otevře ho — nahrání a odeslání zůstává na tobě">
+              {balBusy
+                ? <><span className="spinner-inline" /> chystám…</>
+                : <><Icon name="inbox" size={12} /> Balíkovna</>}
             </button>
           )}
           {/*

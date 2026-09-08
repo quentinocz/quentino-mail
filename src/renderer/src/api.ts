@@ -19,7 +19,7 @@ import type {
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
-  PacketaSetup, PacketaPacket, PacketaResult
+  PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -649,6 +649,25 @@ export const api = {
     labels: (codes: string[], format?: string, offset?: number) =>
       call<{ file: string | null; count: number; missing: string[] }>('packeta:labels', codes, format, offset),
     formats: () => call<string[]>('packeta:formats')
+  },
+
+  /**
+   * Balíkovna přes Podání Online České pošty.
+   *
+   * Podání Online nemá pevný formát souboru: v konfiguraci importu se ke
+   * každému poli napíše, ve kterém sloupci ho hledat. Pořadí sloupců je
+   * proto v nastavení, ne v kódu.
+   */
+  balikovna: {
+    setup: () => call<BalikovnaSetup>('balikovna:setup'),
+    saveSetup: (next: Partial<BalikovnaSetup>) => call<BalikovnaSetup>('balikovna:saveSetup', next),
+    /** Pole, která umí aplikace do souboru dát — pro nastavení pořadí */
+    fields: () => call<{ key: string; label: string; hint: string }[]>('balikovna:fields'),
+    rows: (codes: string[]) =>
+      call<{ rows: any[]; skipped: { code: string; reason: string }[] }>('balikovna:rows', codes),
+    export: (codes: string[]) => call<BalikovnaExport>('balikovna:export', codes),
+    /** Otevře Podání Online; nahrání a odeslání zůstává na člověku */
+    open: () => call<boolean>('balikovna:open')
   },
 
   /**

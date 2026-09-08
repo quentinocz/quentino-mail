@@ -63,6 +63,10 @@ import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabel
 import {
   packetaSetup, savePacketaSetup, testPacketa, packetsFor, createPackets, labelsPdf, LABEL_FORMATS
 } from './packeta';
+import {
+  balikovnaSetup, saveBalikovnaSetup, balikovnaRows, exportBalikovna, openBalikovna,
+  FIELDS as BAL_FIELDS
+} from './balikovna';
 import { refreshWatchers } from './idle';
 import {
   downloadInvoices, learnInvoiceUrl, invoiceSetup, saveInvoiceSetup,
@@ -483,6 +487,14 @@ export function registerIpc() {
   handle('packeta:labels', (codes: string[], format?: string, offset?: number) =>
     labelsPdf(codes ?? [], format, offset));
   handle('packeta:formats', () => LABEL_FORMATS);
+
+  /* ---------- Balíkovna (Podání Online) ---------- */
+  handle('balikovna:setup', () => balikovnaSetup());
+  handle('balikovna:saveSetup', (next: any) => saveBalikovnaSetup(next ?? {}));
+  handle('balikovna:fields', () => BAL_FIELDS);
+  handle('balikovna:rows', (codes: string[]) => balikovnaRows(codes ?? []));
+  handle('balikovna:export', (codes: string[]) => exportBalikovna(codes ?? []));
+  handle('balikovna:open', () => openBalikovna());
 
   /*
    * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka

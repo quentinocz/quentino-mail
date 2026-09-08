@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang,
   OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow, ShorthandView, Ga4Config,
-  PplSetup, PacketaSetup, InvoiceSetup } from '@shared/types';
+  PplSetup, PacketaSetup, InvoiceSetup, BalikovnaSetup } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -1324,6 +1324,8 @@ function ShippingField() {
   const toast = useToast();
   const [ppl, setPpl] = useState<PplSetup | null>(null);
   const [zas, setZas] = useState<PacketaSetup | null>(null);
+  const [bal, setBal] = useState<BalikovnaSetup | null>(null);
+  const [balFields, setBalFields] = useState<{ key: string; label: string; hint: string }[]>([]);
   const [zasPass, setZasPass] = useState('');
   const [formats, setFormats] = useState<string[]>([]);
   const [inv, setInv] = useState<InvoiceSetup | null>(null);
@@ -1334,6 +1336,8 @@ function ShippingField() {
     api.packeta.setup().then(setZas).catch(() => {});
     api.packeta.formats().then(setFormats).catch(() => {});
     api.invoices.setup().then(setInv).catch(() => {});
+    api.balikovna.setup().then(setBal).catch(() => {});
+    api.balikovna.fields().then(setBalFields).catch(() => {});
   }, []);
 
   const run = async (key: string, body: () => Promise<void>) => {
@@ -1433,6 +1437,65 @@ function ShippingField() {
                 setPpl(await api.ppl.saveSetup(ppl));
                 toast('Uloženo.');
               })}>Uložit</button>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- Balíkovna ---------- */}
+      {bal && (
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>Balíkovna — Podání Online České pošty</label>
+          <div className="desc">
+            Podání Online nemá pevný formát: v konfiguraci importu se ke každému poli napíše,
+            <b> ve kterém sloupci</b> ho hledat. Pořadí níž proto musí sedět s tvojí konfigurací —
+            výchozí odpovídá tomu, co Česká pošta uvádí v návodech (Příjmení 1, Jméno 2, …).
+            Soubor je v UTF-8.
+          </div>
+          <div className="field-grid">
+            <div className="field"><label>Poznám podle názvu dopravy</label>
+              <input value={bal.carrier}
+                onChange={e => setBal(v => v ? { ...v, carrier: e.target.value } : v)} /></div>
+            <div className="field"><label>Typ zásilky (kód produktu)</label>
+              <input value={bal.type} placeholder="NB"
+                onChange={e => setBal(v => v ? { ...v, type: e.target.value } : v)} /></div>
+            <div className="field"><label>Doplňkové služby</label>
+              <input value={bal.services} placeholder="nepovinné"
+                onChange={e => setBal(v => v ? { ...v, services: e.target.value } : v)} /></div>
+            <div className="field"><label>Udaná cena</label>
+              <select value={bal.value}
+                onChange={e => setBal(v => v ? { ...v, value: e.target.value as 'goods' | 'order' } : v)}>
+                <option value="goods">cena zboží</option>
+                <option value="order">celá objednávka</option>
+              </select></div>
+          </div>
+          <div className="field">
+            <label>Pořadí sloupců</label>
+            <input value={bal.order}
+              onChange={e => setBal(v => v ? { ...v, order: e.target.value } : v)} />
+            <div className="desc">
+              Názvy oddělené čárkou. K dispozici je:{' '}
+              {balFields.map((one, i) => (
+                <span key={one.key}>
+                  {i > 0 && ', '}
+                  <code data-tip={one.hint}>{one.key}</code> ({one.label.toLowerCase()})
+                </span>
+              ))}.
+            </div>
+          </div>
+          <label className="check-row">
+            <input type="checkbox" checked={bal.header}
+              onChange={e => setBal(v => v ? { ...v, header: e.target.checked } : v)} />
+            první řádek s názvy sloupců
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn primary" disabled={busy === 'balSave'}
+              onClick={() => run('balSave', async () => {
+                setBal(await api.balikovna.saveSetup(bal));
+                toast('Uloženo.');
+              })}>Uložit</button>
+            <button className="btn ghost" onClick={() => { void api.balikovna.open(); }}>
+              Otevřít Podání Online
+            </button>
           </div>
         </div>
       )}
