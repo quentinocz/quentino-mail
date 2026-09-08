@@ -936,74 +936,67 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
             <Icon name="sort" size={12} /> {oldestFirst ? 'nejstarší' : 'nejnovější'}
           </button>
           {/*
-            Faktury ke všemu, co je zrovna v seznamu — jeden PDF, jeden tisk.
-            Na telefonu se netiskne, tam by tlačítko jen zabíralo místo.
+            Vývoz a doklady drží pohromadě.
+
+            Tlačítka byla rozsypaná mezi filtry a Zásilkovna se jako jediná
+            lámala na druhý řádek — vypadalo to, že patří jinam než PPL kousek
+            od ní. Teď je to jedna skupina: zalomí se celá, nebo žádná.
+            Na telefonu se netiskne ani nepodává, tam by jen zabírala místo.
           */}
           {!phone && (
-            <button className="filter-chip" disabled={invoicing || withInvoice.length === 0}
-              onClick={() => void grabInvoices()}
-              data-tip={withInvoice.length === 0
-                ? 'K žádné zobrazené objednávce zatím není vystavená faktura'
-                : invReady >= withInvoice.length
-                  ? 'Všechny faktury jsou stažené — tisk bude okamžitý'
-                  : `Stáhne faktury k zobrazeným objednávkám do jednoho PDF k tisku (${invReady} už je po ruce)`}>
-              {invoicing
-                ? <><span className="spinner-inline" /> {invDone ? `${invDone.done}/${invDone.total}` : 'stahuji…'}</>
-                : <><Icon name="printer" size={12} /> Faktury ({withInvoice.length})
-                    {/* Kolik z nich je stažených dopředu — ať je vidět, že se čekat nebude */}
-                    {invReady > 0 && invReady < withInvoice.length && <span className="pk-inv-ready"> · {invReady} hotovo</span>}
-                    {invReady > 0 && invReady >= withInvoice.length && <Icon name="check" size={11} />}
-                  </>}
-            </button>
-          )}
-          {/*
-            Zásilky do PPL. Soubor se sestaví z toho, co je v seznamu, a
-            otevře se import v jejich administraci — jako u naskladnění.
-          */}
-          {!phone && (
-            <button className="filter-chip" disabled={pplBusy || pplCandidates.length === 0}
-              onClick={() => void exportPpl()}
-              data-tip="Sestaví CSV pro PPL ze zobrazených objednávek a otevře import v jejich administraci">
-              {pplBusy
-                ? <><span className="spinner-inline" /> chystám…</>
-                : <><Icon name="truck" size={12} /> PPL</>}
-            </button>
-          )}
-          {/*
-            Štítky PPL vystavuje jejich administrace až z nahrané zásilky —
-            bez API se stáhnout nedají. Tohle na ten seznam aspoň odveze.
-          */}
-          {!phone && (
-            <button className="filter-chip" onClick={() => { void api.ppl.openLabels(); }}
-              data-tip="Otevře v administraci PPL seznam zásilek, odkud se štítky tisknou">
-              <Icon name="printer" size={12} /> Štítky PPL
-            </button>
-          )}
-          {/*
-            Balíkovna jde přes Podání Online České pošty — zase souborem,
-            jen s jiným formátem a v UTF-8.
-          */}
-          {!phone && (
-            <button className="filter-chip" disabled={balBusy || pplCandidates.length === 0}
-              onClick={() => void exportBalikovna()}
-              data-tip="Sestaví CSV pro Podání Online a otevře ho — nahrání a odeslání zůstává na tobě">
-              {balBusy
-                ? <><span className="spinner-inline" /> chystám…</>
-                : <><Icon name="inbox" size={12} /> Balíkovna</>}
-            </button>
-          )}
-          {/*
-            Zásilkovna má API, takže se zásilka založí rovnou a štítek přijde
-            jako hotový arch — na rozdíl od PPL, kde se jde přes soubor.
-          */}
-          {!phone && (
-            <button className="filter-chip" disabled={zasBusy || pplCandidates.length === 0}
-              onClick={() => void sendPacketa()}
-              data-tip="Založí zásilky u Zásilkovny a stáhne arch se štítky">
-              {zasBusy
-                ? <><span className="spinner-inline" /> zakládám…</>
-                : <><Icon name="bag" size={12} /> Zásilkovna</>}
-            </button>
+            <div className="pk-ship">
+              <button className="filter-chip" disabled={invoicing || withInvoice.length === 0}
+                onClick={() => void grabInvoices()}
+                data-tip={withInvoice.length === 0
+                  ? 'K žádné zobrazené objednávce zatím není vystavená faktura'
+                  : invReady >= withInvoice.length
+                    ? 'Všechny faktury jsou stažené — tisk bude okamžitý'
+                    : `Stáhne faktury k zobrazeným objednávkám do jednoho PDF k tisku (${invReady} už je po ruce)`}>
+                {invoicing
+                  ? <><span className="spinner-inline" /> {invDone ? `${invDone.done}/${invDone.total}` : 'stahuji…'}</>
+                  : <><Icon name="printer" size={12} /> Faktury ({withInvoice.length})
+                      {/* Kolik z nich je stažených dopředu — ať je vidět, že se čekat nebude */}
+                      {invReady > 0 && invReady < withInvoice.length && <span className="pk-inv-ready"> · {invReady} hotovo</span>}
+                      {invReady > 0 && invReady >= withInvoice.length && <Icon name="check" size={11} />}
+                    </>}
+              </button>
+
+              {/* PPL: soubor a import v jejich administraci — API nemají */}
+              <button className="filter-chip" disabled={pplBusy || pplCandidates.length === 0}
+                onClick={() => void exportPpl()}
+                data-tip="Sestaví CSV pro PPL ze zobrazených objednávek a otevře import v jejich administraci">
+                {pplBusy
+                  ? <><span className="spinner-inline" /> chystám…</>
+                  : <><Icon name="truck" size={12} /> PPL</>}
+              </button>
+
+              {/*
+                Štítky PPL vystavuje jejich administrace až z nahrané zásilky —
+                bez API se stáhnout nedají. Tohle na ten seznam aspoň odveze.
+              */}
+              <button className="filter-chip" onClick={() => { void api.ppl.openLabels(); }}
+                data-tip="Otevře v administraci PPL seznam zásilek, odkud se štítky tisknou">
+                <Icon name="printer" size={12} /> Štítky PPL
+              </button>
+
+              {/* Balíkovna: Podání Online České pošty, zase souborem a v UTF-8 */}
+              <button className="filter-chip" disabled={balBusy || pplCandidates.length === 0}
+                onClick={() => void exportBalikovna()}
+                data-tip="Sestaví CSV pro Podání Online a vloží ho do jejich importu — odeslání zůstává na tobě">
+                {balBusy
+                  ? <><span className="spinner-inline" /> chystám…</>
+                  : <><Icon name="inbox" size={12} /> Balíkovna</>}
+              </button>
+
+              {/* Zásilkovna má API: zásilka se založí rovnou a štítek přijde jako arch */}
+              <button className="filter-chip" disabled={zasBusy || pplCandidates.length === 0}
+                onClick={() => void sendPacketa()}
+                data-tip="Založí zásilky u Zásilkovny a stáhne arch se štítky">
+                {zasBusy
+                  ? <><span className="spinner-inline" /> zakládám…</>
+                  : <><Icon name="bag" size={12} /> Zásilkovna</>}
+              </button>
+            </div>
           )}
           {/*
             Číslo z dokladu. Na počítači je to jediná cesta, jak objednávku

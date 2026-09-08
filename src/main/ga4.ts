@@ -32,7 +32,7 @@
  * a přehled ho dá modelu tak, jak je. Lepší nepřesná věta než prázdno.
  */
 import { getSetting, setSetting } from './db';
-import type { Ga4Deep, Ga4Slice, Ga4Pages } from '../shared/types';
+import type { Ga4Deep, Ga4Slice, Ga4Pages, Ga4Month } from '../shared/types';
 import { encrypt, decrypt } from './secure';
 
 const DEFAULT_ENDPOINT = 'https://api.sequel.sh/mcp';
@@ -1274,7 +1274,12 @@ function collectRows(node: any, out: any[][] = [], depth = 0): any[][] {
 
 /* ---------- hlubší rozbor návštěvnosti ---------- */
 
-const DEEP_KEY = 'ga4Deep';
+/*
+ * V klíči je verze schválně. Rozbor uložený minulou verzí měl měsíce
+ * poskládané špatně (dvanáct hromádek bez roku) a držel se den — po opravě
+ * by se ještě celý den ukazovala ta rozbitá čísla, protože čerstvá jsou.
+ */
+const DEEP_KEY = 'ga4Deep2:';
 
 /**
  * Odkud, kudy a co z toho bylo — až dva roky zpátky.
@@ -1335,14 +1340,16 @@ export async function ga4Deep(days = 365, force = false): Promise<Ga4Deep | null
 
     const { tables, detail } = await runCalls(plan, [
       /*
-       * Měsíční řada — rok **a** měsíc.
+       * Měsíční řada se ptá po **dnech** a sčítá se doma.
        *
-       * Samotný `month` je v GA4 jen dvojčíslí 01–12 bez roku. Dvouleté okno
-       * se pod ním sečetlo do dvanácti hromádek, graf ukazoval čtyři sloupce
-       * a pod každým „led": leden 2025 a leden 2026 byly pro GA4 totéž.
-       * S rokem navíc je to 24 řádků, ne 730 jako u dnů.
+       * Samotný `month` je v GA4 jen dvojčíslí 01–12 bez roku: dvouleté okno
+       * se pod ním sečetlo do dvanácti hromádek a pod každým sloupcem stálo
+       * „led", protože leden 2025 a leden 2026 jsou pro GA4 totéž. Přidat
+       * `year` by pomohlo jen tehdy, když ho napojení v nabídce má — a to se
+       * spolehnout nedá. Den má datum celé, takže se z něj měsíc složí
+       * vždycky; 730 řádků je pro jeden dotaz málo.
        */
-      { id: 'months', input: { startDate: from, endDate: to, dimensions: plan.pick(['year', 'month'], 'dimensions'), metrics, limit: 400 } },
+      { id: 'months', input: { startDate: from, endDate: to, dimensions: plan.pick(['date'], 'dimensions'), metrics, limit: 800 } },
       slice('channels', 'sessionSourceMedium', 12),
       slice('landings', 'landingPage', 12),
       slice('pages', 'pagePath', 12),
@@ -1384,28 +1391,7 @@ export async function ga4Deep(days = 365, force = false): Promise<Ga4Deep | null
       at: new Date().toISOString(),
       days: span,
       scope: ga4Scope(),
-      months: rows(0)
-        .map(row => {
-          /*
-           * Měsíc se skládá z roku a měsíce zvlášť. Kdyby napojení někdy
-           * poslalo `yearMonth` (YYYYMM) v jednom kuse, přečte se i to —
-           * ale hlavní cesta jsou dvě samostatná pole.
-           */
-          const raw = String(row?.yearMonth ?? '').replace(/\D/g, '');
-          const year = String(row?.year ?? '').replace(/\D/g, '');
-          const mon = String(row?.month ?? '').replace(/\D/g, '').padStart(2, '0');
-          return {
-            month: year.length === 4 && mon.length === 2
-              ? `${year}-${mon}`
-              : raw.length >= 6 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}` : '',
-            sessions: num(row?.sessions) ?? 0,
-            users: num(row?.totalUsers) ?? 0,
-            purchases: num(row?.ecommercePurchases) ?? num(row?.conversions) ?? 0,
-            revenue: Math.round(num(row?.totalRevenue) ?? 0)
-          };
-        })
-        .filter(month => month.month)
-        .sort((a, b) => (a.month < b.month ? -1 : 1)),
+      months: monthsFrom(rows(0)),
       channels: list(1, 'sessionSourceMedium'),
       landings: list(2, 'landingPage'),
       pages: list(3, 'pagePath'),
@@ -1435,6 +1421,30 @@ export async function ga4Deep(days = 365, force = false): Promise<Ga4Deep | null
         error: message
       };
   }
+}
+
+/**
+ * Ze dnů měsíce.
+ *
+ * Sečte se `date` (YYYYMMDD) do `YYYY-MM`. Uživatelé se sčítat nedají —
+ * jeden člověk může přijít víckrát za měsíc a součet přes dny by ho počítal
+ * pokaždé znovu — proto se u měsíce bere **největší denní hodnota** jako
+ * dolní odhad a je to tak i míněno.
+ */
+export function monthsFrom(rows: any[]): Ga4Month[] {
+  const map = new Map<string, Ga4Month>();
+  for (const row of rows) {
+    const day = String(row?.date ?? '').replace(/\D/g, '');
+    if (day.length < 6) continue;
+    const key = `${day.slice(0, 4)}-${day.slice(4, 6)}`;
+    const hit = map.get(key) ?? { month: key, sessions: 0, users: 0, purchases: 0, revenue: 0 };
+    hit.sessions += num(row?.sessions) ?? 0;
+    hit.users = Math.max(hit.users, num(row?.totalUsers) ?? 0);
+    hit.purchases += num(row?.ecommercePurchases) ?? num(row?.conversions) ?? 0;
+    hit.revenue += Math.round(num(row?.totalRevenue) ?? 0);
+    map.set(key, hit);
+  }
+  return [...map.values()].sort((a, b) => (a.month < b.month ? -1 : 1));
 }
 
 /**

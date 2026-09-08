@@ -630,7 +630,8 @@ const DESKTOP_ONLY = [
   'packeta:setup', 'packeta:saveSetup', 'packeta:test', 'packeta:packets',
   'packeta:create', 'packeta:labels', 'packeta:formats',
   'balikovna:setup', 'balikovna:saveSetup', 'balikovna:fields', 'balikovna:rows',
-  'balikovna:export', 'balikovna:open', 'balikovna:import'
+  'balikovna:export', 'balikovna:open', 'balikovna:import',
+  'logins:list', 'logins:save'
 ];
 
 /**
