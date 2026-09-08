@@ -2,7 +2,7 @@ import type {
   AccountConfig, AccountPublic, FolderInfo, MessageHeader, MessageFull,
   ComposeDraft, OutboxItem, Settings, AiReplyRequest, KnowledgeDoc, Person, ProductHit, FeedStatus, ContactHit,
   ProductQuery, ProductPage, ProductFacets,
-  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, DigestFacts, DigestInsight, DigestArchiveRow, Ga4Config, Ga4Deep, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
+  UpgatesOrder, UpgatesConfig, OrderCard, OrderBadge, CodeShorthand, DigestReport, DigestTurn, DigestFacts, DigestInsight, DigestArchiveRow, Ga4Config, Ga4Deep, Ga4Notes, Ga4Note, OrderTracking, PackingScan, PackingState, PackingHit, PackingLookup, CustomerContext, VoucherSpec,
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
@@ -14,10 +14,12 @@ import type {
   PtransGoogleView, PtransColorRule, PtransBaseColor, PtransBundleRule, PtransAttributeRules,
   PtransAudit, PtransAuditSummary,
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
-  ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
+  ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct, ArticleStatsView, ArticleStatDetail,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
-  RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView
+  RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
+  InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
+  PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -260,6 +262,9 @@ export const api = {
     saveSettings: (patch: Partial<ArticleSettings>) => call<ArticleSettings>('articles:saveSettings', patch),
     defaultPrompt: () => call<string>('articles:defaultPrompt'),
     list: (filter: { search?: string; status?: string } = {}) => call<ArticleListRow[]>('articles:list', filter),
+    /** Jak si články vedou — návštěvy, vstupy a objednávky z nich */
+    stats: (days = 365) => call<ArticleStatsView | null>('articles:stats', days),
+    stat: (id: number, days = 365) => call<ArticleStatDetail | null>('articles:stat', id, days),
     get: (id: number) => call<ArticleDetail | null>('articles:get', id),
     save: (input: Record<string, unknown>) => call<number>('articles:save', input),
     delete: (id: number) => call<boolean>('articles:delete', id),
@@ -377,7 +382,9 @@ export const api = {
     /** Celá poslední odpověď Sequelu — v bublině se ukáže jen shrnutí */
     detail: () => call<string>('ga4:detail'),
     /** Hlubší rozbor návštěvnosti — kanály, stránky, cesta k nákupu */
-    deep: (days = 365, force = false) => call<Ga4Deep | null>('ga4:deep', days, force)
+    deep: (days = 365, force = false) => call<Ga4Deep | null>('ga4:deep', days, force),
+    /** Závěry k číslům — doběhnou po tabulce, protože jdou přes AI */
+    notes: (days = 365, force = false) => call<Ga4Notes | null>('ga4:notes', days, force)
   },
   upgates: {
     config: () => call<UpgatesConfig>('upgates:config'),
@@ -579,6 +586,90 @@ export const api = {
       call<{ written: number; failed: { code: string; error: string }[] }>('stockin:sendApi', id),
     apiCheck: () => call<{ can: boolean; detail: string }>('stockin:apiCheck'),
     confirm: (id: string) => call<boolean>('stockin:confirm', id)
+  },
+
+  /**
+   * Faktury hromadně.
+   *
+   * Faktury se z administrace stahují, ne kreslí: je to tentýž doklad, jaký
+   * dostal zákazník. Adresa se jednou naučí z toho, jak fakturu otevře
+   * uživatel, a pak se do ní jen dosazuje číslo.
+   */
+  invoices: {
+    setup: () => call<InvoiceSetup>('invoices:setup'),
+    saveSetup: (next: Partial<InvoiceSetup>) => call<InvoiceSetup>('invoices:saveSetup', next),
+    /** Otevře okno administrace a počká, až v něm člověk otevře jednu fakturu */
+    learn: () => call<{ template: string; sample: string; kind: string; matched: string } | { error: string }>('invoices:learn'),
+    login: () => call<boolean>('invoices:login'),
+    since: (days: number) => call<InvoiceJob[]>('invoices:since', days),
+    /** Stáhne faktury k daným objednávkám a uloží je jako jeden PDF k tisku */
+    download: (codes: string[]) => call<InvoiceRun>('invoices:download', codes),
+    detail: () => call<string>('invoices:detail'),
+    /** Stáhne chybějící faktury na pozadí, ať je tisk okamžitý */
+    prefetch: (codes: string[]) =>
+      call<{ ready: number; fetched: number; stopped: string | null }>('invoices:prefetch', codes),
+    /** Kolik z nich už je po ruce */
+    ready: (codes: string[]) => call<{ ready: number; total: number }>('invoices:ready', codes)
+  },
+
+  /**
+   * Zásilky pro PPL.
+   *
+   * PPL nemá volné API — přístup schvalují. Cesta, která funguje hned, je
+   * soubor CSV nahraný do klientské administrace; aplikace ho sestaví přesně
+   * v podobě, na jakou je tam nastavená uložená úloha.
+   */
+  ppl: {
+    setup: () => call<PplSetup>('ppl:setup'),
+    saveSetup: (next: Partial<PplSetup>) => call<PplSetup>('ppl:saveSetup', next),
+    /** Náhled — co se vyveze a co se vynechá a proč */
+    rows: (codes: string[]) =>
+      call<{ rows: PplRow[]; skipped: { code: string; reason: string }[] }>('ppl:rows', codes),
+    export: (codes: string[]) => call<PplExport>('ppl:export', codes),
+    /** Otevře import v administraci PPL i se souborem; odeslání zůstává na člověku */
+    openImport: (file: string) => call<{ filled: boolean; note: string }>('ppl:import', file),
+    /** Otevře seznam zásilek v administraci PPL, odkud se tisknou štítky */
+    openLabels: () => call<boolean>('ppl:labels')
+  },
+
+  /**
+   * Zásilkovna.
+   *
+   * Tady API veřejné je, takže se zásilka založí přímo z aplikace a štítek
+   * přijde jako hotový PDF arch. Podací list se neodesílá — to je krok, po
+   * kterém se u dopravce účtuje.
+   */
+  packeta: {
+    setup: () => call<PacketaSetup>('packeta:setup'),
+    saveSetup: (next: Partial<PacketaSetup> & { password?: string }) =>
+      call<PacketaSetup>('packeta:saveSetup', next),
+    test: () => call<string>('packeta:test'),
+    packets: (codes: string[]) => call<PacketaPacket[]>('packeta:packets', codes),
+    create: (codes: string[]) => call<PacketaResult>('packeta:create', codes),
+    labels: (codes: string[], format?: string, offset?: number) =>
+      call<{ file: string | null; count: number; missing: string[] }>('packeta:labels', codes, format, offset),
+    formats: () => call<string[]>('packeta:formats')
+  },
+
+  /**
+   * Balíkovna přes Podání Online České pošty.
+   *
+   * Podání Online nemá pevný formát souboru: v konfiguraci importu se ke
+   * každému poli napíše, ve kterém sloupci ho hledat. Pořadí sloupců je
+   * proto v nastavení, ne v kódu.
+   */
+  balikovna: {
+    setup: () => call<BalikovnaSetup>('balikovna:setup'),
+    saveSetup: (next: Partial<BalikovnaSetup>) => call<BalikovnaSetup>('balikovna:saveSetup', next),
+    /** Pole, která umí aplikace do souboru dát — pro nastavení pořadí */
+    fields: () => call<{ key: string; label: string; hint: string }[]>('balikovna:fields'),
+    rows: (codes: string[]) =>
+      call<{ rows: any[]; skipped: { code: string; reason: string }[] }>('balikovna:rows', codes),
+    export: (codes: string[]) => call<BalikovnaExport>('balikovna:export', codes),
+    /** Otevře Podání Online; nahrání a odeslání zůstává na člověku */
+    open: () => call<boolean>('balikovna:open'),
+    /** Otevře import a vloží do něj soubor, jakmile se políčko objeví */
+    openImport: (file: string) => call<{ filled: boolean; note: string }>('balikovna:import', file)
   },
 
   /**

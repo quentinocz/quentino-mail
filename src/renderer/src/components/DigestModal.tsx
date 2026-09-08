@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DigestArchiveRow, DigestDay, DigestFacts, DigestInsight, DigestMonth, DigestReport,
   DigestMoney, DigestPost, DigestSlice, DigestTask, DigestTotals, DigestTurn,
-  Ga4Deep, Ga4Funnel, Ga4Month, Ga4Slice
+  Ga4Deep, Ga4Funnel, Ga4Month, Ga4Slice, Ga4Note, Ga4Notes, ArticleStatsView
 } from '@shared/types';
 import { api } from '../api';
 import { useIsPhone } from '../mobile';
@@ -210,7 +210,7 @@ function DayChart({ days: given, currency, mode, bucketDays = 1 }: {
  * Samotné návštěvy klamou — měsíc s dvojnásobným provozem a stejným počtem
  * nákupů je špatná zpráva, ne dobrá, a to je vidět, až když jsou vedle sebe.
  */
-function TrafficChart({ months }: { months: Ga4Month[] }) {
+function TrafficChart({ months, notes = [] }: { months: Ga4Month[]; notes?: Ga4Note[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const top = Math.max(1, ...months.map(one => one.sessions));
   const topBuy = Math.max(1, ...months.map(one => one.purchases));
@@ -227,11 +227,24 @@ function TrafficChart({ months }: { months: Ga4Month[] }) {
         {active
           ? <>
             <b>{bucketLabel(`${active.month}-01`, 30)}</b>
-            {' — '}{active.sessions} návštěv · {active.users} uživatelů
+            {' — '}{fmt(active.sessions)} návštěv · {fmt(active.users)} uživatelů
             {active.purchases ? ` · ${active.purchases} nákupů` : ''}
             {active.revenue ? ` · ${money(active.revenue, 'CZK')}` : ''}
+            {/*
+              Meziroční srovnání přímo v popisku. U sezónního zboží je
+              „srpen proti červenci" k ničemu — smysl dává jen srpen proti
+              loňskému srpnu, a ten je v datech hned, jak je okno delší než rok.
+            */}
+            {(() => {
+              const before = months.find(one => one.month === yearBefore(active.month));
+              if (!before || before.sessions < 30) return null;
+              const change = Math.round(((active.sessions - before.sessions) / before.sessions) * 100);
+              return <span className={`dg-yoy ${change >= 0 ? 'up' : 'down'}`}>
+                {' '}{change >= 0 ? '+' : '−'}{Math.abs(change)} % proti loňsku
+              </span>;
+            })()}
           </>
-          : <span className="dg-chart-hint">sloupce = návštěvy, čára = nákupy</span>}
+          : <span className="dg-chart-hint">sloupce = návštěvy, čára = nákupy · najeď na sloupec</span>}
       </div>
       <svg
         viewBox={`0 0 ${width} 34`}
@@ -267,8 +280,19 @@ function TrafficChart({ months }: { months: Ga4Month[] }) {
           </span>
         ))}
       </div>
+      {notes.filter(one => one.where === 'months').map((one, i) => (
+        <div className={`dg-note ${kindClass(one.kind)}`} key={i}>
+          <Icon name="sparkles" size={12} /> <span>{one.text}</span>
+        </div>
+      ))}
     </div>
   );
+}
+
+/** Tentýž měsíc o rok dřív — „2026-08" → „2025-08" */
+function yearBefore(month: string): string {
+  const [year, mon] = month.split('-');
+  return `${Number(year) - 1}-${mon}`;
 }
 
 /**
@@ -279,8 +303,11 @@ function TrafficChart({ months }: { months: Ga4Month[] }) {
  * přivede sto a prodá. Konverze se ukazuje až od sta návštěv — z pěti se
  * poctivě spočítat nedá a procento z mála mate nejvíc.
  */
-function TrafficSlice({ title, icon, rows, note, sales = true }: {
+function TrafficSlice({ title, icon, rows, note, sales = true, notes = [], where = '' }: {
   title: string; icon: string; rows: Ga4Slice[]; note?: string;
+  /** Závěry od AI k téhle sestavě — dvojice „řádek → věta" */
+  notes?: Ga4Note[];
+  where?: string;
   /*
    * Má u téhle sestavy smysl mluvit o konverzi? U kanálů a vstupních
    * stránek ano. U čtených stránek ne: nákup se připisuje vstupní stránce,
@@ -290,26 +317,181 @@ function TrafficSlice({ title, icon, rows, note, sales = true }: {
   sales?: boolean;
 }) {
   const top = Math.max(1, ...rows.map(one => one.sessions));
+  const all = rows.reduce((sum, one) => sum + one.sessions, 0);
+  // Průměr počítaný jen z řádků, kde má konverze vypovídací hodnotu —
+  // jinak by ho jeden řádek se třemi návštěvami stáhl kamkoli
+  const measured = rows.filter(one => one.conversion != null);
+  const avg = measured.length
+    ? measured.reduce((sum, one) => sum + (one.conversion ?? 0), 0) / measured.length
+    : null;
+  const general = notes.filter(one => one.where === where && !one.row);
+
   return (
     <div className="dg-card">
       <div className="dg-card-head"><Icon name={icon} size={14} /> {title}</div>
       {note && <div className="dg-caption">{note}</div>}
       {rows.length === 0 && <div className="dg-empty">Zatím není z čeho brát.</div>}
       {rows.slice(0, 8).map(one => (
-        <div className="dg-bar-row" key={one.name} title={`${one.sessions} návštěv, ${one.users} uživatelů`}>
-          <span className="dg-bar-label">{one.name}</span>
+        <div className="dg-bar-row" key={one.name}>
+          <span className="dg-bar-label" title={one.name}>{one.name}</span>
           <span className="dg-bar-track">
             <span className="dg-bar-fill" style={{ width: `${(one.sessions / top) * 100}%` }} />
           </span>
-          <span className="dg-bar-num">{one.sessions}</span>
-          <span className="dg-bar-money" title={sales ? 'Konverze a tržba' : 'Kolik různých lidí to vidělo'}>
+          <span className="dg-bar-num">{fmt(one.sessions)}</span>
+          <span className="dg-bar-money">
             {sales
-              ? <>{one.conversion != null ? `${one.conversion} %` : '—'}
-                {one.revenue ? ` · ${money(one.revenue, 'CZK')}` : ''}</>
-              : `${one.users} lidí`}
+              ? <>{one.conversion != null ? `${dec(one.conversion)} %` : '—'}
+                {one.revenue ? <span className="dg-bar-rev"> · {money(one.revenue, 'CZK')}</span> : null}</>
+              : `${fmt(one.users)} lidí`}
+          </span>
+          {/*
+            Vysvětlení až po najetí. V tabulce zůstávají čísla, ale kdo neví,
+            co znamenají, dostane po najetí větu — a když AI našla souvislost,
+            i tu. Bublina od prohlížeče na to nestačí: neumí víc řádků ani
+            odlišit spočítané od odhadnutého.
+          */}
+          <span className="dg-pop dg-pop-note">
+            <span className="dg-pop-title">{one.name}</span>
+            {explainSlice(one, all, avg, sales).map((line, i) => (
+              <span className="dg-pop-line" key={i}>{line}</span>
+            ))}
+            {notes.filter(n => n.where === where && n.row === one.name).map((n, i) => (
+              <span className={`dg-pop-ai ${kindClass(n.kind)}`} key={i}>
+                <Icon name="sparkles" size={11} /> {n.text}
+              </span>
+            ))}
           </span>
         </div>
       ))}
+      {general.map((n, i) => (
+        <div className={`dg-note ${kindClass(n.kind)}`} key={i}>
+          <Icon name="sparkles" size={12} /> <span>{n.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Barva podle toho, jestli je to pochvala, problém, nebo námět. */
+function kindClass(kind: Ga4Note['kind']): string {
+  return kind === 'dobré' ? 'good' : kind === 'slabé' ? 'bad' : 'idea';
+}
+
+/** Tisíce s mezerou — 8569 se čte hůř než 8 569 */
+function fmt(value: number): string {
+  return value.toLocaleString('cs-CZ');
+}
+
+/** Desetinná čárka, ne tečka — „2.4 %" je v českém textu překlep */
+function dec(value: number): string {
+  return value.toLocaleString('cs-CZ', { maximumFractionDigits: 1 });
+}
+
+/**
+ * Co ten řádek znamená — spočítané, ne odhadnuté.
+ *
+ * Tohle je ta část, která funguje vždycky, i když AI mlčí nebo se netrefí.
+ * Srovnává se s **průměrem téhle sestavy**, ne s cizími čísly z oboru:
+ * „konverze 1,8 %" nikomu nic neřekne, „skoro polovina průměru webu" ano.
+ */
+function explainSlice(
+  one: Ga4Slice, allSessions: number, avgConversion: number | null, sales: boolean
+): string[] {
+  const out: string[] = [];
+  const share = allSessions > 0 ? Math.round((one.sessions / allSessions) * 100) : 0;
+  out.push(`${fmt(one.sessions)} návštěv (${share} % z téhle tabulky) od ${fmt(one.users)} lidí.`);
+
+  if (!sales) {
+    const per = one.users > 0 ? Math.round((one.sessions / one.users) * 10) / 10 : 0;
+    out.push(per > 1.4
+      ? `Vracejí se sem — na jednoho člověka ${dec(per)} návštěvy.`
+      : 'Většina lidí sem přijde jednou.');
+    out.push('Nákup se připisuje stránce, kudy člověk přišel, ne téhle — proto tu konverze není.');
+    return out;
+  }
+
+  if (one.conversion == null) {
+    out.push('Na konverzi je to málo dat (počítá se od 100 návštěv), takže z toho zatím nic nedělej.');
+    return out;
+  }
+
+  out.push(`Nakoupilo ${one.purchases} z nich — to je ${dec(one.conversion)} % návštěv.`);
+  if (avgConversion != null && avgConversion > 0) {
+    const ratio = one.conversion / avgConversion;
+    out.push(ratio >= 1.25
+      ? `To je nadprůměr: web má v téhle tabulce průměr ${dec(avgConversion)} %.`
+      : ratio <= 0.75
+        ? `To je podprůměr: web má v téhle tabulce průměr ${dec(avgConversion)} %.`
+        : `Zhruba průměr webu (${dec(avgConversion)} %).`);
+  }
+  if (one.revenue > 0) {
+    out.push(`Přineslo to ${money(one.revenue, 'CZK')}, tedy ${dec(one.perSession ?? 0)} Kč na jednu návštěvu.`);
+  } else if (one.sessions >= 100) {
+    out.push('Tržba nula — lidi to sem přivede, ale nekoupí. Stojí za to zjistit proč.');
+  }
+  return out;
+}
+
+/**
+ * Jak si vedou články.
+ *
+ * Články se v aplikaci píšou a pak se o nich už nic neví. Přitom otázka
+ * „vyplatilo se to psát" má odpověď v Analytics. Rozlišují se dvě čísla,
+ * protože se pletou: **čtenost** (kolikrát se článek otevřel, i lidmi, co
+ * na webu už byli) a **vstupy** (kolikrát byl článek tou první stránkou).
+ * Objednávka se připisuje vstupní stránce, takže mluvit o tom, že článek
+ * někoho přivedl, jde jen u vstupů.
+ */
+function ArticleStats({ view }: { view: ArticleStatsView }) {
+  const rows = view.rows.filter(one => one.found).slice(0, 8);
+  const top = Math.max(1, ...rows.map(one => one.views));
+  return (
+    <div className="dg-card">
+      <div className="dg-card-head"><Icon name="fileText" size={14} /> Články</div>
+      <div className="dg-caption">
+        Čtenost a co z toho bylo — {view.scope}. Vlevo návštěvy článku, vpravo kolik lidí
+        přes něj do e-shopu vstoupilo a co nakoupili.
+      </div>
+      {rows.length === 0 && (
+        <div className="dg-empty">
+          {view.error
+            ? `Statistika článků není: ${view.error}`
+            : 'Analytics zatím žádný z článků nezná.'}
+        </div>
+      )}
+      {rows.map(one => (
+        <div className="dg-bar-row" key={one.id}>
+          <span className="dg-bar-label" title={one.title}>{one.title}</span>
+          <span className="dg-bar-track">
+            <span className="dg-bar-fill" style={{ width: `${(one.views / top) * 100}%` }} />
+          </span>
+          <span className="dg-bar-num">{fmt(one.views)}</span>
+          <span className="dg-bar-money">
+            {one.entries ? `${fmt(one.entries)} vstupů` : 'bez vstupů'}
+            {one.revenue ? <span className="dg-bar-rev"> · {money(one.revenue, 'CZK')}</span> : null}
+          </span>
+          <span className="dg-pop dg-pop-note">
+            <span className="dg-pop-title">{one.title}</span>
+            <span className="dg-pop-line">{one.path}</span>
+            <span className="dg-pop-line">
+              {fmt(one.views)} otevření od {fmt(one.readers)} lidí za {view.days} dní.
+            </span>
+            <span className="dg-pop-line">
+              {one.entries === 0
+                ? 'Nikdo sem nepřišel zvenčí — čtou ho lidé, kteří už na webu jsou.'
+                : `Zvenčí sem přišlo ${fmt(one.entries)} návštěv`
+                  + (one.purchases
+                    ? `, z toho ${one.purchases} objednávek za ${money(one.revenue, 'CZK')}.`
+                    : ' — objednávka z toho ale zatím žádná.')}
+            </span>
+          </span>
+        </div>
+      ))}
+      {view.missing > 0 && (
+        <div className="dg-caption">
+          {view.missing} článků Analytics nezná — buď ještě nejsou na webu, nebo je nikdo neotevřel.
+        </div>
+      )}
     </div>
   );
 }
@@ -321,35 +503,65 @@ function TrafficSlice({ title, icon, rows, note, sales = true }: {
  * konverze řekne jen „málo"; tohle řekne **kde** se lidé ztrácejí — jestli
  * na produktu, nebo až v pokladně, což jsou dvě různé opravy.
  */
-function Funnel({ funnel }: { funnel: Ga4Funnel }) {
+function Funnel({ funnel, notes = [] }: { funnel: Ga4Funnel; notes?: Ga4Note[] }) {
   const steps = [
-    { label: 'Návštěvy', value: funnel.sessions },
-    { label: 'Do košíku', value: funnel.addToCarts },
-    { label: 'Do pokladny', value: funnel.checkouts },
-    { label: 'Nákup', value: funnel.purchases }
+    { label: 'Návštěvy', value: funnel.sessions, what: 'Kolik lidí web otevřelo.' },
+    { label: 'Do košíku', value: funnel.addToCarts, what: 'Kolik z nich dalo zboží do košíku.' },
+    { label: 'Do pokladny', value: funnel.checkouts, what: 'Kolik se jich pustilo do vyplňování objednávky.' },
+    { label: 'Nákup', value: funnel.purchases, what: 'Kolik objednávku opravdu dokončilo.' }
   ];
   const top = Math.max(1, funnel.sessions);
+  const general = notes.filter(one => one.where === 'funnel' && !one.row);
   return (
     <div className="dg-card">
       <div className="dg-card-head"><Icon name="sliders" size={14} /> Cesta k nákupu</div>
+      <div className="dg-caption">Kde se lidé cestou ztrácejí. Najeď na krok a dozvíš se, co s ním.</div>
       {steps.map((step, i) => {
         const before = i > 0 ? steps[i - 1].value : 0;
         const drop = i > 0 && before > 0
           ? Math.round(((before - step.value) / before) * 100)
           : null;
+        const keep = i > 0 && before > 0 ? Math.round((step.value / before) * 100) : 100;
         return (
           <div className="dg-bar-row" key={step.label}>
             <span className="dg-bar-label">{step.label}</span>
             <span className="dg-bar-track">
               <span className="dg-bar-fill" style={{ width: `${(step.value / top) * 100}%` }} />
             </span>
-            <span className="dg-bar-num">{step.value}</span>
-            <span className="dg-bar-money">
-              {drop != null ? `−${drop} % oproti kroku výš` : `${Math.round((step.value / top) * 100)} %`}
+            <span className="dg-bar-num">{fmt(step.value)}</span>
+            {/*
+              Do sloupečku patří jedno číslo, ne věta. „−90 % oproti kroku
+              výš" se do karty nevešlo a přetékalo přes okraj; co to číslo
+              znamená, se dozví ten, kdo na řádek najede.
+            */}
+            <span className="dg-bar-money">{drop != null ? `−${drop} %` : '100 %'}</span>
+            <span className="dg-pop dg-pop-note">
+              <span className="dg-pop-title">{step.label}</span>
+              <span className="dg-pop-line">{step.what}</span>
+              <span className="dg-pop-line">
+                {i === 0
+                  ? `${fmt(step.value)} návštěv za celé období.`
+                  : `Z předchozího kroku (${fmt(before)}) došlo dál ${fmt(step.value)}, tedy ${keep} %. Zbylých ${drop} % odpadlo.`}
+              </span>
+              {i > 0 && (
+                <span className="dg-pop-line">
+                  Z celkových návštěv je to {Math.round((step.value / top) * 100)} %.
+                </span>
+              )}
+              {notes.filter(n => n.where === 'funnel' && n.row === step.label).map((n, k) => (
+                <span className={`dg-pop-ai ${kindClass(n.kind)}`} key={k}>
+                  <Icon name="sparkles" size={11} /> {n.text}
+                </span>
+              ))}
             </span>
           </div>
         );
       })}
+      {general.map((n, i) => (
+        <div className={`dg-note ${kindClass(n.kind)}`} key={i}>
+          <Icon name="sparkles" size={12} /> <span>{n.text}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -622,6 +834,17 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
    * u sezónního zboží dává smysl dívat se rok i dva zpátky.
    */
   const [deep, setDeep] = useState<Ga4Deep | null>(null);
+  /**
+   * Závěry k číslům.
+   *
+   * Načítají se zvlášť od tabulky, protože jdou přes AI a trvají. Tabulka
+   * se ukáže hned se spočítaným vysvětlením u každého řádku; věty od AI se
+   * do ní doplní, až doběhnou. Kdyby čekaly na sebe, byl by rozbor
+   * pomalejší přesně o tu část, která není nutná.
+   */
+  const [notes, setNotes] = useState<Ga4Notes | null>(null);
+  /** Statistika článků — stojí na týchž datech ze stránek, proto vedle rozboru */
+  const [artStats, setArtStats] = useState<ArticleStatsView | null>(null);
   const [deepDays, setDeepDays] = useState(365);
   const [deepBusy, setDeepBusy] = useState(false);
   /*
@@ -677,8 +900,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
     if (phone) return;
     let alive = true;
     setDeepBusy(true);
+    setNotes(null);
     api.ga4.deep(deepDays)
-      .then(one => { if (alive) setDeep(one); })
+      .then(one => {
+        if (!alive) return;
+        setDeep(one);
+        if (one && !one.error && one.months.length > 0) {
+          api.ga4.notes(deepDays).then(text => { if (alive) setNotes(text); }).catch(() => {});
+          api.articles.stats(deepDays).then(list => { if (alive) setArtStats(list); }).catch(() => {});
+        }
+      })
       .catch(() => {})
       .finally(() => { if (alive) setDeepBusy(false); });
     return () => { alive = false; };
@@ -1299,8 +1530,14 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                       disabled={deepBusy}
                       onClick={() => {
                         setDeepBusy(true);
+                        setNotes(null);
                         api.ga4.deep(deepDays, true)
-                          .then(one => { setDeep(one); toast('Rozbor je čerstvý.'); })
+                          .then(one => {
+                            setDeep(one);
+                            toast('Rozbor je čerstvý.');
+                            // Čísla jsou nová, takže i závěry k nim musí být nové
+                            api.ga4.notes(deepDays, true).then(setNotes).catch(() => {});
+                          })
                           .catch(e => toast(`Nepovedlo se: ${e.message}`, 'error'))
                           .finally(() => setDeepBusy(false));
                       }}
@@ -1323,28 +1560,51 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                         Měří {deep.scope}; objednávky v přehledu výš jsou ze všech trhů,
                         {' '}takže konverze tady sedí jen na tenhle web.
                       </div>
-                      <TrafficChart months={deep.months} />
+                      <TrafficChart months={deep.months} notes={notes?.notes ?? []} />
+                      {/*
+                        Závěr nahoře, tabulky pod ním. Kdo otevře rozbor
+                        jednou za měsíc, potřebuje nejdřív větu „co z toho
+                        plyne" — čísla si pak dohledá u toho řádku, který ho
+                        zaujal.
+                      */}
+                      {notes?.summary && (
+                        <div className="dg-summary">
+                          <Icon name="sparkles" size={13} />
+                          <span>{notes.summary}</span>
+                        </div>
+                      )}
+                      {!notes && deep.months.length > 0 && (
+                        <div className="dg-summary waiting">
+                          <span className="spinner-inline" /> Skládám z čísel závěr…
+                        </div>
+                      )}
                       <div className="dg-grid">
                         <TrafficSlice
-                          title="Kanály" icon="globe" rows={deep.channels}
-                          note="Vpravo konverze a tržba — kanál, který přivede lidi, a kanál, který přivede peníze, jsou dvě různé věci."
+                          title="Kanály" icon="globe" rows={deep.channels} where="channels" notes={notes?.notes ?? []}
+                          note="Odkud lidé přišli. Vpravo je konverze a tržba — kanál, který přivede lidi, a kanál, který přivede peníze, jsou dvě různé věci."
                         />
-                        <Funnel funnel={deep.funnel} />
+                        <Funnel funnel={deep.funnel} notes={notes?.notes ?? []} />
                       </div>
                       <div className="dg-grid">
                         <TrafficSlice
-                          title="Vstupní stránky" icon="fileText" rows={deep.landings}
+                          title="Vstupní stránky" icon="fileText" rows={deep.landings} where="landings" notes={notes?.notes ?? []}
                           note="Kudy se do e-shopu chodí — sem míří reklama i vyhledávání."
                         />
                         <TrafficSlice
                           title="Nejčtenější stránky" icon="fileText" rows={deep.pages} sales={false}
+                          where="pages" notes={notes?.notes ?? []}
                           note="Články, kategorie a produkty podle návštěv. Konverze se tu neukazuje — nákup se připisuje vstupní stránce, ne té, kde se čte."
                         />
                       </div>
+                      {artStats && artStats.rows.some(one => one.found) && (
+                        <ArticleStats view={artStats} />
+                      )}
                       <div className="dg-grid">
-                        <TrafficSlice title="Zařízení" icon="sliders" rows={deep.devices} />
+                        <TrafficSlice title="Zařízení" icon="sliders" rows={deep.devices}
+                          where="devices" notes={notes?.notes ?? []} />
                         <TrafficSlice
                           title="Země návštěvníků" icon="globe" rows={deep.countries}
+                          where="countries" notes={notes?.notes ?? []}
                           note="Proti zemím objednávek je vidět, kde se dívají a nekupují."
                         />
                       </div>

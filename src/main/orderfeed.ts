@@ -145,6 +145,21 @@ export function normalizePhone(raw: string, market = 'cz'): string {
 }
 
 /**
+ * První hodnota, která je opravdu číslem místa.
+ *
+ * Prázdno i nula znamenají „místo se nezadává" — u zásilky na adresu je
+ * `<BRANCH_ID>0</BRANCH_ID>` běžné a vzít ji jako číslo výdejny by
+ * znamenalo zakládat zásilku na neexistující pobočku.
+ */
+function firstNumber(...values: string[]): string {
+  for (const value of values) {
+    const clean = (value ?? '').trim();
+    if (clean && clean !== '0' && /\d/.test(clean)) return clean;
+  }
+  return '';
+}
+
+/**
  * Adresa z bloku `<BILLING>` nebo `<POSTAL>`.
  *
  * Názvy značek se u exportů liší podle stáří šablony (`ZIP_CODE` i `ZIP`,
@@ -218,12 +233,34 @@ export function parseOrders(xml: string, market: string): ShopOrder[] {
       updatedAt: tag(block, 'LAST_UPDATE_TIME', 'UPDATED_AT'),
       currency: tag(block, 'CURRENCY', 'CURRENCY_ID'),
       total: Number(tag(block, 'TOTAL_PRICE_WITH_VAT', 'TOTAL_WITH_VAT')) || 0,
+      /*
+       * Váha celé objednávky v gramech. Zásilkovna ji u zásilky chce a
+       * odhadovat ji paušálem je zbytečné, když ji feed počítá z položek.
+       */
+      weight: Number(tag(block, 'TOTAL_WEIGHT')) || 0,
       tracking: tag(block, 'TRACING_CODE', 'TRACKING_CODE'),
       customerId: tag(customerBlock, 'CUSTOMER_ID'),
       name: [first, last].filter(Boolean).join(' '),
       email: tag(customerBlock, 'EMAIL').toLowerCase(),
       phone: normalizePhone(tag(customerBlock, 'PHONE'), market),
       shipment: tag(shipmentBlock, 'NAME'),
+      /*
+       * Číslo výdejního místa — ve feedu je jako `BRANCH_ID`.
+       *
+       * Bez něj se u Zásilkovny zásilka založit nedá: jejich API chce číslo
+       * místa, ne jeho adresu. `BRANCH_ID` je ten název, který Upgates
+       * posílá, a hledá se první; ostatní zůstávají jako záložní pro případ,
+       * že by šablona exportu uměla i jinou podobu.
+       *
+       * Nula je „žádné místo", ne místo číslo nula — u zásilek na adresu ji
+       * export vyplňuje a jako číslo výdejny by poslala balík do prázdna.
+       */
+      pickupId: firstNumber(
+        tag(shipmentBlock, 'BRANCH_ID', 'PICKUP_POINT_ID', 'PLACE_ID', 'POINT_ID'),
+        tag(block, 'BRANCH_ID', 'PICKUP_POINT_ID')
+      ),
+      pickupName: tag(shipmentBlock, 'BRANCH_NAME', 'PICKUP_POINT_NAME', 'PLACE_NAME')
+        || tag(block, 'BRANCH_NAME', 'PICKUP_POINT_NAME'),
       payment: tag(paymentBlock, 'NAME'),
       items,
       billing: parseAddress(billingBlock),
@@ -241,10 +278,10 @@ function save(orders: ShopOrder[]): number {
   const stmt = d.prepare(`
     INSERT INTO shop_orders (code, market, status, paid, paid_date, resolved, invoice,
       created_at, updated_at, currency, total, tracking, customer_id, name, email, phone,
-      shipment, payment, items_json, billing_json, postal_json, seen_at)
+      shipment, payment, pickup_id, pickup_name, weight, items_json, billing_json, postal_json, seen_at)
     VALUES (@code, @market, @status, @paid, @paidDate, @resolved, @invoice,
       @createdAt, @updatedAt, @currency, @total, @tracking, @customerId, @name, @email, @phone,
-      @shipment, @payment, @items, @billing, @postal, @seen)
+      @shipment, @payment, @pickupId, @pickupName, @weight, @items, @billing, @postal, @seen)
     ON CONFLICT(code, market) DO UPDATE SET
       status = excluded.status, paid = excluded.paid, paid_date = excluded.paid_date,
       resolved = excluded.resolved, invoice = excluded.invoice,
@@ -257,6 +294,10 @@ function save(orders: ShopOrder[]): number {
       phone = CASE WHEN excluded.phone <> '' THEN excluded.phone ELSE shop_orders.phone END,
       shipment = excluded.shipment, payment = excluded.payment,
       items_json = excluded.items_json, seen_at = excluded.seen_at,
+      -- Číslo výdejního místa přepisuje jen vyplněné; rychlý feed ho nemusí nést
+      pickup_id = CASE WHEN excluded.pickup_id <> '' THEN excluded.pickup_id ELSE shop_orders.pickup_id END,
+      pickup_name = CASE WHEN excluded.pickup_name <> '' THEN excluded.pickup_name ELSE shop_orders.pickup_name END,
+      weight = CASE WHEN excluded.weight > 0 THEN excluded.weight ELSE shop_orders.weight END,
       -- Adresu přepisuje jen ta, která za něco stojí. Rychlý feed s posledními
       -- 24 h ji nemusí nést vůbec a prázdnou hodnotou by se ztratila.
       billing_json = CASE WHEN excluded.billing_json IS NOT NULL
@@ -274,6 +315,8 @@ function save(orders: ShopOrder[]): number {
         currency: order.currency, total: order.total, tracking: order.tracking,
         customerId: order.customerId, name: order.name, email: order.email, phone: order.phone,
         shipment: order.shipment, payment: order.payment,
+        pickupId: order.pickupId ?? '', pickupName: order.pickupName ?? '',
+        weight: order.weight ?? 0,
         items: JSON.stringify(order.items),
         billing: order.billing ? JSON.stringify(order.billing) : null,
         postal: order.postal ? JSON.stringify(order.postal) : null,
@@ -419,6 +462,8 @@ function toOrder(row: any): ShopOrder {
     currency: row.currency, total: row.total, tracking: row.tracking,
     customerId: row.customer_id, name: row.name, email: row.email, phone: row.phone,
     shipment: row.shipment, payment: row.payment,
+    pickupId: row.pickup_id ?? '', pickupName: row.pickup_name ?? '',
+    weight: Number(row.weight) || 0,
     items: safeItems(row.items_json),
     billing: safeAddress(row.billing_json),
     postal: safeAddress(row.postal_json)

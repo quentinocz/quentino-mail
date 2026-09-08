@@ -57,7 +57,21 @@ import { listOutbox, cancelOutbox, processOutbox } from './scheduler';
 import { getDb } from './db';
 import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
+import { ga4Notes } from './ga4notes';
+import { articleStats, articleStat } from './artstats';
+import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabels } from './ppl';
+import {
+  packetaSetup, savePacketaSetup, testPacketa, packetsFor, createPackets, labelsPdf, LABEL_FORMATS
+} from './packeta';
+import {
+  balikovnaSetup, saveBalikovnaSetup, balikovnaRows, exportBalikovna, openBalikovna,
+  openBalikovnaImport, FIELDS as BAL_FIELDS
+} from './balikovna';
 import { refreshWatchers } from './idle';
+import {
+  downloadInvoices, learnInvoiceUrl, invoiceSetup, saveInvoiceSetup,
+  invoicesLastDetail, jobsSince, openAdminLogin, prefetchInvoices, invoicesReady
+} from './invoices';
 
 /** Zpráva do všech oken — po stažení feedu se musí překreslit, co je otevřené. */
 function emit(channel: string, payload: unknown) {
@@ -253,6 +267,9 @@ export function registerIpc() {
    * okamžité — a přepočítat se dá tlačítkem.
    */
   handle('ga4:deep', (days?: number, force?: boolean) => ga4Deep(Number(days) || 365, force === true));
+  // Závěry k číslům — jen doplněk k rozboru, proto zvlášť: tabulka se ukáže
+  // hned a věty k ní doběhnou, až doběhnou
+  handle('ga4:notes', (days?: number, force?: boolean) => ga4Notes(Number(days) || 365, force === true));
 
   // Upgates API (objednávky zákazníka)
   handle('upgates:config', () => getUpgatesConfig());
@@ -438,6 +455,48 @@ export function registerIpc() {
   handle('stockin:sendApi', (id: string) => sendViaApi(id));
   handle('stockin:apiCheck', () => apiCanWriteStock());
   handle('stockin:confirm', (id: string) => { confirmSent(id); return true; });
+
+  /* ---------- Faktury hromadně ---------- */
+  handle('invoices:setup', () => invoiceSetup());
+  handle('invoices:saveSetup', (next: any) => saveInvoiceSetup(next ?? {}));
+  handle('invoices:learn', () => learnInvoiceUrl());
+  handle('invoices:login', () => openAdminLogin());
+  handle('invoices:since', (days: number) => jobsSince(days ?? 7));
+  handle('invoices:download', (codes: string[]) => downloadInvoices(codes ?? []));
+  handle('invoices:detail', () => invoicesLastDetail());
+  // Stahování dopředu: u tiskárny se nemá čekat na síť
+  handle('invoices:prefetch', (codes: string[]) => prefetchInvoices(codes ?? []));
+  handle('invoices:ready', (codes: string[]) => invoicesReady(codes ?? []));
+
+  /* ---------- PPL ---------- */
+  handle('ppl:setup', () => pplSetup());
+  handle('ppl:saveSetup', (next: any) => savePplSetup(next ?? {}));
+  // Náhled: co se do souboru dostane a co se z výběru vynechá a proč
+  handle('ppl:rows', (codes: string[]) => pplRows(codes ?? []));
+  handle('ppl:export', (codes: string[]) => exportPpl(codes ?? []));
+  handle('ppl:import', (file: string) => openPplImport(file));
+  // Štítky PPL vystavuje jejich administrace — aplikace otevře ten správný seznam
+  handle('ppl:labels', () => openPplLabels());
+
+  /* ---------- Zásilkovna ---------- */
+  handle('packeta:setup', () => packetaSetup());
+  handle('packeta:saveSetup', (next: any) => savePacketaSetup(next ?? {}));
+  handle('packeta:test', () => testPacketa());
+  handle('packeta:packets', (codes: string[]) => packetsFor(codes ?? []));
+  handle('packeta:create', (codes: string[]) => createPackets(codes ?? []));
+  handle('packeta:labels', (codes: string[], format?: string, offset?: number) =>
+    labelsPdf(codes ?? [], format, offset));
+  handle('packeta:formats', () => LABEL_FORMATS);
+
+  /* ---------- Balíkovna (Podání Online) ---------- */
+  handle('balikovna:setup', () => balikovnaSetup());
+  handle('balikovna:saveSetup', (next: any) => saveBalikovnaSetup(next ?? {}));
+  handle('balikovna:fields', () => BAL_FIELDS);
+  handle('balikovna:rows', (codes: string[]) => balikovnaRows(codes ?? []));
+  handle('balikovna:export', (codes: string[]) => exportBalikovna(codes ?? []));
+  handle('balikovna:open', () => openBalikovna());
+  // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho
+  handle('balikovna:import', (file: string) => openBalikovnaImport(file));
 
   /*
    * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka
@@ -666,6 +725,12 @@ export function registerIpc() {
   handle('articles:saveSettings', (patch: any) => articles.saveArticleSettings(patch ?? {}));
   handle('articles:defaultPrompt', () => articles.defaultArticlePrompt());
   handle('articles:list', (filter: any) => articles.listArticles(filter ?? {}));
+  /*
+   * Statistika článků. Bere se z Analytics (jen český web) a je to jediné
+   * místo, kde se dá poznat, jestli se článek vyplatilo psát.
+   */
+  handle('articles:stats', (days?: number) => articleStats(Number(days) || 365));
+  handle('articles:stat', (id: number, days?: number) => articleStat(Number(id), Number(days) || 365));
   handle('articles:get', (id: number) => articles.getArticle(id));
   handle('articles:save', (input: any) => articles.saveArticle(input ?? {}));
   handle('articles:delete', (id: number) => { articles.deleteArticle(id); return true; });

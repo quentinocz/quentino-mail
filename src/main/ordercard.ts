@@ -176,14 +176,25 @@ function adminLink(card: OrderCard): { url: string | null; source: OrderCard['ad
   const base = adminBase();
   if (!base) return { url: null, source: null };
 
-  const ref = (getSetting('adminOrderRef', '') ?? '').trim();
-  const num = Number((card.orderNumber ?? '').replace(/\D/g, ''));
-  const m = ref.match(/^(\d+)\s*[:/]\s*(\d+)$/);
-  if (m && num > 0) {
-    const id = num - (Number(m[1]) - Number(m[2]));
-    if (id > 0) return { url: `${base}/orders/edit-order/default/${id}/`, source: 'offset' };
-  }
+  const id = adminOrderId(card.orderNumber ?? '');
+  if (id) return { url: `${base}/orders/edit-order/default/${id}/`, source: 'offset' };
   return { url: `${base}/orders/`, source: 'list' };
+}
+
+/**
+ * Vnitřní ID objednávky dopočítané z kalibrace.
+ *
+ * Vytažené zvlášť, protože totéž číslo potřebuje i stahování faktur: adresa
+ * faktury v administraci může stát na ID záznamu, ne na čísle objednávky.
+ * Dvě kopie téhle jedné rovnice by se rozešly při první změně kalibrace.
+ */
+export function adminOrderId(orderNumber: string): number | null {
+  const ref = (getSetting('adminOrderRef', '') ?? '').trim();
+  const num = Number((orderNumber ?? '').replace(/\D/g, ''));
+  const m = ref.match(/^(\d+)\s*[:/]\s*(\d+)$/);
+  if (!m || num <= 0) return null;
+  const id = num - (Number(m[1]) - Number(m[2]));
+  return id > 0 ? id : null;
 }
 
 // ---------- trvalé uložení hotových objednávek ----------

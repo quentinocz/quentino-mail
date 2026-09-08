@@ -479,6 +479,104 @@
         error: null
       };
     })(),
+    /*
+     * Závěry k rozboru. Do náhledu patří dlouhé věty schválně — právě na
+     * nich se pozná, jestli se text v kartě zalomí, nebo přeteče.
+     */
+    'ga4:notes': {
+      at: new Date().toISOString(),
+      from: new Date().toISOString(),
+      days: 365,
+      summary: 'Nejvíc peněz nosí vyhledávání na Googlu (892 000 Kč z 21 400 návštěv), zatímco placená '
+        + 'reklama přivede skoro stejně lidí a prodá čtvrtinu. Největší ztráta je mezi košíkem '
+        + 'a pokladnou — z 5 900 košíků dojde do pokladny 2 100. Jako první bych se podíval na dopravu '
+        + 'a platbu v košíku, tam se ztrácí nejvíc.',
+      notes: [
+        { where: 'channels', row: 'google / cpc', kind: 'slabé',
+          text: 'Placená reklama přivedla 5 400 návštěv, ale konverze 1,2 % je proti neplacenému '
+            + 'vyhledávání (2,4 %) poloviční. Zkus omezit obecná slova a nechat jen kravaty a kšandy.' },
+        { where: 'channels', row: 'google / organic', kind: 'dobré',
+          text: 'Nejsilnější kanál: 512 nákupů a 892 000 Kč. Za to se neplatí, takže články a popisy '
+            + 'zboží mají větší návratnost než reklama.' },
+        { where: 'funnel', row: 'Do pokladny', kind: 'slabé',
+          text: 'Z 5 900 košíků došlo do pokladny 2 100, tedy 64 % lidí odpadne s plným košíkem. '
+            + 'Obvykle za to může cena dopravy, která se ukáže až tady.' },
+        { where: 'pages', row: null, kind: 'zvážit',
+          text: 'Článek o výběru kravaty čte 4 100 lidí měsíčně. Odkaz na kravaty rovnou v článku '
+            + 'je nejlevnější způsob, jak z toho udělat objednávky.' }
+      ],
+      error: null
+    },
+    /* Statistika článků — čtenost proti vstupům, na tom stojí celý smysl */
+    'articles:stats': {
+      at: new Date().toISOString(), days: 365, scope: 'český web (.cz)',
+      views: 14200, entries: 5100, revenue: 121000, missing: 3, error: null,
+      rows: [
+        { id: 1, title: 'Jak vybrat kravatu k obleku', path: '/a/jak-vybrat-kravatu', status: 'done',
+          updatedAt: '2026-03-04', views: 4100, readers: 3280, entries: 2900, purchases: 41,
+          revenue: 74000, found: true },
+        { id: 2, title: 'Motýlek nebo kravata na svatbu?', path: '/a/motylek-nebo-kravata', status: 'done',
+          updatedAt: '2026-02-11', views: 3100, readers: 2610, entries: 1800, purchases: 22,
+          revenue: 34000, found: true },
+        { id: 3, title: 'Kšandy: jak si vybrat délku', path: '/a/ksandy-delka', status: 'done',
+          updatedAt: '2026-01-20', views: 2400, readers: 2050, entries: 300, purchases: 6,
+          revenue: 13000, found: true },
+        { id: 4, title: 'Jak se váže windsorský uzel', path: '/a/windsorsky-uzel', status: 'done',
+          updatedAt: '2025-12-02', views: 2100, readers: 1900, entries: 60, purchases: 0,
+          revenue: 0, found: true },
+        { id: 5, title: 'Péče o hedvábnou kravatu', path: '/a/pece-o-kravatu', status: 'done',
+          updatedAt: '2025-11-14', views: 1400, readers: 1210, entries: 40, purchases: 0,
+          revenue: 0, found: true },
+        { id: 6, title: 'Dárkové balení pro pány', path: '/a/darkove-baleni', status: 'draft',
+          updatedAt: '2026-04-01', views: 0, readers: 0, entries: 0, purchases: 0,
+          revenue: 0, found: false }
+      ]
+    },
+    'articles:stat': (function () {
+      var months = [];
+      for (var back = 11; back >= 0; back--) {
+        var d = new Date(Date.now() - back * 30 * 86400e3);
+        var sessions = 180 + ((back * 137) % 420);
+        months.push({ month: d.toISOString().slice(0, 7), sessions: sessions, users: Math.round(sessions * 0.84) });
+      }
+      return {
+        stat: { id: 1, title: 'Jak vybrat kravatu k obleku', path: '/a/jak-vybrat-kravatu', status: 'done',
+          updatedAt: '2026-03-04', views: 4100, readers: 3280, entries: 2900, purchases: 41,
+          revenue: 74000, found: true },
+        months: months, scope: 'český web (.cz)', days: 365,
+        note: 'Většina čtenářů (71 %) přichází na tenhle článek rovnou z vyhledávání nebo z odkazu — '
+          + 'je to vstupní brána do e-shopu. Z těch příchodů bylo 41 objednávek za 74 000 Kč. '
+          + 'Je to 29 % veškeré čtenosti článků.',
+        error: null
+      };
+    })(),
+    // Doprava a doklady — nastavení faktur, PPL a Zásilkovny
+    'invoices:setup': { template: 'https://eshop.admin.s1.upgates.com/manager/invoices/pdf/default/{invoice}/',
+      parallel: 4, openAfter: true },
+    'invoices:ready': { ready: 6, total: 9 },
+    'invoices:prefetch': { ready: 9, fetched: 3, stopped: null },
+    'ppl:setup': { carrier: 'PPL', content: true,
+      importUrl: 'https://klient.ppl.cz/import.aspx?loadedControl=importZasilek',
+      labelsUrl: 'https://klient.ppl.cz/zasilka.aspx?loadedControl=zasilkaList', mapping: 'Upgates',
+      value: 'goods' },
+    'packeta:setup': { hasPassword: true, eshop: 'quentino.cz', carrier: 'Zásilkovna|Zasilkovna|Packeta',
+      labelFormat: 'A6 on A4', labelOffset: 0, defaultWeight: 0.5 },
+    'balikovna:setup': { carrier: 'Balíkovna|Balikovna',
+      order: 'prijmeni,jmeno,ic,dic,obec,castObce,ulice,cisloPopisne,cisloOrientacni,psc,stat,'
+        + 'telefon,mobil,email,typ,hmotnost,cena,vs,sluzby,dobirka,mena,pocetVk,vsPoukazka',
+      header: false, type: 'NB', services: '',
+      portalUrl: 'https://www.postaonline.cz/pol/', importUrl: '', value: 'goods' },
+    'balikovna:fields': [
+      { key: 'prijmeni', label: 'Příjmení/Název', hint: 'Jméno příjemce' },
+      { key: 'jmeno', label: 'Jméno', hint: 'Křestní jméno' },
+      { key: 'obec', label: 'Obec', hint: 'Město z doručovací adresy' },
+      { key: 'ulice', label: 'Ulice', hint: 'Název ulice bez čísla' },
+      { key: 'psc', label: 'PSČ', hint: 'Bez mezery' },
+      { key: 'dobirka', label: 'Dobírka', hint: 'Částka k vybrání' },
+      { key: 'obsah', label: 'Obsah zásilky', hint: 'Složený z položek' }
+    ],
+    'packeta:formats': ['A6 on A4', 'A6 on A6', 'A7 on A7', 'A7 on A4', 'A8 on A8', '105x35mm on A4'],
+    'packeta:packets': [],
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
       + 'Kdyby dobírka měla příplatek 30 Kč, spadla by nejspíš i ta zbylá čtvrtina.',
     'orders:card': {
@@ -1260,20 +1358,49 @@
     live: Object.assign({}, answers['orders:card'].live, { status: 'Přijata' }),
     tracking: Object.assign({}, answers['orders:card'].tracking, { status: 'Přijata' })
   });
+  /*
+   * Balení: v seznamu je celé období, ne jen práce. Náhled proto míchá
+   * všechny fáze — čekání na platbu, k zabalení, zabalené, odeslané,
+   * doručené i storno — a k tomu dobírku, protože právě ta se v řádku
+   * zvýrazňuje. Bez toho by se nedalo poznat, jestli barvy a dlaždice sedí.
+   */
+  var packOrder = function (id, hoursBack, number, invoice, status, opts) {
+    var card = Object.assign({}, toPack(number), {
+      shipmentName: (opts && opts.shipment) || 'Zásilkovna',
+      paymentName: (opts && opts.payment) || 'Platba kartou online',
+      total: (opts && opts.total) || '2\u00a0480 Kč'
+    });
+    return {
+      messageId: id,
+      date: new Date(Date.now() - hoursBack * 3600e3).toISOString(),
+      card: card,
+      packed: (opts && opts.packed) || [],
+      counts: (opts && opts.counts) || {},
+      done: !!(opts && opts.done),
+      doneAt: opts && opts.done ? new Date().toISOString() : null,
+      source: 'feed',
+      shop: { code: number, invoice: invoice, status: status,
+        at: new Date(Date.now() - hoursBack * 3600e3).toISOString(),
+        final: /doru|storn/i.test(status) }
+    };
+  };
+
   answers['packing:scan'] = {
     orders: [
       // Rozdělaná: pásek hotový, z manžetových knoflíčků jeden ze dvou —
       // právě na tomhle je vidět, že se počítá po kusech, ne po položkách
-      { messageId: 1, date: new Date(Date.now() - 3 * 3600e3).toISOString(),
-        card: toPack('20260819'), packed: [0], counts: { '0': 1, '1': 1 }, done: false, doneAt: null,
-        source: 'feed',
-        shop: { code: '022605', invoice: '999111', status: 'Přijata', at: '2026-08-19', final: false } },
-      { messageId: 2, date: new Date(Date.now() - 26 * 3600e3).toISOString(),
-        card: toPack('20260812'), packed: [], counts: {}, done: false, doneAt: null,
-        source: 'feed',
-        shop: { code: '022600', invoice: '999100', status: 'Přijata', at: '2026-08-12', final: false } }
+      packOrder(1, 3, '022605', '999111', 'Přijata', { packed: [0], counts: { '0': 1, '1': 1 } }),
+      packOrder(2, 5, '022604', '999110', 'Přijata',
+        { payment: 'Dobírka', shipment: 'PPL ParcelBox', total: '1\u00a0890 Kč' }),
+      packOrder(3, 9, '022603', '999109', 'Čeká na platbu', { payment: 'Bankovním převodem' }),
+      packOrder(4, 26, '022600', '999100', 'Přijata', { shipment: 'Balíkovna' }),
+      packOrder(5, 28, '022599', '999099', 'Vyřizuje se', { done: true }),
+      packOrder(6, 30, '022598', '999098', 'Odesláno', { shipment: 'PPL' }),
+      packOrder(7, 52, '022596', '999096', 'Odesláno', { payment: 'Dobírka', total: '790 Kč' }),
+      packOrder(8, 74, '022590', '999090', 'Doručeno'),
+      packOrder(9, 76, '022589', '999089', 'Stornováno', { shipment: 'Osobní odběr' })
     ],
-    statuses: ['Přijata'],
+    statuses: ['Přijata', 'Čeká na platbu', 'Vyřizuje se', 'Odesláno', 'Doručeno', 'Stornováno'],
     scannedAt: new Date().toISOString()
   };
 

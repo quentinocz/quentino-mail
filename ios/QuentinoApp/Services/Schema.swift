@@ -449,6 +449,11 @@ enum Schema {
         "ALTER TABLE ig_accounts ADD COLUMN share_fb INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE ig_source_posts ADD COLUMN boosted INTEGER",
         "ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''",
+        // Výdejní místo objednávky: bez jeho čísla se u Zásilkovny zásilka
+        // nedá založit. Sloupce drží obě aplikace, ať se databáze neliší.
+        "ALTER TABLE shop_orders ADD COLUMN pickup_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE shop_orders ADD COLUMN pickup_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE shop_orders ADD COLUMN weight REAL NOT NULL DEFAULT 0",
         "ALTER TABLE voucher_codes ADD COLUMN used_by TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE voucher_codes ADD COLUMN claimed_by TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE voucher_codes ADD COLUMN claimed_at TEXT NOT NULL DEFAULT ''",

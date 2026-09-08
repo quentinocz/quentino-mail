@@ -1197,12 +1197,89 @@ input:focus, textarea:focus, select:focus {
 
 .dg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 
+/*
+ * Řádek řezu: název, proužek, číslo, peníze.
+ *
+ * Sloupce mají pevnou šířku a zmenšuje se **jen název** — jinak se stalo
+ * tohle: dlouhá adresa stránky roztlačila řádek a „124 143 Kč" i „−90 %
+ * oproti kroku výš" přetekly přes okraj karty. Proto je `min-width: 0`
+ * u názvu (bez něj se text v gridu nezkracuje) a čísla mají svoje místo.
+ */
 .dg-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 0; }
-.dg-bar-label { flex: 0 0 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dg-bar-track { flex: 1; height: 7px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+.dg-bar-label { flex: 1 1 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-bar-track { flex: 1 1 34px; min-width: 24px; height: 7px; background: var(--bg); border-radius: 999px; overflow: hidden; }
 .dg-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
-.dg-bar-num { flex: 0 0 auto; min-width: 44px; text-align: right; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.dg-bar-money { flex: 0 0 auto; min-width: 78px; text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.dg-bar-num { flex: 0 0 auto; min-width: 48px; text-align: right; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.dg-bar-money {
+  flex: 0 0 auto;
+  min-width: 96px;
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dg-bar-rev { color: var(--text-2); }
+
+/*
+ * Závěr od AI. Barva říká, co to je — pochvala, problém, nebo námět —
+ * a hvězdička to odlišuje od spočítaných čísel, aby bylo pokaždé jasné,
+ * co je změřené a co je názor.
+ */
+.dg-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--text-2);
+  border-left: 3px solid var(--border);
+}
+.dg-note > svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
+.dg-note.good { border-left-color: #2e9e6b; }
+.dg-note.bad { border-left-color: #d4574a; }
+.dg-note.idea { border-left-color: var(--accent); }
+
+/* Závěr nad tabulkami — první věta, kterou má člověk přečíst */
+.dg-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--accent-soft, var(--bg));
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.dg-summary > svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
+.dg-summary.waiting { color: var(--text-3); }
+
+/* Meziroční změna v popisku grafu */
+.dg-yoy { font-weight: 600; }
+.dg-yoy.up { color: #2e9e6b; }
+.dg-yoy.down { color: #d4574a; }
+
+/* Vysvětlení řádku — víc řádků textu, takže širší než rozpad po platbách */
+.dg-pop-note { min-width: 260px; max-width: 340px; text-align: left; }
+.dg-pop-title { font-weight: 600; font-size: 12px; word-break: break-all; }
+.dg-pop-line { color: var(--text-2); line-height: 1.45; }
+.dg-pop-ai {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 3px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
+  line-height: 1.45;
+}
+.dg-pop-ai > svg { flex-shrink: 0; margin-top: 2px; }
+.dg-pop-ai.good { color: #2e9e6b; }
+.dg-pop-ai.bad { color: #d4574a; }
+.dg-pop-ai.idea { color: var(--accent-dark); }
 
 /* Řádek k vyřízení je tlačítko — klik otevře tu zprávu nebo konverzaci */
 .dg-task {
@@ -1293,6 +1370,11 @@ input:focus, textarea:focus, select:focus {
   gap: 3px;
 }
 .dg-bar-row:hover .dg-pop { display: flex; }
+/*
+ * U posledních řádků se bublina otevírá nahoru. Dole v kartě se jinak
+ * schovala pod její okraj a poslední čtyři řádky byly bez vysvětlení.
+ */
+.dg-bar-row:nth-last-child(-n+3) .dg-pop { top: auto; bottom: 100%; }
 .dg-pop-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); }
 
 /* Sezóna a příspěvky */
@@ -1319,7 +1401,11 @@ input:focus, textarea:focus, select:focus {
   stroke-dasharray: 3 2;
   opacity: 0.85;
 }
-.dg-deep .dg-grid { margin-top: 2px; }
+/*
+ * Rozbor má dvě karty vedle sebe, ne tři. Ve třísloupcovém rastru zbývala
+ * napravo prázdná třetina a tabulky se mačkaly do zbylých dvou.
+ */
+.dg-deep .dg-grid { margin-top: 2px; grid-template-columns: repeat(2, 1fr); }
 
 /* Hlavička sezóny — co, kdy, jak silné; všechno na jednom řádku */
 .dg-season-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
@@ -1472,6 +1558,7 @@ input:focus, textarea:focus, select:focus {
   .dg-tiles { grid-template-columns: repeat(2, 1fr); }
   .dg-grid { grid-template-columns: 1fr; }
   .dg-bar-label { flex-basis: 34%; }
+  .dg-bar-money { min-width: 84px; }
   .dg-tile-value { font-size: 20px; }
 }
 
@@ -1855,7 +1942,57 @@ input:focus, textarea:focus, select:focus {
 .pk-seg-btn.on { background: var(--panel); color: var(--accent-dark); box-shadow: var(--shadow); }
 .pk-count { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
-.pk-body { flex: 1; display: grid; grid-template-columns: 288px 1fr; min-height: 0; overflow: hidden; }
+/*
+ * Fáze objednávky — barva a číslo.
+ *
+ * Barva nese význam a je stejná na dlaždici i na řádku v seznamu, takže se
+ * „kolik toho ještě je" a „co je tenhle řádek" čte jedním pohledem.
+ * Schovaná fáze zbledne, ale nezmizí: filtr, který není vidět, se hledá
+ * hůř než ten, který si člověk nastavil.
+ */
+.pk-phases { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pk-phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.pk-phase:hover { border-color: var(--text-3); }
+.pk-phase b { font-variant-numeric: tabular-nums; color: var(--text); }
+.pk-phase.off { opacity: 0.42; text-decoration: line-through; }
+.pk-phase-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+
+.pk-phase.todo .pk-phase-dot { background: var(--accent); }
+.pk-phase.unpaid .pk-phase-dot { background: #e0a020; }
+.pk-phase.packed .pk-phase-dot { background: #2e9e6b; }
+.pk-phase.sent .pk-phase-dot { background: #4a8fd4; }
+.pk-phase.delivered .pk-phase-dot { background: #8a8f9c; }
+.pk-phase.canceled .pk-phase-dot { background: #d4574a; }
+
+.pk-body { flex: 1; display: grid; grid-template-columns: 320px 1fr; min-height: 0; overflow: hidden; }
+
+/* Datum jednou pro celou skupinu — lepí se nahoře, ať je pořád vidět kde jsme */
+.pk-day-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: #f2f0f7;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.pk-day-count { margin-left: auto; color: var(--text-3); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Fronta objednávek */
 .pk-list { border-right: 1px solid var(--border); overflow-y: auto; background: #fbfafd; }
@@ -1868,8 +2005,36 @@ input:focus, textarea:focus, select:focus {
   border-left: 3px solid transparent;
 }
 .pk-row:hover { background: var(--panel); }
-.pk-row.active { background: var(--panel); border-left-color: var(--accent); }
-.pk-row.done { opacity: 0.55; }
+.pk-row.active { background: var(--panel); }
+/*
+ * Fáze na levém proužku. Zabalené se už neztlumuje na polovinu — v celém
+ * seznamu za období je odeslaných většina a šedý seznam by se nedal číst;
+ * odlišuje je barva, ne mizení.
+ */
+.pk-row.todo { border-left-color: var(--accent); }
+.pk-row.unpaid { border-left-color: #e0a020; }
+.pk-row.packed { border-left-color: #2e9e6b; }
+.pk-row.sent { border-left-color: #4a8fd4; }
+.pk-row.delivered { border-left-color: #c9ccd4; }
+.pk-row.canceled { border-left-color: #d4574a; }
+.pk-row.canceled .pk-row-num { text-decoration: line-through; }
+.pk-row.delivered, .pk-row.sent { opacity: 0.82; }
+.pk-row.active { box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* Doprava a platba — podle nich se vybírá krabice a štítek */
+.pk-row-ship { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-3); padding-bottom: 2px; }
+.pk-row-carrier { display: inline-flex; align-items: center; gap: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-row-carrier > svg { flex-shrink: 0; }
+.pk-row-pay { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Dobírka je jediná věc, na kterou se při balení nesmí zapomenout */
+.pk-row-cod {
+  background: #fdf0d5;
+  color: #96690c;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0 5px;
+  white-space: nowrap;
+}
 .pk-row-top { display: flex; align-items: center; gap: 6px; }
 .pk-row-num { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
 /* Číslo objednávky vedle toho z faktury — je k dohledání, ne k rozhodování */
@@ -1903,8 +2068,10 @@ input:focus, textarea:focus, select:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 92px;
+  max-width: 108px;
 }
+.pk-row-status.canceled { color: #d4574a; font-weight: 600; }
+.pk-row-status.unpaid { color: #96690c; font-weight: 600; }
 
 /* Detail objednávky */
 .pk-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -2203,47 +2370,7 @@ html[data-form-factor="phone"] .pk-scan { padding: 8px 16px; font-size: 14px; }
 
 /* Výběr stavů v balení */
 .pk-fresh { color: var(--text-3); }
-.pk-status-wrap { position: relative; }
-.pk-status-catch { position: fixed; inset: 0; z-index: 40; }
-.pk-status-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 41;
-  min-width: 240px;
-  max-height: 320px;
-  overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: var(--shadow-lg);
-  padding: 6px;
-}
-.pk-status-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-3);
-  padding: 4px 6px 6px;
-}
-.pk-status-head button { font-size: 11px; font-weight: 600; color: var(--accent-dark); text-transform: none; letter-spacing: 0; }
-.pk-status-head button:hover { text-decoration: underline; }
-.pk-status-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 6px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.pk-status-row:hover { background: var(--accent-soft); }
-.pk-status-row input { width: 14px; height: 14px; accent-color: var(--accent); }
-.pk-status-empty { padding: 8px 6px; font-size: 12px; color: var(--text-3); }
+/* Vyskakovací seznam stavů nahradily dlaždice fází — styl by tu už jen ležel. */
 
 
 
@@ -2609,7 +2736,10 @@ button, kbd, label,
 [data-theme="dark"] .pk-list { background: #1f1b2a; border-right-color: #292534; }
 [data-theme="dark"] .pk-row { border-bottom-color: #292534; }
 [data-theme="dark"] .pk-row:hover, [data-theme="dark"] .pk-row.active { background: #262230; }
-[data-theme="dark"] .pk-row-many { background: #3d2d1a; color: #f0a85e; }
+[data-theme="dark"] .pk-row-many, [data-theme="dark"] .pk-row-cod { background: #3d2d1a; color: #f0a85e; }
+[data-theme="dark"] .pk-day-head { background: #211d2c; border-bottom-color: #292534; }
+[data-theme="dark"] .pk-phase { background: #262230; border-color: #332f40; }
+[data-theme="dark"] .pk-row.delivered { border-left-color: #3a3648; }
 [data-theme="dark"] .pk-seg { background: #2b2738; }
 [data-theme="dark"] .pk-seg-btn.on { background: #3a3155; color: var(--accent-dark); box-shadow: none; }
 [data-theme="dark"] .pk-item { background: #241f31; border-color: var(--border); }
@@ -2626,8 +2756,6 @@ button, kbd, label,
 [data-theme="dark"] .pk-filters, [data-theme="dark"] .pk-head,
 [data-theme="dark"] .pk-foot, [data-theme="dark"] .pk-hint { border-color: #292534; }
 [data-theme="dark"] .pk-bar { background: #322e3f; }
-[data-theme="dark"] .pk-status-pop { background: #241f31; }
-[data-theme="dark"] .pk-status-row:hover { background: #322a52; }
 [data-theme="dark"] .ord-chip.ref { background: #1e2a3d; color: #7fb0e8; }
 [data-theme="dark"] .ord-chip.ref.done { background: #1e3229; color: #7fd6ab; }
 [data-theme="dark"] .cpanel { background: #1f1b2a; border-color: var(--border); }
@@ -4982,12 +5110,15 @@ html[data-form-factor="phone"] .pk-filters { padding: 8px 10px; gap: 6px; row-ga
 html[data-form-factor="phone"] .pk-seg { flex: 1 1 100%; }
 html[data-form-factor="phone"] .pk-seg-btn { flex: 1; padding: 7px 4px; font-size: 12.5px; }
 html[data-form-factor="phone"] .pk-count { flex: 1 1 100%; text-align: left; }
+/* Dlaždice fází přes celou šířku a přes palec — na telefonu se filtruje prstem */
+html[data-form-factor="phone"] .pk-phases { flex: 1 1 100%; }
+html[data-form-factor="phone"] .pk-phase { padding: 7px 11px; font-size: 12.5px; }
+html[data-form-factor="phone"] .pk-day-head { padding: 6px 12px; }
 html[data-form-factor="phone"] .pk-find { flex: 1 1 100%; height: var(--tap); border-radius: 12px; }
 html[data-form-factor="phone"] .pk-find input { width: 100%; font-size: 16px; }
 html[data-form-factor="phone"] .pk-head { gap: 8px; padding: 10px 12px; }
 html[data-form-factor="phone"] .pk-item { padding: 10px 12px; gap: 10px; }
 html[data-form-factor="phone"] .pk-photo { width: 54px; height: 54px; }
-html[data-form-factor="phone"] .pk-status-pop { right: auto; left: 0; min-width: 220px; }
 
 /* Chat na telefonu: nastavení je v panelu pod kolečkem vedle názvu */
 .ch-brandrow { display: flex; align-items: center; }
@@ -7140,3 +7271,50 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .sh-row .sh-name-in { flex: 1; min-width: 0; width: auto; }
 .sh-row .btn { padding: 4px 10px; font-size: 12px; flex-shrink: 0; }
 .sh-add { align-self: flex-start; padding: 4px 10px; font-size: 11.5px; gap: 4px; }
+
+/* ---------- statistika článku ---------- */
+
+.ar-stats { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; overflow-y: auto; }
+.ar-stats-head { display: flex; align-items: center; gap: 10px; }
+
+/*
+ * Čtyři čísla vedle sebe a pod každým, co znamená. Bez vysvětlení se
+ * „otevření" a „vstupy" pletou — a přitom je to ten rozdíl, na kterém stojí
+ * odpověď, jestli článek někoho přivedl.
+ */
+.ar-stats-nums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.ar-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.ar-stat b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ar-stat span { font-size: 12px; color: var(--text-2); }
+.ar-stat em { font-size: 11px; color: var(--text-3); font-style: normal; }
+
+.ar-stats-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ar-stats-chart { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.ar-stats-chart-head { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+.ar-stats-bars { display: flex; align-items: flex-end; gap: 4px; height: 110px; }
+.ar-stats-bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; gap: 3px; }
+.ar-stats-bar > span { display: block; background: var(--accent); border-radius: 3px 3px 0 0; }
+.ar-stats-bar > em { font-size: 10px; color: var(--text-3); font-style: normal; text-align: center; }
+.ar-stats-path code { font-size: 11.5px; }
+
+@media (max-width: 900px) {
+  .ar-stats-nums { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Kolik faktur je stažených dopředu — drobně vedle počtu */
+.pk-inv-ready { color: var(--text-3); font-size: 11px; }

@@ -221,6 +221,16 @@ await page.waitForTimeout(300);
 await overflow('přehled — návštěvnost'); await snap('09f-prehled-navstevnost');
 
 /*
+ * Vysvětlení řádku. Čísla v tabulce jsou k ničemu tomu, kdo neví, co
+ * znamenají — po najetí se proto ukáže spočítané vysvětlení a k němu závěr
+ * od AI. Bublina je široká a má víc řádků, takže se hlídá, že se vejde.
+ */
+const kanal = page.locator('.dg-deep .dg-card', { hasText: 'Kanály' }).locator('.dg-bar-row').first();
+await kanal.hover();
+await page.waitForTimeout(250);
+await overflow('přehled — vysvětlení kanálu'); await snap('09f2-prehled-vysvetleni');
+
+/*
  * Starší přehled. Ukládaly se u něj jen souhrny, takže mu chybí včerejšek,
  * graf i signály — a okno na tom padalo na šedou plochu. Náhled proto
  * schválně přepne do archivu a podívá se, že se pořád má co číst.
@@ -250,6 +260,13 @@ await click('.ar-detail-head .ig-seg button', { hasText: 'Odkazy' });
 await overflow('články — odkazy'); await snap('13-clanky-odkazy');
 await click('.pt-filters .ig-seg button', { hasText: 'V článku' });
 await overflow('články — odkazy v textu'); await snap('21-clanky-odkazy-v-textu');
+
+/*
+ * Statistika článku. Napsat článek je práce na půl dne a doteď nebylo kde
+ * zjistit, jestli k něčemu byla — čísla i větu k nim je potřeba vidět celé.
+ */
+await click('.ar-detail-head .ig-seg button', { hasText: 'Statistika' });
+await overflow('články — statistika'); await snap('13b-clanky-statistika');
 
 await click('.ar-modal .pt-tabs button', { hasText: 'Odkazy' });
 await overflow('články — kontrola'); await snap('14-clanky-kontrola');
@@ -307,6 +324,18 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(250);
 await overflow('nastavení — zkratky dopravy'); await snap('22c-nastaveni-zkratky');
+/*
+ * Doprava a doklady. Tři cesty vedle sebe — faktury z administrace, PPL přes
+ * soubor a Zásilkovna přes API — a v nich se dá snadno přetéct, protože jsou
+ * to samé řádky s poli.
+ */
+await page.evaluate(() => {
+  const head = [...document.querySelectorAll('.field > label')]
+    .find(el => el.textContent.includes('Doprava a doklady'));
+  head?.scrollIntoView({ block: 'start' });
+});
+await page.waitForTimeout(250);
+await overflow('nastavení — doprava a doklady'); await snap('22c2-nastaveni-doprava');
 // Zpátky na Telefon — další kroky pokračují tam
 await click('.tabs .tab', { hasText: 'Telefon' });
 await page.waitForTimeout(200);
@@ -376,6 +405,14 @@ await page.waitForTimeout(300);
 await click('.ig-switch button', { hasText: 'Funkce' });
 await click('.ws-menu-item', { hasText: 'Balení objednávek' });
 await overflow('balení — hledání podle čísla'); await snap('26b-baleni');
+/*
+ * Celé období, ne jen práce. Dlaždice fází nesou počty a barvu, kterou má
+ * i proužek u řádku — hlídá se, že se všechno vejde a že je poznat, co je
+ * k zabalení a co už je pryč.
+ */
+await click('.pk-phase.sent');
+await overflow('balení — schovaná fáze'); await snap('26b2-baleni-faze');
+await click('.pk-phase.sent');
 await click('.pk-as button', { hasText: 'objednávka' });
 await overflow('balení — hledání podle objednávky'); await snap('26c-baleni-objednavka');
 

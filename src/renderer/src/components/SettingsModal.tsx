@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang,
-  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow, ShorthandView , Ga4Config } from '@shared/types';
+  OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow, ShorthandView, Ga4Config,
+  PplSetup, PacketaSetup, InvoiceSetup, BalikovnaSetup } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -762,6 +763,8 @@ export default function SettingsModal(p: Props) {
 
               <ShorthandField />
 
+              <ShippingField />
+
               <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
                 <label><Icon name="settings" size={13} /> Odkaz na objednávku v administraci</label>
                 <input value={settings.adminOrderRef} placeholder="023702:1185"
@@ -1303,6 +1306,268 @@ function OrderFeedsField() {
  * Prázdné pole neznamená „nic neukazuj": platí odhad, který je hned vedle
  * vidět, takže je jasné, co se ukáže, i než někdo něco napíše.
  */
+/**
+ * Doprava a doklady.
+ *
+ * Tři věci, které patří k sobě, protože se dělají v jednu chvíli — u stolu
+ * s krabicemi: faktury k tisku, zásilky pro PPL a zásilky pro Zásilkovnu.
+ * Každý dopravce má jinou cestu a je to vidět i tady:
+ *
+ *  - **PPL** volné API nemá, přístup schvalují. Jede se přes soubor CSV,
+ *    který se nahraje do jejich klientské administrace.
+ *  - **Zásilkovna** API má, takže se zásilka založí přímo a štítek přijde
+ *    jako hotový PDF arch.
+ *  - **Faktury** se stahují z administrace e-shopu; adresu se aplikace jednou
+ *    naučí z toho, jak fakturu otevře člověk.
+ */
+function ShippingField() {
+  const toast = useToast();
+  const [ppl, setPpl] = useState<PplSetup | null>(null);
+  const [zas, setZas] = useState<PacketaSetup | null>(null);
+  const [bal, setBal] = useState<BalikovnaSetup | null>(null);
+  const [balFields, setBalFields] = useState<{ key: string; label: string; hint: string }[]>([]);
+  const [zasPass, setZasPass] = useState('');
+  const [formats, setFormats] = useState<string[]>([]);
+  const [inv, setInv] = useState<InvoiceSetup | null>(null);
+  const [busy, setBusy] = useState('');
+
+  useEffect(() => {
+    api.ppl.setup().then(setPpl).catch(() => {});
+    api.packeta.setup().then(setZas).catch(() => {});
+    api.packeta.formats().then(setFormats).catch(() => {});
+    api.invoices.setup().then(setInv).catch(() => {});
+    api.balikovna.setup().then(setBal).catch(() => {});
+    api.balikovna.fields().then(setBalFields).catch(() => {});
+  }, []);
+
+  const run = async (key: string, body: () => Promise<void>) => {
+    setBusy(key);
+    try { await body(); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(''); }
+  };
+
+  return (
+    <div className="field" style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+      <label><Icon name="truck" size={13} /> Doprava a doklady</label>
+      <div className="desc">
+        Co se dělá u stolu s krabicemi: faktury k tisku a zásilky dopravcům.
+        Každý dopravce má jinou cestu — PPL přes soubor do jejich administrace,
+        Zásilkovna přímo přes API.
+      </div>
+
+      {/* ---------- faktury ---------- */}
+      {inv && (
+        <div className="field" style={{ marginTop: 10 }}>
+          <label>Faktury — adresa v administraci</label>
+          <input value={inv.template} placeholder="zatím nenaučená"
+            onChange={e => setInv(v => v ? { ...v, template: e.target.value } : v)} />
+          <div className="desc">
+            Značky <code>{'{invoice}'}</code>, <code>{'{code}'}</code> a <code>{'{id}'}</code> se nahradí číslem
+            faktury, číslem objednávky nebo vnitřním ID. Ručně to psát nemusíš — „Naučit" otevře
+            administraci a stačí v ní otevřít jednu fakturu.
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn primary" disabled={busy === 'invSave'}
+              onClick={() => run('invSave', async () => {
+                setInv(await api.invoices.saveSetup(inv));
+                toast('Uloženo.');
+              })}>Uložit</button>
+            <button className="btn ghost" disabled={busy === 'invLearn'}
+              onClick={() => run('invLearn', async () => {
+                const out = await api.invoices.learn();
+                if ('error' in out) { toast(out.error, 'error'); return; }
+                setInv(await api.invoices.setup());
+                toast(`Naučeno podle: ${out.kind}.`);
+              })}>
+              {busy === 'invLearn' ? <span className="spinner-inline" /> : null} Naučit z administrace
+            </button>
+            <label className="check-row" style={{ marginLeft: 4 }}>
+              <input type="checkbox" checked={inv.openAfter}
+                onChange={e => setInv(v => v ? { ...v, openAfter: e.target.checked } : v)} />
+              otevřít po stažení
+            </label>
+            <span className="ig-muted">stahovat naráz:&nbsp;</span>
+            <input type="number" min={1} max={8} value={inv.parallel} style={{ width: 60 }}
+              onChange={e => setInv(v => v ? { ...v, parallel: Number(e.target.value) || 4 } : v)} />
+          </div>
+        </div>
+      )}
+
+      {/* ---------- PPL ---------- */}
+      {ppl && (
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>PPL — vývoz zásilek</label>
+          <div className="field-grid">
+            <div className="field"><label>Poznám podle názvu dopravy</label>
+              <input value={ppl.carrier} placeholder="PPL"
+                onChange={e => setPpl(v => v ? { ...v, carrier: e.target.value } : v)} /></div>
+            <div className="field"><label>Uložená úloha v administraci PPL</label>
+              <input value={ppl.mapping} placeholder="Upgates"
+                onChange={e => setPpl(v => v ? { ...v, mapping: e.target.value } : v)} /></div>
+            <div className="field"><label>Stránka importu</label>
+              <input value={ppl.importUrl}
+                onChange={e => setPpl(v => v ? { ...v, importUrl: e.target.value } : v)} /></div>
+            <div className="field"><label>Seznam zásilek (odtud se tisknou štítky)</label>
+              <input value={ppl.labelsUrl}
+                onChange={e => setPpl(v => v ? { ...v, labelsUrl: e.target.value } : v)} /></div>
+          </div>
+          <label className="check-row">
+            <input type="checkbox" checked={ppl.content}
+              onChange={e => setPpl(v => v ? { ...v, content: e.target.checked } : v)} />
+            přidat sloupec s obsahem zásilky („2 kravaty, motýlek")
+          </label>
+          {/*
+            Hodnota zásilky. PPL si kolonku `total` mapuje na to, co se
+            pojišťuje — a to je cena zboží, ne částka i s dopravou a dobírkou.
+          */}
+          <div className="field">
+            <label>Hodnota zásilky (kolonka total)</label>
+            <select value={ppl.value}
+              onChange={e => setPpl(v => v ? { ...v, value: e.target.value as 'goods' | 'order' } : v)}>
+              <option value="goods">cena zboží (to, co se pojišťuje)</option>
+              <option value="order">celá objednávka včetně dopravy</option>
+            </select>
+          </div>
+          <div className="desc">
+            Obsah zásilky PPL nově chce, ale uložená úloha v jejich administraci o tom sloupci
+            zatím vědět nemusí. Dokud si ho tam nenamapuješ, nech to vypnuté — jinak import spadne.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn primary" disabled={busy === 'pplSave'}
+              onClick={() => run('pplSave', async () => {
+                setPpl(await api.ppl.saveSetup(ppl));
+                toast('Uloženo.');
+              })}>Uložit</button>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- Balíkovna ---------- */}
+      {bal && (
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>Balíkovna — Podání Online České pošty</label>
+          <div className="desc">
+            Podání Online nemá pevný formát: v konfiguraci importu se ke každému poli napíše,
+            <b> ve kterém sloupci</b> ho hledat. Pořadí níž proto musí sedět s tvojí konfigurací —
+            výchozí odpovídá tomu, co Česká pošta uvádí v návodech (Příjmení 1, Jméno 2, …).
+            Soubor je v UTF-8.
+          </div>
+          <div className="field-grid">
+            <div className="field"><label>Poznám podle názvu dopravy</label>
+              <input value={bal.carrier}
+                onChange={e => setBal(v => v ? { ...v, carrier: e.target.value } : v)} /></div>
+            <div className="field"><label>Typ zásilky (kód produktu)</label>
+              <input value={bal.type} placeholder="NB"
+                onChange={e => setBal(v => v ? { ...v, type: e.target.value } : v)} /></div>
+            <div className="field"><label>Doplňkové služby</label>
+              <input value={bal.services} placeholder="nepovinné"
+                onChange={e => setBal(v => v ? { ...v, services: e.target.value } : v)} /></div>
+            <div className="field"><label>Udaná cena</label>
+              <select value={bal.value}
+                onChange={e => setBal(v => v ? { ...v, value: e.target.value as 'goods' | 'order' } : v)}>
+                <option value="goods">cena zboží</option>
+                <option value="order">celá objednávka</option>
+              </select></div>
+          </div>
+          <div className="field">
+            <label>Pořadí sloupců</label>
+            <input value={bal.order}
+              onChange={e => setBal(v => v ? { ...v, order: e.target.value } : v)} />
+            <div className="desc">
+              Názvy oddělené čárkou. K dispozici je:{' '}
+              {balFields.map((one, i) => (
+                <span key={one.key}>
+                  {i > 0 && ', '}
+                  <code data-tip={one.hint}>{one.key}</code> ({one.label.toLowerCase()})
+                </span>
+              ))}.
+            </div>
+          </div>
+          <label className="check-row">
+            <input type="checkbox" checked={bal.header}
+              onChange={e => setBal(v => v ? { ...v, header: e.target.checked } : v)} />
+            první řádek s názvy sloupců
+          </label>
+          <div className="field-grid">
+            <div className="field"><label>Podání Online</label>
+              <input value={bal.portalUrl}
+                onChange={e => setBal(v => v ? { ...v, portalUrl: e.target.value } : v)} /></div>
+            <div className="field"><label>Stránka importu (naučená)</label>
+              <input value={bal.importUrl} placeholder="zapamatuje se sama po prvním importu"
+                onChange={e => setBal(v => v ? { ...v, importUrl: e.target.value } : v)} /></div>
+          </div>
+          <div className="desc">
+            Podání Online je aplikace psaná v Angularu, kde se adresy skládají za běhu. Aplikace
+            proto počká, až se na stránce objeví políčko pro soubor, vloží ho do něj a tu adresu si
+            zapamatuje — příště otevře rovnou ji. Odeslání podání zůstává na tobě: je nevratné.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn primary" disabled={busy === 'balSave'}
+              onClick={() => run('balSave', async () => {
+                setBal(await api.balikovna.saveSetup(bal));
+                toast('Uloženo.');
+              })}>Uložit</button>
+            <button className="btn ghost" onClick={() => { void api.balikovna.open(); }}>
+              Otevřít Podání Online
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- Zásilkovna ---------- */}
+      {zas && (
+        <div className="field" style={{ marginTop: 12 }}>
+          <label>Zásilkovna — API {zas.hasPassword ? '· heslo uložené ✓' : '· heslo nenastavené'}</label>
+          <input type="password" value={zasPass}
+            placeholder={zas.hasPassword ? '••••••••  (vyplň jen pro změnu)' : 'API heslo z klientské sekce'}
+            onChange={e => setZasPass(e.target.value)} />
+          <div className="field-grid" style={{ marginTop: 6 }}>
+            <div className="field"><label>Označení e-shopu</label>
+              <input value={zas.eshop} placeholder="quentino.cz"
+                onChange={e => setZas(v => v ? { ...v, eshop: e.target.value } : v)} /></div>
+            <div className="field"><label>Poznám podle názvu dopravy</label>
+              <input value={zas.carrier}
+                onChange={e => setZas(v => v ? { ...v, carrier: e.target.value } : v)} /></div>
+          </div>
+          <div className="field-grid">
+            <div className="field"><label>Velikost štítku</label>
+              {/*
+                Seznam je od Zásilkovny, ne náš — proto se dá napsat i něco,
+                co v něm není. Když to odmítnou, ukáže se jejich vlastní hláška.
+              */}
+              <input list="packeta-formats" value={zas.labelFormat}
+                onChange={e => setZas(v => v ? { ...v, labelFormat: e.target.value } : v)} />
+              <datalist id="packeta-formats">
+                {formats.map(one => <option key={one} value={one} />)}
+              </datalist>
+            </div>
+            <div className="field"><label>Přeskočit štítků na archu</label>
+              <input type="number" min={0} max={40} value={zas.labelOffset}
+                onChange={e => setZas(v => v ? { ...v, labelOffset: Number(e.target.value) || 0 } : v)} /></div>
+            <div className="field"><label>Výchozí váha (kg)</label>
+              <input type="number" min={0} step={0.1} value={zas.defaultWeight}
+                onChange={e => setZas(v => v ? { ...v, defaultWeight: Number(e.target.value) || 0 } : v)} /></div>
+          </div>
+          <div className="desc">
+            Na načatý arch se tiskne od toho štítku, který je první volný — proto „přeskočit".
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn primary" disabled={busy === 'zasSave'}
+              onClick={() => run('zasSave', async () => {
+                setZas(await api.packeta.saveSetup({ ...zas, ...(zasPass ? { password: zasPass } : {}) }));
+                setZasPass('');
+                toast('Uloženo.');
+              })}>Uložit</button>
+            <button className="btn ghost" disabled={busy === 'zasTest'}
+              onClick={() => run('zasTest', async () => toast(await api.packeta.test()))}>
+              {busy === 'zasTest' ? <span className="spinner-inline" /> : null} Otestovat
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ShorthandField() {
   const [rows, setRows] = useState<ShorthandRow[]>([]);
   const [scope, setScope] = useState({ orders: 0, withShipment: 0, withPayment: 0 });

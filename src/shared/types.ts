@@ -388,6 +388,18 @@ export interface ShopOrder {
   phone: string;
   shipment: string;
   payment: string;
+  /**
+   * Výdejní místo.
+   *
+   * `pickupId` je číslo, kterým ho zná dopravce — bez něj se u Zásilkovny
+   * zásilka založit nedá, protože jejich API chce číslo místa, ne adresu.
+   * `pickupName` je jeho název; podle něj se místo pozná i tehdy, když
+   * číslo ve feedu není.
+   */
+  pickupId: string;
+  pickupName: string;
+  /** Váha celé objednávky v gramech, jak ji spočítal e-shop */
+  weight: number;
   items: ShopOrderItem[];
   /**
    * Fakturační a doručovací adresa.
@@ -2290,4 +2302,227 @@ export interface LiveOffer {
   title: string;
   detail: string;
   at: string;
+}
+
+/* ---------- hromadné stažení faktur ---------- */
+
+/** Objednávka, ke které se shání faktura. */
+export interface InvoiceJob {
+  code: string;
+  market: string;
+  invoice: string;
+  name: string;
+  /** Vnitřní ID v administraci — adresa faktury na něm může stát */
+  adminId: number | null;
+}
+
+/** Faktura, která se nepovedla — s důvodem, ne jen s křížkem. */
+export interface InvoiceOutcome {
+  code: string;
+  invoice: string;
+  ok: boolean;
+  pages: number;
+  reason?: string;
+}
+
+export interface InvoiceRun {
+  /** Kam se uložil sloučený PDF; null, když se neuložilo nic */
+  file: string | null;
+  ok: number;
+  pages: number;
+  failed: InvoiceOutcome[];
+  /** Administrace odpověděla přihlašovací stránkou — je potřeba se přihlásit */
+  needsLogin: boolean;
+  /** Adresa faktury se ještě nenaučila */
+  needsTemplate: boolean;
+}
+
+export interface InvoiceSetup {
+  /** Naučená adresa se značkami {invoice}, {code}, {id} */
+  template: string;
+  parallel: number;
+  openAfter: boolean;
+}
+
+/** Závěr k jednomu řádku rozboru návštěvnosti — nebo k celé sestavě. */
+export interface Ga4Note {
+  /** months | channels | landings | pages | devices | countries | funnel */
+  where: string;
+  /** Přesný název řádku; null = platí pro celou sestavu */
+  row: string | null;
+  kind: 'dobré' | 'slabé' | 'zvážit';
+  text: string;
+}
+
+export interface Ga4Notes {
+  at: string;
+  /** Datum rozboru, ze kterého závěry vznikly */
+  from: string;
+  days: number;
+  summary: string;
+  notes: Ga4Note[];
+  error: string | null;
+}
+
+/** Stránky do šířky — podklad pro statistiku článků. */
+export interface Ga4Pages {
+  at: string;
+  days: number;
+  scope: string;
+  /** Návštěvy stránky (kdekoli v cestě) */
+  pages: Ga4Slice[];
+  /** Návštěvy, kde byla stránka tou první — u ní se počítá i nákup */
+  landings: Ga4Slice[];
+  months: { path: string; month: string; sessions: number; users: number }[];
+  error: string | null;
+}
+
+/* ---------- statistika článků ---------- */
+
+export interface ArticleStat {
+  id: number;
+  title: string;
+  path: string;
+  status: string;
+  updatedAt: string;
+  /** Kolikrát se článek otevřel — i lidmi, kteří přišli odjinud z webu */
+  views: number;
+  readers: number;
+  /** Kolikrát byl článek tou první stránkou návštěvy */
+  entries: number;
+  /** Nákupy připsané těmhle vstupům */
+  purchases: number;
+  revenue: number;
+  /** Našla se stránka v Analytics? */
+  found: boolean;
+}
+
+export interface ArticleStatsView {
+  at: string;
+  days: number;
+  scope: string;
+  rows: ArticleStat[];
+  views: number;
+  entries: number;
+  revenue: number;
+  missing: number;
+  error: string | null;
+}
+
+export interface ArticleStatDetail {
+  stat: ArticleStat;
+  months: { month: string; sessions: number; users: number }[];
+  scope: string;
+  days: number;
+  /** Věta „co s tím" — spočítaná, ne od AI */
+  note: string;
+  error: string | null;
+}
+
+/* ---------- vývoz zásilek pro PPL ---------- */
+
+export interface PplRow {
+  /** Číslo objednávky, ze které řádek vznikl — do souboru nejde, ale hlásí se v přehledu */
+  code: string;
+  name: string;
+  /** U výdejního místa jeho název, jinak firma příjemce */
+  company: string;
+  street: string;
+  /** U výdejního místa i s kódem: „KM10439155 Chýnov" */
+  city: string;
+  zip: string;
+  country: string;
+  /** Kolik vybrat na dobírku; 0 u placených předem */
+  cod: number;
+  currency: string;
+  variableSymbol: string;
+  phone: string;
+  email: string;
+  /** 46 = výdejní místo, 14 = adresa */
+  type: 46 | 14;
+  total: number;
+  /** Obsah zásilky složený z položek — „2 kravaty, motýlek" */
+  content: string;
+}
+
+export interface PplExport {
+  file: string | null;
+  rows: number;
+  skipped: { code: string; reason: string }[];
+  content: boolean;
+}
+
+export interface PplSetup {
+  /** Podle čeho se pozná, že objednávka jede PPL */
+  carrier: string;
+  /** Přidat sloupec s obsahem zásilky */
+  content: boolean;
+  importUrl: string;
+  /** Seznam zásilek, odkud se tisknou štítky */
+  labelsUrl: string;
+  /** Název uložené úlohy v administraci PPL */
+  mapping: string;
+  /** Co se píše do kolonky `total`: cena zboží, nebo celá objednávka */
+  value: 'goods' | 'order';
+}
+
+/* ---------- Zásilkovna (Packeta) ---------- */
+
+export interface PacketaSetup {
+  hasPassword: boolean;
+  /** Označení e-shopu, pod kterým Zásilkovna vede zásilky */
+  eshop: string;
+  /** Podle čeho se pozná, že objednávka jede Zásilkovnou */
+  carrier: string;
+  labelFormat: string;
+  /** Kolik štítků na archu přeskočit — načatý arch se tím dotiskne */
+  labelOffset: number;
+  defaultWeight: number;
+}
+
+export interface PacketaPacket {
+  code: string;
+  packetId: string;
+  barcode: string;
+  at: string;
+}
+
+export interface PacketaResult {
+  created: PacketaPacket[];
+  failed: { code: string; reason: string }[];
+  /** Kolik objednávek se ve feedu vůbec nenašlo */
+  skipped: number;
+}
+
+/* ---------- Balíkovna (Podání Online České pošty) ---------- */
+
+export interface BalikovnaSetup {
+  /** Podle čeho se pozná, že objednávka jede Balíkovnou */
+  carrier: string;
+  /**
+   * Pořadí sloupců, čárkami.
+   *
+   * Podání Online si mapuje pole na čísla sloupců, takže tohle musí sedět
+   * s konfigurací importu — a mění se to v nastavení, ne v kódu.
+   */
+  order: string;
+  /** První řádek s názvy sloupců */
+  header: boolean;
+  /** Kód produktu České pošty („Typ zásilky") */
+  type: string;
+  /** Kódy doplňkových služeb, pokud je potřeba */
+  services: string;
+  portalUrl: string;
+  /** Naučená adresa stránky s importem; prázdná, dokud se nenajde */
+  importUrl: string;
+  /** Co je v „Udané ceně": cena zboží, nebo celá objednávka */
+  value: 'goods' | 'order';
+}
+
+export interface BalikovnaExport {
+  file: string | null;
+  rows: number;
+  skipped: { code: string; reason: string }[];
+  /** Kolik sloupců soubor má — proti konfiguraci v Podání Online */
+  columns: number;
 }

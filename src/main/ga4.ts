@@ -32,7 +32,7 @@
  * a přehled ho dá modelu tak, jak je. Lepší nepřesná věta než prázdno.
  */
 import { getSetting, setSetting } from './db';
-import type { Ga4Deep, Ga4Slice } from '../shared/types';
+import type { Ga4Deep, Ga4Slice, Ga4Pages } from '../shared/types';
 import { encrypt, decrypt } from './secure';
 
 const DEFAULT_ENDPOINT = 'https://api.sequel.sh/mcp';
@@ -1334,8 +1334,15 @@ export async function ga4Deep(days = 365, force = false): Promise<Ga4Deep | null
     });
 
     const { tables, detail } = await runCalls(plan, [
-      // Měsíční řada: u dvouletého okna je to 24 řádků, ne 730
-      { id: 'months', input: { startDate: from, endDate: to, dimensions: plan.pick(['month'], 'dimensions'), metrics, limit: 400 } },
+      /*
+       * Měsíční řada — rok **a** měsíc.
+       *
+       * Samotný `month` je v GA4 jen dvojčíslí 01–12 bez roku. Dvouleté okno
+       * se pod ním sečetlo do dvanácti hromádek, graf ukazoval čtyři sloupce
+       * a pod každým „led": leden 2025 a leden 2026 byly pro GA4 totéž.
+       * S rokem navíc je to 24 řádků, ne 730 jako u dnů.
+       */
+      { id: 'months', input: { startDate: from, endDate: to, dimensions: plan.pick(['year', 'month'], 'dimensions'), metrics, limit: 400 } },
       slice('channels', 'sessionSourceMedium', 12),
       slice('landings', 'landingPage', 12),
       slice('pages', 'pagePath', 12),
@@ -1379,10 +1386,18 @@ export async function ga4Deep(days = 365, force = false): Promise<Ga4Deep | null
       scope: ga4Scope(),
       months: rows(0)
         .map(row => {
-          // GA4 posílá měsíc jako `YYYYMM`; na graf se hodí `YYYY-MM`
-          const raw = String(row?.month ?? row?.yearMonth ?? '').replace(/\D/g, '');
+          /*
+           * Měsíc se skládá z roku a měsíce zvlášť. Kdyby napojení někdy
+           * poslalo `yearMonth` (YYYYMM) v jednom kuse, přečte se i to —
+           * ale hlavní cesta jsou dvě samostatná pole.
+           */
+          const raw = String(row?.yearMonth ?? '').replace(/\D/g, '');
+          const year = String(row?.year ?? '').replace(/\D/g, '');
+          const mon = String(row?.month ?? '').replace(/\D/g, '').padStart(2, '0');
           return {
-            month: raw.length >= 6 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}` : raw,
+            month: year.length === 4 && mon.length === 2
+              ? `${year}-${mon}`
+              : raw.length >= 6 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}` : '',
             sessions: num(row?.sessions) ?? 0,
             users: num(row?.totalUsers) ?? 0,
             purchases: num(row?.ecommercePurchases) ?? num(row?.conversions) ?? 0,
@@ -1419,6 +1434,118 @@ export async function ga4Deep(days = 365, force = false): Promise<Ga4Deep | null
         funnel: { sessions: 0, addToCarts: 0, checkouts: 0, purchases: 0 },
         error: message
       };
+  }
+}
+
+/**
+ * Stránky podrobně — podklad pro statistiku článků.
+ *
+ * V rozboru se ukazuje dvanáct nejčtenějších stránek; na otázku „jak si vede
+ * tenhle článek" to nestačí, protože článek bývá dvacátý a stejně za rok
+ * přivede stovky lidí. Tenhle dotaz jde do šířky (tři sta stránek) a navíc
+ * bere měsíční řadu, aby se u článku dal nakreslit vývoj — jinak by se
+ * musel volat jeden dotaz na každý článek.
+ *
+ * Drží se den, stejně jako rozbor: čísla za včerejšek se do večera nezmění.
+ */
+export async function ga4Pages(days = 365, force = false): Promise<Ga4Pages | null> {
+  const cfg = getGa4Config();
+  if (!cfg.ready) return null;
+
+  const span = Math.max(30, Math.min(730, Math.round(days) || 365));
+  const key = `ga4Pages${span}`;
+  const last = ((): Ga4Pages | null => {
+    try { return JSON.parse(getSetting(key, '') || 'null'); } catch { return null; }
+  })();
+  const age = last?.at ? Date.now() - new Date(last.at).getTime() : Number.POSITIVE_INFINITY;
+  if (!force && last && age < EVERY_MS) return last;
+
+  try {
+    await connect();
+    const tools = await listTools();
+    const plan = await planReport(
+      tools, queryTool(tools), getSetting('ga4AppId', '')!,
+      `Návštěvnost jednotlivých stránek e-shopu Quentino za ${span} dní.`, 8
+    );
+    if (!plan) return last;
+
+    const from = dayKey(span - 1);
+    const to = dayKey(0);
+    const metrics = plan.pick(['sessions', 'totalUsers', 'ecommercePurchases', 'totalRevenue'], 'metrics');
+
+    const { tables } = await runCalls(plan, [
+      {
+        id: 'pages',
+        input: {
+          startDate: from, endDate: to, dimensions: plan.pick(['pagePath'], 'dimensions'),
+          metrics, limit: 300, orderBy: [{ metric: 'sessions', desc: true }]
+        }
+      },
+      {
+        id: 'landings',
+        input: {
+          startDate: from, endDate: to, dimensions: plan.pick(['landingPage'], 'dimensions'),
+          metrics, limit: 300, orderBy: [{ metric: 'sessions', desc: true }]
+        }
+      },
+      {
+        /*
+         * Měsíční řada pro všechny stránky najednou. Jeden dotaz na článek
+         * by znamenal padesát volání při otevření jedné záložky; takhle je
+         * to jedno volání a filtruje se doma.
+         */
+        id: 'pageMonths',
+        input: {
+          startDate: from, endDate: to,
+          dimensions: plan.pick(['pagePath', 'year', 'month'], 'dimensions'),
+          metrics: plan.pick(['sessions', 'totalUsers'], 'metrics'),
+          limit: 1000, orderBy: [{ metric: 'sessions', desc: true }]
+        }
+      }
+    ], 81);
+
+    const rows = (index: number): any[] => tables[index] ?? [];
+    const one = (row: any, dimension: string): Ga4Slice => {
+      const sessions = num(row?.sessions) ?? 0;
+      const purchases = num(row?.ecommercePurchases) ?? 0;
+      const revenue = num(row?.totalRevenue) ?? 0;
+      return {
+        name: String(row?.[dimension] ?? '—').trim() || '—',
+        sessions,
+        users: num(row?.totalUsers) ?? 0,
+        purchases,
+        revenue: Math.round(revenue),
+        conversion: sessions >= 100 ? Math.round((purchases / sessions) * 1000) / 10 : null,
+        perSession: sessions >= 100 ? Math.round((revenue / sessions) * 10) / 10 : null
+      };
+    };
+
+    const out: Ga4Pages = {
+      at: new Date().toISOString(),
+      days: span,
+      scope: ga4Scope(),
+      pages: rows(0).map(row => one(row, 'pagePath')).filter(item => item.sessions > 0),
+      landings: rows(1).map(row => one(row, 'landingPage')).filter(item => item.sessions > 0),
+      months: rows(2).map(row => {
+        const year = String(row?.year ?? '').replace(/\D/g, '');
+        const mon = String(row?.month ?? '').replace(/\D/g, '').padStart(2, '0');
+        return {
+          path: String(row?.pagePath ?? '').trim(),
+          month: year.length === 4 && mon.length === 2 ? `${year}-${mon}` : '',
+          sessions: num(row?.sessions) ?? 0,
+          users: num(row?.totalUsers) ?? 0
+        };
+      }).filter(row => row.path && row.month),
+      error: null
+    };
+
+    setSetting(key, JSON.stringify(out));
+    return out;
+  } catch (e: any) {
+    const message = String(e?.message ?? e);
+    return last ? { ...last, error: message } : {
+      at: '', days: span, scope: ga4Scope(), pages: [], landings: [], months: [], error: message
+    };
   }
 }
 
