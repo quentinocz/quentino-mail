@@ -17,7 +17,8 @@ import type {
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
-  RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView
+  RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
+  InvoiceSetup, InvoiceJob, InvoiceRun
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -579,6 +580,25 @@ export const api = {
       call<{ written: number; failed: { code: string; error: string }[] }>('stockin:sendApi', id),
     apiCheck: () => call<{ can: boolean; detail: string }>('stockin:apiCheck'),
     confirm: (id: string) => call<boolean>('stockin:confirm', id)
+  },
+
+  /**
+   * Faktury hromadně.
+   *
+   * Faktury se z administrace stahují, ne kreslí: je to tentýž doklad, jaký
+   * dostal zákazník. Adresa se jednou naučí z toho, jak fakturu otevře
+   * uživatel, a pak se do ní jen dosazuje číslo.
+   */
+  invoices: {
+    setup: () => call<InvoiceSetup>('invoices:setup'),
+    saveSetup: (next: Partial<InvoiceSetup>) => call<InvoiceSetup>('invoices:saveSetup', next),
+    /** Otevře okno administrace a počká, až v něm člověk otevře jednu fakturu */
+    learn: () => call<{ template: string; sample: string; kind: string; matched: string } | { error: string }>('invoices:learn'),
+    login: () => call<boolean>('invoices:login'),
+    since: (days: number) => call<InvoiceJob[]>('invoices:since', days),
+    /** Stáhne faktury k daným objednávkám a uloží je jako jeden PDF k tisku */
+    download: (codes: string[]) => call<InvoiceRun>('invoices:download', codes),
+    detail: () => call<string>('invoices:detail')
   },
 
   /**

@@ -268,6 +268,71 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     });
   }, [orders, hidePacked, hidden, pinned]);
 
+  /* ---------- faktury hromadně ---------- */
+
+  /**
+   * Faktury k viditelným objednávkám jedním kliknutím.
+   *
+   * Balení a tisk faktur je jedna práce: člověk vytiskne stoh faktur, podle
+   * nich sbírá zboží a fakturu přiloží do krabice. Doteď se každá otvírala
+   * v administraci zvlášť. Bere se přesně to, co je vidět v seznamu — tedy
+   * i s filtrem stavů a období, aby se netiskly faktury k tomu, co se dnes
+   * balit nebude.
+   */
+  const [invoicing, setInvoicing] = useState(false);
+  const [invDone, setInvDone] = useState<{ done: number; total: number } | null>(null);
+  useEffect(() => api.on('invoices:progress', p => setInvDone(p as { done: number; total: number })), []);
+
+  const withInvoice = useMemo(
+    () => visible.filter(o => (o.shop?.invoice ?? '').trim())
+      .map(o => o.card.orderNumber ?? '')
+      .filter(code => code !== ''),
+    [visible]
+  );
+
+  const grabInvoices = useCallback(async () => {
+    if (withInvoice.length === 0) return;
+    setInvoicing(true);
+    setInvDone({ done: 0, total: withInvoice.length });
+    try {
+      const run = await api.invoices.download(withInvoice);
+      /*
+       * Dvě zvláštní odpovědi, dvě různé opravy — a obě má smysl nabídnout
+       * rovnou, ne jen oznámit. „Nepovedlo se" bez další cesty je slepá ulička.
+       */
+      if (run.needsTemplate) {
+        toast('Aplikace ještě neví, kde faktura v administraci je. Otevři jednu a zapamatuje si to.', 'info');
+        const learned = await api.invoices.learn();
+        if ('error' in learned) toast(learned.error, 'error');
+        else {
+          toast(`Adresa faktury naučená (podle: ${learned.kind}). Zkus stažení znovu.`);
+        }
+        return;
+      }
+      if (run.needsLogin) {
+        toast('Administrace chce přihlásit — otevírám okno, pak zkus stažení znovu.', 'info');
+        await api.invoices.login();
+        return;
+      }
+      if (run.ok === 0) {
+        toast(run.failed[0]?.reason ? `Faktury se nestáhly: ${run.failed[0].reason}` : 'Nestáhla se žádná faktura.', 'error');
+        return;
+      }
+      if (!run.file) { toast('Uložení zrušeno.', 'info'); return; }
+      toast(
+        run.failed.length > 0
+          ? `Uloženo ${run.ok} faktur (${run.pages} stran), ${run.failed.length} se nepovedlo.`
+          : `Uloženo ${run.ok} faktur, ${run.pages} stran — připraveno k tisku.`,
+        'info'
+      );
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setInvoicing(false);
+      setInvDone(null);
+    }
+  }, [withInvoice, toast]);
+
   const toggleStatus = (s: string) => setHidden(prev => {
     const next = new Set(prev);
     if (next.has(s)) next.delete(s); else next.add(s);
@@ -664,6 +729,21 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
           <button className={`filter-chip ${hidePacked ? 'on' : ''}`} onClick={() => setHidePacked(v => !v)}>
             Skrýt zabalené
           </button>
+          {/*
+            Faktury ke všemu, co je zrovna v seznamu — jeden PDF, jeden tisk.
+            Na telefonu se netiskne, tam by tlačítko jen zabíralo místo.
+          */}
+          {!phone && (
+            <button className="filter-chip" disabled={invoicing || withInvoice.length === 0}
+              onClick={() => void grabInvoices()}
+              data-tip={withInvoice.length === 0
+                ? 'K žádné zobrazené objednávce zatím není vystavená faktura'
+                : 'Stáhne faktury k zobrazeným objednávkám do jednoho PDF k tisku'}>
+              {invoicing
+                ? <><span className="spinner-inline" /> {invDone ? `${invDone.done}/${invDone.total}` : 'stahuji…'}</>
+                : <><Icon name="printer" size={12} /> Faktury ({withInvoice.length})</>}
+            </button>
+          )}
           {/*
             Číslo z dokladu. Na počítači je to jediná cesta, jak objednávku
             najít — čtečka se chová jako klávesnice a kód sem spadne i s

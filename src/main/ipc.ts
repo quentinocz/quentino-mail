@@ -58,6 +58,10 @@ import { getDb } from './db';
 import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { refreshWatchers } from './idle';
+import {
+  downloadInvoices, learnInvoiceUrl, invoiceSetup, saveInvoiceSetup,
+  invoicesLastDetail, jobsSince, openAdminLogin
+} from './invoices';
 
 /** Zpráva do všech oken — po stažení feedu se musí překreslit, co je otevřené. */
 function emit(channel: string, payload: unknown) {
@@ -438,6 +442,15 @@ export function registerIpc() {
   handle('stockin:sendApi', (id: string) => sendViaApi(id));
   handle('stockin:apiCheck', () => apiCanWriteStock());
   handle('stockin:confirm', (id: string) => { confirmSent(id); return true; });
+
+  /* ---------- Faktury hromadně ---------- */
+  handle('invoices:setup', () => invoiceSetup());
+  handle('invoices:saveSetup', (next: any) => saveInvoiceSetup(next ?? {}));
+  handle('invoices:learn', () => learnInvoiceUrl());
+  handle('invoices:login', () => openAdminLogin());
+  handle('invoices:since', (days: number) => jobsSince(days ?? 7));
+  handle('invoices:download', (codes: string[]) => downloadInvoices(codes ?? []));
+  handle('invoices:detail', () => invoicesLastDetail());
 
   /*
    * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka

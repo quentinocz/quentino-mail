@@ -2291,3 +2291,43 @@ export interface LiveOffer {
   detail: string;
   at: string;
 }
+
+/* ---------- hromadné stažení faktur ---------- */
+
+/** Objednávka, ke které se shání faktura. */
+export interface InvoiceJob {
+  code: string;
+  market: string;
+  invoice: string;
+  name: string;
+  /** Vnitřní ID v administraci — adresa faktury na něm může stát */
+  adminId: number | null;
+}
+
+/** Faktura, která se nepovedla — s důvodem, ne jen s křížkem. */
+export interface InvoiceOutcome {
+  code: string;
+  invoice: string;
+  ok: boolean;
+  pages: number;
+  reason?: string;
+}
+
+export interface InvoiceRun {
+  /** Kam se uložil sloučený PDF; null, když se neuložilo nic */
+  file: string | null;
+  ok: number;
+  pages: number;
+  failed: InvoiceOutcome[];
+  /** Administrace odpověděla přihlašovací stránkou — je potřeba se přihlásit */
+  needsLogin: boolean;
+  /** Adresa faktury se ještě nenaučila */
+  needsTemplate: boolean;
+}
+
+export interface InvoiceSetup {
+  /** Naučená adresa se značkami {invoice}, {code}, {id} */
+  template: string;
+  parallel: number;
+  openAfter: boolean;
+}

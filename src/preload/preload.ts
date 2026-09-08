@@ -88,6 +88,9 @@ const ALLOWED_INVOKE = [
   'stockin:list', 'stockin:create', 'stockin:open', 'stockin:scan', 'stockin:qty', 'stockin:working',
   'stockin:rename', 'stockin:delete', 'stockin:plan', 'stockin:sendWindow',
   'stockin:sendApi', 'stockin:apiCheck', 'stockin:confirm',
+  // Faktury se stahují z administrace v okně — to má jen počítač
+  'invoices:setup', 'invoices:saveSetup', 'invoices:learn', 'invoices:login',
+  'invoices:since', 'invoices:download', 'invoices:detail',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
   // Verze aplikace do hlavičky nastavení
   'app:version'
@@ -99,7 +102,7 @@ const ALLOWED_EVENTS = [
   'ptrans:progress', 'ptrans:changed',
   'articles:progress', 'articles:changed', 'articles:check',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
-  'stockin:changed', 'stockin:progress', 'scan:code', 'scan:qty', 'scan:closed',
+  'stockin:changed', 'stockin:progress', 'invoices:progress', 'scan:code', 'scan:qty', 'scan:closed',
   'live:state', 'live:offers', 'live:work', 'packing:changed'
 ];
 
