@@ -65,7 +65,7 @@ import {
 } from './packeta';
 import {
   balikovnaSetup, saveBalikovnaSetup, balikovnaRows, exportBalikovna, openBalikovna,
-  FIELDS as BAL_FIELDS
+  openBalikovnaImport, FIELDS as BAL_FIELDS
 } from './balikovna';
 import { refreshWatchers } from './idle';
 import {
@@ -495,6 +495,8 @@ export function registerIpc() {
   handle('balikovna:rows', (codes: string[]) => balikovnaRows(codes ?? []));
   handle('balikovna:export', (codes: string[]) => exportBalikovna(codes ?? []));
   handle('balikovna:open', () => openBalikovna());
+  // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho
+  handle('balikovna:import', (file: string) => openBalikovnaImport(file));
 
   /*
    * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka

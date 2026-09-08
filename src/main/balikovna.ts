@@ -4,6 +4,7 @@ import * as path from 'path';
 import { getSetting, setSetting } from './db';
 import { shipOrders, splitStreet, csv, ShipOrder } from './shipexport';
 import { contentOf } from './ppl';
+import { fillFileInput } from './formfile';
 import type { BalikovnaSetup, BalikovnaExport } from '../shared/types';
 
 /**
@@ -93,7 +94,14 @@ export function balikovnaSetup(): BalikovnaSetup {
     type: saved.type ?? 'NB',
     services: saved.services ?? '',
     /** Podání Online, kam se soubor nahrává */
-    portalUrl: saved.portalUrl ?? 'https://podanionline.ceskaposta.cz/',
+    portalUrl: saved.portalUrl ?? 'https://www.postaonline.cz/pol/',
+    /*
+     * Stránka s importem. Napoprvé se neví: Podání Online je aplikace psaná
+     * v Angularu a cesta se v ní skládá za běhu. Zapamatuje se tedy ta,
+     * na které se políčko pro soubor opravdu našlo, a příště se otevře
+     * rovnou ona — místo aby se k ní člověk proklikával znovu.
+     */
+    importUrl: saved.importUrl ?? '',
     value: saved.value === 'order' ? 'order' : 'goods'
   };
 }
@@ -202,14 +210,8 @@ export async function exportBalikovna(codes: string[]): Promise<BalikovnaExport>
 
 let portal: BrowserWindow | null = null;
 
-/**
- * Otevře Podání Online.
- *
- * Nahrání souboru ani odeslání podání aplikace nedělá: podání je nevratné
- * a účtuje se. Okno má vlastní trvalé sezení, takže přihlášení platí i příště.
- */
-export async function openBalikovna(): Promise<boolean> {
-  const setup = balikovnaSetup();
+/** Okno s Podání Online — vlastní trvalé sezení, takže přihlášení platí i příště. */
+function portalWindow(): BrowserWindow {
   const win = portal && !portal.isDestroyed() ? portal : new BrowserWindow({
     width: 1200, height: 860,
     title: 'Podání Online — Balíkovna',
@@ -217,10 +219,48 @@ export async function openBalikovna(): Promise<boolean> {
   });
   portal = win;
   win.on('closed', () => { portal = null; });
-  await win.loadURL(setup.portalUrl);
+  return win;
+}
+
+/** Jen otevře Podání Online — na koukání a na ruční práci. */
+export async function openBalikovna(): Promise<boolean> {
+  const setup = balikovnaSetup();
+  const win = portalWindow();
+  await win.loadURL(setup.importUrl || setup.portalUrl);
   win.show();
   win.focus();
   return true;
+}
+
+/**
+ * Otevře import v Podání Online a vloží do něj soubor.
+ *
+ * Stejný postup jako u PPL, jen bez pevné adresy políčka: Podání Online je
+ * aplikace psaná v Angularu, kde se `id` prvků generují za běhu, takže se
+ * hledá **první políčko na soubor, které se na stránce objeví**. Do té doby
+ * se čeká — mezi otevřením okna a stránkou importu je přihlášení a pár
+ * kliknutí.
+ *
+ * Adresa, na které se políčko našlo, se uloží a příště se otevře rovnou;
+ * druhé kolo už je tedy jen „klikni na import".
+ *
+ * Podání se **neodesílá**. Je nevratné, účtuje se a patří člověku.
+ */
+export async function openBalikovnaImport(file: string): Promise<{ filled: boolean; note: string }> {
+  const setup = balikovnaSetup();
+  const win = portalWindow();
+  const start = setup.importUrl || setup.portalUrl;
+  if (!win.webContents.getURL().startsWith(start)) await win.loadURL(start);
+  win.show();
+  win.focus();
+
+  const out = await fillFileInput(win, file);
+  // Naučenou adresu má smysl si nechat jen tehdy, když se na ní opravdu
+  // podařilo soubor vložit — jinak by se příště otevírala slepá ulička
+  if (out.filled && out.url && out.url !== setup.importUrl) {
+    saveBalikovnaSetup({ importUrl: out.url });
+  }
+  return { filled: out.filled, note: out.note };
 }
 
 export const __test = { valuesOf, columns, balikovnaCsv, DEFAULT_ORDER };

@@ -140,5 +140,27 @@ const broken = bal.saveBalikovnaSetup({ order: 'psc,neexistuje,prijmeni', header
 check('neznámý sloupec se přeskočí',
   bal.balikovnaCsv(rows, broken).toString('utf8').split('\r\n')[0], '54966;Vondra');
 
+/* ---------- vkládání souboru do okna ---------- */
+
+/*
+ * Skript, který v okně hledá políčko na soubor, se nedá vyzkoušet bez
+ * administrace — zato se dá zkontrolovat to, co se v minulé verzi rozbilo
+ * tiše: **že se dá vůbec přeložit**. Překlep v řetězci uvnitř
+ * `executeJavaScript` se jinak projeví až v okně, které nic nevloží.
+ */
+const formfile = require(path.join(DIST, 'formfile.js'));
+const script = formfile.__test.markScript('#neco');
+try {
+  // eslint-disable-next-line no-new-func
+  new Function(script);
+  ok('skript na hledání políčka se dá přeložit', true);
+} catch (e) {
+  ok(`skript na hledání políčka se dá přeložit (${e.message})`, false);
+}
+ok('hledá se políčko na soubor', script.includes("input[type=file]"));
+ok('a značí se, aby ho pak našlo ladicí rozhraní', script.includes(formfile.__test.MARK));
+// Vodítko se použije, jen když na stránce opravdu je — jinak rozhodne pořadí
+ok('vodítko se dá předat', script.includes('#neco'));
+
 console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
 process.exit(failed === 0 ? 0 : 1);

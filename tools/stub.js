@@ -565,7 +565,7 @@
       order: 'prijmeni,jmeno,ic,dic,obec,castObce,ulice,cisloPopisne,cisloOrientacni,psc,stat,'
         + 'telefon,mobil,email,typ,hmotnost,cena,vs,sluzby,dobirka,mena,pocetVk,vsPoukazka',
       header: false, type: 'NB', services: '',
-      portalUrl: 'https://podanionline.ceskaposta.cz/', value: 'goods' },
+      portalUrl: 'https://www.postaonline.cz/pol/', importUrl: '', value: 'goods' },
     'balikovna:fields': [
       { key: 'prijmeni', label: 'Příjmení/Název', hint: 'Jméno příjemce' },
       { key: 'jmeno', label: 'Jméno', hint: 'Křestní jméno' },

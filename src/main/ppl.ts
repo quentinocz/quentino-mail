@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getSetting, setSetting } from './db';
 import { shipOrders, cell } from './shipexport';
+import { fillFileInput } from './formfile';
 import type { PplRow, PplExport, PplSetup, ShopOrderItem } from '../shared/types';
 
 /**
@@ -312,15 +313,16 @@ export async function openPplImport(file: string): Promise<{ filled: boolean; no
   // Vybere uloženou úlohu, pokud je jiná než ta právě zvolená
   await pick(win, setup.mapping);
 
-  try {
-    await setFile(win, file);
-    return { filled: true, note: 'Soubor je vložený. Zkontroluj úlohu a klikni na „Vlož".' };
-  } catch (e: any) {
-    return {
-      filled: false,
-      note: `Soubor se nepodařilo vložit (${String(e?.message ?? e)}). Je uložený v ${file} — vyber ho v okně ručně.`
-    };
-  }
+  /*
+   * Známé `id` je jen vodítko. Administrace PPL ho zatím má stálé, ale kdyby
+   * se změnilo, najde se políčko na soubor podle pořadí — na stránce importu
+   * je jediné.
+   */
+  const out = await fillFileInput(win, file, '#ctl00_contentPH_ctl00_fupload', 60_000);
+  return {
+    filled: out.filled,
+    note: out.filled ? 'Soubor je vložený. Zkontroluj úlohu a klikni na „Vlož".' : out.note
+  };
 }
 
 /**
@@ -368,33 +370,6 @@ async function pick(win: BrowserWindow, mapping: string): Promise<void> {
     `, true);
     await new Promise(resolve => setTimeout(resolve, 1200));
   } catch { /* výběr úlohy je pohodlí, ne podmínka */ }
-}
-
-/**
- * Vloží soubor do políčka přes ladicí rozhraní.
- *
- * `input.value` se ze skriptu nastavit nedá a je to tak správně — kdyby šlo,
- * uměla by libovolná stránka nahrát cizí soubory. `DOM.setFileInputFiles` je
- * cesta, kterou používají i nástroje na testování; okno je naše vlastní
- * a soubor jsme právě vytvořili.
- */
-async function setFile(win: BrowserWindow, file: string): Promise<void> {
-  if (!fs.existsSync(file)) throw new Error('soubor neexistuje');
-  const dbg = win.webContents.debugger;
-  let attached = false;
-  try {
-    if (!dbg.isAttached()) { dbg.attach('1.3'); attached = true; }
-    await dbg.sendCommand('DOM.enable');
-    const doc: any = await dbg.sendCommand('DOM.getDocument', { depth: -1 });
-    const found: any = await dbg.sendCommand('DOM.querySelector', {
-      nodeId: doc.root.nodeId,
-      selector: '#ctl00_contentPH_ctl00_fupload'
-    });
-    if (!found?.nodeId) throw new Error('políčko pro soubor na stránce není');
-    await dbg.sendCommand('DOM.setFileInputFiles', { nodeId: found.nodeId, files: [file] });
-  } finally {
-    if (attached && dbg.isAttached()) { try { dbg.detach(); } catch { /* okno se mohlo zavřít */ } }
-  }
 }
 
 export const __test = { toCp1250, contentOf, typeOf, cityWithPoint, pplCsv, cell };

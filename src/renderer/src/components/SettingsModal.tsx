@@ -1487,6 +1487,19 @@ function ShippingField() {
               onChange={e => setBal(v => v ? { ...v, header: e.target.checked } : v)} />
             první řádek s názvy sloupců
           </label>
+          <div className="field-grid">
+            <div className="field"><label>Podání Online</label>
+              <input value={bal.portalUrl}
+                onChange={e => setBal(v => v ? { ...v, portalUrl: e.target.value } : v)} /></div>
+            <div className="field"><label>Stránka importu (naučená)</label>
+              <input value={bal.importUrl} placeholder="zapamatuje se sama po prvním importu"
+                onChange={e => setBal(v => v ? { ...v, importUrl: e.target.value } : v)} /></div>
+          </div>
+          <div className="desc">
+            Podání Online je aplikace psaná v Angularu, kde se adresy skládají za běhu. Aplikace
+            proto počká, až se na stránce objeví políčko pro soubor, vloží ho do něj a tu adresu si
+            zapamatuje — příště otevře rovnou ji. Odeslání podání zůstává na tobě: je nevratné.
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn primary" disabled={busy === 'balSave'}
               onClick={() => run('balSave', async () => {

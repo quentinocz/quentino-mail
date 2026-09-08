@@ -667,7 +667,9 @@ export const api = {
       call<{ rows: any[]; skipped: { code: string; reason: string }[] }>('balikovna:rows', codes),
     export: (codes: string[]) => call<BalikovnaExport>('balikovna:export', codes),
     /** Otevře Podání Online; nahrání a odeslání zůstává na člověku */
-    open: () => call<boolean>('balikovna:open')
+    open: () => call<boolean>('balikovna:open'),
+    /** Otevře import a vloží do něj soubor, jakmile se políčko objeví */
+    openImport: (file: string) => call<{ filled: boolean; note: string }>('balikovna:import', file)
   },
 
   /**

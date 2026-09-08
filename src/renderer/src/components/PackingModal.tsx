@@ -474,9 +474,15 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
           : 'Nic k vývozu.', 'info');
         return;
       }
-      toast(`Vyvezeno ${out.rows} zásilek do ${out.columns} sloupců — ${out.file}`);
-      await api.balikovna.open();
-      toast('Otevírám Podání Online: nahraj soubor a vyber svoji konfiguraci importu.', 'info');
+      toast(`Vyvezeno ${out.rows} zásilek do ${out.columns} sloupců.`);
+      /*
+       * Okno zůstane otevřené a čeká: než se člověk přihlásí a proklikne
+       * k importu, může to trvat minuty. Jakmile se políčko na soubor
+       * objeví, aplikace do něj soubor vloží sama.
+       */
+      toast('Otevírám Podání Online — přihlas se a jdi na import, soubor tam vložím.', 'info');
+      const opened = await api.balikovna.openImport(out.file);
+      toast(opened.note, opened.filled ? 'info' : 'error');
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {

@@ -2513,6 +2513,8 @@ export interface BalikovnaSetup {
   /** Kódy doplňkových služeb, pokud je potřeba */
   services: string;
   portalUrl: string;
+  /** Naučená adresa stránky s importem; prázdná, dokud se nenajde */
+  importUrl: string;
   /** Co je v „Udané ceně": cena zboží, nebo celá objednávka */
   value: 'goods' | 'order';
 }
