@@ -557,7 +557,9 @@
       { id: 'cposta', label: 'Podání Online České pošty', user: 'quentino.1', hasPassword: false, auto: true }
     ],
     'invoices:setup': { template: 'https://eshop.admin.s1.upgates.com/manager/invoices/pdf/default/{invoice}/',
-      adminHome: 'https://eshop.admin.s1.upgates.com/manager/', parallel: 4, openAfter: true },
+      adminHome: 'https://eshop.admin.s1.upgates.com/manager/', mode: 'detail',
+      detailUrl: 'https://eshop.admin.s1.upgates.com/orders/edit-order/default/{id}/',
+      parallel: 4, openAfter: true },
     'invoices:ready': { ready: 6, total: 9 },
     'invoices:prefetch': { ready: 9, fetched: 3, stopped: null },
     'ppl:setup': { carrier: 'PPL', content: true,

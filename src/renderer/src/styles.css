@@ -7330,6 +7330,15 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 
 /*
+ * Druhý řádek nástrojů: hledání a vývoz.
+ *
+ * Vývoz míval místo mezi filtry a podle toho, kolik bylo zrovna fází, se
+ * přeléval jednou nahoru a jednou dolů — při práci se pak tlačítka trefovala
+ * naslepo. Vlastní řádek je pokaždé na stejném místě.
+ */
+.pk-second { border-top: none; padding-top: 0; }
+
+/*
  * Vývoz a doklady jako jedna skupina.
  *
  * Drží pohromadě a od filtrů ji dělí čára; zalomí se celá, ne jedno
@@ -7345,6 +7354,21 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   padding-left: 10px;
   border-left: 1px solid var(--border);
 }
+
+/*
+ * Zaškrtávátko u objednávky.
+ *
+ * Vývoz se bez výběru vztahuje na celý seznam; jakmile je něco zaškrtnuté,
+ * jde do souboru i na tiskárnu jen výběr. Vybraný řádek má proužek nalevo
+ * silnější, aby se to poznalo i bez dívání do zaškrtávátka.
+ */
+.pk-pick { width: 15px; height: 15px; accent-color: var(--accent); flex-shrink: 0; cursor: pointer; }
+.pk-row.picked { background: var(--accent-soft); }
+.pk-row.picked .pk-row-num { color: var(--accent-dark); }
+.pk-day-head .pk-pick { margin-right: 2px; }
+
+/* „zrušit výběr" vedle počtu — odkaz, ne tlačítko, ať to nekřičí */
+.pk-clear { color: var(--accent-dark); font-weight: 600; text-decoration: underline; }
 
 /* Kolik faktur je stažených dopředu — drobně vedle počtu */
 .pk-inv-ready { color: var(--text-3); font-size: 11px; }

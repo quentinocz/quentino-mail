@@ -2342,6 +2342,16 @@ export interface InvoiceSetup {
   template: string;
   /** Kde se otevírá administrace, když se adresa faktury učí */
   adminHome: string;
+  /**
+   * Jak se k faktuře jde.
+   *
+   * `template` = přímá adresa s dosazeným číslem. `detail` = adresa nese
+   * i vnitřní číslo faktury, které se dopočítat nedá, takže se odkaz hledá
+   * v detailu objednávky.
+   */
+  mode: 'template' | 'detail';
+  /** Adresa detailu objednávky se značkou {id} nebo {code} */
+  detailUrl: string;
   parallel: number;
   openAfter: boolean;
 }
@@ -2540,4 +2550,15 @@ export interface PortalLogin {
   hasPassword: boolean;
   /** Vyplnit a rovnou odeslat, nebo jen předvyplnit */
   auto: boolean;
+}
+
+/** Co se povedlo naučit z jedné otevřené faktury. */
+export interface InvoiceLearned {
+  template: string;
+  sample: string;
+  kind: string;
+  matched: string;
+  mode: 'template' | 'detail';
+  /** Adresa detailu objednávky, když se jede přes něj */
+  detail: string;
 }

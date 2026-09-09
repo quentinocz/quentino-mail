@@ -614,7 +614,7 @@ export function resetPacking(messageId: number): void {
 }
 
 /** Jen pro zkoušky — jednotlivé kroky hledání objednávky se jinak nedají chytit. */
-export const __test = { messageForNumbers, shopStateFor, shopOrderOf, cardFromFeed };
+export const __test = { messageForNumbers, shopStateFor, shopOrderOf, cardFromFeed, dedupe };
 
 /**
  * Kolik minut zpátky se po sestavení seznamu ještě kouká do pošty.
@@ -730,10 +730,50 @@ export async function scanOrders(days: number, force = false): Promise<PackingSc
   emit('packing:progress', { done: rows.length, total: rows.length, label: null });
 
   return {
-    orders,
+    orders: dedupe(orders),
     statuses: [...statuses].sort((a, b) => a.localeCompare(b, 'cs')),
     scannedAt: new Date().toISOString()
   };
+}
+
+/**
+ * Jedna objednávka jednou.
+ *
+ * V seznamu se objevovaly dvojice: tentýž zákazník, totéž číslo, jen jiný
+ * stav. Stává se to, když je jeden e-shop ve feedech vedený pod dvěma trhy
+ * (rychlý feed jako `cz`, úplný jako `sk`) — pak je tatáž objednávka
+ * v databázi dvakrát a při balení se čte jako dvě krabice.
+ *
+ * Vyhrává řádek s **novějším stavem**; při shodě ten, který má víc položek.
+ * Objednávka bez čísla se nespojuje s ničím — ta se pozná jen podle zprávy.
+ */
+function dedupe(orders: PackingOrder[]): PackingOrder[] {
+  const best = new Map<string, PackingOrder>();
+  const out: PackingOrder[] = [];
+
+  for (const order of orders) {
+    const code = (order.shop?.code ?? order.card.orderNumber ?? '').replace(/^0+/, '');
+    if (!code) { out.push(order); continue; }
+    const have = best.get(code);
+    if (!have) { best.set(code, order); continue; }
+    const mine = order.shop?.at ?? order.date ?? '';
+    const theirs = have.shop?.at ?? have.date ?? '';
+    const newer = mine > theirs
+      || (mine === theirs && order.card.items.length > have.card.items.length);
+    if (newer) best.set(code, order);
+  }
+
+  // Pořadí zůstává takové, v jakém objednávky přišly — jen bez dvojic
+  const used = new Set<string>();
+  const merged: PackingOrder[] = [];
+  for (const order of orders) {
+    const code = (order.shop?.code ?? order.card.orderNumber ?? '').replace(/^0+/, '');
+    if (!code) continue;
+    if (used.has(code)) continue;
+    used.add(code);
+    merged.push(best.get(code)!);
+  }
+  return [...out, ...merged];
 }
 
 /** `ShopOrder` zpátky do tvaru řádku, se kterým pracuje `cardFromFeed`. */

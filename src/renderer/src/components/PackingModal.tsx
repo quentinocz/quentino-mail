@@ -228,6 +228,15 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
   const [hidden, setHidden] = useState<Set<string>>(() => loadSet(LS_HIDDEN));
   /** Nejstarší napřed je pořadí balení; nejnovější napřed pořadí přehledu */
   const [oldestFirst, setOldestFirst] = useState(true);
+  /**
+   * Zaškrtnuté objednávky.
+   *
+   * Dokud není zaškrtnuté nic, platí vývoz na celý seznam — tak se to
+   * používá nejčastěji. Jakmile se něco zaškrtne, jde do souboru i na
+   * tiskárnu **jen výběr**; jinak by se u stolu snadno vytisklo o dvacet
+   * faktur víc, než se balí.
+   */
+  const [picked, setPicked] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<PackingProgress | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -358,12 +367,33 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
   const [invDone, setInvDone] = useState<{ done: number; total: number } | null>(null);
   useEffect(() => api.on('invoices:progress', p => setInvDone(p as { done: number; total: number })), []);
 
+  /** Objednávky, na které se vývoz vztahuje: výběr, nebo celý seznam */
+  const chosen = useMemo(
+    () => (picked.size > 0 ? visible.filter(o => picked.has(o.messageId)) : visible),
+    [visible, picked]
+  );
+
   const withInvoice = useMemo(
-    () => visible.filter(o => (o.shop?.invoice ?? '').trim())
+    () => chosen.filter(o => (o.shop?.invoice ?? '').trim())
       .map(o => o.card.orderNumber ?? '')
       .filter(code => code !== ''),
-    [visible]
+    [chosen]
   );
+
+  /** Zaškrtnutí, které přežije přeskládání seznamu — drží se na ID objednávky */
+  const togglePick = useCallback((id: number) => setPicked(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  }), []);
+
+  /** Celý den jedním kliknutím — a druhým zase pryč */
+  const toggleDay = useCallback((rows: PackingOrder[]) => setPicked(prev => {
+    const next = new Set(prev);
+    const allIn = rows.every(one => next.has(one.messageId));
+    for (const one of rows) { if (allIn) next.delete(one.messageId); else next.add(one.messageId); }
+    return next;
+  }), []);
 
   /**
    * Stahování dopředu.
@@ -398,8 +428,8 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    */
   const [pplBusy, setPplBusy] = useState(false);
   const pplCandidates = useMemo(
-    () => visible.map(o => o.card.orderNumber ?? '').filter(Boolean),
-    [visible]
+    () => chosen.map(o => o.card.orderNumber ?? '').filter(Boolean),
+    [chosen]
   );
 
   const exportPpl = useCallback(async () => {
@@ -935,6 +965,41 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
             data-tip="Nejstarší napřed je pořadí balení — co čeká nejdéle, jde z fronty první">
             <Icon name="sort" size={12} /> {oldestFirst ? 'nejstarší' : 'nejnovější'}
           </button>
+        </div>
+
+        {/*
+          Druhý řádek: hledání a vývoz.
+
+          Dřív to viselo v jednom řádku s filtry a podle toho, kolik bylo
+          zrovna fází, se tlačítka přelévala jednou nahoru a jednou dolů —
+          při práci se pak trefovalo naslepo. Teď má vývoz svůj řádek a je
+          pokaždé na stejném místě.
+        */}
+        <div className="pk-filters pk-second">
+          {/*
+            Číslo z dokladu. Na počítači je to jediná cesta, jak objednávku
+            najít — čtečka se chová jako klávesnice a kód sem spadne i s
+            Enterem, takže výchozí je faktura. Přepínač je vedle proto, aby
+            bylo pokaždé vidět, které z těch dvou čísel se zrovna hledá.
+          */}
+          <form className="pk-find" onSubmit={e => { e.preventDefault(); void findByNumber(lookup, findAs); }}>
+            <Icon name="search" size={13} />
+            <input value={lookup} onChange={e => setLookup(e.target.value)}
+              inputMode="numeric"
+              placeholder={findAs === 'invoice' ? 'číslo faktury' : 'číslo objednávky'}
+              aria-label={findAs === 'invoice'
+                ? 'Najít objednávku podle čísla faktury'
+                : 'Najít objednávku podle čísla objednávky'} />
+            <span className="pk-as">
+              <button type="button" className={findAs === 'invoice' ? 'on' : ''}
+                onClick={() => setFindAs('invoice')}
+                data-tip="Číslo z faktury; objednávka se k němu dohledá ve feedu">faktura</button>
+              <button type="button" className={findAs === 'code' ? 'on' : ''}
+                onClick={() => setFindAs('code')}
+                data-tip="Číslo objednávky opsané z e-shopu">objednávka</button>
+            </span>
+            {looking && <span className="spinner-inline" />}
+          </form>
           {/*
             Vývoz a doklady drží pohromadě.
 
@@ -998,44 +1063,25 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
               </button>
             </div>
           )}
-          {/*
-            Číslo z dokladu. Na počítači je to jediná cesta, jak objednávku
-            najít — čtečka se chová jako klávesnice a kód sem spadne i s
-            Enterem, takže výchozí je faktura. Přepínač je vedle proto, aby
-            bylo pokaždé vidět, které z těch dvou čísel se zrovna hledá.
-          */}
-          <form className="pk-find" onSubmit={e => { e.preventDefault(); void findByNumber(lookup, findAs); }}>
-            <Icon name="search" size={13} />
-            <input value={lookup} onChange={e => setLookup(e.target.value)}
-              inputMode="numeric"
-              placeholder={findAs === 'invoice' ? 'číslo faktury' : 'číslo objednávky'}
-              aria-label={findAs === 'invoice'
-                ? 'Najít objednávku podle čísla faktury'
-                : 'Najít objednávku podle čísla objednávky'} />
-            <span className="pk-as">
-              <button type="button" className={findAs === 'invoice' ? 'on' : ''}
-                onClick={() => setFindAs('invoice')}
-                data-tip="Číslo z faktury; objednávka se k němu dohledá ve feedu">faktura</button>
-              <button type="button" className={findAs === 'code' ? 'on' : ''}
-                onClick={() => setFindAs('code')}
-                data-tip="Číslo objednávky opsané z e-shopu">objednávka</button>
-            </span>
-            {looking && <span className="spinner-inline" />}
-          </form>
           <span style={{ flex: 1 }} />
           <span className="pk-count">
             {loading && progress
               ? `Načítám ${progress.done}/${progress.total}…`
               : <>
-                  {/*
-                    Práce, ne celkový počet. „48 objednávek" nic neříká;
-                    „12 k zabalení" je odpověď na to, proč je okno otevřené.
-                  */}
-                  <b>{counts.todo ?? 0} k zabalení</b>
-                  {orders.length > (counts.todo ?? 0) && <> · {orders.length} za období</>}
+                  {picked.size > 0
+                    ? <>
+                        <b>{picked.size} vybráno</b>
+                        {' · '}
+                        <button className="pk-clear" onClick={() => setPicked(new Set())}>zrušit výběr</button>
+                      </>
+                    : <>
+                        <b>{counts.todo ?? 0} k zabalení</b>
+                        {orders.length > (counts.todo ?? 0) && <> · {orders.length} za období</>}
+                      </>}
                   {loadedAt && <span className="pk-fresh"> · stav {relTime(new Date(loadedAt).toISOString())}</span>}
                 </>}
           </span>
+
         </div>
 
         <div className="pk-body">
@@ -1062,6 +1108,11 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                   číst; hlavička řekne totéž jednou.
                 */}
                 <div className="pk-day-head">
+                  {/* Celý den jedním kliknutím — u tisku faktur za den je to ten nejčastější výběr */}
+                  <input type="checkbox" className="pk-pick"
+                    checked={group.rows.every(one => picked.has(one.messageId))}
+                    onChange={() => toggleDay(group.rows)}
+                    aria-label={`Vybrat objednávky z ${group.day}`} />
                   <span>{group.day}</span>
                   <span className="pk-day-count">{group.rows.length}</span>
                 </div>
@@ -1073,10 +1124,21 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                   const phase = phases.get(o.messageId) ?? 'todo';
                   const cod = isCod(o);
                   return (
-                    <button key={o.messageId}
-                      className={`pk-row ${phase} ${o.messageId === selected ? 'active' : ''} ${o.done ? 'done' : ''}`}
-                      onClick={() => setSelected(o.messageId)}>
+                    <div key={o.messageId} role="button" tabIndex={0}
+                      className={`pk-row ${phase} ${o.messageId === selected ? 'active' : ''} ${o.done ? 'done' : ''} ${picked.has(o.messageId) ? 'picked' : ''}`}
+                      onClick={() => setSelected(o.messageId)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setSelected(o.messageId); }}>
                       <div className="pk-row-top">
+                        {/*
+                          Zaškrtávátko je uvnitř řádku, ale klik na něj řádek
+                          neotevírá — jinak by se při vybírání pořád
+                          přepínala rozepsaná objednávka.
+                        */}
+                        <input type="checkbox" className="pk-pick"
+                          checked={picked.has(o.messageId)}
+                          onClick={e => e.stopPropagation()}
+                          onChange={() => togglePick(o.messageId)}
+                          aria-label={`Vybrat objednávku ${numbers(o).main}`} />
                         <span className="pk-row-num">{numbers(o).main}</span>
                         {numbers(o).sub && <span className="pk-row-code">obj. {numbers(o).sub}</span>}
                         {o.done && <Icon name="check" size={13} className="pk-row-done" />}
@@ -1108,7 +1170,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                         <span style={{ flex: 1 }} />
                         {status && <span className={`pk-row-status ${phase}`} title={status}>{status}</span>}
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

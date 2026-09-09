@@ -79,6 +79,48 @@ async function samplePdf(pages, text) {
   check('i číslo objednávky', byCode && byCode.template, 'https://x.upgates.com/f/{code}.pdf');
 
   /*
+   * Dvě čísla v adrese. Takhle vypadá skutečná adresa faktury v Upgates:
+   * v cestě je objednávka, v parametru vnitřní číslo faktury. Nahradit jen
+   * to první znamenalo, že se ke každé objednávce stáhla tatáž faktura —
+   * proto se nahrazují všechna a co zbude, se vypíše.
+   */
+  const dva = __test.templateFrom(
+    'https://x.upgates.com/orders/edit-order/view-invoice/9100/?invoice_id=1446', known);
+  check('objednávka v cestě se nahradí',
+    dva && dva.template, 'https://x.upgates.com/orders/edit-order/view-invoice/{id}/?invoice_id=1446');
+  check('a cizí číslo faktury se vypíše jako zbytek', dva && dva.leftovers, ['1446']);
+
+  /*
+   * Odkaz na fakturu z detailu objednávky. Tohle je druhá cesta, když se
+   * adresa dosadit nedá — a musí sáhnout přesně na tu fakturu, která
+   * v detailu je.
+   */
+  check('odkaz na fakturu se najde v detailu', invoices.invoiceHref(
+    '<a href="/orders/edit-order/default/9100/">Detail</a>'
+    + '<a href="/orders/edit-order/view-invoice/9100/?invoice_id=1446">Faktura</a>',
+    'https://x.upgates.com/orders/edit-order/default/9100/'),
+    'https://x.upgates.com/orders/edit-order/view-invoice/9100/?invoice_id=1446');
+  check('a v HTML entitách taky', invoices.invoiceHref(
+    '<a href="/f/view-invoice/9100/?invoice_id=1446&amp;print=1">Faktura</a>', 'https://x.upgates.com/'),
+    'https://x.upgates.com/f/view-invoice/9100/?invoice_id=1446&print=1');
+  check('bez odkazu se nic nevymýšlí',
+    invoices.invoiceHref('<a href="/orders/">Zpět</a>', 'https://x.upgates.com/'), '');
+
+  /*
+   * Pojistka: adresa s cizím číslem se nesmí použít. Přesně tohle stáhlo
+   * u objednávky 023853 fakturu 023855 — v adrese zůstalo `invoice_id`
+   * z faktury, na které se vzor učil.
+   */
+  check('cizí číslo v adrese se pozná',
+    __test.strangeNumber('https://x.upgates.com/orders/edit-order/view-invoice/9100/?invoice_id=1446', known[0]),
+    '1446');
+  check('vlastní čísla se za cizí nepovažují',
+    __test.strangeNumber('https://x.upgates.com/f/2600412.pdf', known[0]), '');
+  // Číslo v doméně (s19) není číslo dokladu
+  check('doména se nepočítá',
+    __test.strangeNumber('https://quentino.admin.s19.upgates.com/f/2600412.pdf', known[0]), '');
+
+  /*
    * Adresa bez čísla, které by šlo s objednávkou spojit, se naučit nedá.
    * Kdyby se uložila tak, jak je, stahovalo by se pak stokrát totéž — a
    * výsledkem by byl PDF se stokrát stejnou fakturou, což je horší než chyba.
@@ -212,6 +254,17 @@ async function samplePdf(pages, text) {
   const fast = await invoices.downloadInvoices(['023748', '023750']);
   check('tisk vezme faktury z meziskladu', asked.length, 0);
   check('a je jich tam tolik, kolik má být', fast.ok, 2);
+
+  /*
+   * A totéž na celé cestě: se vzorem, ve kterém zbylo cizí číslo, se
+   * nesmí stáhnout ani jedna faktura.
+   */
+  fs.rmSync(path.join(os.tmpdir(), 'faktury'), { recursive: true, force: true });
+  invoices.saveInvoiceSetup({ template: 'https://x/f/{invoice}.pdf?invoice_id=1446', mode: 'template' });
+  asked.length = 0;
+  const cizi = await invoices.downloadInvoices(['023748']);
+  check('s cizím číslem se nestahuje nic', [asked.length, cizi.ok], [0, 0]);
+  ok('a řekne se proč', (cizi.failed[0]?.reason ?? '').includes('cizí číslo'));
 
   __test.setFetch(null);
   console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
