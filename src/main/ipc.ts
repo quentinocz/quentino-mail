@@ -71,7 +71,7 @@ import {
 import { refreshWatchers } from './idle';
 import {
   downloadInvoices, learnInvoiceUrl, invoiceSetup, saveInvoiceSetup,
-  invoicesLastDetail, jobsSince, openAdminLogin, prefetchInvoices, invoicesReady
+  invoicesLastDetail, jobsSince, openAdminLogin, prefetchInvoices, invoicesReady, forgetInvoices
 } from './invoices';
 
 /** Zpráva do všech oken — po stažení feedu se musí překreslit, co je otevřené. */
@@ -468,6 +468,8 @@ export function registerIpc() {
   // Stahování dopředu: u tiskárny se nemá čekat na síť
   handle('invoices:prefetch', (codes: string[]) => prefetchInvoices(codes ?? []));
   handle('invoices:ready', (codes: string[]) => invoicesReady(codes ?? []));
+  // Po opravě adresy je potřeba vyhodit, co se stáhlo tou starou
+  handle('invoices:forget', (codes: string[]) => forgetInvoices(codes ?? []));
 
   /* ---------- PPL ---------- */
   handle('ppl:setup', () => pplSetup());

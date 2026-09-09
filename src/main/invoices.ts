@@ -120,44 +120,88 @@ export function fillTemplate(template: string, job: InvoiceJob): string | null {
  */
 export function templateFrom(url: string, known: InvoiceJob[]):
   { template: string; matched: InvoiceJob | null; kind: string; leftovers: string[] } | null {
-  const numbers = url.match(/\d{2,}/g) ?? [];
-  let template = url;
-  let matched: InvoiceJob | null = null;
+  /*
+   * Adresa se vykládá **proti jedné objednávce**, ne proti všem najednou.
+   *
+   * Čísla faktur a čísla objednávek se u Quentina překrývají (objednávka
+   * 023728 má fakturu 023722, a 023722 je zároveň číslo jiné objednávky).
+   * Když se každé číslo hledalo zvlášť napříč všemi objednávkami, vyšlo
+   * z adresy
+   *   /orders/edit-order/preview/1185/?template_id=invoice&invoice_number=023722
+   * mapování `invoice_number={code}` — číslo faktury se vyložilo jako číslo
+   * *cizí* objednávky. Do parametru se pak dosazovalo číslo objednávky
+   * a e-shop vytiskl fakturu někoho jiného.
+   *
+   * Proto se zkouší objednávka po objednávce a vybere se ta, která vysvětlí
+   * nejvíc čísel v adrese. U vítěze je pak jasné, co které číslo znamená.
+   */
+  const best = known
+    .map(job => ({ job, ...mapUrl(url, job) }))
+    .filter(one => one.hits > 0)
+    .sort((a, b) => b.hits - a.hits || a.leftovers.length - b.leftovers.length)[0];
+
+  if (!best) return null;
+  return {
+    template: best.template,
+    matched: best.job,
+    kind: best.kinds.join(' + '),
+    leftovers: best.leftovers
+  };
+}
+
+/**
+ * Co v adrese znamenají čísla jedné objednávky.
+ *
+ * Rozhoduje i **název parametru**: `invoice_number=023722` je číslo faktury,
+ * i kdyby se náhodou rovnalo číslu objednávky. Bez toho by se u e-shopu,
+ * kde obě řady čísel leží blízko sebe, dosadilo špatné číslo a vytiskla by
+ * se cizí faktura.
+ */
+function mapUrl(url: string, job: InvoiceJob):
+  { template: string; hits: number; kinds: string[]; leftovers: string[] } {
+  let tail = url;
+  let head = '';
+  try {
+    const parsed = new URL(url);
+    head = `${parsed.protocol}//${parsed.host}`;
+    tail = `${parsed.pathname}${parsed.search}`;
+  } catch { /* není-li to adresa, projde se celá */ }
+
+  const invoice = job.invoice.replace(/\D/g, '').replace(/^0+/, '');
+  const code = job.code.replace(/\D/g, '').replace(/^0+/, '');
+  const id = job.adminId ? String(job.adminId) : '';
+
   const kinds: string[] = [];
   const leftovers: string[] = [];
+  let hits = 0;
 
   /*
-   * Nahrazují se **všechna** čísla, která se dají spojit s objednávkou, ne
-   * jen první.
-   *
-   * Adresa faktury v Upgates vypadá takhle:
-   *   /orders/edit-order/view-invoice/1185/?invoice_id=1446
-   * — dvě různá čísla. První verze nahradila jen to první a `invoice_id`
-   * nechala tak, jak bylo. Výsledek: ke každé objednávce se stáhla pořád
-   * tatáž faktura. Proto se teď prochází všechna a co se spojit nedá,
-   * vrátí se v `leftovers` — s takovou adresou se stahovat nesmí.
+   * Prochází se celý zbytek adresy najednou i s tím, co číslu předchází —
+   * z toho se pozná, jestli jde o `invoice_number=` nebo o kus cesty.
    */
-  for (const raw of numbers) {
+  const template = head + tail.replace(/(\w*)(=|\/)(\d{2,})/g, (whole, key: string, sep: string, raw: string) => {
     const bare = raw.replace(/^0+/, '');
-    let mark = '';
-    for (const job of known) {
-      const invoice = job.invoice.replace(/\D/g, '').replace(/^0+/, '');
-      const code = job.code.replace(/\D/g, '').replace(/^0+/, '');
-      const id = job.adminId ? String(job.adminId) : '';
-      // Pořadí je schválně: číslo faktury je nejjistější, ID záznamu
-      // nejméně — to se dopočítává z kalibrace a může být posunuté.
-      if (invoice && bare === invoice) { mark = '{invoice}'; kinds.push('číslo faktury'); }
-      else if (code && bare === code) { mark = '{code}'; kinds.push('číslo objednávky'); }
-      else if (id && bare === id) { mark = '{id}'; kinds.push('ID záznamu v administraci'); }
-      if (mark) { matched = matched ?? job; break; }
-    }
-    if (mark) template = swap(template, raw, mark);
-    // Rok v adrese ani čísla portu nejsou čísla objednávky — krátká se přeskočí
-    else if (raw.length >= 3) leftovers.push(raw);
-  }
+    const hint = key.toLowerCase();
+    const wants = /invoice|faktur/.test(hint) ? 'invoice'
+      : /order|objednav/.test(hint) ? 'code'
+        : '';
 
-  if (!matched) return null;
-  return { template, matched, kind: kinds.join(' + '), leftovers };
+    let mark = '';
+    if (wants === 'invoice' && invoice && bare === invoice) { mark = '{invoice}'; kinds.push('číslo faktury'); }
+    else if (wants === 'code' && code && bare === code) { mark = '{code}'; kinds.push('číslo objednávky'); }
+    else if (invoice && bare === invoice) { mark = '{invoice}'; kinds.push('číslo faktury'); }
+    else if (id && bare === id) { mark = '{id}'; kinds.push('ID záznamu v administraci'); }
+    else if (code && bare === code) { mark = '{code}'; kinds.push('číslo objednávky'); }
+
+    if (!mark) {
+      if (raw.length >= 3) leftovers.push(raw);
+      return whole;
+    }
+    hits++;
+    return `${key}${sep}${mark}`;
+  });
+
+  return { template, hits, kinds, leftovers };
 }
 
 /** Nahradí jen ten jeden výskyt čísla, ne všechna stejná čísla v adrese. */
@@ -623,6 +667,35 @@ export async function prefetchInvoices(codes: string[]): Promise<{ ready: number
   }
   if (stopped) note(`stahování dopředu zastaveno: ${stopped}`);
   return { ready: ready + fetched, fetched, stopped };
+}
+
+/**
+ * Vyhodí stažené faktury a stáhne je příště znovu.
+ *
+ * Potřeba to je pokaždé, když se opraví adresa: v meziskladu leží soubory
+ * stažené tou starou, špatnou — a protože se z něj bere přednostně, tiskly
+ * by se dál. Bez čísel vyhodí všechno, s čísly jen ty vybrané.
+ */
+export function forgetInvoices(codes: string[] = []): { removed: number } {
+  let removed = 0;
+  try {
+    if (codes.length === 0) {
+      const dir = cacheDir();
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith('.pdf')) continue;
+        fs.rmSync(path.join(dir, name), { force: true });
+        removed++;
+      }
+    } else {
+      for (const job of jobsFor(codes)) {
+        const file = cacheFile(job);
+        if (fs.existsSync(file)) { fs.rmSync(file, { force: true }); removed++; }
+      }
+    }
+  } catch { /* mezisklad je doplněk — když se nesmaže, nic se neděje */ }
+  // Objednávky, které se dřív nepovedly, dostanou další pokus
+  skipUntilRestart.clear();
+  return { removed };
 }
 
 /** Kolik z těch objednávek už má fakturu po ruce — rozhraní to říká u tlačítka. */

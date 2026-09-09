@@ -4,6 +4,8 @@ import { decrypt } from './secure';
 import { getUpgatesConfig } from './upgates';
 import { planOf, markSent } from './stockin';
 import { StockinPlanRow, SkippedRow } from '../shared/types';
+import { openUrl } from './formfile';
+import { signIn, keepSignedIn } from './portallogin';
 
 /**
  * Zápis naskladnění do Upgates.
@@ -93,9 +95,15 @@ export async function sendViaWindow(sessionId: string):
   win.on('closed', () => { sending = null; });
 
   const url = `${cfg.url}${STOCKING_PATH}`;
-  if (!win.webContents.getURL().startsWith(url)) await win.loadURL(url);
+  /*
+   * Přihlášení se vyplní samo, když je uložené — a i pak, když sezení vyprší
+   * uprostřed práce. Bez toho se u regálu opisovalo heslo z papírku.
+   */
+  keepSignedIn(win, 'upgates');
+  if (!win.webContents.getURL().startsWith(url)) await openUrl(win, url);
   win.show();
   win.focus();
+  await signIn(win, 'upgates');
 
   /*
    * Čekání na přihlášení.

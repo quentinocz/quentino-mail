@@ -609,7 +609,9 @@ export const api = {
     prefetch: (codes: string[]) =>
       call<{ ready: number; fetched: number; stopped: string | null }>('invoices:prefetch', codes),
     /** Kolik z nich už je po ruce */
-    ready: (codes: string[]) => call<{ ready: number; total: number }>('invoices:ready', codes)
+    ready: (codes: string[]) => call<{ ready: number; total: number }>('invoices:ready', codes),
+    /** Vyhodí stažené faktury — po opravě adresy se musí stáhnout znovu */
+    forget: (codes: string[] = []) => call<{ removed: number }>('invoices:forget', codes)
   },
 
   /**

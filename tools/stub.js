@@ -561,6 +561,7 @@
       detailUrl: 'https://eshop.admin.s1.upgates.com/orders/edit-order/default/{id}/',
       parallel: 4, openAfter: true },
     'invoices:ready': { ready: 6, total: 9 },
+    'invoices:forget': { removed: 6 },
     'invoices:prefetch': { ready: 9, fetched: 3, stopped: null },
     'ppl:setup': { carrier: 'PPL', content: true,
       importUrl: 'https://klient.ppl.cz/import.aspx?loadedControl=importZasilek',
@@ -1377,6 +1378,10 @@
       paymentName: (opts && opts.payment) || 'Platba kartou online',
       total: (opts && opts.total) || '2\u00a0480 Kč'
     });
+    // Země doručení — do zahraničí jde jiný štítek i doba
+    if (opts && opts.country) {
+      card.shipping = Object.assign({}, card.shipping, { country: opts.country });
+    }
     return {
       messageId: id,
       date: new Date(Date.now() - hoursBack * 3600e3).toISOString(),
@@ -1402,9 +1407,9 @@
       packOrder(3, 9, '022603', '999109', 'Čeká na platbu', { payment: 'Bankovním převodem' }),
       packOrder(4, 26, '022600', '999100', 'Přijata', { shipment: 'Balíkovna' }),
       packOrder(5, 28, '022599', '999099', 'Vyřizuje se', { done: true }),
-      packOrder(6, 30, '022598', '999098', 'Odesláno', { shipment: 'PPL' }),
+      packOrder(6, 30, '022598', '999098', 'Odesláno', { shipment: 'PPL', country: 'DE' }),
       packOrder(7, 52, '022596', '999096', 'Odesláno', { payment: 'Dobírka', total: '790 Kč' }),
-      packOrder(8, 74, '022590', '999090', 'Doručeno'),
+      packOrder(8, 74, '022590', '999090', 'Doručeno', { country: 'SK' }),
       packOrder(9, 76, '022589', '999089', 'Stornováno', { shipment: 'Osobní odběr' })
     ],
     statuses: ['Přijata', 'Čeká na platbu', 'Vyřizuje se', 'Odesláno', 'Doručeno', 'Stornováno'],

@@ -625,7 +625,7 @@ const DESKTOP_ONLY = [
    * telefon nemá ani okno, ani tiskárnu.
    */
   'invoices:setup', 'invoices:saveSetup', 'invoices:learn', 'invoices:login',
-  'invoices:since', 'invoices:download', 'invoices:detail', 'invoices:prefetch', 'invoices:ready',
+  'invoices:since', 'invoices:download', 'invoices:detail', 'invoices:prefetch', 'invoices:ready', 'invoices:forget',
   'ppl:setup', 'ppl:saveSetup', 'ppl:rows', 'ppl:export', 'ppl:import', 'ppl:labels',
   'packeta:setup', 'packeta:saveSetup', 'packeta:test', 'packeta:packets',
   'packeta:create', 'packeta:labels', 'packeta:formats',

@@ -74,6 +74,18 @@ export function phaseOf(order: PackingOrder): PackPhase {
   return 'todo';
 }
 
+/**
+ * Země, kam se doručuje.
+ *
+ * Bere se z doručovací adresy, a když chybí, z fakturační — doručuje se pak
+ * na ni. Při balení rozhoduje: do zahraničí jde jiný štítek, jiná doba
+ * a u některých zemí i celní papír.
+ */
+export function countryOf(order: PackingOrder): string {
+  const raw = order.card.shipping?.country || order.card.billing?.country || '';
+  return raw.trim().toUpperCase().slice(0, 2);
+}
+
 /** Dobírka se pozná z názvu platby — a při balení na ní záleží nejvíc. */
 export function isCod(order: PackingOrder): boolean {
   return /dob[íi]rk|cash\s*on|nachnahme/i.test(order.card.paymentName ?? '');
@@ -101,6 +113,18 @@ function relTime(iso: string): string {
   if (h < 24) return `před ${h} h`;
   const d = Math.floor(h / 24);
   return d === 1 ? 'včera' : `před ${d} dny`;
+}
+
+/**
+ * Vlaječka ze dvou písmen kódu země.
+ *
+ * Unicode má vlajky poskládané z „regionálních písmen": CZ = 🇨🇿. Není to
+ * obrázek ani tabulka zemí, jen posun v kódu znaku — takže to funguje i pro
+ * zemi, kterou aplikace nikdy neviděla.
+ */
+function flagOf(code: string): string {
+  if (!/^[A-Z]{2}$/.test(code)) return '🏳';
+  return String.fromCodePoint(...[...code].map(ch => 0x1f1e6 + ch.charCodeAt(0) - 65));
 }
 
 /** Datum bez času — u stavu objednávky stačí den */
@@ -237,6 +261,8 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    * faktur víc, než se balí.
    */
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  /** Vybraná země; prázdno = všechny. Do zahraničí jde jiný štítek i doba. */
+  const [country, setCountry] = useState('');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<PackingProgress | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -261,6 +287,21 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    */
   const [findAs, setFindAs] = useState<'invoice' | 'code'>('invoice');
   const [zoom, setZoom] = useState<OrderCardItem | null>(null);
+  /**
+   * Velikost okna.
+   *
+   * Při balení se kouká hlavně do seznamu a do položek, takže se hodí okno
+   * přes celou plochu; při rychlém nakouknutí mezi jinou prací zase malé.
+   * Volba se pamatuje, protože kdo si okno jednou zvětší, chce ho velké
+   * i příště.
+   */
+  const [size, setSize] = useState<'normal' | 'full' | 'mini'>(
+    () => (localStorage.getItem('packingSize') as 'normal' | 'full' | 'mini') || 'normal'
+  );
+  const setWindowSize = useCallback((next: 'normal' | 'full' | 'mini') => {
+    setSize(next);
+    localStorage.setItem('packingSize', next);
+  }, []);
   const [copied, setCopied] = useState(false);
   const phone = useIsPhone();
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
@@ -322,17 +363,28 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     return out;
   }, [orders, phases]);
 
+  /** Kolik objednávek jde do které země — podle toho se nabízí filtr */
+  const countries = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const one of orders) {
+      const key = countryOf(one) || '??';
+      out.set(key, (out.get(key) ?? 0) + 1);
+    }
+    return [...out.entries()].sort((a, b) => b[1] - a[1]);
+  }, [orders]);
+
   const visible = useMemo(() => {
     const list = orders.filter(o => {
       if (o.messageId === pinned) return true;
-      return !hidden.has(phases.get(o.messageId) ?? 'todo');
+      if (hidden.has(phases.get(o.messageId) ?? 'todo')) return false;
+      return !country || countryOf(o) === country;
     });
     /*
      * Nejstarší napřed je výchozí, protože tak se balí: co čeká nejdél, jde
      * z fronty ven první. Kdo si jen prohlíží, co dnes přišlo, přepne.
      */
     return list.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) * (oldestFirst ? 1 : -1));
-  }, [orders, hidden, pinned, phases, oldestFirst]);
+  }, [orders, hidden, pinned, phases, oldestFirst, country]);
 
   /**
    * Rozdělení do dnů.
@@ -910,7 +962,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       {/* Na telefonu je vidět vždy jen jedna část — seznam, nebo rozepsaná objednávka */}
-      <div className="modal pk-modal" data-pane={selected ? 'detail' : 'list'}
+      <div className={`modal pk-modal pk-${size}`} data-pane={selected ? 'detail' : 'list'}
         data-scan={panelH ? 'on' : undefined}
         style={panelH ? { paddingTop: panelH } : undefined}>
         <div className="modal-head">
@@ -933,6 +985,22 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
             onClick={() => load(days, true)}>
             <Icon name="refresh" size={15} className={loading ? 'spinning' : undefined} />
           </button>
+          {/*
+            Velikost okna. Při balení se kouká do seznamu i do položek a hodí
+            se celá plocha; při nakouknutí mezi jinou prací zase malé okno.
+          */}
+          {!phone && (
+            <>
+              <button className="icon-btn" data-tip={size === 'mini' ? 'Obnovit velikost' : 'Zmenšit'}
+                onClick={() => setWindowSize(size === 'mini' ? 'normal' : 'mini')}>
+                <Icon name={size === 'mini' ? 'expand' : 'minus'} size={15} />
+              </button>
+              <button className="icon-btn" data-tip={size === 'full' ? 'Obnovit velikost' : 'Na celou plochu'}
+                onClick={() => setWindowSize(size === 'full' ? 'normal' : 'full')}>
+                <Icon name={size === 'full' ? 'shrink' : 'expand'} size={15} />
+              </button>
+            </>
+          )}
           <button className="icon-btn" onClick={onClose} data-tip="Zavřít"><Icon name="x" size={16} /></button>
         </div>
 
@@ -965,6 +1033,23 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
             data-tip="Nejstarší napřed je pořadí balení — co čeká nejdéle, jde z fronty první">
             <Icon name="sort" size={12} /> {oldestFirst ? 'nejstarší' : 'nejnovější'}
           </button>
+          {/*
+            Země. Nabízí se, jen když je co filtrovat — u e-shopu, kde jde
+            všechno do Česka, by to byl chip navíc bez užitku.
+          */}
+          {countries.length > 1 && (
+            <div className="pk-lands">
+              {countries.map(([code, count]) => (
+                <button key={code}
+                  className={`filter-chip ${country === code ? 'on' : ''}`}
+                  data-tip={`Jen objednávky do ${code === '??' ? 'neznámé země' : code}`}
+                  onClick={() => setCountry(v => (v === code ? '' : code))}>
+                  {flagOf(code)} {code} <b>{count}</b>
+                </button>
+              ))}
+            </div>
+          )}
+
         </div>
 
         {/*
@@ -1010,6 +1095,24 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
           */}
           {!phone && (
             <div className="pk-ship">
+              {/*
+                Stáhnout znovu. Faktury se drží v meziskladu, aby byl tisk
+                okamžitý — jenže po opravě adresy tam leží ty stažené tou
+                starou, špatnou. Tohle je vyhodí.
+              */}
+              <button className="filter-chip pk-again" data-tip="Zahodí stažené faktury a příště je stáhne znovu"
+                onClick={() => {
+                  api.invoices.forget([])
+                    .then(out => {
+                      setInvReady(0);
+                      toast(out.removed > 0
+                        ? `Zahozeno ${out.removed} stažených faktur — příště se stáhnou znovu.`
+                        : 'Mezisklad byl prázdný.');
+                    })
+                    .catch(e => toast(e.message, 'error'));
+                }}>
+                <Icon name="refresh" size={12} />
+              </button>
               <button className="filter-chip" disabled={invoicing || withInvoice.length === 0}
                 onClick={() => void grabInvoices()}
                 data-tip={withInvoice.length === 0
@@ -1152,6 +1255,15 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                         se při balení nesmí zapomenout — proto je zvýrazněná.
                       */}
                       <div className="pk-row-ship">
+                        {/*
+                          Země drobně vlevo. Do zahraničí jde jiný štítek
+                          i doba — a poznat se to má dřív než z adresy.
+                        */}
+                        {countryOf(o) && countryOf(o) !== 'CZ' && (
+                          <span className="pk-row-land" data-tip={`Doručení do ${countryOf(o)}`}>
+                            {flagOf(countryOf(o))} {countryOf(o)}
+                          </span>
+                        )}
                         {o.card.shipmentName && (
                           <span className="pk-row-carrier"><Icon name="truck" size={11} /> {o.card.shipmentName}</span>
                         )}

@@ -91,7 +91,7 @@ const ALLOWED_INVOKE = [
   'stockin:sendApi', 'stockin:apiCheck', 'stockin:confirm',
   // Faktury se stahují z administrace v okně — to má jen počítač
   'invoices:setup', 'invoices:saveSetup', 'invoices:learn', 'invoices:login',
-  'invoices:since', 'invoices:download', 'invoices:detail', 'invoices:prefetch', 'invoices:ready',
+  'invoices:since', 'invoices:download', 'invoices:detail', 'invoices:prefetch', 'invoices:ready', 'invoices:forget',
   // Zásilky pro PPL: soubor i import do jejich administrace dělá počítač
   'ppl:setup', 'ppl:saveSetup', 'ppl:rows', 'ppl:export', 'ppl:import', 'ppl:labels',
   'packeta:setup', 'packeta:saveSetup', 'packeta:test', 'packeta:packets',

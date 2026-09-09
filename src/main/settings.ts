@@ -200,7 +200,14 @@ const SECRET_SETTING_KEYS = [
   // Adresy feedů objednávek nesou tajný klíč, takže se v databázi drží
   // zašifrované. Bez tohohle zápisu by se do zálohy dostala jen nečitelná
   // šifra a na druhém zařízení by se feedy tvářily jako nenastavené.
-  'orderFeeds'
+  'orderFeeds',
+  /*
+   * Heslo k Zásilkovně a přihlášení do administrací. V databázi jsou
+   * zašifrované systémovou klíčenkou, která na jiném počítači nefunguje —
+   * do zálohy proto patří rozšifrované, jinak by se po obnovení tvářily
+   * jako nenastavené a člověk by je hledal.
+   */
+  'packetaPassword', 'portalLogins'
 ];
 
 /** Popisky do hlášky po importu. */
@@ -208,6 +215,8 @@ const SECRET_LABELS: Record<string, string> = {
   anthropicApiKey: 'API klíč',
   upgatesKey: 'Upgates klíč',
   orderFeeds: 'feedy objednávek',
+  packetaPassword: 'heslo k Zásilkovně',
+  portalLogins: 'přihlášení do administrací',
   igAppSecret: 'Meta aplikace',
   igStorageKey: 'úložiště médií',
   igUserToken: 'přístup k Instagramu',
@@ -254,7 +263,15 @@ const VOLATILE_SETTING_KEYS = [
  * každý projekt Supabase („kdy se naposledy ozval", což je vlastnost spojení
  * tohohle zařízení).
  */
-const VOLATILE_SETTING_PREFIXES = ['orderFeedSync:', 'orderFeedError:', 'supabaseSeen:'];
+const VOLATILE_SETTING_PREFIXES = [
+  'orderFeedSync:', 'orderFeedError:', 'supabaseSeen:',
+  /*
+   * Uložené rozbory z Analytics. Je to stažená kopie cizích dat, ne
+   * nastavení: po obnovení na jiném počítači by se ukazovala stará čísla
+   * a čerstvá by se stáhla až za den. Ke všemu jsou velké.
+   */
+  'ga4Deep', 'ga4Pages', 'ga4Notes'
+];
 
 function isVolatile(key: string): boolean {
   return VOLATILE_SETTING_KEYS.includes(key)
