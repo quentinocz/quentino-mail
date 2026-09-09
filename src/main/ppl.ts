@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getSetting, setSetting } from './db';
 import { shipOrders, cell } from './shipexport';
-import { fillFileInput } from './formfile';
+import { fillFileInput, openUrl } from './formfile';
+import { signIn, keepSignedIn } from './portallogin';
 import type { PplRow, PplExport, PplSetup, ShopOrderItem } from '../shared/types';
 
 /**
@@ -306,9 +307,11 @@ export async function openPplImport(file: string): Promise<{ filled: boolean; no
   importWin = win;
   win.on('closed', () => { importWin = null; });
 
-  if (!win.webContents.getURL().startsWith(setup.importUrl)) await win.loadURL(setup.importUrl);
+  keepSignedIn(win, 'ppl');
+  if (!win.webContents.getURL().startsWith(setup.importUrl)) await openUrl(win, setup.importUrl);
   win.show();
   win.focus();
+  await signIn(win, 'ppl');
 
   // Vybere uloženou úlohu, pokud je jiná než ta právě zvolená
   await pick(win, setup.mapping);
@@ -341,9 +344,11 @@ export async function openPplLabels(): Promise<boolean> {
   });
   importWin = win;
   win.on('closed', () => { importWin = null; });
-  await win.loadURL(setup.labelsUrl);
+  keepSignedIn(win, 'ppl');
+  await openUrl(win, setup.labelsUrl);
   win.show();
   win.focus();
+  await signIn(win, 'ppl');
   return true;
 }
 

@@ -79,6 +79,31 @@ async function samplePdf(pages, text) {
   check('i číslo objednávky', byCode && byCode.template, 'https://x.upgates.com/f/{code}.pdf');
 
   /*
+   * Skutečná adresa z Upgates — a nejzákeřnější případ.
+   *
+   * Objednávka 023728 má fakturu 023722, jenže 023722 je **zároveň číslo
+   * jiné objednávky**. Když se každé číslo hledalo zvlášť napříč všemi
+   * objednávkami, vyšlo z toho `invoice_number={code}` a e-shop pak tiskl
+   * fakturu někoho jiného. Adresa se proto vykládá proti jedné objednávce
+   * a rozhoduje i název parametru.
+   */
+  const prekryv = [
+    { code: '023728', invoice: '023722', adminId: 1185, name: 'Fedrová' },
+    // Tahle objednávka má číslo, které je zároveň číslem faktury té první
+    { code: '023722', invoice: '023716', adminId: 1179, name: 'Kramárová' }
+  ];
+  const skutecna = __test.templateFrom(
+    'https://quentino.admin.s19.upgates.com/orders/edit-order/preview/1185/'
+    + '?template_id=invoice&invoice_number=023722', prekryv);
+  check('číslo v invoice_number je faktura, ne cizí objednávka',
+    skutecna && skutecna.template,
+    'https://quentino.admin.s19.upgates.com/orders/edit-order/preview/{id}/'
+    + '?template_id=invoice&invoice_number={invoice}');
+  check('a patří k objednávce, která adresu vysvětlí celou',
+    skutecna && skutecna.matched.code, '023728');
+  check('nic cizího v adrese nezbylo', skutecna && skutecna.leftovers, []);
+
+  /*
    * Dvě čísla v adrese. Takhle vypadá skutečná adresa faktury v Upgates:
    * v cestě je objednávka, v parametru vnitřní číslo faktury. Nahradit jen
    * to první znamenalo, že se ke každé objednávce stáhla tatáž faktura —

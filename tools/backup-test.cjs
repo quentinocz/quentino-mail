@@ -242,6 +242,20 @@ vloz(`INSERT INTO digest_reports (at, facts, insight)
       VALUES ('2026-09-02T06:10:00Z', '{"month":{"orders":81}}',
               '{"headline":"Srpen táhly pásky.","focus":"ověřit růst SK"}')`);
 
+/*
+ * Doprava a doklady. Obyčejné hodnoty projdou samy; heslo k Zásilkovně
+ * a přihlášení do administrací jsou v databázi zašifrované klíčenkou, která
+ * na jiném počítači nefunguje — musí do zálohy rozšifrované.
+ */
+set('invoiceUrlTemplate', 'https://eshop.admin.s1.upgates.com/f/{invoice}.pdf');
+set('pplSetup', '{"carrier":"PPL","content":true}');
+set('balikovnaSetup', '{"carrier":"Balíkovna","type":"NB"}');
+set('packetaSetup', '{"eshop":"quentino.cz","labelFormat":"A6 on A4"}');
+set('packetaPassword', 'ŠIFRA(' + Buffer.from('tajne-heslo').toString('base64') + ')');
+set('portalLogins', 'ŠIFRA(' + Buffer.from('{"ppl":{"user":"quentino","pass":"x","auto":true}}').toString('base64') + ')');
+// Uložený rozbor z Analytics je stažená kopie cizích dat, ne nastavení
+set('ga4Deep2:365', '{"months":[]}');
+
 // Stažená data — ta se do zálohy dostat nesmí
 vloz(`INSERT INTO products (code, title_cz) VALUES ('PS120SM', 'Kšandy Slim')`);
 vloz(`INSERT INTO shop_orders (code, market) VALUES ('022605', 'cz')`);
@@ -341,6 +355,31 @@ sedi('paměť přehledu dne',
  */
 sedi('stažený katalog v záloze není', radku('products') === 0, `řádků: ${radku('products')}`);
 sedi('ani feed objednávek', radku('shop_orders') === 0, `řádků: ${radku('shop_orders')}`);
+
+/* ---------- doprava a doklady ---------- */
+
+/*
+ * Nastavení dopravců a faktur jsou obyčejné hodnoty a projdou zálohou samy.
+ * Heslo k Zásilkovně a přihlášení do administrací jsou ale v databázi
+ * zašifrované systémovou klíčenkou, která na jiném počítači nefunguje —
+ * do zálohy musí jít rozšifrované, jinak by se po obnovení tvářily jako
+ * nenastavené.
+ */
+console.log('\ndoprava a doklady:');
+{
+  const text = JSON.stringify(zaloha);
+  sedi('vzor adresy faktury', text.includes('invoiceUrlTemplate'));
+  sedi('nastavení PPL', text.includes('pplSetup'));
+  sedi('nastavení Balíkovny', text.includes('balikovnaSetup'));
+  sedi('nastavení Zásilkovny', text.includes('packetaSetup'));
+  sedi('heslo k Zásilkovně dojede čitelné', decrypted('packetaPassword') === 'tajne-heslo',
+    `dostal: ${decrypted('packetaPassword')}`);
+  sedi('přihlášení do administrací taky',
+    String(decrypted('portalLogins') || '').includes('quentino'),
+    `dostal: ${decrypted('portalLogins')}`);
+  // Stažený rozbor z Analytics je kopie cizích dat, ne nastavení
+  sedi('uložený rozbor návštěvnosti v záloze není', !text.includes('ga4Deep2'));
+}
 
 console.log(bad ? `\n${bad} věcí nesedí` : '\nzáloha přenese všechno, co má, a nic, co nemá');
 process.exit(bad ? 1 : 0);

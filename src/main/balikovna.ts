@@ -4,7 +4,8 @@ import * as path from 'path';
 import { getSetting, setSetting } from './db';
 import { shipOrders, splitStreet, csv, ShipOrder } from './shipexport';
 import { contentOf } from './ppl';
-import { fillFileInput } from './formfile';
+import { fillFileInput, openUrl } from './formfile';
+import { signIn, keepSignedIn } from './portallogin';
 import type { BalikovnaSetup, BalikovnaExport } from '../shared/types';
 
 /**
@@ -226,9 +227,11 @@ function portalWindow(): BrowserWindow {
 export async function openBalikovna(): Promise<boolean> {
   const setup = balikovnaSetup();
   const win = portalWindow();
-  await win.loadURL(setup.importUrl || setup.portalUrl);
+  keepSignedIn(win, 'cposta');
+  await openUrl(win, setup.importUrl || setup.portalUrl);
   win.show();
   win.focus();
+  await signIn(win, 'cposta');
   return true;
 }
 
@@ -250,9 +253,12 @@ export async function openBalikovnaImport(file: string): Promise<{ filled: boole
   const setup = balikovnaSetup();
   const win = portalWindow();
   const start = setup.importUrl || setup.portalUrl;
-  if (!win.webContents.getURL().startsWith(start)) await win.loadURL(start);
+  keepSignedIn(win, 'cposta');
+  if (!win.webContents.getURL().startsWith(start)) await openUrl(win, start);
   win.show();
   win.focus();
+  // Přihlašovací stránka bývá až za odskokem na SSO — počká se na ni
+  await signIn(win, 'cposta');
 
   const out = await fillFileInput(win, file);
   // Naučenou adresu má smysl si nechat jen tehdy, když se na ní opravdu
