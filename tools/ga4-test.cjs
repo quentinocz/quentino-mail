@@ -245,14 +245,16 @@ global.fetch = async (url, options) => {
         const table = (rows) => ({ rows, rowCount: rows.length, fields: [] });
         return text(JSON.stringify({ status: 'success', data: { results: [
           /*
-           * Měsíc chodí z GA4 jako dvojčíslí bez roku a rok zvlášť — přesně
-           * proto se dvouletý graf slil do dvanácti sloupců a pod každým
-           * stálo „led". Atrapa to napodobuje, ať se to znovu neztratí.
+           * Měsíční řada se ptá po dnech. Samotný `month` je v GA4 dvojčíslí
+           * bez roku — dvouleté okno se pod ním slilo do dvanácti hromádek
+           * a pod každým sloupcem stálo „led". Den má datum celé.
            */
           table([
-            { year: '2025', month: '08', sessions: 700, totalUsers: 560, ecommercePurchases: 12, totalRevenue: 21000 },
-            { year: '2026', month: '07', sessions: 900, totalUsers: 700, ecommercePurchases: 18, totalRevenue: 32000 },
-            { year: '2026', month: '08', sessions: 1100, totalUsers: 830, ecommercePurchases: 26, totalRevenue: 41000 }
+            { date: '20250815', sessions: 400, totalUsers: 330, ecommercePurchases: 7, totalRevenue: 12000 },
+            { date: '20250820', sessions: 300, totalUsers: 260, ecommercePurchases: 5, totalRevenue: 9000 },
+            { date: '20260703', sessions: 900, totalUsers: 700, ecommercePurchases: 18, totalRevenue: 32000 },
+            { date: '20260801', sessions: 600, totalUsers: 480, ecommercePurchases: 14, totalRevenue: 22000 },
+            { date: '20260802', sessions: 500, totalUsers: 430, ecommercePurchases: 12, totalRevenue: 19000 }
           ]),
           table([
             { sessionSourceMedium: 'google / organic', sessions: 700, totalUsers: 540,
@@ -413,17 +415,24 @@ global.fetch = async (url, options) => {
     deepCall?.params.arguments.tool_calls.map(one => one.id),
     ['months', 'channels', 'landings', 'pages', 'devices', 'countries', 'funnel']);
   // Dimenze i metriky se berou z výčtu ve schématu, ne z hlavy
-  check('měsíční řada jde po roce i měsíci',
-    deepCall?.params.arguments.tool_calls[0].params.dimensions, ['year', 'month']);
+  check('měsíční řada se ptá po dnech',
+    deepCall?.params.arguments.tool_calls[0].params.dimensions, ['date']);
   check('a cesta k nákupu chce košík i pokladnu',
     deepCall?.params.arguments.tool_calls[6].params.metrics,
     ['sessions', 'addToCarts', 'checkouts', 'ecommercePurchases']);
   /*
-   * Rok a měsíc se skládají dohromady a řadí se podle času. Bez roku byl
-   * srpen 2025 a srpen 2026 pro graf tentýž sloupec.
+   * Dny se sečtou do měsíců a seřadí podle času. Bez roku byl srpen 2025
+   * a srpen 2026 pro graf tentýž sloupec.
    */
-  check('měsíce se poskládají z roku a měsíce', rozbor.months.map(one => one.month),
+  check('dny se sečtou do měsíců', rozbor.months.map(one => one.month),
     ['2025-08', '2026-07', '2026-08']);
+  check('a návštěvy se sčítají', rozbor.months.map(one => one.sessions), [700, 900, 1100]);
+  /*
+   * Uživatelé se přes dny sčítat nedají — jeden člověk může přijít víckrát
+   * za měsíc. Bere se proto největší denní hodnota jako dolní odhad.
+   */
+  check('uživatelé se nesčítají, bere se největší den',
+    rozbor.months[2].users, 480);
   /*
    * U kanálu je vedle návštěv i konverze a tržba — kanál, který přivede
    * lidi, a kanál, který přivede peníze, jsou dvě různé věci.

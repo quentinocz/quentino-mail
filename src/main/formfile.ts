@@ -24,6 +24,28 @@ import * as fs from 'fs';
  * chvíli.
  */
 
+/**
+ * Otevření adresy, které nespadne na přesměrování.
+ *
+ * `loadURL` vrací chybu `ERR_ABORTED (-3)` pokaždé, když stránka během
+ * načítání sama pošle prohlížeč jinam — a přesně to dělá přihlášení přes
+ * SSO: Podání Online odskočí na `amex.postaonline.cz/cas/oidc/authorize`.
+ * Není to chyba, je to normální průběh; jenže nezachycená výjimka utla celé
+ * volání a okno pak jen viselo. Chyby přesměrování se tedy přeskakují,
+ * ostatní se hlásí dál.
+ */
+export async function openUrl(win: BrowserWindow, url: string): Promise<void> {
+  try {
+    await win.webContents.loadURL(url);
+  } catch (e: any) {
+    const code = Number(e?.errno ?? e?.code ?? 0);
+    const text = String(e?.message ?? e);
+    // -3 ERR_ABORTED, -2 ERR_FAILED při odskoku na přihlášení
+    if (code === -3 || /ERR_ABORTED|ERR_FAILED/.test(text)) return;
+    throw e;
+  }
+}
+
 /** Značka, kterou si políčko označíme — přes ni ho pak najde ladicí rozhraní. */
 const MARK = 'data-quentino-file';
 

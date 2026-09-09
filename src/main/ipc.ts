@@ -58,6 +58,7 @@ import { getDb } from './db';
 import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
+import { portalLogins, savePortalLogin } from './portallogin';
 import { articleStats, articleStat } from './artstats';
 import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabels } from './ppl';
 import {
@@ -497,6 +498,10 @@ export function registerIpc() {
   handle('balikovna:open', () => openBalikovna());
   // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho
   handle('balikovna:import', (file: string) => openBalikovnaImport(file));
+
+  /* ---------- přihlášení do cizích administrací ---------- */
+  handle('logins:list', () => portalLogins());
+  handle('logins:save', (id: any, next: any) => savePortalLogin(id, next ?? {}));
 
   /*
    * Čtečka kódů fotoaparátem je jen na telefonu — na počítači je čtečka

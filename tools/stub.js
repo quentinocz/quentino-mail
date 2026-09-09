@@ -551,8 +551,13 @@
       };
     })(),
     // Doprava a doklady — nastavení faktur, PPL a Zásilkovny
+    'logins:list': [
+      { id: 'upgates', label: 'Administrace e-shopu (Upgates)', user: 'patrik', hasPassword: true, auto: true },
+      { id: 'ppl', label: 'Klientská administrace PPL', user: 'quentino', hasPassword: true, auto: true },
+      { id: 'cposta', label: 'Podání Online České pošty', user: 'quentino.1', hasPassword: false, auto: true }
+    ],
     'invoices:setup': { template: 'https://eshop.admin.s1.upgates.com/manager/invoices/pdf/default/{invoice}/',
-      parallel: 4, openAfter: true },
+      adminHome: 'https://eshop.admin.s1.upgates.com/manager/', parallel: 4, openAfter: true },
     'invoices:ready': { ready: 6, total: 9 },
     'invoices:prefetch': { ready: 9, fetched: 3, stopped: null },
     'ppl:setup': { carrier: 'PPL', content: true,

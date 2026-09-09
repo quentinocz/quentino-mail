@@ -5,6 +5,8 @@ import { PDFDocument } from 'pdf-lib';
 import { getDb, getSetting, setSetting } from './db';
 import { getUpgatesConfig } from './upgates';
 import { adminOrderId } from './ordercard';
+import { openUrl } from './formfile';
+import { signIn, keepSignedIn } from './portallogin';
 import type { InvoiceJob, InvoiceOutcome, InvoiceRun, InvoiceSetup } from '../shared/types';
 
 /**
@@ -34,6 +36,8 @@ const PARTITION = 'persist:upgates';
 const TPL_KEY = 'invoiceUrlTemplate';
 const PAR_KEY = 'invoiceParallel';
 const OPEN_KEY = 'invoiceOpenAfter';
+/** Kde se otevírá administrace, když se učí adresa faktury */
+const HOME_KEY = 'invoiceAdminHome';
 
 /* ---------- co se naposledy dělo ---------- */
 
@@ -62,6 +66,7 @@ function emit(channel: string, payload: unknown): void {
 export function invoiceSetup(): InvoiceSetup {
   return {
     template: getSetting(TPL_KEY, '')!,
+    adminHome: adminHome(),
     parallel: Math.min(8, Math.max(1, Number(getSetting(PAR_KEY, '4')) || 4)),
     openAfter: getSetting(OPEN_KEY, '1') !== '0'
   };
@@ -69,6 +74,7 @@ export function invoiceSetup(): InvoiceSetup {
 
 export function saveInvoiceSetup(next: Partial<InvoiceSetup>): InvoiceSetup {
   if (next.template !== undefined) setSetting(TPL_KEY, next.template.trim());
+  if (next.adminHome !== undefined) setSetting(HOME_KEY, next.adminHome.trim());
   if (next.parallel !== undefined) setSetting(PAR_KEY, String(Math.min(8, Math.max(1, next.parallel))));
   if (next.openAfter !== undefined) setSetting(OPEN_KEY, next.openAfter ? '1' : '0');
   return invoiceSetup();
@@ -483,6 +489,21 @@ export function invoicesReady(codes: string[]): { ready: number; total: number }
   return { ready: jobs.filter(job => !!fromCache(job)).length, total: jobs.length };
 }
 
+/**
+ * Kde se administrace otevírá.
+ *
+ * Ne na hádané cestě: `/manager/orders/` vrátilo 404, protože Upgates má
+ * seznam objednávek jinde a názvy stránek se mezi verzemi liší. Kořen
+ * administrace existuje vždycky a zbytek je jedno kliknutí — učení stejně
+ * čeká na to, až se otevře **jakákoli** faktura.
+ */
+function adminHome(): string {
+  const saved = (getSetting(HOME_KEY, '') ?? '').trim();
+  if (saved) return saved;
+  const cfg = getUpgatesConfig();
+  return `${cfg.url.replace(/\/+$/, '')}/manager/`;
+}
+
 /* ---------- učení adresy ---------- */
 
 let learning: BrowserWindow | null = null;
@@ -514,9 +535,12 @@ export async function learnInvoiceUrl(timeoutMs = 5 * 60_000):
   });
   learning = win;
   win.on('closed', () => { learning = null; });
-  await win.loadURL(`${cfg.url}/manager/orders/`);
+  keepSignedIn(win, 'upgates');
+  await openUrl(win, adminHome());
   win.show();
   win.focus();
+  // Když sezení vypršelo, přihlásí se samo — jinak by tu byl jen formulář
+  await signIn(win, 'upgates');
 
   return await new Promise(resolve => {
     let settled = false;
@@ -580,8 +604,10 @@ export async function openAdminLogin(): Promise<boolean> {
     title: 'Přihlášení do administrace',
     webPreferences: { partition: PARTITION, sandbox: true }
   });
-  await win.loadURL(`${cfg.url}/manager/orders/`);
+  keepSignedIn(win, 'upgates');
+  await openUrl(win, adminHome());
   win.show();
+  await signIn(win, 'upgates');
   return true;
 }
 

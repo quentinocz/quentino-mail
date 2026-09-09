@@ -1147,7 +1147,14 @@ input:focus, textarea:focus, select:focus {
 
 /* Sloupce po dnech. Výška je pevná, šířka se roztáhne — SVG se nedeformuje,
    protože se kreslí obdélníky, ne text. */
-.dg-chart svg { width: 100%; height: 92px; display: block; }
+/*
+ * Jen graf samotný, ne každé svg uvnitř.
+ *
+ * Bez toho `>` dostaly tuhle velikost i ikonky v závěrech pod grafem —
+ * hvězdička se roztáhla přes celou kartu a text se zmáčkl do sloupečku
+ * po jednom slově.
+ */
+.dg-chart > svg { width: 100%; height: 92px; display: block; }
 .dg-bar { fill: var(--accent); transition: fill .1s; }
 .dg-bar.weekend { fill: var(--accent); opacity: .42; }
 /* Sloupec pod myší — tmavší, ať je jasné, ke kterému patří vypsaná věta */
@@ -1195,7 +1202,12 @@ input:focus, textarea:focus, select:focus {
 .dg-switch button { padding: 3px 9px; border-radius: 6px; font-size: 12px; color: var(--text-2); }
 .dg-switch button.on { background: var(--panel); color: var(--accent-dark); font-weight: 600; box-shadow: var(--shadow); }
 
-.dg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+/*
+ * Karty vedle sebe začínají nahoře a končí tam, kde jim došel obsah.
+ * S výchozím `stretch` se všechny natáhly na výšku té nejdelší, takže
+ * vedle seznamu příspěvků zely dva prázdné sloupce přes celou obrazovku.
+ */
+.dg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
 
 /*
  * Řádek řezu: název, proužek, číslo, peníze.
@@ -5112,6 +5124,7 @@ html[data-form-factor="phone"] .pk-seg-btn { flex: 1; padding: 7px 4px; font-siz
 html[data-form-factor="phone"] .pk-count { flex: 1 1 100%; text-align: left; }
 /* Dlaždice fází přes celou šířku a přes palec — na telefonu se filtruje prstem */
 html[data-form-factor="phone"] .pk-phases { flex: 1 1 100%; }
+html[data-form-factor="phone"] .pk-ship { display: none; }
 html[data-form-factor="phone"] .pk-phase { padding: 7px 11px; font-size: 12.5px; }
 html[data-form-factor="phone"] .pk-day-head { padding: 6px 12px; }
 html[data-form-factor="phone"] .pk-find { flex: 1 1 100%; height: var(--tap); border-radius: 12px; }
@@ -7314,6 +7327,23 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 
 @media (max-width: 900px) {
   .ar-stats-nums { grid-template-columns: repeat(2, 1fr); }
+}
+
+/*
+ * Vývoz a doklady jako jedna skupina.
+ *
+ * Drží pohromadě a od filtrů ji dělí čára; zalomí se celá, ne jedno
+ * tlačítko z pěti. Předtím se Zásilkovna jako poslední lámala sama dolů
+ * a vypadala jako by patřila jinam.
+ */
+.pk-ship {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
 }
 
 /* Kolik faktur je stažených dopředu — drobně vedle počtu */

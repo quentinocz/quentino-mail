@@ -19,7 +19,7 @@ import type {
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
-  PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport
+  PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -670,6 +670,18 @@ export const api = {
     open: () => call<boolean>('balikovna:open'),
     /** Otevře import a vloží do něj soubor, jakmile se políčko objeví */
     openImport: (file: string) => call<{ filled: boolean; note: string }>('balikovna:import', file)
+  },
+
+  /**
+   * Přihlášení do cizích administrací.
+   *
+   * Heslo se ukládá zašifrované systémovým trezorem a ven se neposílá —
+   * rozhraní se dozví jen to, že uložené je.
+   */
+  logins: {
+    list: () => call<PortalLogin[]>('logins:list'),
+    save: (id: string, next: { user?: string; password?: string; auto?: boolean }) =>
+      call<PortalLogin[]>('logins:save', id, next)
   },
 
   /**

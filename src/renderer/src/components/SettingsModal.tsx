@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountPublic, AccountConfig, Settings, CategoryRule, Category, KnowledgeDoc, Person, FeedStatus, MailLang,
   OrderFeed, OrderFeedStatus, OrderStats, LiveStatus, ShorthandRow, ShorthandView, Ga4Config,
-  PplSetup, PacketaSetup, InvoiceSetup, BalikovnaSetup } from '@shared/types';
+  PplSetup, PacketaSetup, InvoiceSetup, BalikovnaSetup, PortalLogin } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -1329,6 +1329,9 @@ function ShippingField() {
   const [zasPass, setZasPass] = useState('');
   const [formats, setFormats] = useState<string[]>([]);
   const [inv, setInv] = useState<InvoiceSetup | null>(null);
+  const [logins, setLogins] = useState<PortalLogin[]>([]);
+  /** Rozepsaná hesla — do stavu s uloženými údaji nepatří, ven se neposílají */
+  const [pass, setPass] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
 
   useEffect(() => {
@@ -1338,6 +1341,7 @@ function ShippingField() {
     api.invoices.setup().then(setInv).catch(() => {});
     api.balikovna.setup().then(setBal).catch(() => {});
     api.balikovna.fields().then(setBalFields).catch(() => {});
+    api.logins.list().then(setLogins).catch(() => {});
   }, []);
 
   const run = async (key: string, body: () => Promise<void>) => {
@@ -1354,12 +1358,73 @@ function ShippingField() {
         Zásilkovna přímo přes API.
       </div>
 
+      {/*
+        Přihlášení do administrací.
+
+        Sezení v okně vydrží dlouho, ale jednou za čas vyprší — a to bývá
+        zrovna ve chvíli, kdy člověk stojí u tiskárny. Uložené jméno a heslo
+        se pak vyplní samo; heslo je zašifrované systémovým trezorem, stejně
+        jako klíč k API, a z aplikace nikam neodchází.
+      */}
+      {logins.length > 0 && (
+        <div className="field" style={{ marginTop: 10 }}>
+          <label>Přihlášení do administrací</label>
+          <div className="desc">
+            Vyplní se, jakmile se objeví přihlašovací stránka — i uprostřed práce, když sezení
+            vyprší. Heslo se ukládá zašifrované systémovým trezorem a nikam se neposílá.
+            Dvoufázové přihlášení tím obejít nejde: kód dopíšeš ty.
+          </div>
+          {logins.map(one => (
+            <div className="field-grid" key={one.id} style={{ marginTop: 6 }}>
+              <div className="field"><label>{one.label} — jméno</label>
+                <input value={one.user}
+                  onChange={e => setLogins(list => list.map(x =>
+                    x.id === one.id ? { ...x, user: e.target.value } : x))} /></div>
+              <div className="field"><label>Heslo {one.hasPassword ? '· uložené ✓' : ''}</label>
+                <input type="password" value={pass[one.id] ?? ''}
+                  placeholder={one.hasPassword ? '••••••••  (vyplň jen pro změnu)' : 'nenastaveno'}
+                  onChange={e => setPass(p => ({ ...p, [one.id]: e.target.value }))} /></div>
+              <div className="field" style={{ justifyContent: 'flex-end' }}>
+                <label className="check-row">
+                  <input type="checkbox" checked={one.auto}
+                    onChange={e => setLogins(list => list.map(x =>
+                      x.id === one.id ? { ...x, auto: e.target.checked } : x))} />
+                  rovnou přihlásit
+                </label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <button className="btn ghost" disabled={busy === `log${one.id}`}
+                    onClick={() => run(`log${one.id}`, async () => {
+                      setLogins(await api.logins.save(one.id, {
+                        user: one.user, auto: one.auto,
+                        ...(pass[one.id] ? { password: pass[one.id] } : {})
+                      }));
+                      setPass(p => ({ ...p, [one.id]: '' }));
+                      toast('Uloženo.');
+                    })}>Uložit</button>
+                  {one.hasPassword && (
+                    <button className="btn ghost" disabled={busy === `del${one.id}`}
+                      onClick={() => run(`del${one.id}`, async () => {
+                        setLogins(await api.logins.save(one.id, { password: '' }));
+                        toast('Heslo smazáno.');
+                      })}>Smazat heslo</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ---------- faktury ---------- */}
       {inv && (
         <div className="field" style={{ marginTop: 10 }}>
           <label>Faktury — adresa v administraci</label>
           <input value={inv.template} placeholder="zatím nenaučená"
             onChange={e => setInv(v => v ? { ...v, template: e.target.value } : v)} />
+          <div className="field"><label>Kde se administrace otevírá</label>
+            <input value={inv.adminHome}
+              onChange={e => setInv(v => v ? { ...v, adminHome: e.target.value } : v)} />
+          </div>
           <div className="desc">
             Značky <code>{'{invoice}'}</code>, <code>{'{code}'}</code> a <code>{'{id}'}</code> se nahradí číslem
             faktury, číslem objednávky nebo vnitřním ID. Ručně to psát nemusíš — „Naučit" otevře

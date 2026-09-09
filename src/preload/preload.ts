@@ -98,6 +98,7 @@ const ALLOWED_INVOKE = [
   'packeta:create', 'packeta:labels', 'packeta:formats',
   'balikovna:setup', 'balikovna:saveSetup', 'balikovna:fields', 'balikovna:rows',
   'balikovna:export', 'balikovna:open', 'balikovna:import',
+  'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
   // Verze aplikace do hlavičky nastavení
   'app:version'

@@ -97,6 +97,12 @@ function bucketLabel(day: string, bucketDays: number): string {
   if (bucketDays <= 1) return dayLabel(day);
   if (bucketDays >= 28) {
     const [year, month] = day.split('-');
+    /*
+     * Bez roku se popisek nekreslí. Když se do grafu dostal měsíc bez roku,
+     * vypsalo se pod každým sloupcem „led" — a dvanáct stejných popisků je
+     * horší než žádný, protože vypadají jako čísla.
+     */
+    if (year.length !== 4 || !month) return '';
     return `${MONTH_SHORT[Number(month) - 1] ?? month} ${year.slice(2)}`;
   }
   const from = new Date(`${day}T12:00:00`);

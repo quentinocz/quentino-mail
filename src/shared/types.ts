@@ -2340,6 +2340,8 @@ export interface InvoiceRun {
 export interface InvoiceSetup {
   /** Naučená adresa se značkami {invoice}, {code}, {id} */
   template: string;
+  /** Kde se otevírá administrace, když se adresa faktury učí */
+  adminHome: string;
   parallel: number;
   openAfter: boolean;
 }
@@ -2525,4 +2527,17 @@ export interface BalikovnaExport {
   skipped: { code: string; reason: string }[];
   /** Kolik sloupců soubor má — proti konfiguraci v Podání Online */
   columns: number;
+}
+
+/* ---------- přihlášení do cizích administrací ---------- */
+
+export interface PortalLogin {
+  /** upgates | ppl | cposta */
+  id: string;
+  label: string;
+  user: string;
+  /** Heslo se ven neposílá — jen jestli je uložené */
+  hasPassword: boolean;
+  /** Vyplnit a rovnou odeslat, nebo jen předvyplnit */
+  auto: boolean;
 }
