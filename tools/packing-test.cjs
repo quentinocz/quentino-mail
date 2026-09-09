@@ -358,6 +358,31 @@ async function fromFeed() {
 }
 
 orders().then(fromFeed).then(() => {
-  console.log(failed === 0 ? '\n✓ balení sedí' : `\n✗ ${failed} nesedí`);
+  /* ---------- dvojice ---------- */
+
+/*
+ * Jeden e-shop vedený ve feedech pod dvěma trhy (rychlý jako `cz`, úplný
+ * jako `sk`) znamenal tutéž objednávku dvakrát — v seznamu se to při balení
+ * četlo jako dvě krabice. Vyhrává řádek s novějším stavem.
+ */
+{
+  const card = (code) => ({ orderNumber: code, items: [{ title: 'Kravata', qty: 1 }] });
+  const dvojice = packing.__test.dedupe([
+    { messageId: -1, date: '2026-09-08T08:00:00', card: card('023853'), packed: [], counts: {},
+      done: false, doneAt: null, source: 'feed',
+      shop: { code: '023853', invoice: '023847', status: 'Platba úspěšná', at: '2026-09-08T08:00:00', final: false } },
+    { messageId: -2, date: '2026-09-08T08:00:00', card: card('023853'), packed: [], counts: {},
+      done: false, doneAt: null, source: 'feed',
+      shop: { code: '023853', invoice: '023847', status: 'Probíhá příprava', at: '2026-09-08T12:00:00', final: false } },
+    { messageId: -3, date: '2026-09-08T09:00:00', card: card('023854'), packed: [], counts: {},
+      done: false, doneAt: null, source: 'feed',
+      shop: { code: '023854', invoice: '023848', status: 'Přijata', at: '2026-09-08T09:00:00', final: false } }
+  ]);
+  check('z dvojice zůstane jedna', dvojice.length, 2);
+  check('a je to ta s novějším stavem', dvojice[0].shop.status, 'Probíhá příprava');
+  check('ostatní objednávky zůstávají', dvojice[1].shop.code, '023854');
+}
+
+console.log(failed === 0 ? '\n✓ balení sedí' : `\n✗ ${failed} nesedí`);
   process.exit(failed === 0 ? 0 : 1);
 });

@@ -7,7 +7,7 @@ import { getUpgatesConfig } from './upgates';
 import { adminOrderId } from './ordercard';
 import { openUrl } from './formfile';
 import { signIn, keepSignedIn } from './portallogin';
-import type { InvoiceJob, InvoiceOutcome, InvoiceRun, InvoiceSetup } from '../shared/types';
+import type { InvoiceJob, InvoiceOutcome, InvoiceRun, InvoiceSetup, InvoiceLearned } from '../shared/types';
 
 /**
  * Hromadné stažení faktur z administrace — bez API.
@@ -38,6 +38,10 @@ const PAR_KEY = 'invoiceParallel';
 const OPEN_KEY = 'invoiceOpenAfter';
 /** Kde se otevírá administrace, když se učí adresa faktury */
 const HOME_KEY = 'invoiceAdminHome';
+/** Jak se k faktuře jde: přímou adresou, nebo přes detail objednávky */
+const MODE_KEY = 'invoiceMode';
+/** Adresa detailu objednávky se značkou {id} nebo {code} */
+const DETAIL_KEY = 'invoiceDetailUrl';
 
 /* ---------- co se naposledy dělo ---------- */
 
@@ -67,6 +71,8 @@ export function invoiceSetup(): InvoiceSetup {
   return {
     template: getSetting(TPL_KEY, '')!,
     adminHome: adminHome(),
+    mode: getSetting(MODE_KEY, 'template') === 'detail' ? 'detail' : 'template',
+    detailUrl: getSetting(DETAIL_KEY, '')!,
     parallel: Math.min(8, Math.max(1, Number(getSetting(PAR_KEY, '4')) || 4)),
     openAfter: getSetting(OPEN_KEY, '1') !== '0'
   };
@@ -75,6 +81,8 @@ export function invoiceSetup(): InvoiceSetup {
 export function saveInvoiceSetup(next: Partial<InvoiceSetup>): InvoiceSetup {
   if (next.template !== undefined) setSetting(TPL_KEY, next.template.trim());
   if (next.adminHome !== undefined) setSetting(HOME_KEY, next.adminHome.trim());
+  if (next.mode !== undefined) setSetting(MODE_KEY, next.mode === 'detail' ? 'detail' : 'template');
+  if (next.detailUrl !== undefined) setSetting(DETAIL_KEY, next.detailUrl.trim());
   if (next.parallel !== undefined) setSetting(PAR_KEY, String(Math.min(8, Math.max(1, next.parallel))));
   if (next.openAfter !== undefined) setSetting(OPEN_KEY, next.openAfter ? '1' : '0');
   return invoiceSetup();
@@ -110,22 +118,46 @@ export function fillTemplate(template: string, job: InvoiceJob): string | null {
  * adrese by nešlo: `/invoice/default/12345/` a `?invoice_id=12345` vypadají
  * úplně jinak, ale číslo je v obou stejné.
  */
-export function templateFrom(url: string, known: InvoiceJob[]): { template: string; matched: InvoiceJob; kind: string } | null {
+export function templateFrom(url: string, known: InvoiceJob[]):
+  { template: string; matched: InvoiceJob | null; kind: string; leftovers: string[] } | null {
   const numbers = url.match(/\d{2,}/g) ?? [];
+  let template = url;
+  let matched: InvoiceJob | null = null;
+  const kinds: string[] = [];
+  const leftovers: string[] = [];
+
+  /*
+   * Nahrazují se **všechna** čísla, která se dají spojit s objednávkou, ne
+   * jen první.
+   *
+   * Adresa faktury v Upgates vypadá takhle:
+   *   /orders/edit-order/view-invoice/1185/?invoice_id=1446
+   * — dvě různá čísla. První verze nahradila jen to první a `invoice_id`
+   * nechala tak, jak bylo. Výsledek: ke každé objednávce se stáhla pořád
+   * tatáž faktura. Proto se teď prochází všechna a co se spojit nedá,
+   * vrátí se v `leftovers` — s takovou adresou se stahovat nesmí.
+   */
   for (const raw of numbers) {
     const bare = raw.replace(/^0+/, '');
+    let mark = '';
     for (const job of known) {
       const invoice = job.invoice.replace(/\D/g, '').replace(/^0+/, '');
       const code = job.code.replace(/\D/g, '').replace(/^0+/, '');
       const id = job.adminId ? String(job.adminId) : '';
       // Pořadí je schválně: číslo faktury je nejjistější, ID záznamu
       // nejméně — to se dopočítává z kalibrace a může být posunuté.
-      if (invoice && bare === invoice) return { template: swap(url, raw, '{invoice}'), matched: job, kind: 'číslo faktury' };
-      if (code && bare === code) return { template: swap(url, raw, '{code}'), matched: job, kind: 'číslo objednávky' };
-      if (id && bare === id) return { template: swap(url, raw, '{id}'), matched: job, kind: 'ID záznamu v administraci' };
+      if (invoice && bare === invoice) { mark = '{invoice}'; kinds.push('číslo faktury'); }
+      else if (code && bare === code) { mark = '{code}'; kinds.push('číslo objednávky'); }
+      else if (id && bare === id) { mark = '{id}'; kinds.push('ID záznamu v administraci'); }
+      if (mark) { matched = matched ?? job; break; }
     }
+    if (mark) template = swap(template, raw, mark);
+    // Rok v adrese ani čísla portu nejsou čísla objednávky — krátká se přeskočí
+    else if (raw.length >= 3) leftovers.push(raw);
   }
-  return null;
+
+  if (!matched) return null;
+  return { template, matched, kind: kinds.join(' + '), leftovers };
 }
 
 /** Nahradí jen ten jeden výskyt čísla, ne všechna stejná čísla v adrese. */
@@ -267,26 +299,33 @@ export async function downloadInvoices(codes: string[]): Promise<InvoiceRun> {
   if (jobs.length === 0) throw new Error('K vybraným objednávkám není ve feedu žádná faktura.');
   if (!setup.template) return { ...empty, needsTemplate: true };
 
-  const targets = jobs.map(job => ({ job, url: fillTemplate(setup.template, job) }));
-  const failed: InvoiceOutcome[] = targets
-    .filter(one => !one.url)
-    .map(one => ({ code: one.job.code, invoice: one.job.invoice, ok: false, pages: 0, reason: 'chybí číslo, které naučená adresa potřebuje' }));
-  const ready = targets.filter(one => one.url) as { job: InvoiceJob; url: string }[];
-  if (ready.length === 0) return { ...empty, failed };
+  /*
+   * Adresa se shání až tady, protože v režimu „přes detail" je to dotaz do
+   * administrace. Z meziskladu se bere přednostně, takže u stažených faktur
+   * se detail neotvírá vůbec.
+   */
+  const failed: InvoiceOutcome[] = [];
+  const ready: { job: InvoiceJob; url: string }[] = [];
+  const cached: { job: InvoiceJob; body: Buffer }[] = [];
 
-  const parts: { name: string; body: Buffer }[] = [];
+  for (const job of jobs) {
+    const have = fromCache(job);
+    if (have) { cached.push({ job, body: have }); continue; }
+    const found = await urlFor(job, setup);
+    if (found.url) ready.push({ job, url: found.url });
+    else if (found.reason === 'nepřihlášeno') return { ...empty, failed, needsLogin: true };
+    else failed.push({ code: job.code, invoice: job.invoice, ok: false, pages: 0, reason: found.reason });
+  }
+  if (ready.length === 0 && cached.length === 0) return { ...empty, failed };
 
   /*
    * Nejdřív mezisklad. Faktury se stahují na pozadí už při procházení
    * objednávek, takže při tisku jich většina bývá po ruce a čeká se jen na
    * ty zbylé — což je celý smysl toho stahování dopředu.
    */
-  const todo: { job: InvoiceJob; url: string }[] = [];
-  for (const one of ready) {
-    const cached = fromCache(one.job);
-    if (cached) parts.push({ name: one.job.invoice || one.job.code, body: cached });
-    else todo.push(one);
-  }
+  const parts: { name: string; body: Buffer }[] = cached
+    .map(one => ({ name: one.job.invoice || one.job.code, body: one.body }));
+  const todo = ready;
   note(`z meziskladu ${parts.length}, stáhnout ${todo.length}`);
 
   if (todo.length > 0) {
@@ -359,6 +398,107 @@ export async function downloadInvoices(codes: string[]): Promise<InvoiceRun> {
     needsLogin: false,
     needsTemplate: false
   };
+}
+
+/**
+ * Číslo v adrese, které k téhle objednávce nepatří.
+ *
+ * Dívá se jen na cestu a parametry, ne na doménu — v `s19.upgates.com` je
+ * číslo taky a nic neznamená. Krátká čísla se přeskakují (verze API, port);
+ * jde o čísla dokladů, a ta mají aspoň tři místa.
+ */
+export function strangeNumber(url: string, job: InvoiceJob): string {
+  let tail = url;
+  try {
+    const parsed = new URL(url);
+    tail = `${parsed.pathname}${parsed.search}`;
+  } catch { /* není-li to adresa, projde se celá */ }
+
+  const mine = new Set([
+    job.invoice, job.invoice.replace(/^0+/, ''),
+    job.code, job.code.replace(/^0+/, ''),
+    job.adminId ? String(job.adminId) : ''
+  ].filter(Boolean));
+
+  for (const raw of tail.match(/\d{3,}/g) ?? []) {
+    if (!mine.has(raw) && !mine.has(raw.replace(/^0+/, ''))) return raw;
+  }
+  return '';
+}
+
+/**
+ * Odkaz na fakturu v detailu objednávky.
+ *
+ * Používá se, když adresa faktury nese vnitřní číslo faktury, které se
+ * dopočítat nedá (`?invoice_id=1446`). Detail objednávky ten odkaz obsahuje
+ * — a je to odkaz **na tuhle** fakturu, takže se nemůže splést s cizí.
+ *
+ * Hledá se `view-invoice` nebo `invoice_id`; teprve když ani jedno na
+ * stránce není, zkusí se cokoli, co vypadá jako faktura. Pořadí je od
+ * nejjistějšího k nejmlhavějšímu, protože splést odkaz znamená stáhnout
+ * cizí doklad.
+ */
+export function invoiceHref(html: string, base: string): string {
+  const hrefs = [...html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)].map(one => one[1]);
+  const pick = hrefs.find(one => /view-invoice|invoice_id/i.test(one))
+    ?? hrefs.find(one => /faktur|invoice/i.test(one) && /pdf|print|tisk|view/i.test(one));
+  if (!pick) return '';
+  const clean = pick.replace(/&amp;/g, '&');
+  try {
+    return new URL(clean, base).toString();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Adresa faktury pro jednu objednávku.
+ *
+ * Buď se dosadí do naučeného vzoru, nebo — když vzor nese cizí číslo — se
+ * otevře detail objednávky a odkaz se přečte z něj. Ta druhá cesta stojí
+ * jeden dotaz navíc, zato nemůže sáhnout na cizí fakturu.
+ */
+async function urlFor(job: InvoiceJob, setup: InvoiceSetup): Promise<{ url: string; reason: string }> {
+  if (setup.mode !== 'detail') {
+    const url = fillTemplate(setup.template, job);
+    if (!url) return { url: '', reason: 'chybí číslo, které naučená adresa potřebuje' };
+    /*
+     * Pojistka proti stažení cizí faktury.
+     *
+     * Když v adrese zůstane číslo, které k téhle objednávce nepatří —
+     * typicky `?invoice_id=1446` z faktury, na které se vzor učil —,
+     * přišla by ke všem objednávkám tatáž faktura. Přesně to se stalo:
+     * u objednávky 023853 se stáhla faktura 023855. Radši nic než cizí
+     * doklad.
+     */
+    const foreign = strangeNumber(url, job);
+    if (foreign) {
+      return {
+        url: '',
+        reason: `naučená adresa nese cizí číslo (${foreign}) — nauč ji znovu, `
+          + 'aplikace pak fakturu najde v detailu objednávky'
+      };
+    }
+    return { url, reason: '' };
+  }
+
+  const detail = setup.detailUrl ? fillTemplate(setup.detailUrl, job) : '';
+  if (!detail) return { url: '', reason: 'není naučená adresa detailu objednávky' };
+
+  let page: Fetched;
+  try {
+    page = await grab(detail);
+  } catch (error) {
+    return { url: '', reason: `detail objednávky se nenačetl: ${String((error as Error).message)}` };
+  }
+  const html = page.body.toString('utf8');
+  if (/<input[^>]+type=["']?password/i.test(html)) return { url: '', reason: 'nepřihlášeno' };
+
+  const href = invoiceHref(html, detail);
+  note(`detail ${detail} → ${href || 'bez odkazu na fakturu'}`);
+  return href
+    ? { url: href, reason: '' }
+    : { url: '', reason: 'v detailu objednávky není odkaz na fakturu (možná není vystavená)' };
 }
 
 /* ---------- zásoba stažených faktur ---------- */
@@ -453,8 +593,10 @@ export async function prefetchInvoices(codes: string[]): Promise<{ ready: number
   try {
     sweepCache();
     for (const job of missing) {
-      const url = fillTemplate(setup.template, job);
-      if (!url) continue;
+      const found = await urlFor(job, setup);
+      if (found.reason === 'nepřihlášeno') { stopped = found.reason; break; }
+      const url = found.url;
+      if (!url) { skipUntilRestart.add(job.code); continue; }
       let out: Fetched;
       try {
         out = await grab(url);
@@ -517,7 +659,7 @@ let learning: BrowserWindow | null = null;
  * který přežije změnu administrace: kdyby se odkaz přesunul, naučí se znovu.
  */
 export async function learnInvoiceUrl(timeoutMs = 5 * 60_000):
-  Promise<{ template: string; sample: string; kind: string; matched: string } | { error: string }> {
+  Promise<InvoiceLearned | { error: string }> {
   lastDetail = [];
   const cfg = getUpgatesConfig();
   if (!cfg.url) return { error: 'Není vyplněná adresa administrace (Nastavení → AI → Upgates).' };
@@ -544,7 +686,7 @@ export async function learnInvoiceUrl(timeoutMs = 5 * 60_000):
 
   return await new Promise(resolve => {
     let settled = false;
-    const finish = (out: { template: string; sample: string; kind: string; matched: string } | { error: string }) => {
+    const finish = (out: InvoiceLearned | { error: string }) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -559,6 +701,17 @@ export async function learnInvoiceUrl(timeoutMs = 5 * 60_000):
     );
     if (typeof win.once === 'function') {
       win.once('closed', () => finish({ error: 'Okno se zavřelo dřív, než se nějaká faktura otevřela.' }));
+    }
+
+    /*
+     * Stránka, ze které se faktura otevřela. Je to detail objednávky
+     * a právě v něm je odkaz na fakturu i s jejím vnitřním číslem —
+     * když se adresa faktury sama dosadit nedá, hledá se odkaz tady.
+     */
+    let lastPage = '';
+    if (typeof win.webContents.on === 'function') {
+      win.webContents.on('did-navigate', (_e: unknown, url: string) => { lastPage = url; });
+      win.webContents.on('did-navigate-in-page', (_e: unknown, url: string) => { lastPage = url; });
     }
 
     ses.webRequest.onCompleted({ urls: ['<all_urls>'] }, (details: any) => {
@@ -585,11 +738,34 @@ export async function learnInvoiceUrl(timeoutMs = 5 * 60_000):
         return;
       }
       setSetting(TPL_KEY, guess.template);
+
+      /*
+       * Zbylá čísla v adrese.
+       *
+       * `…/view-invoice/1185/?invoice_id=1446` nese dvě čísla: první je
+       * objednávka, druhé vnitřní číslo faktury, které se z ničeho
+       * dopočítat nedá. S takovou adresou se stahovat **nesmí** — dosadilo
+       * by se číslo objednávky a `invoice_id` by zůstalo cizí, takže by ke
+       * každé objednávce přišla jedna a tatáž faktura. Přepne se proto na
+       * druhý způsob: odkaz se u každé objednávky najde v jejím detailu.
+       */
+      const page = String(lastPage || '');
+      const detail = page ? templateFrom(page, known) : null;
+      const viaDetail = guess.leftovers.length > 0;
+      setSetting(MODE_KEY, viaDetail ? 'detail' : 'template');
+      if (detail && detail.leftovers.length === 0) setSetting(DETAIL_KEY, detail.template);
+
+      note(`vzor: ${guess.template}`);
+      if (viaDetail) note(`v adrese zbyla cizí čísla: ${guess.leftovers.join(', ')} — jede se přes detail objednávky`);
+      if (detail) note(`detail objednávky: ${detail.template}`);
+
       finish({
         template: guess.template,
         sample: String(details.url),
         kind: guess.kind,
-        matched: guess.matched.invoice || guess.matched.code
+        matched: guess.matched?.invoice || guess.matched?.code || '',
+        mode: viaDetail ? 'detail' : 'template',
+        detail: (detail && detail.leftovers.length === 0 ? detail.template : '') || ''
       });
     });
   });
@@ -612,6 +788,6 @@ export async function openAdminLogin(): Promise<boolean> {
 }
 
 export const __test = {
-  fillTemplate, templateFrom, mergePdfs, pool, isPdf, whyNot,
+  fillTemplate, templateFrom, mergePdfs, pool, isPdf, whyNot, strangeNumber,
   setFetch: (fn: ((url: string) => Promise<Fetched>) | null) => { fetcher = fn; }
 };

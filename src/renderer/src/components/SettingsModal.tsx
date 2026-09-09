@@ -1421,10 +1421,27 @@ function ShippingField() {
           <label>Faktury — adresa v administraci</label>
           <input value={inv.template} placeholder="zatím nenaučená"
             onChange={e => setInv(v => v ? { ...v, template: e.target.value } : v)} />
-          <div className="field"><label>Kde se administrace otevírá</label>
-            <input value={inv.adminHome}
-              onChange={e => setInv(v => v ? { ...v, adminHome: e.target.value } : v)} />
+          <div className="field-grid">
+            <div className="field"><label>Kde se administrace otevírá</label>
+              <input value={inv.adminHome}
+                onChange={e => setInv(v => v ? { ...v, adminHome: e.target.value } : v)} /></div>
+            {/*
+              Když adresa faktury nese i vnitřní číslo faktury, dosadit se
+              nedá — pak se odkaz hledá v detailu objednávky. Naučí se to
+              samo; tady je to jen vidět a dá se to přepnout.
+            */}
+            <div className="field"><label>Jak se k faktuře jde</label>
+              <select value={inv.mode}
+                onChange={e => setInv(v => v ? { ...v, mode: e.target.value as 'template' | 'detail' } : v)}>
+                <option value="template">přímou adresou</option>
+                <option value="detail">přes detail objednávky</option>
+              </select></div>
           </div>
+          {inv.mode === 'detail' && (
+            <div className="field"><label>Adresa detailu objednávky</label>
+              <input value={inv.detailUrl} placeholder="…/orders/edit-order/default/{id}/"
+                onChange={e => setInv(v => v ? { ...v, detailUrl: e.target.value } : v)} /></div>
+          )}
           <div className="desc">
             Značky <code>{'{invoice}'}</code>, <code>{'{code}'}</code> a <code>{'{id}'}</code> se nahradí číslem
             faktury, číslem objednávky nebo vnitřním ID. Ručně to psát nemusíš — „Naučit" otevře
