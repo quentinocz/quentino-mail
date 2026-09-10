@@ -260,6 +260,7 @@ set('webTextsBucket', 'web');
 set('webTextsPath', 'quentino-texty.json');
 set('webTextsPublicUrl', 'https://cdn.quentino.cz/texty.json');
 set('webTextsTtl', '5');
+set('webTextsSeason', '{"on":true,"fromDay":1,"fromMonth":12,"toDay":20,"toMonth":12,"text":{"cz":"🎄 Do 20.12.","sk":"","en":""}}');
 set('webTextsKey', 'ŠIFRA(' + Buffer.from('service-role-klic').toString('base64') + ')');
 // Razítko posledního vystavení a rozdělaná práce patří tomuhle počítači, ne záloze
 set('webTextsPublishedAt', '2026-07-01T10:00:00Z');
@@ -404,9 +405,12 @@ console.log('\ntexty na webu:');
    * druhém počítači by se sice ukázal, ale nešel by vystavit — a vypadalo
    * by to, že se aplikace nenastavila, ne že chybí jedna hodnota.
    */
-  for (const klic of ['webTextsUrl', 'webTextsBucket', 'webTextsPath', 'webTextsPublicUrl', 'webTextsTtl']) {
+  for (const klic of ['webTextsUrl', 'webTextsBucket', 'webTextsPath', 'webTextsPublicUrl',
+  'webTextsTtl', 'webTextsSeason']) {
     sedi(`nastavení ${klic} se přenese`, text.includes(klic));
   }
+  // Znění garance je text s emoji — musí přežít cestu zálohou nedotčené
+  sedi('znění vánoční garance dojede i s emoji', JSON.stringify(zaloha).includes('🎄 Do 20.12.'));
   sedi('klíč k úložišti dojede čitelný', decrypted('webTextsKey') === 'service-role-klic',
     `dostal: ${decrypted('webTextsKey')}`);
   // Kdy tenhle počítač naposledy publikoval a co mu zbylo rozdělané, na druhém neplatí

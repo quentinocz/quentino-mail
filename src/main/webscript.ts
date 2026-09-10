@@ -155,7 +155,12 @@ const TEMPLATE = String.raw`
    * zůstanou prázdné a chová se jako vždycky.
    */
   function overrides() {
-    var out = { product: null, topbar: "", links: null, button: "" };
+    /*
+     * Garance doručení do Vánoc je nastavení, ne naplánované okno: platí
+     * každý rok ve stejném období a mění se u ní nanejvýš datum a znění.
+     * Přijde proto vedle plánu a nemá s ním nic společného.
+     */
+    var out = { product: null, topbar: "", links: null, button: "", xmas: plan && plan.xmas };
     if (!plan || !plan.plans || !plan.plans.length) return out;
     var now = Date.now();
     var live = [];
@@ -306,7 +311,6 @@ const TEMPLATE = String.raw`
 
   var BAR = {
     cz: {
-      xmasGuarantee: "🎄 Garance doručení do Vánoc při objednání do 18.12.",
       xmasMode: function (d) { return "🎄 Vánoční režim • Odesíláme " + d + " • Doručení hned poté"; },
       newYear: function (d) { return "🥂 Sváteční režim • Odesíláme " + d + " • Doručení hned poté"; },
       morningLead: "⚡ Expresní doručení • Dnes odesíláme prioritně • ",
@@ -322,7 +326,6 @@ const TEMPLATE = String.raw`
       deliveryAsap: "Co nejdříve"
     },
     sk: {
-      xmasGuarantee: "🎄 Garancia doručenia do Vianoc pri objednávke do 18.12.",
       xmasMode: function (d) { return "🎄 Vianočný režim • Odosielame " + d + " • Doručenie hneď potom"; },
       newYear: function (d) { return "🥂 Sviatočný režim • Odosielame " + d + " • Doručenie hneď potom"; },
       morningLead: "⚡ Expresné doručenie • Dnes odosielame prioritne • ",
@@ -338,7 +341,6 @@ const TEMPLATE = String.raw`
       deliveryAsap: "Čo najskôr"
     },
     en: {
-      xmasGuarantee: "🎄 Guaranteed Christmas delivery for orders placed by Dec 18",
       xmasMode: function (d) { return "🎄 Holiday schedule • Shipping on " + d + " • Delivery right after"; },
       newYear: function (d) { return "🥂 Holiday schedule • Shipping on " + d + " • Delivery right after"; },
       morningLead: "⚡ Express delivery • Priority dispatch today • ",
@@ -528,6 +530,30 @@ const TEMPLATE = String.raw`
     carrier.classList.add(which === "::after" ? "q-no-after" : "q-no-before");
   }
 
+  /* ================= vánoční garance ================= */
+
+  /*
+   * Období garance se zadává dnem a měsícem, protože se každý rok opakuje.
+   * Počítá se přes „měsíc krát sto plus den“, aby šlo porovnat dvě data bez
+   * roku — a aby fungovalo i období přes Silvestra, kdy je konec „menší“
+   * než začátek.
+   */
+  function inSeason(t, s) {
+    var now = t.m * 100 + t.d;
+    var from = (s.fromMonth || 12) * 100 + (s.fromDay || 1);
+    var to = (s.toMonth || 12) * 100 + (s.toDay || 18);
+    return from <= to ? (now >= from && now <= to) : (now >= from || now <= to);
+  }
+
+  /** Znění garance: nastavené, jinak vestavěné. Prázdné = neukazovat. */
+  function guarantee(ov, t) {
+    var T = BOX[LANG] || BOX.cz;
+    var s = ov && ov.xmas;
+    if (!s) return (t.m === 12 && t.d >= 1 && t.d <= 18) ? T.guarantee : "";
+    if (!s.on || !inSeason(t, s)) return "";
+    return pick(s.text) || T.guarantee;
+  }
+
   /* ================= 1. box u produktu ================= */
 
   function isInStock() {
@@ -587,7 +613,7 @@ const TEMPLATE = String.raw`
     return label + " " + value;
   }
 
-  function boxLines(o) {
+  function boxLines(o, ov) {
     var T = BOX[LANG] || BOX.cz;
     var t = nowCz();
     var lines = [];
@@ -618,7 +644,8 @@ const TEMPLATE = String.raw`
       var pickupText = o ? pick(o.pickup) : "";
 
       // Vánoční garance platí, jen dokud se expedice počítá sama
-      if (!shipText && t.m === 12 && t.d >= 1 && t.d <= 18) lines.push(T.guarantee);
+      var slib = shipText ? "" : guarantee(ov, t);
+      if (slib) lines.push(slib);
       if (!hideHead) lines.push(head);
       if (above) lines.push(above);
 
@@ -643,20 +670,22 @@ const TEMPLATE = String.raw`
   function applyBox(ov) {
     var el = document.querySelector(".pd-shrt-desc");
     if (!el) return;
-    var lines = boxLines(ov.product);
+    var lines = boxLines(ov.product, ov);
     el.style.setProperty("--shipbox-content", cssLines(lines.map(plain)));
     rich(el, "--shipbox-content", lines);
   }
 
   /* ================= 2. horní lišta s doručením ================= */
 
-  function barMessage() {
+  function barMessage(ov) {
     var T = BAR[LANG] || BAR.cz;
     var t = nowCz();
     var today = { y: t.y, m: t.m, d: t.d };
     var wd = weekdayShort(t.y, t.m, t.d);
 
-    if (t.m === 12 && t.d >= 1 && t.d <= 18) return T.xmasGuarantee;
+    // Tentýž slib jako v boxu — mělo by to na webu říkat totéž na obou místech
+    var slib = guarantee(ov, t);
+    if (slib) return slib;
     if (t.m === 12 && t.d >= 18 && t.d <= 26) return T.xmasMode(fmtDate(nextWorkingDay(t.y, 12, 26)));
     if ((t.m === 12 && t.d === 31) || (t.m === 1 && t.d === 1)) {
       return T.newYear(fmtDate((t.m === 12) ? nextWorkingDay(t.y, 12, 31) : nextWorkingDay(t.y, 1, 1)));
@@ -684,7 +713,7 @@ const TEMPLATE = String.raw`
   function applyBar(ov) {
     var el = document.querySelector(".hdr-phn");
     if (!el) return;
-    var msg = ov.topbar || barMessage();
+    var msg = ov.topbar || barMessage(ov);
     el.style.setProperty("--topbar-msg", cssLines([plain(msg)]));
     rich(el, "--topbar-msg", [msg]);
   }

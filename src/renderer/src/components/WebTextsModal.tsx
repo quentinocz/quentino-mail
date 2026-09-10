@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  WebClash, WebLink, WebPlan, WebText, WebTextsConfig, WebTextsState
+  WebClash, WebLink, WebPlan, WebSeason, WebText, WebTextsConfig, WebTextsState
 } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -172,9 +172,10 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
   const [lang, setLang] = useState<Lang>('cz');
   const [clashes, setClashes] = useState<WebClash[]>([]);
   const [busy, setBusy] = useState('');
-  const [tab, setTab] = useState<'plan' | 'setup'>('plan');
+  const [tab, setTab] = useState<'plan' | 'xmas' | 'setup'>('plan');
   const [key, setKey] = useState('');
   const [config, setConfig] = useState<WebTextsConfig | null>(null);
+  const [xmas, setXmas] = useState<WebSeason | null>(null);
   const timer = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -183,6 +184,7 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
       const next = await api.webtexts.load();
       setState(next);
       setConfig(next.config);
+      setXmas(next.season);
       if (!next.config.ready) setTab('setup');
     } catch (e: any) {
       toast(e.message, 'error');
@@ -223,6 +225,7 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
   const apply = (next: WebTextsState, message?: string) => {
     setState(next);
     setConfig(next.config);
+    setXmas(next.season);
     if (next.error) toast(next.error, 'error');
     else if (message) toast(message);
   };
@@ -313,6 +316,19 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const saveSeason = async () => {
+    if (!xmas) return;
+    setBusy('ukládám');
+    try {
+      const next = await api.webtexts.season(xmas);
+      apply(next, next.error ? undefined : 'Garance je uložená a vystavená na web.');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const copyScript = async () => {
     if (!state?.script) return;
     try {
@@ -335,6 +351,7 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
           <span className="modal-title"><Icon name="globe" size={15} /> Texty na webu</span>
           <div className="wt-head-right">
             <button className={`tab ${tab === 'plan' ? 'active' : ''}`} onClick={() => setTab('plan')}>Plán</button>
+            <button className={`tab ${tab === 'xmas' ? 'active' : ''}`} onClick={() => setTab('xmas')}>Vánoce</button>
             <button className={`tab ${tab === 'setup' ? 'active' : ''}`} onClick={() => setTab('setup')}>Napojení</button>
             <button className="icon-btn" onClick={onClose} disabled={!!busy}><Icon name="x" size={16} /></button>
           </div>
@@ -638,6 +655,82 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        ) : tab === 'xmas' ? (
+          <div className="modal-body wt-setup">
+            {/*
+              * Garance není naplánovaná změna: platí každý rok ve stejném
+              * období a mění se u ní nanejvýš datum a znění. Kdyby se dělala
+              * jako změna v plánu, muselo by se na ni každý listopad myslet
+              * znovu — a rok, kdy se zapomene, by e-shop mlčel zrovna
+              * v prosinci.
+              */}
+            <p className="desc">
+              Věta, která se v období před Vánoci ukazuje nad boxem u produktu i v horní liště.
+              Platí každý rok ve stejném období, takže se nemusí pokaždé zakládat znovu — mění se
+              u ní nanejvýš datum a znění.
+            </p>
+
+            <label className="wt-check">
+              <input type="checkbox" checked={!!xmas?.on}
+                onChange={e => setXmas(x => (x ? { ...x, on: e.target.checked } : x))} />
+              Garanci ukazovat
+            </label>
+
+            {xmas?.on && (
+              <>
+                <div className="wt-season">
+                  <div className="field">
+                    <label>Od (den a měsíc)</label>
+                    <div className="wt-daymonth">
+                      <input type="number" min={1} max={31} value={xmas.fromDay}
+                        onChange={e => setXmas(x => (x ? { ...x, fromDay: Number(e.target.value) } : x))} />
+                      <span>.</span>
+                      <input type="number" min={1} max={12} value={xmas.fromMonth}
+                        onChange={e => setXmas(x => (x ? { ...x, fromMonth: Number(e.target.value) } : x))} />
+                      <span>.</span>
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>Do (den a měsíc)</label>
+                    <div className="wt-daymonth">
+                      <input type="number" min={1} max={31} value={xmas.toDay}
+                        onChange={e => setXmas(x => (x ? { ...x, toDay: Number(e.target.value) } : x))} />
+                      <span>.</span>
+                      <input type="number" min={1} max={12} value={xmas.toMonth}
+                        onChange={e => setXmas(x => (x ? { ...x, toMonth: Number(e.target.value) } : x))} />
+                      <span>.</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="tabs wt-langs">
+                  {LANGS.map(l => (
+                    <button key={l.id} className={`tab ${lang === l.id ? 'active' : ''}`}
+                      onClick={() => setLang(l.id)}>
+                      {l.label} <small>{l.hint}</small>
+                    </button>
+                  ))}
+                </div>
+
+                <TextField
+                  label="Znění garance" rows={2} lang={lang} value={xmas.text}
+                  hint="🎄 Garance doručení do Vánoc při objednání do 18.12."
+                  onChange={text => setXmas(x => (x ? { ...x, text } : x))}
+                />
+                <span className="desc">
+                  Prázdné = vestavěné znění. Pozor na datum uvnitř věty — když se posune období,
+                  je potřeba přepsat i text, ten se sám nepočítá. Emoji a <code>**tučně**</code> fungují.
+                </span>
+              </>
+            )}
+
+            <div className="wt-foot">
+              <span className="wt-spacer" />
+              <button className="btn primary" onClick={saveSeason} disabled={!!busy || !xmas}>
+                <Icon name="save" size={14} /> Uložit a vystavit
+              </button>
             </div>
           </div>
         ) : (
