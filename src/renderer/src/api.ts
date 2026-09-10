@@ -20,7 +20,7 @@ import type {
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
   PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin,
-  WebPlan, WebClash, WebTextsConfig, WebTextsState
+  WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -692,6 +692,8 @@ export const api = {
     clashes: (plan: Partial<WebPlan>) => call<WebClash[]>('webtexts:clashes', plan),
     /** Zkrátí konec dřívějších změn na minutu před začátkem té nové */
     shorten: (id: string, ids: string[]) => call<WebTextsState>('webtexts:shorten', id, ids),
+    /** Garance doručení do Vánoc — platí každý rok, proto stojí mimo plán */
+    season: (next: Partial<WebSeason>) => call<WebTextsState>('webtexts:season', next),
     publish: () => call<WebTextsState>('webtexts:publish'),
     config: (next: Partial<WebTextsConfig> & { key?: string }) =>
       call<WebTextsConfig>('webtexts:config', next)

@@ -512,6 +512,8 @@ export function registerIpc() {
   // Co se s plánovanou změnou pere o tentýž čas — ptá se rozhraní při psaní
   handle('webtexts:clashes', (plan: any) => webtexts.webClashes(plan));
   handle('webtexts:shorten', (id: string, ids: string[]) => webtexts.shortenWebPlans(id, ids ?? []));
+  // Vánoční garance je celoroční nastavení, ne naplánovaná změna
+  handle('webtexts:season', (next: any) => webtexts.saveWebSeason(next ?? {}));
   handle('webtexts:publish', () => webtexts.publishWebTexts());
   handle('webtexts:config', (next: any) => webtexts.saveWebTextsConfig(next ?? {}));
 

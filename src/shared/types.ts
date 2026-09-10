@@ -2654,6 +2654,24 @@ export interface WebPlan {
   button: WebButtonArea;
 }
 
+/**
+ * Garance doručení do Vánoc.
+ *
+ * Není to naplánovaná změna, ale nastavení: platí každý rok ve stejném
+ * období a mění se u ní nanejvýš datum a znění („při objednání do 18.12.").
+ * Proto se zadává dnem a měsícem, bez roku, a nemusí se každý listopad
+ * zakládat znovu.
+ */
+export interface WebSeason {
+  on: boolean;
+  fromDay: number;
+  fromMonth: number;
+  toDay: number;
+  toMonth: number;
+  /** Prázdné = vestavěné znění */
+  text: WebText;
+}
+
 export interface WebTextsConfig {
   /** Adresa projektu Supabase, do jehož úložiště se plán ukládá */
   url: string;
@@ -2680,6 +2698,8 @@ export interface WebClash {
 export interface WebTextsState {
   config: WebTextsConfig;
   plans: WebPlan[];
+  /** Garance doručení do Vánoc — celoroční nastavení vedle plánu */
+  season: WebSeason;
   /** Kdy se plán naposledy povedlo vystavit na web */
   publishedAt: string;
   /** Je v aplikaci něco, co na webu ještě není */

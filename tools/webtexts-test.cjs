@@ -92,6 +92,24 @@ ok('zaškrtnutá ano', !!sent.plans[1].product);
 ok('název změny na web nepatří', sent.plans[0].name === undefined);
 ok('časy jdou v milisekundách', typeof sent.plans[0].fromMs === 'number');
 
+/* ---------- vánoční garance ---------- */
+
+/*
+ * Garance není naplánovaná změna: platí každý rok ve stejném období.
+ * Zadává se proto dnem a měsícem, bez roku — jinak by se na ni muselo
+ * každý listopad myslet znovu.
+ */
+const vychozi = T.season(null);
+check('bez nastavení platí to, co bylo napevno',
+  [vychozi.on, vychozi.fromDay, vychozi.fromMonth, vychozi.toDay, vychozi.toMonth],
+  [true, 1, 12, 18, 12]);
+// Nesmysl v datu nesmí garanci umlčet — vrátí se na výchozí den
+check('den mimo rozsah se opraví', T.season({ on: true, fromDay: 44, fromMonth: 0 }).fromMonth, 12);
+ok('znění se uloží ve třech jazycích',
+  T.season({ on: true, text: { cz: '🎄 Do 20.12.', sk: '🎄 Do 20.12.', en: '' } }).text.cz === '🎄 Do 20.12.');
+// Na web musí jít vedle plánu, ne v něm — plán má okna, tohle se opakuje
+ok('garance jde na web vedle plánu', !!JSON.parse(T.payload([plan()])).xmas);
+
 /* ---------- překryvy ---------- */
 
 /*
@@ -203,7 +221,11 @@ function run(plans, opts = {}) {
   const known = { '.pd-shrt-desc': box, '.hdr-phn': bar };
 
   const store = {};
-  if (plans) store['quentino-texty-1'] = JSON.stringify({ at: Date.now(), data: { v: 1, plans } });
+  if (plans) {
+    const data = { v: 1, plans };
+    if (opts.xmas) data.xmas = opts.xmas;
+    store['quentino-texty-1'] = JSON.stringify({ at: Date.now(), data });
+  }
 
   /*
    * Prohlížeč kreslí text z proměnné v pseudoprvku. Náhrada dělá totéž:
@@ -395,6 +417,38 @@ if (compiled) {
   ]);
   check('při překryvu vyhraje pozdější začátek', dve.bar, 'NOVĚJŠÍ');
 
+  /*
+   * Garance na webu. Zkouší se přes dnešek — období se zadává dnem
+   * a měsícem, takže se dá nastavit tak, aby zrovna platilo.
+   */
+  const dnes = new Date();
+  const dnesni = { day: dnes.getDate(), month: dnes.getMonth() + 1 };
+  const sGaranci = (extra) => run([], Object.assign({ xmas: Object.assign({
+    on: true, fromDay: dnesni.day, fromMonth: dnesni.month,
+    toDay: dnesni.day, toMonth: dnesni.month,
+    text: { cz: '🎄 Vlastní znění garance', sk: '', en: '' }
+  }, extra || {}) }));
+
+  const garance = sGaranci();
+  ok('nastavené znění garance je nad boxem', garance.box[0] === '🎄 Vlastní znění garance');
+  check('a je i v horní liště', garance.bar, '🎄 Vlastní znění garance');
+  // Vypnutá garance nesmí nechat prázdný řádek
+  ok('vypnutá garance se neukáže', !sGaranci({ on: false }).box.some(l => l.includes('garance')));
+  // Mimo období taky ne — jinak by visela na webu celý rok
+  ok('mimo období se neukáže',
+    !sGaranci({ fromDay: 1, fromMonth: dnesni.month === 12 ? 11 : 12,
+      toDay: 2, toMonth: dnesni.month === 12 ? 11 : 12 }).box.some(l => l.includes('garance')));
+  // Prázdné znění znamená vestavěný text, ne prázdný řádek
+  ok('prázdné znění vezme vestavěné',
+    sGaranci({ text: { cz: '', sk: '', en: '' } }).box[0].includes('Garance doručení do Vánoc'));
+  /*
+   * Období přes Silvestr: konec je „menší“ než začátek, takže prosté
+   * porovnání by nefungovalo a garance by v prosinci zmizela.
+   */
+  ok('období přes konec roku funguje',
+    sGaranci({ fromDay: dnesni.day, fromMonth: dnesni.month, toDay: 1, toMonth: dnesni.month === 1 ? 12 : 1 })
+      .box[0] === '🎄 Vlastní znění garance');
+
   /* Jazyky: chybí-li slovenština, ukáže se čeština */
   const sk = run([{
     id: 'h', fromMs: ted - 60000, toMs: ted + 3600000,
@@ -416,7 +470,8 @@ if (compiled) {
  * se to hodinu.
  */
 for (const field of ['fromMs', 'toMs', 'product', 'topbar', 'links', 'button',
-  'hideHeader', 'hideShip', 'hideDelivery', 'hidePickup', 'above', 'below', 'one']) {
+  'hideHeader', 'hideShip', 'hideDelivery', 'hidePickup', 'above', 'below', 'one',
+  'xmas', 'fromMonth', 'toMonth']) {
   ok(`skript čte pole ${field}`, body.includes(field));
 }
 

@@ -4,7 +4,7 @@ import { encrypt, decrypt } from './secure';
 import { headScript } from './webscript';
 import type {
   WebText, WebPlan, WebProductArea, WebBarArea, WebLinksArea, WebButtonArea,
-  WebTextsConfig, WebTextsState, WebClash
+  WebSeason, WebTextsConfig, WebTextsState, WebClash
 } from '../shared/types';
 
 /**
@@ -204,6 +204,42 @@ function links(value: any): WebLinksArea {
   };
 }
 
+/* ---------- vánoční garance ---------- */
+
+/**
+ * Garance doručení do Vánoc.
+ *
+ * Do plánu nepatří: neplatí od–do jednou, ale každý rok ve stejném období.
+ * Kdyby se dělala jako naplánovaná změna, muselo by se na ni každý listopad
+ * myslet znovu — a rok, kdy se zapomene, by e-shop mlčel zrovna v prosinci.
+ */
+const day = (value: any, fallback: number, max: number) => {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) && n >= 1 && n <= max ? n : fallback;
+};
+
+export function season(value?: any): WebSeason {
+  const raw = value ?? (() => {
+    const stored = getSetting('webTextsSeason', '')!;
+    try { return stored ? JSON.parse(stored) : null; } catch { return null; }
+  })();
+  return {
+    // Bez uloženého nastavení platí to, co bylo napevno ve skriptu
+    on: raw ? !!raw.on : true,
+    fromDay: day(raw?.fromDay, 1, 31),
+    fromMonth: day(raw?.fromMonth, 12, 12),
+    toDay: day(raw?.toDay, 18, 31),
+    toMonth: day(raw?.toMonth, 12, 12),
+    text: text(raw?.text)
+  };
+}
+
+export async function saveWebSeason(value: any): Promise<WebTextsState> {
+  setSetting('webTextsSeason', JSON.stringify(season(value)));
+  setSetting('webTextsDirty', '1');
+  return publishSafely();
+}
+
 /** Doplní chybějící části a spočítá časy — ať přijde plán odkudkoli. */
 export function normalize(value: any): WebPlan {
   const from = String(value?.from ?? '').trim();
@@ -304,7 +340,7 @@ function prune(plans: WebPlan[]): WebPlan[] {
  * vypnuté oblasti tam nemají co dělat — soubor je veřejný a čím je menší,
  * tím rychleji se stáhne.
  */
-export function payload(plans: WebPlan[] = listPlans()): string {
+export function payload(plans: WebPlan[] = listPlans(), xmas: WebSeason = season()): string {
   const out = plans
     .filter(one => !one.off && hasContent(one) && Number.isFinite(one.fromMs) && Number.isFinite(one.toMs))
     .map(one => {
@@ -315,7 +351,7 @@ export function payload(plans: WebPlan[] = listPlans()): string {
       if (one.button.on && filled(one.button.text)) row.button = { on: true, text: one.button.text };
       return row;
     });
-  return JSON.stringify({ v: 1, updatedAt: new Date().toISOString(), plans: out });
+  return JSON.stringify({ v: 1, updatedAt: new Date().toISOString(), xmas, plans: out });
 }
 
 function objectUrl(s: Secrets): string {
@@ -410,6 +446,8 @@ export async function pull(): Promise<string> {
    * jen v aplikaci. Slučuje se proto podle identifikátoru: co se pozná,
    * si název ponechá.
    */
+  if (data.xmas) setSetting('webTextsSeason', JSON.stringify(season(data.xmas)));
+
   const known = new Map(readPlans().map(one => [one.id, one]));
   const merged = data.plans.map((row: any) => {
     const mine = known.get(String(row.id));
@@ -438,6 +476,7 @@ function state(error = ''): WebTextsState {
   return {
     config,
     plans: listPlans(),
+    season: season(),
     publishedAt: getSetting('webTextsPublishedAt', '')!,
     dirty: getSetting('webTextsDirty', '0') === '1',
     error: error || getSetting('webTextsError', '')!,
@@ -537,5 +576,5 @@ export async function publishWebTexts(): Promise<WebTextsState> {
 }
 
 export const __test = {
-  normalize, validate, clashes, payload, hasContent, czMs, czLocal, shiftMinutes, prune
+  normalize, validate, clashes, payload, hasContent, czMs, czLocal, shiftMinutes, prune, season
 };

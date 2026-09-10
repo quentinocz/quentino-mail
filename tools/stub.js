@@ -631,6 +631,8 @@
             topbar: { on: true, text: { cz: '🐣 Velikonoce: expedujeme až v úterý', sk: '', en: '' } }
           })
         ],
+        season: { on: true, fromDay: 1, fromMonth: 12, toDay: 18, toMonth: 12,
+          text: { cz: '', sk: '', en: '' } },
         publishedAt: new Date(ted - 3600000).toISOString(),
         dirty: false,
         error: '',

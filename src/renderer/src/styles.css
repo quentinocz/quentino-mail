@@ -7500,3 +7500,8 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .wt-foot { display: flex; align-items: center; gap: 8px; padding-top: 6px; }
 .wt-setup { gap: 12px; }
 .wt-script { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre; }
+
+/* Období garance — den a měsíc vedle sebe, jak se to píše */
+.wt-season { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; max-width: 420px; }
+.wt-daymonth { display: flex; align-items: center; gap: 4px; }
+.wt-daymonth input { width: 64px; }

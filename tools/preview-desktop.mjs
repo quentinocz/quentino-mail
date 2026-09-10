@@ -556,6 +556,10 @@ await overflow('texty na webu — nová'); await snap('42-texty-nova');
 await click('.wt-langs .tab', { hasText: 'Slovensky' });
 await overflow('texty na webu — slovensky'); await snap('43-texty-slovensky');
 
+// Vánoční garance: nastavení, ne naplánovaná změna — má vlastní záložku
+await click('.wt-head-right .tab', { hasText: 'Vánoce' });
+await overflow('texty na webu — Vánoce'); await snap('44b-texty-vanoce');
+
 await click('.wt-head-right .tab', { hasText: 'Napojení' });
 await overflow('texty na webu — napojení'); await snap('44-texty-napojeni');
 await click('.modal-head .icon-btn');
