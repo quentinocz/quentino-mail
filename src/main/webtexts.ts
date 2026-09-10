@@ -152,8 +152,13 @@ export function saveWebTextsConfig(next: Partial<WebTextsConfig> & { key?: strin
   if (next.path !== undefined) setSetting('webTextsPath', next.path.trim().replace(/^\/+/, '') || DEFAULT_PATH);
   if (next.publicUrl !== undefined) setSetting('webTextsPublicUrl', next.publicUrl.trim());
   if (next.ttl !== undefined) {
-    // Pod minutu nemá smysl jít: tím se z úspory stane zátěž
-    const ttl = Math.max(60, Math.min(3600, Math.round(next.ttl) || DEFAULT_TTL));
+    /*
+     * Pět vteřin je na zkoušení, ne na provoz: při něm si prohlížeč sáhne
+     * pro plán po každé druhé stránce. V provozu patří pět minut a víc —
+     * začátku ani konce naplánované změny se to stejně netýká, ty si
+     * prohlížeč spočítá i z hodinu staré kopie.
+     */
+    const ttl = Math.max(5, Math.min(3600, Math.round(next.ttl) || DEFAULT_TTL));
     setSetting('webTextsTtl', String(ttl));
   }
   return webTextsConfig();
@@ -177,8 +182,8 @@ function product(value: any): WebProductArea {
     on: !!value?.on,
     one: text(value?.one), above: text(value?.above),
     header: text(value?.header), hideHeader: !!value?.hideHeader,
-    ship: text(value?.ship), delivery: text(value?.delivery),
-    pickup: text(value?.pickup), hidePickup: !!value?.hidePickup,
+    ship: text(value?.ship), delivery: text(value?.delivery), pickup: text(value?.pickup),
+    hideShip: !!value?.hideShip, hideDelivery: !!value?.hideDelivery, hidePickup: !!value?.hidePickup,
     below: text(value?.below)
   };
 }
@@ -222,7 +227,8 @@ export function normalize(value: any): WebPlan {
 export function hasContent(plan: WebPlan): boolean {
   const p = plan.product;
   const productSet = p.on && (filled(p.one) || filled(p.above) || filled(p.header) || p.hideHeader
-    || filled(p.ship) || filled(p.delivery) || filled(p.pickup) || p.hidePickup || filled(p.below));
+    || filled(p.ship) || filled(p.delivery) || filled(p.pickup)
+    || p.hideShip || p.hideDelivery || p.hidePickup || filled(p.below));
   const linksSet = plan.links.on
     && (plan.links.mode === 'off' || plan.links.items.some(one => filled(one.text)));
   return !!(productSet || (plan.topbar.on && filled(plan.topbar.text)) || linksSet

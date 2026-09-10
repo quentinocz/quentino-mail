@@ -63,7 +63,8 @@ function blankPlan(): WebPlan {
     off: false,
     product: {
       on: false, one: emptyText(), above: emptyText(), header: emptyText(), hideHeader: false,
-      ship: emptyText(), delivery: emptyText(), pickup: emptyText(), hidePickup: false, below: emptyText()
+      ship: emptyText(), delivery: emptyText(), pickup: emptyText(),
+      hideShip: false, hideDelivery: false, hidePickup: false, below: emptyText()
     },
     topbar: { on: false, text: emptyText() },
     links: { on: false, mode: 'add', items: [] },
@@ -449,6 +450,9 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                       </button>
                     ))}
                   </div>
+                  <p className="desc">
+                    Emoji piš rovnou. Slovo mezi dvěma hvězdičkami — <code>**takhle**</code> — bude na webu tučné.
+                  </p>
 
                   <Area
                     title="Box u produktu"
@@ -456,9 +460,6 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                     on={!!product?.on}
                     onToggle={on => set({ product: { ...draft.product, on } })}
                   >
-                    <TextField label="Řádek nad boxem" lang={lang} value={draft.product.above}
-                      hint="nepovinné" onChange={above => set({ product: { ...draft.product, above } })} />
-
                     <div className="wt-two">
                       <TextField label="Nadpis boxu" lang={lang} value={draft.product.header}
                         hint="PŘEDPOKLÁDANÝ STAV DORUČENÍ:"
@@ -466,25 +467,46 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                       <label className="wt-check">
                         <input type="checkbox" checked={draft.product.hideHeader}
                           onChange={e => set({ product: { ...draft.product, hideHeader: e.target.checked } })} />
-                        Nadpis vůbec neukazovat
+                        Nadpis neukazovat
                       </label>
                     </div>
 
+                    <TextField label="Řádek pod nadpisem" lang={lang} value={draft.product.above}
+                      hint="nepovinné — vloží se nad tři řádky"
+                      onChange={above => set({ product: { ...draft.product, above } })} />
+
                     <TextField
-                      label="Místo všech řádků jeden náhradní text" rows={2} lang={lang}
+                      label="Místo tří řádků jeden náhradní text" rows={2} lang={lang}
                       value={draft.product.one}
                       hint="Vyplněním se tři řádky níž nahradí tímhle jedním"
                       onChange={one => set({ product: { ...draft.product, one } })}
                     />
 
                     <fieldset className={`wt-lines ${oneMode ? 'muted' : ''}`}>
-                      <legend>{oneMode ? 'Tři řádky (teď je nahrazuje text výš)' : 'Tři řádky boxu'}</legend>
-                      <TextField label="Expedice" lang={lang} value={draft.product.ship}
-                        hint="prázdné = počítá se podle času a svátků"
-                        onChange={ship => set({ product: { ...draft.product, ship } })} />
-                      <TextField label="Předpokládané doručení" lang={lang} value={draft.product.delivery}
-                        hint="prázdné = počítá se podle času a svátků"
-                        onChange={delivery => set({ product: { ...draft.product, delivery } })} />
+                      <legend>
+                        {oneMode ? 'Tři řádky (teď je nahrazuje text výš)' : 'Tři řádky boxu'}
+                        {' '}— mění se jen hodnota za dvojtečkou, popisek zůstává
+                      </legend>
+                      <div className="wt-two">
+                        <TextField label="Expedice" lang={lang} value={draft.product.ship}
+                          hint="prázdné = počítá se podle času a svátků"
+                          onChange={ship => set({ product: { ...draft.product, ship } })} />
+                        <label className="wt-check">
+                          <input type="checkbox" checked={draft.product.hideShip}
+                            onChange={e => set({ product: { ...draft.product, hideShip: e.target.checked } })} />
+                          Neukazovat
+                        </label>
+                      </div>
+                      <div className="wt-two">
+                        <TextField label="Předpokládané doručení" lang={lang} value={draft.product.delivery}
+                          hint="prázdné = počítá se podle času a svátků"
+                          onChange={delivery => set({ product: { ...draft.product, delivery } })} />
+                        <label className="wt-check">
+                          <input type="checkbox" checked={draft.product.hideDelivery}
+                            onChange={e => set({ product: { ...draft.product, hideDelivery: e.target.checked } })} />
+                          Neukazovat
+                        </label>
+                      </div>
                       <div className="wt-two">
                         <TextField label="Osobní odběr" lang={lang} value={draft.product.pickup}
                           hint="prázdné = původní text, jen když je skladem"
@@ -492,7 +514,7 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                         <label className="wt-check">
                           <input type="checkbox" checked={draft.product.hidePickup}
                             onChange={e => set({ product: { ...draft.product, hidePickup: e.target.checked } })} />
-                          Osobní odběr neukazovat
+                          Neukazovat
                         </label>
                       </div>
                     </fieldset>
@@ -661,11 +683,13 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
             </div>
             <div className="field">
               <label>Jak dlouho prohlížeči stačí uložená kopie (sekundy)</label>
-              <input type="number" min={60} max={3600} value={config?.ttl ?? 300}
+              <input type="number" min={5} max={3600} value={config?.ttl ?? 300}
                 onChange={e => setConfig(c => (c ? { ...c, ttl: Number(e.target.value) } : c))} />
               <span className="desc">
                 Netýká se začátku a konce změn — ty si prohlížeč spočítá i z hodinu staré kopie.
                 Určuje jen, za jak dlouho se na webu projeví nově naplánovaná změna.
+                Na zkoušení jde dát i 5 vteřin; pro provoz patří 300 a víc, jinak si prohlížeč
+                sahá pro plán po každé druhé stránce.
               </span>
             </div>
             <div className="field">

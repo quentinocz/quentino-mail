@@ -600,7 +600,8 @@
           product: { on: false, one: { cz: '', sk: '', en: '' }, above: { cz: '', sk: '', en: '' },
             header: { cz: '', sk: '', en: '' }, hideHeader: false,
             ship: { cz: '', sk: '', en: '' }, delivery: { cz: '', sk: '', en: '' },
-            pickup: { cz: '', sk: '', en: '' }, hidePickup: false, below: { cz: '', sk: '', en: '' } },
+            pickup: { cz: '', sk: '', en: '' },
+            hideShip: false, hideDelivery: false, hidePickup: false, below: { cz: '', sk: '', en: '' } },
           topbar: { on: false, text: { cz: '', sk: '', en: '' } },
           links: { on: false, mode: 'add', items: [] },
           button: { on: false, text: { cz: '', sk: '', en: '' } }
@@ -614,9 +615,9 @@
           zmena('a', 'Dovolená 1.–7. 7.', ted - 2 * den, ted + 3 * den, {
             product: { on: true, one: { cz: '', sk: '', en: '' }, above: { cz: '', sk: '', en: '' },
               header: { cz: '', sk: '', en: '' }, hideHeader: false,
-              ship: { cz: '🏖️ Expedice: až 8. 7., máme dovolenou', sk: '', en: '' },
+              ship: { cz: 'až **8. 7.**, máme dovolenou', sk: '', en: '' },
               delivery: { cz: '', sk: '', en: '' }, pickup: { cz: '', sk: '', en: '' },
-              hidePickup: true, below: { cz: '', sk: '', en: '' } },
+              hideShip: false, hideDelivery: false, hidePickup: true, below: { cz: '', sk: '', en: '' } },
             topbar: { on: true, text: { cz: '🏖️ Dovolená do 7. 7. • Objednávky odesíláme hned poté', sk: '', en: '' } },
             button: { on: true, text: { cz: 'Objednávku odešleme 8. 7., doprava zdarma zůstává', sk: '', en: '' } }
           }),

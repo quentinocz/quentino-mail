@@ -2597,10 +2597,16 @@ export interface WebProductArea {
   /** Nadpis boxu; prázdné = původní */
   header: WebText;
   hideHeader: boolean;
+  /**
+   * Hodnoty tří řádků. Nahrazuje se **jen text za dvojtečkou** — popisek
+   * („✅ Expedice:") zůstává, aby v boxu nezůstalo holé datum bez vysvětlení.
+   */
   ship: WebText;
   delivery: WebText;
   pickup: WebText;
-  /** Osobní odběr neukazovat vůbec */
+  /** Řádek neukazovat vůbec */
+  hideShip: boolean;
+  hideDelivery: boolean;
   hidePickup: boolean;
   /** Řádek navíc pod boxem */
   below: WebText;
