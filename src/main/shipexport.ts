@@ -1,5 +1,5 @@
 import { getDb } from './db';
-import type { ShopOrderItem } from '../shared/types';
+import type { ShopOrderItem, OrderNote } from '../shared/types';
 
 /**
  * Společný podklad pro vývoz zásilek dopravcům.
@@ -40,10 +40,46 @@ export interface ShipOrder {
   shipment: string;
   payment: string;
   invoice: string;
+  /**
+   * Poznámka zákazníka k objednávce.
+   *
+   * Do souboru pro dopravce se dostane jen tehdy, když si ji člověk přečte
+   * a schválí — je to cizí text a končí na štítku, který uvidí kurýr.
+   */
+  note: string;
   items: ShopOrderItem[];
 }
 
 const COD = /dob[íi]rk|cash\s*on|nachnahme/i;
+
+/**
+ * Kolik znaků poznámky se vejde na štítek.
+ *
+ * Delší text dopravce buď ořízne sám, nebo import odmítne — a to druhé se
+ * pozná až na jejich straně. Řeže se proto tady a na hranici slova, ať
+ * poslední slovo nezůstane půlka.
+ */
+export function shortNote(note: string, limit = 100): string {
+  const one = String(note ?? '').replace(/\s+/g, ' ').trim();
+  if (one.length <= limit) return one;
+  const cut = one.slice(0, limit);
+  const space = cut.lastIndexOf(' ');
+  return (space > limit * 0.6 ? cut.slice(0, space) : cut).trim();
+}
+
+/**
+ * Poznámky u vybraných objednávek.
+ *
+ * Vrací jen ty, které nějakou mají — modul se podle toho ptá, jestli je do
+ * vývozu přidat, a ukazuje je i s číslem objednávky. Bez toho by se
+ * schvalovalo naslepo.
+ */
+export function orderNotes(codes: string[], carrier = ''): OrderNote[] {
+  const { rows } = shipOrders(codes, carrier);
+  return rows
+    .filter(one => !!one.note)
+    .map(one => ({ code: one.code, name: one.name, note: one.note, short: shortNote(one.note) }));
+}
 
 function addressOf(raw: string | null): any {
   if (!raw) return null;
@@ -72,7 +108,7 @@ export function shipOrders(codes: string[], carrier: string):
 
   const marks = codes.map(() => '?').join(',');
   const found = getDb().prepare(
-    `SELECT code, market, name, email, phone, currency, total, shipment, payment,
+    `SELECT code, market, name, email, phone, currency, total, shipment, payment, note,
             pickup_id, pickup_name, weight, invoice, items_json, billing_json, postal_json
      FROM shop_orders WHERE code IN (${marks}) ORDER BY code`
   ).all(...codes) as any[];
@@ -127,6 +163,7 @@ export function shipOrders(codes: string[], carrier: string):
       shipment,
       payment: String(order.payment ?? ''),
       invoice: String(order.invoice ?? ''),
+      note: String(order.note ?? '').replace(/\s+/g, ' ').trim(),
       items
     });
   }

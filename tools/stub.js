@@ -600,7 +600,7 @@
           product: { on: false, one: { cz: '', sk: '', en: '' }, above: { cz: '', sk: '', en: '' },
             header: { cz: '', sk: '', en: '' }, hideHeader: false,
             ship: { cz: '', sk: '', en: '' }, delivery: { cz: '', sk: '', en: '' },
-            pickup: { cz: '', sk: '', en: '' },
+            pickup: { cz: '', sk: '', en: '' }, shipFrom: '',
             hideShip: false, hideDelivery: false, hidePickup: false, below: { cz: '', sk: '', en: '' } },
           topbar: { on: false, text: { cz: '', sk: '', en: '' } },
           links: { on: false, mode: 'add', items: [] },
@@ -617,6 +617,7 @@
               header: { cz: '', sk: '', en: '' }, hideHeader: false,
               ship: { cz: 'až **8. 7.**, máme dovolenou', sk: '', en: '' },
               delivery: { cz: '', sk: '', en: '' }, pickup: { cz: '', sk: '', en: '' },
+              shipFrom: mistni(ted + 3 * den).slice(0, 10),
               hideShip: false, hideDelivery: false, hidePickup: true, below: { cz: '', sk: '', en: '' } },
             topbar: { on: true, text: { cz: '🏖️ Dovolená do 7. 7. • Objednávky odesíláme hned poté', sk: '', en: '' } },
             button: { on: true, text: { cz: 'Objednávku odešleme 8. 7., doprava zdarma zůstává', sk: '', en: '' } }
@@ -640,6 +641,8 @@
       };
     })(),
     'webtexts:clashes': [],
+    // Překlad v náhledu nic nevolá — vrací se prázdno, aby šlo tlačítko zmáčknout
+    'webtexts:translate': [],
     'packeta:formats': ['A6 on A4', 'A6 on A6', 'A7 on A7', 'A7 on A4', 'A8 on A8', '105x35mm on A4'],
     'packeta:packets': [],
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
@@ -809,6 +812,15 @@
         samples: ['Bankovním převodem'] }
     ] },
     'shorthand:save': { scope: { orders: 428, withShipment: 428, withPayment: 428 }, rows: [] },
+    // Poznámky zákazníka u vybraných objednávek — dotaz před vývozem dopravci
+    'ship:notes': [
+      { code: '20260812', name: 'Jana Nováková', short: 'Prosím zavolejte předem, jsem doma až po 17. hodině',
+        note: 'Prosím zavolejte předem, jsem doma až po 17. hodině' },
+      { code: '20260814', name: 'Petr Dvořák',
+        note: 'Zboží prosím předejte sousedce paní Novákové ve druhém patře vpravo, '
+          + 'já budu do konce měsíce mimo republiku a nemám to jak převzít',
+        short: 'Zboží prosím předejte sousedce paní Novákové ve druhém patře vpravo, já budu do konce' }
+    ],
     'packing:working': true,
     'stockin:working': true,
     // Upozornění na telefon přes ntfy — v náhledu se nikam neposílá
@@ -1433,7 +1445,9 @@
     var card = Object.assign({}, toPack(number), {
       shipmentName: (opts && opts.shipment) || 'Zásilkovna',
       paymentName: (opts && opts.payment) || 'Platba kartou online',
-      total: (opts && opts.total) || '2\u00a0480 Kč'
+      total: (opts && opts.total) || '2\u00a0480 Kč',
+      // Poznámka zákazníka — v detailu má být vidět, ne schovaná mezi údaji
+      note: (opts && opts.note) || null
     });
     // Země doručení — do zahraničí jde jiný štítek i doba
     if (opts && opts.country) {
@@ -1458,7 +1472,8 @@
     orders: [
       // Rozdělaná: pásek hotový, z manžetových knoflíčků jeden ze dvou —
       // právě na tomhle je vidět, že se počítá po kusech, ne po položkách
-      packOrder(1, 3, '022605', '999111', 'Přijata', { packed: [0], counts: { '0': 1, '1': 1 } }),
+      packOrder(1, 3, '022605', '999111', 'Přijata', { packed: [0], counts: { '0': 1, '1': 1 },
+        note: 'Prosím zavolejte předem, jsem doma až po 17. hodině' }),
       packOrder(2, 5, '022604', '999110', 'Přijata',
         { payment: 'Dobírka', shipment: 'PPL ParcelBox', total: '1\u00a0890 Kč' }),
       packOrder(3, 9, '022603', '999109', 'Čeká na platbu', { payment: 'Bankovním převodem' }),
@@ -1466,7 +1481,8 @@
       packOrder(5, 28, '022599', '999099', 'Vyřizuje se', { done: true }),
       packOrder(6, 30, '022598', '999098', 'Odesláno', { shipment: 'PPL', country: 'DE' }),
       packOrder(7, 52, '022596', '999096', 'Odesláno', { payment: 'Dobírka', total: '790 Kč' }),
-      packOrder(8, 74, '022590', '999090', 'Doručeno', { country: 'SK' }),
+      packOrder(8, 74, '022590', '999090', 'Doručeno',
+        { country: 'SK', note: 'Prosím zavolejte předem, jsem doma až po 17. hodině' }),
       packOrder(9, 76, '022589', '999089', 'Stornováno', { shipment: 'Osobní odběr' })
     ],
     statuses: ['Přijata', 'Čeká na platbu', 'Vyřizuje se', 'Odesláno', 'Doručeno', 'Stornováno'],

@@ -132,5 +132,19 @@ ok('denní feed se po dvou hodinách nestahuje',
 // Posunuté hodiny na počítači by jinak feed zamkly do budoucnosti
 ok('datum v budoucnosti feed nezamkne', feed.feedDue(5, iso('13:00'), at('12:00')));
 
+/* ---------- poznámka zákazníka ---------- */
+
+/*
+ * Poznámku zákazníka používá vývoz dopravcům. Vedle ní je ve feedu
+ * `INTERNAL_NOTE` — naše vlastní, a dopravci do ní nic není; kdyby se
+ * spletly, jela by na štítku poznámka určená nám.
+ */
+console.log('\nPoznámka zákazníka');
+check('poznámka se přečte', byCode('023687').note,
+  'Prosím zavolejte předem, jsem doma až po 17. hodině');
+ok('interní poznámka se neplete do zákaznické',
+  !byCode('023687').note.includes('reklamace'));
+check('objednávka bez poznámky ji má prázdnou', byCode('023688')?.note ?? '', '');
+
 console.log(failed === 0 ? '\n✓ feed objednávek sedí' : `\n✗ ${failed} nesedí`);
 process.exit(failed === 0 ? 0 : 1);

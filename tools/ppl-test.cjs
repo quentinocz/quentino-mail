@@ -26,6 +26,7 @@ db.exec(`
     currency TEXT NOT NULL DEFAULT '', total REAL NOT NULL DEFAULT 0, tracking TEXT NOT NULL DEFAULT '',
     customer_id TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '', shipment TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
     pickup_id TEXT NOT NULL DEFAULT '', pickup_name TEXT NOT NULL DEFAULT '', weight REAL NOT NULL DEFAULT 0,
     items_json TEXT NOT NULL DEFAULT '[]', billing_json TEXT, postal_json TEXT, seen_at TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (code, market)
@@ -34,11 +35,11 @@ db.exec(`
 
 const add = (row) => db.prepare(
   `INSERT OR REPLACE INTO shop_orders
-   (code, market, name, email, phone, currency, total, shipment, payment, pickup_id,
+   (code, market, name, email, phone, currency, total, shipment, payment, pickup_id, note,
     items_json, billing_json, postal_json)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 ).run(row.code, 'cz', row.name, row.email, row.phone, row.currency ?? 'CZK', row.total,
-  row.shipment, row.payment, row.pickupId ?? '', JSON.stringify(row.items ?? []),
+  row.shipment, row.payment, row.pickupId ?? '', row.note ?? '', JSON.stringify(row.items ?? []),
   JSON.stringify(row.billing ?? null), row.postal ? JSON.stringify(row.postal) : null);
 
 // Výdejní místo: název v `company`, kód s obcí v `city` — přesně jak to chodí z e-shopu
@@ -151,6 +152,85 @@ ok('firma u adresní zásilky zůstane prázdná', lines[2].split(';')[1] === ''
 check('řádků je tolik jako zásilek plus hlavička', lines.filter(Boolean).length, 3);
 // Bez sloupce navíc musí soubor sedět se starým vzorem
 ok('obsah zásilky se dá vypnout', !ppl.pplCsv(rows, false).toString('binary').includes('content'));
+
+/* ---------- poznámka zákazníka ---------- */
+
+/*
+ * Poznámka jde na štítek, který uvidí kurýr, takže se přidává jen tehdy,
+ * když ji člověk schválil. Když se přidá, je v souboru **u všech řádků**:
+ * uložená úloha v administraci PPL mapuje sloupce podle pořadí a soubor
+ * jednou o třinácti a podruhé o čtrnácti sloupcích by jí nesedl. Objednávka
+ * bez poznámky má v tom sloupci mezeru — prázdné namapované pole import
+ * odmítá.
+ */
+console.log('\npoznámka zákazníka:');
+add({
+  code: '024300', name: 'Petr Dvořák', email: 'petr@example.cz', phone: '+420777000111',
+  total: 890, shipment: 'PPL ParcelShop', payment: 'GoPay', pickupId: 'KM10439155',
+  note: 'Prosím zavolejte předem, jsem doma až po 17. hodině',
+  items: [{ title: 'Kravata', quantity: 1 }],
+  postal: { name: 'Petr Dvořák', company: 'Chýnov', street: 'Nádražní 12', city: 'Chýnov',
+    zip: '39155', country: 'CZ' }
+});
+add({
+  code: '024301', name: 'Eva Malá', email: 'eva@example.cz', phone: '+420777000222',
+  total: 450, shipment: 'PPL ParcelShop', payment: 'GoPay', pickupId: 'KM10439155',
+  items: [{ title: 'Ponožky', quantity: 1 }],
+  postal: { name: 'Eva Malá', company: 'Chýnov', street: 'Nádražní 12', city: 'Chýnov',
+    zip: '39155', country: 'CZ' }
+});
+
+{
+  const pair = ppl.pplRows(['024300', '024301']).rows;
+  check('poznámka se natáhne k té správné objednávce',
+    pair.map(r => r.note), ['Prosím zavolejte předem, jsem doma až po 17. hodině', '']);
+
+  const bez = ppl.pplCsv(pair, false, false).toString('binary').split('\r\n').filter(Boolean);
+  ok('bez schválení sloupec vůbec není', !bez[0].endsWith(';note'));
+  check('a sloupců zůstane, kolik jich bylo', bez[1].split(';').length, 13);
+
+  const sni = ppl.pplCsv(pair, false, true).toString('binary').split('\r\n').filter(Boolean);
+  ok('po schválení je sloupec v hlavičce', sni[0].endsWith(';note'));
+  check('a je u všech řádků, ne jen u té s poznámkou',
+    sni.slice(1).map(line => line.split(';').length), [14, 14]);
+  /*
+   * Mezera, ne prázdno: prázdné namapované pole import PPL odmítá. Do
+   * uvozovek ji dává tentýž kód jako u jmen s mezerou — soubor se tím
+   * nechová jinak než u ostatních sloupců.
+   */
+  check('objednávka bez poznámky má mezeru', sni[2].split(';').pop(), '" "');
+  ok('a ta s poznámkou její text', sni[1].includes('zavolejte p'));
+}
+
+/*
+ * Dlouhá poznámka se zkracuje na hranici slova. Delší text štítek stejně
+ * neunese a useknuté slovo uprostřed vypadá jako chyba tisku.
+ */
+{
+  const ship = require(path.join(DIST, 'shipexport.js'));
+  const dlouha = 'Zboží prosím předejte sousedce paní Novákové ve druhém patře vpravo, '
+    + 'já budu do konce měsíce mimo republiku a nemám to jak převzít';
+  const kratka = ship.shortNote(dlouha);
+  ok('dlouhá poznámka se zkrátí', kratka.length <= 100, `délka ${kratka.length}`);
+  ok('a nekončí půlkou slova', dlouha.startsWith(kratka) && !/\S$/.test(dlouha[kratka.length] ?? ' '));
+  check('krátká zůstane celá', ship.shortNote('Zvoňte na Nováka'), 'Zvoňte na Nováka');
+  // Konce řádků z formuláře e-shopu by v CSV rozbily řádek
+  check('konce řádků se srovnají na mezery',
+    ship.shortNote('první řádek\ndruhý řádek'), 'první řádek druhý řádek');
+}
+
+/*
+ * Dotaz před vývozem stojí na tom, že se poznámky najdou — a jen u toho
+ * dopravce, kterého se vývoz týká.
+ */
+{
+  const ship = require(path.join(DIST, 'shipexport.js'));
+  const nalezene = ship.orderNotes(['024300', '024301'], 'PPL');
+  check('hlásí se jen objednávky s poznámkou', nalezene.map(one => one.code), ['024300']);
+  ok('a je u nich vidět jméno', nalezene[0].name === 'Petr Dvořák');
+  check('u cizího dopravce se nehlásí nic',
+    ship.orderNotes(['024300', '024301'], 'Balíkovna').length, 0);
+}
 
 console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
 process.exit(failed === 0 ? 0 : 1);

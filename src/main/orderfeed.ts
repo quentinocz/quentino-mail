@@ -245,6 +245,11 @@ export function parseOrders(xml: string, market: string): ShopOrder[] {
       phone: normalizePhone(tag(customerBlock, 'PHONE'), market),
       shipment: tag(shipmentBlock, 'NAME'),
       /*
+       * Poznámka zákazníka. Ve feedu je `CUSTOMER_NOTE`; `INTERNAL_NOTE`
+       * vedle ní je naše vlastní a dopravci do ní nic není.
+       */
+      note: tag(block, 'CUSTOMER_NOTE', 'CUSTOMER_COMMENT', 'NOTE_CUSTOMER').trim(),
+      /*
        * Číslo výdejního místa — ve feedu je jako `BRANCH_ID`.
        *
        * Bez něj se u Zásilkovny zásilka založit nedá: jejich API chce číslo
@@ -278,10 +283,10 @@ function save(orders: ShopOrder[]): number {
   const stmt = d.prepare(`
     INSERT INTO shop_orders (code, market, status, paid, paid_date, resolved, invoice,
       created_at, updated_at, currency, total, tracking, customer_id, name, email, phone,
-      shipment, payment, pickup_id, pickup_name, weight, items_json, billing_json, postal_json, seen_at)
+      shipment, payment, note, pickup_id, pickup_name, weight, items_json, billing_json, postal_json, seen_at)
     VALUES (@code, @market, @status, @paid, @paidDate, @resolved, @invoice,
       @createdAt, @updatedAt, @currency, @total, @tracking, @customerId, @name, @email, @phone,
-      @shipment, @payment, @pickupId, @pickupName, @weight, @items, @billing, @postal, @seen)
+      @shipment, @payment, @note, @pickupId, @pickupName, @weight, @items, @billing, @postal, @seen)
     ON CONFLICT(code, market) DO UPDATE SET
       status = excluded.status, paid = excluded.paid, paid_date = excluded.paid_date,
       resolved = excluded.resolved, invoice = excluded.invoice,
@@ -293,6 +298,9 @@ function save(orders: ShopOrder[]): number {
       -- potřebovali.
       phone = CASE WHEN excluded.phone <> '' THEN excluded.phone ELSE shop_orders.phone END,
       shipment = excluded.shipment, payment = excluded.payment,
+      -- Poznámku přepisuje jen vyplněná: rychlý feed s posledními 24 h ji
+      -- nemusí nést a prázdnou hodnotou by se ztratila
+      note = CASE WHEN excluded.note <> '' THEN excluded.note ELSE shop_orders.note END,
       items_json = excluded.items_json, seen_at = excluded.seen_at,
       -- Číslo výdejního místa přepisuje jen vyplněné; rychlý feed ho nemusí nést
       pickup_id = CASE WHEN excluded.pickup_id <> '' THEN excluded.pickup_id ELSE shop_orders.pickup_id END,
@@ -314,7 +322,7 @@ function save(orders: ShopOrder[]): number {
         invoice: order.invoice, createdAt: order.createdAt, updatedAt: order.updatedAt,
         currency: order.currency, total: order.total, tracking: order.tracking,
         customerId: order.customerId, name: order.name, email: order.email, phone: order.phone,
-        shipment: order.shipment, payment: order.payment,
+        shipment: order.shipment, payment: order.payment, note: order.note ?? '',
         pickupId: order.pickupId ?? '', pickupName: order.pickupName ?? '',
         weight: order.weight ?? 0,
         items: JSON.stringify(order.items),
@@ -461,7 +469,7 @@ function toOrder(row: any): ShopOrder {
     invoice: row.invoice, createdAt: row.created_at, updatedAt: row.updated_at,
     currency: row.currency, total: row.total, tracking: row.tracking,
     customerId: row.customer_id, name: row.name, email: row.email, phone: row.phone,
-    shipment: row.shipment, payment: row.payment,
+    shipment: row.shipment, payment: row.payment, note: row.note ?? '',
     pickupId: row.pickup_id ?? '', pickupName: row.pickup_name ?? '',
     weight: Number(row.weight) || 0,
     items: safeItems(row.items_json),

@@ -270,6 +270,8 @@ function migrate(d: Database.Database) {
       phone TEXT NOT NULL DEFAULT '',
       shipment TEXT NOT NULL DEFAULT '',
       payment TEXT NOT NULL DEFAULT '',
+      -- Poznámka zákazníka k objednávce; jde do vývozu dopravcům
+      note TEXT NOT NULL DEFAULT '',
       items_json TEXT NOT NULL DEFAULT '[]',
       billing_json TEXT,
       postal_json TEXT,
@@ -478,6 +480,12 @@ function migrate(d: Database.Database) {
    * a úplnější, ale dokud se z něj nečetly adresy, chyběla na kartě ta jediná
    * věc, kterou při balení člověk opisuje.
    */
+  /*
+   * Poznámka zákazníka k objednávce (`CUSTOMER_NOTE` z feedu). Používá ji
+   * vývoz dopravcům — „zvoňte na Nováka", „nechte u sousedů". Bez ní by se
+   * musela hledat v administraci a přepisovat ručně.
+   */
+  try { d.exec("ALTER TABLE shop_orders ADD COLUMN note TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE shop_orders ADD COLUMN billing_json TEXT"); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE shop_orders ADD COLUMN postal_json TEXT"); } catch { /* sloupec už existuje */ }
   try { d.exec('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)'); } catch { /* index už existuje */ }

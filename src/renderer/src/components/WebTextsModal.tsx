@@ -44,6 +44,29 @@ const LANGS: { id: Lang; label: string; hint: string }[] = [
 const emptyText = (): WebText => ({ cz: '', sk: '', en: '' });
 const hasText = (t?: WebText) => !!(t && (t.cz || t.sk || t.en));
 
+const PRODUCT_TEXTS = ['one', 'above', 'header', 'ship', 'delivery', 'pickup', 'below'] as const;
+
+/**
+ * Projde všechna textová políčka změny v pevném pořadí.
+ *
+ * Slouží dvěma věcem naráz — posbírat české texty na překlad a pak do těch
+ * samých políček zapsat výsledek. Musí to být jedna funkce, protože **na
+ * pořadí záleží**: kdyby se sbíralo jinak, než zapisovalo, doplnil by se
+ * překlad expedice do řádku o osobním odběru.
+ */
+function walkTexts(plan: WebPlan, fn: (t: WebText) => WebText): WebPlan {
+  const product: any = { ...plan.product };
+  for (const key of PRODUCT_TEXTS) product[key] = fn(product[key]);
+  return {
+    ...plan,
+    product,
+    topbar: { ...plan.topbar, text: fn(plan.topbar.text) },
+    // Adresy odkazů se nepřekládají — slovenský web má vlastní domény
+    links: { ...plan.links, items: plan.links.items.map(one => ({ ...one, text: fn(one.text) })) },
+    button: { ...plan.button, text: fn(plan.button.text) }
+  };
+}
+
 /** Čas na hodinách v podobě, kterou chce `datetime-local`. */
 function localNow(offsetMinutes = 0): string {
   const d = new Date(Date.now() + offsetMinutes * 60_000);
@@ -63,13 +86,19 @@ function blankPlan(): WebPlan {
     off: false,
     product: {
       on: false, one: emptyText(), above: emptyText(), header: emptyText(), hideHeader: false,
-      ship: emptyText(), delivery: emptyText(), pickup: emptyText(),
+      ship: emptyText(), delivery: emptyText(), pickup: emptyText(), shipFrom: '',
       hideShip: false, hideDelivery: false, hidePickup: false, below: emptyText()
     },
     topbar: { on: false, text: emptyText() },
     links: { on: false, mode: 'add', items: [] },
     button: { on: false, text: emptyText() }
   };
+}
+
+/** „2026-09-21" jako „21. 9." — do vysvětlující věty, ne do hodnoty */
+function dayLabel(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${+m[3]}. ${+m[2]}.` : iso;
 }
 
 function whenLabel(plan: WebPlan): string {
@@ -316,6 +345,53 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /*
+   * Překlad doplňuje **jen prázdná** políčka. Přepsat to, co je ručně
+   * doladěné, by znamenalo, že se po každém stisknutí musí kontrolovat
+   * všechny tři jazyky znovu — a jednou by se na to zapomnělo.
+   */
+  const translatePlan = async () => {
+    if (!draft) return;
+    setBusy('překládám');
+    try {
+      const source: string[] = [];
+      walkTexts(draft, t => { source.push(t.cz); return t; });
+      const done = await api.webtexts.translate(source);
+      let i = 0;
+      let filled = 0;
+      const next = walkTexts(draft, t => {
+        const one = done[i++];
+        if (!t.cz || !one) return t;
+        const sk = t.sk || one.sk;
+        const en = t.en || one.en;
+        if (sk !== t.sk || en !== t.en) filled++;
+        return { ...t, sk, en };
+      });
+      setDraft(next);
+      toast(filled
+        ? `Doplněno ${filled} textů ve slovenštině a angličtině. Ulož a vystav, ať to platí.`
+        : 'Není co doplnit — všechno je přeložené. Smaž překlad, který chceš přepsat.');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const translateSeason = async () => {
+    if (!xmas?.text.cz) { toast('Nejdřív napiš české znění.', 'error'); return; }
+    setBusy('překládám');
+    try {
+      const [one] = await api.webtexts.translate([xmas.text.cz]);
+      setXmas(x => (x ? { ...x, text: { ...x.text, sk: x.text.sk || one.sk, en: x.text.en || one.en } } : x));
+      toast('Slovenština a angličtina doplněné. Ulož a vystav, ať to platí.');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const saveSeason = async () => {
     if (!xmas) return;
     setBusy('ukládám');
@@ -343,6 +419,9 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
 
   const product = draft?.product;
   const oneMode = !!(product && hasText(product.one));
+  /* Sáhla změna na expedici nebo doručení? Podle toho se chová i horní lišta. */
+  const shipChanged = !!(product?.on
+    && (hasText(product.ship) || product.shipFrom || product.hideShip || hasText(product.delivery)));
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -466,9 +545,14 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                         {l.label} <small>{l.hint}</small>
                       </button>
                     ))}
+                    <span className="wt-spacer" />
+                    <button className="btn ghost" onClick={translatePlan} disabled={!!busy}>
+                      <Icon name="globe" size={14} /> Přeložit do SK a EN
+                    </button>
                   </div>
                   <p className="desc">
                     Emoji piš rovnou. Slovo mezi dvěma hvězdičkami — <code>**takhle**</code> — bude na webu tučné.
+                    Překlad doplní jen prázdná políčka a nechává adresy odkazů být.
                   </p>
 
                   <Area
@@ -504,6 +588,17 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                         {oneMode ? 'Tři řádky (teď je nahrazuje text výš)' : 'Tři řádky boxu'}
                         {' '}— mění se jen hodnota za dvojtečkou, popisek zůstává
                       </legend>
+                      <div className="field">
+                        <label>Expedujeme od (nepovinné)</label>
+                        <input type="date" value={draft.product.shipFrom}
+                          onChange={e => set({ product: { ...draft.product, shipFrom: e.target.value } })} />
+                        <span className="desc">
+                          Datum řídí obojí: doplní se do řádku o expedici a <b>počítá se z něj i odhad
+                          doručení</b> (první pracovní den po něm). Bez data se odhad počítá z dneška,
+                          takže by box mohl hlásit expedici za deset dní a doručení zítra.
+                        </span>
+                      </div>
+
                       <div className="wt-two">
                         <TextField label="Expedice" lang={lang} value={draft.product.ship}
                           hint="prázdné = počítá se podle času a svátků"
@@ -538,6 +633,23 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
 
                     <TextField label="Řádek pod boxem" lang={lang} value={draft.product.below}
                       hint="nepovinné" onChange={below => set({ product: { ...draft.product, below } })} />
+
+                    {/*
+                      * Lišta nad boxem slibuje doručení podle téhož kalendáře.
+                      * Kdyby o změněné expedici nevěděla, tvrdila by nad boxem
+                      * „Zítra u Vás“ zrovna ve chvíli, kdy box hlásí odeslání
+                      * za deset dní — a zákazník vidí obojí naráz.
+                      */}
+                    {shipChanged && !draft.topbar.on && (
+                      <p className="wt-note">
+                        <Icon name="alert" size={13} />
+                        {draft.product.shipFrom
+                          ? ` Horní lišta se přizpůsobí sama: bude hlásit „Odesíláme `
+                            + `${dayLabel(draft.product.shipFrom)}“, dokud jí nedáš vlastní text.`
+                          : ' Horní lišta přestane slibovat konkrétní den — dokud jí nedáš vlastní text, '
+                            + 'napíše „Objednávku připravíme co nejdříve“.'}
+                      </p>
+                    )}
                   </Area>
 
                   <Area
@@ -712,6 +824,10 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                       {l.label} <small>{l.hint}</small>
                     </button>
                   ))}
+                  <span className="wt-spacer" />
+                  <button className="btn ghost" onClick={translateSeason} disabled={!!busy}>
+                    <Icon name="globe" size={14} /> Přeložit do SK a EN
+                  </button>
                 </div>
 
                 <TextField

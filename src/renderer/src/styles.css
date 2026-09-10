@@ -7505,3 +7505,32 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .wt-season { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; max-width: 420px; }
 .wt-daymonth { display: flex; align-items: center; gap: 4px; }
 .wt-daymonth input { width: 64px; }
+
+/*
+ * Vysvětlivka uvnitř oblasti — co změna udělá jinde, než kde se zrovna
+ * píše. Ne varování: je to informace, ne chyba.
+ */
+.wt-note {
+  display: flex; align-items: flex-start; gap: 6px;
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 8px 10px; margin: 0;
+  background: var(--bg); color: var(--text-2); font-size: 12.5px; line-height: 1.4;
+}
+.wt-note svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
+.wt-langs .btn { margin: 4px 0 4px auto; }
+
+/*
+ * Poznámka zákazníka v detailu objednávky.
+ *
+ * Výrazně, ne mezi ostatními údaji: je to jedna z mála věcí, kvůli které se
+ * objednávka balí jinak, a přehlédnout ji stojí reklamaci.
+ */
+.pk-panel.pk-cnote { border-color: var(--warn); background: #fdf8ec; }
+.pk-panel.pk-cnote .pk-panel-head { color: var(--warn); }
+.pk-panel.pk-cnote p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; white-space: pre-line; }
+
+/* Schvalování poznámek před vývozem dopravci */
+.pk-notes { display: flex; flex-direction: column; gap: 8px; }
+.pk-notes-row { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; }
+.pk-notes-head { display: flex; align-items: baseline; gap: 8px; }
+.pk-notes-row p { margin: 4px 0 2px; font-size: 13px; line-height: 1.45; white-space: pre-line; }

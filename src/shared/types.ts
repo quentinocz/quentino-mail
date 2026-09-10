@@ -389,6 +389,14 @@ export interface ShopOrder {
   shipment: string;
   payment: string;
   /**
+   * Poznámka zákazníka k objednávce („zvoňte na Nováka").
+   *
+   * Ve feedu je `CUSTOMER_NOTE`. Do vývozu dopravcům se dostane jen tehdy,
+   * když se na to člověk podívá a schválí to — je to text od zákazníka
+   * a jde na štítek, který uvidí kurýr.
+   */
+  note: string;
+  /**
    * Výdejní místo.
    *
    * `pickupId` je číslo, kterým ho zná dopravce — bez něj se u Zásilkovny
@@ -575,6 +583,14 @@ export interface OrderCard {
   live: OrderLive | null;
   /** Stav objednávky a zásilky ze stránky e-shopu / od dopravce */
   tracking: OrderTracking | null;
+  /**
+   * Poznámka zákazníka k objednávce.
+   *
+   * Při balení je to to nejdůležitější, co se dá přehlédnout: „pošlete až
+   * po 20.“, „přidejte dárkové balení“. V potvrzovacím e-mailu nebývá,
+   * takže se dotahuje z feedu podle čísla objednávky.
+   */
+  note?: string | null;
 }
 
 /** Objednávka v nástroji na balení */
@@ -2453,6 +2469,8 @@ export interface PplRow {
   /** 46 = výdejní místo, 14 = adresa */
   type: 46 | 14;
   total: number;
+  /** Poznámka zákazníka, zkrácená na to, co se vejde na štítek */
+  note: string;
   /** Obsah zásilky složený z položek — „2 kravaty, motýlek" */
   content: string;
 }
@@ -2462,6 +2480,8 @@ export interface PplExport {
   rows: number;
   skipped: { code: string; reason: string }[];
   content: boolean;
+  /** Kolik zásilek nese poznámku zákazníka */
+  notes: number;
 }
 
 export interface PplSetup {
@@ -2529,6 +2549,14 @@ export interface BalikovnaSetup {
   importUrl: string;
   /** Co je v „Udané ceně": cena zboží, nebo celá objednávka */
   value: 'goods' | 'order';
+  /**
+   * Přidat do souboru poznámku zákazníka.
+   *
+   * Nastavuje se až u konkrétního vývozu, ne v nastavení: poznámka je text
+   * od zákazníka a rozhodnutí, jestli ji dopravce má vidět, patří člověku,
+   * který si ji přečetl.
+   */
+  note?: boolean;
 }
 
 export interface BalikovnaExport {
@@ -2537,6 +2565,22 @@ export interface BalikovnaExport {
   skipped: { code: string; reason: string }[];
   /** Kolik sloupců soubor má — proti konfiguraci v Podání Online */
   columns: number;
+  /** Kolik zásilek nese poznámku zákazníka */
+  notes: number;
+}
+
+/**
+ * Poznámka zákazníka u jedné objednávky — podklad pro dotaz před vývozem.
+ *
+ * Ukazuje se celá i zkrácená: člověk má vidět, co zákazník napsal, ale na
+ * štítek se vejde jen začátek.
+ */
+export interface OrderNote {
+  code: string;
+  name: string;
+  note: string;
+  /** Zkrácená podoba, tak jak půjde dopravci */
+  short: string;
 }
 
 /* ---------- přihlášení do cizích administrací ---------- */
@@ -2604,6 +2648,14 @@ export interface WebProductArea {
   ship: WebText;
   delivery: WebText;
   pickup: WebText;
+  /**
+   * Datum, odkdy se expeduje („2026-09-21"), nepovinné.
+   *
+   * Řídí obojí najednou: doplní se do řádku o expedici a **z něj se počítá
+   * i odhad doručení**. Bez něj se odhad počítá z dneška, takže by box mohl
+   * na jednom řádku hlásit expedici za deset dní a na druhém doručení zítra.
+   */
+  shipFrom: string;
   /** Řádek neukazovat vůbec */
   hideShip: boolean;
   hideDelivery: boolean;

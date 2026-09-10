@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PackingLookup, PackingOrder, PackingProgress, OrderCardItem } from '@shared/types';
+import type { PackingLookup, PackingOrder, PackingProgress, OrderCardItem, OrderNote } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -484,17 +484,49 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     [chosen]
   );
 
-  const exportPpl = useCallback(async () => {
+  /**
+   * Poznámky zákazníků před vývozem.
+   *
+   * Poznámka je cizí text a končí na štítku, který uvidí kurýr — schválit
+   * ji musí člověk, který si ji přečetl. Když žádná není, nic se neptá
+   * a vývoz jde rovnou.
+   */
+  const [noteAsk, setNoteAsk] = useState<
+    { notes: OrderNote[]; carrier: string; run: (withNote: boolean) => void } | null
+  >(null);
+
+  const askNotes = useCallback(async (
+    carrier: string, label: string, run: (withNote: boolean) => Promise<void>
+  ) => {
+    let notes: OrderNote[] = [];
+    try {
+      notes = await api.ship.notes(pplCandidates, carrier);
+    } catch {
+      // Nepovedlo se zjistit poznámky — vývoz se kvůli tomu nezastavuje
+      notes = [];
+    }
+    if (notes.length === 0) { await run(false); return; }
+    setNoteAsk({
+      notes, carrier: label,
+      run: (withNote: boolean) => { setNoteAsk(null); void run(withNote); }
+    });
+  }, [pplCandidates]);
+
+  const exportPpl = useCallback(() => askNotes('ppl', 'PPL', async (withNote: boolean) => {
     setPplBusy(true);
     try {
-      const out = await api.ppl.export(pplCandidates);
+      const out = await api.ppl.export(pplCandidates, withNote);
       if (!out.file) {
         toast(out.skipped.length > 0
           ? `Ve výběru není žádná zásilka PPL (${out.skipped.length} objednávek jede jinak).`
           : 'Nic k vývozu.', 'info');
         return;
       }
-      toast(`Vyvezeno ${out.rows} zásilek${out.skipped.length ? `, ${out.skipped.length} vynecháno` : ''}.`);
+      toast(`Vyvezeno ${out.rows} zásilek${out.skipped.length ? `, ${out.skipped.length} vynecháno` : ''}`
+        + `${out.notes ? `, z toho ${out.notes} s poznámkou` : ''}.`);
+      if (withNote) {
+        toast('Sloupec s poznámkou je na konci souboru — v mapování PPL na něj musí být pole.', 'info');
+      }
       const opened = await api.ppl.openImport(out.file);
       toast(opened.note, opened.filled ? 'info' : 'error');
     } catch (e: any) {
@@ -502,7 +534,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     } finally {
       setPplBusy(false);
     }
-  }, [pplCandidates, toast]);
+  }), [pplCandidates, toast, askNotes]);
 
   /**
    * Zásilkovna: založit zásilky a stáhnout štítky.
@@ -514,10 +546,10 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    */
   const [zasBusy, setZasBusy] = useState(false);
 
-  const sendPacketa = useCallback(async () => {
+  const sendPacketa = useCallback(() => askNotes('packeta', 'Zásilkovnu', async (withNote: boolean) => {
     setZasBusy(true);
     try {
-      const out = await api.packeta.create(pplCandidates);
+      const out = await api.packeta.create(pplCandidates, withNote);
       if (out.created.length === 0) {
         toast(out.failed[0]?.reason
           ? `Zásilkovna: ${out.failed[0].reason}`
@@ -536,7 +568,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     } finally {
       setZasBusy(false);
     }
-  }, [pplCandidates, toast]);
+  }), [pplCandidates, toast, askNotes]);
 
   /**
    * Balíkovna přes Podání Online.
@@ -546,17 +578,21 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    */
   const [balBusy, setBalBusy] = useState(false);
 
-  const exportBalikovna = useCallback(async () => {
+  const exportBalikovna = useCallback(() => askNotes('balikovna', 'Balíkovnu', async (withNote: boolean) => {
     setBalBusy(true);
     try {
-      const out = await api.balikovna.export(pplCandidates);
+      const out = await api.balikovna.export(pplCandidates, withNote);
       if (!out.file) {
         toast(out.skipped.length > 0
           ? `Ve výběru není žádná zásilka Balíkovny (${out.skipped.length} objednávek jede jinak).`
           : 'Nic k vývozu.', 'info');
         return;
       }
-      toast(`Vyvezeno ${out.rows} zásilek do ${out.columns} sloupců.`);
+      toast(`Vyvezeno ${out.rows} zásilek do ${out.columns} sloupců`
+        + `${out.notes ? `, z toho ${out.notes} s poznámkou` : ''}.`);
+      if (withNote) {
+        toast('Sloupec „Poznámka" je v souboru navíc — musí být i v konfiguraci importu.', 'info');
+      }
       /*
        * Okno zůstane otevřené a čeká: než se člověk přihlásí a proklikne
        * k importu, může to trvat minuty. Jakmile se políčko na soubor
@@ -570,7 +606,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
     } finally {
       setBalBusy(false);
     }
-  }, [pplCandidates, toast]);
+  }), [pplCandidates, toast, askNotes]);
 
   const grabInvoices = useCallback(async () => {
     if (withInvoice.length === 0) return;
@@ -959,8 +995,52 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
   // Okno se zavírá i s otevřeným hledáčkem — ten by jinak zůstal viset nad ním
   useEffect(() => () => { void api.scan.stop().catch(() => {}); }, []);
 
+  /**
+   * Dotaz před vývozem: co zákazníci napsali a jestli to má vidět dopravce.
+   *
+   * Ukazuje se celý text i to, co se z něj vejde na štítek — kdyby se
+   * schvalovala jen věta „tři objednávky mají poznámku", nedalo by se
+   * rozhodnout.
+   */
+  const notesDialog = noteAsk && (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) setNoteAsk(null); }}>
+      <div className="modal" style={{ width: 'min(640px, 94vw)' }}>
+        <div className="modal-head">
+          <span className="modal-title"><Icon name="pen" size={15} /> Poznámky od zákazníků</span>
+          <button className="icon-btn" onClick={() => setNoteAsk(null)}><Icon name="x" size={16} /></button>
+        </div>
+        <div className="modal-body">
+          <p className="desc">
+            {noteAsk.notes.length === 1 ? 'Jedna objednávka má' : `${noteAsk.notes.length} objednávek má`}
+            {' '}poznámku od zákazníka. Půjde na štítek pro {noteAsk.carrier} — přečte si ji kurýr.
+          </p>
+          <div className="pk-notes">
+            {noteAsk.notes.map(one => (
+              <div className="pk-notes-row" key={one.code}>
+                <div className="pk-notes-head">
+                  <b>{one.code}</b>
+                  <span className="desc">{one.name}</span>
+                </div>
+                <p>{one.note}</p>
+                {one.short !== one.note && (
+                  <span className="desc">Dopravci půjde jen začátek: „{one.short}"</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={() => setNoteAsk(null)}>Zrušit</button>
+          <button className="btn ghost" onClick={() => noteAsk.run(false)}>Vyvézt bez poznámek</button>
+          <button className="btn primary" onClick={() => noteAsk.run(true)}>Přidat poznámky</button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      {notesDialog}
       {/* Na telefonu je vidět vždy jen jedna část — seznam, nebo rozepsaná objednávka */}
       <div className={`modal pk-modal pk-${size}`} data-pane={selected ? 'detail' : 'list'}
         data-scan={panelH ? 'on' : undefined}
@@ -1392,6 +1472,20 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                         <Icon name={copied ? 'check' : 'copy'} size={12} /> {copied ? 'Zkopírováno' : 'Kopírovat adresu'}
                       </button>
                     </div>
+
+                    {/*
+                      * Poznámka zákazníka. Při balení je to jedna z mála věcí,
+                      * kvůli které se objednávka dělá jinak („pošlete až po
+                      * 20.", „přidejte dárkové balení") — a v potvrzovacím
+                      * e-mailu není, takže se dotahuje z feedu. Proto stojí
+                      * nad údaji o dopravě a je vidět, ne schovaná mezi nimi.
+                      */}
+                    {current.card.note && (
+                      <div className="pk-panel pk-cnote">
+                        <div className="pk-panel-head"><Icon name="pen" size={12} /> Poznámka zákazníka</div>
+                        <p>{current.card.note}</p>
+                      </div>
+                    )}
 
                     <div className="pk-panel">
                       <div className="pk-panel-head"><Icon name="truck" size={12} /> Doprava a kontakt</div>

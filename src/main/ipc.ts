@@ -62,6 +62,7 @@ import * as webtexts from './webtexts';
 import { portalLogins, savePortalLogin } from './portallogin';
 import { articleStats, articleStat } from './artstats';
 import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabels } from './ppl';
+import { orderNotes } from './shipexport';
 import {
   packetaSetup, savePacketaSetup, testPacketa, packetsFor, createPackets, labelsPdf, LABEL_FORMATS
 } from './packeta';
@@ -477,17 +478,36 @@ export function registerIpc() {
   handle('ppl:saveSetup', (next: any) => savePplSetup(next ?? {}));
   // Náhled: co se do souboru dostane a co se z výběru vynechá a proč
   handle('ppl:rows', (codes: string[]) => pplRows(codes ?? []));
-  handle('ppl:export', (codes: string[]) => exportPpl(codes ?? []));
+  handle('ppl:export', (codes: string[], withNote?: boolean) => exportPpl(codes ?? [], true, !!withNote));
   handle('ppl:import', (file: string) => openPplImport(file));
   // Štítky PPL vystavuje jejich administrace — aplikace otevře ten správný seznam
   handle('ppl:labels', () => openPplLabels());
+
+  /*
+   * Poznámky zákazníka u vybraných objednávek. Modul se podle nich ptá,
+   * jestli je do vývozu přidat, a ukazuje je i s číslem objednávky —
+   * schvalovat cizí text naslepo nedává smysl.
+   */
+  handle('ship:notes', (codes: string[], carrier?: string) => {
+    /*
+     * Vzor dopravce zná nastavení, ne rozhraní. Ptá se tedy na „ppl" nebo
+     * „balikovna" a překlad na vzor („PPL|ParcelBox…") zůstává na jednom
+     * místě — kdyby si ho rozhraní drželo taky, rozešly by se.
+     */
+    const pattern = carrier === 'ppl' ? pplSetup().carrier
+      : carrier === 'balikovna' ? balikovnaSetup().carrier
+        : carrier === 'packeta' ? packetaSetup().carrier
+          : '';
+    return orderNotes(codes ?? [], pattern);
+  });
 
   /* ---------- Zásilkovna ---------- */
   handle('packeta:setup', () => packetaSetup());
   handle('packeta:saveSetup', (next: any) => savePacketaSetup(next ?? {}));
   handle('packeta:test', () => testPacketa());
   handle('packeta:packets', (codes: string[]) => packetsFor(codes ?? []));
-  handle('packeta:create', (codes: string[]) => createPackets(codes ?? []));
+  handle('packeta:create', (codes: string[], withNote?: boolean) =>
+    createPackets(codes ?? [], !!withNote));
   handle('packeta:labels', (codes: string[], format?: string, offset?: number) =>
     labelsPdf(codes ?? [], format, offset));
   handle('packeta:formats', () => LABEL_FORMATS);
@@ -497,7 +517,8 @@ export function registerIpc() {
   handle('balikovna:saveSetup', (next: any) => saveBalikovnaSetup(next ?? {}));
   handle('balikovna:fields', () => BAL_FIELDS);
   handle('balikovna:rows', (codes: string[]) => balikovnaRows(codes ?? []));
-  handle('balikovna:export', (codes: string[]) => exportBalikovna(codes ?? []));
+  handle('balikovna:export', (codes: string[], withNote?: boolean) =>
+    exportBalikovna(codes ?? [], !!withNote));
   handle('balikovna:open', () => openBalikovna());
   // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho
   handle('balikovna:import', (file: string) => openBalikovnaImport(file));
@@ -512,6 +533,8 @@ export function registerIpc() {
   // Co se s plánovanou změnou pere o tentýž čas — ptá se rozhraní při psaní
   handle('webtexts:clashes', (plan: any) => webtexts.webClashes(plan));
   handle('webtexts:shorten', (id: string, ids: string[]) => webtexts.shortenWebPlans(id, ids ?? []));
+  // Překlad rozepsaných textů do slovenštiny a angličtiny naráz
+  handle('webtexts:translate', (texts: string[]) => webtexts.translateWeb(texts ?? []));
   // Vánoční garance je celoroční nastavení, ne naplánovaná změna
   handle('webtexts:season', (next: any) => webtexts.saveWebSeason(next ?? {}));
   handle('webtexts:publish', () => webtexts.publishWebTexts());

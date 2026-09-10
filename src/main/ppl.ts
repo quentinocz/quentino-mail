@@ -2,7 +2,7 @@ import { BrowserWindow, dialog, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getSetting, setSetting } from './db';
-import { shipOrders, cell } from './shipexport';
+import { shipOrders, shortNote, cell } from './shipexport';
 import { fillFileInput, openUrl } from './formfile';
 import { signIn, keepSignedIn } from './portallogin';
 import type { PplRow, PplExport, PplSetup, ShopOrderItem } from '../shared/types';
@@ -225,7 +225,9 @@ export function pplRows(codes: string[]): { rows: PplRow[]; skipped: { code: str
       email: order.email,
       type: typeOf(city, order.shipment, order.pickupId),
       total: setup.value === 'order' ? order.total : order.goods,
-      content: contentOf(order.items)
+      content: contentOf(order.items),
+      // Poznámka se zkracuje — na štítek se dlouhý text stejně nevejde
+      note: shortNote(order.note)
     };
   });
 
@@ -237,8 +239,18 @@ export function pplRows(codes: string[]): { rows: PplRow[]; skipped: { code: str
 const HEAD = ['name', 'company', 'street', 'city', 'zip', 'country', 'cash_on_delivery',
   'currency', 'variable_symbol', 'phone', 'email', 'type', 'total'];
 
-export function pplCsv(rows: PplRow[], withContent: boolean): Buffer {
-  const head = withContent ? [...HEAD, 'content'] : HEAD;
+/**
+ * Sloupec s poznámkou zákazníka.
+ *
+ * Když se zapne, je v souboru **vždycky** — i u objednávek bez poznámky,
+ * kde v něm zůstane mezera. Uložená úloha v administraci PPL má sloupce
+ * napevno namapované podle pořadí a soubor, který jednou má čtrnáct sloupců
+ * a podruhé patnáct, by jí nesedl. Mezera místo prázdna proto, že prázdné
+ * pole namapované hodnoty import odmítá.
+ */
+export function pplCsv(rows: PplRow[], withContent: boolean, withNote = false): Buffer {
+  const head = withContent ? [...HEAD, 'content'] : [...HEAD];
+  if (withNote) head.push('note');
   const lines = [head.join(';')];
   for (const row of rows) {
     const cells = [
@@ -246,6 +258,7 @@ export function pplCsv(rows: PplRow[], withContent: boolean): Buffer {
       row.cod, row.currency, row.variableSymbol, row.phone, row.email, row.type, row.total
     ].map(cell);
     if (withContent) cells.push(cell(row.content));
+    if (withNote) cells.push(cell(row.note || ' '));
     lines.push(cells.join(';'));
   }
   // Konce řádků po windowsku — import je čte tak, jak je zvyklý
@@ -253,14 +266,14 @@ export function pplCsv(rows: PplRow[], withContent: boolean): Buffer {
 }
 
 /** Sestaví soubor a uloží ho; vrací i to, co se nevyvezlo a proč. */
-export async function exportPpl(codes: string[], ask = true): Promise<PplExport> {
+export async function exportPpl(codes: string[], ask = true, withNote = false): Promise<PplExport> {
   const setup = pplSetup();
   const { rows, skipped } = pplRows(codes);
   if (rows.length === 0) {
-    return { file: null, rows: 0, skipped, content: setup.content };
+    return { file: null, rows: 0, skipped, content: setup.content, notes: 0 };
   }
 
-  const csv = pplCsv(rows, setup.content);
+  const csv = pplCsv(rows, setup.content, withNote);
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
   const target = path.join(app.getPath('downloads'), `ppl-${stamp}.csv`);
 
@@ -270,11 +283,14 @@ export async function exportPpl(codes: string[], ask = true): Promise<PplExport>
       defaultPath: target,
       filters: [{ name: 'CSV pro PPL', extensions: ['csv'] }]
     });
-    if (res.canceled || !res.filePath) return { file: null, rows: 0, skipped, content: setup.content };
+    if (res.canceled || !res.filePath) return { file: null, rows: 0, skipped, content: setup.content, notes: 0 };
     file = res.filePath;
   }
   fs.writeFileSync(file, csv);
-  return { file, rows: rows.length, skipped, content: setup.content };
+  return {
+    file, rows: rows.length, skipped, content: setup.content,
+    notes: withNote ? rows.filter(one => !!one.note).length : 0
+  };
 }
 
 /* ---------- import do administrace PPL ---------- */
