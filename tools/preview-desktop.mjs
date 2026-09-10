@@ -513,6 +513,54 @@ await page.evaluate(() => window.__emit('ptrans:progress', {
 }));
 await overflow('pruh překladu'); await snap('09-pruh-prekladu');
 
+/*
+ * Texty na webu. Zajímá tu hlavně jedna věc: rozepsaná změna má na jedné
+ * obrazovce čtyři oblasti a tři jazyky, takže právě tady hrozí, že se
+ * formulář rozjede do šířky nebo se v něm ztratí, co která oblast dělá.
+ */
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Texty na webu' });
+await overflow('texty na webu — plán'); await snap('40-texty-plan');
+
+// Běžící změna: podle ní se pozná, jestli je v seznamu vidět fáze a oblasti
+await click('.wt-row', { hasText: 'Dovolená' });
+await overflow('texty na webu — změna'); await snap('41-texty-zmena');
+
+// Nová změna přes běžící: musí se ohlásit překryv i nabídka zkrácení
+await click('.wt-list .btn', { hasText: 'Nová změna' });
+await page.evaluate(() => {
+  const fill = (el, value) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const [name, from] = document.querySelectorAll('.wt-when input');
+  fill(name, 'Výpadek dopravce');
+  const now = new Date(Date.now() + 3600000);
+  const pad = n => String(n).padStart(2, '0');
+  fill(from, `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:00`);
+});
+await page.waitForTimeout(600);
+{
+  const clash = await page.locator('.wt-clash').count();
+  console.log(`${'překryv se ohlásí'.padEnd(28)} ${clash ? '✓' : '✗'}`);
+}
+// Všechny čtyři oblasti rozbalené naráz — nejvyšší možný formulář
+for (const area of ['Box u produktu', 'Horní lišta', 'Lišta s odkazy', 'Bublina u tlačítka']) {
+  await click('.wt-area-head', { hasText: area });
+}
+await click('.wt-area .btn.ghost', { hasText: 'Přidat odkaz' });
+await overflow('texty na webu — nová'); await snap('42-texty-nova');
+
+// Slovenština: prázdné políčko má našeptat český text, ne zůstat prázdné
+await click('.wt-langs .tab', { hasText: 'Slovensky' });
+await overflow('texty na webu — slovensky'); await snap('43-texty-slovensky');
+
+await click('.wt-head-right .tab', { hasText: 'Napojení' });
+await overflow('texty na webu — napojení'); await snap('44-texty-napojeni');
+await click('.modal-head .icon-btn');
+await page.waitForTimeout(300);
+
 console.log(problems.length ? '\nPROBLÉMY:\n' + problems.slice(0, 10).join('\n') : '\nžádné chyby');
 await browser.close();
 server.close();

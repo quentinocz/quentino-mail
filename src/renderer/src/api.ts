@@ -19,7 +19,8 @@ import type {
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
-  PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin
+  PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin,
+  WebPlan, WebClash, WebTextsConfig, WebTextsState
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -672,6 +673,28 @@ export const api = {
     open: () => call<boolean>('balikovna:open'),
     /** Otevře import a vloží do něj soubor, jakmile se políčko objeví */
     openImport: (file: string) => call<{ filled: boolean; note: string }>('balikovna:import', file)
+  },
+
+  /**
+   * Naplánované náhrady textů na e-shopu.
+   *
+   * Každý zásah plán rovnou vystaví na web — kdyby se to rozdělilo na
+   * „ulož" a „publikuj", byla by v aplikaci změna, o které si člověk myslí,
+   * že platí, a na webu by nebyla.
+   */
+  webtexts: {
+    state: () => call<WebTextsState>('webtexts:state'),
+    /** Při otevření modulu: natáhnout, co je opravdu na webu */
+    load: () => call<WebTextsState>('webtexts:load'),
+    save: (plan: Partial<WebPlan>) => call<WebTextsState>('webtexts:save', plan),
+    remove: (id: string) => call<WebTextsState>('webtexts:delete', id),
+    toggle: (id: string, off: boolean) => call<WebTextsState>('webtexts:toggle', id, off),
+    clashes: (plan: Partial<WebPlan>) => call<WebClash[]>('webtexts:clashes', plan),
+    /** Zkrátí konec dřívějších změn na minutu před začátkem té nové */
+    shorten: (id: string, ids: string[]) => call<WebTextsState>('webtexts:shorten', id, ids),
+    publish: () => call<WebTextsState>('webtexts:publish'),
+    config: (next: Partial<WebTextsConfig> & { key?: string }) =>
+      call<WebTextsConfig>('webtexts:config', next)
   },
 
   /**

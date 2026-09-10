@@ -207,7 +207,12 @@ const SECRET_SETTING_KEYS = [
    * do zálohy proto patří rozšifrované, jinak by se po obnovení tvářily
    * jako nenastavené a člověk by je hledal.
    */
-  'packetaPassword', 'portalLogins'
+  'packetaPassword', 'portalLogins',
+  /*
+   * Servisní klíč k úložišti s plánem textů na webu. Bez něj by se po
+   * obnovení zálohy nedalo publikovat a modul by tvrdil, že není nastavený.
+   */
+  'webTextsKey'
 ];
 
 /** Popisky do hlášky po importu. */
@@ -220,7 +225,8 @@ const SECRET_LABELS: Record<string, string> = {
   igAppSecret: 'Meta aplikace',
   igStorageKey: 'úložiště médií',
   igUserToken: 'přístup k Instagramu',
-  chatAnonKey: 'klíč k chatu'
+  chatAnonKey: 'klíč k chatu',
+  webTextsKey: 'klíč k úložišti textů na webu'
 };
 
 /**
@@ -255,7 +261,13 @@ const VOLATILE_SETTING_KEYS = [
   // Totožnost zařízení do zálohy nepatří: po obnovení na druhém počítači by
   // obě zařízení tvrdila, že jsou totéž, psala si do stejného deníku a
   // sahala si po týchž zamluvených kódech poukazů.
-  'deviceId', 'deviceName'
+  'deviceId', 'deviceName',
+  /*
+   * Kdy tenhle počítač naposledy vystavil plán textů na web a jestli mu
+   * něco zbylo rozdělané. Plán sám je pravda na webu, tohle je jen zpráva
+   * o posledním pokusu — na druhém počítači by lhala.
+   */
+  'webTextsPublishedAt', 'webTextsDirty', 'webTextsError'
 ];
 
 /**

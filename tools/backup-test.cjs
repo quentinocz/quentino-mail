@@ -253,6 +253,11 @@ set('balikovnaSetup', '{"carrier":"Balíkovna","type":"NB"}');
 set('packetaSetup', '{"eshop":"quentino.cz","labelFormat":"A6 on A4"}');
 set('packetaPassword', 'ŠIFRA(' + Buffer.from('tajne-heslo').toString('base64') + ')');
 set('portalLogins', 'ŠIFRA(' + Buffer.from('{"ppl":{"user":"quentino","pass":"x","auto":true}}').toString('base64') + ')');
+// Naplánované náhrady textů na webu: plán je obyčejná hodnota, klíč k úložišti šifra
+set('webTextsPlans', '[{"id":"a","name":"Dovolená","from":"2026-07-01T08:00","to":"2026-07-07T18:00"}]');
+set('webTextsKey', 'ŠIFRA(' + Buffer.from('service-role-klic').toString('base64') + ')');
+// Razítko posledního vystavení patří tomuhle počítači, ne záloze
+set('webTextsPublishedAt', '2026-07-01T10:00:00Z');
 // Uložený rozbor z Analytics je stažená kopie cizích dat, ne nastavení
 set('ga4Deep2:365', '{"months":[]}');
 
@@ -379,6 +384,18 @@ console.log('\ndoprava a doklady:');
     `dostal: ${decrypted('portalLogins')}`);
   // Stažený rozbor z Analytics je kopie cizích dat, ne nastavení
   sedi('uložený rozbor návštěvnosti v záloze není', !text.includes('ga4Deep2'));
+}
+
+/* ---------- texty na webu ---------- */
+
+console.log('\ntexty na webu:');
+{
+  const text = JSON.stringify(zaloha);
+  sedi('naplánované změny se přenesou', text.includes('webTextsPlans'));
+  sedi('klíč k úložišti dojede čitelný', decrypted('webTextsKey') === 'service-role-klic',
+    `dostal: ${decrypted('webTextsKey')}`);
+  // Kdy tenhle počítač naposledy publikoval, na druhém neplatí
+  sedi('razítko posledního vystavení v záloze není', !text.includes('webTextsPublishedAt'));
 }
 
 console.log(bad ? `\n${bad} věcí nesedí` : '\nzáloha přenese všechno, co má, a nic, co nemá');

@@ -583,6 +583,60 @@
       { key: 'dobirka', label: 'Dobírka', hint: 'Částka k vybrání' },
       { key: 'obsah', label: 'Obsah zásilky', hint: 'Složený z položek' }
     ],
+    // Texty na webu — plán s běžící, chystanou a doběhlou změnou
+    'webtexts:state': (function () {
+      var den = 86400000;
+      var ted = Date.now();
+      var mistni = function (ms) {
+        var d = new Date(ms);
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+          + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      };
+      var zmena = function (id, name, odMs, doMs, extra) {
+        return Object.assign({
+          id: id, name: name, from: mistni(odMs), to: mistni(doMs),
+          fromMs: odMs, toMs: doMs, off: false,
+          product: { on: false, one: { cz: '', sk: '', en: '' }, above: { cz: '', sk: '', en: '' },
+            header: { cz: '', sk: '', en: '' }, hideHeader: false,
+            ship: { cz: '', sk: '', en: '' }, delivery: { cz: '', sk: '', en: '' },
+            pickup: { cz: '', sk: '', en: '' }, hidePickup: false, below: { cz: '', sk: '', en: '' } },
+          topbar: { on: false, text: { cz: '', sk: '', en: '' } },
+          links: { on: false, mode: 'add', items: [] },
+          button: { on: false, text: { cz: '', sk: '', en: '' } }
+        }, extra);
+      };
+      return {
+        config: { url: 'https://xyzabc.supabase.co', hasKey: true, bucket: 'web',
+          path: 'quentino-texty.json', ttl: 300, ready: true,
+          publicUrl: 'https://xyzabc.supabase.co/storage/v1/object/public/web/quentino-texty.json' },
+        plans: [
+          zmena('a', 'Dovolená 1.–7. 7.', ted - 2 * den, ted + 3 * den, {
+            product: { on: true, one: { cz: '', sk: '', en: '' }, above: { cz: '', sk: '', en: '' },
+              header: { cz: '', sk: '', en: '' }, hideHeader: false,
+              ship: { cz: '🏖️ Expedice: až 8. 7., máme dovolenou', sk: '', en: '' },
+              delivery: { cz: '', sk: '', en: '' }, pickup: { cz: '', sk: '', en: '' },
+              hidePickup: true, below: { cz: '', sk: '', en: '' } },
+            topbar: { on: true, text: { cz: '🏖️ Dovolená do 7. 7. • Objednávky odesíláme hned poté', sk: '', en: '' } },
+            button: { on: true, text: { cz: 'Objednávku odešleme 8. 7., doprava zdarma zůstává', sk: '', en: '' } }
+          }),
+          zmena('b', 'Black Friday', ted + 20 * den, ted + 24 * den, {
+            links: { on: true, mode: 'replace', items: [
+              { text: { cz: '🔥 Black Friday: sleva 25 % na vše', sk: '', en: '' },
+                href: { cz: 'https://www.quentino.cz/black-friday', sk: '', en: '' }, blank: false }
+            ] }
+          }),
+          zmena('c', 'Velikonoce', ted - 40 * den, ted - 36 * den, {
+            topbar: { on: true, text: { cz: '🐣 Velikonoce: expedujeme až v úterý', sk: '', en: '' } }
+          })
+        ],
+        publishedAt: new Date(ted - 3600000).toISOString(),
+        dirty: false,
+        error: '',
+        script: '<script>\n/* Quentino — texty o doručení */\n(function () {\n  var SOURCE = "https://xyzabc.supabase.co/storage/v1/object/public/web/quentino-texty.json";\n  /* … */\n})();\n<\/script>'
+      };
+    })(),
+    'webtexts:clashes': [],
     'packeta:formats': ['A6 on A4', 'A6 on A6', 'A7 on A7', 'A7 on A4', 'A8 on A8', '105x35mm on A4'],
     'packeta:packets': [],
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
@@ -1559,6 +1613,10 @@
           + '.name{font-size:' + Math.max(5, (layout.fontSize || 9) - 2) + 'pt;color:#444;text-align:center}'
           + '</style><div class="page">' + cells + '</div>';
         return Promise.resolve({ ok: true, data: html });
+      }
+      // Načtení i uložení vrací tentýž stav — náhled nic doopravdy nemění
+      if (channel === 'webtexts:load' || channel === 'webtexts:publish') {
+        return Promise.resolve({ ok: true, data: answers['webtexts:state'] });
       }
       return Promise.resolve({ ok: true, data: channel in answers ? answers[channel] : null });
     },
