@@ -16,6 +16,8 @@
       <CURRENCY>CZK</CURRENCY>
       <TOTAL_PRICE_WITH_VAT>548</TOTAL_PRICE_WITH_VAT>
       <TRACING_CODE>NB9574204633L</TRACING_CODE>
+      <CUSTOMER_NOTE>Prosím zavolejte předem, jsem doma až po 17. hodině</CUSTOMER_NOTE>
+      <INTERNAL_NOTE>reklamace z minulé objednávky</INTERNAL_NOTE>
     </HEADER>
     <CUSTOMER>
       <CUSTOMER_ID>20571</CUSTOMER_ID>

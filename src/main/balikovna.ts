@@ -2,7 +2,7 @@ import { BrowserWindow, dialog, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getSetting, setSetting } from './db';
-import { shipOrders, splitStreet, csv, ShipOrder } from './shipexport';
+import { shipOrders, shortNote, splitStreet, csv, ShipOrder } from './shipexport';
 import { contentOf } from './ppl';
 import { fillFileInput, openUrl } from './formfile';
 import { signIn, keepSignedIn } from './portallogin';
@@ -63,6 +63,7 @@ export const FIELDS: { key: string; label: string; hint: string }[] = [
   { key: 'pocetVk', label: 'Počet VK', hint: 'Nevyplňuje se' },
   { key: 'vsPoukazka', label: 'VS poukázka', hint: 'Číslo objednávky — párování platby dobírky' },
   { key: 'obsah', label: 'Obsah zásilky', hint: 'Složený z položek: „2 kravaty, motýlek"' },
+  { key: 'poznamka', label: 'Poznámka', hint: 'Poznámka zákazníka z objednávky; mezera, když žádná není' },
   { key: 'mistoNazev', label: 'Název výdejního místa', hint: 'Z doručovací adresy' },
   { key: 'mistoId', label: 'ID výdejního místa', hint: 'Z feedu (BRANCH_ID)' }
 ];
@@ -163,6 +164,12 @@ export function valuesOf(order: ShipOrder, setup: BalikovnaSetup): Record<string
     // Poukázka se páruje týmž číslem — jinak se platba dobírky nespojí
     vsPoukazka: order.cod > 0 ? order.code.replace(/^0+/, '') : '',
     obsah: contentOf(order.items),
+    /*
+     * Poznámka zákazníka. Mezera místo prázdna schválně — namapované, ale
+     * prázdné pole import odmítá, kdežto mezeru vezme. Přidává se do souboru
+     * jen tehdy, když si člověk poznámky přečetl a schválil je.
+     */
+    poznamka: setup.note ? (shortNote(order.note) || ' ') : '',
     mistoNazev: order.company,
     mistoId: order.pickupId
   };
@@ -193,20 +200,25 @@ export function balikovnaRows(codes: string[]):
   return shipOrders(codes, balikovnaSetup().carrier);
 }
 
-export async function exportBalikovna(codes: string[]): Promise<BalikovnaExport> {
-  const setup = balikovnaSetup();
+export async function exportBalikovna(codes: string[], withNote = false): Promise<BalikovnaExport> {
+  const setup = { ...balikovnaSetup(), note: withNote };
   const { rows, skipped } = balikovnaRows(codes);
-  if (rows.length === 0) return { file: null, rows: 0, skipped, columns: columns(setup).length };
+  if (rows.length === 0) return { file: null, rows: 0, skipped, columns: columns(setup).length, notes: 0 };
 
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
   const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
     defaultPath: path.join(app.getPath('downloads'), `balikovna-${stamp}.csv`),
     filters: [{ name: 'CSV pro Podání Online', extensions: ['csv'] }]
   });
-  if (res.canceled || !res.filePath) return { file: null, rows: 0, skipped, columns: columns(setup).length };
+  if (res.canceled || !res.filePath) {
+    return { file: null, rows: 0, skipped, columns: columns(setup).length, notes: 0 };
+  }
 
   fs.writeFileSync(res.filePath, balikovnaCsv(rows, setup));
-  return { file: res.filePath, rows: rows.length, skipped, columns: columns(setup).length };
+  return {
+    file: res.filePath, rows: rows.length, skipped, columns: columns(setup).length,
+    notes: withNote ? rows.filter(one => !!one.note).length : 0
+  };
 }
 
 let portal: BrowserWindow | null = null;

@@ -100,6 +100,7 @@ const ALLOWED_INVOKE = [
   'balikovna:export', 'balikovna:open', 'balikovna:import',
   'webtexts:state', 'webtexts:load', 'webtexts:save', 'webtexts:delete', 'webtexts:toggle',
   'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate',
+  'ship:notes',
   'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
   // Verze aplikace do hlavičky nastavení

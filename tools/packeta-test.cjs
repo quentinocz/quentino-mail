@@ -26,6 +26,7 @@ db.exec(`
     currency TEXT NOT NULL DEFAULT '', total REAL NOT NULL DEFAULT 0, tracking TEXT NOT NULL DEFAULT '',
     customer_id TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '', shipment TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
     pickup_id TEXT NOT NULL DEFAULT '', pickup_name TEXT NOT NULL DEFAULT '', weight REAL NOT NULL DEFAULT 0,
     items_json TEXT NOT NULL DEFAULT '[]', billing_json TEXT, postal_json TEXT, seen_at TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (code, market)
@@ -35,11 +36,11 @@ db.exec(`
 const add = (row) => db.prepare(
   `INSERT OR REPLACE INTO shop_orders
    (code, market, name, email, phone, currency, total, shipment, payment, pickup_id, pickup_name,
-    weight, items_json, postal_json)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    weight, note, items_json, postal_json)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 ).run(row.code, 'cz', row.name, row.email, row.phone, 'CZK', row.total, row.shipment, row.payment,
-  row.pickupId ?? '', row.pickupName ?? '', row.weight ?? 0, JSON.stringify(row.items ?? []),
-  row.postal ? JSON.stringify(row.postal) : null);
+  row.pickupId ?? '', row.pickupName ?? '', row.weight ?? 0, row.note ?? '',
+  JSON.stringify(row.items ?? []), row.postal ? JSON.stringify(row.postal) : null);
 
 add({ code: '024100', name: 'Jana Nováková', email: 'jana@example.cz', phone: '+420777123456',
   total: 1290, shipment: 'Zásilkovna Z-Box', payment: 'Dobírka', pickupId: '12345', weight: 380,
@@ -152,6 +153,26 @@ global.fetch = async (url, init) => {
   ok('název s ampersandem dokument nerozbije', __test.esc('Trafika U & Nádraží') === 'Trafika U &amp; Nádraží');
   check('prázdné kolonky se neposílají', __test.elems({ a: '1', b: '', c: null, d: 2 }), '<a>1</a><d>2</d>');
 
-  console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
+  /* ---------- poznámka zákazníka ---------- */
+
+/*
+ * Zásilkovna má na poznámku **jedno** pole a používá se už na obsah
+ * zásilky. Poznámka zákazníka je pokyn, podle kterého se jedná, takže jde
+ * první — když se něco useká, ať je to obsah, ne „nechte u sousedů“.
+ */
+console.log('\npoznámka zákazníka:');
+{
+  check('bez poznámky zůstane jen obsah',
+    __test.packetNote('', '2 kravaty'), '2 kravaty');
+  check('s poznámkou jde pokyn první',
+    __test.packetNote('Nechte u sousedů', '2 kravaty'), 'Nechte u sousedů • 2 kravaty');
+  const dlouha = 'Prosím doručte až po dvacátém, do té doby jsem pryč a nemám to jak převzít, '
+    + 'případně zavolejte na uvedené číslo a domluvíme se jinak';
+  const slozene = __test.packetNote(dlouha, '2 kravaty');
+  ok('dlouhý text se vejde do jejich pole', slozene.length <= 128, `délka ${slozene.length}`);
+  ok('a pokyn v něm zůstane celý začátek', slozene.startsWith('Prosím doručte až po dvacátém'));
+}
+
+console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
   process.exit(failed === 0 ? 0 : 1);
 })();

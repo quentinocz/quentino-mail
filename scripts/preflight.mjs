@@ -636,7 +636,9 @@ const DESKTOP_ONLY = [
   'packeta:create', 'packeta:labels', 'packeta:formats',
   'balikovna:setup', 'balikovna:saveSetup', 'balikovna:fields', 'balikovna:rows',
   'balikovna:export', 'balikovna:open', 'balikovna:import',
-  'logins:list', 'logins:save'
+  'logins:list', 'logins:save',
+  // Poznámky se schvalují u počítače, odkud se vyváží dopravcům
+  'ship:notes'
 ];
 
 /**

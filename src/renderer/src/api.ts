@@ -19,7 +19,7 @@ import type {
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
-  PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin,
+  PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin, OrderNote,
   WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState
 } from '@shared/types';
 
@@ -490,7 +490,15 @@ export const api = {
   },
   ship: {
     /** Ruční oprava zařazení hlášky dopravce; aplikace si ji zapamatuje */
-    relearn: (text: string, phase: string) => call<void>('ship:relearn', text, phase)
+    relearn: (text: string, phase: string) => call<void>('ship:relearn', text, phase),
+    /**
+     * Poznámky zákazníka u vybraných objednávek.
+     *
+     * Ptá se na ně modul balení, než pošle cokoli dopravci — poznámka je
+     * text od zákazníka a končí na štítku, který uvidí kurýr. `carrier` je
+     * „ppl", „balikovna" nebo „packeta"; vzor dopravce zná nastavení.
+     */
+    notes: (codes: string[], carrier = '') => call<OrderNote[]>('ship:notes', codes, carrier)
   },
   customer: {
     /** Historie komunikace a objednávky podle e-mailu */
@@ -628,7 +636,7 @@ export const api = {
     /** Náhled — co se vyveze a co se vynechá a proč */
     rows: (codes: string[]) =>
       call<{ rows: PplRow[]; skipped: { code: string; reason: string }[] }>('ppl:rows', codes),
-    export: (codes: string[]) => call<PplExport>('ppl:export', codes),
+    export: (codes: string[], withNote = false) => call<PplExport>('ppl:export', codes, withNote),
     /** Otevře import v administraci PPL i se souborem; odeslání zůstává na člověku */
     openImport: (file: string) => call<{ filled: boolean; note: string }>('ppl:import', file),
     /** Otevře seznam zásilek v administraci PPL, odkud se tisknou štítky */
@@ -648,7 +656,8 @@ export const api = {
       call<PacketaSetup>('packeta:saveSetup', next),
     test: () => call<string>('packeta:test'),
     packets: (codes: string[]) => call<PacketaPacket[]>('packeta:packets', codes),
-    create: (codes: string[]) => call<PacketaResult>('packeta:create', codes),
+    create: (codes: string[], withNote = false) =>
+      call<PacketaResult>('packeta:create', codes, withNote),
     labels: (codes: string[], format?: string, offset?: number) =>
       call<{ file: string | null; count: number; missing: string[] }>('packeta:labels', codes, format, offset),
     formats: () => call<string[]>('packeta:formats')
@@ -668,7 +677,8 @@ export const api = {
     fields: () => call<{ key: string; label: string; hint: string }[]>('balikovna:fields'),
     rows: (codes: string[]) =>
       call<{ rows: any[]; skipped: { code: string; reason: string }[] }>('balikovna:rows', codes),
-    export: (codes: string[]) => call<BalikovnaExport>('balikovna:export', codes),
+    export: (codes: string[], withNote = false) =>
+      call<BalikovnaExport>('balikovna:export', codes, withNote),
     /** Otevře Podání Online; nahrání a odeslání zůstává na člověku */
     open: () => call<boolean>('balikovna:open'),
     /** Otevře import a vloží do něj soubor, jakmile se políčko objeví */

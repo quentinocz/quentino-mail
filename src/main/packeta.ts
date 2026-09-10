@@ -5,6 +5,7 @@ import { getDb, getSetting, setSetting } from './db';
 import { encrypt, decrypt } from './secure';
 import type { PacketaSetup, PacketaResult, PacketaPacket, ShopOrderItem } from '../shared/types';
 import { contentOf } from './ppl';
+import { shortNote } from './shipexport';
 
 /**
  * Zásilkovna (Packeta) přes API.
@@ -194,14 +195,25 @@ function addressOf(raw: string | null): any {
  * objednávka spadne na chybějícím čísle výdejny, ostatní musí projít. Vrací
  * se obojí, co vzniklo i co ne a proč.
  */
-export async function createPackets(codes: string[]): Promise<PacketaResult> {
+/**
+ * Text do poznámky zásilky.
+ *
+ * Zásilkovna má na tohle jedno pole a dlouhý text neunese. Pokyn zákazníka
+ * jde první — když se něco useká, ať je to obsah, ne „nechte u sousedů".
+ */
+export function packetNote(customer: string, content: string, limit = 128): string {
+  const parts = [shortNote(customer, limit), content].filter(Boolean);
+  return shortNote(parts.join(' • '), limit);
+}
+
+export async function createPackets(codes: string[], withNote = false): Promise<PacketaResult> {
   const setup = packetaSetup();
   const pass = password();
   schema();
 
   const marks = codes.map(() => '?').join(',');
   const orders = codes.length === 0 ? [] : getDb().prepare(
-    `SELECT code, market, name, email, phone, currency, total, shipment, payment,
+    `SELECT code, market, name, email, phone, currency, total, shipment, payment, note,
             pickup_id, pickup_name, weight, items_json, billing_json, postal_json
      FROM shop_orders WHERE code IN (${marks}) ORDER BY code`
   ).all(...codes) as any[];
@@ -270,8 +282,13 @@ export async function createPackets(codes: string[]): Promise<PacketaResult> {
        */
       weight: weightOf(order, setup),
       eshop: setup.eshop,
-      // Obsah zásilky se skládá stejně jako u PPL — je to tentýž údaj
-      note: contentOf(items)
+      /*
+       * Poznámka u zásilky. Zásilkovna má jediné takové pole, takže se do
+       * něj skládá obojí: napřed poznámka zákazníka (je to pokyn, podle
+       * kterého se jedná), pak obsah zásilky. Delší text jejich pole
+       * neunese, proto se to zkracuje.
+       */
+      note: packetNote(withNote ? String(order.note ?? '') : '', contentOf(items))
     });
 
     try {
@@ -335,4 +352,4 @@ export async function testPacketa(): Promise<string> {
   return 'Heslo platí a Zásilkovna odpovídá.';
 }
 
-export const __test = { pick, faultOf, elems, esc, weightOf };
+export const __test = { packetNote, pick, faultOf, elems, esc, weightOf };

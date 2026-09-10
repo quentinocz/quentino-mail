@@ -27,6 +27,7 @@ db.exec(`
     currency TEXT NOT NULL DEFAULT '', total REAL NOT NULL DEFAULT 0, tracking TEXT NOT NULL DEFAULT '',
     customer_id TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '', shipment TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
     pickup_id TEXT NOT NULL DEFAULT '', pickup_name TEXT NOT NULL DEFAULT '', weight REAL NOT NULL DEFAULT 0,
     items_json TEXT NOT NULL DEFAULT '[]', billing_json TEXT, postal_json TEXT, seen_at TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (code, market)
@@ -36,11 +37,11 @@ db.exec(`
 const add = (row) => db.prepare(
   `INSERT OR REPLACE INTO shop_orders
    (code, market, name, email, phone, currency, total, shipment, payment, pickup_id, weight,
-    invoice, items_json, postal_json)
-   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    invoice, note, items_json, postal_json)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 ).run(row.code, 'cz', row.name, row.email, row.phone, 'CZK', row.total, row.shipment, row.payment,
-  row.pickupId ?? '', row.weight ?? 0, row.invoice ?? '', JSON.stringify(row.items ?? []),
-  row.postal ? JSON.stringify(row.postal) : null);
+  row.pickupId ?? '', row.weight ?? 0, row.invoice ?? '', row.note ?? '',
+  JSON.stringify(row.items ?? []), row.postal ? JSON.stringify(row.postal) : null);
 
 // Skutečné tvary z exportu: výdejní místo má název v adrese, BRANCH_ID je PSČ místa
 add({
@@ -161,6 +162,45 @@ ok('hledá se políčko na soubor', script.includes("input[type=file]"));
 ok('a značí se, aby ho pak našlo ladicí rozhraní', script.includes(formfile.__test.MARK));
 // Vodítko se použije, jen když na stránce opravdu je — jinak rozhodne pořadí
 ok('vodítko se dá předat', script.includes('#neco'));
+
+/* ---------- poznámka zákazníka ---------- */
+
+/*
+ * Poznámka je v Podání Online obyčejné pole jako každé jiné — jde tedy do
+ * pořadí sloupců a číslo sloupce si musí sedět s konfigurací importu.
+ * Přidává se jen po schválení; u objednávky bez poznámky zůstane mezera,
+ * aby namapované pole nebylo prázdné.
+ */
+console.log('\npoznámka zákazníka:');
+add({
+  code: '023860', name: 'Petr Dvořák', email: 'petr@example.cz', phone: '+420777000111',
+  total: 890, shipment: 'Balíkovna', payment: 'GoPay', pickupId: '39155', weight: 300,
+  note: 'Zavolejte prosím předem',
+  items: [{ title: 'Kravata', code: 'KR01', quantity: 1, price: 890 }],
+  postal: { name: 'Petr Dvořák', company: 'Chýnov Balíkovna', street: 'Nádražní 12',
+    city: 'Chýnov', zip: '391 55', country: 'CZ' }
+});
+{
+  const order = bal.balikovnaRows(['023860']).rows[0];
+  const sPoznamkou = bal.saveBalikovnaSetup({ order: 'prijmeni,poznamka', header: true });
+  check('poznámka se natáhne k objednávce',
+    __test.valuesOf(order, { ...sPoznamkou, note: true }).poznamka, 'Zavolejte prosím předem');
+  // Bez schválení se pole nevyplní, i kdyby v pořadí sloupců bylo
+  check('bez schválení zůstane prázdné',
+    __test.valuesOf(order, { ...sPoznamkou, note: false }).poznamka, '');
+
+  const soubor = bal.balikovnaCsv([order], { ...sPoznamkou, note: true })
+    .toString('utf8').split('\r\n').filter(Boolean);
+  check('hlavička zná i poznámku', soubor[0], 'Příjmení/Název;Poznámka');
+  ok('a text je v souboru', soubor[1].includes('Zavolejte prosím předem'));
+
+  // Objednávka bez poznámky: mezera, ne prázdno
+  const bez = bal.balikovnaRows(['023852']).rows[0];
+  check('bez poznámky je v poli mezera',
+    __test.valuesOf(bez, { ...sPoznamkou, note: true }).poznamka, ' ');
+  // Nastavení se vrací zpátky, ať další zkoušky nestojí na tomhle pořadí
+  bal.saveBalikovnaSetup({ order: 'psc,prijmeni,obsah', header: true });
+}
 
 console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
 process.exit(failed === 0 ? 0 : 1);

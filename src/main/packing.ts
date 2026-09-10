@@ -404,6 +404,7 @@ function cardFromFeed(row: any): OrderCard {
     adminUrl: null,
     adminSource: null,
     live: null,
+    note: String(row.note ?? '').trim() || null,
     tracking: {
       source: 'api',
       status,
@@ -418,6 +419,21 @@ function cardFromFeed(row: any): OrderCard {
       shipmentError: null
     }
   };
+}
+
+/**
+ * Doplní poznámku zákazníka do karty sestavené z e-mailu.
+ *
+ * V potvrzovacím e-mailu poznámka není — e-shop ji do něj neposílá. Ve
+ * feedu ale je, a při balení je to jedna z mála věcí, kvůli které se
+ * objednávka dělá jinak. Hledá se podle čísla objednávky; když se nenajde,
+ * nic se neděje.
+ */
+function withNote(card: OrderCard | null): OrderCard | null {
+  if (!card || card.note) return card;
+  const order = shopOrderOf(card.orderNumber ?? '');
+  const note = String((order as any)?.note ?? '').trim();
+  return note ? { ...card, note } : card;
 }
 
 /** Číslo, pod kterým rozhraní vede objednávku z feedu — řádek se založí, když chybí. */
@@ -456,7 +472,7 @@ async function orderFromMail(found: Candidate): Promise<PackingOrder | null> {
 
   const state = readPacked(found.id);
   return {
-    messageId: found.id, date: found.date, card,
+    messageId: found.id, date: found.date, card: withNote(card)!,
     packed: state.packed, counts: state.counts, done: state.done, doneAt: state.doneAt,
     source: 'mail',
     shop: shopStateFor(card.orderNumber)
@@ -811,7 +827,7 @@ async function recentFromMail(seen: Set<string>): Promise<PackingOrder[]> {
 
     const state = readPacked(row.id);
     out.push({
-      messageId: row.id, date: row.date, card,
+      messageId: row.id, date: row.date, card: withNote(card)!,
       packed: state.packed, counts: state.counts, done: state.done, doneAt: state.doneAt,
       source: 'mail', shop: shopStateFor(card.orderNumber)
     });

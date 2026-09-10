@@ -565,6 +565,32 @@ await overflow('texty na webu — napojení'); await snap('44-texty-napojeni');
 await click('.modal-head .icon-btn');
 await page.waitForTimeout(300);
 
+/*
+ * Poznámka zákazníka v detailu balené objednávky a dotaz před vývozem
+ * dopravci. Poznámka je jedna z mála věcí, kvůli které se objednávka balí
+ * jinak — musí být vidět, ne schovaná mezi údaji o dopravě.
+ */
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Balení objednávek' });
+await click('.pk-row', { hasText: '999090' });
+await overflow('balení — poznámka'); await snap('26e-baleni-poznamka');
+{
+  const note = await page.locator('.pk-panel.pk-cnote').count();
+  console.log(`${'poznámka je v detailu'.padEnd(28)} ${note ? '✓' : '✗'}`);
+}
+// Přesně „PPL", ne „Štítky PPL" — obojí je ve stejné liště
+await page.locator('.pk-ship button', { hasText: /^\s*PPL\s*$/ }).first().click();
+await page.waitForTimeout(600);
+{
+  const ask = await page.locator('.pk-notes-row').count();
+  console.log(`${'ptá se na poznámky'.padEnd(28)} ${ask ? '✓' : '✗'} (${ask})`);
+}
+await overflow('balení — schválení poznámek'); await snap('26f-baleni-poznamky-dotaz');
+await click('.modal-foot .btn.ghost', { hasText: 'Zrušit' });
+await page.waitForTimeout(200);
+await click('.pk-modal .modal-head .icon-btn');
+await page.waitForTimeout(300);
+
 console.log(problems.length ? '\nPROBLÉMY:\n' + problems.slice(0, 10).join('\n') : '\nžádné chyby');
 await browser.close();
 server.close();
