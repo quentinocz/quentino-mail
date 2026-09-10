@@ -600,7 +600,7 @@
           product: { on: false, one: { cz: '', sk: '', en: '' }, above: { cz: '', sk: '', en: '' },
             header: { cz: '', sk: '', en: '' }, hideHeader: false,
             ship: { cz: '', sk: '', en: '' }, delivery: { cz: '', sk: '', en: '' },
-            pickup: { cz: '', sk: '', en: '' },
+            pickup: { cz: '', sk: '', en: '' }, shipFrom: '',
             hideShip: false, hideDelivery: false, hidePickup: false, below: { cz: '', sk: '', en: '' } },
           topbar: { on: false, text: { cz: '', sk: '', en: '' } },
           links: { on: false, mode: 'add', items: [] },
@@ -617,6 +617,7 @@
               header: { cz: '', sk: '', en: '' }, hideHeader: false,
               ship: { cz: 'až **8. 7.**, máme dovolenou', sk: '', en: '' },
               delivery: { cz: '', sk: '', en: '' }, pickup: { cz: '', sk: '', en: '' },
+              shipFrom: mistni(ted + 3 * den).slice(0, 10),
               hideShip: false, hideDelivery: false, hidePickup: true, below: { cz: '', sk: '', en: '' } },
             topbar: { on: true, text: { cz: '🏖️ Dovolená do 7. 7. • Objednávky odesíláme hned poté', sk: '', en: '' } },
             button: { on: true, text: { cz: 'Objednávku odešleme 8. 7., doprava zdarma zůstává', sk: '', en: '' } }
@@ -640,6 +641,8 @@
       };
     })(),
     'webtexts:clashes': [],
+    // Překlad v náhledu nic nevolá — vrací se prázdno, aby šlo tlačítko zmáčknout
+    'webtexts:translate': [],
     'packeta:formats': ['A6 on A4', 'A6 on A6', 'A7 on A7', 'A7 on A4', 'A8 on A8', '105x35mm on A4'],
     'packeta:packets': [],
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '

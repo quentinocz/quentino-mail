@@ -146,6 +146,13 @@ const body = script.replace(/^<script>/, '').replace(/<\/script>$/, '');
  * Že se skript dá přeložit, je to nejdůležitější: chyba v něm se jinak
  * projeví až na e-shopu tím, že se nic nezobrazí, a nikdo neví proč.
  */
+/*
+ * Kód bez komentářů. Hledá se v něm, co se ve skriptu **nesmí** objevit —
+ * a komentář, který přesně tyhle věci vyjmenovává jako zakázané, by
+ * takové hledání pokaždé shodil.
+ */
+const code = body.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+
 let compiled = null;
 try {
   // eslint-disable-next-line no-new-func
@@ -171,6 +178,10 @@ function fakeElement(name) {
   const props = {};
   const classes = new Set();
   const attrs = {};
+  /* Co skript s prvkem provedl — u tlačítka objednávky na tom záleží nejvíc */
+  const touched = [];
+  const listeners = [];
+  const handlers = {};
   const el = {
     tagName: name,
     className: '',
@@ -186,13 +197,15 @@ function fakeElement(name) {
       add: c => classes.add(c), remove: c => classes.delete(c),
       toggle() {}, contains: c => classes.has(c)
     },
-    setAttribute: (k, v) => { attrs[k] = v; },
+    setAttribute: (k, v) => { touched.push('setAttribute:' + k); attrs[k] = v; },
     getAttribute: k => (k in attrs ? attrs[k] : null),
-    removeAttribute: k => { delete attrs[k]; },
+    removeAttribute: k => { touched.push('removeAttribute:' + k); delete attrs[k]; },
     appendChild: child => { el.children.push(child); child.parentNode = el; return child; },
     insertBefore: child => { el.children.unshift(child); child.parentNode = el; return child; },
     removeChild: child => { el.children = el.children.filter(x => x !== child); return child; },
-    insertAdjacentHTML() {}, addEventListener() {},
+    insertAdjacentHTML() {},
+    addEventListener: (name, fn) => { listeners.push(name); if (fn) handlers[name] = fn; },
+    click: () => { touched.push('click'); },
     // Hledá se jen podle třídy — víc toho skript po prvcích nechce
     querySelector: sel => {
       const want = String(sel).replace(/^\./, '');
@@ -209,7 +222,7 @@ function fakeElement(name) {
     querySelectorAll: () => [],
     getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0, bottom: 0 }),
     textContent: '',
-    classes, props
+    classes, props, touched, listeners, handlers
   };
   return el;
 }
@@ -218,7 +231,13 @@ function fakeElement(name) {
 function run(plans, opts = {}) {
   const box = fakeElement('div');
   const bar = fakeElement('div');
-  const known = { '.pd-shrt-desc': box, '.hdr-phn': bar };
+  const button = fakeElement('button');
+  const wrap = fakeElement('div');
+  wrap.appendChild(button);
+  const known = {
+    '.pd-shrt-desc': box, '.hdr-phn': bar,
+    'button[name="formSendButton"]': button
+  };
 
   const store = {};
   if (plans) {
@@ -273,6 +292,7 @@ function run(plans, opts = {}) {
   const unquote = s => s.replace(/^"|"$/g, '').replace(/\\"/g, '"');
   const rich = node => (node.children[0] ? node.children[0].innerHTML : '');
   return {
+    button,
     raw: box.style.getPropertyValue('--shipbox-content'),
     box: unquote(box.style.getPropertyValue('--shipbox-content')).split('\\A '),
     bar: unquote(bar.style.getPropertyValue('--topbar-msg')),
@@ -448,6 +468,95 @@ if (compiled) {
   ok('období přes konec roku funguje',
     sGaranci({ fromDay: dnesni.day, fromMonth: dnesni.month, toDay: 1, toMonth: dnesni.month === 1 ? 12 : 1 })
       .box[0] === '🎄 Vlastní znění garance');
+
+  /* ---------- odhad doručení a datum expedice ---------- */
+
+  /*
+   * Přepsaná expedice a dopočítané doručení se nesmí prát. Bez data se
+   * doručení počítalo z dneška, takže box hlásil odeslání za deset dní
+   * a doručení zítra — dvě věty pod sebou, obě nepravdivé dohromady.
+   */
+  const slovy = run([{
+    id: 'e1', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, ship: { cz: 'až 21.9., máme dovolenou' } }
+  }]);
+  ok('bez data se doručení neslibuje na den',
+    slovy.box.some(l => l === '✅ Předpokládané doručení: co nejdříve'));
+  ok('a lišta nad tím taky ne', slovy.bar.includes('co nejdříve'));
+
+  /* Se zadaným datem je doručení odvoditelné napevno */
+  const zaTyden = new Date(Date.now() + 7 * 86400000);
+  const iso = zaTyden.toISOString().slice(0, 10);
+  const den = String(zaTyden.getDate()).padStart(2, '0') + '.'
+    + String(zaTyden.getMonth() + 1).padStart(2, '0') + '.';
+  const datem = run([{
+    id: 'e2', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, shipFrom: iso }
+  }]);
+  ok('datum expedice se doplní do řádku', datem.box.some(l => l === '✅ Expedice: ' + den));
+  /*
+   * Doručení musí vyjít po datu expedice, ne kolem dneška. Kontroluje se
+   * proti zítřku: přesně ten se tam objevoval, když se odhad počítal
+   * z dneška, a vypadal na první pohled věrohodně.
+   */
+  const zitra = new Date(Date.now() + 86400000);
+  const zitraDen = String(zitra.getDate()).padStart(2, '0') + '.'
+    + String(zitra.getMonth() + 1).padStart(2, '0') + '.';
+  const dorucen = datem.box.find(l => l.startsWith('✅ Předpokládané doručení: ')) || '';
+  ok('doručení je konkrétní den', /\d\d\.\d\d\./.test(dorucen), dorucen);
+  ok('a není to zítřek počítaný z dneška', !dorucen.includes(zitraDen), dorucen);
+  ok('a lišta hlásí tentýž den odeslání', datem.bar.includes('Odesíláme ' + den));
+  // Vlastní text expedice popis přebije, ale datum dál řídí odhad doručení
+  const oboji = run([{
+    id: 'e3', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, shipFrom: iso, ship: { cz: 'až po dovolené, ' + den } }
+  }]);
+  ok('vlastní text vyhraje nad datem', oboji.box.some(l => l.includes('až po dovolené')));
+  ok('odhad doručení se přesto počítá z data',
+    oboji.box.some(l => /Předpokládané doručení: \d\d\.\d\d\./.test(l)));
+
+  /* ---------- tlačítko objednávky ---------- */
+
+  /*
+   * Tlačítko „Objednávka zavazující k platbě“ je to jediné místo, kde se
+   * nesmí nic pokazit. Bublina se ho proto nesmí dotknout: žádný zápis do
+   * atributů, žádné vlastní kliknutí, jen čtyři posluchače, které nic neruší.
+   */
+  const sBublinou = run([{
+    id: 'b1', fromMs: ted - 60000, toMs: ted + 3600000,
+    button: { on: true, text: { cz: 'Odesíláme do 24 hodin' } }
+  }]);
+  check('na tlačítko se nic nezapisuje', sBublinou.button.touched, []);
+  check('a poslouchá se jen to, co nic neruší',
+    sBublinou.button.listeners.sort(), ['blur', 'focus', 'mouseenter', 'mouseleave']);
+  ok('nikde se neruší výchozí chování',
+    !/preventDefault|stopPropagation|stopImmediatePropagation/.test(code));
+  ok('ani se za člověka neklikne', !/\.click\(\)/.test(code));
+  ok('tlačítko se nikdy nezakáže', !/\.disabled\s*=/.test(code));
+  // Bublina ani řádek pod tlačítkem nesmí odchytit klepnutí místo tlačítka
+  ok('bublina neodchytává kliknutí', body.includes('pointer-events: none'));
+  ok('řádek pod tlačítkem taky ne',
+    /\.q-btnnote \{[\s\S]*?pointer-events: none/.test(body));
+
+  /*
+   * Výjimka uvnitř posluchače nesmí vylézt ven. Kdyby vylezla při najetí
+   * myší, byla by to chyba v konzoli přesně nad tlačítkem, které má odeslat
+   * objednávku — a nikdo by nevěděl, odkud se vzala.
+   */
+  let vybuch = null;
+  try {
+    sBublinou.button.handlers.mouseenter();
+  } catch (e) {
+    vybuch = e.message;
+  }
+  ok('najetí myší nikdy nevyhodí výjimku' + (vybuch ? ` (${vybuch})` : ''), !vybuch);
+
+  // Bez nastaveného textu se nemá dít vůbec nic
+  const bezBubliny = run([{
+    id: 'b2', fromMs: ted - 60000, toMs: ted + 3600000,
+    topbar: { on: true, text: { cz: 'jen lišta' } }
+  }]);
+  check('bez textu se na tlačítko nesahá', bezBubliny.button.listeners, []);
 
   /* Jazyky: chybí-li slovenština, ukáže se čeština */
   const sk = run([{

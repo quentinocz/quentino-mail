@@ -2604,6 +2604,14 @@ export interface WebProductArea {
   ship: WebText;
   delivery: WebText;
   pickup: WebText;
+  /**
+   * Datum, odkdy se expeduje („2026-09-21"), nepovinné.
+   *
+   * Řídí obojí najednou: doplní se do řádku o expedici a **z něj se počítá
+   * i odhad doručení**. Bez něj se odhad počítá z dneška, takže by box mohl
+   * na jednom řádku hlásit expedici za deset dní a na druhém doručení zítra.
+   */
+  shipFrom: string;
   /** Řádek neukazovat vůbec */
   hideShip: boolean;
   hideDelivery: boolean;

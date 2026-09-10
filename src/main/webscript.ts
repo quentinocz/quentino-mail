@@ -313,6 +313,8 @@ const TEMPLATE = String.raw`
     cz: {
       xmasMode: function (d) { return "🎄 Vánoční režim • Odesíláme " + d + " • Doručení hned poté"; },
       newYear: function (d) { return "🥂 Sváteční režim • Odesíláme " + d + " • Doručení hned poté"; },
+      shipOn: function (d) { return "✨ Odesíláme " + d + " • Doručení hned poté"; },
+      noPromise: "✨ Expresní servis • Objednávku připravíme co nejdříve",
       morningLead: "⚡ Expresní doručení • Dnes odesíláme prioritně • ",
       forenoonLead: "⚡ Expresní doručení • Objednávky zpracováváme ihned • ",
       thuAfter: "✨ Expresní servis • Připravíme ihned • Odesíláme ještě tento pracovní týden",
@@ -328,6 +330,8 @@ const TEMPLATE = String.raw`
     sk: {
       xmasMode: function (d) { return "🎄 Vianočný režim • Odosielame " + d + " • Doručenie hneď potom"; },
       newYear: function (d) { return "🥂 Sviatočný režim • Odosielame " + d + " • Doručenie hneď potom"; },
+      shipOn: function (d) { return "✨ Odosielame " + d + " • Doručenie hneď potom"; },
+      noPromise: "✨ Expresný servis • Objednávku pripravíme čo najskôr",
       morningLead: "⚡ Expresné doručenie • Dnes odosielame prioritne • ",
       forenoonLead: "⚡ Expresné doručenie • Objednávky spracúvame ihneď • ",
       thuAfter: "✨ Expresný servis • Pripravíme ihneď • Odosielame ešte tento pracovný týždeň",
@@ -343,6 +347,8 @@ const TEMPLATE = String.raw`
     en: {
       xmasMode: function (d) { return "🎄 Holiday schedule • Shipping on " + d + " • Delivery right after"; },
       newYear: function (d) { return "🥂 Holiday schedule • Shipping on " + d + " • Delivery right after"; },
+      shipOn: function (d) { return "✨ Shipping on " + d + " • Delivery right after"; },
+      noPromise: "✨ Express service • We prepare your order as soon as possible",
       morningLead: "⚡ Express delivery • Priority dispatch today • ",
       forenoonLead: "⚡ Express delivery • Orders processed immediately • ",
       thuAfter: "✨ Express service • Prepared right away • Shipped within this business week",
@@ -613,6 +619,21 @@ const TEMPLATE = String.raw`
     return label + " " + value;
   }
 
+  /*
+   * Datum expedice, pokud je zadané.
+   *
+   * Bez něj se odhad doručení počítá z dneška — a když se přepíše řádek
+   * o expedici („expedujeme až 21.9.“), tvrdí box na jednom řádku jedno
+   * a na druhém druhé: odesíláme za deset dní, ale doručení zítra. Datum
+   * proto řídí obojí, a když zadané není, odhad se raději vzdá konkrétního
+   * dne, než aby slíbil nesplnitelné.
+   */
+  function shipDate(o) {
+    var raw = o && o.shipFrom ? String(o.shipFrom) : "";
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+    return m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
+  }
+
   function boxLines(o, ov) {
     var T = BOX[LANG] || BOX.cz;
     var t = nowCz();
@@ -642,6 +663,8 @@ const TEMPLATE = String.raw`
       var shipText = o ? pick(o.ship) : "";
       var deliveryText = o ? pick(o.delivery) : "";
       var pickupText = o ? pick(o.pickup) : "";
+      var from = shipDate(o);
+      if (from) ship = { day: from, line: valued(T.ship_label, fmtDate(from)) };
 
       // Vánoční garance platí, jen dokud se expedice počítá sama
       var slib = shipText ? "" : guarantee(ov, t);
@@ -653,9 +676,15 @@ const TEMPLATE = String.raw`
         lines.push(shipText ? valued(T.ship_label, shipText) : ship.line);
       }
       if (!(o && o.hideDelivery)) {
-        lines.push(deliveryText
-          ? valued(T.delivery_label, deliveryText)
-          : dynamicDelivery(t, ship.day, T));
+        if (deliveryText) lines.push(valued(T.delivery_label, deliveryText));
+        // Známé datum expedice: doručení je z něj odvoditelné napevno
+        else if (from) lines.push(T.delivery_date(fmtDate(nextWorkingDay(from.y, from.m, from.d))));
+        /*
+         * Expedice přepsaná jen slovy — kdy se odešle, nikdo neví. Konkrétní
+         * datum by tu bylo dopočítané z dneška, tedy vymyšlené.
+         */
+        else if (shipText) lines.push(T.delivery_generic);
+        else lines.push(dynamicDelivery(t, ship.day, T));
       }
       if (!(o && o.hidePickup)) {
         if (pickupText) lines.push(valued(T.pickup_label, pickupText));
@@ -686,6 +715,15 @@ const TEMPLATE = String.raw`
     // Tentýž slib jako v boxu — mělo by to na webu říkat totéž na obou místech
     var slib = guarantee(ov, t);
     if (slib) return slib;
+
+    /*
+     * Když box u produktu hlásí jinou expedici, nesmí lišta nad ním slibovat
+     * „Zítra u Vás“. Je to táž objednávka a zákazník vidí obojí naráz.
+     */
+    var p = (ov && ov.product && ov.product.on) ? ov.product : null;
+    var from = shipDate(p);
+    if (from) return T.shipOn(fmtDate(from));
+    if (p && (pick(p.ship) || p.hideShip)) return T.noPromise;
     if (t.m === 12 && t.d >= 18 && t.d <= 26) return T.xmasMode(fmtDate(nextWorkingDay(t.y, 12, 26)));
     if ((t.m === 12 && t.d === 31) || (t.m === 1 && t.d === 1)) {
       return T.newYear(fmtDate((t.m === 12) ? nextWorkingDay(t.y, 12, 31) : nextWorkingDay(t.y, 1, 1)));
@@ -867,7 +905,33 @@ const TEMPLATE = String.raw`
 
   /* ================= 4. bublina u tlačítka objednávky ================= */
 
+  /*
+   * Tlačítko „Objednávka zavazující k platbě“ je to jediné místo na celém
+   * e-shopu, kde se nesmí nic pokazit. Bublina se ho proto **nedotýká**:
+   *
+   *  - nesahá se na jeho atributy, třídy ani vlastnosti — že už je obsloužené,
+   *    se pamatuje mimo DOM, aby po nás na tlačítku nezůstala jediná stopa,
+   *  - posluchače jsou jen mouseenter, mouseleave, focus a blur; nikde není
+   *    preventDefault, stopPropagation ani vlastní click,
+   *    takže odeslání formuláře jde svou cestou, ať se děje co se děje,
+   *  - obsah bubliny se počítá uvnitř try — kdyby se na výpočtu polohy
+   *    cokoli podělalo, výjimka nesmí vylézt z posluchače ven,
+   *  - bublina i řádek pod tlačítkem mají „pointer-events: none“, takže
+   *    klepnutí ani kliknutí nemůžou skončit v nich místo na tlačítku,
+   *  - bublina je „position: fixed“ mimo formulář; do formuláře se vkládá
+   *    jen řádek pod tlačítkem na dotykových displejích, a to za tlačítko,
+   *    ne před ně.
+   */
+
   var tipEl = null;
+  /*
+   * Které tlačítko už posluchače má. Schválně mimo DOM: WeakSet drží prvek
+   * jen dokud žije stránka a nic na něj nezapisuje. Kdyby to byl atribut,
+   * byla by to změna cizího formuláře — malá, ale byla.
+   */
+  var wired = (typeof WeakSet === "function") ? new WeakSet() : null;
+  var wiredOne = null;
+  var tipText = "";
 
   function tipStyle() {
     if (document.getElementById("q-btntip-style")) return;
@@ -879,12 +943,14 @@ const TEMPLATE = String.raw`
       "  line-height: 1.35; box-shadow: 0 6px 20px rgba(0,0,0,.25); pointer-events: none;",
       "  opacity: 0; transition: opacity .15s ease; white-space: pre-line; }",
       ".q-btntip.on { opacity: 1; }",
-      ".q-btnnote { margin-top: 8px; font-size: 14px; line-height: 1.35; opacity: .85; white-space: pre-line; }"
+      ".q-btnnote { margin-top: 8px; font-size: 14px; line-height: 1.35; opacity: .85;",
+      "  white-space: pre-line; pointer-events: none; }"
     ].join("\n");
     document.head.appendChild(style);
   }
 
-  function showTip(button, text) {
+  function showTip(button) {
+    if (!tipText) return;
     tipStyle();
     if (!tipEl) {
       tipEl = document.createElement("div");
@@ -892,7 +958,7 @@ const TEMPLATE = String.raw`
       tipEl.setAttribute("role", "tooltip");
       document.body.appendChild(tipEl);
     }
-    tipEl.innerHTML = boldHtml(text);
+    tipEl.innerHTML = boldHtml(tipText);
     tipEl.classList.add("on");
     var box = button.getBoundingClientRect();
     var own = tipEl.getBoundingClientRect();
@@ -909,6 +975,21 @@ const TEMPLATE = String.raw`
     if (tipEl) tipEl.classList.remove("on");
   }
 
+  /** Posluchač, ze kterého nikdy nevyleze výjimka a který nic neruší. */
+  function safely(fn) {
+    return function () {
+      try { fn(); } catch (e) { /* bublina není důvod, proč by cokoli mělo selhat */ }
+    };
+  }
+
+  function isWired(button) {
+    return wired ? wired.has(button) : wiredOne === button;
+  }
+  function markWired(button) {
+    if (wired) wired.add(button);
+    else wiredOne = button;
+  }
+
   /*
    * Na dotykovém displeji se nikam nenajíždí a klepnutí objednávku odešle —
    * bublina by se tam nikdy neukázala. Místo ní se text napíše pod tlačítko.
@@ -916,42 +997,35 @@ const TEMPLATE = String.raw`
   function applyButton(ov) {
     var button = document.querySelector('button[name="formSendButton"]');
     if (!button) return;
-    var text = ov.button;
+    tipText = ov.button || "";
     var note = document.querySelector(".q-btnnote");
 
-    if (!text) {
+    if (!tipText) {
       hideTip();
       if (note && note.parentNode) note.parentNode.removeChild(note);
-      button.removeAttribute("data-q-tip");
       return;
     }
 
-    var touch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+    var touch = !!(window.matchMedia && window.matchMedia("(hover: none)").matches);
     if (touch) {
       tipStyle();
       if (!note) {
         note = document.createElement("div");
         note.className = "q-btnnote";
-        if (button.parentNode) button.parentNode.appendChild(note);
+        // Za tlačítko, ne před ně — pořadí prvků ve formuláři zůstává
+        if (button.parentNode) button.parentNode.insertBefore(note, button.nextSibling);
       }
-      note.innerHTML = boldHtml(text);
+      note.innerHTML = boldHtml(tipText);
       return;
     }
 
-    button.setAttribute("data-q-tip", text);
-    if (button.getAttribute("data-q-tip-on") === "1") return;
-    button.setAttribute("data-q-tip-on", "1");
-    button.addEventListener("mouseenter", function () {
-      var current = button.getAttribute("data-q-tip");
-      if (current) showTip(button, current);
-    });
-    button.addEventListener("focus", function () {
-      var current = button.getAttribute("data-q-tip");
-      if (current) showTip(button, current);
-    });
-    button.addEventListener("mouseleave", hideTip);
-    button.addEventListener("blur", hideTip);
-    window.addEventListener("scroll", hideTip, { passive: true });
+    if (isWired(button)) return;
+    markWired(button);
+    button.addEventListener("mouseenter", safely(function () { showTip(button); }));
+    button.addEventListener("focus", safely(function () { showTip(button); }));
+    button.addEventListener("mouseleave", safely(hideTip));
+    button.addEventListener("blur", safely(hideTip));
+    window.addEventListener("scroll", safely(hideTip), { passive: true });
   }
 
   /* ================= 5. telefon online ================= */

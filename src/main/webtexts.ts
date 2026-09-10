@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import { getSetting, setSetting } from './db';
+import { ask } from './ai';
+import { getSettings } from './settings';
 import { encrypt, decrypt } from './secure';
 import { headScript } from './webscript';
 import type {
@@ -183,6 +185,7 @@ function product(value: any): WebProductArea {
     one: text(value?.one), above: text(value?.above),
     header: text(value?.header), hideHeader: !!value?.hideHeader,
     ship: text(value?.ship), delivery: text(value?.delivery), pickup: text(value?.pickup),
+    shipFrom: /^\d{4}-\d{2}-\d{2}$/.test(String(value?.shipFrom ?? '')) ? String(value.shipFrom) : '',
     hideShip: !!value?.hideShip, hideDelivery: !!value?.hideDelivery, hidePickup: !!value?.hidePickup,
     below: text(value?.below)
   };
@@ -202,6 +205,65 @@ function links(value: any): WebLinksArea {
       text: text(one?.text), href: text(one?.href), blank: !!one?.blank
     }))
   };
+}
+
+/* ---------- překlad do slovenštiny a angličtiny ---------- */
+
+/**
+ * Zadání pro model.
+ *
+ * Texty jsou krátké a zákazník je vidí v hlavičce webu — na délce a tónu
+ * záleží víc než na doslovnosti. Emoji a značky tučného písma se musí vrátit
+ * na svém místě: jsou součástí sazby, ne obsahu, a kdyby je model „přeložil",
+ * rozpadl by se řádek v boxu.
+ */
+const TRANSLATE_SYSTEM = [
+  'Překládáš krátké texty z českého e-shopu s pánskou módou (kšandy, motýlky, kravaty, ponožky).',
+  'Jsou to věty o expedici a doručení, které zákazník vidí v hlavičce webu nebo u produktu.',
+  '',
+  'Pravidla:',
+  '- Přelož z češtiny do slovenštiny (sk) a angličtiny (en).',
+  '- Emoji zachovej beze změny a na stejném místě ve větě.',
+  '- Dvojice hvězdiček (**takhle**) je značka pro tučné písmo — nech ji kolem odpovídajícího slova.',
+  '- Adresy, názvy a čísla nech tak, jak jsou. České datum (21.9.) v angličtině přepiš na Sep 21.',
+  '- Angličtina je pro zahraniční zákazníky českého e-shopu: adresa i provozovna zůstávají české.',
+  '- Tón krátký a věcný, přibližně stejná délka jako originál. Žádné vysvětlivky navíc.',
+  '- Prázdný řetězec vrať jako prázdný řetězec.',
+  '',
+  'Vrať POUZE pole JSON stejné délky jako vstup, každý prvek {"sk": "...", "en": "..."}.'
+].join('\n');
+
+/**
+ * Přeloží několik textů najednou.
+ *
+ * Jedním dotazem, ne po jednom: texty v jedné změně spolu souvisí (expedice,
+ * doručení, osobní odběr) a když je model vidí pohromadě, drží v nich stejný
+ * tón i stejná slova. Po jednom by z toho byly tři nezávislé překlady.
+ */
+export async function translateWeb(texts: string[]): Promise<{ sk: string; en: string }[]> {
+  const source = (texts ?? []).map(one => String(one ?? '').trim());
+  const empty = source.map(() => ({ sk: '', en: '' }));
+  if (!source.some(Boolean)) return empty;
+
+  const out = await ask(getSettings().draftModel, TRANSLATE_SYSTEM, JSON.stringify(source), 2000);
+  // Model odpověď občas zabalí do bloku s kódem — jinak by se JSON nedal načíst
+  const clean = out.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(clean);
+  } catch {
+    throw new Error('Překlad se nepovedl přečíst — zkus to ještě jednou.');
+  }
+  if (!Array.isArray(parsed) || parsed.length !== source.length) {
+    throw new Error(`Překlad se vrátil v jiném tvaru (${Array.isArray(parsed) ? parsed.length : '?'} `
+      + `místo ${source.length}) — zkus to ještě jednou.`);
+  }
+  return source.map((one, i) => ({
+    // Prázdné dovnitř, prázdné ven — ať model vrátí cokoli
+    sk: one ? String(parsed[i]?.sk ?? '').trim() : '',
+    en: one ? String(parsed[i]?.en ?? '').trim() : ''
+  }));
 }
 
 /* ---------- vánoční garance ---------- */
@@ -263,7 +325,7 @@ export function normalize(value: any): WebPlan {
 export function hasContent(plan: WebPlan): boolean {
   const p = plan.product;
   const productSet = p.on && (filled(p.one) || filled(p.above) || filled(p.header) || p.hideHeader
-    || filled(p.ship) || filled(p.delivery) || filled(p.pickup)
+    || filled(p.ship) || filled(p.delivery) || filled(p.pickup) || !!p.shipFrom
     || p.hideShip || p.hideDelivery || p.hidePickup || filled(p.below));
   const linksSet = plan.links.on
     && (plan.links.mode === 'off' || plan.links.items.some(one => filled(one.text)));

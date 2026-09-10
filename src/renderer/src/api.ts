@@ -692,6 +692,13 @@ export const api = {
     clashes: (plan: Partial<WebPlan>) => call<WebClash[]>('webtexts:clashes', plan),
     /** Zkrátí konec dřívějších změn na minutu před začátkem té nové */
     shorten: (id: string, ids: string[]) => call<WebTextsState>('webtexts:shorten', id, ids),
+    /**
+     * Překlad rozepsaných českých textů do slovenštiny a angličtiny.
+     *
+     * Posílají se všechny naráz, aby v nich model držel stejný tón a stejná
+     * slova — po jednom by z toho byly nezávislé překlady.
+     */
+    translate: (texts: string[]) => call<{ sk: string; en: string }[]>('webtexts:translate', texts),
     /** Garance doručení do Vánoc — platí každý rok, proto stojí mimo plán */
     season: (next: Partial<WebSeason>) => call<WebTextsState>('webtexts:season', next),
     publish: () => call<WebTextsState>('webtexts:publish'),
