@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PackingLookup, PackingOrder, PackingProgress, OrderCardItem, OrderNote } from '@shared/types';
+import type {
+  PackingLookup, PackingOrder, PackingProgress, OrderCardItem, OrderNote, ApprovedNote
+} from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -250,8 +252,20 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    * klikne na „K zabalení".
    */
   const [hidden, setHidden] = useState<Set<string>>(() => loadSet(LS_HIDDEN));
-  /** Nejstarší napřed je pořadí balení; nejnovější napřed pořadí přehledu */
-  const [oldestFirst, setOldestFirst] = useState(true);
+  /**
+   * Nejstarší napřed je pořadí balení; nejnovější napřed pořadí přehledu.
+   *
+   * Volba se pamatuje jako velikost okna — kdo si přehodí pořadí, dělá to
+   * proto, že tak pracuje, a přepínat to při každém otevření znamená, že
+   * na to jednou zapomene a odbaví objednávky ve špatném pořadí.
+   */
+  const [oldestFirst, setOldestFirstState] = useState(
+    () => localStorage.getItem('packingOldestFirst') !== '0'
+  );
+  const setOldestFirst = useCallback((next: boolean) => {
+    setOldestFirstState(next);
+    localStorage.setItem('packingOldestFirst', next ? '1' : '0');
+  }, []);
   /**
    * Zaškrtnuté objednávky.
    *
@@ -492,7 +506,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    * a vývoz jde rovnou.
    */
   const [noteAsk, setNoteAsk] = useState<
-    { notes: OrderNote[]; carrier: string; run: (approved: string[]) => void } | null
+    { notes: OrderNote[]; limit: number; carrier: string; run: (approved: ApprovedNote[]) => void } | null
   >(null);
   /*
    * Schvaluje se **každá poznámka zvlášť**. Jedna bývá pokyn pro kurýra
@@ -500,27 +514,38 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    * dělat — jedním „ano" na všechno by se to nedalo rozlišit.
    */
   const [notePicked, setNotePicked] = useState<Record<string, boolean>>({});
+  /*
+   * Text, který půjde dopravci. Dlouhou poznámku je potřeba přepsat ručně:
+   * PPL delší text uřízne **uprostřed slova** — z „Prosím kurýra zavolat
+   * před domem" vytiskla „Prosím kurýra zavolat před dom". Nechat to na
+   * automatickém zkrácení znamená, že smysl věty určí náhoda.
+   */
+  const [noteText, setNoteText] = useState<Record<string, string>>({});
 
   const askNotes = useCallback(async (
-    carrier: string, label: string, run: (approved: string[]) => Promise<void>
+    carrier: string, label: string, run: (approved: ApprovedNote[]) => Promise<void>
   ) => {
-    let notes: OrderNote[] = [];
+    let found: OrderNote[] = [];
+    let limit = 100;
     try {
-      notes = await api.ship.notes(pplCandidates, carrier);
+      const answer = await api.ship.notes(pplCandidates, carrier);
+      found = answer.notes;
+      limit = answer.limit;
     } catch {
       // Nepovedlo se zjistit poznámky — vývoz se kvůli tomu nezastavuje
-      notes = [];
+      found = [];
     }
-    if (notes.length === 0) { await run([]); return; }
+    if (found.length === 0) { await run([]); return; }
     // Ve výchozím stavu jsou zaškrtnuté všechny: nejčastěji jde poznámka na štítek
-    setNotePicked(Object.fromEntries(notes.map(one => [one.code, true])));
+    setNotePicked(Object.fromEntries(found.map(one => [one.code, true])));
+    setNoteText(Object.fromEntries(found.map(one => [one.code, one.short])));
     setNoteAsk({
-      notes, carrier: label,
-      run: (approved: string[]) => { setNoteAsk(null); void run(approved); }
+      notes: found, limit, carrier: label,
+      run: (approved: ApprovedNote[]) => { setNoteAsk(null); void run(approved); }
     });
   }, [pplCandidates]);
 
-  const exportPpl = useCallback(() => askNotes('ppl', 'PPL', async (approved: string[]) => {
+  const exportPpl = useCallback(() => askNotes('ppl', 'PPL', async (approved: ApprovedNote[]) => {
     setPplBusy(true);
     try {
       const out = await api.ppl.export(pplCandidates, approved);
@@ -554,7 +579,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    */
   const [zasBusy, setZasBusy] = useState(false);
 
-  const sendPacketa = useCallback(() => askNotes('packeta', 'Zásilkovnu', async (approved: string[]) => {
+  const sendPacketa = useCallback(() => askNotes('packeta', 'Zásilkovnu', async (approved: ApprovedNote[]) => {
     setZasBusy(true);
     try {
       const out = await api.packeta.create(pplCandidates, approved);
@@ -586,7 +611,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    */
   const [balBusy, setBalBusy] = useState(false);
 
-  const exportBalikovna = useCallback(() => askNotes('balikovna', 'Balíkovnu', async (approved: string[]) => {
+  const exportBalikovna = useCallback(() => askNotes('balikovna', 'Balíkovnu', async (approved: ApprovedNote[]) => {
     setBalBusy(true);
     try {
       const out = await api.balikovna.export(pplCandidates, approved);
@@ -1021,26 +1046,51 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
           <p className="desc">
             {noteAsk.notes.length === 1 ? 'Jedna objednávka má' : `${noteAsk.notes.length} objednávek má`}
             {' '}poznámku od zákazníka. Zaškrtnutá půjde na štítek pro {noteAsk.carrier} — přečte si ji kurýr.
-            Odškrtni tu, která je vzkaz pro nás.
+            Odškrtni tu, která je vzkaz pro nás. Na štítek se vejde {noteAsk.limit} znaků;
+            delší text si dopravce uřízne sám, i uprostřed slova, tak ho radši přepiš.
           </p>
           <div className="pk-notes">
-            {noteAsk.notes.map(one => (
-              <label className={`pk-notes-row ${notePicked[one.code] ? 'on' : ''}`} key={one.code}>
-                <div className="pk-notes-head">
-                  <input
-                    type="checkbox"
-                    checked={!!notePicked[one.code]}
-                    onChange={e => setNotePicked(p => ({ ...p, [one.code]: e.target.checked }))}
-                  />
-                  <b>{one.code}</b>
-                  <span className="desc">{one.name}</span>
+            {noteAsk.notes.map(one => {
+              const text = noteText[one.code] ?? one.short;
+              const over = one.note.length > noteAsk.limit;
+              return (
+                <div className={`pk-notes-row ${notePicked[one.code] ? 'on' : ''}`} key={one.code}>
+                  <label className="pk-notes-head">
+                    <input
+                      type="checkbox"
+                      checked={!!notePicked[one.code]}
+                      onChange={e => setNotePicked(p => ({ ...p, [one.code]: e.target.checked }))}
+                    />
+                    <b>{one.code}</b>
+                    <span className="desc">{one.name}</span>
+                  </label>
+                  {/*
+                    * Celá poznámka zůstává vidět, i když se posílá jen její
+                    * část — bez originálu se nedá poznat, co se ztratilo.
+                    */}
+                  <p>{one.note}</p>
+                  {notePicked[one.code] && (
+                    <div className="pk-notes-edit">
+                      <textarea
+                        rows={2}
+                        maxLength={noteAsk.limit}
+                        value={text}
+                        onChange={e => setNoteText(p => ({ ...p, [one.code]: e.target.value }))}
+                      />
+                      <span className={`pk-notes-count ${text.length >= noteAsk.limit ? 'full' : ''}`}>
+                        {text.length}/{noteAsk.limit}
+                      </span>
+                      {over && (
+                        <span className="desc">
+                          Poznámka je delší, než co dopravce vytiskne — tohle je zkrácení
+                          na hranici slova, přepiš ho, jak potřebuješ.
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <p>{one.note}</p>
-                {one.short !== one.note && (
-                  <span className="desc">Dopravci půjde jen začátek: „{one.short}"</span>
-                )}
-              </label>
-            ))}
+              );
+            })}
           </div>
         </div>
         <div className="modal-foot">
@@ -1048,7 +1098,9 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
           <button className="btn ghost" onClick={() => noteAsk.run([])}>Vyvézt bez poznámek</button>
           <button
             className="btn primary"
-            onClick={() => noteAsk.run(noteAsk.notes.map(one => one.code).filter(code => notePicked[code]))}
+            onClick={() => noteAsk.run(noteAsk.notes
+              .filter(one => notePicked[one.code] && (noteText[one.code] ?? one.short).trim())
+              .map(one => ({ code: one.code, text: (noteText[one.code] ?? one.short).trim() })))}
           >
             {(() => {
               const picked = noteAsk.notes.filter(one => notePicked[one.code]).length;
@@ -1133,7 +1185,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
               </button>
             ))}
           </div>
-          <button className="filter-chip" onClick={() => setOldestFirst(v => !v)}
+          <button className="filter-chip" onClick={() => setOldestFirst(!oldestFirst)}
             data-tip="Nejstarší napřed je pořadí balení — co čeká nejdéle, jde z fronty první">
             <Icon name="sort" size={12} /> {oldestFirst ? 'nejstarší' : 'nejnovější'}
           </button>

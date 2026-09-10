@@ -5,7 +5,7 @@ import { getDb, getSetting, setSetting } from './db';
 import { encrypt, decrypt } from './secure';
 import type { PacketaSetup, PacketaResult, PacketaPacket, ShopOrderItem } from '../shared/types';
 import { contentOf } from './ppl';
-import { shortNote } from './shipexport';
+import { shortNote, approvedNotes } from './shipexport';
 
 /**
  * Zásilkovna (Packeta) přes API.
@@ -62,7 +62,9 @@ export function packetaSetup(): PacketaSetup {
     labelFormat: saved.labelFormat ?? 'A6 on A4',
     /** Kolik štítků na archu se přeskočí — na načatém archu se tím netiskne do prázdna */
     labelOffset: Math.max(0, Number(saved.labelOffset) || 0),
-    defaultWeight: Number(saved.defaultWeight) || 0.5
+    defaultWeight: Number(saved.defaultWeight) || 0.5,
+    // Poznámka u zásilky; delší text jejich pole neunese
+    noteLimit: Math.max(10, Number(saved.noteLimit) || 128)
   };
 }
 
@@ -206,10 +208,12 @@ export function packetNote(customer: string, content: string, limit = 128): stri
   return shortNote(parts.join(' • '), limit);
 }
 
-export async function createPackets(codes: string[], notes: string[] = []): Promise<PacketaResult> {
-  // Schvaluje se každá poznámka zvlášť — jedna může být pokyn kurýrovi, druhá vzkaz nám
-  const allowed = new Set(notes ?? []);
+export async function createPackets(
+  codes: string[], notes: { code: string; text: string }[] = []
+): Promise<PacketaResult> {
   const setup = packetaSetup();
+  // Schvaluje se každá poznámka zvlášť — jedna může být pokyn kurýrovi, druhá vzkaz nám
+  const allowed = approvedNotes(notes, setup.noteLimit);
   const pass = password();
   schema();
 
@@ -290,7 +294,7 @@ export async function createPackets(codes: string[], notes: string[] = []): Prom
        * kterého se jedná), pak obsah zásilky. Delší text jejich pole
        * neunese, proto se to zkracuje.
        */
-      note: packetNote(allowed.has(code) ? String(order.note ?? '') : '', contentOf(items))
+      note: packetNote(allowed.get(code) ?? '', contentOf(items), setup.noteLimit)
     });
 
     try {

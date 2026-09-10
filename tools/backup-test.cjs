@@ -248,9 +248,9 @@ vloz(`INSERT INTO digest_reports (at, facts, insight)
  * na jiném počítači nefunguje — musí do zálohy rozšifrované.
  */
 set('invoiceUrlTemplate', 'https://eshop.admin.s1.upgates.com/f/{invoice}.pdf');
-set('pplSetup', '{"carrier":"PPL","content":true}');
-set('balikovnaSetup', '{"carrier":"Balíkovna","type":"NB"}');
-set('packetaSetup', '{"eshop":"quentino.cz","labelFormat":"A6 on A4"}');
+set('pplSetup', '{"carrier":"PPL","content":true,"noteLimit":30}');
+set('balikovnaSetup', '{"carrier":"Balíkovna","type":"NB","noteLimit":50}');
+set('packetaSetup', '{"eshop":"quentino.cz","labelFormat":"A6 on A4","noteLimit":128}');
 set('packetaPassword', 'ŠIFRA(' + Buffer.from('tajne-heslo').toString('base64') + ')');
 set('portalLogins', 'ŠIFRA(' + Buffer.from('{"ppl":{"user":"quentino","pass":"x","auto":true}}').toString('base64') + ')');
 // Naplánované náhrady textů na webu: celé napojení i plán, klíč k úložišti šifra
@@ -385,6 +385,13 @@ console.log('\ndoprava a doklady:');
   sedi('nastavení PPL', text.includes('pplSetup'));
   sedi('nastavení Balíkovny', text.includes('balikovnaSetup'));
   sedi('nastavení Zásilkovny', text.includes('packetaSetup'));
+  /*
+   * Kolik znaků poznámky dopravce vytiskne. Je to zjištěná hodnota — PPL
+   * uřízla text na třiceti znacích — a kdyby se ztratila, tichý následek by
+   * byl useknutý pokyn na štítku, ne hláška.
+   */
+  sedi('délky poznámek u dopravců projdou', text.split('noteLimit').length - 1 === 3,
+    `nalezeno ${text.split('noteLimit').length - 1}×`);
   sedi('heslo k Zásilkovně dojede čitelné', decrypted('packetaPassword') === 'tajne-heslo',
     `dostal: ${decrypted('packetaPassword')}`);
   sedi('přihlášení do administrací taky',

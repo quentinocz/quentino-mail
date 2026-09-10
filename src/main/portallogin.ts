@@ -149,29 +149,64 @@ function fillScript(user: string, pass: string, submit: boolean): string {
   `;
 }
 
+export type SignInResult = 'odesláno' | 'vyplněno' | 'bez formuláře' | 'nenastaveno';
+
+/**
+ * Spustí skript ve **všech rámech** stránky, ne jen v tom hlavním.
+ *
+ * Přihlašovací formulář bývá v `iframe` — u klientských administrací starší
+ * generace skoro pravidlem. Skript puštěný jen do hlavního rámu tam žádné
+ * políčko na heslo nenajde a mlčky se vrátí, jako by byl člověk přihlášený.
+ * Přesně tak vypadá „aplikace mi to nevyplnila".
+ */
+async function everyFrame(win: BrowserWindow, script: string): Promise<string> {
+  const frames = [win.webContents.mainFrame, ...(win.webContents.mainFrame.framesInSubtree ?? [])];
+  for (const frame of frames) {
+    if (!frame) continue;
+    const out = await frame.executeJavaScript(script, true).catch(() => 'bez formuláře');
+    if (out === 'odesláno' || out === 'vyplněno') return out;
+  }
+  return 'bez formuláře';
+}
+
 /**
  * Vyplní přihlášení, jakmile se formulář na stránce objeví.
  *
  * Čeká se, protože přihlašovací stránka bývá až za přesměrováním na SSO —
- * u Podání Online třeba na `amex.postaonline.cz`. Když se formulář za tu
- * dobu neobjeví, je člověk nejspíš přihlášený a nic se dělat nemá.
+ * u Podání Online třeba na `amex.postaonline.cz`. Půl minuty je schválně:
+ * dvacet vteřin nestačilo, když se administrace načítala pomalu, a výsledek
+ * byl, že se heslo opisovalo ručně. Když se formulář neobjeví ani pak, je
+ * člověk nejspíš přihlášený a nic se dělat nemá.
  */
 export async function signIn(
-  win: BrowserWindow, id: PortalId, timeoutMs = 20_000
-): Promise<'odesláno' | 'vyplněno' | 'bez formuláře' | 'nenastaveno'> {
+  win: BrowserWindow, id: PortalId, timeoutMs = 30_000
+): Promise<SignInResult> {
   const saved = all()[id];
   if (!saved?.pass) return 'nenastaveno';
 
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     if (win.isDestroyed()) return 'bez formuláře';
-    const out = await win.webContents
-      .executeJavaScript(fillScript(saved.user, decrypt(saved.pass), saved.auto !== false), true)
-      .catch(() => 'bez formuláře');
+    const out = await everyFrame(win, fillScript(saved.user, decrypt(saved.pass), saved.auto !== false));
     if (out === 'odesláno' || out === 'vyplněno') return out;
     await new Promise(resolve => setTimeout(resolve, 800));
   }
   return 'bez formuláře';
+}
+
+/**
+ * Věta do hlášky, když se přihlásit nepovedlo.
+ *
+ * Mlčení je tu to nejhorší, co se dá udělat: člověk kouká na přihlašovací
+ * stránku a neví, jestli aplikace údaje nemá, nebo je má a nefungují.
+ */
+export function signInNote(id: PortalId, result: SignInResult): string {
+  if (result === 'odesláno' || result === 'vyplněno') return '';
+  if (result === 'nenastaveno') {
+    return `Přihlášení k „${LABELS[id]}" není v aplikaci uložené `
+      + '(Nastavení → Doprava a doklady → Přihlášení do administrací) — přihlas se ručně.';
+  }
+  return '';
 }
 
 /**
@@ -183,7 +218,9 @@ export async function signIn(
  */
 export function keepSignedIn(win: BrowserWindow, id: PortalId): void {
   if (!all()[id]?.pass) return;
-  const again = () => { void signIn(win, id, 4_000); };
+  // Osm vteřin, ne čtyři: administrace se po přesměrování dokresluje a při
+  // čtyřech se formulář stihl objevit až po vypršení
+  const again = () => { void signIn(win, id, 8_000); };
   win.webContents.on('did-finish-load', again);
   win.on('closed', () => { try { win.webContents.off('did-finish-load', again); } catch { /* okno je pryč */ } });
 }

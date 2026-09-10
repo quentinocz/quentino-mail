@@ -563,16 +563,16 @@
     'invoices:ready': { ready: 6, total: 9 },
     'invoices:forget': { removed: 6 },
     'invoices:prefetch': { ready: 9, fetched: 3, stopped: null },
-    'ppl:setup': { carrier: 'PPL', content: true,
+    'ppl:setup': { carrier: 'PPL', content: true, noteLimit: 30,
       importUrl: 'https://klient.ppl.cz/import.aspx?loadedControl=importZasilek',
       labelsUrl: 'https://klient.ppl.cz/zasilka.aspx?loadedControl=zasilkaList', mapping: 'Upgates',
       value: 'goods' },
     'packeta:setup': { hasPassword: true, eshop: 'quentino.cz', carrier: 'Zásilkovna|Zasilkovna|Packeta',
-      labelFormat: 'A6 on A4', labelOffset: 0, defaultWeight: 0.5 },
+      labelFormat: 'A6 on A4', labelOffset: 0, defaultWeight: 0.5, noteLimit: 128 },
     'balikovna:setup': { carrier: 'Balíkovna|Balikovna',
       order: 'prijmeni,jmeno,ic,dic,obec,castObce,ulice,cisloPopisne,cisloOrientacni,psc,stat,'
         + 'telefon,mobil,email,typ,hmotnost,cena,vs,sluzby,dobirka,mena,pocetVk,vsPoukazka',
-      header: false, type: 'NB', services: '',
+      header: false, type: 'NB', services: '', noteLimit: 50,
       portalUrl: 'https://www.postaonline.cz/pol/', importUrl: '', value: 'goods' },
     'balikovna:fields': [
       { key: 'prijmeni', label: 'Příjmení/Název', hint: 'Jméno příjemce' },
@@ -813,14 +813,19 @@
     ] },
     'shorthand:save': { scope: { orders: 428, withShipment: 428, withPayment: 428 }, rows: [] },
     // Poznámky zákazníka u vybraných objednávek — dotaz před vývozem dopravci
-    'ship:notes': [
-      { code: '20260812', name: 'Jana Nováková', short: 'Prosím zavolejte předem, jsem doma až po 17. hodině',
-        note: 'Prosím zavolejte předem, jsem doma až po 17. hodině' },
-      { code: '20260814', name: 'Petr Dvořák',
-        note: 'Zboží prosím předejte sousedce paní Novákové ve druhém patře vpravo, '
-          + 'já budu do konce měsíce mimo republiku a nemám to jak převzít',
-        short: 'Zboží prosím předejte sousedce paní Novákové ve druhém patře vpravo, já budu do konce' }
-    ],
+    'ship:notes': {
+      // Kolik znaků PPL doopravdy vytiskla — delší text uřízne uprostřed slova
+      limit: 30,
+      notes: [
+        { code: '20260812', name: 'Jana Nováková',
+          note: 'Prosím zavolejte předem, jsem doma až po 17. hodině',
+          short: 'Prosím zavolejte předem, jsem' },
+        { code: '20260814', name: 'Petr Dvořák',
+          note: 'Zboží prosím předejte sousedce paní Novákové ve druhém patře vpravo, '
+            + 'já budu do konce měsíce mimo republiku a nemám to jak převzít',
+          short: 'Zboží prosím předejte' }
+      ]
+    },
     'packing:working': true,
     'stockin:working': true,
     // Upozornění na telefon přes ntfy — v náhledu se nikam neposílá

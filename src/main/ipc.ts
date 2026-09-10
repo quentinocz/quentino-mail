@@ -478,8 +478,8 @@ export function registerIpc() {
   handle('ppl:saveSetup', (next: any) => savePplSetup(next ?? {}));
   // Náhled: co se do souboru dostane a co se z výběru vynechá a proč
   handle('ppl:rows', (codes: string[]) => pplRows(codes ?? []));
-  // `notes` jsou čísla objednávek, jejichž poznámku člověk schválil — po jedné
-  handle('ppl:export', (codes: string[], notes?: string[]) => exportPpl(codes ?? [], true, notes ?? []));
+  // `notes` jsou schválené poznámky: číslo objednávky a text, který má jít dopravci
+  handle('ppl:export', (codes: string[], notes?: any[]) => exportPpl(codes ?? [], true, notes ?? []));
   handle('ppl:import', (file: string) => openPplImport(file));
   // Štítky PPL vystavuje jejich administrace — aplikace otevře ten správný seznam
   handle('ppl:labels', () => openPplLabels());
@@ -495,11 +495,17 @@ export function registerIpc() {
      * „balikovna" a překlad na vzor („PPL|ParcelBox…") zůstává na jednom
      * místě — kdyby si ho rozhraní drželo taky, rozešly by se.
      */
-    const pattern = carrier === 'ppl' ? pplSetup().carrier
-      : carrier === 'balikovna' ? balikovnaSetup().carrier
-        : carrier === 'packeta' ? packetaSetup().carrier
-          : '';
-    return orderNotes(codes ?? [], pattern);
+    const profile = carrier === 'ppl' ? pplSetup()
+      : carrier === 'balikovna' ? balikovnaSetup()
+        : carrier === 'packeta' ? packetaSetup()
+          : null;
+    /*
+     * Limit délky jde ven spolu s poznámkami: rozhoduje o tom, jestli se
+     * text dá poslat celý, nebo se musí ručně přepsat — a je u každého
+     * dopravce jiný.
+     */
+    const limit = profile?.noteLimit ?? 100;
+    return { limit, notes: orderNotes(codes ?? [], (profile as any)?.carrier ?? '', limit) };
   });
 
   /* ---------- Zásilkovna ---------- */
@@ -507,7 +513,7 @@ export function registerIpc() {
   handle('packeta:saveSetup', (next: any) => savePacketaSetup(next ?? {}));
   handle('packeta:test', () => testPacketa());
   handle('packeta:packets', (codes: string[]) => packetsFor(codes ?? []));
-  handle('packeta:create', (codes: string[], notes?: string[]) =>
+  handle('packeta:create', (codes: string[], notes?: any[]) =>
     createPackets(codes ?? [], notes ?? []));
   handle('packeta:labels', (codes: string[], format?: string, offset?: number) =>
     labelsPdf(codes ?? [], format, offset));
@@ -518,7 +524,7 @@ export function registerIpc() {
   handle('balikovna:saveSetup', (next: any) => saveBalikovnaSetup(next ?? {}));
   handle('balikovna:fields', () => BAL_FIELDS);
   handle('balikovna:rows', (codes: string[]) => balikovnaRows(codes ?? []));
-  handle('balikovna:export', (codes: string[], notes?: string[]) =>
+  handle('balikovna:export', (codes: string[], notes?: any[]) =>
     exportBalikovna(codes ?? [], notes ?? []));
   handle('balikovna:open', () => openBalikovna());
   // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho

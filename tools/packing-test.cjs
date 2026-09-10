@@ -32,6 +32,7 @@ db.exec(`
     tracking TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
     shipment TEXT NOT NULL DEFAULT '', payment TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
     items_json TEXT NOT NULL DEFAULT '[]',
     billing_json TEXT, postal_json TEXT, PRIMARY KEY (code, market));
   CREATE TABLE IF NOT EXISTS packing_shop (
@@ -342,6 +343,21 @@ async function fromFeed() {
     [one.card.shipping?.name, one.card.shipping?.lines],
     ['Jana Nováková', ['Vodičkova 30', '110 00 Praha 1']]);
   check('stav objednávky jde s ní', one.shop.status, 'Vyřizuje se');
+
+  /*
+   * Poznámka zákazníka na kartě.
+   *
+   * Cesta z databáze na kartu vede přes převod mezi dvěma tvary řádku
+   * a sloupec se v něm dá zapomenout — přesně to se stalo: v databázi
+   * poznámka byla, do vývozu dopravci se dostala, ale v detailu při balení
+   * nebyla vidět vůbec. Tichá chyba, kterou nic jiného nechytí.
+   */
+  db.prepare("UPDATE shop_orders SET note = ? WHERE code = '018000'")
+    .run('Zvoňte prosím na Nováka, zvonek nefunguje');
+  const znovu = await packing.scanOrders(400);
+  const sPoznamkou = znovu.orders.find(o => o.card.orderNumber === '018000');
+  check('poznámka zákazníka je na kartě',
+    sPoznamkou.card.note, 'Zvoňte prosím na Nováka, zvonek nefunguje');
 
   /*
    * Odškrtání se drží u čísla, pod kterým se objednávka vede. Když ji jednou

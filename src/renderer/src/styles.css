@@ -7539,3 +7539,16 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .pk-notes-row { cursor: pointer; }
 .pk-notes-row.on { border-color: var(--accent); background: var(--accent-soft); }
 .pk-notes-head input { width: 15px; height: 15px; accent-color: var(--accent); }
+
+/*
+ * Ruční přepsání poznámky. Dopravce delší text uřízne uprostřed slova, tak
+ * je vidět, kolik znaků zbývá — a celý originál zůstává nad políčkem, aby
+ * šlo poznat, co se ztratilo.
+ */
+.pk-notes-edit { position: relative; margin-top: 6px; }
+.pk-notes-edit textarea { width: 100%; padding-right: 58px; font-size: 13px; }
+.pk-notes-count {
+  position: absolute; top: 7px; right: 8px;
+  font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-3);
+}
+.pk-notes-count.full { color: var(--warn); font-weight: 700; }

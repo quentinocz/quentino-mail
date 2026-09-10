@@ -2,10 +2,10 @@ import { BrowserWindow, dialog, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getSetting, setSetting } from './db';
-import { shipOrders, shortNote, splitStreet, csv, ShipOrder } from './shipexport';
+import { shipOrders, shortNote, approvedNotes, splitStreet, csv, ShipOrder } from './shipexport';
 import { contentOf } from './ppl';
 import { fillFileInput, openUrl } from './formfile';
-import { signIn, keepSignedIn } from './portallogin';
+import { signIn, signInNote, keepSignedIn } from './portallogin';
 import type { BalikovnaSetup, BalikovnaExport } from '../shared/types';
 
 /**
@@ -95,6 +95,8 @@ export function balikovnaSetup(): BalikovnaSetup {
      */
     type: saved.type ?? 'NB',
     services: saved.services ?? '',
+    // Kolik znaků poznámky Česká pošta unese; ověřené to není, tak je to nastavitelné
+    noteLimit: Math.max(10, Number(saved.noteLimit) || 50),
     /** Podání Online, kam se soubor nahrává */
     portalUrl: saved.portalUrl ?? 'https://www.postaonline.cz/pol/',
     /*
@@ -128,7 +130,7 @@ export function saveBalikovnaSetup(next: Partial<BalikovnaSetup>): BalikovnaSetu
  * což potřebují zkoušky a nic jiného.
  */
 export function valuesOf(
-  order: ShipOrder, setup: BalikovnaSetup, allowed: Set<string> | null = null
+  order: ShipOrder, setup: BalikovnaSetup, allowed: Map<string, string> | null = null
 ): Record<string, string> {
   const address = splitStreet(order.street);
   /*
@@ -178,8 +180,13 @@ export function valuesOf(
      * prázdné pole import odmítá, kdežto mezeru vezme. Přidává se do souboru
      * jen tehdy, když si člověk poznámky přečetl a schválil je.
      */
+    /*
+     * Text je ten, který člověk schválil — u dlouhé poznámky ručně
+     * přepsaný. Mezera místo prázdna: namapované, ale prázdné pole import
+     * odmítá, kdežto mezeru vezme.
+     */
     poznamka: setup.note
-      ? ((!allowed || allowed.has(order.code) ? shortNote(order.note) : '') || ' ')
+      ? ((allowed ? allowed.get(order.code) ?? '' : shortNote(order.note, setup.noteLimit)) || ' ')
       : '',
     mistoNazev: order.company,
     mistoId: order.pickupId
@@ -193,7 +200,7 @@ function columns(setup: BalikovnaSetup): string[] {
 }
 
 export function balikovnaCsv(
-  rows: ShipOrder[], setup: BalikovnaSetup, allowed: Set<string> | null = null
+  rows: ShipOrder[], setup: BalikovnaSetup, allowed: Map<string, string> | null = null
 ): Buffer {
   const keys = columns(setup);
   const lines: string[][] = [];
@@ -213,11 +220,14 @@ export function balikovnaRows(codes: string[]):
   return shipOrders(codes, balikovnaSetup().carrier);
 }
 
-export async function exportBalikovna(codes: string[], notes: string[] = []): Promise<BalikovnaExport> {
+export async function exportBalikovna(
+  codes: string[], notes: { code: string; text: string }[] = []
+): Promise<BalikovnaExport> {
   // Schvaluje se každá poznámka zvlášť; sloupec je v souboru, jen když aspoň jedna prošla
-  const allowed = new Set(notes ?? []);
+  const base = balikovnaSetup();
+  const allowed = approvedNotes(notes, base.noteLimit);
   const withNote = allowed.size > 0;
-  const setup = { ...balikovnaSetup(), note: withNote };
+  const setup = { ...base, note: withNote };
   const { rows, skipped } = balikovnaRows(codes);
   if (rows.length === 0) return { file: null, rows: 0, skipped, columns: columns(setup).length, notes: 0 };
 
@@ -233,7 +243,7 @@ export async function exportBalikovna(codes: string[], notes: string[] = []): Pr
   fs.writeFileSync(res.filePath, balikovnaCsv(rows, setup, allowed));
   return {
     file: res.filePath, rows: rows.length, skipped, columns: columns(setup).length,
-    notes: rows.filter(one => !!one.note && allowed.has(one.code)).length
+    notes: allowed.size
   };
 }
 
@@ -286,7 +296,7 @@ export async function openBalikovnaImport(file: string): Promise<{ filled: boole
   win.show();
   win.focus();
   // Přihlašovací stránka bývá až za odskokem na SSO — počká se na ni
-  await signIn(win, 'cposta');
+  const login = signInNote('cposta', await signIn(win, 'cposta'));
 
   const out = await fillFileInput(win, file);
   // Naučenou adresu má smysl si nechat jen tehdy, když se na ní opravdu
@@ -294,7 +304,8 @@ export async function openBalikovnaImport(file: string): Promise<{ filled: boole
   if (out.filled && out.url && out.url !== setup.importUrl) {
     saveBalikovnaSetup({ importUrl: out.url });
   }
-  return { filled: out.filled, note: out.note };
+  // Nepovedené přihlášení se řekne nahlas — jinak člověk kouká na formulář a hádá
+  return { filled: out.filled, note: [login, out.note].filter(Boolean).join(' ') };
 }
 
 export const __test = { valuesOf, columns, balikovnaCsv, DEFAULT_ORDER };

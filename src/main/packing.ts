@@ -800,6 +800,13 @@ function feedRow(order: ShopOrder): any {
     phone: order.phone, name: order.name, email: order.email,
     total: order.total, created_at: order.createdAt, paid_date: order.paidDate,
     shipment: order.shipment, payment: order.payment, tracking: order.tracking,
+    /*
+     * Poznámka zákazníka. Chyběla tu — a protože přes tenhle převod jde
+     * **celý seznam k balení**, nezobrazovala se v detailu nikde, přestože
+     * v databázi byla a do vývozu dopravci se dostala. Sloupec, který se
+     * zapomene v jednom převodu mezi tvary, se takhle ztratí tiše.
+     */
+    note: order.note ?? '',
     billing_json: order.billing ? JSON.stringify(order.billing) : null,
     postal_json: order.postal ? JSON.stringify(order.postal) : null
   };

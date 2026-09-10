@@ -182,8 +182,9 @@ add({
 
 {
   const pair = ppl.pplRows(['024300', '024301']).rows;
+  // Zkrácená na to, co PPL vytiskne — celá je vidět v dotazu před vývozem
   check('poznámka se natáhne k té správné objednávce',
-    pair.map(r => r.note), ['Prosím zavolejte předem, jsem doma až po 17. hodině', '']);
+    pair.map(r => r.note), ['Prosím zavolejte předem, jsem', '']);
 
   const bez = ppl.pplCsv(pair, false, false).toString('binary').split('\r\n').filter(Boolean);
   ok('bez schválení sloupec vůbec není', !bez[0].endsWith(';note'));
@@ -227,6 +228,26 @@ add({
 }
 
 /*
+ * Délka podle dopravce. PPL uřízla „Prosím kurýra zavolat před domem" na
+ * „Prosím kurýra zavolat před dom" — přesně třicet znaků, uprostřed slova.
+ * Aplikace proto zkracuje sama a na hranici slova.
+ */
+{
+  const ship = require(path.join(DIST, 'shipexport.js'));
+  check('výchozí délka je ta, co PPL vytiskla', ppl.pplSetup().noteLimit, 30);
+  const pokyn = 'Prosím kurýra zavolat před domem';
+  check('řeže se na hranici slova, ne uprostřed',
+    ship.shortNote(pokyn, 30), 'Prosím kurýra zavolat před');
+  // Schválený text je ten, který člověk viděl — ne ten z databáze
+  const schvalene = ship.approvedNotes([{ code: '024300', text: 'Zavolat před domem' }], 30);
+  check('ručně přepsaný text vyhraje', schvalene.get('024300'), 'Zavolat před domem');
+  // I ručně přepsaný se ještě jednou pojistí proti limitu
+  check('a přesto se nevejde-li, zkrátí',
+    ship.approvedNotes([{ code: 'x', text: pokyn }], 30).get('x'), 'Prosím kurýra zavolat před');
+  check('prázdný text se zahodí', ship.approvedNotes([{ code: 'x', text: '  ' }], 30).size, 0);
+}
+
+/*
  * Dlouhá poznámka se zkracuje na hranici slova. Delší text štítek stejně
  * neunese a useknuté slovo uprostřed vypadá jako chyba tisku.
  */
@@ -249,9 +270,15 @@ add({
  */
 {
   const ship = require(path.join(DIST, 'shipexport.js'));
-  const nalezene = ship.orderNotes(['024300', '024301'], 'PPL');
+  const nalezene = ship.orderNotes(['024300', '024301'], 'PPL', 30);
   check('hlásí se jen objednávky s poznámkou', nalezene.map(one => one.code), ['024300']);
   ok('a je u nich vidět jméno', nalezene[0].name === 'Petr Dvořák');
+  /*
+   * Celá poznámka i její zkrácená podoba. Bez originálu se v dotazu nedá
+   * poznat, co se ztratilo — a právě to se přepisuje ručně.
+   */
+  ok('do dotazu jde celý text', nalezene[0].note.includes('17. hodině'));
+  check('i zkrácený na to, co dopravce vytiskne', nalezene[0].short, 'Prosím zavolejte předem, jsem');
   check('u cizího dopravce se nehlásí nic',
     ship.orderNotes(['024300', '024301'], 'Balíkovna').length, 0);
 }

@@ -1509,6 +1509,21 @@ function ShippingField() {
               <option value="order">celá objednávka včetně dopravy</option>
             </select>
           </div>
+          {/*
+            Délka poznámky. PPL delší text uřízne uprostřed slova — z „Prosím
+            kurýra zavolat před domem" vytiskla „Prosím kurýra zavolat před
+            dom", tedy přesně třicet znaků. Je to jejich hodnota, takže se dá
+            přepsat, kdyby ji změnili.
+          */}
+          <div className="field">
+            <label>Poznámka na štítek — kolik znaků</label>
+            <input type="number" min={10} max={200} value={ppl.noteLimit}
+              onChange={e => setPpl(v => v ? { ...v, noteLimit: Number(e.target.value) || 30 } : v)} />
+            <div className="desc">
+              Delší poznámku PPL uřízne sama, i uprostřed slova. Aplikace ji proto zkrátí na
+              hranici slova a před vývozem ji necháš přepsat.
+            </div>
+          </div>
           <div className="desc">
             Obsah zásilky PPL nově chce, ale uložená úloha v jejich administraci o tom sloupci
             zatím vědět nemusí. Dokud si ho tam nenamapuješ, nech to vypnuté — jinak import spadne.
@@ -1543,6 +1558,9 @@ function ShippingField() {
             <div className="field"><label>Doplňkové služby</label>
               <input value={bal.services} placeholder="nepovinné"
                 onChange={e => setBal(v => v ? { ...v, services: e.target.value } : v)} /></div>
+            <div className="field"><label>Poznámka — kolik znaků</label>
+              <input type="number" min={10} max={200} value={bal.noteLimit}
+                onChange={e => setBal(v => v ? { ...v, noteLimit: Number(e.target.value) || 50 } : v)} /></div>
             <div className="field"><label>Udaná cena</label>
               <select value={bal.value}
                 onChange={e => setBal(v => v ? { ...v, value: e.target.value as 'goods' | 'order' } : v)}>
@@ -1628,6 +1646,9 @@ function ShippingField() {
             <div className="field"><label>Výchozí váha (kg)</label>
               <input type="number" min={0} step={0.1} value={zas.defaultWeight}
                 onChange={e => setZas(v => v ? { ...v, defaultWeight: Number(e.target.value) || 0 } : v)} /></div>
+            <div className="field"><label>Poznámka — kolik znaků</label>
+              <input type="number" min={10} max={255} value={zas.noteLimit}
+                onChange={e => setZas(v => v ? { ...v, noteLimit: Number(e.target.value) || 128 } : v)} /></div>
           </div>
           <div className="desc">
             Na načatý arch se tiskne od toho štítku, který je první volný — proto „přeskočit".

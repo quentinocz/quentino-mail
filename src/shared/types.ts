@@ -2487,6 +2487,15 @@ export interface PplExport {
 export interface PplSetup {
   /** Podle čeho se pozná, že objednávka jede PPL */
   carrier: string;
+  /**
+   * Kolik znaků poznámky se vejde na štítek.
+   *
+   * PPL delší text uřízne **uprostřed slova** — z „Prosím kurýra zavolat
+   * před domem" zbylo na štítku „Prosím kurýra zavolat před dom". Zkracuje
+   * se proto tady a na hranici slova; hodnota je nastavitelná, protože je
+   * jejich a může se změnit.
+   */
+  noteLimit: number;
   /** Přidat sloupec s obsahem zásilky */
   content: boolean;
   importUrl: string;
@@ -2510,6 +2519,8 @@ export interface PacketaSetup {
   /** Kolik štítků na archu přeskočit — načatý arch se tím dotiskne */
   labelOffset: number;
   defaultWeight: number;
+  /** Kolik znaků poznámky Zásilkovna u zásilky unese */
+  noteLimit: number;
 }
 
 export interface PacketaPacket {
@@ -2549,6 +2560,8 @@ export interface BalikovnaSetup {
   importUrl: string;
   /** Co je v „Udané ceně": cena zboží, nebo celá objednávka */
   value: 'goods' | 'order';
+  /** Kolik znaků poznámky se vejde na štítek */
+  noteLimit: number;
   /**
    * Přidat do souboru poznámku zákazníka.
    *
@@ -2579,8 +2592,25 @@ export interface OrderNote {
   code: string;
   name: string;
   note: string;
-  /** Zkrácená podoba, tak jak půjde dopravci */
+  /** Zkrácená podoba, tak jak by šla dopravci bez ručního přepsání */
   short: string;
+}
+
+/**
+ * Poznámky k vývozu i s tím, kolik se jich vejde na štítek.
+ *
+ * Limit je vlastnost dopravce, ne poznámky — a rozhoduje o tom, jestli se
+ * text dá poslat celý, nebo se musí přepsat.
+ */
+export interface OrderNotes {
+  limit: number;
+  notes: OrderNote[];
+}
+
+/** Schválená poznámka: číslo objednávky a text, který má jít dopravci. */
+export interface ApprovedNote {
+  code: string;
+  text: string;
 }
 
 /* ---------- přihlášení do cizích administrací ---------- */
