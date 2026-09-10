@@ -636,7 +636,8 @@ export const api = {
     /** Náhled — co se vyveze a co se vynechá a proč */
     rows: (codes: string[]) =>
       call<{ rows: PplRow[]; skipped: { code: string; reason: string }[] }>('ppl:rows', codes),
-    export: (codes: string[], withNote = false) => call<PplExport>('ppl:export', codes, withNote),
+    /** `notes` = čísla objednávek, jejichž poznámku člověk schválil */
+    export: (codes: string[], notes: string[] = []) => call<PplExport>('ppl:export', codes, notes),
     /** Otevře import v administraci PPL i se souborem; odeslání zůstává na člověku */
     openImport: (file: string) => call<{ filled: boolean; note: string }>('ppl:import', file),
     /** Otevře seznam zásilek v administraci PPL, odkud se tisknou štítky */
@@ -656,8 +657,8 @@ export const api = {
       call<PacketaSetup>('packeta:saveSetup', next),
     test: () => call<string>('packeta:test'),
     packets: (codes: string[]) => call<PacketaPacket[]>('packeta:packets', codes),
-    create: (codes: string[], withNote = false) =>
-      call<PacketaResult>('packeta:create', codes, withNote),
+    create: (codes: string[], notes: string[] = []) =>
+      call<PacketaResult>('packeta:create', codes, notes),
     labels: (codes: string[], format?: string, offset?: number) =>
       call<{ file: string | null; count: number; missing: string[] }>('packeta:labels', codes, format, offset),
     formats: () => call<string[]>('packeta:formats')
@@ -677,8 +678,8 @@ export const api = {
     fields: () => call<{ key: string; label: string; hint: string }[]>('balikovna:fields'),
     rows: (codes: string[]) =>
       call<{ rows: any[]; skipped: { code: string; reason: string }[] }>('balikovna:rows', codes),
-    export: (codes: string[], withNote = false) =>
-      call<BalikovnaExport>('balikovna:export', codes, withNote),
+    export: (codes: string[], notes: string[] = []) =>
+      call<BalikovnaExport>('balikovna:export', codes, notes),
     /** Otevře Podání Online; nahrání a odeslání zůstává na člověku */
     open: () => call<boolean>('balikovna:open'),
     /** Otevře import a vloží do něj soubor, jakmile se políčko objeví */

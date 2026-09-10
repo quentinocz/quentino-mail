@@ -492,11 +492,17 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    * a vývoz jde rovnou.
    */
   const [noteAsk, setNoteAsk] = useState<
-    { notes: OrderNote[]; carrier: string; run: (withNote: boolean) => void } | null
+    { notes: OrderNote[]; carrier: string; run: (approved: string[]) => void } | null
   >(null);
+  /*
+   * Schvaluje se **každá poznámka zvlášť**. Jedna bývá pokyn pro kurýra
+   * („zvoňte na Nováka"), druhá vzkaz pro nás, který na štítku nemá co
+   * dělat — jedním „ano" na všechno by se to nedalo rozlišit.
+   */
+  const [notePicked, setNotePicked] = useState<Record<string, boolean>>({});
 
   const askNotes = useCallback(async (
-    carrier: string, label: string, run: (withNote: boolean) => Promise<void>
+    carrier: string, label: string, run: (approved: string[]) => Promise<void>
   ) => {
     let notes: OrderNote[] = [];
     try {
@@ -505,17 +511,19 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
       // Nepovedlo se zjistit poznámky — vývoz se kvůli tomu nezastavuje
       notes = [];
     }
-    if (notes.length === 0) { await run(false); return; }
+    if (notes.length === 0) { await run([]); return; }
+    // Ve výchozím stavu jsou zaškrtnuté všechny: nejčastěji jde poznámka na štítek
+    setNotePicked(Object.fromEntries(notes.map(one => [one.code, true])));
     setNoteAsk({
       notes, carrier: label,
-      run: (withNote: boolean) => { setNoteAsk(null); void run(withNote); }
+      run: (approved: string[]) => { setNoteAsk(null); void run(approved); }
     });
   }, [pplCandidates]);
 
-  const exportPpl = useCallback(() => askNotes('ppl', 'PPL', async (withNote: boolean) => {
+  const exportPpl = useCallback(() => askNotes('ppl', 'PPL', async (approved: string[]) => {
     setPplBusy(true);
     try {
-      const out = await api.ppl.export(pplCandidates, withNote);
+      const out = await api.ppl.export(pplCandidates, approved);
       if (!out.file) {
         toast(out.skipped.length > 0
           ? `Ve výběru není žádná zásilka PPL (${out.skipped.length} objednávek jede jinak).`
@@ -524,7 +532,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
       }
       toast(`Vyvezeno ${out.rows} zásilek${out.skipped.length ? `, ${out.skipped.length} vynecháno` : ''}`
         + `${out.notes ? `, z toho ${out.notes} s poznámkou` : ''}.`);
-      if (withNote) {
+      if (approved.length > 0) {
         toast('Sloupec s poznámkou je na konci souboru — v mapování PPL na něj musí být pole.', 'info');
       }
       const opened = await api.ppl.openImport(out.file);
@@ -546,10 +554,10 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    */
   const [zasBusy, setZasBusy] = useState(false);
 
-  const sendPacketa = useCallback(() => askNotes('packeta', 'Zásilkovnu', async (withNote: boolean) => {
+  const sendPacketa = useCallback(() => askNotes('packeta', 'Zásilkovnu', async (approved: string[]) => {
     setZasBusy(true);
     try {
-      const out = await api.packeta.create(pplCandidates, withNote);
+      const out = await api.packeta.create(pplCandidates, approved);
       if (out.created.length === 0) {
         toast(out.failed[0]?.reason
           ? `Zásilkovna: ${out.failed[0].reason}`
@@ -578,10 +586,10 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
    */
   const [balBusy, setBalBusy] = useState(false);
 
-  const exportBalikovna = useCallback(() => askNotes('balikovna', 'Balíkovnu', async (withNote: boolean) => {
+  const exportBalikovna = useCallback(() => askNotes('balikovna', 'Balíkovnu', async (approved: string[]) => {
     setBalBusy(true);
     try {
-      const out = await api.balikovna.export(pplCandidates, withNote);
+      const out = await api.balikovna.export(pplCandidates, approved);
       if (!out.file) {
         toast(out.skipped.length > 0
           ? `Ve výběru není žádná zásilka Balíkovny (${out.skipped.length} objednávek jede jinak).`
@@ -590,7 +598,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
       }
       toast(`Vyvezeno ${out.rows} zásilek do ${out.columns} sloupců`
         + `${out.notes ? `, z toho ${out.notes} s poznámkou` : ''}.`);
-      if (withNote) {
+      if (approved.length > 0) {
         toast('Sloupec „Poznámka" je v souboru navíc — musí být i v konfiguraci importu.', 'info');
       }
       /*
@@ -1012,12 +1020,18 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
         <div className="modal-body">
           <p className="desc">
             {noteAsk.notes.length === 1 ? 'Jedna objednávka má' : `${noteAsk.notes.length} objednávek má`}
-            {' '}poznámku od zákazníka. Půjde na štítek pro {noteAsk.carrier} — přečte si ji kurýr.
+            {' '}poznámku od zákazníka. Zaškrtnutá půjde na štítek pro {noteAsk.carrier} — přečte si ji kurýr.
+            Odškrtni tu, která je vzkaz pro nás.
           </p>
           <div className="pk-notes">
             {noteAsk.notes.map(one => (
-              <div className="pk-notes-row" key={one.code}>
+              <label className={`pk-notes-row ${notePicked[one.code] ? 'on' : ''}`} key={one.code}>
                 <div className="pk-notes-head">
+                  <input
+                    type="checkbox"
+                    checked={!!notePicked[one.code]}
+                    onChange={e => setNotePicked(p => ({ ...p, [one.code]: e.target.checked }))}
+                  />
                   <b>{one.code}</b>
                   <span className="desc">{one.name}</span>
                 </div>
@@ -1025,14 +1039,24 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                 {one.short !== one.note && (
                   <span className="desc">Dopravci půjde jen začátek: „{one.short}"</span>
                 )}
-              </div>
+              </label>
             ))}
           </div>
         </div>
         <div className="modal-foot">
           <button className="btn ghost" onClick={() => setNoteAsk(null)}>Zrušit</button>
-          <button className="btn ghost" onClick={() => noteAsk.run(false)}>Vyvézt bez poznámek</button>
-          <button className="btn primary" onClick={() => noteAsk.run(true)}>Přidat poznámky</button>
+          <button className="btn ghost" onClick={() => noteAsk.run([])}>Vyvézt bez poznámek</button>
+          <button
+            className="btn primary"
+            onClick={() => noteAsk.run(noteAsk.notes.map(one => one.code).filter(code => notePicked[code]))}
+          >
+            {(() => {
+              const picked = noteAsk.notes.filter(one => notePicked[one.code]).length;
+              return picked === noteAsk.notes.length
+                ? 'Přidat poznámky'
+                : picked === 0 ? 'Vyvézt bez poznámek' : `Přidat vybrané (${picked})`;
+            })()}
+          </button>
         </div>
       </div>
     </div>

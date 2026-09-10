@@ -206,7 +206,9 @@ export function packetNote(customer: string, content: string, limit = 128): stri
   return shortNote(parts.join(' • '), limit);
 }
 
-export async function createPackets(codes: string[], withNote = false): Promise<PacketaResult> {
+export async function createPackets(codes: string[], notes: string[] = []): Promise<PacketaResult> {
+  // Schvaluje se každá poznámka zvlášť — jedna může být pokyn kurýrovi, druhá vzkaz nám
+  const allowed = new Set(notes ?? []);
   const setup = packetaSetup();
   const pass = password();
   schema();
@@ -288,7 +290,7 @@ export async function createPackets(codes: string[], withNote = false): Promise<
        * kterého se jedná), pak obsah zásilky. Delší text jejich pole
        * neunese, proto se to zkracuje.
        */
-      note: packetNote(withNote ? String(order.note ?? '') : '', contentOf(items))
+      note: packetNote(allowed.has(code) ? String(order.note ?? '') : '', contentOf(items))
     });
 
     try {

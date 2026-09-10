@@ -120,7 +120,16 @@ export function saveBalikovnaSetup(next: Partial<BalikovnaSetup>): BalikovnaSetu
  * Teprve nastavené pořadí z nich udělá řádek. Rozdělení na hodnoty a jejich
  * pořadí je schválně oddělené: pořadí se mění v nastavení, hodnoty ne.
  */
-export function valuesOf(order: ShipOrder, setup: BalikovnaSetup): Record<string, string> {
+/**
+ * Hodnoty jednoho řádku.
+ *
+ * `allowed` je seznam objednávek, jejichž poznámku člověk schválil —
+ * schvaluje se totiž po jedné, ne všechny naráz. `null` znamená „všechny",
+ * což potřebují zkoušky a nic jiného.
+ */
+export function valuesOf(
+  order: ShipOrder, setup: BalikovnaSetup, allowed: Set<string> | null = null
+): Record<string, string> {
   const address = splitStreet(order.street);
   /*
    * U výdejního místa je příjemcem člověk, ale na zásilce musí být i název
@@ -169,7 +178,9 @@ export function valuesOf(order: ShipOrder, setup: BalikovnaSetup): Record<string
      * prázdné pole import odmítá, kdežto mezeru vezme. Přidává se do souboru
      * jen tehdy, když si člověk poznámky přečetl a schválil je.
      */
-    poznamka: setup.note ? (shortNote(order.note) || ' ') : '',
+    poznamka: setup.note
+      ? ((!allowed || allowed.has(order.code) ? shortNote(order.note) : '') || ' ')
+      : '',
     mistoNazev: order.company,
     mistoId: order.pickupId
   };
@@ -181,14 +192,16 @@ function columns(setup: BalikovnaSetup): string[] {
   return setup.order.split(',').map(one => one.trim()).filter(one => known.has(one));
 }
 
-export function balikovnaCsv(rows: ShipOrder[], setup: BalikovnaSetup): Buffer {
+export function balikovnaCsv(
+  rows: ShipOrder[], setup: BalikovnaSetup, allowed: Set<string> | null = null
+): Buffer {
   const keys = columns(setup);
   const lines: string[][] = [];
   if (setup.header) {
     lines.push(keys.map(key => FIELDS.find(one => one.key === key)?.label ?? key));
   }
   for (const row of rows) {
-    const values = valuesOf(row, setup);
+    const values = valuesOf(row, setup, allowed);
     lines.push(keys.map(key => values[key] ?? ''));
   }
   // UTF-8, ne Windows-1250 jako u PPL — Podání Online čte soubor v UTF-8
@@ -200,7 +213,10 @@ export function balikovnaRows(codes: string[]):
   return shipOrders(codes, balikovnaSetup().carrier);
 }
 
-export async function exportBalikovna(codes: string[], withNote = false): Promise<BalikovnaExport> {
+export async function exportBalikovna(codes: string[], notes: string[] = []): Promise<BalikovnaExport> {
+  // Schvaluje se každá poznámka zvlášť; sloupec je v souboru, jen když aspoň jedna prošla
+  const allowed = new Set(notes ?? []);
+  const withNote = allowed.size > 0;
   const setup = { ...balikovnaSetup(), note: withNote };
   const { rows, skipped } = balikovnaRows(codes);
   if (rows.length === 0) return { file: null, rows: 0, skipped, columns: columns(setup).length, notes: 0 };
@@ -214,10 +230,10 @@ export async function exportBalikovna(codes: string[], withNote = false): Promis
     return { file: null, rows: 0, skipped, columns: columns(setup).length, notes: 0 };
   }
 
-  fs.writeFileSync(res.filePath, balikovnaCsv(rows, setup));
+  fs.writeFileSync(res.filePath, balikovnaCsv(rows, setup, allowed));
   return {
     file: res.filePath, rows: rows.length, skipped, columns: columns(setup).length,
-    notes: withNote ? rows.filter(one => !!one.note).length : 0
+    notes: rows.filter(one => !!one.note && allowed.has(one.code)).length
   };
 }
 
