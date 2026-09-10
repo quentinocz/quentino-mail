@@ -151,20 +151,47 @@ ok('a platnost uložené kopie taky', body.includes('300 * 1000'));
  */
 function fakeElement(name) {
   const props = {};
+  const classes = new Set();
+  const attrs = {};
   const el = {
     tagName: name,
     className: '',
+    innerHTML: '',
+    children: [],
+    firstChild: null,
+    parentNode: null,
     style: {
       setProperty: (k, v) => { props[k] = v; },
       getPropertyValue: k => props[k] || ''
     },
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    setAttribute() {}, getAttribute: () => null, removeAttribute() {},
-    appendChild() {}, insertAdjacentHTML() {}, addEventListener() {},
-    querySelector: () => fakeElement('span'),
+    classList: {
+      add: c => classes.add(c), remove: c => classes.delete(c),
+      toggle() {}, contains: c => classes.has(c)
+    },
+    setAttribute: (k, v) => { attrs[k] = v; },
+    getAttribute: k => (k in attrs ? attrs[k] : null),
+    removeAttribute: k => { delete attrs[k]; },
+    appendChild: child => { el.children.push(child); child.parentNode = el; return child; },
+    insertBefore: child => { el.children.unshift(child); child.parentNode = el; return child; },
+    removeChild: child => { el.children = el.children.filter(x => x !== child); return child; },
+    insertAdjacentHTML() {}, addEventListener() {},
+    // Hledá se jen podle třídy — víc toho skript po prvcích nechce
+    querySelector: sel => {
+      const want = String(sel).replace(/^\./, '');
+      const walk = node => {
+        for (const kid of node.children) {
+          if (String(kid.className).split(' ').includes(want)) return kid;
+          const deeper = walk(kid);
+          if (deeper) return deeper;
+        }
+        return null;
+      };
+      return walk(el);
+    },
+    querySelectorAll: () => [],
     getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0, bottom: 0 }),
     textContent: '',
-    props
+    classes, props
   };
   return el;
 }
@@ -178,6 +205,11 @@ function run(plans, opts = {}) {
   const store = {};
   if (plans) store['quentino-texty-1'] = JSON.stringify({ at: Date.now(), data: { v: 1, plans } });
 
+  /*
+   * Prohlížeč kreslí text z proměnné v pseudoprvku. Náhrada dělá totéž:
+   * ::before hlásí to, co je zrovna v proměnné — jinak by se skript neměl
+   * podle čeho rozhodnout, kam vložit prvky s tučným textem.
+   */
   const win = {
     localStorage: {
       getItem: k => (opts.brokenStorage ? (() => { throw new Error('zakázáno'); })() : (store[k] ?? null)),
@@ -185,6 +217,10 @@ function run(plans, opts = {}) {
     },
     matchMedia: () => ({ matches: false }),
     addEventListener() {},
+    getComputedStyle: (el, which) => ({
+      content: which === '::before' ? (el.props ? el.props['--shipbox-content'] || el.props['--topbar-msg'] || '' : '') : 'none',
+      display: 'block', color: 'rgb(0, 0, 0)', fontWeight: '600', whiteSpace: 'pre-line'
+    }),
     innerWidth: 1200
   };
   const doc = {
@@ -201,13 +237,26 @@ function run(plans, opts = {}) {
     ? Promise.reject(new Error('bez sítě'))
     : Promise.resolve({ ok: true, json: async () => ({ v: 1, plans: plans ?? [] }) }));
 
+  const ticks = [];
   compiled(win, doc, { hostname: opts.host || 'www.quentino.cz' }, fetchStub,
-    () => 0, () => 0, cb => cb(), function () { return { observe() {}, disconnect() {} }; });
+    fn => { ticks.push(fn); return 0; }, () => 0, cb => cb(),
+    function () { return { observe() {}, disconnect() {} }; });
+  // Přepočet po minutě: dělá se jím totéž znovu nad už vykreslenou stránkou
+  for (let i = 0; i < (opts.ticks || 0); i++) ticks.forEach(fn => fn());
 
-  const unquote = s => s.replace(/^"|"$/g, '');
+  /*
+   * Zpátky z hodnoty CSS: uvozovky pryč, oddělovač řádků je „\A “ i s tou
+   * mezerou, která ho ukončuje, a zdvojené uvozovky se vrátí na jednoduché.
+   */
+  const unquote = s => s.replace(/^"|"$/g, '').replace(/\\"/g, '"');
+  const rich = node => (node.children[0] ? node.children[0].innerHTML : '');
   return {
-    box: unquote(box.style.getPropertyValue('--shipbox-content')).split('\\A'),
-    bar: unquote(bar.style.getPropertyValue('--topbar-msg'))
+    raw: box.style.getPropertyValue('--shipbox-content'),
+    box: unquote(box.style.getPropertyValue('--shipbox-content')).split('\\A '),
+    bar: unquote(bar.style.getPropertyValue('--topbar-msg')),
+    boxRich: rich(box),
+    barRich: rich(bar),
+    boxHidden: box.classes.has('q-no-before')
   };
 }
 
@@ -229,16 +278,83 @@ if (compiled) {
   const ted = Date.now();
   const bezici = [{
     id: 'a', fromMs: ted - 60000, toMs: ted + 3600000,
-    product: { on: true, ship: { cz: '🏖️ Expedice: až 8. 7., máme dovolenou' } },
+    product: { on: true, ship: { cz: 'až 8. 7., máme dovolenou' } },
     topbar: { on: true, text: { cz: '🏖️ Dovolená do 7. 7.' } },
     button: { on: true, text: { cz: 'Odesíláme po dovolené' } }
   }];
   const s = run(bezici);
-  ok('náhradní řádek expedice se ukáže', s.box.some(l => l.includes('máme dovolenou')));
-  ok('a emoji v něm zůstane', s.box.some(l => l.includes('🏖️')));
+  ok('náhradní hodnota expedice se ukáže', s.box.some(l => l.includes('máme dovolenou')));
+  /*
+   * Popisek musí zůstat. Bez něj by v boxu viselo holé datum a nikdo by
+   * nevěděl, čeho se týká — přesně tak to dopadlo při prvním nasazení.
+   */
+  ok('a popisek řádku zůstane', s.box.some(l => l.startsWith('✅ Expedice: ')));
+  ok('emoji v hodnotě projde', run([{
+    id: 'a2', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, ship: { cz: '🏖️ až 8. 7.' } }
+  }]).box.some(l => l.includes('🏖️')));
+  // Nadpis boxu se nesmí ztratit jen tím, že se oblast zaškrtne
+  ok('nadpis boxu zůstane', s.box.some(l => l.includes('PŘEDPOKLÁDANÝ STAV DORUČENÍ')));
   // Nevyplněný řádek se nesmí ztratit — má se dál počítat podle kalendáře
   ok('nevyplněné doručení se počítá dál', s.box.some(l => l.includes('Předpokládané doručení')));
   check('horní lišta je nahrazená', s.bar, '🏖️ Dovolená do 7. 7.');
+
+  /*
+   * Číslo hned za koncem řádku. Únik „\A“ je šestnáctkové číslo znaku,
+   * takže „\A21.9.“ prohlížeč přečte jako znak 0A21 — na e-shopu se místo
+   * data objevilo „ਡ.9.“ a předchozí řádek se ztratil. Mezera za únikem
+   * ho ukončí; kdyby zmizela, projeví se to zase až na webu.
+   */
+  const datum = run([{
+    id: 'd1', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, ship: { cz: '21.9.' } }
+  }]);
+  ok('oddělovač řádků končí mezerou', datum.raw.includes('\\A '));
+  ok('datum za koncem řádku zůstane datem', datum.box.some(l => l === '✅ Expedice: 21.9.'));
+  ok('a nadpis se před ním neztratí', datum.box.some(l => l.includes('PŘEDPOKLÁDANÝ STAV DORUČENÍ')));
+
+  /* Řádky jde i schovat */
+  const schovane = run([{
+    id: 'd2', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, hideShip: true, hideDelivery: true, hidePickup: true, hideHeader: true,
+      above: { cz: 'Máme zavřeno' } }
+  }]);
+  check('schová se, co se schovat má', schovane.box, ['Máme zavřeno']);
+
+  /* Uvozovka v textu nesmí hodnotu CSS ukončit */
+  const uvozovka = run([{
+    id: 'd3', fromMs: ted - 60000, toMs: ted + 3600000,
+    topbar: { on: true, text: { cz: 'Akce "podzim" končí' } }
+  }]);
+  check('uvozovka v textu projde', uvozovka.bar, 'Akce "podzim" končí');
+
+  /*
+   * Tučné slovo. Hodnota CSS „content“ formátování uvnitř neumí, takže se
+   * na to místo vloží skutečné prvky a pseudoprvek se schová. V samotné
+   * hodnotě nesmí zůstat hvězdičky — kdyby se rendrování nepovedlo,
+   * ukázaly by se na webu.
+   */
+  const tucne = run([{
+    id: 'd4', fromMs: ted - 60000, toMs: ted + 3600000,
+    topbar: { on: true, text: { cz: 'Doprava **zdarma** do konce týdne' } }
+  }]);
+  ok('hvězdičky se do CSS nedostanou', !tucne.bar.includes('**'));
+  check('a text zůstane celý', tucne.bar, 'Doprava zdarma do konce týdne');
+  ok('tučné slovo se vykreslí prvkem', tucne.barRich.includes('<b>zdarma</b>'));
+  // Bez tučného slova se nic navíc nekreslí — na vzhled boxu se nesahá
+  ok('bez hvězdiček se nic nevkládá', !run(bezici).boxRich);
+
+  /*
+   * Přepočet po minutě nesmí tučný text zahodit. Prvek, který text kreslí,
+   * se hledá podle vykresleného obsahu — a ten je po schování pseudoprvku
+   * pryč. Kdyby se hledalo pokaždé znovu, text by každou minutu na okamžik
+   * zmizel a zase se objevil.
+   */
+  const znovu = run([{
+    id: 'd5', fromMs: ted - 60000, toMs: ted + 3600000,
+    topbar: { on: true, text: { cz: 'Doprava **zdarma** do konce týdne' } }
+  }], { ticks: 3 });
+  ok('tučný text přežije přepočet', znovu.barRich.includes('<b>zdarma</b>'));
 
   /* Jeden náhradní text místo tří řádků */
   const jeden = run([{
@@ -252,8 +368,10 @@ if (compiled) {
     id: 'c', fromMs: ted - 60000, toMs: ted + 3600000,
     product: { on: true, above: { cz: 'NAHOŘE' }, below: { cz: 'DOLE' } }
   }]);
-  check('řádek navíc je nahoře', okolo.box[0], 'NAHOŘE');
-  check('a druhý dole', okolo.box[okolo.box.length - 1], 'DOLE');
+  // Řádek navíc patří pod nadpis, ne nad něj — nadpis je hlavička boxu
+  check('řádek navíc je pod nadpisem', okolo.box[1], 'NAHOŘE');
+  ok('a nadpis zůstal první', okolo.box[0].includes('PŘEDPOKLÁDANÝ STAV DORUČENÍ'));
+  check('druhý řádek je dole', okolo.box[okolo.box.length - 1], 'DOLE');
 
   /* Okno, které ještě nezačalo nebo už skončilo, se ignoruje */
   const mimo = run([{
@@ -297,7 +415,8 @@ if (compiled) {
  * pole a skript čte jiné. Obojí se přeloží, na webu se nezmění nic a hledá
  * se to hodinu.
  */
-for (const field of ['fromMs', 'toMs', 'product', 'topbar', 'links', 'button', 'hideHeader', 'hidePickup']) {
+for (const field of ['fromMs', 'toMs', 'product', 'topbar', 'links', 'button',
+  'hideHeader', 'hideShip', 'hideDelivery', 'hidePickup', 'above', 'below', 'one']) {
   ok(`skript čte pole ${field}`, body.includes(field));
 }
 

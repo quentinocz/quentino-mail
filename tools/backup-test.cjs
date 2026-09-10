@@ -253,11 +253,18 @@ set('balikovnaSetup', '{"carrier":"Balíkovna","type":"NB"}');
 set('packetaSetup', '{"eshop":"quentino.cz","labelFormat":"A6 on A4"}');
 set('packetaPassword', 'ŠIFRA(' + Buffer.from('tajne-heslo').toString('base64') + ')');
 set('portalLogins', 'ŠIFRA(' + Buffer.from('{"ppl":{"user":"quentino","pass":"x","auto":true}}').toString('base64') + ')');
-// Naplánované náhrady textů na webu: plán je obyčejná hodnota, klíč k úložišti šifra
+// Naplánované náhrady textů na webu: celé napojení i plán, klíč k úložišti šifra
 set('webTextsPlans', '[{"id":"a","name":"Dovolená","from":"2026-07-01T08:00","to":"2026-07-07T18:00"}]');
+set('webTextsUrl', 'https://xyzabc.supabase.co');
+set('webTextsBucket', 'web');
+set('webTextsPath', 'quentino-texty.json');
+set('webTextsPublicUrl', 'https://cdn.quentino.cz/texty.json');
+set('webTextsTtl', '5');
 set('webTextsKey', 'ŠIFRA(' + Buffer.from('service-role-klic').toString('base64') + ')');
-// Razítko posledního vystavení patří tomuhle počítači, ne záloze
+// Razítko posledního vystavení a rozdělaná práce patří tomuhle počítači, ne záloze
 set('webTextsPublishedAt', '2026-07-01T10:00:00Z');
+set('webTextsDirty', '1');
+set('webTextsError', 'zrovna nebyla síť');
 // Uložený rozbor z Analytics je stažená kopie cizích dat, ne nastavení
 set('ga4Deep2:365', '{"months":[]}');
 
@@ -392,10 +399,20 @@ console.log('\ntexty na webu:');
 {
   const text = JSON.stringify(zaloha);
   sedi('naplánované změny se přenesou', text.includes('webTextsPlans'));
+  /*
+   * Napojení na úložiště musí projít celé. Kdyby se přenesl jen plán, na
+   * druhém počítači by se sice ukázal, ale nešel by vystavit — a vypadalo
+   * by to, že se aplikace nenastavila, ne že chybí jedna hodnota.
+   */
+  for (const klic of ['webTextsUrl', 'webTextsBucket', 'webTextsPath', 'webTextsPublicUrl', 'webTextsTtl']) {
+    sedi(`nastavení ${klic} se přenese`, text.includes(klic));
+  }
   sedi('klíč k úložišti dojede čitelný', decrypted('webTextsKey') === 'service-role-klic',
     `dostal: ${decrypted('webTextsKey')}`);
-  // Kdy tenhle počítač naposledy publikoval, na druhém neplatí
+  // Kdy tenhle počítač naposledy publikoval a co mu zbylo rozdělané, na druhém neplatí
   sedi('razítko posledního vystavení v záloze není', !text.includes('webTextsPublishedAt'));
+  sedi('ani rozdělaná změna', !text.includes('webTextsDirty'));
+  sedi('ani poslední chyba', !text.includes('webTextsError'));
 }
 
 console.log(bad ? `\n${bad} věcí nesedí` : '\nzáloha přenese všechno, co má, a nic, co nemá');

@@ -47,6 +47,13 @@ const TEMPLATE = String.raw`
 
   var SOURCE = "__QUENTINO_PLAN_URL__";
   var TTL_MS = __QUENTINO_PLAN_TTL__ * 1000;
+  /*
+   * Jak často se texty přepočítají. Za provozu stačí minuta — mění se
+   * s denní dobou. Při zkoušení se ale nastavuje krátká platnost uložené
+   * kopie a čekat na projevení změny minutu je věčnost, tak se přepočítává
+   * stejně často, jak se plán obnovuje.
+   */
+  var TICK_MS = Math.max(1000, Math.min(60000, TTL_MS));
   var STORE = "quentino-texty-1";
   var TZ = "Europe/Prague";
 
@@ -66,6 +73,53 @@ const TEMPLATE = String.raw`
     if (typeof value === "string") return value;
     var out = value[LANG] || value.cz || "";
     return typeof out === "string" ? out.trim() : "";
+  }
+
+  /* ================= text do CSS a tučná slova ================= */
+
+  /*
+   * Text do hodnoty CSS.
+   *
+   * Tady se dá spolehlivě pokazit víc, než by čekal: hodnota je řetězec
+   * v uvozovkách, takže uvozovka uvnitř textu ji ukončí, zpětné lomítko
+   * začne únikovou sekvenci a konec řádku ji rozbije úplně. A hlavně —
+   * únik „\A“ (konec řádku) je šestnáctkové číslo znaku, takže si přibere
+   * i to, co za ním následuje: po „\A“ napsané „21.9.“ prohlížeč přečetl
+   * jako znak 0A21 a na e-shopu se místo data objevilo „ਡ.9.“. Mezera za
+   * únikem ho ukončí a sama se nevypíše — proto se odděluje „\A “ i mezerou.
+   */
+  function cssText(value) {
+    return String(value)
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
+      .replace(/\r?\n/g, "\\A ");
+  }
+  function cssLines(lines) {
+    return '"' + lines.map(cssText).join("\\A ") + '"';
+  }
+
+  /*
+   * Tučné slovo se píše dvěma hvězdičkami, jako se to píše v poště nebo
+   * v chatu. Hodnota CSS „content“ ale žádné formátování uvnitř neumí, tak
+   * se tam hvězdičky jen zahodí a text zůstane obyčejný; kde se kreslí
+   * skutečnými prvky, udělá se z toho tučný text.
+   */
+  function plain(value) {
+    return String(value).split("**").join("");
+  }
+  function bolded(value) {
+    return String(value).indexOf("**") >= 0;
+  }
+  function escapeHtml(value) {
+    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function boldHtml(value) {
+    var parts = String(value).split("**");
+    var out = "";
+    for (var i = 0; i < parts.length; i++) {
+      out += (i % 2 ? "<b>" + escapeHtml(parts[i]) + "</b>" : escapeHtml(parts[i]));
+    }
+    return out;
   }
 
   /* ================= plán a jeho úschova ================= */
@@ -200,6 +254,9 @@ const TEMPLATE = String.raw`
     cz: {
       guarantee: "🎄 Garance doručení do Vánoc při objednání do 18.12.",
       header: "PŘEDPOKLÁDANÝ STAV DORUČENÍ:",
+      ship_label: "✅ Expedice:",
+      delivery_label: "✅ Předpokládané doručení:",
+      pickup_label: "🏪 Osobní odběr:",
       ship_before_noon: "✅ Expedice: ihned zpracováváme (do 12:00)",
       ship_after_noon: "✅ Expedice: objednávku okamžitě připravíme k odeslání",
       ship_nonwork: function (d) { return "⚡ Expedice: bez zdržení – odesíláme " + d; },
@@ -214,6 +271,9 @@ const TEMPLATE = String.raw`
     sk: {
       guarantee: "🎄 Garancia doručenia do Vianoc pri objednávke do 18.12.",
       header: "PREDPOKLADANÝ STAV DORUČENIA:",
+      ship_label: "✅ Expedícia:",
+      delivery_label: "✅ Predpokladané doručenie:",
+      pickup_label: "🏪 Osobný odber:",
       ship_before_noon: "✅ Expedícia: ihneď spracúvame (do 12:00)",
       ship_after_noon: "✅ Expedícia: objednávku okamžite pripravíme na odoslanie",
       ship_nonwork: function (d) { return "⚡ Expedícia: bez zdržania – odosielame " + d; },
@@ -228,6 +288,9 @@ const TEMPLATE = String.raw`
     en: {
       guarantee: "🎄 Guaranteed Christmas delivery for orders placed by Dec 18",
       header: "ESTIMATED DELIVERY STATUS:",
+      ship_label: "✅ Dispatch:",
+      delivery_label: "✅ Estimated delivery:",
+      pickup_label: "🏪 Pick up in store:",
       ship_before_noon: "✅ Dispatch: processed immediately (before 12:00)",
       ship_after_noon: "✅ Dispatch: we prepare your order for shipping immediately",
       ship_nonwork: function (d) { return "⚡ Dispatch: fast & smooth – shipping on " + d; },
@@ -307,6 +370,164 @@ const TEMPLATE = String.raw`
     ]
   };
 
+  /* ================= tučné slovo ve skutečných prvcích ================= */
+
+  /*
+   * Box u produktu i horní lišta se kreslí přes CSS „content“ v pseudoprvku —
+   * je to jediné, na co jde v šabloně e-shopu dosáhnout. Uvnitř jedné hodnoty
+   * „content“ se ale nedá zvýraznit jedno slovo; je to jeden kus textu.
+   *
+   * Když se v textu objeví tučné slovo, vloží se proto na to místo skutečný
+   * prvek a pseudoprvek se schová. Aby to vypadalo stejně, **opíší se
+   * z pseudoprvku spočítané vlastnosti** — písmo, barva, odsazení, rámeček,
+   * umístění. Napsat vzhled natvrdo by znamenalo, že o vzhledu boxu
+   * rozhoduje tenhle skript místo vlastního CSS e-shopu, a po první úpravě
+   * vzhledu by se rozešly.
+   *
+   * Bez tučného slova se nekreslí nic navíc — za normálního provozu tahle
+   * část na vzhled vůbec nesahá.
+   */
+
+  var COPIED = [
+    "display", "position", "top", "right", "bottom", "left", "zIndex", "float",
+    "marginTop", "marginRight", "marginBottom", "marginLeft",
+    "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+    "border", "borderRadius", "background", "boxShadow", "color", "opacity", "transform",
+    "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing",
+    "textAlign", "textTransform", "textShadow", "whiteSpace", "maxWidth"
+  ];
+
+  function richStyle() {
+    if (document.getElementById("q-rich-style")) return;
+    var style = document.createElement("style");
+    style.id = "q-rich-style";
+    style.textContent = [
+      ".q-no-before::before { content: none !important; display: none !important; }",
+      ".q-no-after::after { content: none !important; display: none !important; }",
+      ".q-rich-line { display: block; }",
+      ".q-rich b { font-weight: 800; }"
+    ].join("\n");
+    document.head.appendChild(style);
+  }
+
+  /*
+   * Kus textu, podle kterého se pozná ten správný pseudoprvek. Emoji
+   * a interpunkce se vynechávají: v spočítané hodnotě „content“ bývají
+   * zapsané únikem, kdežto písmena a číslice tam jsou tak, jak jsou.
+   */
+  function probeOf(lines) {
+    var best = "";
+    for (var i = 0; i < lines.length; i++) {
+      var one = plain(lines[i]).replace(/[^0-9A-Za-zÀ-ž ]+/g, " ").replace(/\s+/g, " ").trim();
+      if (one.length > best.length) best = one;
+    }
+    return best.slice(0, 12);
+  }
+
+  /*
+   * Který prvek a který jeho pseudoprvek text kreslí.
+   *
+   * Hledá se i mezi potomky: proměnná se dědí, takže „content“ může sedět
+   * na vnořeném prvku a ne na tom, kterému se hodnota nastavuje.
+   */
+  function findPseudo(host, probe) {
+    if (!window.getComputedStyle || !probe) return null;
+    var candidates = [host];
+    var kids = host.querySelectorAll ? host.querySelectorAll("*") : [];
+    for (var k = 0; k < kids.length && k < 120; k++) candidates.push(kids[k]);
+    var which = ["::before", "::after"];
+    for (var i = 0; i < candidates.length; i++) {
+      for (var j = 0; j < which.length; j++) {
+        var value = "";
+        try { value = window.getComputedStyle(candidates[i], which[j]).content || ""; } catch (e) { value = ""; }
+        if (value && value.indexOf(probe) >= 0) return { el: candidates[i], which: which[j] };
+      }
+    }
+    return null;
+  }
+
+  function copyLook(from, which, to) {
+    var css = null;
+    try { css = window.getComputedStyle(from, which); } catch (e) { return; }
+    if (!css) return;
+    for (var i = 0; i < COPIED.length; i++) {
+      var value = css[COPIED[i]];
+      if (value) to.style[COPIED[i]] = value;
+    }
+    // Pseudoprvek bývá „inline“; řádky pod sebou potřebují blok
+    if (!to.style.display || to.style.display === "inline") to.style.display = "block";
+  }
+
+  function findRich(root) {
+    var kids = (root && root.children) || [];
+    for (var i = 0; i < kids.length; i++) {
+      if (String(kids[i].className).indexOf("q-rich") >= 0) return kids[i];
+    }
+    return null;
+  }
+
+  /*
+   * Prvek, který text kreslí, se hledá **jen jednou** a pak se označí.
+   *
+   * Podruhé už by se nenašel: jakmile se pseudoprvek schová, jeho „content“
+   * je pryč a hledání podle vykresleného textu nemá čeho se chytit. Kdyby
+   * se hledalo pokaždé, text by při každém přepočtu na okamžik zmizel
+   * a zase se objevil — blikalo by to každou minutu.
+   */
+  function carrierOf(host, lines) {
+    if (host.classList && host.classList.contains("q-carrier")) return host;
+    var marked = host.querySelector ? host.querySelector(".q-carrier") : null;
+    if (marked) return marked;
+
+    var found = findPseudo(host, probeOf(lines));
+    if (!found) return null;
+    found.el.classList.add("q-carrier");
+    found.el.setAttribute("data-q-pseudo", found.which);
+    return found.el;
+  }
+
+  function clearRich(host) {
+    var carrier = (host.classList && host.classList.contains("q-carrier"))
+      ? host
+      : (host.querySelector ? host.querySelector(".q-carrier") : null);
+    if (!carrier) return;
+    var box = findRich(carrier);
+    if (box && box.parentNode) box.parentNode.removeChild(box);
+    carrier.classList.remove("q-no-before");
+    carrier.classList.remove("q-no-after");
+  }
+
+  /**
+   * Vykreslí řádky skutečnými prvky, je-li v nich tučné slovo.
+   *
+   * Kreslí se **až po** nastavení hodnoty do CSS: podle vykresleného textu
+   * se pozná, ve kterém pseudoprvku sedí. Když se to nepozná, neudělá se nic
+   * a zůstane obyčejný text — je lepší přijít o tučné písmo než o celý box.
+   */
+  function rich(host, variable, lines) {
+    var need = false;
+    for (var i = 0; i < lines.length; i++) if (bolded(lines[i])) need = true;
+    if (!need) { clearRich(host); return; }
+
+    richStyle();
+    var carrier = carrierOf(host, lines);
+    if (!carrier) return;
+    var which = carrier.getAttribute("data-q-pseudo") || "::before";
+
+    var box = findRich(carrier);
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "q-rich";
+      if (which === "::before" && carrier.firstChild) carrier.insertBefore(box, carrier.firstChild);
+      else carrier.appendChild(box);
+      copyLook(carrier, which, box);
+    }
+    box.innerHTML = lines.map(function (one) {
+      return '<span class="q-rich-line">' + boldHtml(one) + "</span>";
+    }).join("");
+    carrier.classList.add(which === "::after" ? "q-no-after" : "q-no-before");
+  }
+
   /* ================= 1. box u produktu ================= */
 
   function isInStock() {
@@ -353,45 +574,78 @@ const TEMPLATE = String.raw`
    * jinak by se každá dovolená musela po návratu ručně mazat, aby se e-shop
    * vrátil k pravdě.
    */
+  /*
+   * Náhrada mění **jen hodnotu za dvojtečkou**, popisek zůstává.
+   *
+   * Řádek je „✅ Expedice: ihned zpracováváme (do 12:00)“ a nahradit se
+   * potřebuje to za dvojtečkou — datum, poznámka. Kdyby se přepisoval celý
+   * řádek, musel by se pokaždé znovu opisovat i emotikon a slovo Expedice,
+   * a stačilo by jednou zapomenout, aby v boxu zůstalo holé „21.9.“ bez
+   * jakéhokoli vysvětlení. Přesně to se stalo při prvním nasazení.
+   */
+  function valued(label, value) {
+    return label + " " + value;
+  }
+
   function boxLines(o) {
     var T = BOX[LANG] || BOX.cz;
     var t = nowCz();
     var lines = [];
 
-    if (o && o.above) lines.push(pick(o.above));
-
-    var head = (o && o.header) ? pick(o.header) : T.header;
+    /*
+     * Pozor na prázdné texty: oblast má všechna políčka vždycky, jen bývají
+     * prázdná. Ptát se na „o.header“ je proto vždycky pravda — musí se ptát
+     * na jeho obsah, jinak nadpis zmizí, jakmile se oblast zaškrtne.
+     */
+    var head = (o && pick(o.header)) || T.header;
     var hideHead = !!(o && o.hideHeader);
+    var above = o ? pick(o.above) : "";
+    var below = o ? pick(o.below) : "";
+    var one = o ? pick(o.one) : "";
 
-    if (o && o.one && pick(o.one)) {
-      if (!hideHead && head) lines.push(head);
-      lines.push(pick(o.one));
+    if (one) {
+      if (!hideHead) lines.push(head);
+      /*
+       * Řádek navíc patří dovnitř boxu, pod nadpis — ne nad něj. Nadpis je
+       * hlavička celého boxu a text nad ní by visel mimo.
+       */
+      if (above) lines.push(above);
+      lines.push(one);
     } else {
-      if (!(o && o.ship) && t.m === 12 && t.d >= 1 && t.d <= 18) lines.push(T.guarantee);
-      if (!hideHead && head) lines.push(head);
-
       var ship = dynamicShip(t, T);
-      lines.push((o && pick(o.ship)) || ship.line);
-      lines.push((o && pick(o.delivery)) || dynamicDelivery(t, ship.day, T));
+      var shipText = o ? pick(o.ship) : "";
+      var deliveryText = o ? pick(o.delivery) : "";
+      var pickupText = o ? pick(o.pickup) : "";
 
-      if (o && pick(o.pickup)) lines.push(pick(o.pickup));
-      else if (!(o && o.hidePickup) && isInStock()) lines.push(T.pickup);
+      // Vánoční garance platí, jen dokud se expedice počítá sama
+      if (!shipText && t.m === 12 && t.d >= 1 && t.d <= 18) lines.push(T.guarantee);
+      if (!hideHead) lines.push(head);
+      if (above) lines.push(above);
+
+      if (!(o && o.hideShip)) {
+        lines.push(shipText ? valued(T.ship_label, shipText) : ship.line);
+      }
+      if (!(o && o.hideDelivery)) {
+        lines.push(deliveryText
+          ? valued(T.delivery_label, deliveryText)
+          : dynamicDelivery(t, ship.day, T));
+      }
+      if (!(o && o.hidePickup)) {
+        if (pickupText) lines.push(valued(T.pickup_label, pickupText));
+        else if (isInStock()) lines.push(T.pickup);
+      }
     }
 
-    if (o && o.below) lines.push(pick(o.below));
+    if (below) lines.push(below);
     return lines;
   }
 
   function applyBox(ov) {
     var el = document.querySelector(".pd-shrt-desc");
     if (!el) return;
-    /*
-     * Řádky se do jedné hodnoty CSS skládají značkou „\A“ — to je v CSS
-     * konec řádku uvnitř „content“. Uvozovka uvnitř textu by hodnotu
-     * ukončila předčasně, proto se zdvojuje zpětným lomítkem.
-     */
-    var content = boxLines(ov.product).join("\\A");
-    el.style.setProperty("--shipbox-content", '"' + content.replace(/"/g, '\\"') + '"');
+    var lines = boxLines(ov.product);
+    el.style.setProperty("--shipbox-content", cssLines(lines.map(plain)));
+    rich(el, "--shipbox-content", lines);
   }
 
   /* ================= 2. horní lišta s doručením ================= */
@@ -431,7 +685,8 @@ const TEMPLATE = String.raw`
     var el = document.querySelector(".hdr-phn");
     if (!el) return;
     var msg = ov.topbar || barMessage();
-    el.style.setProperty("--topbar-msg", '"' + msg.replace(/"/g, '\\"') + '"');
+    el.style.setProperty("--topbar-msg", cssLines([plain(msg)]));
+    rich(el, "--topbar-msg", [msg]);
   }
 
   /* ================= 3. lišta s odkazy ================= */
@@ -477,7 +732,8 @@ const TEMPLATE = String.raw`
     link.href = item.href;
     link.target = item.blank ? "_blank" : "";
     link.rel = item.blank ? "noopener" : "";
-    textEl.textContent = item.text;
+    // Skutečný prvek — tučné slovo se sem dá vložit rovnou, bez oklik
+    textEl.innerHTML = boldHtml(item.text);
   }
 
   function buildBar(items) {
@@ -607,7 +863,7 @@ const TEMPLATE = String.raw`
       tipEl.setAttribute("role", "tooltip");
       document.body.appendChild(tipEl);
     }
-    tipEl.textContent = text;
+    tipEl.innerHTML = boldHtml(text);
     tipEl.classList.add("on");
     var box = button.getBoundingClientRect();
     var own = tipEl.getBoundingClientRect();
@@ -649,7 +905,7 @@ const TEMPLATE = String.raw`
         note.className = "q-btnnote";
         if (button.parentNode) button.parentNode.appendChild(note);
       }
-      note.textContent = text;
+      note.innerHTML = boldHtml(text);
       return;
     }
 
@@ -741,7 +997,7 @@ const TEMPLATE = String.raw`
     if (window.requestIdleCallback) window.requestIdleCallback(function () { refresh(false); }, { timeout: 3000 });
     else setTimeout(function () { refresh(false); }, 300);
 
-    setInterval(function () { applyAll(); refresh(false); }, 60000);
+    setInterval(function () { applyAll(); refresh(false); }, TICK_MS);
     // Vrácení k odložené záložce: text může být hodinu starý
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) { applyAll(); refresh(false); }
