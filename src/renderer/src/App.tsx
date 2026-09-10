@@ -16,6 +16,7 @@ import DigestModal from './components/DigestModal';
 import PackingModal from './components/PackingModal';
 import ProductsModal from './components/ProductsModal';
 import ArticlesModal from './components/ArticlesModal';
+import WebTextsModal from './components/WebTextsModal';
 import CatalogModal from './components/CatalogModal';
 import PtransStatusBar from './components/PtransStatusBar';
 import LiveOfferBar from './components/LiveOfferBar';
@@ -363,6 +364,7 @@ function AppInner() {
         <>
           {aiTool === 'ptrans' && <ProductsModal onClose={() => setAiTool(null)} />}
           {aiTool === 'articles' && <ArticlesModal onClose={() => setAiTool(null)} />}
+          {aiTool === 'webtexts' && <WebTextsModal onClose={() => setAiTool(null)} />}
           <PtransStatusBar hidden={aiTool ?? undefined} onOpen={tool => setAiTool(tool)} />
           {/*
             * Rozdělaná práce z telefonu. Nabízí se, nevnucuje — a když je

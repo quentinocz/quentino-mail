@@ -1,0 +1,305 @@
+/**
+ * Zkouška naplánovaných náhrad textů na webu.
+ *
+ * Zkouší se dvě strany téže věci a hlavně to, že si rozumí:
+ *
+ *  1. **aplikace** — počítání pražského času na minutu přesně (včetně noci,
+ *     kdy se přehazuje letní čas), hlídání překryvů a to, co se posílá na web,
+ *  2. **skript na webu** — že se dá přeložit, že z plánu vybere to, co zrovna
+ *     platí, a že když plán chybí nebo je úložiště nedostupné, vykreslí se
+ *     přesně to, co se vykreslovalo doteď.
+ *
+ * Druhá část je tu proto, že přesně tudy vede cesta k tiché chybě: aplikace
+ * by vystavila jinak pojmenované pole, než jaké skript čte, obojí by prošlo
+ * překladem a na webu by se prostě nic nezměnilo.
+ */
+const path = require('path');
+const { db, DIST } = require('./ptrans/harness.cjs');
+
+let failed = 0;
+function check(label, got, want) {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  if (!ok) failed++;
+  console.log(`  ${ok ? '✓' : '✗'} ${label}`);
+  if (!ok) { console.log('      čekáno:', JSON.stringify(want)); console.log('      dostal:', JSON.stringify(got)); }
+}
+function ok(label, value, note = '') {
+  check(label + (value ? '' : note ? ` (${note})` : ''), !!value, true);
+}
+
+// Trezor mimo Electron není; zkouší se plánování, ne šifrování
+const secPath = require.resolve(path.join(DIST, 'secure.js'));
+require.cache[secPath] = { id: secPath, filename: secPath, loaded: true, exports: {
+  encrypt: v => v, decrypt: v => v
+} };
+
+const webtexts = require(path.join(DIST, 'webtexts.js'));
+const { headScript } = require(path.join(DIST, 'webscript.js'));
+const T = webtexts.__test;
+
+console.log('\ntexty na webu:\n');
+
+/* ---------- pražský čas ---------- */
+
+/*
+ * Napevno napsaný posun by fungoval půl roku. V zimě je Praha na +01:00,
+ * v létě na +02:00 a plán se dělá i přes ten přechod — dovolená přes konec
+ * října by jinak skončila o hodinu jinde, než co je napsané na papíře.
+ */
+check('zimní čas je UTC+1', new Date(T.czMs('2026-01-15T08:00')).toISOString(), '2026-01-15T07:00:00.000Z');
+check('letní čas je UTC+2', new Date(T.czMs('2026-07-15T08:00')).toISOString(), '2026-07-15T06:00:00.000Z');
+// Poslední březnová neděle: ve 2:00 se přeskočí na 3:00
+check('ráno po přechodu na letní čas', new Date(T.czMs('2026-03-29T08:00')).toISOString(), '2026-03-29T06:00:00.000Z');
+check('a zpátky se to trefí', T.czLocal(T.czMs('2026-03-29T08:00')), '2026-03-29T08:00');
+check('konec platnosti je včetně své minuty',
+  T.czMs('2026-01-15T18:00', true) - T.czMs('2026-01-15T18:00'), 59999);
+check('minuta zpět přes půlnoc', T.shiftMinutes('2026-01-15T00:00', -1), '2026-01-14T23:59');
+
+/* ---------- co je platná změna ---------- */
+
+const plan = (over = {}) => T.normalize(Object.assign({
+  id: 'a', name: 'Dovolená', from: '2026-07-01T08:00', to: '2026-07-07T18:00',
+  topbar: { on: true, text: { cz: '🏖️ Do 7. 7. máme dovolenou', sk: '', en: '' } }
+}, over));
+
+check('změna bez konce se neuloží', T.validate(plan({ to: '' })), 'Chybí platnost do.');
+check('ani obráceně otočená', T.validate(plan({ to: '2026-06-01T08:00' })),
+  'Konec platnosti musí být po jejím začátku.');
+check('ani prázdná', T.validate(plan({ topbar: { on: true, text: { cz: '', sk: '', en: '' } } })),
+  'Změna nic nenastavuje — vyplň aspoň jeden text.');
+check('vyplněná projde', T.validate(plan()), '');
+// Emoji jsou v zadání: JSON i úložiště jsou UTF-8, nic se s nimi dělat nemusí
+ok('emoji přežije uložení', JSON.parse(T.payload([plan()])).plans[0].topbar.text.cz.includes('🏖️'));
+
+/* ---------- co se posílá na web ---------- */
+
+const vanoce = T.normalize({
+  id: 'b', name: 'Vánoce', from: '2026-12-20T00:00', to: '2026-12-26T23:59',
+  product: { on: true, ship: { cz: '🎄 Expedujeme až 27. 12.', sk: '', en: '' } },
+  links: { on: false, mode: 'add', items: [{ text: { cz: 'nepoužito' } }] },
+  button: { on: true, text: { cz: 'Doprava zdarma', sk: '', en: '' } }
+});
+const vypnuta = T.normalize({
+  id: 'c', name: 'Vypnutá', from: '2026-07-02T00:00', to: '2026-07-03T00:00', off: true,
+  topbar: { on: true, text: { cz: 'nemá se ukázat' } }
+});
+
+const sent = JSON.parse(T.payload([plan(), vanoce, vypnuta]));
+check('na web jdou jen zapnuté změny', sent.plans.map(p => p.id), ['a', 'b']);
+// Nezaškrtnutá oblast se neposílá — web ji má počítat dál po svém
+ok('nezaškrtnutá oblast se neposílá', sent.plans[1].links === undefined);
+ok('zaškrtnutá ano', !!sent.plans[1].product);
+ok('název změny na web nepatří', sent.plans[0].name === undefined);
+ok('časy jdou v milisekundách', typeof sent.plans[0].fromMs === 'number');
+
+/* ---------- překryvy ---------- */
+
+/*
+ * Překryv není chyba — prohlížeč si vybere tu, která začala později. Je to
+ * ale pravidlo, které nikdo nevidí, takže se na to musí umět upozornit dřív,
+ * než se změna uloží.
+ */
+const seznam = [
+  T.normalize({ id: 'x', name: 'Dřívější', from: '2026-07-01T00:00', to: '2026-07-10T23:59',
+    topbar: { on: true, text: { cz: 'A' } } }),
+  T.normalize({ id: 'y', name: 'Pozdější', from: '2026-07-20T00:00', to: '2026-07-25T00:00',
+    topbar: { on: true, text: { cz: 'B' } } })
+];
+const nova = T.normalize({ id: 'z', name: 'Nová', from: '2026-07-05T09:30', to: '2026-07-22T12:00',
+  topbar: { on: true, text: { cz: 'C' } } });
+
+const kolize = T.clashes(nova, seznam);
+check('najdou se obě kolize', kolize.map(k => k.id), ['x', 'y']);
+// Zkrátit jde jen tu, která začala dřív — u pozdější by posun konce nepomohl
+check('dřívější se dá zkrátit na minutu před novou', kolize[0].shortenTo, '2026-07-05T09:29');
+check('pozdější zkrátit nejde', kolize[1].shortenTo, '');
+check('mimo okno se nic nehlásí',
+  T.clashes(T.normalize({ id: 'w', from: '2026-08-01T00:00', to: '2026-08-02T00:00',
+    topbar: { on: true, text: { cz: 'D' } } }), seznam).length, 0);
+
+/* ---------- skript pro web ---------- */
+
+console.log('\nskript na e-shopu:\n');
+
+const script = headScript({ url: 'https://xyz.supabase.co/storage/v1/object/public/web/t.json', ttl: 300 });
+const body = script.replace(/^<script>/, '').replace(/<\/script>$/, '');
+
+/*
+ * Že se skript dá přeložit, je to nejdůležitější: chyba v něm se jinak
+ * projeví až na e-shopu tím, že se nic nezobrazí, a nikdo neví proč.
+ */
+let compiled = null;
+try {
+  // eslint-disable-next-line no-new-func
+  compiled = new Function(
+    'window', 'document', 'location', 'fetch', 'setInterval', 'setTimeout',
+    'requestAnimationFrame', 'MutationObserver', body
+  );
+  ok('skript se dá přeložit', true);
+} catch (e) {
+  ok(`skript se dá přeložit — ${e.message}`, false);
+}
+ok('adresa plánu je v něm doplněná', script.includes('https://xyz.supabase.co/storage/v1/object/public/web/t.json'));
+ok('a platnost uložené kopie taky', body.includes('300 * 1000'));
+
+/* ---------- skript v náhradním prohlížeči ---------- */
+
+/*
+ * Prohlížeč se nahradí tím nejmenším, co skript potřebuje. Nejde o to
+ * vykreslit stránku — jde o dvě hodnoty, které skript nastavuje do CSS,
+ * a o to, že se k nim dostane i bez sítě.
+ */
+function fakeElement(name) {
+  const props = {};
+  const el = {
+    tagName: name,
+    className: '',
+    style: {
+      setProperty: (k, v) => { props[k] = v; },
+      getPropertyValue: k => props[k] || ''
+    },
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {}, getAttribute: () => null, removeAttribute() {},
+    appendChild() {}, insertAdjacentHTML() {}, addEventListener() {},
+    querySelector: () => fakeElement('span'),
+    getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0, bottom: 0 }),
+    textContent: '',
+    props
+  };
+  return el;
+}
+
+/** Spustí skript s daným plánem v úschově a vrátí, co nastavil do CSS. */
+function run(plans, opts = {}) {
+  const box = fakeElement('div');
+  const bar = fakeElement('div');
+  const known = { '.pd-shrt-desc': box, '.hdr-phn': bar };
+
+  const store = {};
+  if (plans) store['quentino-texty-1'] = JSON.stringify({ at: Date.now(), data: { v: 1, plans } });
+
+  const win = {
+    localStorage: {
+      getItem: k => (opts.brokenStorage ? (() => { throw new Error('zakázáno'); })() : (store[k] ?? null)),
+      setItem: (k, v) => { store[k] = v; }
+    },
+    matchMedia: () => ({ matches: false }),
+    addEventListener() {},
+    innerWidth: 1200
+  };
+  const doc = {
+    readyState: 'complete',
+    hidden: false,
+    head: fakeElement('head'),
+    body: fakeElement('body'),
+    getElementById: () => null,
+    createElement: fakeElement,
+    querySelector: sel => known[sel] ?? null,
+    addEventListener() {}
+  };
+  const fetchStub = () => (opts.offline
+    ? Promise.reject(new Error('bez sítě'))
+    : Promise.resolve({ ok: true, json: async () => ({ v: 1, plans: plans ?? [] }) }));
+
+  compiled(win, doc, { hostname: opts.host || 'www.quentino.cz' }, fetchStub,
+    () => 0, () => 0, cb => cb(), function () { return { observe() {}, disconnect() {} }; });
+
+  const unquote = s => s.replace(/^"|"$/g, '');
+  return {
+    box: unquote(box.style.getPropertyValue('--shipbox-content')).split('\\A'),
+    bar: unquote(bar.style.getPropertyValue('--topbar-msg'))
+  };
+}
+
+if (compiled) {
+  /* Bez plánu se musí chovat přesně jako doteď */
+  const bez = run(null);
+  ok('bez plánu se vykreslí nadpis boxu', bez.box.some(l => l.includes('PŘEDPOKLÁDANÝ STAV DORUČENÍ')));
+  ok('bez plánu má box řádek o expedici', bez.box.some(l => l.includes('Expedice')));
+  ok('bez plánu má box řádek o doručení', bez.box.some(l => l.includes('Předpokládané doručení')));
+  ok('a horní lišta není prázdná', bez.bar.length > 5);
+
+  /* Nedostupné úložiště nesmí nic pokazit */
+  const spadle = run(null, { offline: true });
+  ok('výpadek úložiště nechá dynamický text', spadle.box.some(l => l.includes('Expedice')));
+  const bezUschovy = run(null, { brokenStorage: true });
+  ok('zakázaná úschova v prohlížeči taky', bezUschovy.box.some(l => l.includes('Expedice')));
+
+  /* Běžící změna přepíše jen to, co má vyplněné */
+  const ted = Date.now();
+  const bezici = [{
+    id: 'a', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, ship: { cz: '🏖️ Expedice: až 8. 7., máme dovolenou' } },
+    topbar: { on: true, text: { cz: '🏖️ Dovolená do 7. 7.' } },
+    button: { on: true, text: { cz: 'Odesíláme po dovolené' } }
+  }];
+  const s = run(bezici);
+  ok('náhradní řádek expedice se ukáže', s.box.some(l => l.includes('máme dovolenou')));
+  ok('a emoji v něm zůstane', s.box.some(l => l.includes('🏖️')));
+  // Nevyplněný řádek se nesmí ztratit — má se dál počítat podle kalendáře
+  ok('nevyplněné doručení se počítá dál', s.box.some(l => l.includes('Předpokládané doručení')));
+  check('horní lišta je nahrazená', s.bar, '🏖️ Dovolená do 7. 7.');
+
+  /* Jeden náhradní text místo tří řádků */
+  const jeden = run([{
+    id: 'b', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, one: { cz: '⛔ Do 5. 1. neexpedujeme' }, hideHeader: true }
+  }]);
+  check('místo tří řádků jeden', jeden.box, ['⛔ Do 5. 1. neexpedujeme']);
+
+  /* Řádek nad a pod */
+  const okolo = run([{
+    id: 'c', fromMs: ted - 60000, toMs: ted + 3600000,
+    product: { on: true, above: { cz: 'NAHOŘE' }, below: { cz: 'DOLE' } }
+  }]);
+  check('řádek navíc je nahoře', okolo.box[0], 'NAHOŘE');
+  check('a druhý dole', okolo.box[okolo.box.length - 1], 'DOLE');
+
+  /* Okno, které ještě nezačalo nebo už skončilo, se ignoruje */
+  const mimo = run([{
+    id: 'd', fromMs: ted + 3600000, toMs: ted + 7200000,
+    topbar: { on: true, text: { cz: 'ZATÍM NE' } }
+  }]);
+  ok('naplánovaná změna se neukáže dřív', mimo.bar !== 'ZATÍM NE');
+  const stara = run([{
+    id: 'e', fromMs: ted - 7200000, toMs: ted - 3600000,
+    topbar: { on: true, text: { cz: 'UŽ NE' } }
+  }]);
+  ok('skončená změna se sama přestane ukazovat', stara.bar !== 'UŽ NE');
+
+  /*
+   * Dvě běžící okna naráz aplikace nepustí, ale kdyby se to stalo, musí být
+   * jasné, které vyhraje: to, které začalo později — je to novější rozhodnutí.
+   */
+  const dve = run([
+    { id: 'f', fromMs: ted - 7200000, toMs: ted + 3600000, topbar: { on: true, text: { cz: 'STARŠÍ' } } },
+    { id: 'g', fromMs: ted - 60000, toMs: ted + 3600000, topbar: { on: true, text: { cz: 'NOVĚJŠÍ' } } }
+  ]);
+  check('při překryvu vyhraje pozdější začátek', dve.bar, 'NOVĚJŠÍ');
+
+  /* Jazyky: chybí-li slovenština, ukáže se čeština */
+  const sk = run([{
+    id: 'h', fromMs: ted - 60000, toMs: ted + 3600000,
+    topbar: { on: true, text: { cz: 'ČESKY', sk: 'SLOVENSKY' } }
+  }], { host: 'www.quentino.sk' });
+  check('slovenský web bere slovenský text', sk.bar, 'SLOVENSKY');
+  const en = run([{
+    id: 'i', fromMs: ted - 60000, toMs: ted + 3600000,
+    topbar: { on: true, text: { cz: 'ČESKY' } }
+  }], { host: 'www.wearquentino.com' });
+  check('chybějící překlad padne na češtinu', en.bar, 'ČESKY');
+}
+
+/* ---------- názvy polí sedí na obou stranách ---------- */
+
+/*
+ * Tohle je ta tichá chyba, kvůli které zkouška vznikla: aplikace vystaví
+ * pole a skript čte jiné. Obojí se přeloží, na webu se nezmění nic a hledá
+ * se to hodinu.
+ */
+for (const field of ['fromMs', 'toMs', 'product', 'topbar', 'links', 'button', 'hideHeader', 'hidePickup']) {
+  ok(`skript čte pole ${field}`, body.includes(field));
+}
+
+console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
+process.exit(failed === 0 ? 0 : 1);

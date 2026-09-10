@@ -13,7 +13,7 @@ export type Workspace = 'mail' | 'chat' | 'instagram';
  * dne, balení, katalog) měl vlastní řádky v panelu složek. Byly to dvě různá
  * místa pro tutéž věc a v poště přebývala tlačítka, která s poštou nesouvisí.
  */
-export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles';
+export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles' | 'webtexts';
 
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
@@ -32,7 +32,8 @@ export const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string; 
   { id: 'catalog', icon: 'layers', label: 'Katalog a naskladnění', hint: 'Produkty a zásoby, příjem zboží, štítky s kódem' },
   { id: 'instagram', icon: 'image', label: 'Sociální sítě', hint: 'Instagram a Facebook ve všech trzích' },
   { id: 'ptrans', icon: 'globe', label: 'Překlady produktů', hint: 'Jazykové mutace z produktového feedu', desktopOnly: true },
-  { id: 'articles', icon: 'fileText', label: 'Články', hint: 'Psaní a překlad článků pro e-shop', desktopOnly: true }
+  { id: 'articles', icon: 'fileText', label: 'Články', hint: 'Psaní a překlad článků pro e-shop', desktopOnly: true },
+  { id: 'webtexts', icon: 'globe', label: 'Texty na webu', hint: 'Naplánované náhrady textů o doručení a odkazů', desktopOnly: true }
 ];
 
 /**

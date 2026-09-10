@@ -58,6 +58,7 @@ import { getDb } from './db';
 import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
+import * as webtexts from './webtexts';
 import { portalLogins, savePortalLogin } from './portallogin';
 import { articleStats, articleStat } from './artstats';
 import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabels } from './ppl';
@@ -500,6 +501,19 @@ export function registerIpc() {
   handle('balikovna:open', () => openBalikovna());
   // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho
   handle('balikovna:import', (file: string) => openBalikovnaImport(file));
+
+  /* ---------- texty na webu ---------- */
+  handle('webtexts:state', () => webtexts.webTextsState());
+  // Otevření modulu se ptá webu — pravda je ve vystaveném souboru
+  handle('webtexts:load', () => webtexts.loadWebTexts());
+  handle('webtexts:save', (plan: any) => webtexts.saveWebPlan(plan));
+  handle('webtexts:delete', (id: string) => webtexts.deleteWebPlan(id));
+  handle('webtexts:toggle', (id: string, off: boolean) => webtexts.toggleWebPlan(id, !!off));
+  // Co se s plánovanou změnou pere o tentýž čas — ptá se rozhraní při psaní
+  handle('webtexts:clashes', (plan: any) => webtexts.webClashes(plan));
+  handle('webtexts:shorten', (id: string, ids: string[]) => webtexts.shortenWebPlans(id, ids ?? []));
+  handle('webtexts:publish', () => webtexts.publishWebTexts());
+  handle('webtexts:config', (next: any) => webtexts.saveWebTextsConfig(next ?? {}));
 
   /* ---------- přihlášení do cizích administrací ---------- */
   handle('logins:list', () => portalLogins());

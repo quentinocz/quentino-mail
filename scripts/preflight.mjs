@@ -601,7 +601,12 @@ function checkChannels() {
  * zmrazil) a proužek s nabídkou rozdělané práce — kdo drží telefon, dívá se
  * na to, co dělá.
  */
-const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:'];
+/*
+ * Texty na webu se plánují u počítače: je to formulář na tři jazyky, čtyři
+ * oblasti a dvě data. Na telefonu by se v tom nedalo pracovat a nastavení
+ * se stejně vystavuje na web, odkud si ho vezme kdokoli.
+ */
+const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:'];
 const DESKTOP_ONLY = [
   'app:version',
   // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači

@@ -2562,3 +2562,124 @@ export interface InvoiceLearned {
   /** Adresa detailu objednávky, když se jede přes něj */
   detail: string;
 }
+
+/* ==================== Texty na webu ==================== */
+
+/**
+ * Naplánovaná náhrada textů na e-shopu.
+ *
+ * Skript v hlavičce e-shopu skládá texty o doručení sám podle kalendáře
+ * a denní doby. Občas ale platí něco jiného, než co kalendář ví — dovolená,
+ * výpadek dopravce, akce. Náhrada se proto plánuje dopředu, na minutu přesně,
+ * a to, co se nenastaví, počítá skript dál po svém.
+ */
+export interface WebText {
+  cz: string;
+  sk: string;
+  en: string;
+}
+
+/** Jeden odkaz v horní liště — text i cíl mají svou jazykovou verzi. */
+export interface WebLink {
+  text: WebText;
+  href: WebText;
+  /** Otevřít v nové záložce */
+  blank: boolean;
+}
+
+/** Box u produktu — tři řádky o expedici, doručení a osobním odběru. */
+export interface WebProductArea {
+  on: boolean;
+  /** Místo všech tří řádků jediný náhradní text */
+  one: WebText;
+  /** Řádek navíc nad boxem */
+  above: WebText;
+  /** Nadpis boxu; prázdné = původní */
+  header: WebText;
+  hideHeader: boolean;
+  ship: WebText;
+  delivery: WebText;
+  pickup: WebText;
+  /** Osobní odběr neukazovat vůbec */
+  hidePickup: boolean;
+  /** Řádek navíc pod boxem */
+  below: WebText;
+}
+
+/** Horní lišta s doručením — jeden text přes celou šířku. */
+export interface WebBarArea {
+  on: boolean;
+  text: WebText;
+}
+
+/**
+ * Lišta s odkazy.
+ *
+ * `add` přidá odkazy ke stávajícím (střídají se dokola), `replace` je
+ * nahradí a `off` lištu na dobu platnosti schová.
+ */
+export interface WebLinksArea {
+  on: boolean;
+  mode: 'add' | 'replace' | 'off';
+  items: WebLink[];
+}
+
+/** Bublina u tlačítka „Objednávka zavazující k platbě". */
+export interface WebButtonArea {
+  on: boolean;
+  text: WebText;
+}
+
+export interface WebPlan {
+  id: string;
+  /** Jak se změna jmenuje v seznamu — na web se to neposílá */
+  name: string;
+  /** Platnost od, místní čas v Praze: „2026-09-20T08:00" */
+  from: string;
+  to: string;
+  /** Tytéž časy v milisekundách — podle nich se rozhoduje prohlížeč */
+  fromMs: number;
+  toMs: number;
+  /** Dočasně vypnuto, aniž by se muselo mazat */
+  off: boolean;
+  product: WebProductArea;
+  topbar: WebBarArea;
+  links: WebLinksArea;
+  button: WebButtonArea;
+}
+
+export interface WebTextsConfig {
+  /** Adresa projektu Supabase, do jehož úložiště se plán ukládá */
+  url: string;
+  hasKey: boolean;
+  bucket: string;
+  path: string;
+  /** Odkud plán čte web — z toho se skládá skript do hlavičky */
+  publicUrl: string;
+  /** Jak dlouho prohlížeči stačí uložená kopie plánu (sekundy) */
+  ttl: number;
+  ready: boolean;
+}
+
+/** Změna, která se s plánovanou překrývá. */
+export interface WebClash {
+  id: string;
+  name: string;
+  from: string;
+  to: string;
+  /** Dá se zkrátit tak, aby skončila těsně před novou změnou */
+  shortenTo: string;
+}
+
+export interface WebTextsState {
+  config: WebTextsConfig;
+  plans: WebPlan[];
+  /** Kdy se plán naposledy povedlo vystavit na web */
+  publishedAt: string;
+  /** Je v aplikaci něco, co na webu ještě není */
+  dirty: boolean;
+  /** Co se nepovedlo — prázdné, když je vše v pořádku */
+  error: string;
+  /** Skript k vložení na konec <head> e-shopu, už s adresou plánu */
+  script: string;
+}

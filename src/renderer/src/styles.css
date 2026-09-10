@@ -7393,3 +7393,110 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 
 /* Kolik faktur je stažených dopředu — drobně vedle počtu */
 .pk-inv-ready { color: var(--text-3); font-size: 11px; }
+
+/* ---------- Texty na webu ---------- */
+
+/*
+ * Modul má vlevo plán a vpravo editaci jedné změny. Okno je široké schválně:
+ * do formuláře se vejde box u produktu se všemi řádky, a kdyby se rolovalo
+ * po částech, ztratil by se přehled o tom, co všechno ta jedna změna dělá.
+ */
+.wt-modal { width: min(1080px, 96vw); height: 88vh; }
+.wt-head-right { display: flex; align-items: center; gap: 6px; }
+
+.wt-status {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.wt-spacer { flex: 1; }
+.wt-ok { color: var(--ok); display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.wt-bad { color: var(--danger); display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+
+.wt-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px 1fr; }
+.wt-list {
+  border-right: 1px solid var(--border);
+  padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;
+}
+.wt-edit { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+/*
+ * Ve sloupci se nic nesmí smrsknout. Rozbalené oblasti jsou dohromady vyšší
+ * než okno a bez tohohle je flexbox stlačil na svůj podíl místa — formulář
+ * pak vypadal, že se řádky překrývají, a půlka textu byla oříznutá.
+ */
+.wt-edit > * { flex-shrink: 0; }
+
+/*
+ * Řádek plánu. Barevný proužek nalevo říká fázi — běžící změna je to
+ * jediné, co je zrovna vidět na webu, a musí se poznat na první pohled.
+ */
+.wt-row {
+  text-align: left; display: flex; flex-direction: column; gap: 3px;
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel); border-left-width: 4px; border-left-color: var(--border);
+}
+.wt-row.live { border-left-color: var(--ok); }
+.wt-row.soon { border-left-color: var(--accent); }
+.wt-row.done { border-left-color: var(--text-3); opacity: .7; }
+.wt-row.off { border-left-color: var(--warn); opacity: .7; }
+.wt-row.sel { background: var(--accent-soft); }
+.wt-row-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.wt-badge {
+  font-style: normal; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .3px; padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--text-2);
+}
+.wt-badge.live { background: #e3f6ec; color: var(--ok); }
+.wt-badge.soon { background: var(--accent-soft); color: var(--accent-dark); }
+.wt-badge.off { background: #fdf1da; color: var(--warn); }
+.wt-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.wt-chips em {
+  font-style: normal; font-size: 11px; padding: 1px 6px; border-radius: 6px;
+  background: var(--bg); color: var(--text-2);
+}
+
+.wt-when { display: grid; grid-template-columns: 1fr 200px 200px; gap: 10px; }
+.wt-langs { padding: 0; }
+.wt-langs .tab small { display: block; font-weight: 400; color: var(--text-3); }
+
+/* Překryv oken — varování, ne chyba, proto teplá a ne červená */
+.wt-clash {
+  border: 1px solid var(--warn); border-radius: 10px; background: #fdf8ec;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px;
+}
+.wt-clash b { display: inline-flex; align-items: center; gap: 5px; color: var(--warn); }
+.wt-clash ul { margin: 0; padding-left: 18px; }
+.wt-clash .btn { align-self: flex-start; }
+
+/*
+ * Oblast se rozbalí až zaškrtnutím. Nezaškrtnutá oblast se na web
+ * neposílá a chová se dál dynamicky — proto je zavřená a nesvítí.
+ */
+.wt-area { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.wt-area.on { border-color: var(--accent); }
+.wt-area-head {
+  display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px;
+  cursor: pointer; background: var(--bg);
+}
+.wt-area.on .wt-area-head { background: var(--accent-soft); }
+.wt-area-head input { margin-top: 2px; accent-color: var(--accent); }
+.wt-area-head b { display: block; font-size: 13.5px; }
+.wt-area-head small { color: var(--text-2); font-size: 12px; }
+.wt-area-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+/* „Přidat odkaz" je akce, ne rozcestník — přes celou šířku by křičelo */
+.wt-area-body > .btn { align-self: flex-start; }
+
+.wt-field input, .wt-field textarea { width: 100%; }
+.wt-two { display: grid; grid-template-columns: 1fr 200px; gap: 10px; align-items: end; }
+.wt-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding-bottom: 7px; }
+.wt-check input { accent-color: var(--accent); }
+
+.wt-lines { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.wt-lines legend { font-size: 12px; font-weight: 600; color: var(--text-2); padding: 0 5px; }
+/* Vyplněný náhradní text tři řádky přebije — ať je vidět, že se neuplatní */
+.wt-lines.muted { opacity: .45; }
+
+.wt-link { display: grid; grid-template-columns: 1fr 1fr 130px 34px; gap: 8px; align-items: end; }
+
+.wt-foot { display: flex; align-items: center; gap: 8px; padding-top: 6px; }
+.wt-setup { gap: 12px; }
+.wt-script { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre; }
