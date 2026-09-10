@@ -203,6 +203,30 @@ add({
 }
 
 /*
+ * Schvaluje se po jedné, ne všechny naráz: jedna poznámka bývá pokyn pro
+ * kurýra, druhá vzkaz pro nás, který na štítku nemá co dělat. Neschválená
+ * se z řádku vymaže, ale sloupec zůstane — jinak by souboru ubyl sloupec
+ * a uložená úloha v administraci PPL by mu nesedla.
+ */
+{
+  add({
+    code: '024302', name: 'Karel Novotný', email: 'karel@example.cz', phone: '+420777000333',
+    total: 300, shipment: 'PPL ParcelShop', payment: 'GoPay', pickupId: 'KM10439155',
+    note: 'Vzkaz pro nás, ne pro kurýra',
+    items: [{ title: 'Motýlek', quantity: 1 }],
+    postal: { name: 'Karel Novotný', company: 'Chýnov', street: 'Nádražní 12', city: 'Chýnov',
+      zip: '39155', country: 'CZ' }
+  });
+  const tri = ppl.pplRows(['024300', '024301', '024302']).rows;
+  const jenJedna = tri.map(one => (one.code === '024300' ? one : { ...one, note: '' }));
+  const soubor = ppl.pplCsv(jenJedna, false, true).toString('binary').split('\r\n').filter(Boolean);
+  // Diakritika je v souboru ve Windows-1250, tak se porovnává jen tvar
+  const posledni = soubor.slice(1).map(line => line.split(';').pop());
+  ok('schválená poznámka v souboru zůstane', posledni[0].length > 10, posledni[0]);
+  check('neschválené se změní na mezeru', posledni.slice(1), ['" "', '" "']);
+}
+
+/*
  * Dlouhá poznámka se zkracuje na hranici slova. Delší text štítek stejně
  * neunese a useknuté slovo uprostřed vypadá jako chyba tisku.
  */

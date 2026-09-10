@@ -478,7 +478,8 @@ export function registerIpc() {
   handle('ppl:saveSetup', (next: any) => savePplSetup(next ?? {}));
   // Náhled: co se do souboru dostane a co se z výběru vynechá a proč
   handle('ppl:rows', (codes: string[]) => pplRows(codes ?? []));
-  handle('ppl:export', (codes: string[], withNote?: boolean) => exportPpl(codes ?? [], true, !!withNote));
+  // `notes` jsou čísla objednávek, jejichž poznámku člověk schválil — po jedné
+  handle('ppl:export', (codes: string[], notes?: string[]) => exportPpl(codes ?? [], true, notes ?? []));
   handle('ppl:import', (file: string) => openPplImport(file));
   // Štítky PPL vystavuje jejich administrace — aplikace otevře ten správný seznam
   handle('ppl:labels', () => openPplLabels());
@@ -506,8 +507,8 @@ export function registerIpc() {
   handle('packeta:saveSetup', (next: any) => savePacketaSetup(next ?? {}));
   handle('packeta:test', () => testPacketa());
   handle('packeta:packets', (codes: string[]) => packetsFor(codes ?? []));
-  handle('packeta:create', (codes: string[], withNote?: boolean) =>
-    createPackets(codes ?? [], !!withNote));
+  handle('packeta:create', (codes: string[], notes?: string[]) =>
+    createPackets(codes ?? [], notes ?? []));
   handle('packeta:labels', (codes: string[], format?: string, offset?: number) =>
     labelsPdf(codes ?? [], format, offset));
   handle('packeta:formats', () => LABEL_FORMATS);
@@ -517,8 +518,8 @@ export function registerIpc() {
   handle('balikovna:saveSetup', (next: any) => saveBalikovnaSetup(next ?? {}));
   handle('balikovna:fields', () => BAL_FIELDS);
   handle('balikovna:rows', (codes: string[]) => balikovnaRows(codes ?? []));
-  handle('balikovna:export', (codes: string[], withNote?: boolean) =>
-    exportBalikovna(codes ?? [], !!withNote));
+  handle('balikovna:export', (codes: string[], notes?: string[]) =>
+    exportBalikovna(codes ?? [], notes ?? []));
   handle('balikovna:open', () => openBalikovna());
   // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho
   handle('balikovna:import', (file: string) => openBalikovnaImport(file));

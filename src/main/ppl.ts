@@ -266,12 +266,24 @@ export function pplCsv(rows: PplRow[], withContent: boolean, withNote = false): 
 }
 
 /** Sestaví soubor a uloží ho; vrací i to, co se nevyvezlo a proč. */
-export async function exportPpl(codes: string[], ask = true, withNote = false): Promise<PplExport> {
+export async function exportPpl(
+  codes: string[], ask = true, notes: string[] = []
+): Promise<PplExport> {
   const setup = pplSetup();
-  const { rows, skipped } = pplRows(codes);
-  if (rows.length === 0) {
+  const { rows: found, skipped } = pplRows(codes);
+  if (found.length === 0) {
     return { file: null, rows: 0, skipped, content: setup.content, notes: 0 };
   }
+
+  /*
+   * Schvaluje se **každá poznámka zvlášť**. Jedna může být pokyn pro kurýra
+   * („zvoňte na Nováka“), druhá vzkaz pro nás, který na štítku nemá co
+   * dělat. Neschválená se z řádku vymaže; sloupec zůstane, protože uložená
+   * úloha v administraci PPL mapuje sloupce podle pořadí.
+   */
+  const allowed = new Set(notes ?? []);
+  const withNote = allowed.size > 0;
+  const rows = found.map(one => (allowed.has(one.code) ? one : { ...one, note: '' }));
 
   const csv = pplCsv(rows, setup.content, withNote);
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
@@ -289,7 +301,7 @@ export async function exportPpl(codes: string[], ask = true, withNote = false): 
   fs.writeFileSync(file, csv);
   return {
     file, rows: rows.length, skipped, content: setup.content,
-    notes: withNote ? rows.filter(one => !!one.note).length : 0
+    notes: rows.filter(one => !!one.note).length
   };
 }
 
