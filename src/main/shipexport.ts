@@ -74,11 +74,32 @@ export function shortNote(note: string, limit = 100): string {
  * vývozu přidat, a ukazuje je i s číslem objednávky. Bez toho by se
  * schvalovalo naslepo.
  */
-export function orderNotes(codes: string[], carrier = ''): OrderNote[] {
+export function orderNotes(codes: string[], carrier = '', limit = 100): OrderNote[] {
   const { rows } = shipOrders(codes, carrier);
   return rows
     .filter(one => !!one.note)
-    .map(one => ({ code: one.code, name: one.name, note: one.note, short: shortNote(one.note) }));
+    .map(one => ({
+      code: one.code, name: one.name, note: one.note, short: shortNote(one.note, limit)
+    }));
+}
+
+/**
+ * Schválené poznámky převedené na to, co se zapíše k objednávce.
+ *
+ * Text je ten, který člověk viděl a případně přepsal, ne ten z databáze —
+ * u dlouhé poznámky se totiž musí zkrátit ručně, aby to dávalo smysl.
+ * Zkrácení se přesto udělá ještě jednou: kdyby se limit mezitím změnil,
+ * je lepší kratší text než uříznutý dopravcem uprostřed slova.
+ */
+export function approvedNotes(
+  notes: { code: string; text: string }[] | undefined, limit: number
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const one of notes ?? []) {
+    const text = shortNote(one?.text ?? '', limit);
+    if (one?.code && text) out.set(String(one.code), text);
+  }
+  return out;
 }
 
 function addressOf(raw: string | null): any {

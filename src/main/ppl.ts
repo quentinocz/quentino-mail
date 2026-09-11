@@ -2,9 +2,9 @@ import { BrowserWindow, dialog, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getSetting, setSetting } from './db';
-import { shipOrders, shortNote, cell } from './shipexport';
+import { shipOrders, shortNote, approvedNotes, cell } from './shipexport';
 import { fillFileInput, openUrl } from './formfile';
-import { signIn, keepSignedIn } from './portallogin';
+import { signIn, signInNote, keepSignedIn } from './portallogin';
 import type { PplRow, PplExport, PplSetup, ShopOrderItem } from '../shared/types';
 
 /**
@@ -133,6 +133,13 @@ export function pplSetup(): PplSetup {
     // Které objednávky do PPL patří — pozná se podle názvu dopravy
     carrier: saved.carrier ?? 'PPL',
     /*
+     * Kolik znaků se vejde na štítek. Třicet je to, co PPL doopravdy
+     * vytiskla — z „Prosím kurýra zavolat před domem" zbylo „Prosím kurýra
+     * zavolat před dom", tedy přesně třicet znaků useknutých uprostřed
+     * slova. Je to jejich hodnota, tak je nastavitelná.
+     */
+    noteLimit: Math.max(10, Number(saved.noteLimit) || 30),
+    /*
      * Sloupec s obsahem zásilky. PPL ho nově chce, ale uložený vzor v jejich
      * administraci o něm zatím nemusí vědět — proto se dá vypnout, dokud si
      * ho člověk ve vzoru nenamapuje.
@@ -226,8 +233,8 @@ export function pplRows(codes: string[]): { rows: PplRow[]; skipped: { code: str
       type: typeOf(city, order.shipment, order.pickupId),
       total: setup.value === 'order' ? order.total : order.goods,
       content: contentOf(order.items),
-      // Poznámka se zkracuje — na štítek se dlouhý text stejně nevejde
-      note: shortNote(order.note)
+      // Poznámka se zkracuje na to, co dopravce vytiskne; jinak ji uřízne sám
+      note: shortNote(order.note, setup.noteLimit)
     };
   });
 
@@ -267,7 +274,7 @@ export function pplCsv(rows: PplRow[], withContent: boolean, withNote = false): 
 
 /** Sestaví soubor a uloží ho; vrací i to, co se nevyvezlo a proč. */
 export async function exportPpl(
-  codes: string[], ask = true, notes: string[] = []
+  codes: string[], ask = true, notes: { code: string; text: string }[] = []
 ): Promise<PplExport> {
   const setup = pplSetup();
   const { rows: found, skipped } = pplRows(codes);
@@ -276,14 +283,15 @@ export async function exportPpl(
   }
 
   /*
-   * Schvaluje se **každá poznámka zvlášť**. Jedna může být pokyn pro kurýra
+   * Schvaluje se **každá poznámka zvlášť** a text je ten, který člověk
+   * viděl — u dlouhé poznámky přepsaný ručně. Jedna bývá pokyn pro kurýra
    * („zvoňte na Nováka“), druhá vzkaz pro nás, který na štítku nemá co
    * dělat. Neschválená se z řádku vymaže; sloupec zůstane, protože uložená
    * úloha v administraci PPL mapuje sloupce podle pořadí.
    */
-  const allowed = new Set(notes ?? []);
+  const allowed = approvedNotes(notes, setup.noteLimit);
   const withNote = allowed.size > 0;
-  const rows = found.map(one => (allowed.has(one.code) ? one : { ...one, note: '' }));
+  const rows = found.map(one => ({ ...one, note: allowed.get(one.code) ?? '' }));
 
   const csv = pplCsv(rows, setup.content, withNote);
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
@@ -339,7 +347,7 @@ export async function openPplImport(file: string): Promise<{ filled: boolean; no
   if (!win.webContents.getURL().startsWith(setup.importUrl)) await openUrl(win, setup.importUrl);
   win.show();
   win.focus();
-  await signIn(win, 'ppl');
+  const login = signInNote('ppl', await signIn(win, 'ppl'));
 
   // Vybere uloženou úlohu, pokud je jiná než ta právě zvolená
   await pick(win, setup.mapping);
@@ -350,10 +358,9 @@ export async function openPplImport(file: string): Promise<{ filled: boolean; no
    * je jediné.
    */
   const out = await fillFileInput(win, file, '#ctl00_contentPH_ctl00_fupload', 60_000);
-  return {
-    filled: out.filled,
-    note: out.filled ? 'Soubor je vložený. Zkontroluj úlohu a klikni na „Vlož".' : out.note
-  };
+  const note = out.filled ? 'Soubor je vložený. Zkontroluj úlohu a klikni na „Vlož".' : out.note;
+  // Nepovedené přihlášení se řekne nahlas — jinak člověk kouká na formulář a hádá
+  return { filled: out.filled, note: [login, note].filter(Boolean).join(' ') };
 }
 
 /**
