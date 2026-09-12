@@ -104,6 +104,8 @@ const ALLOWED_INVOKE = [
   'media:outDir', 'media:reveal', 'media:ffmpeg', 'media:ffmpegPath', 'media:video', 'media:stop',
   'media:watches', 'media:watchAdd', 'media:watchSave', 'media:watchRemove', 'media:watchNewest',
   'media:watchLog', 'media:watchNote', 'media:writeBeside',
+  'media:products', 'media:productStats', 'media:productFetch', 'media:productSave',
+  'media:productUpload', 'media:productReveal',
   'ship:notes',
   'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',

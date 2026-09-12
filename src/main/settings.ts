@@ -273,7 +273,13 @@ const VOLATILE_SETTING_KEYS = [
    * hlídání jede, ne nastavení — na druhém počítači by to byl cizí seznam
    * cizích souborů.
    */
-  'mediaWatchLog'
+  'mediaWatchLog',
+  /*
+   * Které produkty se právě nahrály do administrace. Je to jen paměť na den
+   * kvůli tomu, že feed je starý — po dni stejně vyprší a rozhoduje zase
+   * feed. Přenášet ji na druhý počítač nemá co zlepšit.
+   */
+  'mediaWebpDone'
 ];
 
 /**

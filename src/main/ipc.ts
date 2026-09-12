@@ -60,6 +60,7 @@ import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
 import * as media from './media';
+import * as mediashop from './mediashop';
 import { portalLogins, savePortalLogin } from './portallogin';
 import { articleStats, articleStat } from './artstats';
 import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabels } from './ppl';
@@ -563,6 +564,21 @@ export function registerIpc() {
   handle('media:watchNote', (row: any) => media.noteWatched(row));
   handle('media:writeBeside', (source: string, subfolder: string, bytes: any) =>
     media.writeBeside(source, subfolder, new Uint8Array(bytes)));
+
+  /*
+   * Fotky produktů z e-shopu. Stažení a nahrání do administrace dělá hlavní
+   * proces, převod do WebP okno — kodér je v Chromiu, stejně jako u zbytku
+   * konvertoru.
+   */
+  handle('media:products', (q: any) => mediashop.mediaProducts(q ?? {}));
+  handle('media:productStats', () => mediashop.mediaProductStats());
+  handle('media:productFetch', (code: string, urls: string[]) =>
+    mediashop.downloadProductImages(code, urls ?? []));
+  handle('media:productSave', (code: string, name: string, bytes: any) =>
+    mediashop.saveProductWebp(code, name, new Uint8Array(bytes)));
+  handle('media:productUpload', (code: string, files: string[]) =>
+    mediashop.uploadProductImages(code, files ?? []));
+  handle('media:productReveal', (code: string) => { mediashop.revealProduct(code); return true; });
 
   /* ---------- texty na webu ---------- */
   handle('webtexts:state', () => webtexts.webTextsState());

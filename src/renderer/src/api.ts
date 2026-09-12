@@ -21,7 +21,8 @@ import type {
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
   PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin, OrderNote, OrderNotes, ApprovedNote,
   WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState,
-  MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow
+  MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow,
+  MediaProductQuery, MediaProductPage, MediaUpload
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -741,7 +742,27 @@ export const api = {
     watchNote: (row: MediaLogRow) => call<MediaLogRow[]>('media:watchNote', row),
     writeBeside: (source: string, subfolder: string, bytes: Uint8Array) =>
       call<{ file: string; size: number; skipped: boolean }>(
-        'media:writeBeside', source, subfolder, bytes)
+        'media:writeBeside', source, subfolder, bytes),
+
+    /**
+     * Fotky produktů z e-shopu.
+     *
+     * Stažení originálů a nahrání do administrace dělá hlavní proces;
+     * převod do WebP okno, protože kodér je v Chromiu. Proto je to na tři
+     * kroky — `productFetch`, převod, `productSave` — a ne jedno volání.
+     */
+    products: (q: MediaProductQuery) => call<MediaProductPage>('media:products', q),
+    productStats: () =>
+      call<{ total: number; webp: number; todo: number; empty: number }>('media:productStats'),
+    /** `urls` vybírá jen některé fotky; hlavní proces je ověří proti feedu */
+    productFetch: (code: string, urls: string[]) =>
+      call<{ files: MediaFile[]; urls: string[]; skipped: string[]; dir: string }>(
+        'media:productFetch', code, urls),
+    productSave: (code: string, name: string, bytes: Uint8Array) =>
+      call<{ file: string; size: number }>('media:productSave', code, name, bytes),
+    productUpload: (code: string, files: string[]) =>
+      call<MediaUpload>('media:productUpload', code, files),
+    productReveal: (code: string) => call<boolean>('media:productReveal', code)
   },
 
   /**

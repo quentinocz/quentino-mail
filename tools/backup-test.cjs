@@ -265,6 +265,8 @@ set('mediaSetup', '{"quality":82,"resize":"max","maxWidth":1600}');
 set('mediaWatch', '[{"id":"a","path":"/Users/patrik/Foto","subfolder":"web","crop":{"x":0.1,"y":0.1,"w":0.8,"h":0.8}}]');
 // Výpis posledních převodů je provozní záznam, ne nastavení
 set('mediaWatchLog', '[{"name":"IMG_1.jpg"}]');
+// Paměť „tenhle produkt jsme právě nahráli" platí jen do zítřka a jen tady
+set('mediaWebpDone', '{"QK-002":"2026-09-12T10:00:00Z"}');
 set('webTextsSeason', '{"on":true,"fromDay":1,"fromMonth":12,"toDay":20,"toMonth":12,"text":{"cz":"🎄 Do 20.12.","sk":"","en":""}}');
 set('webTextsKey', 'ŠIFRA(' + Buffer.from('service-role-klic').toString('base64') + ')');
 // Razítko posledního vystavení a rozdělaná práce patří tomuhle počítači, ne záloze
@@ -420,6 +422,7 @@ console.log('\nkonvertor médií:');
   sedi('nastavení převodu se přenese', text.includes('mediaSetup'));
   sedi('hlídané složky i s ořezem', text.includes('mediaWatch') && text.includes('0.8'));
   sedi('výpis převodů v záloze není', !text.includes('mediaWatchLog'));
+  sedi('ani denní paměť nahraných produktů', !text.includes('mediaWebpDone'));
 }
 
 /* ---------- texty na webu ---------- */

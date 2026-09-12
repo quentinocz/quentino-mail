@@ -7667,3 +7667,98 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .md-log h3 { margin: 0 0 2px; font-size: 13px; }
 .md-log-row { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
 .md-log-row b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
+/* ---------- fotky produktů z e-shopu ---------- */
+
+.mp-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.mp-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.mp-bar > * { flex-shrink: 0; }
+.mp-search {
+  display: flex; align-items: center; gap: 6px; flex: 0 1 260px; min-width: 170px;
+  border: 1px solid var(--border); border-radius: 9px; padding: 0 8px; background: var(--panel);
+  color: var(--text-3);
+}
+.mp-search input { border: 0; background: none; padding: 7px 0; flex: 1; min-width: 0; }
+.mp-search input:focus { outline: none; box-shadow: none; }
+.mp-stats { white-space: nowrap; }
+.mp-stats b { color: var(--text); }
+
+/* Vlevo seznam, vpravo detail — jako v prohlížeči katalogu */
+.mp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); }
+.mp-list { overflow: auto; border-right: 1px solid var(--border); padding: 8px; }
+.mp-item {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
+  border: 1px solid transparent; border-radius: 11px; padding: 6px 8px; background: none;
+  cursor: pointer;
+}
+.mp-item:hover { background: var(--bg); }
+.mp-item.on { border-color: var(--accent); background: var(--accent-soft); }
+.mp-item img, .mp-noimg {
+  width: 44px; height: 44px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
+  background: var(--bg); display: flex; align-items: center; justify-content: center; color: var(--text-3);
+}
+.mp-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mp-name b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/*
+ * Značka stavu. Barva nese stejnou informaci jako text, protože v seznamu
+ * o stovkách řádků se hledá okem — „co ještě není hotové" musí být vidět
+ * dřív, než se to přečte.
+ */
+.mp-tag {
+  font-size: 11.5px; font-weight: 700; white-space: nowrap;
+  border-radius: 999px; padding: 2px 8px;
+}
+.mp-tag.ok { background: var(--ok-soft, #e6f6ec); color: var(--ok); }
+.mp-tag.fresh { background: var(--accent-soft); color: var(--accent); }
+.mp-tag.half { background: #fdf1da; color: var(--warn); }
+.mp-tag.todo { background: var(--bg); color: var(--text-3); }
+
+.mp-detail { overflow: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
+.mp-head { display: flex; align-items: center; gap: 10px; }
+.mp-head > div { display: flex; flex-direction: column; min-width: 0; }
+.mp-head b { font-size: 14px; }
+/* Odkaz na e-shop vypadá jako tlačítko vedle ostatních, ne jako text v odstavci */
+.mp-head a.btn { text-decoration: none; }
+
+.mp-shots { display: flex; flex-wrap: wrap; gap: 10px; }
+.mp-shot {
+  position: relative; width: 132px; border: 1px solid var(--border); border-radius: 11px;
+  overflow: hidden; cursor: pointer; background: var(--panel);
+}
+.mp-shot.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+/* Nevybraná fotka ustoupí — u produktu s půlkou hotovou musí být na první
+   pohled vidět, se kterými se bude pracovat */
+.mp-shot:not(.on) img { opacity: .45; }
+.mp-shot img { width: 100%; height: 108px; object-fit: cover; display: block; }
+.mp-shot input { position: absolute; top: 7px; left: 7px; z-index: 2; }
+.mp-ext {
+  position: absolute; top: 7px; right: 7px;
+  background: rgba(0, 0, 0, .6); color: #fff; border-radius: 5px;
+  font-size: 10.5px; font-weight: 700; padding: 1px 5px; text-transform: uppercase;
+}
+.mp-ext.ok { background: var(--ok); }
+.mp-gain { display: block; padding: 4px 7px; font-size: 11.5px; color: var(--ok); font-weight: 600; }
+.mp-gain.bad { color: var(--danger); }
+.mp-hint { margin: 0; }
+
+/* Kroky postupu — u věci, která sahá na cizí systém, musí být vidět kde je */
+.mp-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.mp-steps li {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600;
+  color: var(--text-3);
+}
+.mp-steps li.běží { color: var(--accent); }
+.mp-steps li.hotovo { color: var(--ok); }
+.mp-steps li.chyba { color: var(--danger); }
+.mp-steps li small { font-weight: 500; }
+
+.mp-actions { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 6px; }
+
+@media (max-width: 860px) {
+  .mp-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 40%) minmax(0, 60%); }
+  .mp-list { border-right: 0; border-bottom: 1px solid var(--border); }
+}

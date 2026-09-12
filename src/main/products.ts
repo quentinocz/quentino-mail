@@ -131,7 +131,7 @@ export function importFeedXml(xml: string): number {
     if (!code) continue;
 
     const row: Record<string, string | number | null> = {
-      code, image: null, ean: clean(tag(block, 'EAN') ?? ''),
+      code, image: null, images: '', ean: clean(tag(block, 'EAN') ?? ''),
       product_id: tag(block, 'PRODUCT_ID') ?? '',
       title_cz: '', url_cz: '', price_cz: '',
       title_sk: '', url_sk: '', price_sk: '',
@@ -149,18 +149,26 @@ export function importFeedXml(xml: string): number {
       row[`url_${lang}`] = tag(m[2], 'URL') ?? '';
     }
 
-    // Hlavní obrázek (MAIN_YN=1, jinak první)
+    /*
+     * Obrázky. Hlavní (MAIN_YN=1, jinak první) se vede zvlášť kvůli kartám
+     * v katalogu; **všechny** se ukládají kvůli konvertoru médií, který
+     * podle přípon pozná, jestli produkt už má fotky ve WebP. Z jediné
+     * hlavní fotky se to zjistit nedá — bývá převedená první.
+     */
     const imgs = block.match(/<IMAGES>([\s\S]*?)<\/IMAGES>/);
     if (imgs) {
       let first: string | null = null;
       let main: string | null = null;
+      const all: string[] = [];
       for (const ib of imgs[1].split('<IMAGE>').slice(1)) {
         const u = tag(ib, 'URL');
         if (!u) continue;
+        if (!all.includes(u)) all.push(u);
         if (!first) first = u;
         if (!main && tag(ib, 'MAIN_YN') === '1') main = u;
       }
       row.image = main ?? first;
+      row.images = all.join('\n');
     }
 
     // Ceny dle jazyka (s DPH + měna)
@@ -198,9 +206,9 @@ export function importFeedXml(xml: string): number {
   const replaceAll = d.transaction(() => {
     d.prepare('DELETE FROM products').run();
     const ins = d.prepare(
-      `INSERT OR REPLACE INTO products (code, title_cz, url_cz, price_cz, title_sk, url_sk, price_sk, title_en, url_en, price_en, image,
+      `INSERT OR REPLACE INTO products (code, title_cz, url_cz, price_cz, title_sk, url_sk, price_sk, title_en, url_en, price_en, image, images,
                                         category, categories, manufacturer, availability, stock, price_num, ean, product_id)
-       VALUES (@code, @title_cz, @url_cz, @price_cz, @title_sk, @url_sk, @price_sk, @title_en, @url_en, @price_en, @image,
+       VALUES (@code, @title_cz, @url_cz, @price_cz, @title_sk, @url_sk, @price_sk, @title_en, @url_en, @price_en, @image, @images,
                @category, @categories, @manufacturer, @availability, @stock, @price_num, @ean, @product_id)`
     );
     for (const r of rows) ins.run(r);
@@ -221,7 +229,7 @@ export function importFeedXml(xml: string): number {
    * má, nové sloupce ani tabulky nikdy nenaplnily a v aplikaci by prostě
    * chyběly. Naposledy kvůli variantám, EANům a vnitřním číslům produktů.
    */
-  setSetting('productFeedSchema', '3');
+  setSetting('productFeedSchema', '4');
   // Katalog i varianty jsou nové — hledání se dopočítá při prvním dotazu
   dropSearchIndex();
   return rows.length;
@@ -343,9 +351,10 @@ export function feedIsStale(): boolean {
   const st = feedStatus();
   if (st.count === 0) return true;
   if (!st.lastSync) return true;
-  // Katalog stažený starší verzí aplikace nemá kategorie, dostupnost ani
-  // varianty — a bez nového stažení by se varianty nikde neobjevily
-  if (getSetting('productFeedSchema') !== '3') return true;
+  // Katalog stažený starší verzí aplikace nemá kategorie, dostupnost,
+  // varianty ani seznam všech obrázků — a bez nového stažení by se
+  // v konvertoru médií tvářil každý produkt, že fotky nemá vůbec
+  if (getSetting('productFeedSchema') !== '4') return true;
   return Date.now() - new Date(st.lastSync).getTime() > 20 * 3600 * 1000;
 }
 

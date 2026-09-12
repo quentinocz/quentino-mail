@@ -4,6 +4,7 @@ import { api } from '../api';
 import { bytesToBlob, targetSize, toWebp } from '../media';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import MediaProducts from './MediaProducts';
 
 /**
  * Konvertor médií — fotky do WebP, videa do WebM.
@@ -68,7 +69,7 @@ export default function MediaModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [tool, setTool] = useState<MediaTool | null>(null);
   const [cropping, setCropping] = useState<number | null>(null);
-  const [tab, setTab] = useState<'files' | 'watch' | 'setup'>('files');
+  const [tab, setTab] = useState<'files' | 'shop' | 'watch' | 'setup'>('files');
   const [size, setSize] = useState<'normal' | 'full'>(
     () => (localStorage.getItem('mediaSize') as 'normal' | 'full') || 'normal'
   );
@@ -196,6 +197,7 @@ export default function MediaModal({ onClose }: { onClose: () => void }) {
           <span style={{ flex: 1 }} />
           <div className="ig-seg">
             <button className={tab === 'files' ? 'active' : ''} onClick={() => setTab('files')}>Soubory</button>
+            <button className={tab === 'shop' ? 'active' : ''} onClick={() => setTab('shop')}>Produkty</button>
             <button className={tab === 'watch' ? 'active' : ''} onClick={() => setTab('watch')}>Focení</button>
             <button className={tab === 'setup' ? 'active' : ''} onClick={() => setTab('setup')}>Nastavení</button>
           </div>
@@ -303,6 +305,8 @@ export default function MediaModal({ onClose }: { onClose: () => void }) {
               })}
             </div>
           </>
+        ) : tab === 'shop' ? (
+          setup && <MediaProducts setup={setup} />
         ) : tab === 'watch' ? (
           <WatchFolders />
         ) : (

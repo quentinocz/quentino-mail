@@ -2949,3 +2949,59 @@ export interface MediaTool {
   /** Co s tím, když není */
   note: string;
 }
+
+/* ---------- fotky produktů v konvertoru médií ---------- */
+
+/**
+ * Produkt v konvertoru médií — co má za fotky a jestli jsou ve WebP.
+ *
+ * `state` se počítá z adres obrázků ve feedu: v adrese je přípona souboru,
+ * který na e-shopu leží, takže `.webp` u všech znamená hotovo. `convertedAt`
+ * je proti tomu naše poznámka „právě nahráno" — feed se stahuje jednou
+ * denně a bez ní by se čerstvě převedený produkt celý den tvářil, že hotový
+ * není.
+ */
+export interface MediaImage {
+  url: string;
+  /** Přípona souboru na e-shopu, malými písmeny; prázdná, když ji adresa nemá */
+  ext: string;
+}
+
+export interface MediaProduct {
+  code: string;
+  /** Vnitřní ID z feedu; bez něj se produkt v administraci nedá otevřít */
+  productId: string;
+  title: string;
+  url: string;
+  thumb: string | null;
+  images: MediaImage[];
+  /** Kolik z obrázků už je ve WebP */
+  webp: number;
+  /** `empty` = produkt nemá obrázky, není co převádět */
+  state: 'webp' | 'mixed' | 'none' | 'empty';
+  /** Kdy aplikace fotky nahrála, pokud to bylo za posledních 24 h */
+  convertedAt: string;
+}
+
+export interface MediaProductQuery {
+  query?: string;
+  category?: string;
+  /** `todo` = co ještě není ve WebP, `done` = hotové, jinak vše s obrázky */
+  only?: 'todo' | 'done' | 'all';
+  offset?: number;
+  limit?: number;
+}
+
+export interface MediaProductPage {
+  items: MediaProduct[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+/** Výsledek nahrání fotek do administrace. */
+export interface MediaUpload {
+  opened: boolean;
+  filled: boolean;
+  note: string;
+}
