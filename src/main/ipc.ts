@@ -813,6 +813,9 @@ export function registerIpc() {
   handle('articles:fix', (id: number, lang: string, from: string, to: string) =>
     articles.applyFix(id, lang, from, to));
   handle('articles:fixAll', (ids?: number[]) => articles.applyAllFixes(ids));
+  // Slovenská a anglická adresa dohledaná z české — ať se neopisuje ručně
+  handle('articles:linkUrls', (url: string, fromLang?: string) =>
+    articles.linkUrls(url ?? '', fromLang));
   handle('articles:urlmap', (filter: any) => articles.listUrlMap(filter ?? {}));
   handle('articles:learnLinks', () => articles.learnLinks());
   handle('articles:saveUrlPair', (fromLang: string, fromPath: string, toLang: string, toPath: string, kind: string) =>

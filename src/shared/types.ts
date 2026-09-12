@@ -1681,6 +1681,14 @@ export interface PtransProduct {
   category: string;
   manufacturer: string;
   availability: string;
+  /**
+   * Kusy skladem z feedu; `null`, když je feed neuvádí.
+   *
+   * Ukazuje se při výběru produktů do článku: článek se píše na týdny
+   * dopředu a odkazovat v něm na vyprodaný kus znamená posílat čtenáře na
+   * stránku, kde si nic nekoupí.
+   */
+  stock: number | null;
   price: string;
   active: boolean;
   /** Z online feedu, nebo z ručně nahraného souboru */
@@ -1949,6 +1957,16 @@ export interface ArticleSettings {
   researchTerms: boolean;
   productPrefix: string;
   articlePrefix: string;
+  /**
+   * Stránka importu textů v administraci e-shopu.
+   *
+   * V adrese je číslo serveru, na kterém e-shop běží, takže se nedá zapsat
+   * napevno; prázdné se složí z adresy administrace, kterou aplikace zná
+   * kvůli fakturám.
+   */
+  importUrl: string;
+  /** Otevřít import hned po exportu a vložit do něj soubor */
+  openImport: boolean;
 }
 
 export interface ArticleBrief {
@@ -1959,6 +1977,15 @@ export interface ArticleBrief {
   productSize: 'small' | 'medium' | 'large';
   images: { url: string; description: string; size: 'auto' | 'small' | 'medium' | 'full';
     layout: 'block' | 'left' | 'right'; isListing?: boolean }[];
+  /**
+   * Videa — soubor z CDN (webm/mp4), nebo YouTube.
+   *
+   * Vkládají se jako hotový kus HTML, ne jako pokyn modelu: `<iframe>` se
+   * špatným poměrem stran rozbije stránku na telefonu a `<video>` bez
+   * `controls` se nedá pustit.
+   */
+  videos: { url: string; description: string; layout: 'block' | 'left' | 'right';
+    size: 'small' | 'medium' | 'large' }[];
   links: { name: string; urls: Record<string, string> }[];
   titleFixed: boolean;
   title: string;
@@ -2014,6 +2041,15 @@ export interface ArticleProgress {
   failed: number;
   label: string;
   chars: number;
+  /**
+   * Kolikátý průchod modelem běží a kolik jich bude.
+   *
+   * Psaní, úprava délky i překlady jsou jedna práce, jen v několika
+   * krocích — bez tohohle to na ukazateli vypadalo, že se článek píše
+   * podruhé od začátku.
+   */
+  step: number;
+  steps: number;
   errors: string[];
 }
 
@@ -2063,6 +2099,10 @@ export interface ArticleProduct {
   title: string;
   url: string;
   image: string | null;
+  /** Kusy skladem; `null`, když to feed neuvádí */
+  stock: number | null;
+  /** Dostupnost slovy, jak ji vede e-shop („Skladem", „Není skladem") */
+  availability: string;
 }
 
 /* ---------- Úklid schránky na serveru ---------- */

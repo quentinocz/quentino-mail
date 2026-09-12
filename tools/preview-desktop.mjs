@@ -253,6 +253,21 @@ await overflow('články — seznam'); await snap('10-clanky-seznam');
 await click('.ar-item');
 await overflow('články — zadání'); await snap('11-clanky-zadani');
 
+/*
+ * Výběr produktů. Zásoba u každého řádku je tu kvůli jediné věci: článek
+ * se píše na týdny dopředu a odkaz na vyprodaný kus posílá čtenáře na
+ * stránku, kde si nic nekoupí.
+ */
+await click('.ar-sec-head .btn', { hasText: 'Vybrat z feedu' });
+await page.waitForTimeout(500);
+{
+  const tags = await page.locator('.ar-picker .ar-stock').count();
+  console.log(`${'zásoba je u produktů vidět'.padEnd(28)} ${tags ? '✓' : '✗'} (${tags})`);
+}
+await overflow('články — výběr produktů'); await snap('11b-clanky-produkty');
+await click('.ar-picker .modal-foot .btn.ghost', { hasText: 'Zrušit' });
+await page.waitForTimeout(300);
+
 await click('.ar-detail-head .ig-seg button', { hasText: 'Text' });
 await overflow('články — text'); await snap('12-clanky-text');
 

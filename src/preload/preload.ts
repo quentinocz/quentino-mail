@@ -81,7 +81,7 @@ const ALLOWED_INVOKE = [
   'articles:import', 'articles:export', 'articles:check', 'articles:lastCheck',
   'articles:review', 'articles:dismissLink', 'articles:testUrl',
   'articles:checkProgress', 'articles:stopCheck', 'articles:fix', 'articles:fixAll',
-  'articles:urlmap', 'articles:learnLinks', 'articles:saveUrlPair', 'articles:deleteUrlPair',
+  'articles:linkUrls', 'articles:urlmap', 'articles:learnLinks', 'articles:saveUrlPair', 'articles:deleteUrlPair',
   // Katalog, štítky a naskladnění — jen na počítači
   'catalog:detail', 'catalog:scan', 'catalog:suggest', 'catalog:refreshStock', 'catalog:stockAt',
   'labels:items', 'labels:stockin', 'labels:preview', 'labels:pdf', 'labels:roll', 'labels:export',

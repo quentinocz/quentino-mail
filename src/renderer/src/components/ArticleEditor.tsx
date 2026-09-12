@@ -73,6 +73,45 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
 
   const patchBrief = (part: Partial<ArticleBrief>) => setBrief(prev => ({ ...prev, ...part }));
 
+  /*
+   * Jak se která adresa dohledala. `domain` znamená „jen jsem vyměnil
+   * doménu" — tedy odhad, který na cizím trhu nemusí existovat. Takové
+   * políčko se zvýrazní, ať se odkaz do prázdna nedostane do článku.
+   */
+  const [linkVia, setLinkVia] = useState<Record<string, string>>({});
+
+  /**
+   * Doplní slovenskou a anglickou adresu odkazu z české.
+   *
+   * Ručně opisovat tři adresy u každého odkazu je práce, kterou aplikace
+   * umí udělat sama — mapu adres má z importovaných článků a z produktů.
+   * Přepisuje se **jen prázdné**, ať se ručně doladěná adresa neztratí;
+   * tlačítko „dohledat" přepíše všechno.
+   */
+  const fillLinks = useCallback(async (index: number, force = false) => {
+    const link = brief.links[index];
+    const source = link?.urls[article.sourceLang]?.trim();
+    if (!source) return;
+    try {
+      const found = await api.articles.linkUrls(source, article.sourceLang);
+      const urls = { ...link.urls };
+      const via: Record<string, string> = {};
+      for (const [lang, one] of Object.entries(found)) {
+        if (lang === article.sourceLang) continue;
+        via[`${index}:${lang}`] = one.via;
+        if (force || !urls[lang]) urls[lang] = one.url;
+      }
+      setLinkVia(prev => ({ ...prev, ...via }));
+      setBrief(prev => {
+        const next = [...prev.links];
+        next[index] = { ...next[index], urls };
+        return { ...prev, links: next };
+      });
+    } catch {
+      // Nepodařilo se dohledat — adresy zůstanou na člověku, nic se nerozbije
+    }
+  }, [brief.links, article.sourceLang]);
+
   const save = useCallback(async (extra: Record<string, unknown> = {}) => {
     await api.articles.save({
       id: article.id, topic, wordCount, langs: pick, prompt,
@@ -192,7 +231,9 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
                       : <span className="ar-prod-noimg"><Icon name="bag" size={14} /></span>}
                     <div className="ar-prod-main">
                       <b>{p.title}</b>
-                      <small className="ig-muted">{p.code}</small>
+                      <small className="ig-muted">
+                        {p.code} <StockTag stock={p.stock} availability={p.availability} />
+                      </small>
                     </div>
                     <button className="icon-btn" data-tip="Odebrat"
                       onClick={() => patchBrief({ products: brief.products.filter(c => c !== p.code) })}>
@@ -296,6 +337,79 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
               ))}
             </section>
 
+            {/*
+              * Videa. Buď soubor nahraný na e-shop (webm/mp4), nebo odkaz na
+              * YouTube — ten se vloží jako okno s videem. Kód se skládá
+              * v aplikaci, ne v promptu: u videa na přesném zápisu záleží
+              * a model by ho pokaždé napsal trochu jinak.
+              */}
+            <section>
+              <div className="ar-sec-head">
+                <h3>Videa</h3>
+                <button className="btn ghost" onClick={() => patchBrief({
+                  videos: [...(brief.videos ?? []), { url: '', description: '', size: 'medium', layout: 'block' }]
+                })}>
+                  <Icon name="plus" size={13} /> Přidat
+                </button>
+              </div>
+              <p className="ig-muted">
+                Odkaz na YouTube se vloží jako okno s videem (přes youtube-nocookie, aby
+                nepadaly sledovací cookies dřív, než video někdo pustí). Adresa souboru
+                webm nebo mp4 se vloží jako přehrávač.
+              </p>
+              {(brief.videos ?? []).map((vid, index) => {
+                const yt = /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/)/.test(vid.url);
+                return (
+                  <div key={index} className="ar-img">
+                    <span className="ar-prod-noimg"><Icon name="image" size={14} /></span>
+                    <div className="ar-img-fields">
+                      <input value={vid.url} placeholder="https://youtu.be/… nebo https://…cdn-upgates.com/video.webm"
+                        onChange={e => {
+                          const next = [...(brief.videos ?? [])];
+                          next[index] = { ...vid, url: e.target.value.trim() };
+                          patchBrief({ videos: next });
+                        }} />
+                      <input value={vid.description} placeholder="Popisek pod videem (nepovinné)"
+                        onChange={e => {
+                          const next = [...(brief.videos ?? [])];
+                          next[index] = { ...vid, description: e.target.value };
+                          patchBrief({ videos: next });
+                        }} />
+                      <div className="ar-img-opts">
+                        <select value={vid.size} onChange={e => {
+                          const next = [...(brief.videos ?? [])];
+                          next[index] = { ...vid, size: e.target.value as any };
+                          patchBrief({ videos: next });
+                        }}>
+                          <option value="small">Malé</option>
+                          <option value="medium">Střední</option>
+                          <option value="large">Celá šířka</option>
+                        </select>
+                        <select value={vid.layout} onChange={e => {
+                          const next = [...(brief.videos ?? [])];
+                          next[index] = { ...vid, layout: e.target.value as any };
+                          patchBrief({ videos: next });
+                        }}>
+                          <option value="block">Na střed</option>
+                          <option value="left">Vlevo</option>
+                          <option value="right">Vpravo</option>
+                        </select>
+                        <span className="ig-muted">
+                          {vid.url ? (yt ? 'YouTube — vloží se okno s videem' : 'Soubor — vloží se přehrávač') : ''}
+                        </span>
+                        <button className="icon-btn"
+                          onClick={() => patchBrief({
+                            videos: (brief.videos ?? []).filter((_, i) => i !== index)
+                          })}>
+                          <Icon name="trash" size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+
             <section>
               <div className="ar-sec-head">
                 <h3>Interní odkazy</h3>
@@ -307,7 +421,8 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
               </div>
               <p className="ig-muted">
                 Kategorie nebo jiné stránky, na které má článek odkazovat. Stačí zadat
-                českou adresu — ostatní trhy se dohledají v mapě adres.
+                českou adresu — slovenskou a anglickou aplikace dohledá v mapě adres sama,
+                jakmile ji dopíšeš.
               </p>
               {brief.links.map((link, index) => (
                 <div key={index} className="ar-link-row">
@@ -317,15 +432,29 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
                       next[index] = { ...link, name: e.target.value };
                       patchBrief({ links: next });
                     }} />
-                  {langs.map(lang => (
-                    <input key={lang.code} value={link.urls[lang.code] ?? ''}
-                      placeholder={`${lang.code.toUpperCase()} adresa`}
-                      onChange={e => {
-                        const next = [...brief.links];
-                        next[index] = { ...link, urls: { ...link.urls, [lang.code]: e.target.value.trim() } };
-                        patchBrief({ links: next });
-                      }} />
-                  ))}
+                  {langs.map(lang => {
+                    const guessed = linkVia[`${index}:${lang.code}`];
+                    return (
+                      <input
+                        key={lang.code}
+                        className={guessed === 'domain' ? 'ar-link-guess' : ''}
+                        value={link.urls[lang.code] ?? ''}
+                        placeholder={`${lang.code.toUpperCase()} adresa`}
+                        title={guessed === 'domain'
+                          ? 'Tuhle adresu aplikace nezná — jen vyměnila doménu. Ověř ji.'
+                          : guessed ? 'Dohledáno v mapě adres' : ''}
+                        onBlur={() => { if (lang.code === article.sourceLang) void fillLinks(index); }}
+                        onChange={e => {
+                          const next = [...brief.links];
+                          next[index] = { ...link, urls: { ...link.urls, [lang.code]: e.target.value.trim() } };
+                          patchBrief({ links: next });
+                        }} />
+                    );
+                  })}
+                  <button className="icon-btn" data-tip="Dohledat adresy na ostatních trzích"
+                    onClick={() => void fillLinks(index, true)}>
+                    <Icon name="globe" size={14} />
+                  </button>
                   <button className="icon-btn"
                     onClick={() => patchBrief({ links: brief.links.filter((_, i) => i !== index) })}>
                     <Icon name="trash" size={14} />
@@ -464,6 +593,27 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
 
 /* ==================== Výběr produktů ==================== */
 
+/**
+ * Zásoba u produktu.
+ *
+ * Článek se píše na týdny dopředu a odkaz na vyprodaný kus posílá čtenáře
+ * na stránku, kde si nic nekoupí. Nula proto svítí červeně, pár posledních
+ * kusů oranžově — aby se vyprodaný produkt do článku nedostal omylem.
+ */
+function StockTag({ stock, availability }: { stock: number | null; availability?: string }) {
+  if (stock === null || stock === undefined) {
+    // Feed zásobu neuvádí; aspoň se ukáže, co o dostupnosti říká e-shop
+    return availability ? <em className="ar-stock unknown">{availability}</em> : null;
+  }
+  const level = stock <= 0 ? 'out' : stock <= 3 ? 'low' : 'ok';
+  return (
+    <em className={`ar-stock ${level}`}>
+      {stock <= 0 ? 'vyprodáno' : `${stock} ks`}
+    </em>
+  );
+}
+
+
 /** Hledání v produktové databázi — stejná data, ze kterých se překládá. */
 function ProductPicker({ selected, onChange, onClose }: {
   selected: string[];
@@ -475,6 +625,12 @@ function ProductPicker({ selected, onChange, onClose }: {
   const [rows, setRows] = useState<PtransProduct[]>([]);
   const [loading, setLoading] = useState(false);
   const [picked, setPicked] = useState<string[]>(selected);
+  /*
+   * Vyprodané se dají schovat. Nezahazují se natvrdo: někdy se článek píše
+   * právě na zboží, které se teprve naskladní, a schované řádky by to
+   * znemožnily bez vysvětlení.
+   */
+  const [hideOut, setHideOut] = useState(true);
 
   useEffect(() => {
     setLoading(true);
@@ -507,11 +663,17 @@ function ProductPicker({ selected, onChange, onClose }: {
             <input autoFocus value={query} onChange={e => setQuery(e.target.value)}
               placeholder="Hledat název nebo kód" />
           </div>
+          <label className="check-row">
+            <input type="checkbox" checked={hideOut} onChange={e => setHideOut(e.target.checked)} />
+            skrýt vyprodané
+          </label>
           <span className="ig-muted">Vybráno {picked.length}</span>
         </div>
         <div className="modal-body ar-picker-body">
           {loading && rows.length === 0 && <div className="ig-muted">Načítám…</div>}
-          {rows.map(row => {
+          {rows
+            .filter(row => !hideOut || picked.includes(row.code) || row.stock === null || row.stock > 0)
+            .map(row => {
             const on = picked.includes(row.code);
             return (
               <button key={row.code} className={`ar-pick ${on ? 'on' : ''}`}
@@ -519,7 +681,9 @@ function ProductPicker({ selected, onChange, onClose }: {
                 {row.image ? <img src={row.image} alt="" /> : <span className="ar-prod-noimg"><Icon name="bag" size={14} /></span>}
                 <div className="ar-prod-main">
                   <b>{row.title}</b>
-                  <small className="ig-muted">{row.code} · {row.category}</small>
+                  <small className="ig-muted">
+                    {row.code} · {row.category} <StockTag stock={row.stock} availability={row.availability} />
+                  </small>
                 </div>
                 {on && <Icon name="check" size={15} />}
               </button>

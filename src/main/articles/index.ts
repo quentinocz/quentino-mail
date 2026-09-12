@@ -1,6 +1,9 @@
 import { BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
-import { getDb } from '../db';
+import { getDb, getSetting } from '../db';
+import { getUpgatesConfig } from '../upgates';
+import { fillFileInput, openUrl } from '../formfile';
+import { signIn, signInNote, keepSignedIn } from '../portallogin';
 import { getArticleSettings, saveArticleSettings, defaultArticlePrompt, articleLangs,
   listArticles, getArticle, saveArticle, saveVersion, deleteArticle, rawXml, articleSummary,
   ArticleSettings } from './store';
@@ -9,7 +12,8 @@ import { importArticlesXml } from './importxml';
 import { generateArticle, translateArticle, articleProgress, stopArticles, researchTerms,
   productsForArticle, GenerateInput } from './generate';
 import { checkLinks, lastCheck, applyFix, applyAllFixes, dismissLink, testUrl, checkProgress, stopCheck, CheckOptions } from './check';
-import { learnUrlMap, listUrlMap, rememberPair, deletePair, extractImages, extractLinks, decodeUrl } from './urlmap';
+import { learnUrlMap, listUrlMap, rememberPair, deletePair, extractImages, extractLinks, decodeUrl,
+  translateUrl } from './urlmap';
 
 /**
  * Články — vstupní bod pro zbytek aplikace.
@@ -90,7 +94,72 @@ export async function exportToFile(input: { ids?: number[]; langs?: string[]; on
   });
   if (res.canceled || !res.filePath) return null;
   fs.writeFileSync(res.filePath, wrapTexts(blocks), 'utf8');
-  return { path: res.filePath, articles: blocks.length, versions };
+
+  /*
+   * Import se otevře rovnou. Exportovat a pak v administraci hledat, který
+   * ze stažených souborů je ten poslední, je krok navíc, který se dá udělat
+   * za člověka — a zrovna u něj se dá snadno sáhnout po starém souboru.
+   */
+  let opened: { filled: boolean; note: string } | null = null;
+  if (getArticleSettings().openImport !== false) {
+    try {
+      opened = await openArticleImport(res.filePath);
+    } catch (e: any) {
+      opened = { filled: false, note: `Import se nepodařilo otevřít: ${String(e?.message ?? e)}` };
+    }
+  }
+  return { path: res.filePath, articles: blocks.length, versions, opened };
+}
+
+/* ---------- import zpátky do e-shopu ---------- */
+
+let importWin: BrowserWindow | null = null;
+
+/**
+ * Adresa stránky s importem textů.
+ *
+ * Napevno zapsat nejde: v adrese je číslo serveru, na kterém e-shop běží
+ * (`…s19.upgates.com`), a to má každý jiné. Bere se z nastavení článků,
+ * jinak se složí z adresy administrace, kterou už aplikace zná kvůli
+ * fakturám.
+ */
+export function articleImportUrl(): string {
+  const saved = (getArticleSettings().importUrl ?? '').trim();
+  if (saved) return saved;
+  const home = (getSetting('invoiceAdminHome', '') ?? '').trim()
+    || `${getUpgatesConfig().url.replace(/\/+$/, '')}/manager/`;
+  const root = home.replace(/\/manager\/?$/, '').replace(/\/+$/, '');
+  return `${root}/setup/export-import/default/guide/texts/`;
+}
+
+/**
+ * Otevře import v administraci e-shopu a vloží do něj vyexportovaný soubor.
+ *
+ * Stejná cesta jako u dopravců: okno s vlastním trvalým sezením, přihlášení
+ * se vyplní samo a soubor se vloží, jakmile se políčko objeví. **Odeslání
+ * se nekliká** — import textů přepisuje články na webu a to je krok, který
+ * patří člověku.
+ */
+export async function openArticleImport(file: string): Promise<{ filled: boolean; note: string }> {
+  const win = importWin && !importWin.isDestroyed() ? importWin : new BrowserWindow({
+    width: 1200, height: 860,
+    title: 'Import článků do e-shopu',
+    webPreferences: { partition: 'persist:upgates', sandbox: true }
+  });
+  importWin = win;
+  win.on('closed', () => { importWin = null; });
+
+  keepSignedIn(win, 'upgates');
+  await openUrl(win, articleImportUrl());
+  win.show();
+  win.focus();
+  const login = signInNote('upgates', await signIn(win, 'upgates'));
+
+  const out = await fillFileInput(win, file);
+  const note = out.filled
+    ? 'Soubor je vložený. Zkontroluj nastavení importu a spusť ho.'
+    : out.note;
+  return { filled: out.filled, note: [login, note].filter(Boolean).join(' ') };
 }
 
 /** Náhled článku bez ukládání — HTML se zobrazí v okně. */
@@ -182,6 +251,30 @@ export function learnLinks() {
   const result = learnUrlMap();
   emit('articles:changed', {});
   return result;
+}
+
+/**
+ * Adresy téže stránky na ostatních trzích.
+ *
+ * Do článku se odkaz zadává česky a slovenská a anglická verze se má
+ * dohledat sama — ručně opisovat tři adresy u každého odkazu je práce,
+ * kterou aplikace umí udělat za člověka, protože mapu adres má.
+ *
+ * Vrací se i **jak** se adresa našla: `product`/`map` znamená, že ji
+ * aplikace zná z dat, kdežto `domain` je jen vyměněná doména — tedy odhad,
+ * který nemusí existovat. To se musí poznat, jinak by se do článku dostal
+ * odkaz do prázdna.
+ */
+export function linkUrls(url: string, fromLang?: string) {
+  const clean = decodeUrl(String(url ?? '').trim());
+  const source = fromLang || getArticleSettings().sourceLang;
+  const out: Record<string, { url: string; via: string; kind: string }> = {};
+  if (!clean) return out;
+  for (const lang of articleLangs()) {
+    const resolved = translateUrl(clean, source, lang);
+    out[lang] = { url: resolved.url, via: resolved.via, kind: resolved.kind };
+  }
+  return out;
 }
 
 export function saveUrlPair(fromLang: string, fromPath: string, toLang: string, toPath: string, kind: string) {

@@ -646,6 +646,9 @@ export function listProducts(query: ProductQueryInput): { rows: ProductRow[]; to
       category: row.category,
       manufacturer: row.manufacturer,
       availability: row.availability,
+      // Kusy skladem — při výběru produktů do článku rozhoduje o tom,
+      // jestli má smysl na produkt vůbec odkazovat
+      stock: row.stock === null || row.stock === undefined ? null : Number(row.stock),
       price: row.price,
       active: row.active === 1,
       origin: row.origin === 'file' ? 'file' : 'feed',

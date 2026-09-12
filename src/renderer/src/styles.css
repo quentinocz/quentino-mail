@@ -7552,3 +7552,22 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-3);
 }
 .pk-notes-count.full { color: var(--warn); font-weight: 700; }
+
+/*
+ * Adresa, kterou aplikace jen odhadla výměnou domény. Na cizím trhu nemusí
+ * existovat, a odkaz do prázdna v článku je horší než žádný odkaz.
+ */
+.ar-link-guess { border-color: var(--warn); background: #fdf8ec; }
+
+/*
+ * Zásoba u produktu ve výběru do článku. Článek se píše na týdny dopředu,
+ * takže vyprodaný kus musí být vidět dřív, než se do textu dostane.
+ */
+.ar-stock {
+  font-style: normal; font-size: 11px; font-weight: 700;
+  padding: 0 5px; border-radius: 5px; margin-left: 4px; white-space: nowrap;
+}
+.ar-stock.ok { background: #e3f6ec; color: var(--ok); }
+.ar-stock.low { background: #fdf1da; color: var(--warn); }
+.ar-stock.out { background: #fdecec; color: var(--danger); }
+.ar-stock.unknown { background: var(--bg); color: var(--text-3); font-weight: 600; }
