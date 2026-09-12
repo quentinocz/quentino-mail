@@ -606,7 +606,9 @@ function checkChannels() {
  * oblasti a dvě data. Na telefonu by se v tom nedalo pracovat a nastavení
  * se stejně vystavuje na web, odkud si ho vezme kdokoli.
  */
-const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:'];
+const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
+  // Převod fotek a videí potřebuje soubory na disku a ffmpeg — telefon nemá ani jedno
+  'media:'];
 const DESKTOP_ONLY = [
   'app:version',
   // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači

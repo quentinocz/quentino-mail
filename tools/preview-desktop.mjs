@@ -603,7 +603,31 @@ await page.waitForTimeout(600);
 await overflow('balení — schválení poznámek'); await snap('26f-baleni-poznamky-dotaz');
 await click('.modal-foot .btn.ghost', { hasText: 'Zrušit' });
 await page.waitForTimeout(200);
-await click('.pk-modal .modal-head .icon-btn');
+// Poslední ikona v hlavičce je zavřít; první je obnovit
+await click('.pk-modal .modal-head .icon-btn >> nth=-1');
+await page.waitForTimeout(300);
+
+/*
+ * Konvertor médií. Zajímá tu hlavně záložka Focení: hlídaná složka běží na
+ * pozadí, takže na ní musí být na první pohled poznat, že jede, a jaký
+ * ořez se použije.
+ */
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Konvertor médií' });
+await overflow('média — soubory'); await snap('45-media-soubory');
+
+await click('.md-modal .ig-seg button', { hasText: 'Focení' });
+await page.waitForTimeout(400);
+{
+  const folders = await page.locator('.md-folder').count();
+  const running = await page.locator('.md-folder.on').count();
+  console.log(`${'hlídané složky'.padEnd(28)} ${folders ? '✓' : '✗'} (${folders}, z toho běží ${running})`);
+}
+await overflow('média — focení'); await snap('46-media-foceni');
+
+await click('.md-modal .ig-seg button', { hasText: 'Nastavení' });
+await overflow('média — nastavení'); await snap('47-media-nastaveni');
+await click('.md-modal .modal-head .icon-btn >> nth=-1');
 await page.waitForTimeout(300);
 
 console.log(problems.length ? '\nPROBLÉMY:\n' + problems.slice(0, 10).join('\n') : '\nžádné chyby');

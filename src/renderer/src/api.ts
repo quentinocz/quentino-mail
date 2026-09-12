@@ -20,7 +20,8 @@ import type {
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
   PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin, OrderNote, OrderNotes, ApprovedNote,
-  WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState
+  WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState,
+  MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -697,6 +698,50 @@ export const api = {
     open: () => call<boolean>('balikovna:open'),
     /** Otevře import a vloží do něj soubor, jakmile se políčko objeví */
     openImport: (file: string) => call<{ filled: boolean; note: string }>('balikovna:import', file)
+  },
+
+  /**
+   * Konvertor médií.
+   *
+   * Obrázky převádí samo okno aplikace — Chromium má v sobě kodér WebP,
+   * takže stačí plátno a `toBlob`. Hlavní proces jen čte a píše soubory
+   * a u videa spouští ffmpeg.
+   */
+  media: {
+    setup: () => call<MediaSetup>('media:setup'),
+    saveSetup: (patch: Partial<MediaSetup>) => call<MediaSetup>('media:saveSetup', patch),
+    pick: () => call<MediaFile[]>('media:pick'),
+    /** Přetažené soubory — z okna přijdou jen cesty */
+    add: (paths: string[]) => call<MediaFile[]>('media:add', paths),
+    read: (file: string) => call<Uint8Array>('media:read', file),
+    write: (name: string, bytes: Uint8Array) =>
+      call<{ file: string; size: number }>('media:write', name, bytes),
+    outDir: () => call<string>('media:outDir'),
+    reveal: (file: string) => call<boolean>('media:reveal', file),
+    /** Je v počítači ffmpeg; bez něj se video převést nedá */
+    ffmpeg: () => call<MediaTool>('media:ffmpeg'),
+    ffmpegPath: (value: string) => call<string>('media:ffmpegPath', value),
+    video: (file: string) => call<MediaResult>('media:video', file),
+    stop: () => call<boolean>('media:stop'),
+
+    /**
+     * Hlídané složky pro focení.
+     *
+     * Hlavní proces složku hlídá a hlásí novou fotku událostí
+     * `media:incoming`; převod dělá okno, protože kodér WebP je v Chromiu.
+     */
+    watches: () => call<MediaWatch[]>('media:watches'),
+    watchAdd: () => call<MediaWatch[]>('media:watchAdd'),
+    watchSave: (id: string, patch: Partial<MediaWatch>) =>
+      call<MediaWatch[]>('media:watchSave', id, patch),
+    watchRemove: (id: string) => call<MediaWatch[]>('media:watchRemove', id),
+    /** Nejnovější fotka ve složce — podle ní se nastavuje ořez pro celou dávku */
+    watchNewest: (dir: string) => call<MediaFile | null>('media:watchNewest', dir),
+    watchLog: () => call<MediaLogRow[]>('media:watchLog'),
+    watchNote: (row: MediaLogRow) => call<MediaLogRow[]>('media:watchNote', row),
+    writeBeside: (source: string, subfolder: string, bytes: Uint8Array) =>
+      call<{ file: string; size: number; skipped: boolean }>(
+        'media:writeBeside', source, subfolder, bytes)
   },
 
   /**

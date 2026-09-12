@@ -59,6 +59,7 @@ import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
+import * as media from './media';
 import { portalLogins, savePortalLogin } from './portallogin';
 import { articleStats, articleStat } from './artstats';
 import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabels } from './ppl';
@@ -529,6 +530,39 @@ export function registerIpc() {
   handle('balikovna:open', () => openBalikovna());
   // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho
   handle('balikovna:import', (file: string) => openBalikovnaImport(file));
+
+  /* ---------- konvertor médií ---------- */
+  handle('media:setup', () => media.mediaSetup());
+  handle('media:saveSetup', (patch: any) => media.saveMediaSetup(patch ?? {}));
+  handle('media:pick', () => media.pickMedia());
+  // Přetažené soubory: z okna přijdou jen cesty, zbytek se zjistí tady
+  handle('media:add', (paths: string[]) => media.addMedia(paths ?? []));
+  /*
+   * Obsah souboru pro převod. Samotný převod obrázku dělá okno aplikace —
+   * Chromium má v sobě kodér WebP, takže není potřeba nativní knihovna.
+   */
+  handle('media:read', (file: string) => media.readMedia(file));
+  handle('media:write', (name: string, bytes: any) =>
+    media.writeMedia(name, new Uint8Array(bytes)));
+  handle('media:outDir', () => media.pickOutDir());
+  handle('media:reveal', (file: string) => { media.revealMedia(file); return true; });
+  handle('media:ffmpeg', () => media.findFfmpeg());
+  handle('media:ffmpegPath', (value: string) => media.saveFfmpegPath(value ?? ''));
+  handle('media:video', (file: string) => media.convertVideo(file));
+  handle('media:stop', () => { media.stopVideo(); return true; });
+  /*
+   * Hlídané složky pro focení. Hlavní proces složku hlídá a hlásí novou
+   * fotku; převod dělá okno, protože kodér WebP je v Chromiu.
+   */
+  handle('media:watches', () => media.watchFolders());
+  handle('media:watchAdd', () => media.addWatchFolder());
+  handle('media:watchSave', (id: string, patch: any) => media.saveWatchFolder(id, patch ?? {}));
+  handle('media:watchRemove', (id: string) => media.removeWatchFolder(id));
+  handle('media:watchNewest', (dir: string) => media.newestInFolder(dir));
+  handle('media:watchLog', () => media.watchLog());
+  handle('media:watchNote', (row: any) => media.noteWatched(row));
+  handle('media:writeBeside', (source: string, subfolder: string, bytes: any) =>
+    media.writeBeside(source, subfolder, new Uint8Array(bytes)));
 
   /* ---------- texty na webu ---------- */
   handle('webtexts:state', () => webtexts.webTextsState());

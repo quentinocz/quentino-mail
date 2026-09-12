@@ -260,6 +260,11 @@ set('webTextsBucket', 'web');
 set('webTextsPath', 'quentino-texty.json');
 set('webTextsPublicUrl', 'https://cdn.quentino.cz/texty.json');
 set('webTextsTtl', '5');
+// Konvertor médií: nastavení převodu i hlídané složky pro focení
+set('mediaSetup', '{"quality":82,"resize":"max","maxWidth":1600}');
+set('mediaWatch', '[{"id":"a","path":"/Users/patrik/Foto","subfolder":"web","crop":{"x":0.1,"y":0.1,"w":0.8,"h":0.8}}]');
+// Výpis posledních převodů je provozní záznam, ne nastavení
+set('mediaWatchLog', '[{"name":"IMG_1.jpg"}]');
 set('webTextsSeason', '{"on":true,"fromDay":1,"fromMonth":12,"toDay":20,"toMonth":12,"text":{"cz":"🎄 Do 20.12.","sk":"","en":""}}');
 set('webTextsKey', 'ŠIFRA(' + Buffer.from('service-role-klic').toString('base64') + ')');
 // Razítko posledního vystavení a rozdělaná práce patří tomuhle počítači, ne záloze
@@ -399,6 +404,22 @@ console.log('\ndoprava a doklady:');
     `dostal: ${decrypted('portalLogins')}`);
   // Stažený rozbor z Analytics je kopie cizích dat, ne nastavení
   sedi('uložený rozbor návštěvnosti v záloze není', !text.includes('ga4Deep2'));
+}
+
+/* ---------- konvertor médií ---------- */
+
+/*
+ * Nastavení převodu a hlavně hlídané složky s ořezem: nastavit deseti
+ * motýlkům ořez znovu na druhém počítači je práce, která se dělat nemusí.
+ * Výpis posledních převodů je naopak provozní záznam a přenášet ho nemá
+ * smysl.
+ */
+console.log('\nkonvertor médií:');
+{
+  const text = JSON.stringify(zaloha);
+  sedi('nastavení převodu se přenese', text.includes('mediaSetup'));
+  sedi('hlídané složky i s ořezem', text.includes('mediaWatch') && text.includes('0.8'));
+  sedi('výpis převodů v záloze není', !text.includes('mediaWatchLog'));
 }
 
 /* ---------- texty na webu ---------- */

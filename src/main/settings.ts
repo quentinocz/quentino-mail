@@ -267,7 +267,13 @@ const VOLATILE_SETTING_KEYS = [
    * něco zbylo rozdělané. Plán sám je pravda na webu, tohle je jen zpráva
    * o posledním pokusu — na druhém počítači by lhala.
    */
-  'webTextsPublishedAt', 'webTextsDirty', 'webTextsError'
+  'webTextsPublishedAt', 'webTextsDirty', 'webTextsError',
+  /*
+   * Výpis posledních převodů v hlídaných složkách. Je to potvrzení, že
+   * hlídání jede, ne nastavení — na druhém počítači by to byl cizí seznam
+   * cizích souborů.
+   */
+  'mediaWatchLog'
 ];
 
 /**

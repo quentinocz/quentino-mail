@@ -640,6 +640,7 @@
         script: '<script>\n/* Quentino — texty o doručení */\n(function () {\n  var SOURCE = "https://xyzabc.supabase.co/storage/v1/object/public/web/quentino-texty.json";\n  /* … */\n})();\n<\/script>'
       };
     })(),
+    // Překryv počítá náhled sám z plánů výše — jinak by se varování nedalo ukázat
     'webtexts:clashes': [],
     // Překlad v náhledu nic nevolá — vrací se prázdno, aby šlo tlačítko zmáčknout
     'webtexts:translate': [],
@@ -826,6 +827,29 @@
           short: 'Zboží prosím předejte' }
       ]
     },
+    // Konvertor médií — v náhledu se nic nepřevádí, jen se ukazuje rozhraní
+    'media:setup': { quality: 82, resize: 'max', maxWidth: 1600, maxHeight: 1600,
+      exactWidth: 1000, exactHeight: 1000, percent: 50, keepSmaller: true,
+      videoCodec: 'vp9', videoCrf: 33, videoWidth: 1280, videoAudio: 96,
+      outDir: '/Users/patrik/Downloads/quentino-web' },
+    'media:ffmpeg': { ok: true, path: '/opt/homebrew/bin/ffmpeg', version: 'ffmpeg version 7.1', note: '' },
+    'media:watches': [
+      { id: 'a', path: '/Users/patrik/Pictures/Foceni motylku', enabled: true, subfolder: 'web',
+        crop: { x: 0.12, y: 0.08, w: 0.76, h: 0.76 }, quality: 82, resize: 'max',
+        maxWidth: 1600, maxHeight: 1600, exactWidth: 1000, exactHeight: 1000, percent: 50,
+        keepSmaller: true, done: 34, lastAt: new Date(Date.now() - 240000).toISOString() },
+      { id: 'b', path: '/Users/patrik/Pictures/Kravaty detaily', enabled: false, subfolder: 'web',
+        crop: null, quality: 88, resize: 'exact', maxWidth: 1600, maxHeight: 1600,
+        exactWidth: 1200, exactHeight: 1200, percent: 50, keepSmaller: true, done: 0, lastAt: '' }
+    ],
+    'media:watchLog': [
+      { at: new Date(Date.now() - 240000).toISOString(), folder: '/Users/patrik/Pictures/Foceni motylku',
+        name: 'IMG_4821.JPG', before: 5242880, after: 214000, error: '' },
+      { at: new Date(Date.now() - 300000).toISOString(), folder: '/Users/patrik/Pictures/Foceni motylku',
+        name: 'IMG_4820.JPG', before: 4980736, after: 198000, error: '' },
+      { at: new Date(Date.now() - 900000).toISOString(), folder: '/Users/patrik/Pictures/Foceni motylku',
+        name: 'IMG_4790.HEIC', before: 3145728, after: 0, error: 'formát HEIC prohlížeč neotevře' }
+    ],
     'packing:working': true,
     'stockin:working': true,
     // Upozornění na telefon přes ntfy — v náhledu se nikam neposílá
@@ -1551,6 +1575,23 @@
           shorts[code] = { code: code, shipmentShort: 'Hermes', paymentShort: 'Karta' };
         });
         return Promise.resolve({ ok: true, data: shorts });
+      }
+      /*
+       * Překryv změn. Skutečný výpočet je v hlavním procesu; náhled si ho
+       * musí udělat sám, jinak by varování nikdy nenaskočilo a nepoznalo by
+       * se, že se v rozhraní rozbilo.
+       */
+      if (channel === 'webtexts:clashes') {
+        var draft = arg || {};
+        var od = Date.parse(String(draft.from || '').replace(' ', 'T'));
+        var doK = draft.to ? Date.parse(String(draft.to).replace(' ', 'T')) : od;
+        var strety = (answers['webtexts:state'].plans || []).filter(function (one) {
+          return one.id !== draft.id && !one.off && one.fromMs <= doK && one.toMs >= od;
+        }).map(function (one) {
+          return { id: one.id, name: one.name, from: one.from, to: one.to,
+            shortenTo: one.fromMs < od ? String(draft.from) : '' };
+        });
+        return Promise.resolve({ ok: true, data: strety });
       }
       if (channel === 'orders:badge') {
         return new Promise(function (done) {

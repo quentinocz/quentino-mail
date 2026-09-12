@@ -17,6 +17,8 @@ import PackingModal from './components/PackingModal';
 import ProductsModal from './components/ProductsModal';
 import ArticlesModal from './components/ArticlesModal';
 import WebTextsModal from './components/WebTextsModal';
+import MediaModal from './components/MediaModal';
+import { handleIncoming } from './media';
 import CatalogModal from './components/CatalogModal';
 import PtransStatusBar from './components/PtransStatusBar';
 import LiveOfferBar from './components/LiveOfferBar';
@@ -286,6 +288,18 @@ function AppInner() {
   // Totéž pro chat: odkaz z notifikace otevře konkrétní konverzaci
   useEffect(() => api.on('chat:open', () => setWorkspace('chat')), []);
 
+  /*
+   * Hlídané složky pro focení.
+   *
+   * Posluchač bydlí tady, ne v modulu konvertoru — celý smysl je, že se
+   * fotky převádějí, **zatímco se fotí**, tedy se zavřeným modulem. Kodér
+   * WebP je v Chromiu, takže převod musí udělat okno; hlavní proces složku
+   * jen hlídá a hlásí, co přibylo.
+   */
+  useEffect(() => api.on('media:incoming', (p: any) => {
+    if (p?.folder && p?.file) void handleIncoming(p.folder, p.file);
+  }), []);
+
   const refresh = useCallback(async () => {
     if (!activeAccountId) return;
     const folder = view.type === 'folder' ? view.folder : 'INBOX';
@@ -365,6 +379,7 @@ function AppInner() {
           {aiTool === 'ptrans' && <ProductsModal onClose={() => setAiTool(null)} />}
           {aiTool === 'articles' && <ArticlesModal onClose={() => setAiTool(null)} />}
           {aiTool === 'webtexts' && <WebTextsModal onClose={() => setAiTool(null)} />}
+          {aiTool === 'media' && <MediaModal onClose={() => setAiTool(null)} />}
           <PtransStatusBar hidden={aiTool ?? undefined} onOpen={tool => setAiTool(tool)} />
           {/*
             * Rozdělaná práce z telefonu. Nabízí se, nevnucuje — a když je

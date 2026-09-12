@@ -2838,3 +2838,114 @@ export interface WebTextsState {
   /** Skript k vložení na konec <head> e-shopu, už s adresou plánu */
   script: string;
 }
+
+/* ==================== Konvertor médií ==================== */
+
+/**
+ * Nastavení převodu fotek a videí pro web.
+ *
+ * Fotky z foťáku mají šest tisíc pixelů a pět megabajtů; na stránku patří
+ * zlomek. Parametry jsou v nastavení, protože „dobrá komprese" je u fotky
+ * látky něco jiného než u snímku obrazovky.
+ */
+export interface MediaSetup {
+  /** Kvalita WebP, 1–100 */
+  quality: number;
+  /**
+   * Co s rozlišením:
+   * `keep` beze změny, `max` zmenšit, aby se vešlo do mezí,
+   * `exact` přesný rozměr, `percent` na procenta původní velikosti.
+   */
+  resize: 'keep' | 'max' | 'exact' | 'percent';
+  maxWidth: number;
+  maxHeight: number;
+  exactWidth: number;
+  exactHeight: number;
+  percent: number;
+  /** Menší obrázek nezvětšovat — z malé fotky se velká neudělá */
+  keepSmaller: boolean;
+  videoCodec: 'vp9' | 'vp8';
+  /** Konstantní kvalita videa; nižší číslo = lepší obraz a větší soubor */
+  videoCrf: number;
+  /** Šířka videa v pixelech; 0 = zachovat */
+  videoWidth: number;
+  /** Zvuk v kb/s; 0 = bez zvuku */
+  videoAudio: number;
+  /** Kam se převedené soubory ukládají */
+  outDir: string;
+}
+
+export interface MediaFile {
+  path: string;
+  name: string;
+  size: number;
+  kind: 'image' | 'video';
+}
+
+export interface MediaResult {
+  file: string;
+  name: string;
+  /** Velikost před převodem a po něm — kvůli tomu se to dělá */
+  before: number;
+  after: number;
+}
+
+/** Ořez v poměrných hodnotách 0–1 — nezávisí na rozměru fotky. */
+export interface MediaCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Hlídaná složka pro focení.
+ *
+ * Nafotí se deset motýlků nastejno, nasypou se do složky a aplikace z nich
+ * udělá webové fotky sama — se stejným ořezem u všech. Ořez se nastaví
+ * jednou podle první fotky; předpoklad je, že další jsou focené stejně,
+ * a když ne, dá se přenastavit.
+ *
+ * Každá složka má vlastní nastavení: jiné focení = jiný ořez i jiná
+ * velikost. Výsledky jdou do podsložky uvnitř, aby ležely u originálů
+ * a nemíchaly se s nimi.
+ */
+export interface MediaWatch {
+  id: string;
+  path: string;
+  enabled: boolean;
+  /** Podsložka, kam se ukládají převedené fotky */
+  subfolder: string;
+  /** Ořez pro všechny fotky v téhle složce; `null` = neořezávat */
+  crop: MediaCrop | null;
+  quality: number;
+  resize: 'keep' | 'max' | 'exact' | 'percent';
+  maxWidth: number;
+  maxHeight: number;
+  exactWidth: number;
+  exactHeight: number;
+  percent: number;
+  keepSmaller: boolean;
+  /** Kolik fotek už složka zpracovala a kdy naposledy */
+  done: number;
+  lastAt: string;
+}
+
+/** Jedna zpracovaná fotka z hlídané složky — do výpisu, ať je vidět, že to jede. */
+export interface MediaLogRow {
+  at: string;
+  folder: string;
+  name: string;
+  before: number;
+  after: number;
+  error: string;
+}
+
+/** Je v počítači ffmpeg, a kde. */
+export interface MediaTool {
+  ok: boolean;
+  path: string;
+  version: string;
+  /** Co s tím, když není */
+  note: string;
+}

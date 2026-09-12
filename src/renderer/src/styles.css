@@ -7581,3 +7581,89 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
  * píše. Volba se pamatuje.
  */
 .ar-modal.ar-full { width: 99vw; max-width: none; height: 97vh; max-height: none; }
+
+/* ---------- Konvertor médií ---------- */
+
+/*
+ * Okno konvertoru. Seznam souborů s náhledy a vedle nich čísla „před
+ * a po" — kvůli těm se to celé dělá, takže musí být vidět bez hledání.
+ */
+.md-modal { width: min(1100px, 96vw); height: 86vh; display: flex; flex-direction: column; }
+.md-modal.md-full { width: 99vw; max-width: none; height: 97vh; max-height: none; }
+
+.md-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+}
+.md-saved { font-size: 12.5px; font-weight: 700; color: var(--ok); }
+.md-warn {
+  display: flex; align-items: center; gap: 6px; margin: 0;
+  padding: 9px 20px; background: #fdf1da; color: var(--warn);
+  font-size: 12.5px; font-weight: 600;
+}
+
+.md-list { gap: 8px; }
+.md-row {
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; background: var(--panel);
+}
+.md-row.bad { border-color: var(--danger); }
+.md-row img, .md-noimg {
+  width: 64px; height: 64px; border-radius: 9px; object-fit: cover;
+  background: var(--bg); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; color: var(--text-3);
+}
+.md-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.md-main b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-ok { color: var(--ok); font-size: 12px; }
+.md-bad { color: var(--danger); font-size: 12px; }
+/* Převod videa trvá minuty — bez ukazatele to vypadá jako zaseknutá aplikace */
+.md-progress { height: 4px; border-radius: 999px; background: var(--bg); overflow: hidden; margin-top: 4px; }
+.md-progress span { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }
+
+.md-setup { gap: 18px; }
+.md-setup section { display: flex; flex-direction: column; gap: 10px; }
+.md-setup h3 { margin: 0; font-size: 13.5px; }
+.md-setup input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* ---------- ořez ---------- */
+
+.md-crop { width: min(900px, 94vw); }
+.md-ratios { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.md-canvas {
+  position: relative; user-select: none; line-height: 0;
+  background: var(--bg); border-radius: 12px; overflow: hidden;
+}
+.md-canvas img { width: 100%; height: auto; display: block; -webkit-user-drag: none; }
+/* Ztmavení mimo výřez — bez něj se nepozná, co z fotky zbude */
+.md-shade { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); pointer-events: none; }
+.md-frame {
+  position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+  cursor: move;
+}
+.md-handle {
+  position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px;
+  border-radius: 3px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+  cursor: nwse-resize;
+}
+
+/* ---------- hlídané složky ---------- */
+
+.md-watch { gap: 12px; }
+.md-folder { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+/* Hlídaná složka svítí — je to věc, která běží na pozadí a musí to být vidět */
+.md-folder.on { border-color: var(--accent); }
+.md-folder header {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--bg);
+}
+.md-folder.on header { background: var(--accent-soft); }
+.md-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
+.md-count { font-size: 12px; color: var(--ok); font-weight: 700; white-space: nowrap; }
+.md-folder-body { display: grid; grid-template-columns: 240px 1fr; gap: 14px; padding: 12px; }
+.md-folder-crop { display: flex; flex-direction: column; gap: 5px; }
+.md-folder-opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+.md-log { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.md-log h3 { margin: 0 0 2px; font-size: 13px; }
+.md-log-row { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
+.md-log-row b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
