@@ -2999,6 +2999,19 @@ export interface MediaProductPage {
   limit: number;
 }
 
+/**
+ * Nastavení převodu pro jeden produkt.
+ *
+ * Obecné nastavení konvertoru sedí na většinu fotek, ale ne na všechny:
+ * fotka s jemnou strukturou látky potřebuje vyšší kvalitu než rovná plocha
+ * a pozná se to jedině pohledem na výsledek. Uloží se proto u produktu —
+ * kdyby platilo jen do zavření okna, druhý pokus o tentýž produkt by dopadl
+ * jinak než ten první.
+ */
+export type MediaProductSetup = Pick<MediaSetup,
+  'quality' | 'resize' | 'maxWidth' | 'maxHeight' | 'exactWidth' | 'exactHeight'
+  | 'percent' | 'keepSmaller'>;
+
 /** Výsledek nahrání fotek do administrace. */
 export interface MediaUpload {
   opened: boolean;

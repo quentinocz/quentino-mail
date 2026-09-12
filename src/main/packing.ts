@@ -889,11 +889,14 @@ export function packingSlice(id: number): any | null {
  * klepnutí v seznamu, a právě tehdy má počítač nabídnout, že se dá
  * pokračovat u něj. Posílá se tentýž stav jako při odškrtávání, takže na
  * druhé straně není co rozlišovat.
+ *
+ * Jen je to označené: obsah se přitom nemění (zatím se nic neodškrtlo)
+ * a druhá strana jinak tutéž zprávu bere jako opakování a nic nenabídne.
  */
 export function workingOn(id: number): void {
   if (!isShopId(id)) return;
   const slice = packingSlice(id);
-  if (slice) live.publish('packing', slice);
+  if (slice) live.publish('packing', { ...slice, working: true });
 }
 
 function pushSoon(id: number): void {
@@ -922,6 +925,15 @@ export interface AppliedPacking {
   counts: Record<string, number>;
   done: boolean;
   doneAt: string | null;
+  /**
+   * Přinesla zpráva opravdu něco nového?
+   *
+   * Druhá strana posílá celý stav objednávky, ne rozdíl, a tutéž zprávu
+   * pošle znovu po každém obnovení spojení. Bez tohohle rozlišení vyskočí
+   * proužek „balí se" pokaždé, když se telefon přihlásí — i když se od
+   * minula nezměnilo vůbec nic.
+   */
+  changed: boolean;
 }
 
 export function applyPacking(slice: any): AppliedPacking | null {
@@ -929,6 +941,9 @@ export function applyPacking(slice: any): AppliedPacking | null {
   if (!code) return null;
   const market = String(slice?.market ?? '');
   const d = getDb();
+  const before = d.prepare(
+    'SELECT packed_json, counts_json, done, done_at FROM packing_shop WHERE code = ? AND market = ?'
+  ).get(code, market) as any;
   d.prepare(
     `INSERT INTO packing_shop (code, market, packed_json, counts_json, done, done_at)
      VALUES (?,?,?,?,?,?)
@@ -954,12 +969,18 @@ export function applyPacking(slice: any): AppliedPacking | null {
   const parse = <T>(text: unknown, fallback: T): T => {
     try { return JSON.parse(String(text ?? '')) as T; } catch { return fallback; }
   };
+  const same = !!before
+    && String(before.packed_json ?? '') === String(slice.packed ?? '[]')
+    && String(before.counts_json ?? '') === String(slice.counts ?? '{}')
+    && (before.done ? 1 : 0) === (slice.done ? 1 : 0);
+
   return {
     id: -Number(row?.id ?? 0),
     code,
     packed: parse<number[]>(slice.packed, []),
     counts: parse<Record<string, number>>(slice.counts, {}),
     done: !!slice.done,
-    doneAt: slice.doneAt ?? null
+    doneAt: slice.doneAt ?? null,
+    changed: !same
   };
 }

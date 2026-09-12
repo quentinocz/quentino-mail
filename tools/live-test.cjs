@@ -139,16 +139,58 @@ check('i odkud to přišlo', offers[0].from, 'iPhone Patrik');
 check('skrytím nabídka zmizí', work.dismissOffer(offers[0].key).length, 0);
 
 /*
+ * Totéž podruhé není novinka.
+ *
+ * Druhá strana posílá celý stav, ne rozdíl, a tutéž zprávu pošle znovu po
+ * každém obnovení spojení — po probuzení počítače, po přepnutí sítě, po
+ * zapnutí telefonu. Dřív z toho byla pokaždé nabídka, takže vyskakovalo
+ * i naskladnění staré dva týdny, na kterém se nic nedělo.
+ */
+console.log('\nopakovaná zpráva nabídku nedělá:\n');
+deliver(message('stockin', slice));
+check('doručení téhož podruhé nic nenabídne', work.liveOffers().length, 0);
+deliver(message('stockin', slice));
+check('ani potřetí', work.liveOffers().length, 0);
+
+// Odpověď na pozdrav je srovnání dat, ne oznámení — i kdyby nesla novinku
+console.log('\nodpověď na pozdrav je tichá:\n');
+const zPozdravu = {
+  ...slice,
+  quiet: true,
+  sessions: [{ ...slice.sessions[0], updated_at: '2026-09-01T08:30:00.000Z' }],
+  items: [...slice.items, { session_id: 'tel-abc', code: 'MOT-01', product_code: 'MOT-01',
+    title: 'Motýlek', label: '', qty: 2, stock_before: 0, added_at: '2026-09-01T08:20:00.000Z' }]
+};
+deliver(message('stockin', zPozdravu));
+check('data se sloučí', stockin.itemsOf('tel-abc').length, 3);
+check('ale proužek nevyskočí', work.liveOffers().length, 0);
+
+// Otevření na druhém zařízení se ohlásit má, i když se obsah nemění
+console.log('\ndělám tohle:\n');
+deliver(message('stockin', { ...zPozdravu, quiet: false, working: true }));
+check('výslovné otevření se nabídne', work.liveOffers().length, 1);
+work.dismissOffer(work.liveOffers()[0].key);
+
+// Skutečná změna — pípnutí čtečkou — se nabídne i bez označení
+console.log('\nskutečná změna se nabídne:\n');
+const zmena = {
+  sessions: [{ ...slice.sessions[0], updated_at: '2026-09-01T08:40:00.000Z' }],
+  items: [...zPozdravu.items, { session_id: 'tel-abc', code: 'KAP-09', product_code: 'KAP-09',
+    title: 'Kapesníček', label: '', qty: 1, stock_before: 3, added_at: '2026-09-01T08:40:00.000Z' }]
+};
+deliver(message('stockin', zmena));
+check('pípnutí z regálu se nabídne', work.liveOffers().length, 1);
+check('a počty sedí', work.liveOffers()[0].detail, '4 položek · 13 ks');
+
+/*
  * Odeslané naskladnění se nabízet nemá — práce je hotová a proužek by jen
  * překážel. Zkouší se to poslední zprávou, ne odklizením: přesně tak to
  * dopadne v provozu, když se naskladnění zapíše z telefonu.
  */
 console.log('\nhotová práce se nenabízí:\n');
-deliver(message('stockin', slice));
-check('rozdělaná se nabídne', work.liveOffers().length, 1);
 const finished = {
   sessions: [{ ...slice.sessions[0], state: 'sent', updated_at: '2026-09-01T09:00:00.000Z', sent_at: '2026-09-01T09:00:00.000Z' }],
-  items: slice.items
+  items: zmena.items
 };
 deliver(message('stockin', finished));
 check('odeslaná se přestane nabízet', work.liveOffers().length, 0);
@@ -368,9 +410,11 @@ async function run() {
 console.log('\nnabídky se nehromadí:\n');
 for (const code of ['20260901', '20260902', '20260903']) {
   db.prepare(`INSERT OR IGNORE INTO packing_shop (code, market) VALUES ('${code}', 'cz')`).run();
+  // `working` je „balím tuhle" — u otevření se obsah nemění a bez označení
+  // by se to bralo jako opakování téže zprávy
   deliver(message('packing', {
     code, market: 'cz', packed: '[]', counts: '{}', done: false, doneAt: null,
-    at: '2026-09-02T10:00:00.000Z'
+    working: true, at: '2026-09-02T10:00:00.000Z'
   }));
 }
 check('nabízí se jen ta poslední',
@@ -386,7 +430,7 @@ check('otevřením okna nabídky u balení zmizí',
   work.liveOffers().filter(o => o.kind === 'packing').length, 0);
 deliver(message('packing', {
   code: '20260904', market: 'cz', packed: '[]', counts: '{}', done: false, doneAt: null,
-  at: '2026-09-02T10:01:00.000Z'
+  working: true, at: '2026-09-02T10:01:00.000Z'
 }));
 check('a další se nenabídne', work.liveOffers().filter(o => o.kind === 'packing').length, 0);
 /*

@@ -48,6 +48,31 @@ export function sessionSlice(id: string): { sessions: any[]; items: any[] } | nu
   return { sessions: [session], items };
 }
 
+/**
+ * Otisk naskladnění — podle čeho se pozná, že se doopravdy něco změnilo.
+ *
+ * Druhá strana posílá celý stav, ne rozdíl, a tutéž zprávu pošle znovu po
+ * každém obnovení spojení i při každém pozdravu. Bez porovnání otisku před
+ * sloučením a po něm vyskočí proužek „rozdělané naskladnění" pokaždé, když
+ * se telefon přihlásí — i u naskladnění, na kterém se týden nic nedělo.
+ *
+ * Je v něm stav, čas poslední změny i řádky: samotný `updated_at` nestačí,
+ * protože se při sloučení bere ten pozdější z obou stran a dokáže se pohnout,
+ * aniž by se změnil jediný kus.
+ */
+export function sessionFingerprint(id: string): string {
+  const d = getDb();
+  const session = d.prepare('SELECT state, updated_at, title FROM stockin WHERE id = ?').get(id) as any;
+  if (!session) return '';
+  const items = d.prepare(
+    'SELECT code, qty FROM stockin_items WHERE session_id = ? ORDER BY code'
+  ).all(id) as any[];
+  return [
+    session.state ?? '', session.updated_at ?? '', session.title ?? '',
+    ...items.map(one => `${one.code}:${one.qty}`)
+  ].join('|');
+}
+
 const pushTimers = new Map<string, NodeJS.Timeout>();
 
 /**
@@ -79,7 +104,9 @@ export function pushSoon(id: string): void {
  */
 export function workingOn(id: string): void {
   const slice = sessionSlice(id);
-  if (slice) live.publish('stockin', slice);
+  // Označené schválně: obsah se nemění, a přesto se to má ohlásit. Druhá
+  // strana jinak tutéž zprávu bere jako opakování a nic nenabídne.
+  if (slice) live.publish('stockin', { ...slice, working: true });
 }
 
 export function listSessions(): StockinSession[] {
