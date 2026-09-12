@@ -1,3 +1,4 @@
+import { net } from 'electron';
 import { getDb } from '../db';
 import { getArticleSettings, domainFor, articleLangs } from './store';
 
@@ -23,8 +24,13 @@ export type LinkKind = 'product' | 'category' | 'article' | 'home' | 'external' 
 export interface ResolvedLink {
   url: string;
   kind: LinkKind;
-  /** Odkud návrh je — kvůli důvěryhodnosti v rozhraní */
-  via: 'product' | 'map' | 'domain' | 'none';
+  /**
+   * Odkud návrh je — kvůli důvěryhodnosti v rozhraní.
+   *
+   * `page` znamená „přečteno z přepínače jazyků na té stránce", což je
+   * nejjistější zdroj ze všech: říká to sám e-shop.
+   */
+  via: 'product' | 'map' | 'page' | 'domain' | 'none';
 }
 
 /** Rozebere adresu na doménu a cestu. Relativní adresa se bere jako cesta. */
@@ -381,6 +387,121 @@ function articlePathInLang(slug: string, fromLang: string, toLang: string): stri
  * cestou a `via: 'domain'` — na trhu aspoň zůstane, ale kontrola odkazů si ji
  * vezme na paškál.
  */
+/* ---------- zeptat se rovnou stránky ---------- */
+
+const PAGE_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+  + ' (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+/**
+ * Přepínač jazyků na samotné stránce.
+ *
+ * Odhadovat cizí adresu z české je vždycky jen odhad — kategorie se
+ * jmenují jinak (`/ponozky` vs. `/socks`) a mapa naučená z článků o nich
+ * vědět nemusí. **Stránka to ale ví sama**: v hlavičce je přepínač jazyků
+ * a v něm odkaz na tutéž stránku na ostatním trhu. Stačí se zeptat.
+ *
+ * Hledá se nejdřív `<link rel="alternate" hreflang="…">`, což je to, co má
+ * web vystavovat pro vyhledávače; když chybí, vezme se přepínač v hlavičce
+ * (`class="… nav-flag flag-sk …"`). Jazyk se pozná přednostně podle
+ * **domény** odkazu, protože ta je jistá — třída je jen záložní vodítko.
+ */
+export function alternatesIn(html: string, sourceUrl: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const known = new Set(articleLangs());
+  const base = (() => {
+    try { return new URL(sourceUrl); } catch { return null; }
+  })();
+
+  const absolute = (href: string): string => {
+    const clean = decodeUrl(String(href ?? '').trim());
+    if (!clean || clean.startsWith('#')) return '';
+    if (/^https?:\/\//i.test(clean)) return clean;
+    if (!base) return '';
+    try { return new URL(clean, base).toString(); } catch { return ''; }
+  };
+
+  const add = (lang: string, href: string) => {
+    const code = String(lang ?? '').toLowerCase().slice(0, 2);
+    const ours = code === 'cs' ? 'cz' : code;
+    if (!known.has(ours) || out[ours]) return;
+    const url = absolute(href);
+    if (url) out[ours] = url;
+  };
+
+  /* 1) hreflang v hlavičce — to, co má web vystavovat pro vyhledávače */
+  const links = html.match(/<link\b[^>]*rel=["']alternate["'][^>]*>/gi) ?? [];
+  for (const tag of links) {
+    const lang = /hreflang=["']([^"']+)["']/i.exec(tag)?.[1] ?? '';
+    const href = /href=["']([^"']+)["']/i.exec(tag)?.[1] ?? '';
+    if (lang && href && !/x-default/i.test(lang)) add(lang, href);
+  }
+
+  /* 2) přepínač jazyků v hlavičce */
+  const anchors = html.match(/<a\b[^>]*class=["'][^"']*\bnav-flag\b[^"']*["'][^>]*>/gi)
+    ?? html.match(/<a\b[^>]*class=["'][^"']*\bflag-[a-z]{2}\b[^"']*["'][^>]*>/gi) ?? [];
+  for (const tag of anchors) {
+    const href = /href=["']([^"']+)["']/i.exec(tag)?.[1] ?? '';
+    if (!href) continue;
+    const url = absolute(href);
+    // Doména je jistá, třída jen vodítko — tak v tomhle pořadí
+    const byDomain = url ? langOfUrl(url) : null;
+    const byClass = /\bflag-([a-z]{2})\b/i.exec(tag)?.[1] ?? '';
+    if (byDomain) add(byDomain, url);
+    else if (byClass) add(byClass, url);
+  }
+  return out;
+}
+
+/**
+ * Stáhne stránku a vytáhne z ní adresy na ostatních trzích.
+ *
+ * Výsledek se rovnou uloží do mapy, takže podruhé už se nikam nechodí —
+ * a funguje to i bez sítě. Chyba se nehlásí: když se stránka nestáhne,
+ * zůstane odhad, který se ukáže jako odhad.
+ */
+export async function alternatesOf(url: string, timeoutMs = 12_000): Promise<Record<string, string>> {
+  const clean = decodeUrl(String(url ?? '').trim());
+  if (!/^https?:\/\//i.test(clean)) return {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const client: any = (net as any)?.fetch ? net : { fetch };
+    const res = await client.fetch(clean, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': PAGE_UA,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'cs-CZ,cs;q=0.9'
+      }
+    });
+    if (!res.ok) return {};
+    /*
+     * Čte se jen začátek stránky. Přepínač jazyků i `hreflang` jsou
+     * v hlavičce; stahovat kvůli nim celý e-shopový výpis produktů by byly
+     * stovky kilobajtů navíc za nic.
+     */
+    const html = (await res.text()).slice(0, 300_000);
+    const found = alternatesIn(html, res.url || clean);
+
+    // Naučit se to: podruhé už se nikam chodit nemusí
+    const source = langOfUrl(res.url || clean);
+    const sourcePath = splitUrl(res.url || clean)?.path ?? '';
+    if (source && sourcePath) {
+      for (const [lang, target] of Object.entries(found)) {
+        const path = splitUrl(target)?.path ?? '';
+        if (path) rememberPair(source, sourcePath, lang, path, classify(sourcePath));
+      }
+    }
+    return found;
+  } catch {
+    return {};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function translateUrl(url: string, fromLang: string, toLang: string): ResolvedLink {
   const parts = splitUrl(url);
   if (!parts) return { url, kind: 'other', via: 'none' };

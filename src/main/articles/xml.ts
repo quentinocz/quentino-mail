@@ -128,7 +128,7 @@ export function buildArticle(versions: ArticleVersionXml[], options: {
   images?: ArticleImageXml[];
   active?: boolean;
   createdAt?: string;
-  categories?: { code?: string; name: string; primary?: boolean }[];
+  categories?: { code?: string; name: string; primary?: boolean; position?: number }[];
 } = {}): string {
   const created = (options.createdAt ?? new Date().toISOString()).slice(0, 19);
   const listingIndex = Math.max(0, (options.images ?? []).findIndex(img => img.isListing));
@@ -170,13 +170,22 @@ export function buildArticle(versions: ArticleVersionXml[], options: {
     ].join('\n');
   }).join('\n');
 
-  const categories = (options.categories ?? []).map(cat => [
-    `\t\t\t<CATEGORY>`,
-    cat.code ? `\t\t\t\t<CODE>${escape(cat.code)}</CODE>` : '',
-    `\t\t\t\t<NAME>${escape(cat.name)}</NAME>`,
-    `\t\t\t\t<PRIMARY_YN>${cat.primary ? 1 : 0}</PRIMARY_YN>`,
-    `\t\t\t</CATEGORY>`
-  ].filter(Boolean).join('\n')).join('\n');
+  /*
+   * Kategorie. Tvar je opsaný z toho, co Upgates samo vyváží: u hlavní je
+   * `PRIMARY_YN` jedna, u ostatních **prázdná** — ne nula. Nula se sice zdá
+   * jako totéž, ale v jejich exportu nikdy není, a u importu do cizího
+   * systému se nevyplácí vymýšlet si vlastní zápis.
+   */
+  const categories = (options.categories ?? [])
+    .filter(cat => String(cat?.name ?? '').trim())
+    .map(cat => [
+      `\t\t\t<CATEGORY>`,
+      cat.code ? `\t\t\t\t<CODE>${escape(cat.code)}</CODE>` : '',
+      `\t\t\t\t<NAME>${escape(cat.name)}</NAME>`,
+      `\t\t\t\t<PRIMARY_YN>${cat.primary ? 1 : ''}</PRIMARY_YN>`,
+      `\t\t\t\t<POSITION>${cat.position ?? 1}</POSITION>`,
+      `\t\t\t</CATEGORY>`
+    ].filter(Boolean).join('\n')).join('\n');
 
   return [
     `\t<TEXT type="article">`,

@@ -7571,3 +7571,13 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .ar-stock.low { background: #fdf1da; color: var(--warn); }
 .ar-stock.out { background: #fdecec; color: var(--danger); }
 .ar-stock.unknown { background: var(--bg); color: var(--text-3); font-weight: 600; }
+
+/* Kategorie článku při importu — kód, název a která je hlavní */
+.ar-cat-row { display: grid; grid-template-columns: 140px 1fr auto 34px; gap: 8px; align-items: center; margin-top: 6px; }
+
+/*
+ * Okno článků na celou obrazovku. Psaní článku je práce na dvě obrazovky —
+ * zadání vlevo, text vpravo — a v malém okně se v tom víc scrolluje, než
+ * píše. Volba se pamatuje.
+ */
+.ar-modal.ar-full { width: 99vw; max-width: none; height: 97vh; max-height: none; }

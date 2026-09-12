@@ -42,6 +42,14 @@ export interface ArticleSettings {
   importUrl: string;
   /** Otevřít import hned po exportu */
   openImport: boolean;
+  /**
+   * Kategorie, do kterých článek při importu patří.
+   *
+   * Bez nich se článek naimportuje „nikam" a musí se v administraci
+   * zařazovat ručně u každého kusu. Tvar je opsaný z toho, co Upgates samo
+   * vyváží — u hlavní je `PRIMARY_YN` jedna, u ostatních prázdná.
+   */
+  categories: { code: string; name: string; primary: boolean }[];
 }
 
 /** Styl článků Quentino — z něj se vychází, dokud si ho neupraví. */
@@ -168,7 +176,12 @@ const DEFAULTS: ArticleSettings = {
   productPrefix: '/p/',
   articlePrefix: '/a/',
   importUrl: '',
-  openImport: true
+  openImport: true,
+  // Výchozí zařazení podle toho, jak má články zařazené e-shop teď
+  categories: [
+    { code: 'K00035', name: 'Články / Blog', primary: false },
+    { code: '', name: 'Homepage', primary: true }
+  ]
 };
 
 const KEY = 'articles.settings';
@@ -180,7 +193,10 @@ export function getArticleSettings(): ArticleSettings {
       ...DEFAULTS,
       ...saved,
       languages: saved.languages?.length ? saved.languages : DEFAULTS.languages,
-      prompt: saved.prompt || DEFAULTS.prompt
+      prompt: saved.prompt || DEFAULTS.prompt,
+      // Prázdný seznam je platná volba („nikam nezařazovat"), takže se
+      // nedoplňuje výchozí — rozlišuje se chybějící klíč od prázdna
+      categories: Array.isArray(saved.categories) ? saved.categories : DEFAULTS.categories
     };
   } catch {
     return { ...DEFAULTS };

@@ -1967,6 +1967,13 @@ export interface ArticleSettings {
   importUrl: string;
   /** Otevřít import hned po exportu a vložit do něj soubor */
   openImport: boolean;
+  /**
+   * Kategorie, do kterých článek při importu patří.
+   *
+   * Bez nich se článek naimportuje „nikam" a zařazuje se v administraci
+   * ručně u každého kusu.
+   */
+  categories: { code: string; name: string; primary: boolean }[];
 }
 
 export interface ArticleBrief {

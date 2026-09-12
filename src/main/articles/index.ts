@@ -13,7 +13,7 @@ import { generateArticle, translateArticle, articleProgress, stopArticles, resea
   productsForArticle, GenerateInput } from './generate';
 import { checkLinks, lastCheck, applyFix, applyAllFixes, dismissLink, testUrl, checkProgress, stopCheck, CheckOptions } from './check';
 import { learnUrlMap, listUrlMap, rememberPair, deletePair, extractImages, extractLinks, decodeUrl,
-  translateUrl } from './urlmap';
+  translateUrl, alternatesOf } from './urlmap';
 
 /**
  * Články — vstupní bod pro zbytek aplikace.
@@ -69,16 +69,27 @@ export async function exportToFile(input: { ids?: number[]; langs?: string[]; on
     if (usable.length === 0) continue;
 
     const first = usable[0];
-    // Obrázky se berou z textu — do XML patří ty, které v článku opravdu jsou
-    const images = [...new Set(extractImages(first.long))].map((url, index) => ({
-      url,
-      description: first.title,
-      isListing: index === 0
-    }));
+    /*
+     * Do galerie článku jde **jen listingový obrázek**.
+     *
+     * Ostatní obrázky jsou v textu na svém místě — s popiskem, velikostí
+     * a obtékáním, jak se do článku hodí. Kdyby se posílaly i do `<IMAGES>`,
+     * e-shop je vysází ještě jednou do galerie pod článkem a čtenář uvidí
+     * všechno dvakrát. Listingový je výjimka: ten se v textu neukazuje
+     * vůbec a slouží jako náhled v seznamu článků.
+     */
+    const listing = article.brief.images.find(img => img.isListing && img.url)
+      ?? article.brief.images.find(img => img.url);
+    const fromText = extractImages(first.long)[0];
+    const cover = (listing?.url || fromText || '').trim();
+    const images = cover
+      ? [{ url: cover, description: listing?.description || first.title, isListing: true }]
+      : [];
 
     blocks.push(buildArticle(usable as ArticleVersionXml[], {
       articleId: article.articleId,
       images,
+      categories: getArticleSettings().categories,
       createdAt: article.createdAt
     }));
     versions += usable.length;
@@ -265,14 +276,31 @@ export function learnLinks() {
  * který nemusí existovat. To se musí poznat, jinak by se do článku dostal
  * odkaz do prázdna.
  */
-export function linkUrls(url: string, fromLang?: string) {
+export async function linkUrls(url: string, fromLang?: string, probe = true) {
   const clean = decodeUrl(String(url ?? '').trim());
   const source = fromLang || getArticleSettings().sourceLang;
   const out: Record<string, { url: string; via: string; kind: string }> = {};
   if (!clean) return out;
+
   for (const lang of articleLangs()) {
     const resolved = translateUrl(clean, source, lang);
     out[lang] = { url: resolved.url, via: resolved.via, kind: resolved.kind };
+  }
+
+  /*
+   * Co zbylo jen na odhadu (vyměněná doména), se zkusí zjistit **od
+   * stránky samotné**: v hlavičce má přepínač jazyků a v něm odkaz na
+   * tutéž stránku na ostatním trhu. Odhadovat `/ponozky` → `/socks` z ničeho
+   * nejde, ale e-shop to ví. Stahuje se jen tehdy, když je co zjišťovat,
+   * a výsledek se uloží do mapy, takže podruhé se nikam nechodí.
+   */
+  const missing = Object.entries(out).filter(([lang, one]) =>
+    lang !== source && one.via === 'domain');
+  if (probe && missing.length > 0 && /^https?:\/\//i.test(clean)) {
+    const found = await alternatesOf(clean);
+    for (const [lang] of missing) {
+      if (found[lang]) out[lang] = { url: found[lang], via: 'page', kind: out[lang].kind };
+    }
   }
   return out;
 }
