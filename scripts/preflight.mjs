@@ -687,6 +687,41 @@ function checkIosChannels(used) {
 }
 
 /** Všechny soubory s příponou pod složkou, včetně podsložek. */
+/**
+ * Pravidla stránky proti tomu, co rozhraní opravdu dělá.
+ *
+ * `Content-Security-Policy` umí zakázat i věc, kterou si stránka vyrobila
+ * sama. Náhledy fotek v konvertoru se dělají přes `URL.createObjectURL`,
+ * tedy adresou `blob:` — a když ji `img-src` nedovolí, obrázek se prostě
+ * nenačte. Nikde to nespadne, v konzoli je jen řádek a na obrazovce prázdný
+ * rámeček; přesně tak se to taky našlo, až u hotové funkce.
+ *
+ * Náhledy rozhraní tohle nezachytí: pravidla si ze stránky odstraňují,
+ * jinak by se do nich nedal podstrčit stub.
+ */
+function checkCsp() {
+  const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8');
+  const found = /<meta http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html);
+  if (!found) {
+    warn('V index.html nejsou pravidla stránky (CSP) — kontrola přeskočena.');
+    return;
+  }
+  const policy = found[1];
+  const imgSrc = /img-src ([^;]*)/.exec(policy)?.[1] ?? '';
+
+  const renderer = listFiles(path.join(ROOT, 'src/renderer/src'), '.tsx')
+    .concat(listFiles(path.join(ROOT, 'src/renderer/src'), '.ts'))
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n');
+
+  if (renderer.includes('createObjectURL') && !imgSrc.includes('blob:')) {
+    fail(
+      'Rozhraní dělá náhledy přes createObjectURL, ale img-src v index.html nedovoluje blob:.',
+      'Doplň `blob:` do img-src — jinak se náhledy fotek tiše nenačtou a zůstane prázdný rámeček.'
+    );
+  }
+}
+
 function listFiles(dir, ext) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -705,8 +740,10 @@ const targetArg = (rest.find((a) => a.startsWith('--target=')) ?? '--target=auto
 if (mode === 'env') {
   checkEnv(targetArg);
   checkChannels();
+  checkCsp();
 } else if (mode === 'channels') {
   checkChannels();
+  checkCsp();
 } else if (mode === 'dist') {
   checkDist();
 } else if (mode === 'tools') {
