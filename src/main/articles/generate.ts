@@ -29,11 +29,20 @@ export interface ArticleProgress {
   label: string;
   /** Kolik znaků textu už model napsal — jediný spolehlivý ukazatel postupu */
   chars: number;
+  /**
+   * Kolikátý průchod modelem běží a kolik jich celkem bude.
+   *
+   * Bez tohohle to vypadalo, že aplikace píše článek dvakrát: po napsání
+   * se spustí ještě úprava délky a pak překlady, pokaždé od nuly znaků.
+   * Jsou to ale jiné kroky téže práce a na ukazateli to musí být poznat.
+   */
+  step: number;
+  steps: number;
   errors: string[];
 }
 
 let state: ArticleProgress = {
-  running: false, done: 0, total: 0, failed: 0, label: '', chars: 0, errors: []
+  running: false, done: 0, total: 0, failed: 0, label: '', chars: 0, step: 0, steps: 0, errors: []
 };
 let cancelled = false;
 /**
@@ -168,6 +177,9 @@ interface FeedProduct {
   title: string;
   url: string;
   image: string | null;
+  /** Kusy skladem; `null`, když to feed neuvádí */
+  stock: number | null;
+  availability: string;
 }
 
 /**
@@ -181,7 +193,8 @@ export function productsForArticle(codes: string[], lang: string): FeedProduct[]
   const d = getDb();
   const marks = codes.map(() => '?').join(',');
   const rows = d.prepare(
-    `SELECT code, title, category, image, url FROM ptrans_products WHERE code IN (${marks})`
+    `SELECT code, title, category, image, url, stock, availability
+     FROM ptrans_products WHERE code IN (${marks})`
   ).all(...codes) as any[];
   const sourceLang = getArticleSettings().sourceLang;
 
@@ -206,7 +219,14 @@ export function productsForArticle(codes: string[], lang: string): FeedProduct[]
       code: row.code,
       title: pick('title') || row.title,
       url: slug ? `${domain}${prefix}${slug.replace(/^\/+/, '').replace(/^p\//, '')}` : '',
-      image: row.image || null
+      image: row.image || null,
+      /*
+       * Zásoba. Do promptu nejde — modelu je jedno, kolik je kusů — ale
+       * rozhraní ji ukazuje u vybraných produktů: článek se píše na týdny
+       * dopředu a odkaz na vyprodaný kus posílá čtenáře do prázdna.
+       */
+      stock: row.stock === null || row.stock === undefined ? null : Number(row.stock),
+      availability: String(row.availability ?? '')
     };
   });
 }
@@ -250,6 +270,79 @@ function imageBlock(brief: ArticleBrief): string {
   return `\nDOSTUPNÉ OBRÁZKY:\n${lines}`;
 }
 
+/* ---------- videa ---------- */
+
+const VIDEO_WIDTH: Record<string, string> = { small: '320px', medium: '560px', large: '900px' };
+
+/**
+ * Identifikátor videa z libovolného tvaru odkazu na YouTube.
+ *
+ * Lidé kopírují, co zrovna mají v adresním řádku — sdílecí `youtu.be`,
+ * `watch?v=`, `shorts/`, odkaz s časem i s parametry kampaně. Do vloženého
+ * okna ale patří jen to jedenáctiznakové id.
+ */
+export function youtubeId(url: string): string {
+  const found = /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/|v\/))([A-Za-z0-9_-]{6,})/
+    .exec(String(url ?? ''));
+  return found ? found[1] : '';
+}
+
+/**
+ * Hotový kus HTML s videem.
+ *
+ * Skládá se tady, ne v promptu. Video je jediná věc v článku, kde na
+ * přesném zápisu opravdu záleží: `<iframe>` bez poměru stran se na telefonu
+ * rozteče přes celou stránku a `<video>` bez `controls` se nedá pustit.
+ * Model dostane hotový blok a jen ho vloží — stejně jako u fotek produktů.
+ *
+ * YouTube se vkládá přes `youtube-nocookie.com`: dokud návštěvník video
+ * nepustí, nepadají mu do prohlížeče sledovací cookies, a souhlas se
+ * soubory cookie tím na e-shopu nekomplikuje.
+ */
+export function videoEmbed(
+  video: { url: string; description?: string; layout?: string; size?: string }
+): string {
+  const url = String(video?.url ?? '').trim();
+  if (!url) return '';
+  const width = VIDEO_WIDTH[video?.size ?? 'medium'] ?? VIDEO_WIDTH.medium;
+  const float = video?.layout === 'left'
+    ? `float:left;margin:0.5rem 1.5rem 1rem 0;max-width:${width}`
+    : video?.layout === 'right'
+      ? `float:right;margin:0.5rem 0 1rem 1.5rem;max-width:${width}`
+      : `margin:1.5rem auto;max-width:${width}`;
+  const caption = String(video?.description ?? '').trim();
+  const note = caption
+    ? `<div style="font-size:0.82rem;color:#777777;margin-top:0.45rem;text-align:center">${caption}</div>`
+    : '';
+
+  const id = youtubeId(url);
+  const inner = id
+    // Poměr stran přes vycpávku — funguje i tam, kde `aspect-ratio` neprojde
+    ? `<div style="position:relative;padding-top:56.25%;border-radius:16px;overflow:hidden;`
+      + `box-shadow:0 12px 30px rgba(0,0,0,0.08)">`
+      + `<iframe src="https://www.youtube-nocookie.com/embed/${id}" title="${caption || 'Video'}"`
+      + ` loading="lazy" allowfullscreen`
+      + ` allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"`
+      + ` style="position:absolute;top:0;left:0;width:100%;height:100%;border:0"></iframe></div>`
+    : `<video controls preload="metadata" playsinline src="${url}"`
+      + ` style="width:100%;height:auto;display:block;border-radius:16px;`
+      + `box-shadow:0 12px 30px rgba(0,0,0,0.08)"></video>`;
+
+  return `<div style="${float}">${inner}${note}</div>`;
+}
+
+function videoBlock(brief: ArticleBrief): string {
+  const videos = (brief.videos ?? []).filter(one => String(one?.url ?? '').trim());
+  if (videos.length === 0) return '';
+  const lines = videos.map(one => {
+    const what = youtubeId(one.url) ? 'YouTube' : 'video soubor';
+    return `- ${what}${one.description ? ` — ${one.description}` : ''}\n`
+      + '  POVINNÝ KÓD (vlož DOSLOVA na vhodné místo v textu, nic v něm neměň):\n'
+      + `  ${videoEmbed(one)}`;
+  }).join('\n\n');
+  return `\nVIDEA (zmiň je v textu a jejich kód vlož doslova):\n${lines}`;
+}
+
 function linkBlock(brief: ArticleBrief, lang: string): string {
   const lines = brief.links
     .map(link => {
@@ -287,6 +380,22 @@ function lengthOff(words: number, target: number): 'short' | 'long' | null {
   if (words > target * 1.25) return 'long';
   if (words < target * 0.75) return 'short';
   return null;
+}
+
+/**
+ * Strop odpovědi odvozený od zadané délky.
+ *
+ * Šestnáct tisíc tokenů je místo asi na deset tisíc slov — u šestisetslového
+ * článku tedy strop nedrží vůbec nic a model klidně napíše čtyřnásobek.
+ * Následkem je druhý průchod, který to celé zkracuje: dvojí práce za dvojí
+ * peníze. Strop podle zadání tomu zabrání dřív, než to vznikne.
+ *
+ * Počítá se štědře — české slovo jsou zhruba tři tokeny a HTML, styly
+ * a JSON-LD na konci zaberou další. Devítinásobek počtu slov je tedy pořád
+ * s velkou rezervou; jde o to useknout rozmáchnutí, ne dobrý článek.
+ */
+function tokenCeiling(wordCount: number): number {
+  return Math.max(6000, Math.min(16000, Math.round(wordCount * 9) + 1500));
 }
 
 /* ---------- generování ---------- */
@@ -350,14 +459,26 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
     ? wanted
     : wanted.filter(lang => !article.versions.find(v => v.lang === lang && v.long));
 
-  state = { running: true, done: 0, total: todo.length, failed: 0, label: '', chars: 0, errors: [] };
+  /*
+   * Kolik průchodů modelem to celkem bude. Počítá se dopředu, aby ukazatel
+   * nezačínal u každého kroku znovu od nuly — psaní, úprava délky i překlady
+   * jsou jedna práce a uživatel má vidět, kolik z ní zbývá.
+   */
+  const rest = input.langs.filter(lang => !wanted.includes(lang));
+  const willTranslate = mode === 'translate' ? rest.length : 0;
+  const steps = todo.length + willTranslate;
+
+  state = {
+    running: true, done: 0, total: todo.length + willTranslate, failed: 0,
+    label: '', chars: 0, step: 0, steps, errors: []
+  };
   push({});
 
   const written: string[] = [];
   try {
     for (const lang of todo) {
       if (cancelled) break;
-      push({ label: `${lang.toUpperCase()} — hledám vyhledávané výrazy`, chars: 0 });
+      push({ step: state.step + 1, label: `${lang.toUpperCase()} — hledám vyhledávané výrazy`, chars: 0 });
 
       let terms = article.terms;
       if (s.researchTerms) {
@@ -367,7 +488,7 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
         } catch { /* rozbor je pomůcka, ne podmínka */ }
       }
 
-      push({ label: `${lang.toUpperCase()} — píšu článek`, chars: 0 });
+      push({ label: `${lang.toUpperCase()} — píšu článek (${state.step}/${steps})`, chars: 0 });
       const user = [
         `Jazyk obsahu: ${lang.toUpperCase()}`,
         lengthPlan(wordCount),
@@ -383,6 +504,7 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
         productBlock(brief, lang),
         linkBlock(brief, lang),
         imageBlock(brief),
+        videoBlock(brief),
         '',
         'Odpověz POUZE pomocí oddělovačů <<<TITLE>>>, <<<SLUG>>>, <<<SHORT>>>, <<<LONG>>>,'
         + ' <<<SEO_TITLE>>>, <<<SEO_DESC>>>, <<<SEO_URL>>>, <<<END>>> — žádný JSON, žádný markdown.'
@@ -390,7 +512,9 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
 
       try {
         const raw = await askLong(model(), system, user, {
-          maxTokens: 16000,
+          // Strop podle zadané délky, ne paušální — jinak se článek rozmáchne
+          // a druhý průchod ho pak zase zkracuje
+          maxTokens: tokenCeiling(wordCount),
           endMark: '<<<END>>>',
           signal: abort?.signal,
           onChunk: (_text, chars) => push({ chars })
@@ -402,9 +526,19 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
         // dostane text zpátky s úkolem ho zkrátit nebo dopsat. Ověřuje se
         // stejnou funkcí, jakou pak délku hlásí rozhraní, takže se nemůže
         // stát, že „prošlo" a v přehledu svítí něco jiného.
-        const off = lengthOff(visibleWords(draft.long), wordCount);
+        const got = visibleWords(draft.long);
+        const off = lengthOff(got, wordCount);
         if (off && !cancelled) {
-          push({ label: `${lang.toUpperCase()} — ${off === 'long' ? 'zkracuji' : 'dopisuji'} na ${wordCount} slov`, chars: 0 });
+          /*
+           * V hlášce je vidět **proč** se píše znovu. Bez čísel to vypadalo,
+           * že aplikace celý článek generuje podruhé — přitom je to oprava
+           * délky nad hotovým textem.
+           */
+          push({
+            label: `${lang.toUpperCase()} — má ${got} z ${wordCount} slov, `
+              + `${off === 'long' ? 'zkracuji' : 'dopisuji'} (${state.step}/${steps})`,
+            chars: 0
+          });
           try {
             const fixed = await resize(draft.long, wordCount, off, lang);
             if (fixed) draft.long = fixed;
@@ -428,16 +562,20 @@ export async function generateArticle(input: GenerateInput): Promise<{ id: numbe
       }
     }
   } finally {
-    push({ running: false, label: cancelled ? 'zastaveno' : 'hotovo' });
+    /*
+     * Když ještě čekají překlady, běh se tu **neukončuje** — jinak by se
+     * ukazatel schoval a hned zase objevil, což vypadá jako druhý běh.
+     */
+    const more = mode === 'translate' && rest.length > 0 && !cancelled && written.length > 0;
+    if (!more) push({ running: false, label: cancelled ? 'zastaveno' : 'hotovo' });
   }
 
   // Zbylé jazyky překladem. Až tady, po dopsání zdroje — dřív by nebylo co
-  // překládat. `translateArticle` si vede vlastní postup, proto se běh
-  // nejdřív ukončí a hned zase spustí.
-  const rest = input.langs.filter(lang => !wanted.includes(lang));
+  // překládat. Postup se **nenuluje**: navazuje se na rozdělaný běh, jinak
+  // by ukazatel skočil zpátky na nulu a vypadalo by to jako druhé kolo.
   if (mode === 'translate' && rest.length > 0 && !cancelled && written.length > 0) {
     try {
-      const result = await translateArticle(id, rest, input.force);
+      const result = await translateArticle(id, rest, input.force, true);
       written.push(...result.langs);
       if (result.errors.length) push({ errors: [...state.errors, ...result.errors] });
     } catch (e: any) {
@@ -485,7 +623,8 @@ async function resize(html: string, target: number, direction: 'short' | 'long',
   ].join('\n');
 
   const raw = await askLong(model(), system, html, {
-    maxTokens: 16000,
+    // Výsledek má mít zadanou délku, ne šestnáct tisíc tokenů
+    maxTokens: tokenCeiling(target),
     endMark: '<<<END>>>',
     signal: abort?.signal,
     onChunk: (_text, chars) => push({ chars })
@@ -508,9 +647,11 @@ async function resize(html: string, target: number, direction: 'short' | 'long',
  * přepíšou předem podle mapy adres, protože adresa buď existuje, nebo ne, a
  * to je věc databáze, ne odhadu.
  */
-export async function translateArticle(id: number, targets: string[], force = false):
-  Promise<{ langs: string[]; unresolved: { lang: string; url: string }[]; errors: string[] }> {
-  if (state.running) throw new Error('Generování už běží.');
+export async function translateArticle(
+  id: number, targets: string[], force = false, resume = false
+): Promise<{ langs: string[]; unresolved: { lang: string; url: string }[]; errors: string[] }> {
+  // `resume` znamená „navazuji na rozdělané psaní" — běh už běží a je to v pořádku
+  if (state.running && !resume) throw new Error('Generování už běží.');
   const article = getArticle(id);
   if (!article) throw new Error('Článek nenalezen.');
 
@@ -522,9 +663,14 @@ export async function translateArticle(id: number, targets: string[], force = fa
   const todo = targets.filter(lang => lang !== source.lang
     && (force || !article.versions.find(v => v.lang === lang && v.long)));
 
-  cancelled = false;
-  abort = new AbortController();
-  state = { running: true, done: 0, total: todo.length, failed: 0, label: '', chars: 0, errors: [] };
+  if (!resume) {
+    cancelled = false;
+    abort = new AbortController();
+    state = {
+      running: true, done: 0, total: todo.length, failed: 0,
+      label: '', chars: 0, step: 0, steps: todo.length, errors: []
+    };
+  }
   push({});
 
   const done: string[] = [];
@@ -533,7 +679,10 @@ export async function translateArticle(id: number, targets: string[], force = fa
   try {
     for (const lang of todo) {
       if (cancelled) break;
-      push({ label: `${lang.toUpperCase()} — překládám článek`, chars: 0 });
+      push({
+        step: state.step + 1, chars: 0,
+        label: `${lang.toUpperCase()} — překládám článek (${state.step + 1}/${state.steps})`
+      });
 
       // Odkazy nejdřív, ať model dostane už správné adresy a nesahá na ně
       const rewritten = rewriteLinks(source.long, source.lang, lang);
@@ -567,7 +716,8 @@ export async function translateArticle(id: number, targets: string[], force = fa
 
       try {
         const raw = await askLong(model(), system, user, {
-          maxTokens: 16000,
+          // Překlad je zhruba stejně dlouhý jako originál — strop podle něj
+          maxTokens: tokenCeiling(visibleWords(source.long) || article.wordCount),
           endMark: '<<<END>>>',
           signal: abort?.signal,
           onChunk: (_text, chars) => push({ chars })
@@ -602,6 +752,8 @@ export async function translateArticle(id: number, targets: string[], force = fa
 
   return { langs: done, unresolved, errors: state.errors };
 }
+
+export const __test = { tokenCeiling, lengthOff, lengthPlan, videoEmbed, youtubeId, videoBlock };
 
 /** Kolik slov má která verze — kontrola, že délka odpovídá zadání. */
 export function wordCheck(id: number): { lang: string; words: number; target: number }[] {

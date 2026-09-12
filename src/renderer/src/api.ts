@@ -302,7 +302,11 @@ export const api = {
     import: () => call<{ articles: number; updated: number; versions: number;
       learned: { articles: number; pairs: number; skipped: number }; file: string } | null>('articles:import'),
     export: (input: { ids?: number[]; langs?: string[]; onlyReady?: boolean } = {}) =>
-      call<{ path: string; articles: number; versions: number } | null>('articles:export', input),
+      call<{
+        path: string; articles: number; versions: number;
+        /** Import v administraci se otevře rovnou po exportu */
+        opened: { filled: boolean; note: string } | null;
+      } | null>('articles:export', input),
     check: (options: { articleIds?: number[]; langs?: string[]; images?: boolean;
       concurrency?: number; spacingMs?: number } = {}) =>
       call<ArticleLinkCheck[]>('articles:check', options),
@@ -312,6 +316,15 @@ export const api = {
     fix: (id: number, lang: string, from: string, to: string) =>
       call<number>('articles:fix', id, lang, from, to),
     fixAll: (ids?: number[]) => call<number>('articles:fixAll', ids),
+    /**
+     * Adresy téže stránky na ostatních trzích, dohledané z české.
+     *
+     * `via` říká, odkud se adresa vzala: `product`/`map` je z dat,
+     * `domain` je jen vyměněná doména — tedy odhad, který nemusí existovat.
+     */
+    linkUrls: (url: string, fromLang?: string) =>
+      call<Record<string, { url: string; via: string; kind: string }>>(
+        'articles:linkUrls', url, fromLang),
     urlmap: (filter: { fromLang?: string; toLang?: string; kind?: string; search?: string } = {}) =>
       call<ArticleUrlPair[]>('articles:urlmap', filter),
     learnLinks: () => call<{ articles: number; pairs: number; skipped: number }>('articles:learnLinks'),

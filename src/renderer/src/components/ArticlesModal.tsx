@@ -123,7 +123,11 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
   const exportXml = async () => {
     try {
       const result = await api.articles.export(activeId ? { ids: [activeId], onlyReady: false } : {});
-      if (result) toast(`Uloženo ${result.articles} článků (${result.versions} jazykových verzí)`);
+      if (!result) return;
+      toast(`Uloženo ${result.articles} článků (${result.versions} jazykových verzí)`);
+      // Import v administraci se otevře sám a soubor se do něj vloží;
+      // spuštění importu zůstává na člověku, přepisuje články na webu
+      if (result.opened) toast(result.opened.note, result.opened.filled ? 'info' : 'error');
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -191,9 +195,21 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
           <div className="ar-running">
             <span className="spinner-inline" />
             <b>{progress.label}</b>
+            {/*
+              * Kroky, ne jen hotové jazyky. Úprava délky a překlad jsou další
+              * průchody modelem nad týmž článkem — bez nich to vypadalo,
+              * že se článek píše dvakrát.
+              */}
             <span className="ig-muted">
-              {progress.done}/{progress.total}
-              {progress.chars > 0 ? ` · ${Math.round(progress.chars / 5)} slov` : ''}
+              {progress.steps > 1 ? `krok ${Math.max(1, progress.step)}/${progress.steps} · ` : ''}
+              hotovo {progress.done}/{progress.total}
+              {/*
+                * Znaky, ne „slova". Streamuje se HTML i s odkazy a styly,
+                * takže dělení pěti dávalo u patnáctisetslového článku klidně
+                * dva a půl tisíce „slov" — a hned nato hlášku, že se dopisuje
+                * do patnácti set. Dvě čísla, obě zavádějící.
+                */}
+              {progress.chars > 0 ? ` · ${progress.chars.toLocaleString('cs-CZ')} znaků` : ''}
             </span>
             <span style={{ flex: 1 }} />
             <button className="btn ghost" onClick={() => api.articles.stop()}>

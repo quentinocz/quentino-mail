@@ -119,6 +119,29 @@ export default function ArticleSettingsPanel({ overview, onSaved }: {
               <small>V Upgates „/a/"</small>
             </label>
           </div>
+
+          {/*
+            Import zpátky do e-shopu. Exportovat a pak v administraci hledat,
+            který ze stažených souborů je ten poslední, je krok navíc — a
+            zrovna u něj se dá snadno sáhnout po starém souboru.
+          */}
+          <label className="pt-check">
+            <input type="checkbox" checked={draft.openImport !== false}
+              onChange={e => patch({ openImport: e.target.checked })} />
+            <span>
+              <b>Po exportu rovnou otevřít import v administraci</b>
+              <small>Soubor se do něj vloží sám; spuštění importu zůstává na tobě.</small>
+            </span>
+          </label>
+          <label>
+            <span>Stránka importu textů</span>
+            <input value={draft.importUrl} placeholder="prázdné = složí se z adresy administrace"
+              onChange={e => patch({ importUrl: e.target.value })} />
+            <small>
+              V adrese je číslo serveru e-shopu, proto se nedá zapsat napevno —
+              například https://quentino.admin.s19.upgates.com/setup/export-import/default/guide/texts/
+            </small>
+          </label>
         </section>
 
         <section>

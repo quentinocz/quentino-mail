@@ -31,6 +31,17 @@ export interface ArticleSettings {
   /** Cesta k produktu a k článku na e-shopu (Upgates: /p/ a /a/) */
   productPrefix: string;
   articlePrefix: string;
+  /**
+   * Stránka importu textů v administraci e-shopu.
+   *
+   * Po exportu se otevře sama a soubor se do ní vloží — jinak se k ní
+   * pokaždé proklikává a hledá se, který ze stažených souborů je ten
+   * poslední. Adresa je v nastavení, protože číslo serveru má každý
+   * e-shop jiné.
+   */
+  importUrl: string;
+  /** Otevřít import hned po exportu */
+  openImport: boolean;
 }
 
 /** Styl článků Quentino — z něj se vychází, dokud si ho neupraví. */
@@ -155,7 +166,9 @@ const DEFAULTS: ArticleSettings = {
   model: '',
   researchTerms: true,
   productPrefix: '/p/',
-  articlePrefix: '/a/'
+  articlePrefix: '/a/',
+  importUrl: '',
+  openImport: true
 };
 
 const KEY = 'articles.settings';
@@ -206,6 +219,16 @@ export interface ArticleBrief {
   /** Vlastní obrázky z CDN */
   images: { url: string; description: string; size: 'auto' | 'small' | 'medium' | 'full';
     layout: 'block' | 'left' | 'right'; isListing?: boolean }[];
+  /**
+   * Videa do článku — soubor z CDN, nebo YouTube.
+   *
+   * Vkládají se jako hotový kus HTML, ne jako pokyn modelu. Video je jediná
+   * věc v článku, kde na přesném zápisu opravdu záleží: `<iframe>` se
+   * špatným poměrem stran rozbije stránku na telefonu a `<video>` bez
+   * `controls` se nedá pustit.
+   */
+  videos: { url: string; description: string; layout: 'block' | 'left' | 'right';
+    size: 'small' | 'medium' | 'large' }[];
   /** Odkazy, které se mají v článku objevit (kategorie, jiné články) */
   links: { name: string; urls: Record<string, string> }[];
   /** Název je daný a nemá se vylepšovat */
@@ -216,7 +239,7 @@ export interface ArticleBrief {
 export const EMPTY_BRIEF: ArticleBrief = {
   products: [], productImages: {}, includeProductImages: true,
   productLayout: 'block', productSize: 'medium',
-  images: [], links: [], titleFixed: false, title: ''
+  images: [], videos: [], links: [], titleFixed: false, title: ''
 };
 
 export interface ArticleLangRow {

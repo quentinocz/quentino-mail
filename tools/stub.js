@@ -871,17 +871,17 @@
       total: 137, todo: 137,
       rows: [
         { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', image: null,
-          category: 'Kšandy', manufacturer: 'Quentino', availability: 'Skladem', price: '649 CZK', active: true,
+          category: 'Kšandy', manufacturer: 'Quentino', availability: 'Skladem', stock: 12, price: '649 CZK', active: true,
           origin: 'feed', url: 'https://www.quentino.cz/p/ukazkovy-produkt', doneLangs: [], todoLangs: ['sk', 'en', 'de'],
           states: { sk: { total: 6, todo: 6, worst: 'same' }, en: { total: 6, todo: 6, worst: 'same' },
             de: { total: 6, todo: 6, worst: 'missing' } } },
         { code: 'MZU01', title: 'Bordó manžetové uzlíky', image: null, category: 'Manžetové knoflíčky',
-          manufacturer: 'Quentino', availability: 'Skladem', price: '199 CZK', active: true,
+          manufacturer: 'Quentino', availability: 'Není skladem', stock: 0, price: '199 CZK', active: true,
           origin: 'file', url: 'https://www.quentino.cz/p/novinka', doneLangs: ['en'], todoLangs: ['sk', 'de'],
           states: { sk: { total: 6, todo: 2, worst: 'missing' }, en: { total: 6, todo: 0, worst: 'ok' },
             de: { total: 6, todo: 6, worst: 'missing' } } },
         { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', image: null, category: 'Kravaty',
-          manufacturer: 'Quentino', availability: 'Skladem více než 20 ks', price: '449 CZK', active: true,
+          manufacturer: 'Quentino', availability: 'Skladem více než 20 ks', stock: 2, price: '449 CZK', active: true,
           origin: 'feed', url: 'https://www.quentino.cz/p/ukazkovy-produkt', doneLangs: ['en'], todoLangs: ['sk', 'de'],
           states: { sk: { total: 6, todo: 1, worst: 'stale' }, en: { total: 6, todo: 0, worst: 'ok' },
             de: { total: 6, todo: 6, worst: 'missing' } } }
@@ -1215,8 +1215,18 @@
     },
     'articles:products': [
       { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI',
-        url: 'https://www.quentino.cz/p/bordo-panska-kravata-buldocci', image: null }
+        url: 'https://www.quentino.cz/p/bordo-panska-kravata-buldocci', image: null,
+        stock: 2, availability: 'Skladem více než 20 ks' },
+      { code: 'MZU01', title: 'Bordó manžetové uzlíky',
+        url: 'https://www.quentino.cz/p/bordo-manzetove-uzliky', image: null,
+        stock: 0, availability: 'Není skladem' }
     ],
+    // Adresy odkazu na ostatních trzích — slovenská z mapy, anglická jen odhad
+    'articles:linkUrls': {
+      cz: { url: 'https://www.quentino.cz/detske-kravaty/', via: 'domain', kind: 'category' },
+      sk: { url: 'https://www.quentino.sk/detske-kravaty/', via: 'map', kind: 'category' },
+      en: { url: 'https://www.wearquentino.com/detske-kravaty/', via: 'domain', kind: 'category' }
+    },
     'articles:links': [
       'https://www.quentino.cz/p/salvejove-zelena-detska-kravata',
       'https://www.quentino.cz/detske-kravaty/'
