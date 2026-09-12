@@ -55,7 +55,8 @@ const MARK = 'data-quentino-file';
  * Vrací `true`, když nějaké našel. Skryté políčko se přeskakuje — stránky
  * jich mívají víc a to viditelné je to, do kterého by klikal člověk.
  */
-function markScript(hint: string): string {
+function markScript(hint: string | string[]): string {
+  const hints = (Array.isArray(hint) ? hint : [hint]).filter(Boolean);
   return `
     (function () {
       function usable(el) {
@@ -65,10 +66,19 @@ function markScript(hint: string): string {
         return box.width > 0 || box.height > 0 || el.offsetParent !== null;
       }
       var all = Array.prototype.slice.call(document.querySelectorAll('input[type=file]'));
-      var hinted = ${JSON.stringify(hint)} ? document.querySelector(${JSON.stringify(hint)}) : null;
-      var found = (hinted && all.indexOf(hinted) >= 0 ? hinted : null)
-        || all.filter(usable)[0]
-        || all[0];
+      var hints = ${JSON.stringify(hints)};
+      var found = null;
+      /*
+       * Vodítka se zkoušejí v pořadí. Na stránce produktu v administraci je
+       * políček na soubor víc (obrázky, přílohy, varianty) a to viditelné
+       * není ani jedno z nich — Dropzone si svoje schovává. Bez pořadí
+       * vodítek by se fotky vložily k příloze.
+       */
+      for (var i = 0; i < hints.length && !found; i++) {
+        var hit = document.querySelector(hints[i]);
+        if (hit && all.indexOf(hit) >= 0) found = hit;
+      }
+      found = found || all.filter(usable)[0] || all[0];
       if (!found) return false;
       found.setAttribute(${JSON.stringify(MARK)}, '1');
       return true;
@@ -84,7 +94,7 @@ function markScript(hint: string): string {
  * minuty. Zavření okna čekání ukončí — uživatel si to rozmyslel.
  */
 export async function waitForFileInput(
-  win: BrowserWindow, hint = '', timeoutMs = 3 * 60_000
+  win: BrowserWindow, hint: string | string[] = '', timeoutMs = 3 * 60_000
 ): Promise<boolean> {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
@@ -103,7 +113,20 @@ export async function waitForFileInput(
  * nedělá — to zůstává na člověku, protože podání zásilek je nevratné.
  */
 export async function insertFile(win: BrowserWindow, file: string): Promise<void> {
-  if (!fs.existsSync(file)) throw new Error('soubor neexistuje');
+  return insertFiles(win, [file]);
+}
+
+/**
+ * Vloží víc souborů najednou.
+ *
+ * `DOM.setFileInputFiles` bere celý seznam, takže stránka dostane jednu
+ * událost `change` se všemi soubory — přesně jako by je člověk vybral
+ * v dialogu najednou. Po jednom by Dropzone u každého souboru začal nový
+ * přenos a ten předchozí zahodil.
+ */
+export async function insertFiles(win: BrowserWindow, files: string[]): Promise<void> {
+  const list = (files ?? []).filter(one => fs.existsSync(one));
+  if (list.length === 0) throw new Error('soubor neexistuje');
   if (win.isDestroyed()) throw new Error('okno se zavřelo');
 
   const dbg = win.webContents.debugger;
@@ -117,7 +140,7 @@ export async function insertFile(win: BrowserWindow, file: string): Promise<void
       selector: `[${MARK}]`
     });
     if (!found?.nodeId) throw new Error('políčko pro soubor se na stránce nenašlo');
-    await dbg.sendCommand('DOM.setFileInputFiles', { nodeId: found.nodeId, files: [file] });
+    await dbg.sendCommand('DOM.setFileInputFiles', { nodeId: found.nodeId, files: list });
   } finally {
     if (attached && dbg.isAttached()) { try { dbg.detach(); } catch { /* okno se mohlo zavřít */ } }
   }
@@ -130,7 +153,7 @@ export async function insertFile(win: BrowserWindow, file: string): Promise<void
  * ta správná stránka, místo aby se k ní uživatel proklikával znovu.
  */
 export async function fillFileInput(
-  win: BrowserWindow, file: string, hint = '', timeoutMs = 3 * 60_000
+  win: BrowserWindow, file: string, hint: string | string[] = '', timeoutMs = 3 * 60_000
 ): Promise<{ filled: boolean; url: string; note: string }> {
   const ready = await waitForFileInput(win, hint, timeoutMs);
   if (!ready) {

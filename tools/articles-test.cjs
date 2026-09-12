@@ -154,12 +154,13 @@ console.log('\nvidea v článku:');
 
 /* ---------- dohledání adres odkazu ---------- */
 
-console.log('\nodkazy na ostatních trzích:');
-{
+async function odkazy() {
+  console.log('\nodkazy na ostatních trzích:');
   const index = require(path.join(DIST, 'articles/index.js'));
-  // Dvojice adres se aplikace učí z už přeložených článků
+  // Dvojice adres se aplikace učí z už přeložených článků.
+  // `false` = nechodit na síť; stahování stránky se zkouší zvlášť, bez ní.
   urlmap.rememberPair('cz', '/kravaty', 'sk', '/kravaty-sk', 'category');
-  const found = index.linkUrls('https://www.quentino.cz/kravaty', 'cz');
+  const found = await index.linkUrls('https://www.quentino.cz/kravaty', 'cz', false);
 
   check('slovenská adresa se vezme z mapy', found.sk.url, 'https://www.quentino.sk/kravaty-sk');
   check('a je vidět, že je z dat', found.sk.via, 'map');
@@ -172,7 +173,77 @@ console.log('\nodkazy na ostatních trzích:');
   check('a označí jako odhad', found.en.via, 'domain');
   check('zdrojový jazyk zůstává sám sebou', found.cz.url, 'https://www.quentino.cz/kravaty');
   // Prázdný vstup nesmí nic vymýšlet
-  check('z prázdné adresy nic nevznikne', Object.keys(index.linkUrls('')).length, 0);
+  check('z prázdné adresy nic nevznikne', Object.keys(await index.linkUrls('')).length, 0);
+}
+
+/* ---------- přepínač jazyků na stránce ---------- */
+
+console.log('\nadresy z přepínače jazyků:');
+{
+  /*
+   * Odhadovat `/ponozky` → `/socks` z ničeho nejde — kategorie se jmenují
+   * jinak a mapa naučená z článků o nich vědět nemusí. Stránka to ale ví
+   * sama: v hlavičce má přepínač jazyků s odkazem na tutéž stránku na
+   * ostatním trhu.
+   */
+  const hlavicka = `
+    <li class="nav-item ft-none hdr-lng"><a href="/ponozky" class="nav-link nav-flag flag-cz pr-1" title="Česky (CZK)"><img src="cs.svg"></a></li>
+    <li class="nav-item ft-none hdr-lng"><a href="https://www.quentino.sk/ponozky" class="nav-link nav-flag flag-sk pr-1" title="Slovensky (EUR)"><img src="sk.svg"></a></li>
+    <li class="nav-item ft-none hdr-lng"><a href="https://www.wearquentino.com/socks" class="nav-link nav-flag flag-en pr-1" title="English (EUR)"><img src="en.svg"></a></li>`;
+  const found = urlmap.alternatesIn(hlavicka, 'https://www.quentino.cz/ponozky');
+  check('slovenská adresa se přečte', found.sk, 'https://www.quentino.sk/ponozky');
+  // Anglická kategorie se jmenuje úplně jinak — právě proto se to nedá odhadnout
+  check('a anglická i s jiným názvem', found.en, 'https://www.wearquentino.com/socks');
+  // Česká je v přepínači relativní, protože jsme na české stránce
+  check('relativní odkaz se doplní o doménu', found.cz, 'https://www.quentino.cz/ponozky');
+
+  // Standardní hreflang má přednost, když ho web vystavuje
+  const seHreflang = `<link rel="alternate" hreflang="sk" href="https://www.quentino.sk/jine">`
+    + `<link rel="alternate" hreflang="x-default" href="https://www.quentino.cz/">` + hlavicka;
+  check('hreflang vyhraje nad přepínačem',
+    urlmap.alternatesIn(seHreflang, 'https://www.quentino.cz/ponozky').sk,
+    'https://www.quentino.sk/jine');
+  // `x-default` není jazyk a nesmí nic přepsat
+  ok('x-default se přeskočí',
+    urlmap.alternatesIn(seHreflang, 'https://www.quentino.cz/ponozky').cz
+      === 'https://www.quentino.cz/ponozky');
+  check('na stránce bez přepínače nic nevznikne',
+    Object.keys(urlmap.alternatesIn('<html><body>nic</body></html>', 'https://www.quentino.cz/a')).length, 0);
+}
+
+/* ---------- export do e-shopu ---------- */
+
+console.log('\nexport článku:');
+{
+  const xml = require(path.join(DIST, 'articles/xml.js'));
+  const blok = xml.buildArticle(
+    [{ lang: 'cz', title: 'Test', slug: 'test', short: 'krátce', long: '<p>text</p>',
+      seo_title: 'Test', seo_desc: 'popis', seo_url: 'test' }],
+    {
+      images: [{ url: 'https://cdn.example.com/listing.jpg', description: 'náhled', isListing: true }],
+      categories: [
+        { code: 'K00035', name: 'Články / Blog', primary: false },
+        { code: '', name: 'Homepage', primary: true }
+      ]
+    }
+  );
+  /*
+   * Tvar kategorií je opsaný z toho, co Upgates samo vyváží: u hlavní je
+   * `PRIMARY_YN` jedna, u ostatních **prázdná** — ne nula.
+   */
+  ok('kategorie s kódem se vypíše', blok.includes('<CODE>K00035</CODE>'), blok);
+  ok('nehlavní má prázdný příznak', blok.includes('<PRIMARY_YN></PRIMARY_YN>'));
+  ok('hlavní má jedničku', blok.includes('<PRIMARY_YN>1</PRIMARY_YN>'));
+  ok('a obě mají pozici', (blok.match(/<POSITION>1<\/POSITION>/g) || []).length >= 2);
+  // Kategorie bez názvu je nedopsaný řádek z nastavení, ne kategorie
+  ok('prázdný řádek se nevyveze',
+    !xml.buildArticle([{ lang: 'cz', title: 'T', slug: 't', short: '', long: '<p>x</p>',
+      seo_title: '', seo_desc: '', seo_url: 't' }], { categories: [{ name: '  ' }] })
+      .includes('<CATEGORIES>'));
+  // Do galerie jde jen listingový; ostatní obrázky jsou v textu na svém místě
+  check('v galerii je jediný obrázek', (blok.match(/<IMAGE>/g) || []).length, 1);
+  ok('a je označený jako hlavní i listingový',
+    blok.includes('<MAIN_YN>1</MAIN_YN>') && blok.includes('<LIST_YN>1</LIST_YN>'));
 }
 
 /* ---------- adresa importu ---------- */
@@ -195,5 +266,7 @@ console.log('\nimport zpátky do e-shopu:');
   store.saveArticleSettings({ importUrl: '' });
 }
 
-console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
-process.exit(failed === 0 ? 0 : 1);
+odkazy().then(() => {
+  console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
+  process.exit(failed === 0 ? 0 : 1);
+});

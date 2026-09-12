@@ -133,6 +133,50 @@ export default function ArticleSettingsPanel({ overview, onSaved }: {
               <small>Soubor se do něj vloží sám; spuštění importu zůstává na tobě.</small>
             </span>
           </label>
+          {/*
+            Kategorie při importu. Bez nich se článek naimportuje „nikam"
+            a musí se v administraci zařazovat ručně u každého kusu.
+          */}
+          <div className="pt-block">
+            <span>Kategorie při importu</span>
+            {(draft.categories ?? []).map((cat, index) => (
+              <div className="ar-cat-row" key={index}>
+                <input value={cat.code} placeholder="Kód (K00035)"
+                  onChange={e => patch({
+                    categories: draft.categories.map((c, i) =>
+                      (i === index ? { ...c, code: e.target.value.trim() } : c))
+                  })} />
+                <input value={cat.name} placeholder="Název kategorie"
+                  onChange={e => patch({
+                    categories: draft.categories.map((c, i) =>
+                      (i === index ? { ...c, name: e.target.value } : c))
+                  })} />
+                <label className="pt-check">
+                  <input type="radio" name="artPrimaryCat" checked={!!cat.primary}
+                    onChange={() => patch({
+                      categories: draft.categories.map((c, i) => ({ ...c, primary: i === index }))
+                    })} />
+                  <span>Hlavní</span>
+                </label>
+                <button className="icon-btn"
+                  onClick={() => patch({
+                    categories: draft.categories.filter((_, i) => i !== index)
+                  })}>
+                  <Icon name="trash" size={14} />
+                </button>
+              </div>
+            ))}
+            <button className="btn ghost" onClick={() => patch({
+              categories: [...(draft.categories ?? []), { code: '', name: '', primary: false }]
+            })}>
+              <Icon name="plus" size={13} /> Přidat kategorii
+            </button>
+            <small>
+              Kód je nepovinný — Upgates ho u „Homepage" neposílá. Hlavní kategorie může být
+              jen jedna; u ostatních zůstane příznak prázdný, přesně jak to e-shop vyváží.
+            </small>
+          </div>
+
           <label>
             <span>Stránka importu textů</span>
             <input value={draft.importUrl} placeholder="prázdné = složí se z adresy administrace"

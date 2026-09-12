@@ -59,6 +59,8 @@ import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
+import * as media from './media';
+import * as mediashop from './mediashop';
 import { portalLogins, savePortalLogin } from './portallogin';
 import { articleStats, articleStat } from './artstats';
 import { pplSetup, savePplSetup, pplRows, exportPpl, openPplImport, openPplLabels } from './ppl';
@@ -530,6 +532,54 @@ export function registerIpc() {
   // Import se souborem: okno počká, až se objeví políčko na soubor, a vloží ho
   handle('balikovna:import', (file: string) => openBalikovnaImport(file));
 
+  /* ---------- konvertor médií ---------- */
+  handle('media:setup', () => media.mediaSetup());
+  handle('media:saveSetup', (patch: any) => media.saveMediaSetup(patch ?? {}));
+  handle('media:pick', () => media.pickMedia());
+  // Přetažené soubory: z okna přijdou jen cesty, zbytek se zjistí tady
+  handle('media:add', (paths: string[]) => media.addMedia(paths ?? []));
+  /*
+   * Obsah souboru pro převod. Samotný převod obrázku dělá okno aplikace —
+   * Chromium má v sobě kodér WebP, takže není potřeba nativní knihovna.
+   */
+  handle('media:read', (file: string) => media.readMedia(file));
+  handle('media:write', (name: string, bytes: any) =>
+    media.writeMedia(name, new Uint8Array(bytes)));
+  handle('media:outDir', () => media.pickOutDir());
+  handle('media:reveal', (file: string) => { media.revealMedia(file); return true; });
+  handle('media:ffmpeg', () => media.findFfmpeg());
+  handle('media:ffmpegPath', (value: string) => media.saveFfmpegPath(value ?? ''));
+  handle('media:video', (file: string) => media.convertVideo(file));
+  handle('media:stop', () => { media.stopVideo(); return true; });
+  /*
+   * Hlídané složky pro focení. Hlavní proces složku hlídá a hlásí novou
+   * fotku; převod dělá okno, protože kodér WebP je v Chromiu.
+   */
+  handle('media:watches', () => media.watchFolders());
+  handle('media:watchAdd', () => media.addWatchFolder());
+  handle('media:watchSave', (id: string, patch: any) => media.saveWatchFolder(id, patch ?? {}));
+  handle('media:watchRemove', (id: string) => media.removeWatchFolder(id));
+  handle('media:watchNewest', (dir: string) => media.newestInFolder(dir));
+  handle('media:watchLog', () => media.watchLog());
+  handle('media:watchNote', (row: any) => media.noteWatched(row));
+  handle('media:writeBeside', (source: string, subfolder: string, bytes: any) =>
+    media.writeBeside(source, subfolder, new Uint8Array(bytes)));
+
+  /*
+   * Fotky produktů z e-shopu. Stažení a nahrání do administrace dělá hlavní
+   * proces, převod do WebP okno — kodér je v Chromiu, stejně jako u zbytku
+   * konvertoru.
+   */
+  handle('media:products', (q: any) => mediashop.mediaProducts(q ?? {}));
+  handle('media:productStats', () => mediashop.mediaProductStats());
+  handle('media:productFetch', (code: string, urls: string[]) =>
+    mediashop.downloadProductImages(code, urls ?? []));
+  handle('media:productSave', (code: string, name: string, bytes: any) =>
+    mediashop.saveProductWebp(code, name, new Uint8Array(bytes)));
+  handle('media:productUpload', (code: string, files: string[]) =>
+    mediashop.uploadProductImages(code, files ?? []));
+  handle('media:productReveal', (code: string) => { mediashop.revealProduct(code); return true; });
+
   /* ---------- texty na webu ---------- */
   handle('webtexts:state', () => webtexts.webTextsState());
   // Otevření modulu se ptá webu — pravda je ve vystaveném souboru
@@ -814,8 +864,8 @@ export function registerIpc() {
     articles.applyFix(id, lang, from, to));
   handle('articles:fixAll', (ids?: number[]) => articles.applyAllFixes(ids));
   // Slovenská a anglická adresa dohledaná z české — ať se neopisuje ručně
-  handle('articles:linkUrls', (url: string, fromLang?: string) =>
-    articles.linkUrls(url ?? '', fromLang));
+  handle('articles:linkUrls', (url: string, fromLang?: string, probe?: boolean) =>
+    articles.linkUrls(url ?? '', fromLang, probe !== false));
   handle('articles:urlmap', (filter: any) => articles.listUrlMap(filter ?? {}));
   handle('articles:learnLinks', () => articles.learnLinks());
   handle('articles:saveUrlPair', (fromLang: string, fromPath: string, toLang: string, toPath: string, kind: string) =>

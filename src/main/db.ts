@@ -142,6 +142,7 @@ function migrate(d: Database.Database) {
       url_en TEXT NOT NULL DEFAULT '',
       price_en TEXT NOT NULL DEFAULT '',
       image TEXT,
+      images TEXT NOT NULL DEFAULT '',
       category TEXT NOT NULL DEFAULT '',
       categories TEXT NOT NULL DEFAULT '',
       manufacturer TEXT NOT NULL DEFAULT '',
@@ -447,6 +448,13 @@ function migrate(d: Database.Database) {
   try { d.exec('ALTER TABLE products ADD COLUMN price_num REAL'); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE products ADD COLUMN ean TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE products ADD COLUMN product_id TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  /*
+   * Všechny obrázky produktu, ne jen ten hlavní.
+   *
+   * Konvertor médií podle nich pozná, které produkty už mají fotky ve WebP
+   * a které ne — a to se z jediné hlavní fotky zjistit nedá.
+   */
+  try { d.exec("ALTER TABLE products ADD COLUMN images TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   /*
    * Kdy dorazila čerstvá zásoba z rychlého feedu.
    *

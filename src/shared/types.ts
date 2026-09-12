@@ -1967,6 +1967,13 @@ export interface ArticleSettings {
   importUrl: string;
   /** Otevřít import hned po exportu a vložit do něj soubor */
   openImport: boolean;
+  /**
+   * Kategorie, do kterých článek při importu patří.
+   *
+   * Bez nich se článek naimportuje „nikam" a zařazuje se v administraci
+   * ručně u každého kusu.
+   */
+  categories: { code: string; name: string; primary: boolean }[];
 }
 
 export interface ArticleBrief {
@@ -2830,4 +2837,171 @@ export interface WebTextsState {
   error: string;
   /** Skript k vložení na konec <head> e-shopu, už s adresou plánu */
   script: string;
+}
+
+/* ==================== Konvertor médií ==================== */
+
+/**
+ * Nastavení převodu fotek a videí pro web.
+ *
+ * Fotky z foťáku mají šest tisíc pixelů a pět megabajtů; na stránku patří
+ * zlomek. Parametry jsou v nastavení, protože „dobrá komprese" je u fotky
+ * látky něco jiného než u snímku obrazovky.
+ */
+export interface MediaSetup {
+  /** Kvalita WebP, 1–100 */
+  quality: number;
+  /**
+   * Co s rozlišením:
+   * `keep` beze změny, `max` zmenšit, aby se vešlo do mezí,
+   * `exact` přesný rozměr, `percent` na procenta původní velikosti.
+   */
+  resize: 'keep' | 'max' | 'exact' | 'percent';
+  maxWidth: number;
+  maxHeight: number;
+  exactWidth: number;
+  exactHeight: number;
+  percent: number;
+  /** Menší obrázek nezvětšovat — z malé fotky se velká neudělá */
+  keepSmaller: boolean;
+  videoCodec: 'vp9' | 'vp8';
+  /** Konstantní kvalita videa; nižší číslo = lepší obraz a větší soubor */
+  videoCrf: number;
+  /** Šířka videa v pixelech; 0 = zachovat */
+  videoWidth: number;
+  /** Zvuk v kb/s; 0 = bez zvuku */
+  videoAudio: number;
+  /** Kam se převedené soubory ukládají */
+  outDir: string;
+}
+
+export interface MediaFile {
+  path: string;
+  name: string;
+  size: number;
+  kind: 'image' | 'video';
+}
+
+export interface MediaResult {
+  file: string;
+  name: string;
+  /** Velikost před převodem a po něm — kvůli tomu se to dělá */
+  before: number;
+  after: number;
+}
+
+/** Ořez v poměrných hodnotách 0–1 — nezávisí na rozměru fotky. */
+export interface MediaCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Hlídaná složka pro focení.
+ *
+ * Nafotí se deset motýlků nastejno, nasypou se do složky a aplikace z nich
+ * udělá webové fotky sama — se stejným ořezem u všech. Ořez se nastaví
+ * jednou podle první fotky; předpoklad je, že další jsou focené stejně,
+ * a když ne, dá se přenastavit.
+ *
+ * Každá složka má vlastní nastavení: jiné focení = jiný ořez i jiná
+ * velikost. Výsledky jdou do podsložky uvnitř, aby ležely u originálů
+ * a nemíchaly se s nimi.
+ */
+export interface MediaWatch {
+  id: string;
+  path: string;
+  enabled: boolean;
+  /** Podsložka, kam se ukládají převedené fotky */
+  subfolder: string;
+  /** Ořez pro všechny fotky v téhle složce; `null` = neořezávat */
+  crop: MediaCrop | null;
+  quality: number;
+  resize: 'keep' | 'max' | 'exact' | 'percent';
+  maxWidth: number;
+  maxHeight: number;
+  exactWidth: number;
+  exactHeight: number;
+  percent: number;
+  keepSmaller: boolean;
+  /** Kolik fotek už složka zpracovala a kdy naposledy */
+  done: number;
+  lastAt: string;
+}
+
+/** Jedna zpracovaná fotka z hlídané složky — do výpisu, ať je vidět, že to jede. */
+export interface MediaLogRow {
+  at: string;
+  folder: string;
+  name: string;
+  before: number;
+  after: number;
+  error: string;
+}
+
+/** Je v počítači ffmpeg, a kde. */
+export interface MediaTool {
+  ok: boolean;
+  path: string;
+  version: string;
+  /** Co s tím, když není */
+  note: string;
+}
+
+/* ---------- fotky produktů v konvertoru médií ---------- */
+
+/**
+ * Produkt v konvertoru médií — co má za fotky a jestli jsou ve WebP.
+ *
+ * `state` se počítá z adres obrázků ve feedu: v adrese je přípona souboru,
+ * který na e-shopu leží, takže `.webp` u všech znamená hotovo. `convertedAt`
+ * je proti tomu naše poznámka „právě nahráno" — feed se stahuje jednou
+ * denně a bez ní by se čerstvě převedený produkt celý den tvářil, že hotový
+ * není.
+ */
+export interface MediaImage {
+  url: string;
+  /** Přípona souboru na e-shopu, malými písmeny; prázdná, když ji adresa nemá */
+  ext: string;
+}
+
+export interface MediaProduct {
+  code: string;
+  /** Vnitřní ID z feedu; bez něj se produkt v administraci nedá otevřít */
+  productId: string;
+  title: string;
+  url: string;
+  thumb: string | null;
+  images: MediaImage[];
+  /** Kolik z obrázků už je ve WebP */
+  webp: number;
+  /** `empty` = produkt nemá obrázky, není co převádět */
+  state: 'webp' | 'mixed' | 'none' | 'empty';
+  /** Kdy aplikace fotky nahrála, pokud to bylo za posledních 24 h */
+  convertedAt: string;
+}
+
+export interface MediaProductQuery {
+  query?: string;
+  category?: string;
+  /** `todo` = co ještě není ve WebP, `done` = hotové, jinak vše s obrázky */
+  only?: 'todo' | 'done' | 'all';
+  offset?: number;
+  limit?: number;
+}
+
+export interface MediaProductPage {
+  items: MediaProduct[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+/** Výsledek nahrání fotek do administrace. */
+export interface MediaUpload {
+  opened: boolean;
+  filled: boolean;
+  note: string;
 }

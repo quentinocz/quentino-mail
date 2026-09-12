@@ -88,10 +88,13 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
    * Přepisuje se **jen prázdné**, ať se ručně doladěná adresa neztratí;
    * tlačítko „dohledat" přepíše všechno.
    */
+  const [linkBusy, setLinkBusy] = useState<number | null>(null);
+
   const fillLinks = useCallback(async (index: number, force = false) => {
     const link = brief.links[index];
     const source = link?.urls[article.sourceLang]?.trim();
     if (!source) return;
+    setLinkBusy(index);
     try {
       const found = await api.articles.linkUrls(source, article.sourceLang);
       const urls = { ...link.urls };
@@ -109,6 +112,8 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
       });
     } catch {
       // Nepodařilo se dohledat — adresy zůstanou na člověku, nic se nerozbije
+    } finally {
+      setLinkBusy(null);
     }
   }, [brief.links, article.sourceLang]);
 
@@ -442,7 +447,8 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
                         placeholder={`${lang.code.toUpperCase()} adresa`}
                         title={guessed === 'domain'
                           ? 'Tuhle adresu aplikace nezná — jen vyměnila doménu. Ověř ji.'
-                          : guessed ? 'Dohledáno v mapě adres' : ''}
+                          : guessed === 'page' ? 'Přečteno z přepínače jazyků na té stránce'
+                            : guessed ? 'Dohledáno v mapě adres' : ''}
                         onBlur={() => { if (lang.code === article.sourceLang) void fillLinks(index); }}
                         onChange={e => {
                           const next = [...brief.links];
@@ -452,8 +458,11 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
                     );
                   })}
                   <button className="icon-btn" data-tip="Dohledat adresy na ostatních trzích"
+                    disabled={linkBusy === index}
                     onClick={() => void fillLinks(index, true)}>
-                    <Icon name="globe" size={14} />
+                    {linkBusy === index
+                      ? <span className="spinner-inline" />
+                      : <Icon name="globe" size={14} />}
                   </button>
                   <button className="icon-btn"
                     onClick={() => patchBrief({ links: brief.links.filter((_, i) => i !== index) })}>

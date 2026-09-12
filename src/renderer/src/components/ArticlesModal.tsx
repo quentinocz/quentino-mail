@@ -46,6 +46,14 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [progress, setProgress] = useState<ArticleProgress | null>(null);
+  /** Velikost okna — pamatuje se mezi otevřeními, jako u balení */
+  const [size, setSize] = useState<'normal' | 'full'>(
+    () => (localStorage.getItem('articlesSize') as 'normal' | 'full') || 'normal'
+  );
+  const setWindowSize = useCallback((next: 'normal' | 'full') => {
+    setSize(next);
+    localStorage.setItem('articlesSize', next);
+  }, []);
   const [pane, setPane] = useState<'brief' | 'text' | 'links' | 'stats'>('brief');
   const [loading, setLoading] = useState(false);
 
@@ -166,7 +174,7 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal ar-modal">
+      <div className={`modal ar-modal ar-${size}`}>
         <div className="modal-head">
           <div className="modal-title"><Icon name="fileText" size={16} /> Články</div>
           <span className="pt-feed">
@@ -187,6 +195,16 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
           <button className="icon-btn" onClick={exportXml}
             data-tip={activeId ? 'Uložit tento článek jako XML' : 'Uložit hotové články jako XML'}>
             <Icon name="download" size={15} />
+          </button>
+          {/*
+            Zvětšení okna. Psaní článku je práce na dvě obrazovky — zadání,
+            text, odkazy — a v malém okně se v tom scrolluje víc, než píše.
+            Volba se pamatuje, stejně jako u balení: kdo si okno jednou
+            zvětší, chce ho velké i příště.
+          */}
+          <button className="icon-btn" onClick={() => setWindowSize(size === 'full' ? 'normal' : 'full')}
+            data-tip={size === 'full' ? 'Zmenšit okno' : 'Na celou obrazovku'}>
+            <Icon name={size === 'full' ? 'shrink' : 'expand'} size={15} />
           </button>
           <button className="icon-btn" onClick={onClose} data-tip="Zavřít"><Icon name="x" size={16} /></button>
         </div>

@@ -11,6 +11,7 @@ import { setHtmlRenderer, clearTrackingCache } from './ordertrack';
 import { renderPage } from './render';
 import { handleCallbackUrl } from './instagram';
 import { refreshWatchers, restartWatchers } from './idle';
+import { restartWatchers as restartMediaWatchers } from './media';
 import { refreshTokens as refreshIgTokens } from './instagram/publish';
 
 let mainWindow: BrowserWindow | null = null;
@@ -296,6 +297,11 @@ app.whenReady().then(() => {
     return;
   }
   startScheduler();
+  /*
+   * Hlídané složky pro focení. Musí běžet od startu, ne až od otevření
+   * modulu — celý smysl je, že se fotky převedou samy, zatímco se fotí.
+   */
+  setTimeout(() => { try { restartMediaWatchers(); } catch { /* složka může být pryč */ } }, 2000);
   // úvodní synchronizace na pozadí
   setTimeout(() => syncAllAccounts().catch(() => {}), 1500);
 
@@ -313,6 +319,8 @@ app.whenReady().then(() => {
     setTimeout(() => syncAllAccounts().catch(() => {}), 4000);
     // Spojení uspaná se strojem už nic neohlásí — navážou se znovu
     setTimeout(() => { try { restartWatchers(); } catch { /* nevadí */ } }, 5000);
+    // Hlídání složek spánek taky přežít nemusí
+    setTimeout(() => { try { restartMediaWatchers(); } catch { /* nevadí */ } }, 5500);
     // Po delším spánku mohl mezitím vypršet přístup k Metě
     setTimeout(() => { refreshIgTokens().catch(() => {}); }, 8000);
   });

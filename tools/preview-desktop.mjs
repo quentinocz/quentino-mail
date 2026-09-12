@@ -603,7 +603,54 @@ await page.waitForTimeout(600);
 await overflow('balení — schválení poznámek'); await snap('26f-baleni-poznamky-dotaz');
 await click('.modal-foot .btn.ghost', { hasText: 'Zrušit' });
 await page.waitForTimeout(200);
-await click('.pk-modal .modal-head .icon-btn');
+// Poslední ikona v hlavičce je zavřít; první je obnovit
+await click('.pk-modal .modal-head .icon-btn >> nth=-1');
+await page.waitForTimeout(300);
+
+/*
+ * Konvertor médií. Zajímá tu hlavně záložka Focení: hlídaná složka běží na
+ * pozadí, takže na ní musí být na první pohled poznat, že jede, a jaký
+ * ořez se použije.
+ */
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Konvertor médií' });
+await overflow('média — soubory'); await snap('45-media-soubory');
+
+/*
+ * Fotky produktů. Seznam musí na první pohled ukázat, co ještě není ve WebP
+ * — z toho se pracuje a bez barevné značky by se to muselo číst řádek po
+ * řádku.
+ */
+await click('.md-modal .ig-seg button', { hasText: 'Produkty' });
+await page.waitForTimeout(500);
+{
+  const items = await page.locator('.mp-item').count();
+  const tags = await page.locator('.mp-tag.todo, .mp-tag.half').count();
+  console.log(`${'produkty s chybějícím WebP'.padEnd(28)} ${items && tags ? '✓' : '✗'} (${items}, značek ${tags})`);
+}
+await overflow('média — produkty'); await snap('45b-media-produkty');
+// Produkt s půlkou hotovou — na něm je vidět, že se předvybírají jen nepřevedené
+await click('.mp-item', { hasText: 'Manžetové' });
+await page.waitForTimeout(400);
+{
+  const shots = await page.locator('.mp-shot').count();
+  const chosen = await page.locator('.mp-shot.on').count();
+  console.log(`${'předvybrané jsou nepřevedené'.padEnd(28)} ${shots && chosen < shots ? '✓' : '✗'} (${chosen} z ${shots})`);
+}
+await overflow('média — fotky produktu'); await snap('45c-media-produkt-detail');
+
+await click('.md-modal .ig-seg button', { hasText: 'Focení' });
+await page.waitForTimeout(400);
+{
+  const folders = await page.locator('.md-folder').count();
+  const running = await page.locator('.md-folder.on').count();
+  console.log(`${'hlídané složky'.padEnd(28)} ${folders ? '✓' : '✗'} (${folders}, z toho běží ${running})`);
+}
+await overflow('média — focení'); await snap('46-media-foceni');
+
+await click('.md-modal .ig-seg button', { hasText: 'Nastavení' });
+await overflow('média — nastavení'); await snap('47-media-nastaveni');
+await click('.md-modal .modal-head .icon-btn >> nth=-1');
 await page.waitForTimeout(300);
 
 console.log(problems.length ? '\nPROBLÉMY:\n' + problems.slice(0, 10).join('\n') : '\nžádné chyby');
