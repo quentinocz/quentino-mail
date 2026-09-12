@@ -20,7 +20,7 @@
  */
 import { BrowserWindow } from 'electron';
 import * as live from './live';
-import { mergeStockin, sessionOf, itemsOf, sessionSlice } from './stockin';
+import { mergeStockin, sessionOf, itemsOf, sessionSlice, sessionFingerprint } from './stockin';
 import { applyPacking, packingSlice } from './packing';
 import { applyVoucherJournal } from './appsync';
 import { applyDigestShare } from './digest';
@@ -123,6 +123,13 @@ export function startLiveWork(): void {
  *
  * Odpovídá se jen otevřeným naskladněním — hotová druhou stranu nezajímají
  * a poslat všechno by znamenalo velkou zprávu při každém zapnutí telefonu.
+ *
+ * **Odpověď je označená jako tichá.** Pozdrav se posílá po každém navázání
+ * spojení, tedy i po probuzení počítače nebo přepnutí sítě, a druhá strana
+ * pokaždé pošle totéž. Kdyby se z toho dělala nabídka, vyskakoval by proužek
+ * pořád dokola — a hlavně u naskladnění, na kterém se od minula nedělo nic.
+ * Data se sloučí, ale nabídka se z toho neudělá; ta patří skutečné změně,
+ * kterou druhá strana pošle sama od sebe.
  */
 function answerHello(): void {
   const open = getDb().prepare(
@@ -130,7 +137,7 @@ function answerHello(): void {
   ).all() as any[];
   for (const row of open) {
     const slice = sessionSlice(String(row.id));
-    if (slice) live.publish('stockin', slice);
+    if (slice) live.publish('stockin', { ...slice, quiet: true });
   }
 }
 
@@ -144,12 +151,28 @@ function takeStockin(from: string, data: any): void {
   const id = String(data?.sessions?.[0]?.id ?? '');
   if (!id) return;
 
+  /*
+   * Porovnání otisku před sloučením a po něm. Druhá strana posílá celý stav,
+   * ne rozdíl, a tutéž zprávu pošle znovu po každém obnovení spojení — bez
+   * tohohle vyskočí proužek i u naskladnění, kde se nezměnil jediný kus.
+   */
+  const before = sessionFingerprint(id);
   mergeStockin(data);
-  emit('stockin:changed', {});
+  const changed = before !== sessionFingerprint(id);
+  if (changed) emit('stockin:changed', {});
 
   const session = sessionOf(id);
   // Odeslaná nebo smazaná už není práce, kterou by mělo smysl nabízet
   if (!session || session.state !== 'open') { closeOffer(`stockin:${id}`); return; }
+
+  // Odpověď na pozdrav je jen srovnání dat, ne oznámení — nenabízí se nikdy
+  if (data?.quiet) return;
+  /*
+   * Jinak se nabízí buď skutečná změna, nebo výslovné „dělám tohle" (někdo
+   * naskladnění na druhém zařízení právě otevřel). Samotné doručení téže
+   * zprávy podruhé nabídka není.
+   */
+  if (!changed && !data?.working) return;
 
   const items = itemsOf(id);
   const pieces = items.reduce((sum, one) => sum + one.qty, 0);
@@ -176,6 +199,14 @@ function takePacking(from: string, data: any): void {
    * s odškrtnutou položkou v telefonu a neodškrtnutou na obrazovce.
    */
   emit('packing:changed', applied);
+
+  /*
+   * Když zpráva nic nepřinesla, nic se nenabízí ani nepřepíná. Stejný stav
+   * chodí znovu po každém obnovení spojení a proužek „balí se" by pak
+   * vyskakoval sám od sebe. Výjimka je výslovné „balím tuhle": tam se obsah
+   * taky nemění, a přesto se to ohlásit má.
+   */
+  if (!applied.changed && !data?.working) return;
 
   // Otevřené okno se přepne rovnou na tuhle objednávku
   emit('live:work', { kind: 'packing', id: applied.code, from });

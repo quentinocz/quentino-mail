@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { MediaProduct, MediaSetup, ProductFacets } from '@shared/types';
+import type { MediaProduct, MediaProductSetup, MediaSetup, ProductFacets } from '@shared/types';
 import { api } from '../api';
 import { toWebp } from '../media';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import MediaCompare from './MediaCompare';
 
 /**
  * Fotky produktů z e-shopu — najít produkt, převést jeho fotky a nahrát je.
@@ -74,6 +75,10 @@ export default function MediaProducts({ setup }: { setup: MediaSetup }) {
   const [steps, setSteps] = useState<Step[]>([]);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState<string[]>([]);
+  /** Vlastní nastavení produktu; `null` = platí obecné */
+  const [own, setOwn] = useState<MediaProductSetup | null>(null);
+  /** Která fotka je právě otevřená v srovnání před/po */
+  const [compare, setCompare] = useState<number | null>(null);
 
   /** Roste s každou změnou filtru — odpovědi ze zastaralých dotazů se zahodí */
   const reqId = useRef(0);
@@ -110,9 +115,23 @@ export default function MediaProducts({ setup }: { setup: MediaSetup }) {
     setPicked(one);
     setSteps([]);
     setReady([]);
+    setOwn(null);
+    api.media.productSetup(one.code).then(setOwn).catch(() => setOwn(null));
     // Přípony počítá hlavní proces — okno jen vybere, co ještě není WebP
     setShots(one.images.map(img =>
       ({ url: img.url, ext: img.ext, out: '', before: 0, after: 0, use: img.ext !== 'webp', error: '' })));
+  };
+
+  /**
+   * Podle čeho se převádí. Vlastní nastavení produktu přebíjí obecné —
+   * a je to vidět v hlášce pod fotkami, ať se nikdo nediví, proč u jednoho
+   * produktu vychází jiná velikost.
+   */
+  const rules: MediaProductSetup = own ?? {
+    quality: setup.quality, resize: setup.resize,
+    maxWidth: setup.maxWidth, maxHeight: setup.maxHeight,
+    exactWidth: setup.exactWidth, exactHeight: setup.exactHeight,
+    percent: setup.percent, keepSmaller: setup.keepSmaller
   };
 
   const step = (label: string, state: Step['state'], note = '') =>
@@ -147,7 +166,7 @@ export default function MediaProducts({ setup }: { setup: MediaSetup }) {
       const url = got.urls[i];
       try {
         const bytes = await api.media.read(file.path);
-        const webp = await toWebp(bytes, { ...setup, crop: null });
+        const webp = await toWebp(bytes, { ...rules, crop: null });
         const saved = await api.media.productSave(one.code, file.name, webp.bytes);
         out.push(saved.file);
         before += file.size;
@@ -164,9 +183,10 @@ export default function MediaProducts({ setup }: { setup: MediaSetup }) {
       `${out.length} souborů · ${pretty(before)} → ${pretty(after)}`);
     setReady(out);
     return out;
-  }, [setup, toast]);
+  }, [rules, toast]);
 
   const chosen = useMemo(() => shots.filter(s => s.use), [shots]);
+
 
   const runConvert = async () => {
     if (!picked || chosen.length === 0) return;
@@ -316,6 +336,16 @@ export default function MediaProducts({ setup }: { setup: MediaSetup }) {
                       }} />
                     <img src={shot.url} alt="" loading="lazy" />
                     <span className={`mp-ext ${shot.ext === 'webp' ? 'ok' : ''}`}>{shot.ext || '?'}</span>
+                    {/*
+                      * Srovnání před/po. Je u každé fotky zvlášť, protože se
+                      * kvalita pozná na konkrétním místě konkrétní fotky —
+                      * jedno tlačítko „ukaž náhled" u produktu by nutilo
+                      * hádat, která z nich je ta ošemetná.
+                      */}
+                    <button type="button" className="mp-peek" data-tip="Porovnat před a po"
+                      onClick={e => { e.preventDefault(); setCompare(index); }}>
+                      <Icon name="search" size={13} /> Porovnat
+                    </button>
                     {shot.after > 0 && (
                       <span className="mp-gain">{pretty(shot.before)} → {pretty(shot.after)}</span>
                     )}
@@ -325,12 +355,23 @@ export default function MediaProducts({ setup }: { setup: MediaSetup }) {
               </div>
 
               <p className="desc mp-hint">
-                Převádí se podle nastavení konvertoru: kvalita {setup.quality}
-                {setup.resize === 'max' ? `, nejvíc ${setup.maxWidth}×${setup.maxHeight} px`
-                  : setup.resize === 'exact' ? `, přesně ${setup.exactWidth}×${setup.exactHeight} px`
-                    : setup.resize === 'percent' ? `, na ${setup.percent} % rozměru` : ', rozlišení beze změny'}.
+                {own ? 'Vlastní nastavení tohoto produktu' : 'Obecné nastavení konvertoru'}
+                : kvalita {rules.quality}
+                {rules.resize === 'max' ? `, nejvíc ${rules.maxWidth}×${rules.maxHeight} px`
+                  : rules.resize === 'exact' ? `, přesně ${rules.exactWidth}×${rules.exactHeight} px`
+                    : rules.resize === 'percent' ? `, na ${rules.percent} % rozměru` : ', rozlišení beze změny'}.
                 {shots.some(s => s.ext === 'webp')
                   ? ' Fotky, které už ve WebP jsou, se předem nevybírají.' : ''}
+                {own && (
+                  <>
+                    {' '}
+                    <button className="linkish" onClick={() => {
+                      api.media.productSetupSave(picked.code, null)
+                        .then(() => { setOwn(null); setReady([]); })
+                        .catch(e => toast(e.message, 'error'));
+                    }}>Vrátit na obecné</button>
+                  </>
+                )}
               </p>
 
               {steps.length > 0 && (
@@ -371,6 +412,27 @@ export default function MediaProducts({ setup }: { setup: MediaSetup }) {
           )}
         </div>
       </div>
+      {compare !== null && picked && shots[compare] && (
+        <MediaCompare
+          code={picked.code}
+          url={shots[compare].url}
+          name={`${picked.title} · fotka ${compare + 1}`}
+          rules={rules}
+          own={!!own}
+          base={setup}
+          onClose={() => setCompare(null)}
+          onSave={value => {
+            api.media.productSetupSave(picked.code, value)
+              .then(next => {
+                setOwn(next);
+                // Jiné nastavení = jiný výsledek; hotové soubory z minula už neplatí
+                setReady([]);
+                toast(next ? 'Nastavení uloženo u produktu.' : 'Platí zase obecné nastavení.');
+              })
+              .catch(e => toast(e.message, 'error'));
+          }}
+        />
+      )}
     </div>
   );
 }

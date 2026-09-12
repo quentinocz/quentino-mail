@@ -105,7 +105,7 @@ const ALLOWED_INVOKE = [
   'media:watches', 'media:watchAdd', 'media:watchSave', 'media:watchRemove', 'media:watchNewest',
   'media:watchLog', 'media:watchNote', 'media:writeBeside',
   'media:products', 'media:productStats', 'media:productFetch', 'media:productSave',
-  'media:productUpload', 'media:productReveal',
+  'media:productUpload', 'media:productReveal', 'media:productSetup', 'media:productSetupSave',
   'ship:notes',
   'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',

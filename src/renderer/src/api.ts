@@ -22,7 +22,7 @@ import type {
   PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin, OrderNote, OrderNotes, ApprovedNote,
   WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState,
   MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow,
-  MediaProductQuery, MediaProductPage, MediaUpload
+  MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload
 } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -762,7 +762,17 @@ export const api = {
       call<{ file: string; size: number }>('media:productSave', code, name, bytes),
     productUpload: (code: string, files: string[]) =>
       call<MediaUpload>('media:productUpload', code, files),
-    productReveal: (code: string) => call<boolean>('media:productReveal', code)
+    productReveal: (code: string) => call<boolean>('media:productReveal', code),
+    /**
+     * Vlastní nastavení převodu u jednoho produktu.
+     *
+     * `null` znamená „platí obecné". Je to jiný stav než uložené nastavení,
+     * které se obecnému náhodou rovná — u toho druhého by se změna obecného
+     * nastavení tiše neprojevila.
+     */
+    productSetup: (code: string) => call<MediaProductSetup | null>('media:productSetup', code),
+    productSetupSave: (code: string, value: MediaProductSetup | null) =>
+      call<MediaProductSetup | null>('media:productSetupSave', code, value)
   },
 
   /**

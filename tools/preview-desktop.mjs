@@ -639,6 +639,23 @@ await page.waitForTimeout(400);
 }
 await overflow('média — fotky produktu'); await snap('45c-media-produkt-detail');
 
+/*
+ * Srovnání před a po. Oba rámečky musí být stejně velké — kdyby se výsledek
+ * kreslil menší, vypadal by hůř kvůli zmenšení, ne kvůli kompresi.
+ */
+await click('.mp-peek >> nth=1');
+await page.waitForTimeout(900);
+{
+  const panes = await page.locator('.mc-view').count();
+  const sizes = await page.locator('.mc-view').evaluateAll(
+    list => list.map(el => Math.round(el.getBoundingClientRect().width)));
+  const same = sizes.length === 2 && Math.abs(sizes[0] - sizes[1]) <= 1;
+  console.log(`${'srovnání má dva stejné rámečky'.padEnd(28)} ${panes === 2 && same ? '✓' : '✗'} (${sizes.join(' × ')})`);
+}
+await overflow('média — před a po'); await snap('45d-media-srovnani');
+await click('.mc-modal .modal-head .icon-btn >> nth=-1');
+await page.waitForTimeout(300);
+
 await click('.md-modal .ig-seg button', { hasText: 'Focení' });
 await page.waitForTimeout(400);
 {

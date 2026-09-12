@@ -7,8 +7,8 @@ import { listProducts } from './products';
 import { openUrl, waitForFileInput, insertFiles } from './formfile';
 import { keepSignedIn, signIn, signInNote } from './portallogin';
 import { mediaSetup } from './media';
-import type { MediaFile, MediaProduct, MediaProductPage, MediaProductQuery, MediaUpload }
-  from '../shared/types';
+import type { MediaFile, MediaProduct, MediaProductPage, MediaProductQuery, MediaProductSetup,
+  MediaUpload } from '../shared/types';
 
 /**
  * Fotky produktů z e-shopu — stáhnout, převést do WebP a nahrát zpátky.
@@ -180,6 +180,47 @@ export function mediaProductStats(): { total: number; webp: number; todo: number
     else todo++;
   }
   return { total: rows.length, webp, todo, empty };
+}
+
+/* ---------- vlastní nastavení u produktu ---------- */
+
+const SETUP_KEY = 'mediaProductSetup';
+/** Kolik produktů si pamatovat. Vlastní nastavení je výjimka, ne pravidlo. */
+const SETUP_CAP = 300;
+
+function setupMap(): Record<string, MediaProductSetup> {
+  try {
+    const saved = JSON.parse(getSetting(SETUP_KEY, '{}') ?? '{}');
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Vlastní nastavení produktu, nebo `null`, když platí obecné. */
+export function productSetup(code: string): MediaProductSetup | null {
+  return setupMap()[code] ?? null;
+}
+
+/**
+ * Uloží nebo zruší vlastní nastavení produktu.
+ *
+ * `null` znamená „zpátky na obecné" — to je jiný stav než uložené nastavení,
+ * které se obecnému náhodou rovná: kdyby se ukládalo i to, změna obecného
+ * nastavení by se u takového produktu tiše neprojevila.
+ */
+export function saveProductSetup(code: string, value: MediaProductSetup | null):
+  MediaProductSetup | null {
+  const all = setupMap();
+  if (value) all[code] = value;
+  else delete all[code];
+
+  const keys = Object.keys(all);
+  if (keys.length > SETUP_CAP) {
+    for (const key of keys.slice(0, keys.length - SETUP_CAP)) delete all[key];
+  }
+  setSetting(SETUP_KEY, JSON.stringify(all));
+  return productSetup(code);
 }
 
 /* ---------- stažení originálů ---------- */

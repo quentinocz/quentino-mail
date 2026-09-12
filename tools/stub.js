@@ -876,6 +876,9 @@
       };
     })(),
     'media:productStats': { total: 84, webp: 41, todo: 37, empty: 6 },
+    // Vlastní nastavení u produktu: v náhledu se začíná od obecného
+    'media:productSetup': null,
+    'media:productSetupSave': null,
     'media:watchLog': [
       { at: new Date(Date.now() - 240000).toISOString(), folder: '/Users/patrik/Pictures/Foceni motylku',
         name: 'IMG_4821.JPG', before: 5242880, after: 214000, error: '' },
@@ -1626,6 +1629,24 @@
             shortenTo: one.fromMs < od ? String(draft.from) : '' };
         });
         return Promise.resolve({ ok: true, data: strety });
+      }
+      /*
+       * Srovnání před/po si stahuje originál přes hlavní proces a pak ho čte
+       * ze souboru. V náhledu se místo toho vrátí vložený obrázek: jinak by
+       * okno zůstalo na točícím se kolečku a nedalo by se na něj podívat.
+       */
+      if (channel === 'media:productFetch') {
+        return Promise.resolve({ ok: true, data: {
+          files: [{ path: '/tmp/nahled.jpg', name: 'nahled.jpg', size: 2145728, kind: 'image' }],
+          urls: [(arguments[2] || [''])[0]], skipped: [], dir: '/tmp'
+        } });
+      }
+      if (channel === 'media:read') {
+        var dataUrl = THUMBS[0];
+        var raw = atob(dataUrl.split(',')[1]);
+        var bytes = new Uint8Array(raw.length);
+        for (var bi = 0; bi < raw.length; bi++) bytes[bi] = raw.charCodeAt(bi);
+        return Promise.resolve({ ok: true, data: bytes });
       }
       if (channel === 'orders:badge') {
         return new Promise(function (done) {

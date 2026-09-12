@@ -579,6 +579,10 @@ export function registerIpc() {
   handle('media:productUpload', (code: string, files: string[]) =>
     mediashop.uploadProductImages(code, files ?? []));
   handle('media:productReveal', (code: string) => { mediashop.revealProduct(code); return true; });
+  // Vlastní nastavení převodu u jednoho produktu; `null` vrací platnost obecnému
+  handle('media:productSetup', (code: string) => mediashop.productSetup(code));
+  handle('media:productSetupSave', (code: string, value: any) =>
+    mediashop.saveProductSetup(code, value ?? null));
 
   /* ---------- texty na webu ---------- */
   handle('webtexts:state', () => webtexts.webTextsState());
