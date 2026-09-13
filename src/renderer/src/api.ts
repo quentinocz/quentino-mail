@@ -16,6 +16,7 @@ import type {
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct, ArticleStatsView, ArticleStatDetail,
   ArticleUpload, ArticleFolder,
+  Review, ReviewsState, ReviewsConfig,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
@@ -352,6 +353,30 @@ export const api = {
     noteFileUrl: (name: string, url: string) =>
       call<{ ok: boolean; note: string }>('articles:noteFileUrl', name, url)
   },
+  /**
+   * Recenze zákazníků na e-shopu.
+   *
+   * Pravda o obsahu je v aplikaci, na webu je výkladní skříň: `publish`
+   * vystaví soubor do Supabase, odkud si ho zeď na e-shopu stáhne.
+   */
+  reviews: {
+    state: () => call<ReviewsState>('reviews:state'),
+    save: (review: Partial<Review>) => call<ReviewsState>('reviews:save', review),
+    remove: (id: string) => call<ReviewsState>('reviews:delete', id),
+    move: (id: string, dir: -1 | 1) => call<ReviewsState>('reviews:move', id, dir),
+    publish: () => call<ReviewsState>('reviews:publish'),
+    /** Stav z webu — takhle se k recenzím dostane druhý počítač */
+    pull: () => call<{ note: string; state: ReviewsState }>('reviews:pull'),
+    /** Překlad do SK a EN i s dosazením správných adres odkazů */
+    translate: (id: string) =>
+      call<{ id: string; langs: string[]; unresolved: string[] }>('reviews:translate', id),
+    path: (path: string) => call<ReviewsConfig>('reviews:path', path),
+    nextSort: () => call<number>('reviews:nextSort'),
+    /** Převzetí recenzí z původního ručně psaného skriptu */
+    importLegacy: (text: string) =>
+      call<{ added: number; skipped: number; state: ReviewsState }>('reviews:import', text)
+  },
+
   persons: {
     list: () => call<Person[]>('persons:list'),
     save: (p: {

@@ -3,7 +3,7 @@ import { api } from './api';
 import { toWebp } from './media';
 
 /**
- * Fotky a videa z počítače rovnou do článku.
+ * Fotky a videa z počítače rovnou na e-shop.
  *
  * Cesta má tři zastávky a každá je jinde:
  *
@@ -16,8 +16,8 @@ import { toWebp } from './media';
  *     složit nejde.
  *
  * Bydlí to tady, a ne v samotném editoru: totéž potřebují obrázky i videa
- * a dvě kopie by se dřív nebo později rozešly v tom, co se vlastně na
- * e-shop nahrálo.
+ * v článcích a fotky u recenzí, a tři kopie by se dřív nebo později
+ * rozešly v tom, co se vlastně na e-shop nahrálo.
  */
 
 export type UploadStep = (text: string) => void;
@@ -54,4 +54,19 @@ export async function uploadToShop(files: MediaFile[], step: UploadStep): Promis
 /** Výběr souborů z počítače; prázdné pole znamená, že se výběr zrušil. */
 export async function pickForArticle(): Promise<MediaFile[]> {
   return await api.media.pick();
+}
+
+/**
+ * Rozměry obrázku po převodu.
+ *
+ * Zeď s recenzemi je potřebuje do `width`/`height` u fotky — bez nich
+ * stránka při načítání poskakuje, jak se obrázky dokreslují.
+ */
+export async function sizeOf(url: string): Promise<{ width: number; height: number }> {
+  return await new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => resolve({ width: 0, height: 0 });
+    img.src = url;
+  });
 }

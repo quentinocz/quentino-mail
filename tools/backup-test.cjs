@@ -243,6 +243,16 @@ vloz(`INSERT INTO digest_reports (at, facts, insight)
               '{"headline":"Srpen táhly pásky.","focus":"ověřit růst SK"}')`);
 
 /*
+ * Recenze zákazníků. Na webu je jen to, co se vystavilo — pořadí, vypnuté
+ * recenze ani rozdělaná práce v tom souboru nejsou, takže bez zálohy by se
+ * na druhém počítači skládaly znovu.
+ */
+vloz(`INSERT INTO reviews (id, image, width, height, sort, active, langs, created_at, updated_at)
+      VALUES ('r1', 'https://cdn/x/svatba.webp', 1000, 1000, 0, 1,
+              '{"cz":{"caption":"Ženich v hnědé kravatě.","review":"Doporučuju!","name":"Tomáš"}}',
+              '2026-09-13T08:00:00Z', '2026-09-13T08:00:00Z')`);
+
+/*
  * Doprava a doklady. Obyčejné hodnoty projdou samy; heslo k Zásilkovně
  * a přihlášení do administrací jsou v databázi zašifrované klíčenkou, která
  * na jiném počítači nefunguje — musí do zálohy rozšifrované.
@@ -267,6 +277,9 @@ set('mediaWatch', '[{"id":"a","path":"/Users/patrik/Foto","subfolder":"web","cro
 set('mediaWatchLog', '[{"name":"IMG_1.jpg"}]');
 // Paměť „tenhle produkt jsme právě nahráli" platí jen do zítřka a jen tady
 set('mediaWebpDone', '{"QK-002":"2026-09-12T10:00:00Z"}');
+// Recenze zákazníků: kdy se naposledy vystavily, patří tomuhle počítači
+set('reviewsPublishedAt', '2026-09-13T09:00:00Z');
+set('reviewsDirty', '1');
 set('webTextsSeason', '{"on":true,"fromDay":1,"fromMonth":12,"toDay":20,"toMonth":12,"text":{"cz":"🎄 Do 20.12.","sk":"","en":""}}');
 set('webTextsKey', 'ŠIFRA(' + Buffer.from('service-role-klic').toString('base64') + ')');
 // Razítko posledního vystavení a rozdělaná práce patří tomuhle počítači, ne záloze
@@ -368,6 +381,8 @@ sedi('i jeho česká verze',
 sedi('naučená fáze dopravy', radku('ship_phase') === 1, `řádků: ${radku('ship_phase')}`);
 sedi('paměť přehledu dne',
   (radek('digest_reports', "at = '2026-09-02T06:10:00Z'")?.insight ?? '').includes('Srpen táhly pásky'));
+sedi('recenze i s jazyky',
+  (radek('reviews', "id = 'r1'")?.langs ?? '').includes('Ženich v hnědé kravatě'));
 
 /*
  * Co se přenášet **nemá**: stažená data. Katalog se stáhne znovu za pár

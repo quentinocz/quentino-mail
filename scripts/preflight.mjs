@@ -607,6 +607,8 @@ function checkChannels() {
  * se stejně vystavuje na web, odkud si ho vezme kdokoli.
  */
 const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
+  // Správa recenzí sahá do administrace e-shopu v okně — telefon okno nemá
+  'reviews:',
   // Převod fotek a videí potřebuje soubory na disku a ffmpeg — telefon nemá ani jedno
   'media:'];
 const DESKTOP_ONLY = [

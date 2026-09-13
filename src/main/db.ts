@@ -130,6 +130,23 @@ function migrate(d: Database.Database) {
       photo_path TEXT
     );
 
+    /*
+     * Recenze zákazníků na e-shopu. Vystavují se do Supabase, ale pravda
+     * o obsahu je tady: ve vystaveném souboru není pořadí ani to, které
+     * jsou vypnuté, a upravovat se musí dát i bez sítě.
+     */
+    CREATE TABLE IF NOT EXISTS reviews (
+      id TEXT PRIMARY KEY,
+      image TEXT NOT NULL DEFAULT '',
+      width INTEGER NOT NULL DEFAULT 0,
+      height INTEGER NOT NULL DEFAULT 0,
+      sort INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      langs TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
+
     CREATE TABLE IF NOT EXISTS products (
       code TEXT PRIMARY KEY,
       title_cz TEXT NOT NULL DEFAULT '',

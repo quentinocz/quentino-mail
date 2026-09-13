@@ -18,6 +18,7 @@ import ProductsModal from './components/ProductsModal';
 import ArticlesModal from './components/ArticlesModal';
 import WebTextsModal from './components/WebTextsModal';
 import MediaModal from './components/MediaModal';
+import ReviewsModal from './components/ReviewsModal';
 import { handleIncoming } from './media';
 import CatalogModal from './components/CatalogModal';
 import PtransStatusBar from './components/PtransStatusBar';
@@ -380,6 +381,7 @@ function AppInner() {
           {aiTool === 'articles' && <ArticlesModal onClose={() => setAiTool(null)} />}
           {aiTool === 'webtexts' && <WebTextsModal onClose={() => setAiTool(null)} />}
           {aiTool === 'media' && <MediaModal onClose={() => setAiTool(null)} />}
+          {aiTool === 'reviews' && <ReviewsModal onClose={() => setAiTool(null)} />}
           <PtransStatusBar hidden={aiTool ?? undefined} onOpen={tool => setAiTool(tool)} />
           {/*
             * Rozdělaná práce z telefonu. Nabízí se, nevnucuje — a když je

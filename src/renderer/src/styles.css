@@ -7835,3 +7835,70 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .ar-row { display: flex; align-items: center; gap: 8px; }
 .ar-row input { flex: 1; min-width: 0; }
 .ar-row .btn { flex-shrink: 0; }
+
+/* ---------- recenze zákazníků ---------- */
+
+.rv-modal { width: min(1240px, 96vw); height: 88vh; display: flex; flex-direction: column; }
+/* Popisek stavu těsně za názvem: bez mezery splynul v „Recenze zákazníků4 recenze" */
+.rv-modal .modal-head .desc { margin-left: 8px; }
+.rv-modal.rv-full { width: 99vw; max-width: none; height: 97vh; max-height: none; }
+.rv-note {
+  display: flex; align-items: center; gap: 6px; margin: 0;
+  padding: 8px 20px; background: var(--accent-soft); color: var(--accent-dark);
+  font-size: 12.5px; font-weight: 600;
+}
+
+.rv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); }
+.rv-list { overflow: auto; border-right: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.rv-add { align-self: stretch; justify-content: center; margin-bottom: 4px; }
+
+.rv-item {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
+  border: 1px solid transparent; border-radius: 11px; padding: 6px 8px; background: none; cursor: pointer;
+}
+.rv-item:hover { background: var(--bg); }
+.rv-item.on { border-color: var(--accent); background: var(--accent-soft); }
+/* Vypnutá recenze na webu není — ať je to vidět, než se hledá proč */
+.rv-item.off { opacity: .55; }
+.rv-item img, .rv-noimg {
+  width: 46px; height: 46px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
+  background: var(--bg); display: flex; align-items: center; justify-content: center; color: var(--text-3);
+}
+.rv-noimg.big { width: 132px; height: 132px; border-radius: 12px; }
+.rv-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.rv-name b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-tag {
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+  border-radius: 999px; padding: 2px 7px; background: #fdf1da; color: var(--warn);
+}
+.rv-order { display: flex; flex-direction: column; gap: 0; }
+.rv-order .icon-btn { padding: 1px 4px; }
+/* Táž ikona otočená vzhůru nohama — sada ikon má jen šipku dolů */
+.rv-up svg { transform: rotate(180deg); }
+.rv-num { width: 18px; text-align: right; font-size: 11.5px; }
+
+.rv-detail { overflow: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; }
+.rv-head { display: flex; gap: 14px; align-items: flex-start; }
+.rv-head > img { width: 132px; height: 132px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+.rv-head-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.rv-row { display: flex; align-items: center; gap: 10px; }
+
+.rv-langs { display: flex; flex-direction: column; gap: 14px; }
+.rv-lang { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.rv-lang-head { display: flex; align-items: center; gap: 10px; }
+.rv-lang-head h3 { margin: 0; font-size: 13.5px; flex: 1; }
+.rv-field { display: flex; flex-direction: column; gap: 4px; }
+.rv-field > span { font-size: 12.5px; font-weight: 600; }
+.rv-warn { color: var(--warn); font-weight: 600; }
+
+.rv-script { width: min(980px, 94vw); height: 84vh; display: flex; flex-direction: column; }
+.rv-script-note { margin: 0; padding: 10px 20px 0; }
+.rv-script-text {
+  width: 100%; height: 100%; min-height: 340px; resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .rv-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 40%) minmax(0, 60%); }
+  .rv-list { border-right: 0; border-bottom: 1px solid var(--border); }
+}

@@ -3040,3 +3040,51 @@ export interface MediaUpload {
   filled: boolean;
   note: string;
 }
+
+/* ---------- recenze zákazníků na e-shopu ---------- */
+
+/** Texty jedné recenze v jednom jazyce. */
+export interface ReviewText {
+  /** Popisek pod fotkou; HTML, protože bývá s odkazem na produkt nebo kolekci */
+  caption: string;
+  /** Samotná recenze zákazníka — vkládá se jako text, ne HTML */
+  review: string;
+  /** Podpis zákazníka */
+  name: string;
+}
+
+export interface Review {
+  id: string;
+  /** Adresa fotky na e-shopu (WebP) */
+  image: string;
+  width: number;
+  height: number;
+  /** Pořadí ve správě; na e-shopu se fotky stejně míchají náhodně */
+  sort: number;
+  active: boolean;
+  langs: Record<string, ReviewText>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Kam se recenze vystavují a jestli je kam. */
+export interface ReviewsConfig {
+  url: string;
+  hasKey: boolean;
+  bucket: string;
+  path: string;
+  ready: boolean;
+  publicUrl: string;
+}
+
+export interface ReviewsState {
+  items: Review[];
+  config: ReviewsConfig;
+  /** Kdy se naposledy vystavilo; prázdné = nikdy */
+  publishedAt: string;
+  /** Je v aplikaci změna, která na webu ještě není? */
+  dirty: boolean;
+  error: string;
+  /** Skript k vložení do hlavičky e-shopu */
+  script: string;
+}
