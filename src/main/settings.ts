@@ -50,6 +50,7 @@ export function getSettings(): Settings {
     contactInfo: getSetting('contactInfo', '')!,
     productFeedUrl: getSetting('productFeedUrl', '')!,
     stockFeedUrl: getSetting('stockFeedUrl', '')!,
+    categoryFeedUrl: getSetting('categoryFeedUrl', '')!,
     adminOrderRef: getSetting('adminOrderRef', '')!,
     voucherLogo: getSetting('voucherLogo', '')!,
     notifyNewMail: getSetting('notifyNewMail', '1') === '1',
@@ -84,6 +85,7 @@ export function saveSettings(s: Partial<Settings>) {
   if (s.contactInfo !== undefined) setSetting('contactInfo', s.contactInfo);
   if (s.productFeedUrl !== undefined) setSetting('productFeedUrl', s.productFeedUrl);
   if (s.stockFeedUrl !== undefined) setSetting('stockFeedUrl', s.stockFeedUrl);
+  if (s.categoryFeedUrl !== undefined) setSetting('categoryFeedUrl', s.categoryFeedUrl.trim());
   if (s.adminOrderRef !== undefined) setSetting('adminOrderRef', s.adminOrderRef.trim());
   if (s.voucherLogo !== undefined) setSetting('voucherLogo', s.voucherLogo);
   if (s.notifyNewMail !== undefined) setSetting('notifyNewMail', s.notifyNewMail ? '1' : '0');
@@ -279,7 +281,12 @@ const VOLATILE_SETTING_KEYS = [
    * kvůli tomu, že feed je starý — po dni stejně vyprší a rozhoduje zase
    * feed. Přenášet ji na druhý počítač nemá co zlepšit.
    */
-  'mediaWebpDone'
+  'mediaWebpDone',
+  /*
+   * Stažená kopie stromu kategorií. Není to nastavení, ale otisk e-shopu —
+   * adresa exportu se zálohuje, samotný strom si druhý počítač stáhne sám.
+   */
+  'ptrans.categories'
 ];
 
 /**
@@ -395,7 +402,12 @@ const BACKUP_TABLES = [
    * souboru není pořadí ani to, které jsou vypnuté — a rozdělaná recenze
    * tam není vůbec.
    */
-  'reviews'
+  'reviews',
+  /*
+   * Rozdělané nové produkty. Je to hodina práce, která ještě nikde jinde
+   * není — do e-shopu se dostanou až importem a ve feedu nejsou.
+   */
+  'ptrans_drafts'
 ];
 
 /** Strop na tabulku — záloha nemá být obraz celé databáze. */

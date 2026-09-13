@@ -220,6 +220,8 @@ export interface Settings {
    * denně, tenhle po dvou hodinách — proto se z něj berou skladová množství.
    */
   stockFeedUrl: string;
+  /** Export kategorií e-shopu — strom pro zařazení nového produktu */
+  categoryFeedUrl: string;
   /**
    * Kalibrace odkazu do administrace ve tvaru „cislo_objednavky:ID".
    * Adresa v administraci nese vnitřní ID, ne číslo objednávky; obě řady
@@ -3087,4 +3089,143 @@ export interface ReviewsState {
   error: string;
   /** Skript k vložení do hlavičky e-shopu */
   script: string;
+}
+
+/* ---------- nový produkt ---------- */
+
+/** Texty produktu v jednom jazyce; klíče sedí s poli v XML feedu. */
+export interface NewProductTexts {
+  title: string;
+  short: string;
+  long: string;
+  seo_title: string;
+  seo_desc: string;
+  seo_url: string;
+  google_title: string;
+  google_desc: string;
+}
+
+export interface NewProductImage {
+  /** Soubor na disku, dokud se nenahraje na e-shop */
+  path?: string;
+  /** Adresa po nahrání — to je to, co jde do XML */
+  url?: string;
+  name: string;
+  main: boolean;
+  width?: number;
+  height?: number;
+}
+
+export interface NewProductParam {
+  name: string;
+  value: string;
+  /** Převzaté z předlohy — v seznamu se to rozlišuje */
+  fromTemplate?: boolean;
+}
+
+/** Úryvek textu, který mluví konkrétně o předloze (barva, vzor, velikost). */
+export interface NewProductSpecific {
+  lang: string;
+  field: string;
+  text: string;
+  why: string;
+}
+
+/** Co u rozdělaného produktu ještě chybí. `blocker` brání uložení. */
+export interface NewProductGap {
+  key: string;
+  label: string;
+  level: 'blocker' | 'warn';
+}
+
+export interface NewProductDraft {
+  id: string;
+  code: string;
+  ean: string;
+  manufacturer: string;
+  templateCode: string;
+  categories: string[];
+  mainCategory: string;
+  images: NewProductImage[];
+  params: NewProductParam[];
+  langs: Record<string, NewProductTexts>;
+  google: Record<string, string>;
+  /** Cena s DPH po jazycích; sklad se v XML schválně nevozí */
+  prices: Record<string, string>;
+  specifics: NewProductSpecific[];
+  state: 'draft' | 'exported';
+  createdAt: string;
+  updatedAt: string;
+  exportedAt: string | null;
+  gaps?: NewProductGap[];
+}
+
+/** Jedna kategorie e-shopu z exportu kategorií. */
+export interface ShopCategoryItem {
+  code: string;
+  id: string;
+  parentId: string;
+  active: boolean;
+  type: string;
+  names: Record<string, string>;
+  /** Jestli do ní vůbec patří zboží — stránky v menu se k zařazení nenabízejí */
+  holdsProducts: boolean;
+  depth: number;
+  path: string;
+}
+
+export interface ShopCategoryTree {
+  items: ShopCategoryItem[];
+  at: string;
+  source: string;
+}
+
+/**
+ * Položka číselníku parametrů.
+ *
+ * Skládá se z feedu, takže obsahuje i hotové překlady — u nového produktu se
+ * pak parametr jmenuje přesně jako u sousedních produktů a filtr v kategorii
+ * se nerozpadne na „Barva" a „barva".
+ */
+export interface ParamEntry {
+  key: string;
+  /** U hodnoty: ke kterému parametru patří */
+  nameKey: string;
+  langs: Record<string, string>;
+  hits: number;
+}
+
+export interface ParamDictionary {
+  names: ParamEntry[];
+  values: ParamEntry[];
+}
+
+export interface ParamLookup {
+  name: Record<string, string>;
+  value: Record<string, string>;
+  knownName: boolean;
+  knownValue: boolean;
+}
+
+export interface NewProductState {
+  drafts: NewProductDraft[];
+  langs: string[];
+  sourceLang: string;
+  categories: ShopCategoryTree | null;
+  /** Měna podle jazyka, přečtená z feedu — hádat se nedá */
+  currencies: Record<string, string>;
+}
+
+/** Navržená změna textu podle nového názvu. */
+export interface NewProductChange {
+  field: string;
+  before: string;
+  after: string;
+  why: string;
+}
+
+export interface NewProductStep {
+  step: string;
+  done: number;
+  total: number;
 }

@@ -23,6 +23,7 @@ import { writeGoogleText, writeGoogleTexts, applyAttributes, googleView,
 import { runAudit, auditFor, worstProducts, auditProduct, storedSummary, AuditOptions, ProductAudit } from './audit';
 import { planSourceFill, fillSourceOne, missingByField, SOURCE_FIELDS, SOURCE_LABELS,
   SourceField, SourceFillOptions } from './source';
+import * as newproduct from './newproduct';
 
 /**
  * Překlady produktů — vstupní bod pro zbytek aplikace.
@@ -40,6 +41,12 @@ function emit(channel: string, payload: unknown) {
 /** Zpracuje čerstvě stažený feed. Voláno po každém stažení. */
 export function syncFeedXml(xml: string): SyncResult {
   const result = syncFromFeed(xml);
+  /*
+   * Číselník parametrů se přeskládá hned po stažení feedu. Je to jeden průchod
+   * katalogem a stojí zlomek toho, co samotné stažení — zato je pak u nového
+   * produktu nabídka parametrů čerstvá, bez toho, aby si o ni někdo řekl.
+   */
+  try { newproduct.relearnParams(); } catch { /* číselník je pomoc, ne podmínka */ }
   emit('ptrans:changed', {});
   return result;
 }
@@ -458,7 +465,8 @@ export {
   googleView, writeGoogleTexts, saveAttributeRules, getAttributeRules, GOOGLE_LABELS,
   worstProducts, auditProduct, storedSummary,
   SOURCE_FIELDS, SOURCE_LABELS,
-  listStyles, listTrials, countOpenTrials, caseStyleFor, feedExamples
+  listStyles, listTrials, countOpenTrials, caseStyleFor, feedExamples,
+  newproduct
 };
 export type {
   SeoKind, ExportOptions, MemoryEntry, MemoryKind, LearnResult,

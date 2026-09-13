@@ -609,6 +609,8 @@ function checkChannels() {
 const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
   // Správa recenzí sahá do administrace e-shopu v okně — telefon okno nemá
   'reviews:',
+  // Nový produkt: předloha, obrázky z disku a import v okně administrace
+  'np:',
   // Převod fotek a videí potřebuje soubory na disku a ffmpeg — telefon nemá ani jedno
   'media:'];
 const DESKTOP_ONLY = [

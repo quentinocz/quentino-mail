@@ -253,6 +253,15 @@ vloz(`INSERT INTO reviews (id, image, width, height, sort, active, langs, create
               '2026-09-13T08:00:00Z', '2026-09-13T08:00:00Z')`);
 
 /*
+ * Rozdělaný nový produkt. Je to hodina práce, která nikde jinde není —
+ * do e-shopu se dostane až importem a ve feedu tím pádem taky není.
+ */
+vloz(`INSERT INTO ptrans_drafts (id, code, title, template, data, state, created_at, updated_at)
+      VALUES ('np-1', 'KR00999', 'Kravata zelená hladká', 'KR00100',
+              '{"categories":["K00028"],"mainCategory":"K00028","prices":{"cz":"890"},"langs":{"cz":{"title":"Kravata zelená hladká"}}}',
+              'draft', '2026-09-13T08:00:00Z', '2026-09-13T08:00:00Z')`);
+
+/*
  * Doprava a doklady. Obyčejné hodnoty projdou samy; heslo k Zásilkovně
  * a přihlášení do administrací jsou v databázi zašifrované klíčenkou, která
  * na jiném počítači nefunguje — musí do zálohy rozšifrované.
@@ -277,6 +286,9 @@ set('mediaWatch', '[{"id":"a","path":"/Users/patrik/Foto","subfolder":"web","cro
 set('mediaWatchLog', '[{"name":"IMG_1.jpg"}]');
 // Paměť „tenhle produkt jsme právě nahráli" platí jen do zítřka a jen tady
 set('mediaWebpDone', '{"QK-002":"2026-09-12T10:00:00Z"}');
+// Nový produkt: adresa exportu kategorií patří do zálohy, stažený strom ne
+set('categoryFeedUrl', 'https://www.quentino.cz/export-categories-tajne.xml');
+set('ptrans.categories', '{"items":[{"code":"K00028"}],"at":"2026-09-13T08:00:00Z"}');
 // Recenze zákazníků: kdy se naposledy vystavily, patří tomuhle počítači
 set('reviewsPublishedAt', '2026-09-13T09:00:00Z');
 set('reviewsDirty', '1');
@@ -383,6 +395,8 @@ sedi('paměť přehledu dne',
   (radek('digest_reports', "at = '2026-09-02T06:10:00Z'")?.insight ?? '').includes('Srpen táhly pásky'));
 sedi('recenze i s jazyky',
   (radek('reviews', "id = 'r1'")?.langs ?? '').includes('Ženich v hnědé kravatě'));
+sedi('rozdělaný nový produkt',
+  (radek('ptrans_drafts', "id = 'np-1'")?.data ?? '').includes('Kravata zelená hladká'));
 
 /*
  * Co se přenášet **nemá**: stažená data. Katalog se stáhne znovu za pár
@@ -438,6 +452,19 @@ console.log('\nkonvertor médií:');
   sedi('hlídané složky i s ořezem', text.includes('mediaWatch') && text.includes('0.8'));
   sedi('výpis převodů v záloze není', !text.includes('mediaWatchLog'));
   sedi('ani denní paměť nahraných produktů', !text.includes('mediaWebpDone'));
+}
+
+/* ---------- nový produkt ---------- */
+
+console.log('\nnový produkt:');
+{
+  const text = JSON.stringify(zaloha);
+  sedi('adresa exportu kategorií se přenese', text.includes('categoryFeedUrl'));
+  /*
+   * Strom kategorií je stažená kopie e-shopu, ne nastavení. Po obnovení na
+   * jiném počítači by se ukazovaly staré kategorie a čerstvé až po stažení.
+   */
+  sedi('stažený strom kategorií v záloze není', !text.includes('ptrans.categories'));
 }
 
 /* ---------- texty na webu ---------- */

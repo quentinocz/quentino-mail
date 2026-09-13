@@ -17,6 +17,9 @@ import type {
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct, ArticleStatsView, ArticleStatDetail,
   ArticleUpload, ArticleFolder,
   Review, ReviewsState, ReviewsConfig,
+  NewProductState, NewProductDraft, NewProductSpecific, NewProductChange, NewProductGap,
+  ParamDictionary, ParamLookup,
+  ShopCategoryTree,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
@@ -375,6 +378,42 @@ export const api = {
     /** Převzetí recenzí z původního ručně psaného skriptu */
     importLegacy: (text: string) =>
       call<{ added: number; skipped: number; state: ReviewsState }>('reviews:import', text)
+  },
+
+  /**
+   * Nový produkt.
+   *
+   * Rozdělaný produkt žije v databázi, ne v okně — vyplnit ho je práce na
+   * dvacet minut a zavřít okno omylem se dá za vteřinu. Proto se ukládá po
+   * každé změně a posílá se jen výřez, ne celý produkt.
+   */
+  newProduct: {
+    state: () => call<NewProductState>('np:state'),
+    categories: (refresh = false) => call<ShopCategoryTree>('np:categories', refresh),
+    create: () => call<NewProductDraft>('np:create'),
+    save: (id: string, patch: Partial<NewProductDraft>) =>
+      call<NewProductDraft>('np:save', id, patch),
+    remove: (id: string) => call<boolean>('np:delete', id),
+    /** Kontrola, že kód není v e-shopu — import se stejným kódem přepíše starý produkt */
+    checkCode: (code: string) => call<{ taken: boolean; title: string }>('np:checkCode', code),
+    /** Číselník parametrů posbíraný z feedu — názvy i hodnoty ve všech jazycích */
+    params: (name?: string) => call<ParamDictionary>('np:params', name ?? ''),
+    relearnParams: () => call<{ names: number; values: number }>('np:relearnParams'),
+    checkParam: (name: string, value: string) => call<ParamLookup>('np:checkParam', name, value),
+    /** Natažení textů z jiného produktu i s vyznačením toho, co je na něm specifické */
+    template: (id: string, code: string) =>
+      call<{ draft: NewProductDraft; specifics: NewProductSpecific[]; note: string }>('np:template', id, code),
+    specifics: (id: string, lang: string) => call<NewProductSpecific[]>('np:specifics', id, lang),
+    /** Přepis označené části textu podle zbytku */
+    rewrite: (options: { full: string; selection: string; instruction?: string; html?: boolean }) =>
+      call<string>('np:rewrite', options),
+    titleProposal: (id: string, lang: string) => call<NewProductChange[]>('np:titleProposal', id, lang),
+    toCatalog: (id: string) => call<{ code: string; gaps: NewProductGap[] }>('np:toCatalog', id),
+    /** Dopsání SEO a textů pro Google a překlad do ostatních jazyků */
+    complete: (code: string) => call<{ errors: string[] }>('np:complete', code),
+    exportXml: (code: string) => call<{ xml: string; products: number; fields: number }>('np:exportXml', code),
+    /** Otevře import v administraci a vloží soubor; spuštění importu zůstává na člověku */
+    openImport: (code: string) => call<{ filled: boolean; note: string; file: string }>('np:openImport', code)
   },
 
   persons: {
