@@ -389,7 +389,13 @@ const BACKUP_TABLES = [
   'ship_phase',
   // Paměť přehledu dne — dřívější postřehy a čísla, ze kterých vznikly.
   // Bez ní by AI po přenesení na jiný počítač začala zase od nuly.
-  'digest_reports'
+  'digest_reports',
+  /*
+   * Recenze zákazníků. Vystavují se sice do Supabase, ale ve vystaveném
+   * souboru není pořadí ani to, které jsou vypnuté — a rozdělaná recenze
+   * tam není vůbec.
+   */
+  'reviews'
 ];
 
 /** Strop na tabulku — záloha nemá být obraz celé databáze. */

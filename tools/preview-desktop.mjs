@@ -613,6 +613,31 @@ await click('.pk-modal .modal-head .icon-btn >> nth=-1');
 await page.waitForTimeout(300);
 
 /*
+ * Recenze zákazníků. Podstatné je, aby bylo na první pohled vidět, co je
+ * kde nepřeložené — u recenzí to je nejčastější rozdělaná práce.
+ */
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Recenze zákazníků' });
+await page.waitForTimeout(500);
+{
+  const rows = await page.locator('.rv-item').count();
+  const missing = await page.locator('.rv-tag.todo').count();
+  console.log(`${'recenze — přehled'.padEnd(28)} ${rows && missing ? '✓' : '✗'} (${rows}, nepřeložených ${missing})`);
+}
+await overflow('recenze — přehled'); await snap('48-recenze-prehled');
+{
+  // Jazyky pod sebou: česky se píše, ostatní se překládají
+  const langs = await page.locator('.rv-lang').count();
+  const fields = await page.locator('.rv-lang .rv-field').count();
+  console.log(`${'recenze — jazyky a pole'.padEnd(28)} ${langs === 3 && fields === 9 ? '✓' : '✗'} (${langs} jazyky, ${fields} polí)`);
+}
+await page.locator('.rv-item').nth(1).click();
+await page.waitForTimeout(400);
+await overflow('recenze — druhá'); await snap('48b-recenze-detail');
+await click('.rv-modal .modal-head .icon-btn >> nth=-1');
+await page.waitForTimeout(300);
+
+/*
  * Konvertor médií. Zajímá tu hlavně záložka Focení: hlídaná složka běží na
  * pozadí, takže na ní musí být na první pohled poznat, že jede, a jaký
  * ořez se použije.

@@ -84,6 +84,9 @@ const ALLOWED_INVOKE = [
   'articles:linkUrls', 'articles:urlmap', 'articles:learnLinks', 'articles:saveUrlPair', 'articles:deleteUrlPair',
   'articles:uploadFiles', 'articles:filesUrl', 'articles:filesFolder',
   'articles:learnFilesUrl', 'articles:noteFileUrl',
+  // Recenze zákazníků — správa a vystavení do Supabase (jen na počítači)
+  'reviews:state', 'reviews:save', 'reviews:delete', 'reviews:move', 'reviews:publish',
+  'reviews:pull', 'reviews:translate', 'reviews:path', 'reviews:nextSort', 'reviews:import',
   // Katalog, štítky a naskladnění — jen na počítači
   'catalog:detail', 'catalog:scan', 'catalog:suggest', 'catalog:refreshStock', 'catalog:stockAt',
   'labels:items', 'labels:stockin', 'labels:preview', 'labels:pdf', 'labels:roll', 'labels:export',

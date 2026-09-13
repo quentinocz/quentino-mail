@@ -11,7 +11,7 @@ interface ArticleReview {
   }[];
 }
 import { api } from '../api';
-import { pickForArticle, uploadToShop } from '../articlefiles';
+import { pickForArticle, uploadToShop } from '../shopfiles';
 import { useToast } from '../toast';
 import Icon from './Icon';
 

@@ -1212,6 +1212,46 @@
     },
     'ptrans:learn': [{ lang: 'en', pairs: 461, terms: 461, patterns: 35, examples: 121 }],
     // Přílohy článků: kam se nahrávají a jaké složky správce souborů zná
+    // Recenze zákazníků — správa, překlad a vystavení do Supabase
+    'reviews:state': (function () {
+      var foto = function (i) { return THUMBS[i % THUMBS.length]; };
+      var rec = function (id, caption, review, name, sk, en, active) {
+        var langs = { cz: { caption: caption, review: review || '', name: name || '' } };
+        if (sk) langs.sk = { caption: sk, review: review || '', name: name || '' };
+        if (en) langs.en = { caption: en, review: review || '', name: name || '' };
+        return {
+          id: id, image: foto(id.length), width: 1000, height: 1000,
+          sort: 0, active: active !== false, langs: langs,
+          createdAt: '2026-09-01T10:00:00Z', updatedAt: '2026-09-13T09:00:00Z'
+        };
+      };
+      return {
+        items: [
+          rec('a', 'Ženich a naše <strong><a href="https://www.quentino.cz/motylek-a-ksandy">sety kšand s motýlkem</a></strong>.',
+            '„Doplňky sedly perfektně, všechno dorazilo rychle. Doporučuju!"', 'Tomáš',
+            'Ženích a naše <strong><a href="https://www.quentino.sk/motylik-a-traky">sety trakov s motýlikom</a></strong>.',
+            'The groom and our <strong><a href="https://www.wearquentino.com/bow-tie-and-suspenders-sets">brace sets</a></strong>.'),
+          rec('bb', 'Nevěsta s měsíčním miminkem s <strong><a href="https://www.quentino.cz/mini-motylky">MINI motýlkem</a></strong>.',
+            '„Nikde jinde jsme mini motýlka nenašli. Děkujeme!"', 'Kateřina'),
+          rec('ccc', 'Tatínek se synem z kolekce Táta a syn.', '', '',
+            'Otecko so synom z kolekcie Otec a syn.', 'Dad and son from the Father & Son collection.'),
+          rec('dddd', 'Vánoční focení v béžových odstínech.', '', '', '', '', false)
+        ],
+        config: {
+          url: 'https://xyzabc.supabase.co', hasKey: true, bucket: 'web',
+          path: 'quentino-recenze.json', ready: true,
+          publicUrl: 'https://xyzabc.supabase.co/storage/v1/object/public/web/quentino-recenze.json'
+        },
+        publishedAt: new Date(Date.now() - 7200000).toISOString(),
+        dirty: true,
+        error: '',
+        script: '<script defer>\n(function (SOURCE, FALLBACK, CONFIG) {\n  /* … zeď s recenzemi … */\n})(\n'
+          + '"https://xyzabc.supabase.co/storage/v1/object/public/web/quentino-recenze.json",\n'
+          + '[{"img":"https://quentino.s19.cdn-upgates.com/…","w":1000,"h":1000}],\n'
+          + '{"maxCards":32,"initialRows":2}\n);\n<\/script>'
+      };
+    })(),
+    'reviews:nextSort': -1,
     'articles:filesUrl': {
       url: 'https://quentino.admin.s19.upgates.com/manager/files/default/default/1019/?filesPaginator-page=1',
       learned: false, folder: '1019',

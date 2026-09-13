@@ -13,7 +13,8 @@ export type Workspace = 'mail' | 'chat' | 'instagram';
  * dne, balení, katalog) měl vlastní řádky v panelu složek. Byly to dvě různá
  * místa pro tutéž věc a v poště přebývala tlačítka, která s poštou nesouvisí.
  */
-export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles' | 'webtexts' | 'media';
+export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles'
+  | 'webtexts' | 'media' | 'reviews';
 
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
@@ -34,7 +35,8 @@ export const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string; 
   { id: 'ptrans', icon: 'globe', label: 'Překlady produktů', hint: 'Jazykové mutace z produktového feedu', desktopOnly: true },
   { id: 'articles', icon: 'fileText', label: 'Články', hint: 'Psaní a překlad článků pro e-shop', desktopOnly: true },
   { id: 'webtexts', icon: 'globe', label: 'Texty na webu', hint: 'Naplánované náhrady textů o doručení a odkazů', desktopOnly: true },
-  { id: 'media', icon: 'image', label: 'Konvertor médií', hint: 'Fotky do WebP, videa do WebM, ořez a hlídané složky', desktopOnly: true }
+  { id: 'media', icon: 'image', label: 'Konvertor médií', hint: 'Fotky do WebP, videa do WebM, ořez a hlídané složky', desktopOnly: true },
+  { id: 'reviews', icon: 'star', label: 'Recenze zákazníků', hint: 'Fotky a recenze na e-shopu ve všech jazycích', desktopOnly: true }
 ];
 
 /**

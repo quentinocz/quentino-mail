@@ -46,6 +46,7 @@ import * as ptrans from './ptrans';
 import * as orderfeed from './orderfeed';
 import * as keepalive from './keepalive';
 import * as articles from './articles';
+import * as reviews from './reviews';
 import { customerContext, customerConversation, messageText } from './customer';
 import { relearnPhase } from './shipphase';
 import { createVouchers } from './voucher';
@@ -885,6 +886,24 @@ export function registerIpc() {
   handle('articles:filesFolder', (id: string) => articles.saveArticleFilesFolder(id ?? ''));
   handle('articles:learnFilesUrl', () => articles.learnFilesUrl());
   handle('articles:noteFileUrl', (name: string, url: string) => articles.noteFileUrl(name, url));
+
+  /* ---------- recenze zákazníků ---------- */
+  handle('reviews:state', () => reviews.reviewsState());
+  handle('reviews:save', (review: any) => { reviews.saveReview(review ?? {}); return reviews.reviewsState(); });
+  handle('reviews:delete', (id: string) => { reviews.deleteReview(id); return reviews.reviewsState(); });
+  handle('reviews:move', (id: string, dir: number) => {
+    reviews.moveReview(id, dir < 0 ? -1 : 1);
+    return reviews.reviewsState();
+  });
+  handle('reviews:publish', async () => { await reviews.publishReviews(); return reviews.reviewsState(); });
+  handle('reviews:pull', async () => ({ note: await reviews.pullReviews(), state: reviews.reviewsState() }));
+  handle('reviews:translate', (id: string) => reviews.translateReview(id));
+  handle('reviews:path', (path: string) => reviews.saveReviewsPath(path ?? ''));
+  handle('reviews:nextSort', () => reviews.nextSort());
+  // Převzetí recenzí z původního ručně psaného skriptu — jednorázově
+  handle('reviews:import', (text: string) => ({
+    ...reviews.importLegacy(text ?? ''), state: reviews.reviewsState()
+  }));
   handle('articles:learnLinks', () => articles.learnLinks());
   handle('articles:saveUrlPair', (fromLang: string, fromPath: string, toLang: string, toPath: string, kind: string) =>
     articles.saveUrlPair(fromLang, fromPath, toLang, toPath, kind ?? 'other'));
