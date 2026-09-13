@@ -11,6 +11,7 @@ import PtransSettingsPanel from './PtransSettings';
 import ProductGoogle from './ProductGoogle';
 import PtransAuditPanel from './PtransAudit';
 import HtmlField from './HtmlField';
+import NewProduct from './NewProduct';
 
 /**
  * Překlady produktů.
@@ -80,7 +81,7 @@ function relTime(iso: string | null): string {
 export default function ProductsModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [overview, setOverview] = useState<PtransOverview | null>(null);
-  const [tab, setTab] = useState<'work' | 'audit' | 'consistency' | 'memory' | 'settings'>('work');
+  const [tab, setTab] = useState<'work' | 'new' | 'audit' | 'consistency' | 'memory' | 'settings'>('work');
 
   const [query, setQuery] = useState<PtransQuery>({ state: 'todo', limit: 60, offset: 0 });
   const [search, setSearch] = useState('');
@@ -525,6 +526,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
           <span style={{ flex: 1 }} />
           <div className="ig-seg pt-tabs">
             <button className={tab === 'work' ? 'active' : ''} onClick={() => setTab('work')}>Produkty</button>
+            <button className={tab === 'new' ? 'active' : ''}
+              onClick={() => setTab('new')}>Nový produkt</button>
             <button className={tab === 'audit' ? 'active' : ''}
               onClick={() => setTab('audit')}>Kvalita</button>
             <button className={tab === 'consistency' ? 'active' : ''}
@@ -566,7 +569,9 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {tab === 'audit' ? (
+        {tab === 'new' ? (
+          <NewProduct toast={toast} />
+        ) : tab === 'audit' ? (
           <PtransAuditPanel
             langs={[{ code: overview?.settings.sourceLang ?? 'cz', label: 'Zdroj' },
               ...langs.map(l => ({ code: l.code, label: l.label }))]}

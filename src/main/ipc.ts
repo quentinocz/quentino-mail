@@ -828,6 +828,27 @@ export function registerIpc() {
   handle('ptrans:tidy', (codes: string[]) => ptrans.tidyDescriptions(codes ?? []));
   handle('ptrans:tidyPreview', (code: string) => ptrans.tidyPreview(code));
 
+  /* ---------- Nový produkt (jen na počítači) ---------- */
+  handle('np:state', () => ptrans.newproduct.newProductState());
+  handle('np:categories', (refresh?: boolean) => ptrans.newproduct.loadCategories(!!refresh));
+  handle('np:create', () => ptrans.newproduct.createDraft());
+  handle('np:save', (id: string, patch: any) => ptrans.newproduct.updateDraft(id, patch ?? {}));
+  handle('np:delete', (id: string) => { ptrans.newproduct.removeDraft(id); return true; });
+  handle('np:checkCode', (code: string) => ptrans.newproduct.checkCode(code ?? ''));
+  handle('np:params', (name?: string) => ptrans.newproduct.paramDictionary(name));
+  handle('np:relearnParams', () => ptrans.newproduct.relearnParams());
+  handle('np:checkParam', (name: string, value: string) =>
+    ptrans.newproduct.checkParam(name ?? '', value ?? ''));
+  handle('np:template', (id: string, code: string) => ptrans.newproduct.useTemplate(id, code));
+  handle('np:specifics', (id: string, lang: string) => ptrans.newproduct.markSpecifics(id, lang));
+  handle('np:rewrite', (options: any) => ptrans.newproduct.rewritePart(options ?? {}));
+  handle('np:titleProposal', (id: string, lang: string) => ptrans.newproduct.titleProposal(id, lang));
+  handle('np:toCatalog', (id: string) => ptrans.newproduct.saveToCatalog(id));
+  handle('np:complete', (code: string) => ptrans.newproduct.completeProduct(code,
+    step => emit('np:step', step)));
+  handle('np:exportXml', (code: string) => ptrans.newproduct.exportXml(code));
+  handle('np:openImport', (code: string) => ptrans.newproduct.openProductImport(code));
+
   /* ---------- Články (jen na počítači) ---------- */
   handle('articles:overview', () => articles.overview());
   handle('articles:saveSettings', (patch: any) => articles.saveArticleSettings(patch ?? {}));

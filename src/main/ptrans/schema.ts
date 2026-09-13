@@ -140,6 +140,44 @@ CREATE TABLE IF NOT EXISTS ptrans_trials (
   decided_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ptrans_trials_open ON ptrans_trials(chosen, lang, category);
+-- Rozdělaný nový produkt.
+--
+-- Celý obsah je jeden JSON schválně: vyplnit nový produkt je práce na dvacet
+-- minut a polí přibývá (parametry, Google atributy, obrázky). Sloupec za
+-- každé pole by znamenal migraci databáze u všech, kdo aplikaci mají.
+-- Číselník parametrů posbíraný z feedu.
+--
+-- Parametry se u nového produktu nesmějí vypisovat rukou: „Barva" vedle
+-- „barva" a „Šířka 7 cm" vedle „Šíře 7cm" rozbije filtry v e-shopu a v Google
+-- Nákupech to vypadá jako dva různé produkty. Číselník se skládá z toho, co
+-- ve feedu doopravdy je — i s hotovými překlady, takže se u nového produktu
+-- nemusí překládat znovu.
+CREATE TABLE IF NOT EXISTS ptrans_params (
+  -- 'name' = název parametru, 'value' = jeho hodnota
+  kind TEXT NOT NULL,
+  -- Normalizovaný český tvar (malá písmena, bez diakritiky) — klíč pro hledání
+  key TEXT NOT NULL,
+  -- U hodnoty: ke kterému parametru patří. U názvu prázdné.
+  name_key TEXT NOT NULL DEFAULT '',
+  -- Znění po jazycích: {"cz":"Barva","sk":"Farba","en":"Colour"}
+  langs TEXT NOT NULL DEFAULT '{}',
+  hits INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (kind, key, name_key)
+);
+CREATE INDEX IF NOT EXISTS idx_ptrans_params_use ON ptrans_params(kind, name_key, hits);
+
+CREATE TABLE IF NOT EXISTS ptrans_drafts (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  template TEXT NOT NULL DEFAULT '',
+  data TEXT NOT NULL DEFAULT '{}',
+  state TEXT NOT NULL DEFAULT 'draft',
+  created_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT '',
+  exported_at TEXT
+);
 `;
 
 /** Doplňkové sloupce pro databáze založené dřív — chyba „už existuje" je v pořádku. */

@@ -7902,3 +7902,144 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   .rv-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 40%) minmax(0, 60%); }
   .rv-list { border-right: 0; border-bottom: 1px solid var(--border); }
 }
+
+/* ---------- nový produkt ---------- */
+.np-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); }
+.np-loading, .np-blank { padding: 24px; }
+.np-rail { overflow: auto; border-right: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.np-new { justify-content: center; }
+.np-empty { padding: 6px 4px; line-height: 1.5; }
+.np-item {
+  text-align: left; background: none; border: 1px solid transparent; border-radius: 8px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; cursor: pointer;
+}
+.np-item:hover { background: var(--bg); }
+.np-item.active { background: var(--bg); border-color: var(--accent); }
+.np-item-title { font-weight: 600; }
+.np-item-sub { font-size: 12px; color: var(--text-2); }
+.np-ok { font-size: 12px; color: var(--ok); display: inline-flex; align-items: center; gap: 4px; }
+.np-todo { font-size: 12px; color: var(--warn); }
+
+.np-main { display: flex; flex-direction: column; min-height: 0; }
+.np-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.np-head-title { font-weight: 600; }
+.np-badge { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--bg); color: var(--text-2); }
+.np-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); }
+.np-form { overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.np-side { overflow: auto; border-left: 1px solid var(--border); padding: 14px; }
+.np-side h4 { margin: 0 0 8px; }
+.np-side-ok { color: var(--ok); display: flex; align-items: center; gap: 6px; }
+
+.np-box { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.np-box h4 { margin: 0 0 10px; display: flex; align-items: center; gap: 6px; }
+.np-refresh { margin-left: auto; font-size: 12px; }
+.np-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.np-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 160px; margin-bottom: 8px; }
+.np-field > span { font-size: 12px; color: var(--text-2); }
+.np-price { max-width: 180px; }
+.np-warn { font-size: 12px; color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
+.np-ok-note { font-size: 12px; color: var(--ok); }
+.np-step { font-size: 12px; color: var(--text-2); margin: 6px 0 0; }
+
+.np-template { margin-top: 6px; display: flex; align-items: flex-start; gap: 10px; }
+.np-template-label { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; padding-top: 7px; }
+.np-template-set { display: inline-flex; align-items: center; gap: 8px; padding-top: 6px; font-weight: 600; }
+.np-pick { flex: 1; position: relative; }
+.np-pick input { width: 100%; }
+.np-hits { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.np-hits button {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  background: none; border: none; cursor: pointer; text-align: left;
+}
+.np-hits button:hover { background: var(--bg); }
+.np-hits img, .np-hit-noimg { width: 30px; height: 30px; object-fit: cover; border-radius: 5px; background: var(--bg); }
+.np-hit-title { flex: 1; }
+.np-hit-code { font-size: 12px; color: var(--text-2); }
+
+.np-filter { width: 100%; margin-bottom: 8px; }
+.np-cats { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
+.np-cats li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.np-cats label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.np-main-cat {
+  font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
+  background: none; cursor: pointer; color: var(--text-2); display: inline-flex; align-items: center; gap: 4px;
+}
+.np-main-cat.on { border-color: var(--accent); color: var(--accent); }
+
+/* Úryvky z předlohy. Zašedne až ve chvíli, kdy text v poli opravdu není —
+   odškrtnout se to rukou nedá, aby se to nedalo odbýt. */
+.np-specifics { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.np-spec-head { font-size: 12px; color: var(--text-2); margin-right: 4px; }
+.np-chip {
+  font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+}
+.np-chip.done {
+  background: none; border-color: var(--border); color: var(--text-2);
+  text-decoration: line-through; display: inline-flex; align-items: center; gap: 4px;
+}
+.np-html { margin-bottom: 10px; }
+.np-html-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.np-html-head > span { font-size: 12px; color: var(--text-2); }
+.np-propose { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+
+.np-changes { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.np-changes li {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px;
+}
+.np-change-where { font-size: 11px; color: var(--text-2); text-transform: uppercase; }
+.np-change-before { text-decoration: line-through; color: var(--text-2); }
+.np-change-after { font-weight: 600; }
+.np-change-why { font-size: 12px; color: var(--text-2); }
+.np-change-take { margin-left: auto; }
+
+.np-params { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.np-params li { display: flex; gap: 6px; align-items: center; }
+.np-params input { flex: 1; }
+.np-params li.from-template input { border-left: 3px solid var(--accent); }
+
+.np-images { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.np-images li { display: flex; align-items: center; gap: 8px; }
+.np-images img, .np-img-wait { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--bg); }
+.np-images li.main img { outline: 2px solid var(--accent); }
+.np-img-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-img-main {
+  font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
+  background: none; cursor: pointer; color: var(--text-2); display: inline-flex; align-items: center; gap: 4px;
+}
+.np-img-main.on { border-color: var(--accent); color: var(--accent); }
+/* Jedna ikona, dva směry — šipka nahoru je ta samá otočená */
+.np-images .icon-btn svg { transform: rotate(180deg); }
+.np-images .np-down svg { transform: none; }
+
+.np-gaps { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.np-gaps li { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.np-gaps li.blocker { color: var(--warn); }
+.np-gaps li.warn { color: var(--text-2); }
+.np-actions { display: flex; flex-direction: column; gap: 8px; }
+.np-actions .btn { justify-content: center; }
+.np-actions .desc { margin: -2px 0 6px; }
+.np-lang-note { font-size: 12px; margin-left: 6px; }
+.np-lang-title { font-weight: 600; margin-bottom: 4px; }
+.np-lang-body { font-size: 13px; color: var(--text-2); }
+
+@media (max-width: 1100px) {
+  .np-wrap { grid-template-columns: 1fr; }
+  .np-cols { grid-template-columns: 1fr; }
+}
+/* Textové tlačítko uvnitř nového produktu — vypadá jako odkaz, chová se jako tlačítko */
+.np-wrap button.link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--accent); font: inherit; font-size: 12px; text-decoration: underline;
+}
+.np-wrap button.link:hover { color: var(--accent-dark); }
+/* Stav parametru proti číselníku z feedu — „nový" je varování před překlepem */
+.np-param-state {
+  font-size: 11px; min-width: 76px; display: inline-flex; align-items: center; gap: 3px;
+  color: var(--text-2);
+}
+.np-param-state.ok { color: var(--ok); }
+.np-param-state.half { color: var(--warn); }
+.np-param-state.new { color: var(--warn); font-weight: 600; }

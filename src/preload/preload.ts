@@ -87,6 +87,11 @@ const ALLOWED_INVOKE = [
   // Recenze zákazníků — správa a vystavení do Supabase (jen na počítači)
   'reviews:state', 'reviews:save', 'reviews:delete', 'reviews:move', 'reviews:publish',
   'reviews:pull', 'reviews:translate', 'reviews:path', 'reviews:nextSort', 'reviews:import',
+  // Nový produkt — předloha, kategorie, export a import v administraci (jen na počítači)
+  'np:state', 'np:categories', 'np:create', 'np:save', 'np:delete', 'np:checkCode',
+  'np:params', 'np:relearnParams', 'np:checkParam',
+  'np:template', 'np:specifics', 'np:rewrite', 'np:titleProposal',
+  'np:toCatalog', 'np:complete', 'np:exportXml', 'np:openImport',
   // Katalog, štítky a naskladnění — jen na počítači
   'catalog:detail', 'catalog:scan', 'catalog:suggest', 'catalog:refreshStock', 'catalog:stockAt',
   'labels:items', 'labels:stockin', 'labels:preview', 'labels:pdf', 'labels:roll', 'labels:export',
@@ -121,7 +126,7 @@ const ALLOWED_INVOKE = [
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
   'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
-  'ptrans:progress', 'ptrans:changed',
+  'ptrans:progress', 'ptrans:changed', 'np:step',
   'articles:progress', 'articles:changed', 'articles:check',
   'media:progress', 'media:incoming', 'media:watched',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',

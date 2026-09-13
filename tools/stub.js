@@ -1252,6 +1252,121 @@
       };
     })(),
     'reviews:nextSort': -1,
+
+    /*
+     * Nový produkt. Ukazuje se rozdělaný kus podle předlohy: část textu je
+     * pořád z předlohy (modrá barva), část už přepsaná — přesně stav, ve
+     * kterém se pozná, jestli je vidět, co ještě zbývá.
+     */
+    'np:state': (function () {
+      var texty = function (title, short, long) {
+        return {
+          title: title, short: short, long: long,
+          seo_title: '', seo_desc: '', seo_url: '', google_title: '', google_desc: ''
+        };
+      };
+      return {
+        sourceLang: 'cz',
+        langs: ['cz', 'sk', 'en'],
+        categories: null,
+        // Slovensky i anglicky se prodává v eurech — políčko na cenu má být jedno
+        currencies: { cz: 'CZK', sk: 'EUR', en: 'EUR' },
+        drafts: [
+          {
+            id: 'np-1', code: 'KR00999', ean: '', manufacturer: 'Quentino',
+            templateCode: 'KR00100',
+            categories: ['K00028', 'K00010'], mainCategory: 'K00028',
+            images: [
+              { url: THUMBS[0], name: 'kravata-zelena-1.webp', main: true },
+              { url: THUMBS[1], name: 'kravata-zelena-2.webp', main: false }
+            ],
+            params: [
+              { name: 'Barva', value: 'zelená', fromTemplate: true },
+              { name: 'Šířka', value: '7 cm', fromTemplate: true }
+            ],
+            langs: {
+              cz: texty('Kravata zelená hladká',
+                '<p>Zelená kravata bez vzoru.</p>',
+                '<p>Modrá se hodí k šedému obleku a jemný vzor ji drží decentní.</p>')
+            },
+            google: {}, prices: { cz: '890', sk: '36', en: '36' },
+            /*
+             * Půl práce hotové: krátký popis už je přepsaný (barva z předlohy
+             * v něm není), dlouhý pořád mluví o modré. Přesně ten stav, ve
+             * kterém se pozná, jestli je vidět, co ještě zbývá.
+             */
+            specifics: [
+              { lang: 'cz', field: 'short', text: 'Modrá', why: 'barva' },
+              { lang: 'cz', field: 'long', text: 'Modrá', why: 'barva' },
+              { lang: 'cz', field: 'long', text: 'jemný vzor', why: 'vzor' }
+            ],
+            state: 'draft', createdAt: '2026-09-13T08:00:00Z',
+            updatedAt: '2026-09-13T09:30:00Z', exportedAt: null,
+            gaps: [
+              { key: 'seo', label: 'SEO texty', level: 'warn' },
+              { key: 'google', label: 'Texty pro Google', level: 'warn' },
+              { key: 'lang:sk', label: 'Překlad do SK', level: 'warn' },
+              { key: 'lang:en', label: 'Překlad do EN', level: 'warn' }
+            ]
+          },
+          {
+            id: 'np-2', code: '', ean: '', manufacturer: '', templateCode: '',
+            categories: [], mainCategory: '', images: [], params: [],
+            langs: { cz: texty('', '', '') },
+            google: {}, prices: {}, specifics: [],
+            state: 'draft', createdAt: '2026-09-12T08:00:00Z',
+            updatedAt: '2026-09-12T08:00:00Z', exportedAt: null,
+            gaps: [
+              { key: 'code', label: 'Kód produktu', level: 'blocker' },
+              { key: 'title', label: 'Český název', level: 'blocker' },
+              { key: 'short', label: 'Krátký popis', level: 'blocker' },
+              { key: 'long', label: 'Dlouhý popis', level: 'blocker' },
+              { key: 'category', label: 'Hlavní kategorie', level: 'blocker' },
+              { key: 'price', label: 'Cena v korunách', level: 'blocker' }
+            ]
+          }
+        ]
+      };
+    })(),
+    'np:categories': {
+      at: '2026-09-13T08:00:00Z',
+      source: 'https://www.quentino.cz/export-categories-tajne.xml',
+      items: [
+        { code: 'K00010', id: '10', parentId: '', active: true, type: 'siteWithProducts',
+          names: { cz: 'Doplňky' }, holdsProducts: true, depth: 0, path: 'Doplňky' },
+        { code: 'K00028', id: '28', parentId: '10', active: true, type: 'siteWithProducts',
+          names: { cz: 'Kravaty' }, holdsProducts: true, depth: 1, path: 'Doplňky / Kravaty' },
+        { code: 'K00029', id: '29', parentId: '10', active: true, type: 'siteWithProducts',
+          names: { cz: 'Motýlky' }, holdsProducts: true, depth: 1, path: 'Doplňky / Motýlky' },
+        { code: 'K00040', id: '40', parentId: '', active: true, type: 'siteWithProducts',
+          names: { cz: 'Kšandy' }, holdsProducts: true, depth: 0, path: 'Kšandy' },
+        // Stránka v menu — k zařazení zboží se nesmí nabídnout
+        { code: 'C-ONAS', id: '5', parentId: '', active: true, type: 'url',
+          names: { cz: 'O nás' }, holdsProducts: false, depth: 0, path: 'O nás' }
+      ]
+    },
+    'np:checkCode': { taken: false, title: '' },
+    /*
+     * Číselník parametrů z feedu. „Barva" je zavedená i s překlady, „Šířka"
+     * má jen češtinu — na obou se pozná, jestli rozhraní rozliší parametr,
+     * který e-shop zná celý, od toho, kde překlad chybí.
+     */
+    'np:params': {
+      names: [
+        { key: 'barva', nameKey: '', hits: 420, langs: { cz: 'Barva', sk: 'Farba', en: 'Colour' } },
+        { key: 'sirka', nameKey: '', hits: 180, langs: { cz: 'Šířka' } },
+        { key: 'material', nameKey: '', hits: 150, langs: { cz: 'Materiál', sk: 'Materiál', en: 'Material' } }
+      ],
+      values: [
+        { key: 'zelena', nameKey: 'barva', hits: 30, langs: { cz: 'zelená', sk: 'zelená', en: 'green' } },
+        { key: 'modra', nameKey: 'barva', hits: 55, langs: { cz: 'modrá', sk: 'modrá', en: 'blue' } },
+        { key: '7 cm', nameKey: 'sirka', hits: 60, langs: { cz: '7 cm' } }
+      ]
+    },
+    'np:checkParam': { name: {}, value: {}, knownName: false, knownValue: false },
+    'np:relearnParams': { names: 3, values: 3 },
+
+
     'articles:filesUrl': {
       url: 'https://quentino.admin.s19.upgates.com/manager/files/default/default/1019/?filesPaginator-page=1',
       learned: false, folder: '1019',
@@ -1679,6 +1794,29 @@
             shortenTo: one.fromMs < od ? String(draft.from) : '' };
         });
         return Promise.resolve({ ok: true, data: strety });
+      }
+      /*
+       * Stav parametru proti číselníku. Skutečné hledání je v databázi;
+       * náhled si ho musí udělat sám, jinak by u všech řádků svítilo totéž
+       * a nepoznalo by se, že rozhraní rozlišuje známý parametr od nového.
+       */
+      if (channel === 'np:checkParam') {
+        var klic = function (t) {
+          return String(t || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        };
+        var slovnik = answers['np:params'];
+        // Druhý argument se musí vzít tady; uvnitř `filter` už `arguments`
+        // patří jeho vlastní funkci
+        var hodnotaText = arguments[2];
+        var jmeno = slovnik.names.filter(function (one) { return one.key === klic(arg); })[0];
+        var hodnota = slovnik.values.filter(function (one) {
+          return one.nameKey === klic(arg) && one.key === klic(hodnotaText);
+        })[0];
+        return Promise.resolve({ ok: true, data: {
+          name: jmeno ? jmeno.langs : {},
+          value: hodnota ? hodnota.langs : {},
+          knownName: !!jmeno, knownValue: !!hodnota
+        } });
       }
       /*
        * Srovnání před/po si stahuje originál přes hlavní proces a pak ho čte

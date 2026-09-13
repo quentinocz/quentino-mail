@@ -839,6 +839,28 @@ export default function SettingsModal(p: Props) {
                   {busy === 'stock' ? <span className="spinner-inline" /> : <Icon name="refresh" size={14} />} Stáhnout zásoby teď
                 </button>
               </div>
+              <div className="field">
+                <label><Icon name="folder" size={13} /> Export kategorií (XML)</label>
+                <input value={settings.categoryFeedUrl}
+                  placeholder="https://…/export-categories-….xml"
+                  onChange={e => setSettings(s => s ? { ...s, categoryFeedUrl: e.target.value } : s)} />
+                <div className="desc">
+                  {/* Produktový feed nese u produktu jen názvy kategorií. Do importu
+                      se ale kategorie zapisují kódem a je potřeba vědět, co je pod čím —
+                      a jestli je to vůbec kategorie na zboží, nebo stránka v menu. */}
+                  Strom kategorií pro zařazení nového produktu. Bez něj se nový produkt
+                  nedá zařadit — v produktovém feedu jsou jen názvy, importovat se musí kódem.
+                </div>
+                <button className="btn ghost" style={{ alignSelf: 'flex-start' }} disabled={busy === 'cats'}
+                  onClick={() => run('cats', async () => {
+                    await api.settings.save({ categoryFeedUrl: settings.categoryFeedUrl });
+                    const tree = await api.newProduct.categories(true);
+                    const shop = tree.items.filter(one => one.holdsProducts).length;
+                    toast(`Načteno ${tree.items.length} kategorií, z toho ${shop} se zbožím.`);
+                  })}>
+                  {busy === 'cats' ? <span className="spinner-inline" /> : <Icon name="refresh" size={14} />} Načíst kategorie teď
+                </button>
+              </div>
               <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={busy === 'saveAi'} onClick={saveAi}>
                 Uložit nastavení AI
               </button>

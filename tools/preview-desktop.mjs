@@ -638,6 +638,56 @@ await click('.rv-modal .modal-head .icon-btn >> nth=-1');
 await page.waitForTimeout(300);
 
 /*
+ * Nový produkt. Rozhoduje se tu o jediné věci: jestli je na první pohled
+ * vidět, co ještě chybí, a co v textu zůstalo po předloze. Obojí by se
+ * jinak přehlédlo — a přehlédnutá barva v popisu vydrží na e-shopu měsíce.
+ */
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Překlady produktů' });
+await page.waitForTimeout(400);
+await click('.pt-tabs button', { hasText: 'Nový produkt' });
+await page.waitForTimeout(500);
+{
+  const drafts = await page.locator('.np-item').count();
+  const blockers = await page.locator('.np-gaps li.blocker').count();
+  const chips = await page.locator('.np-chip').count();
+  const done = await page.locator('.np-chip.done').count();
+  console.log(`${'nový produkt — rozdělané'.padEnd(28)} ${drafts === 2 ? '✓' : '✗'} (${drafts})`);
+  // Přepsané specifikum musí být odlišené od toho, které v textu pořád je
+  console.log(`${'z předlohy — co zbývá'.padEnd(28)} ${chips === 3 && done === 1 ? '✓' : '✗'} (${chips}, přepsané ${done})`);
+  /*
+   * Parametr, který e-shop nezná, musí být odlišený od toho, který zná i
+   * s překlady — „Šíře" místo „Šířka" se jinak projeví až tím, že produkt
+   * vypadne z filtru v kategorii.
+   */
+  const zna = await page.locator('.np-param-state.ok').count();
+  const chybi = await page.locator('.np-param-state.half').count();
+  console.log(`${'parametry proti číselníku'.padEnd(28)} ${zna === 1 && chybi === 1 ? '✓' : '✗'} (zná ${zna}, neúplných ${chybi})`);
+  console.log(`${'co ještě chybí'.padEnd(28)} ${blockers === 0 ? '✓' : '✗'} (blokuje ${blockers})`);
+  /*
+   * Ceny se zadávají po měnách. Slovenský a anglický e-shop prodávají obojí
+   * v eurech — dvě stejná políčka „€" vedle sebe svádějí vyplnit jen jedno.
+   */
+  const ceny = await page.locator('.np-price').count();
+  console.log(`${'ceny po měnách'.padEnd(28)} ${ceny === 2 ? '✓' : '✗'} (${ceny})`);
+}
+await overflow('nový produkt — rozdělaný'); await snap('49-novy-produkt');
+{
+  // Stránky v menu se k zařazení zboží nesmějí nabízet
+  const cats = await page.locator('.np-cats li').count();
+  console.log(`${'kategorie se zbožím'.padEnd(28)} ${cats === 4 ? '✓' : '✗'} (${cats})`);
+}
+await page.locator('.np-item').nth(1).click();
+await page.waitForTimeout(400);
+{
+  const blockers = await page.locator('.np-gaps li.blocker').count();
+  console.log(`${'prázdný produkt hlásí chybějící'.padEnd(28)} ${blockers === 6 ? '✓' : '✗'} (${blockers})`);
+}
+await overflow('nový produkt — prázdný'); await snap('49b-novy-produkt-prazdny');
+await click('.pt-modal .modal-head .icon-btn >> nth=-1');
+await page.waitForTimeout(300);
+
+/*
  * Konvertor médií. Zajímá tu hlavně záložka Focení: hlídaná složka běží na
  * pozadí, takže na ní musí být na první pohled poznat, že jede, a jaký
  * ořez se použije.
