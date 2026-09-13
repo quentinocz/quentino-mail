@@ -871,6 +871,20 @@ export function registerIpc() {
   handle('articles:linkUrls', (url: string, fromLang?: string, probe?: boolean) =>
     articles.linkUrls(url ?? '', fromLang, probe !== false));
   handle('articles:urlmap', (filter: any) => articles.listUrlMap(filter ?? {}));
+
+  /*
+   * Fotky a videa k článku. Převod dělá okno (kodér WebP je v Chromiu,
+   * video ffmpeg), tady se soubory jen nahrají do správce souborů na
+   * e-shopu a zpátky jde adresa, kterou článek potřebuje k odkazu.
+   */
+  handle('articles:uploadFiles', (files: string[]) => articles.uploadArticleFiles(files ?? []));
+  handle('articles:filesUrl', () => ({
+    url: articles.filesAdminUrl(), learned: articles.filesUrlLearned(),
+    folder: articles.articleFilesFolder(), folders: articles.articleFolders()
+  }));
+  handle('articles:filesFolder', (id: string) => articles.saveArticleFilesFolder(id ?? ''));
+  handle('articles:learnFilesUrl', () => articles.learnFilesUrl());
+  handle('articles:noteFileUrl', (name: string, url: string) => articles.noteFileUrl(name, url));
   handle('articles:learnLinks', () => articles.learnLinks());
   handle('articles:saveUrlPair', (fromLang: string, fromPath: string, toLang: string, toPath: string, kind: string) =>
     articles.saveUrlPair(fromLang, fromPath, toLang, toPath, kind ?? 'other'));

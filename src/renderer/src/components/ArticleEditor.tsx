@@ -11,6 +11,7 @@ interface ArticleReview {
   }[];
 }
 import { api } from '../api';
+import { pickForArticle, uploadToShop } from '../articlefiles';
 import { useToast } from '../toast';
 import Icon from './Icon';
 
@@ -53,6 +54,10 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
   const [picker, setPicker] = useState(false);
   const [products, setProducts] = useState<ArticleProduct[]>([]);
   const [working, setWorking] = useState('');
+  /** Co se právě děje při nahrávání fotek a videí na e-shop */
+  const [upload, setUpload] = useState('');
+  /** Soubory, u kterých se nepodařilo přečíst adresu — ať je co doplnit ručně */
+  const [unresolved, setUnresolved] = useState<string[]>([]);
 
   useEffect(() => {
     setTopic(article.topic);
@@ -72,6 +77,61 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
   }, [brief.products, article.sourceLang]);
 
   const patchBrief = (part: Partial<ArticleBrief>) => setBrief(prev => ({ ...prev, ...part }));
+
+  /**
+   * Fotky a videa z počítače rovnou do článku.
+   *
+   * Převede se (WebP, WebM), nahraje do souborů na e-shopu a zpátky přijde
+   * adresa, která se vloží do zadání. Bez toho je to trojí ruční práce:
+   * převést někde jinde, nahrát v administraci a adresu odtud opsat.
+   *
+   * Když se adresa nepřečte, řádek se **stejně přidá** — jen s prázdnou
+   * adresou a poznámkou. Soubor na e-shopu je a stačí adresu doplnit;
+   * zahodit řádek by znamenalo nahrávat znovu.
+   */
+  const uploadMedia = async (kind: 'image' | 'video') => {
+    if (upload) return;
+    let files;
+    try {
+      files = (await pickForArticle()).filter(one => (kind === 'video'
+        ? one.kind === 'video'
+        : one.kind === 'image'));
+    } catch (e: any) {
+      return toast(e.message, 'error');
+    }
+    if (files.length === 0) {
+      return toast(kind === 'video' ? 'Žádné video nevybráno.' : 'Žádná fotka nevybrána.');
+    }
+
+    setUnresolved([]);
+    setUpload('Připravuju…');
+    try {
+      const done = await uploadToShop(files, setUpload);
+      if (kind === 'video') {
+        patchBrief({
+          videos: [...(brief.videos ?? []), ...done.map(one => ({
+            url: one.url, description: '', size: 'medium' as const, layout: 'block' as const
+          }))]
+        });
+      } else {
+        patchBrief({
+          images: [...brief.images, ...done.map(one => ({
+            url: one.url, description: '', size: 'auto' as const, layout: 'block' as const
+          }))]
+        });
+      }
+      const missing = done.filter(one => !one.url);
+      setUnresolved(missing.map(one => one.name));
+      toast(missing.length === 0
+        ? `Nahráno ${done.length} souborů a adresy jsou v zadání.`
+        : `Nahráno ${done.length}, ale u ${missing.length} se nepodařilo přečíst adresu.`,
+      missing.length === 0 ? undefined : 'error');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setUpload('');
+    }
+  };
 
   /*
    * Jak se která adresa dohledala. `domain` znamená „jen jsem vyměnil
@@ -278,17 +338,29 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
 
             <section>
               <div className="ar-sec-head">
-                <h3>Obrázky z CDN</h3>
+                <h3>Obrázky</h3>
+                <button className="btn ghost" onClick={() => uploadMedia('image')} disabled={!!upload}>
+                  {upload ? <><span className="spinner-inline" /> {upload}</>
+                    : <><Icon name="upload" size={13} /> Nahrát z počítače</>}
+                </button>
                 <button className="btn ghost" onClick={() => patchBrief({
                   images: [...brief.images, { url: '', description: '', size: 'auto', layout: 'block' }]
                 })}>
-                  <Icon name="plus" size={13} /> Přidat
+                  <Icon name="plus" size={13} /> Adresa ručně
                 </button>
               </div>
               <p className="ig-muted">
-                Adresa obrázku nahraného na e-shop. První označený jako listingový se
-                do těla článku nedá — je to náhled v seznamu.
+                Fotka z počítače se převede do WebP, nahraje do souborů na e-shopu a její
+                adresa se sem doplní sama. Adresa už nahraného obrázku jde vložit i ručně.
+                První označený jako listingový se do těla článku nedá — je to náhled v seznamu.
               </p>
+              {unresolved.length > 0 && (
+                <p className="md-warn">
+                  <Icon name="alert" size={13} /> U těchhle souborů se nepodařilo přečíst adresu:
+                  {' '}{unresolved.join(', ')}. Jsou nahrané ve správci souborů — otevři je tam
+                  tlačítkem oka a adresu vlož do prázdného řádku.
+                </p>
+              )}
               {brief.images.map((img, index) => (
                 <div key={index} className="ar-img">
                   {img.url ? <img src={img.url} alt="" /> : <span className="ar-prod-noimg"><Icon name="image" size={14} /></span>}
@@ -351,10 +423,14 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
             <section>
               <div className="ar-sec-head">
                 <h3>Videa</h3>
+                <button className="btn ghost" onClick={() => uploadMedia('video')} disabled={!!upload}>
+                  {upload ? <><span className="spinner-inline" /> {upload}</>
+                    : <><Icon name="upload" size={13} /> Nahrát z počítače</>}
+                </button>
                 <button className="btn ghost" onClick={() => patchBrief({
                   videos: [...(brief.videos ?? []), { url: '', description: '', size: 'medium', layout: 'block' }]
                 })}>
-                  <Icon name="plus" size={13} /> Přidat
+                  <Icon name="plus" size={13} /> Adresa ručně
                 </button>
               </div>
               <p className="ig-muted">

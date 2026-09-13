@@ -15,6 +15,7 @@ import type {
   PtransAudit, PtransAuditSummary,
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
   ArticleCheckProgress, ArticleLinkCheck, ArticleUrlPair, ArticleProduct, ArticleStatsView, ArticleStatDetail,
+  ArticleUpload, ArticleFolder,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
@@ -333,7 +334,23 @@ export const api = {
     saveUrlPair: (fromLang: string, fromPath: string, toLang: string, toPath: string, kind = 'other') =>
       call<ArticleUrlPair[]>('articles:saveUrlPair', fromLang, fromPath, toLang, toPath, kind),
     deleteUrlPair: (fromLang: string, fromPath: string, toLang: string) =>
-      call<boolean>('articles:deleteUrlPair', fromLang, fromPath, toLang)
+      call<boolean>('articles:deleteUrlPair', fromLang, fromPath, toLang),
+
+    /**
+     * Fotky a videa k článku.
+     *
+     * Převod dělá okno (kodér WebP je v Chromiu, video ffmpeg), tady se
+     * hotové soubory nahrají do správce souborů na e-shopu a zpátky přijde
+     * adresa, kterou článek potřebuje k odkazu.
+     */
+    uploadFiles: (files: string[]) => call<ArticleUpload[]>('articles:uploadFiles', files),
+    filesUrl: () => call<{ url: string; learned: boolean; folder: string; folders: ArticleFolder[] }>(
+      'articles:filesUrl'),
+    filesFolder: (id: string) => call<string>('articles:filesFolder', id),
+    learnFilesUrl: () => call<{ url: string; note: string }>('articles:learnFilesUrl'),
+    /** Ruční doplnění adresy, kterou se nepodařilo přečíst; ověří se dotazem */
+    noteFileUrl: (name: string, url: string) =>
+      call<{ ok: boolean; note: string }>('articles:noteFileUrl', name, url)
   },
   persons: {
     list: () => call<Person[]>('persons:list'),

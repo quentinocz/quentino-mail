@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><title>Vše :: Administrační systém Upgates</title></head>
+<body class="lang-cz file-manager-page page-files">
+<!--
+  Zkrácený výřez skutečné stránky správce souborů Upgates (v. 36.0.14).
+  Ponechané je jen to, na čem nahrávání příloh článků stojí:
+   · dlaždice `.manager-file` s `data-title` (původní název) a `data-url`
+     (veřejná adresa) — a k tomu miniatura z `_cache`, které si nesmíme všímat,
+   · strom složek vlevo, ze kterého se bere nabídka v nastavení,
+   · schované políčko Dropzonu na konci stránky, do kterého se soubory vkládají.
+-->
+
+<div class="side-nav side-nav-submenu">
+  <ul class="list-unstyled collapsible detail-menu file-manager-menu">
+    <li>
+      <div class="collapsible-body">
+        <ul>
+          <li class="droppable open">
+            <div class="a sm-link active" data-category_id="0">
+              <a class="sm-link-in" href="/manager/files/default/default/all/?filesPaginator-page=1"><i class="fa fa-folders mr-25"></i>Vše<span class="badge badge-pill bg-color-dark">3124</span></a>
+            </div>
+          </li>
+          <li class="droppable">
+            <div data-category_id="1019" class="1019 all a sm-link">
+              <a href="/manager/files/default/default/1019/?filesPaginator-page=1" title="Blog (11)" class="sm-link-in">
+                <i class="mr-25 fa fa-folder"></i>Blog<span class="badge badge-pill bg-color-dark">11</span>
+              </a>
+            </div>
+          </li>
+          <li class="droppable">
+            <div data-category_id="1000" class="1000 all a sm-link">
+              <a href="/manager/files/default/default/1000/?filesPaginator-page=1" title="Grafika (217)" class="sm-link-in">
+                <i class="mr-25 fa fa-paint-brush"></i>Grafika<span class="badge badge-pill bg-color-dark">217</span>
+              </a>
+            </div>
+          </li>
+          <li class="droppable">
+            <div data-category_id="2" class="2 all a sm-link">
+              <a href="/manager/files/default/default/2/?filesPaginator-page=1" title="Produkty (135)" class="sm-link-in">
+                <i class="mr-25 fa fa-folder"></i>Produkty<span class="badge badge-pill bg-color-dark">135</span>
+              </a>
+            </div>
+          </li>
+          <li class="droppable">
+            <div data-category_id="trash" class="trash all a sm-link">
+              <a href="/manager/files/default/default/trash/?filesPaginator-page=1" title="Koš (0)" class="sm-link-in">
+                <i class="mr-25 fa fa-trash"></i>Koš<span class="badge badge-pill bg-color-dark">0</span>
+              </a>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </li>
+  </ul>
+</div>
+
+<div id="FileUploader" class="manager-files FilesCardContainer FileUploaderHide hidden card-item-group"></div>
+
+<div id="snippet--managerFiles">
+  <div class="manager-files FilesCardContainer card-item-group no-crosshair">
+
+    <div data-file-id="3826" data-title="origin-03-v67dd2253da98a-snimek2.webp" data-url="https://quentino.s19.cdn-upgates.com/h/h6aa5a12002c6a-origin-03-v67dd2253da98a-snimek2.webp" class="manager-file type-image card text-center card-item">
+      <img class="img-fluid CardBodyOpen" src="https://quentino.s19.cdn-upgates.com/_cache/f/4/f43d718b3b8e4db1a77fee50501cda44-origin-03-v67dd2253da98a-snimek2.webp" title="origin-03-v67dd2253da98a-snimek2.webp">
+      <div class="card-body card-action CardBody">
+        <div class="card-title mb-0 CardBodyName">29.54 kB</div>
+        <div class="text-center cb-buttons" data-file-id="3826" data-title="origin-03-v67dd2253da98a-snimek2.webp">
+          <a href="https://quentino.s19.cdn-upgates.com/h/h6aa5a12002c6a-origin-03-v67dd2253da98a-snimek2.webp" target="_blank" class="btn-floating btn-primary" title="Zobrazit"><i class="fa fa-eye"></i></a>
+        </div>
+      </div>
+      <div class="card-footer form-left" data-title="origin-03-v67dd2253da98a-snimek2.webp">
+        <div class="text-muted card-footer-small ml-1">origin-03-v67dd2253da98a-snimek2.webp</div>
+      </div>
+    </div>
+
+    <div data-file-id="3782" data-title="Snímek11.PNG" data-url="https://quentino.s19.cdn-upgates.com/g/g6a8d7c55d0b99-snimek11.png" class="manager-file type-image card text-center card-item">
+      <img class="img-fluid CardBodyOpen" src="https://quentino.s19.cdn-upgates.com/_cache/4/b/4bc9d81c0eb8c0225514eae30b27a772-snimek11.png" title="Snímek11.PNG">
+      <div class="card-body card-action CardBody">
+        <div class="card-title mb-0 CardBodyName">643.66 kB</div>
+      </div>
+      <div class="card-footer form-left" data-title="Snímek11.PNG">
+        <div class="text-muted card-footer-small ml-1">Snímek11.PNG</div>
+      </div>
+    </div>
+
+    <!-- Tentýž název podruhé: proto se bere dlaždice s novým číslem, ne podle názvu -->
+    <div data-file-id="3818" data-title="Snímek8.png" data-url="https://quentino.s19.cdn-upgates.com/d/d6a95b02b3412b-snimek8.png" class="manager-file type-image card text-center card-item">
+      <img class="img-fluid CardBodyOpen" src="https://quentino.s19.cdn-upgates.com/_cache/8/5/85cdf0e0775cb3d5e57362a454067c73-snimek8.png" title="Snímek8.png">
+      <div class="card-footer form-left" data-title="Snímek8.png"><div class="text-muted card-footer-small ml-1">Snímek8.png</div></div>
+    </div>
+    <div data-file-id="3785" data-title="Snímek8.png" data-url="https://quentino.s19.cdn-upgates.com/x/x6a8dcff6b7108-snimek8.png" class="manager-file type-image card text-center card-item">
+      <img class="img-fluid CardBodyOpen" src="https://quentino.s19.cdn-upgates.com/_cache/b/8/b8b5f4417e403f9b8f964e332cf9ac35-snimek8.png" title="Snímek8.png">
+      <div class="card-footer form-left" data-title="Snímek8.png"><div class="text-muted card-footer-small ml-1">Snímek8.png</div></div>
+    </div>
+
+    <div data-file-id="3823" data-title="Image 12.09.2026 at 13.53 (3).png" data-url="https://quentino.s19.cdn-upgates.com/c/c6aa548bd81c0c-image-12-09-2026-at-13-53-3.png" class="manager-file type-image card text-center card-item">
+      <img class="img-fluid CardBodyOpen" src="https://quentino.s19.cdn-upgates.com/_cache/c/2/c23bd7be32b42af70727c009292b5294-image-12-09-2026-at-13-53-3.png" title="Image 12.09.2026 at 13.53 (3).png">
+      <div class="card-footer form-left" data-title="Image 12.09.2026 at 13.53 (3).png"><div class="text-muted card-footer-small ml-1">Image 12.09.2026 at 13.53 (3).png</div></div>
+    </div>
+
+  </div>
+</div>
+
+<input type="file" multiple="multiple" class="dz-hidden-input" tabindex="-1" style="visibility: hidden; position: absolute; top: 0px; left: 0px; height: 0px; width: 0px;">
+</body></html>

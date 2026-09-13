@@ -1211,6 +1211,16 @@
       ]
     },
     'ptrans:learn': [{ lang: 'en', pairs: 461, terms: 461, patterns: 35, examples: 121 }],
+    // Přílohy článků: kam se nahrávají a jaké složky správce souborů zná
+    'articles:filesUrl': {
+      url: 'https://quentino.admin.s19.upgates.com/manager/files/default/default/1019/?filesPaginator-page=1',
+      learned: false, folder: '1019',
+      folders: [
+        { id: '1019', name: 'Blog' }, { id: '1000', name: 'Grafika' },
+        { id: '2', name: 'Produkty' }, { id: '1', name: 'Soubory' }
+      ]
+    },
+    'articles:filesFolder': '1019',
     'articles:overview': {
       settings: {
         sourceLang: 'cz',

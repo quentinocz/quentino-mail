@@ -251,6 +251,11 @@ await click('.ws-menu-item', { hasText: 'Články' });
 await overflow('články — seznam'); await snap('10-clanky-seznam');
 
 await click('.ar-item');
+{
+  // Fotky a videa se do článku dají nahrát rovnou z počítače
+  const upload = await page.locator('.ar-sec-head .btn', { hasText: 'Nahrát z počítače' }).count();
+  console.log(`${'nahrání příloh z počítače'.padEnd(28)} ${upload >= 2 ? '✓' : '✗'} (${upload})`);
+}
 await overflow('články — zadání'); await snap('11-clanky-zadani');
 
 /*

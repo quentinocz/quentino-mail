@@ -7830,3 +7830,8 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   opacity: .8; transition: opacity .12s ease;
 }
 .mp-shot:hover .mp-peek, .mp-shot:focus-within .mp-peek { opacity: 1; }
+
+/* Naučená adresa vedle tlačítka — políčko roste, tlačítko drží šířku */
+.ar-row { display: flex; align-items: center; gap: 8px; }
+.ar-row input { flex: 1; min-width: 0; }
+.ar-row .btn { flex-shrink: 0; }

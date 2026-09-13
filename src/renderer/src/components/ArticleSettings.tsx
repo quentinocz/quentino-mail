@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ArticleOverview, ArticleSettings } from '@shared/types';
+import type { ArticleFolder, ArticleOverview, ArticleSettings } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -18,8 +18,12 @@ export default function ArticleSettingsPanel({ overview, onSaved }: {
   const toast = useToast();
   const [draft, setDraft] = useState<ArticleSettings | null>(overview?.settings ?? null);
   const [saving, setSaving] = useState(false);
+  /** Kam se nahrávají fotky a videa k článkům — správce souborů e-shopu */
+  const [files, setFiles] = useState<{ url: string; learned: boolean; folder: string; folders: ArticleFolder[] } | null>(null);
+  const [learning, setLearning] = useState(false);
 
   useEffect(() => { if (overview?.settings) setDraft(overview.settings); }, [overview]);
+  useEffect(() => { api.articles.filesUrl().then(setFiles).catch(() => setFiles(null)); }, []);
   if (!draft) return <div className="modal-body ig-muted">Načítám…</div>;
 
   const patch = (part: Partial<ArticleSettings>) => setDraft(prev => (prev ? { ...prev, ...part } : prev));
@@ -184,6 +188,58 @@ export default function ArticleSettingsPanel({ overview, onSaved }: {
             <small>
               V adrese je číslo serveru e-shopu, proto se nedá zapsat napevno —
               například https://quentino.admin.s19.upgates.com/setup/export-import/default/guide/texts/
+            </small>
+          </label>
+
+          {/*
+            * Kam se nahrávají fotky a videa k článkům. Složka je vidět proto, že
+            * jinak všechno spadne do „Vše" mezi tři tisíce souborů a hledá se to
+            * pak ručně.
+            */}
+          <label>
+            <span>Složka pro přílohy článků</span>
+            <select value={files?.folder ?? ''}
+              onChange={e => {
+                const id = e.target.value;
+                setFiles(prev => (prev ? { ...prev, folder: id } : prev));
+                api.articles.filesFolder(id).catch(err => toast(err.message, 'error'));
+              }}>
+              <option value="">Vše (kořen správce souborů)</option>
+              {(files?.folders ?? []).filter(one => one.id !== 'all').map(one => (
+                <option key={one.id} value={one.id}>{one.name}</option>
+              ))}
+            </select>
+            <small>
+              Nabídka se doplní sama po prvním nahrání — složky se přečtou ze stránky
+              správce souborů. {files?.url ? `Nahrává se na ${files.url}` : ''}
+            </small>
+          </label>
+
+          <label>
+            <span>Adresa správce souborů</span>
+            <div className="ar-row">
+              <input value={files?.url ?? ''} readOnly />
+              <button className="btn ghost" disabled={learning}
+                onClick={async () => {
+                  setLearning(true);
+                  try {
+                    const out = await api.articles.learnFilesUrl();
+                    toast(out.note, out.url ? undefined : 'error');
+                    setFiles(await api.articles.filesUrl());
+                  } catch (e: any) {
+                    toast(e.message, 'error');
+                  } finally {
+                    setLearning(false);
+                  }
+                }}>
+                {learning ? <><span className="spinner-inline" /> čekám…</> : 'Naučit z administrace'}
+              </button>
+            </div>
+            <small>
+              {files?.learned
+                ? 'Adresa je naučená z administrace.'
+                : 'Adresa se skládá z adresy administrace. Kdyby Upgates cestu změnily, otevři '
+                  + 'správce souborů tlačítkem vedle a okno zavři — adresa se zapamatuje.'}
             </small>
           </label>
         </section>
