@@ -311,6 +311,10 @@ export function saveUrlPair(fromLang: string, fromPath: string, toLang: string, 
 }
 
 export {
+  uploadArticleFiles, learnFilesUrl, filesAdminUrl, filesUrlLearned, noteFileUrl,
+  articleFilesFolder, saveArticleFilesFolder, articleFolders
+} from './files';
+export {
   getArticleSettings, saveArticleSettings, defaultArticlePrompt, articleLangs,
   listArticles, getArticle, saveArticle, deleteArticle, rawXml, articleSummary,
   generateArticle, translateArticle, articleProgress, stopArticles, researchTerms, productsForArticle,

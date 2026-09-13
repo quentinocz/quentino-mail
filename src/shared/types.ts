@@ -1976,6 +1976,28 @@ export interface ArticleSettings {
   categories: { code: string; name: string; primary: boolean }[];
 }
 
+/** Složka ve správci souborů e-shopu — kam se nahrávají přílohy článků. */
+export interface ArticleFolder {
+  /** Číslo složky z adresy; `all` je kořen „Vše" */
+  id: string;
+  name: string;
+}
+
+/**
+ * Jeden soubor nahraný k článku do souborů na e-shopu.
+ *
+ * `url` prázdná znamená, že soubor na e-shopu je, ale adresa se nezjistila —
+ * `note` tehdy říká, co s tím. Tvářit se, že adresa je, a vložit do článku
+ * odhad, by znamenalo prázdný rámeček na hotovém webu.
+ */
+export interface ArticleUpload {
+  name: string;
+  url: string;
+  /** Kde leží převedený soubor na disku — kdyby se nahrání muselo opakovat */
+  file: string;
+  note: string;
+}
+
 export interface ArticleBrief {
   products: string[];
   productImages: Record<string, string>;
