@@ -834,7 +834,8 @@ export function registerIpc() {
   handle('np:create', () => ptrans.newproduct.createDraft());
   handle('np:save', (id: string, patch: any) => ptrans.newproduct.updateDraft(id, patch ?? {}));
   handle('np:delete', (id: string) => { ptrans.newproduct.removeDraft(id); return true; });
-  handle('np:checkCode', (code: string) => ptrans.newproduct.checkCode(code ?? ''));
+  handle('np:checkCode', (code: string, draftId?: string) =>
+    ptrans.newproduct.checkCode(code ?? '', draftId ?? ''));
   handle('np:params', (name?: string) => ptrans.newproduct.paramDictionary(name));
   handle('np:relearnParams', () => ptrans.newproduct.relearnParams());
   handle('np:checkParam', (name: string, value: string) =>

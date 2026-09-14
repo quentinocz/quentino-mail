@@ -395,7 +395,8 @@ export const api = {
       call<NewProductDraft>('np:save', id, patch),
     remove: (id: string) => call<boolean>('np:delete', id),
     /** Kontrola, že kód není v e-shopu — import se stejným kódem přepíše starý produkt */
-    checkCode: (code: string) => call<{ taken: boolean; title: string }>('np:checkCode', code),
+    checkCode: (code: string, draftId = '') =>
+      call<{ taken: boolean; title: string }>('np:checkCode', code, draftId),
     /** Číselník parametrů posbíraný z feedu — názvy i hodnoty ve všech jazycích */
     params: (name?: string) => call<ParamDictionary>('np:params', name ?? ''),
     relearnParams: () => call<{ names: number; values: number }>('np:relearnParams'),
