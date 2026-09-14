@@ -405,6 +405,34 @@ console.log('\nco ještě chybí:');
     JSON.stringify(nenahrane));
 }
 
+/* ---------- odkazy v překladech ---------- */
+
+console.log('\nodkazy v přeloženém textu:');
+{
+  const links = require(path.join(DIST, 'ptrans/newproduct/links.js'));
+  const html = '<p>Hodí se k <a href="https://www.quentino.cz/kravaty">kravatám</a> i '
+    + '<a class="x" href=\'https://www.quentino.cz/motylky\'>motýlkům</a>.</p>';
+
+  const mapa = {
+    'https://www.quentino.cz/kravaty': 'https://www.quentino.sk/kravaty',
+    'https://www.quentino.cz/motylky': 'https://www.quentino.sk/motyliky'
+  };
+  const out = links.__test.replaceHrefs(html, href => mapa[href] ?? null);
+  ok('vymění se obě adresy',
+    out.includes('quentino.sk/kravaty') && out.includes('quentino.sk/motyliky'), out);
+  // Atributy okolo odkazu musí zůstat — jinak se z textu ztratí třída i styl
+  ok('zbytek značky zůstane', out.includes('class="x"'), out);
+  ok('a text odkazu taky', out.includes('>kravatám</a>') && out.includes('>motýlkům</a>'), out);
+
+  /*
+   * Odkaz, pro který se adresa na cizím trhu nenašla, musí zůstat, jak byl.
+   * Vyhodit ho nebo nechat poloviční by z textu udělalo nefunkční odkaz —
+   * a to je horší než odkaz na český web.
+   */
+  const puvodni = links.__test.replaceHrefs(html, () => null);
+  check('nenalezená adresa se nechá být', puvodni, html);
+}
+
 /* ---------- návrhy změn ---------- */
 
 console.log('\nnávrhy podle nového názvu:');

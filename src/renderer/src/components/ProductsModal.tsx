@@ -92,7 +92,14 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /** Okno přes celou obrazovku — s tisícem produktů se v malém dialogu pracuje mizerně */
-  const [wide, setWide] = useState(false);
+  /*
+   * Velikost okna se pamatuje mezi otevřeními.
+   *
+   * Kdo si okno jednou roztáhl, chce ho roztažené i příště — zmenšit se samo
+   * znamenalo dvě kliknutí navíc pokaždé.
+   */
+  const [wide, setWide] = useState(() => localStorage.getItem('ptransWide') === '1');
+  useEffect(() => { localStorage.setItem('ptransWide', wide ? '1' : '0'); }, [wide]);
   const [selectingAll, setSelectingAll] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const [fields, setFields] = useState<PtransField[]>([]);
@@ -519,7 +526,7 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`modal pt-modal ${wide ? 'wide' : ''}`}>
         <div className="modal-head">
-          <div className="modal-title"><Icon name="globe" size={16} /> Překlady produktů</div>
+          <div className="modal-title"><Icon name="globe" size={16} /> Produkty a překlady</div>
           <span className="pt-feed">
             {overview ? `${overview.feed.products} produktů · feed ${relTime(overview.feed.syncedAt)}` : ''}
           </span>

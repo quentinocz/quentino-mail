@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
 import { SIDE_COMPACT, useSidebarWidth } from '../sidebar';
 import { useIsPhone } from '../mobile';
@@ -27,16 +27,44 @@ const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[]
  * pro ně nemá kanály a na malé obrazovce se stejně nedají obsloužit. Dřív se
  * v nabídce ukazovaly i tam a klepnutí neudělalo nic; teď se prostě nenabízejí.
  */
-export const AI_TOOLS: { id: AiTool; icon: string; label: string; hint: string; desktopOnly?: boolean }[] = [
-  { id: 'digest', icon: 'sunrise', label: 'AI Přehled', hint: 'Prodeje v číslech, co čeká na odpověď a postřehy k tomu' },
-  { id: 'packing', icon: 'bag', label: 'Balení objednávek', hint: 'Odškrtávací seznam — kusy, varianty, adresy' },
-  { id: 'catalog', icon: 'layers', label: 'Katalog a naskladnění', hint: 'Produkty a zásoby, příjem zboží, štítky s kódem' },
-  { id: 'instagram', icon: 'image', label: 'Sociální sítě', hint: 'Instagram a Facebook ve všech trzích' },
-  { id: 'ptrans', icon: 'globe', label: 'Překlady produktů', hint: 'Jazykové mutace z produktového feedu', desktopOnly: true },
-  { id: 'articles', icon: 'fileText', label: 'Články', hint: 'Psaní a překlad článků pro e-shop', desktopOnly: true },
-  { id: 'webtexts', icon: 'globe', label: 'Texty na webu', hint: 'Naplánované náhrady textů o doručení a odkazů', desktopOnly: true },
-  { id: 'media', icon: 'image', label: 'Konvertor médií', hint: 'Fotky do WebP, videa do WebM, ořez a hlídané složky', desktopOnly: true },
-  { id: 'reviews', icon: 'star', label: 'Recenze zákazníků', hint: 'Fotky a recenze na e-shopu ve všech jazycích', desktopOnly: true }
+export const AI_TOOLS: {
+  id: AiTool; icon: string; label: string; hint: string;
+  desktopOnly?: boolean;
+  /**
+   * Skupina pro oddělovací čáru. Nástroje jsou tři různé věci: denní provoz
+   * e-shopu, převod souborů a obsah webu — v jednom nepřerušeném sloupci se
+   * v nich oko nemělo čeho chytit.
+   */
+  group: 'provoz' | 'soubory' | 'obsah' | 'prehled';
+  /** Barva ikony. Drží se decentní — slouží k poznání, ne k ozdobě. */
+  color: string;
+}[] = [
+  { id: 'packing', icon: 'bag', label: 'Balení objednávek', group: 'provoz', color: '#c2683a',
+    hint: 'Kusy, varianty a adresy k odškrtnutí' },
+  { id: 'catalog', icon: 'layers', label: 'Katalog a naskladnění', group: 'provoz', color: '#3a7bc2',
+    hint: 'Zásoby, příjem zboží a štítky' },
+  /*
+   * Jedna ikona nesmí být na dvou místech. „Zeměkoule" byla u překladů
+   * i u textů na webu a „obrázek" u sociálních sítí i u konvertoru — v
+   * nabídce se pak hledalo podle popisku, ne podle ikony.
+   */
+  { id: 'ptrans', icon: 'globe', label: 'Produkty a překlady', group: 'provoz', color: '#5f3fe8',
+    hint: 'Nový produkt, SEO, Google a překlady', desktopOnly: true },
+  { id: 'articles', icon: 'fileText', label: 'Články', group: 'provoz', color: '#2f9e6e',
+    hint: 'Psaní a překlad článků', desktopOnly: true },
+  { id: 'instagram', icon: 'camera', label: 'Sociální sítě', group: 'provoz', color: '#c2417a',
+    hint: 'Instagram a Facebook ve všech trzích' },
+
+  { id: 'media', icon: 'image', label: 'Konvertor médií', group: 'soubory', color: '#3a9ec2',
+    hint: 'WebP, WebM, ořez a hlídané složky', desktopOnly: true },
+
+  { id: 'reviews', icon: 'star', label: 'Recenze zákazníků', group: 'obsah', color: '#d99a1b',
+    hint: 'Fotky a recenze na e-shopu', desktopOnly: true },
+  { id: 'webtexts', icon: 'pen', label: 'Texty na webu', group: 'obsah', color: '#7a5fc2',
+    hint: 'Naplánované náhrady textů o doručení', desktopOnly: true },
+
+  { id: 'digest', icon: 'sunrise', label: 'AI Přehled', group: 'prehled', color: '#c29a3a',
+    hint: 'Prodeje v číslech a postřehy k nim' }
 ];
 
 /**
@@ -142,19 +170,21 @@ export function FunctionsMenu({ activeTool, onPick, highlightInstagram = false, 
 
   return (
     <div className={`ws-menu ${className}`}>
-      {tools.map(tool => (
-        <button
-          key={tool.id}
-          className={'ws-menu-item '
-            + ((tool.id === 'instagram' ? highlightInstagram : activeTool === tool.id) ? 'on' : '')}
-          onClick={() => onPick(tool.id)}
-        >
-          <Icon name={tool.icon} size={15} />
-          <span>
-            <b>{tool.label}</b>
-            <small>{tool.hint}</small>
-          </span>
-        </button>
+      {tools.map((tool, index) => (
+        <Fragment key={tool.id}>
+          {index > 0 && tools[index - 1].group !== tool.group ? <hr className="ws-sep" /> : null}
+          <button
+            className={'ws-menu-item '
+              + ((tool.id === 'instagram' ? highlightInstagram : activeTool === tool.id) ? 'on' : '')}
+            onClick={() => onPick(tool.id)}
+          >
+            <Icon name={tool.icon} size={15} style={{ color: tool.color }} />
+            <span>
+              <b>{tool.label}</b>
+              <small>{tool.hint}</small>
+            </span>
+          </button>
+        </Fragment>
       ))}
     </div>
   );

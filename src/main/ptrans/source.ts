@@ -101,7 +101,19 @@ export async function fillSourceOne(code: string, field: SourceField, signal?: A
     } else {
       value = await generateSeo(code, lang, field, signal);
     }
-    if (!value) return { value: '', error: `${code}/${SOURCE_LABELS[field]}: model nic nevrátil` };
+    if (!value) {
+      /*
+       * Adresa žádný model nedělá — je to přepis názvu. Hláška „model nic
+       * nevrátil" u ní mátla: vypadalo to na výpadek AI, přitom chyběl název
+       * nebo se adresa oproti současné nezměnila.
+       */
+      return {
+        value: '',
+        error: field === 'seo_url'
+          ? `${code}/${SOURCE_LABELS[field]}: nedá se složit — chybí název, nebo je adresa už stejná`
+          : `${code}/${SOURCE_LABELS[field]}: model nic nevrátil`
+      };
+    }
 
     // Nový zdrojový text se musí dostat k cílovým jazykům, jinak by překlad
     // pořád vycházel z prázdna

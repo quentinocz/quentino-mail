@@ -222,6 +222,15 @@ export async function generateSeo(code: string, lang: string, kind: SeoKind,
  * nepřepisuje a z názvu, který ještě přeložený není, se adresa nedělá.
  */
 export function refreshSeoUrl(code: string, lang: string): string {
-  const result = applySlug(code, lang, productFields(code, [lang]), 'přepis');
+  /*
+   * Název se bere i mimo sledovaná pole.
+   *
+   * Ve zdrojovém jazyce se pole nesledují, takže `productFields` u něj vrací
+   * prázdno — a adresa se pak nevyrobila vůbec. U nového produktu to bylo
+   * vidět jako „SEO adresa: model nic nevrátil", i když žádný model do toho
+   * nemluví: adresa je jen přepis názvu.
+   */
+  const title = fieldValue(code, lang, 'title');
+  const result = applySlug(code, lang, productFields(code, [lang]), 'přepis', title);
   return result?.slug ?? '';
 }

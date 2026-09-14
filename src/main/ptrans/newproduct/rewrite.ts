@@ -41,19 +41,26 @@ function house(): string {
  * už mohou být ručně doladěná.
  */
 export async function rewriteSelection(options: {
-  full: string;
+  /** Text před výběrem a za ním — skládá je rozhraní ze stejného výběru */
+  before: string;
   selection: string;
+  after: string;
   instruction?: string;
   html?: boolean;
   signal?: AbortSignal;
 }): Promise<string> {
   const selection = options.selection.trim();
   if (!selection) throw new Error('Není označený žádný text.');
-  if (!options.full.includes(options.selection)) {
-    throw new Error('Označený text se v poli nenašel — mezitím se změnil.');
-  }
 
-  const marked = options.full.replace(options.selection, `⟦${options.selection}⟧`);
+  /*
+   * Okolí se skládá z výběru, ne hledáním v celém textu.
+   *
+   * Hledalo se `full.includes(selection)` a padalo to skoro pokaždé: výběr
+   * je čistý text z prohlížeče, kdežto `innerText` zalamuje a slučuje mezery
+   * jinak. Označená věta se v něm nenašla a přepis končil hláškou, že se
+   * text mezitím změnil — i když se nezměnil.
+   */
+  const marked = `${options.before}⟦${options.selection}⟧${options.after}`;
   const answer = await ask(
     model(),
     [
@@ -61,15 +68,13 @@ export async function rewriteSelection(options: {
       '',
       'Dostaneš celý text produktu; přepisovaná část je mezi ⟦ a ⟧.',
       'Přepiš POUZE tuhle část tak, aby dávala smysl se zbytkem textu.',
-      options.html
-        ? 'V části mohou být HTML značky — zachovej je i s atributy, měň jen text mezi nimi.'
-        : 'Odpověz holým textem bez HTML.',
+      'Odpověz holým textem bez HTML značek.',
       'Zachovej přibližnou délku původní části.',
       options.instruction?.trim() ? `\nPokyn uživatele: ${options.instruction.trim()}` : '',
       '',
       'Vrať POUZE novou podobu té části. Žádný úvod, žádné ⟦ ⟧, žádné uvozovky navíc.'
     ].filter(Boolean).join('\n'),
-    marked.slice(0, 8000),
+    marked.length > 8000 ? marked.slice(0, 8000) : marked,
     900,
     { signal: options.signal }
   );

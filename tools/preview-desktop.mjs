@@ -89,7 +89,7 @@ await page.waitForTimeout(400);
 
 // Překlady se otevírají z nabídky Funkce — v panelu už samostatnou položku nemají
 await click('.ig-switch button', { hasText: 'Funkce' });
-await click('.ws-menu-item', { hasText: 'Překlady produktů' });
+await click('.ws-menu-item', { hasText: 'Produkty a překlady' });
 await overflow('překlady — seznam'); await snap('01-preklady-seznam');
 
 await click('.pt-row');
@@ -721,7 +721,7 @@ await page.waitForTimeout(300);
  * jinak přehlédlo — a přehlédnutá barva v popisu vydrží na e-shopu měsíce.
  */
 await click('.ig-switch button', { hasText: 'Funkce' });
-await click('.ws-menu-item', { hasText: 'Překlady produktů' });
+await click('.ws-menu-item', { hasText: 'Produkty a překlady' });
 await page.waitForTimeout(400);
 await click('.pt-tabs button', { hasText: 'Nový produkt' });
 await page.waitForTimeout(500);
@@ -735,8 +735,19 @@ await page.waitForTimeout(500);
   console.log(`${'z předlohy — co zbývá'.padEnd(28)} ${chips === 3 && done === 1 ? '✓' : '✗'} (${chips}, přepsané ${done})`);
   console.log(`${'co ještě chybí'.padEnd(28)} ${blockers === 0 ? '✓' : '✗'} (blokuje ${blockers})`);
   // Ceny po měnách: SK i EN prodávají v eurech, políčko má být jedno
-  const ceny = await page.locator('.np-narrow input').count();
-  console.log(`${'ceny po měnách'.padEnd(28)} ${await page.locator('.np-field > span:text-is("Cena s DPH (€)")').count() === 1 ? '✓' : '✗'} (polí ${ceny})`);
+  const eura = await page.locator('.np-field > span:text-is("Cena (€)")').count();
+  console.log(`${'ceny po měnách'.padEnd(28)} ${eura === 1 ? '✓' : '✗'} (eurových polí ${eura})`);
+  // SEO a Google vedle sebe, popis víceřádkový
+  const popisy = await page.locator('.np-meta-col textarea').count();
+  console.log(`${'SEO a Google vedle sebe'.padEnd(28)} ${popisy === 2 ? '✓' : '✗'} (popisů ${popisy})`);
+  /*
+   * Nic nesmí přetékat z karty ven. Poslední políčko v „Základu" se
+   * uřezávalo o kraj a nebylo to vidět, dokud se na to člověk nepodíval.
+   */
+  const preteka = await page.evaluate(() => [...document.querySelectorAll(
+    '.np-basics, .np-meta, .np-side, .np-box'
+  )].filter(el => el.scrollWidth > el.clientWidth + 1).length);
+  console.log(`${'nic nepřetéká'.padEnd(28)} ${preteka === 0 ? '✓' : '✗'} (přetékajících ${preteka})`);
 }
 await overflow('nový produkt — rozdělaný'); await snap('49-novy-produkt');
 
@@ -765,13 +776,13 @@ await overflow('nový produkt — rozdělaný'); await snap('49-novy-produkt');
  * celou dobu, kdežto do překladů se kouká až na konci.
  */
 {
-  const zalozky = await page.locator('.np-langs button').count();
+  const zalozky = await page.locator('.np-side .np-langs button').count();
   const tecky = await page.locator('.np-dot').count();
   console.log(`${'jazyky v záložkách'.padEnd(28)} ${zalozky === 3 && tecky === 2 ? '✓' : '✗'} (${zalozky}, nepřeložené ${tecky})`);
-  await click('.np-langs button', { hasText: 'SK' });
+  await click('.np-side .np-langs button', { hasText: 'SK' });
   await page.waitForTimeout(250);
   await overflow('nový produkt — slovensky'); await snap('49c-novy-produkt-sk');
-  await click('.np-langs button', { hasText: 'CZ' });
+  await click('.np-side .np-langs button', { hasText: 'CZ' });
   await page.waitForTimeout(250);
 }
 

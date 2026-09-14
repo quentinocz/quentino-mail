@@ -48,6 +48,14 @@ export interface HtmlFieldHandle {
   replaceSelection(text: string): boolean;
   /** Text bez značek — kontext pro model */
   plain(): string;
+  /**
+   * Text okolo výběru.
+   *
+   * Skládá se ze **stejného výběru**, ne z `innerText`: ten zalamuje a slučuje
+   * mezery jinak než `Range.toString()`, takže se označená věta v něm nenašla
+   * a přepis končil hláškou „text se v poli nenašel".
+   */
+  context(): { before: string; selection: string; after: string };
 }
 
 const HtmlField = forwardRef<HtmlFieldHandle, {
@@ -147,6 +155,20 @@ const HtmlField = forwardRef<HtmlFieldHandle, {
       document.execCommand('insertText', false, text);
       publish();
       return true;
+    },
+    context: () => {
+      const saved = range.current;
+      const el = box.current;
+      if (!saved || !el || !el.contains(saved.commonAncestorContainer)) {
+        return { before: '', selection: '', after: '' };
+      }
+      const before = document.createRange();
+      before.selectNodeContents(el);
+      before.setEnd(saved.startContainer, saved.startOffset);
+      const after = document.createRange();
+      after.selectNodeContents(el);
+      after.setStart(saved.endContainer, saved.endOffset);
+      return { before: before.toString(), selection: saved.toString(), after: after.toString() };
     }
   }), [publish, restore]);
 
