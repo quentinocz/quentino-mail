@@ -407,7 +407,7 @@ export const api = {
       call<{ draft: NewProductDraft; specifics: NewProductSpecific[]; note: string }>('np:template', id, code),
     specifics: (id: string, lang: string) => call<NewProductSpecific[]>('np:specifics', id, lang),
     /** Přepis označené části textu podle zbytku */
-    rewrite: (options: { full: string; selection: string; instruction?: string; html?: boolean }) =>
+    rewrite: (options: { before: string; selection: string; after: string; instruction?: string }) =>
       call<string>('np:rewrite', options),
     titleProposal: (id: string, lang: string) => call<NewProductChange[]>('np:titleProposal', id, lang),
     toCatalog: (id: string) => call<{ code: string; draft: NewProductDraft }>('np:toCatalog', id),

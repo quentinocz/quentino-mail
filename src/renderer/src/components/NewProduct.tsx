@@ -66,7 +66,7 @@ export default function NewProduct({ toast }: { toast: (text: string) => void })
     <div className="np-wrap">
       <div className="np-rail">
         <button className="btn primary np-new" onClick={create}>
-          <Icon name="plus" size={14} /> Nový produkt
+          <Icon name="plus" size={16} /> Nový produkt
         </button>
         {state.drafts.length === 0 ? (
           <p className="ig-muted np-empty">
@@ -118,6 +118,12 @@ function DraftEditor({ draft, state, toast, onReload }: {
   const [local, setLocal] = useState<NewProductDraft>(draft);
   const [work, setWork] = useState('');
   const [step, setStep] = useState('');
+  /*
+   * Jazyk se drží tady a přepíná se v pravém sloupci. V kartě textů to
+   * znamenalo odscrollovat od pole, které se zrovna upravuje, nahoru
+   * a zase zpátky.
+   */
+  const [lang, setLang] = useState(source);
   const timer = useRef<number | null>(null);
   const pending = useRef<Partial<NewProductDraft> | null>(null);
 
@@ -189,9 +195,7 @@ function DraftEditor({ draft, state, toast, onReload }: {
           <Basics draft={local} state={state} onPatch={push} toast={toast} work={work}
             run={run} onLoaded={setLocal} />
 
-          <CategoryPicker draft={local} onPatch={push} toast={toast} />
-
-          <TextsCard draft={local} state={state} onPatch={push} toast={toast}
+          <TextsCard draft={local} state={state} lang={lang} onPatch={push} toast={toast}
             work={work} run={run} />
 
           <ParamsCard draft={local} state={state} onPatch={push} toast={toast}
@@ -201,6 +205,22 @@ function DraftEditor({ draft, state, toast, onReload }: {
         </div>
 
         <aside className="np-side">
+          <div className="np-side-lang">
+            <span className="np-label">Jazyk</span>
+            <div className="ig-seg np-langs">
+              {state.langs.map(one => {
+                const filled = !!(local.langs[one]?.title || '').trim();
+                return (
+                  <button key={one} className={one === lang ? 'active' : ''}
+                    onClick={() => setLang(one)}>
+                    {one.toUpperCase()}
+                    {one !== source && !filled ? <i className="np-dot" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <h4>Co ještě chybí</h4>
           {gaps.length === 0 ? (
             <p className="np-side-ok"><Icon name="check" size={13} /> Všechno vyplněné.</p>
@@ -270,6 +290,8 @@ function DraftEditor({ draft, state, toast, onReload }: {
               <p className="desc">Import nespustím — poslední kliknutí je na tobě.</p>
             </li>
           </ol>
+
+          <CategoryPicker draft={local} onPatch={push} toast={toast} />
         </aside>
       </div>
     </div>
@@ -338,38 +360,39 @@ function Basics({ draft, state, onPatch, toast, work, run, onLoaded }: {
     <section className="np-box" id="np-zaklad">
       <h4><Icon name="bag" size={14} /> Základ</h4>
 
-      <div className="np-row">
-        <label className="np-field">
+      <div className="np-basics">
+        <label className="np-field np-code">
           <span>Kód produktu</span>
           <input value={draft.code} placeholder="KR00123"
             className={clash?.taken ? 'bad' : ''}
             onChange={e => onPatch({ code: e.target.value })} />
           {clash?.taken
-            ? <em className="np-warn"><Icon name="alert" size={12} /> Má ho „{clash.title}" — import by ho přepsal.</em>
-            : draft.code.trim() ? <em className="np-good">volný</em> : null}
+            ? <em className="np-warn"><Icon name="alert" size={12} /> Má ho „{clash.title}"</em>
+            : draft.code.trim() ? <em className="np-good">volný</em> : <em className="np-hint">povinné</em>}
         </label>
 
         {priceGroups(state).map(group => (
-          <label key={group.currency} className="np-field np-narrow">
-            <span>Cena s DPH ({group.label})</span>
+          <label key={group.currency} className="np-field np-price">
+            <span>Cena ({group.label})</span>
             <input value={draft.prices[group.langs[0]] ?? ''} inputMode="decimal"
               onChange={e => {
                 const prices = { ...draft.prices };
                 for (const lang of group.langs) prices[lang] = e.target.value;
                 onPatch({ prices });
               }} />
+            <em className="np-hint">s DPH</em>
           </label>
         ))}
 
-        <label className="np-field np-narrow">
+        <label className="np-field">
           <span>Značka</span>
           <input value={draft.manufacturer} onChange={e => onPatch({ manufacturer: e.target.value })} />
         </label>
 
-        <label className="np-field np-narrow">
+        <label className="np-field">
           <span>EAN</span>
-          <input value={draft.ean} placeholder="nepovinné"
-            onChange={e => onPatch({ ean: e.target.value })} />
+          <input value={draft.ean} onChange={e => onPatch({ ean: e.target.value })} />
+          <em className="np-hint">nepovinné</em>
         </label>
       </div>
 
@@ -534,10 +557,10 @@ function CategoryPicker({ draft, onPatch, toast }: {
           {picked.length ? (
             <div className="np-chosen">
               {picked.map(one => (
-                <span key={one.code}
+                <span key={one.code} title={one.path}
                   className={`np-chip-cat ${draft.mainCategory === one.code ? 'main' : ''}`}>
                   {draft.mainCategory === one.code ? <Icon name="star" size={11} /> : null}
-                  {one.path}
+                  <span>{one.names.cz || one.code}</span>
                   <button onClick={() => toggle(one.code)}><Icon name="x" size={11} /></button>
                 </span>
               ))}
@@ -564,16 +587,16 @@ const FIELD_SHORT: Record<string, string> = {
   title: 'název', short: 'krátký', long: 'dlouhý'
 };
 
-function TextsCard({ draft, state, onPatch, toast, work, run }: {
+function TextsCard({ draft, state, lang, onPatch, toast, work, run }: {
   draft: NewProductDraft;
   state: NewProductState;
+  lang: string;
   onPatch: (patch: Partial<NewProductDraft>, now?: boolean) => void;
   toast: (text: string) => void;
   work: string;
   run: (key: string, fn: () => Promise<void>) => Promise<void>;
 }) {
   const source = state.sourceLang;
-  const [lang, setLang] = useState(source);
   const [changes, setChanges] = useState<NewProductChange[] | null>(null);
   const [picked, setPicked] = useState<{ field: 'short' | 'long'; text: string } | null>(null);
   const [hint, setHint] = useState('');
@@ -595,8 +618,11 @@ function TextsCard({ draft, state, onPatch, toast, work, run }: {
     if (!picked) return;
     const handle = fields.current[picked.field];
     if (!handle) return;
+    const around = handle.context();
+    if (!around.selection.trim()) throw new Error('Výběr už neplatí — označ text znovu.');
     const next = await api.newProduct.rewrite({
-      full: handle.plain(), selection: picked.text, instruction: hint.trim() || undefined
+      before: around.before, selection: around.selection, after: around.after,
+      instruction: hint.trim() || undefined
     });
     if (!handle.replaceSelection(next)) {
       throw new Error('Výběr už neplatí — označ text znovu.');
@@ -609,17 +635,7 @@ function TextsCard({ draft, state, onPatch, toast, work, run }: {
     <section className="np-box" id="np-texty">
       <h4>
         <Icon name="pen" size={14} /> Texty
-        <div className="ig-seg np-langs np-right">
-          {state.langs.map(one => {
-            const filled = !!(draft.langs[one]?.title || '').trim();
-            return (
-              <button key={one} className={one === lang ? 'active' : ''} onClick={() => setLang(one)}>
-                {one.toUpperCase()}
-                {one !== source && !filled ? <i className="np-dot" /> : null}
-              </button>
-            );
-          })}
-        </div>
+        <span className="np-count">{lang.toUpperCase()}</span>
       </h4>
 
       {lang !== source && !texts.title.trim() ? (
@@ -718,29 +734,26 @@ function TextsCard({ draft, state, onPatch, toast, work, run }: {
         </div>
       ))}
 
-      <div className="np-row">
-        <label className="np-field">
-          <span>SEO titulek</span>
-          <input value={texts.seo_title} placeholder="dopíše se"
+      {/*
+        * SEO a Google vedle sebe, titulek nad popisem. Popis je dlouhá věta
+        * a na jednom řádku z něj bylo vidět pár slov — porovnat, jestli obě
+        * verze říkají totéž, se takhle nedalo.
+        */}
+      <div className="np-meta">
+        <div className="np-meta-col">
+          <span className="np-label">SEO</span>
+          <input value={texts.seo_title} placeholder="titulek — dopíše se"
             onChange={e => setText('seo_title', e.target.value)} />
-        </label>
-        <label className="np-field">
-          <span>SEO popis</span>
-          <input value={texts.seo_desc} placeholder="dopíše se"
+          <textarea rows={3} value={texts.seo_desc} placeholder="popis — dopíše se"
             onChange={e => setText('seo_desc', e.target.value)} />
-        </label>
-      </div>
-      <div className="np-row">
-        <label className="np-field">
-          <span>Google titulek</span>
-          <input value={texts.google_title} placeholder="dopíše se"
+        </div>
+        <div className="np-meta-col">
+          <span className="np-label">Google Nákupy</span>
+          <input value={texts.google_title} placeholder="titulek — dopíše se"
             onChange={e => setText('google_title', e.target.value)} />
-        </label>
-        <label className="np-field">
-          <span>Google popis</span>
-          <input value={texts.google_desc} placeholder="dopíše se"
+          <textarea rows={3} value={texts.google_desc} placeholder="popis — dopíše se"
             onChange={e => setText('google_desc', e.target.value)} />
-        </label>
+        </div>
       </div>
     </section>
   );

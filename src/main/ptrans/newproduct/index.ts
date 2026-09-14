@@ -18,6 +18,7 @@ import { DraftProduct, DraftGap, draftGaps, listDrafts, getDraft,
 import { loadTemplate, findSpecifics, codeTaken, Specific } from './template';
 import { rewriteSelection, proposeByTitle, TextChange } from './rewrite';
 import { buildProductXml } from './build';
+import { swapLinks } from './links';
 import { learnParams, paramNames, paramValues, lookupParam, resolveParams, suggestParams,
   ParamEntry, ParamProposal } from './params';
 
@@ -140,8 +141,17 @@ export async function loadCategories(refresh = false): Promise<CategoryTree> {
 
 export function createDraft(): DraftProduct {
   const draft = newDraft();
+  /*
+   * Značka se předvyplní tou, kterou má většina produktů ve feedu. U e-shopu
+   * s vlastní značkou je to pokaždé totéž políčko — a prázdné se zapomínalo.
+   */
+  const brand = (getDb().prepare(
+    `SELECT manufacturer FROM ptrans_products WHERE manufacturer != ''
+     GROUP BY manufacturer ORDER BY COUNT(*) DESC LIMIT 1`
+  ).get() as { manufacturer: string } | undefined)?.manufacturer ?? '';
+  const next = brand ? saveDraft(draft.id, { manufacturer: brand }) : draft;
   emit({});
-  return draft;
+  return next;
 }
 
 export function updateDraft(id: string, patch: Partial<DraftProduct>):
@@ -218,7 +228,7 @@ export async function markSpecifics(id: string, lang: string, signal?: AbortSign
 /* ---------- přepisy textu ---------- */
 
 export async function rewritePart(options: {
-  full: string; selection: string; instruction?: string; html?: boolean;
+  before: string; selection: string; after: string; instruction?: string;
 }, signal?: AbortSignal): Promise<string> {
   return rewriteSelection({ ...options, signal });
 }
@@ -336,6 +346,18 @@ export async function completeProduct(code: string, onStep?: (s: CompleteStep) =
     step(`Překládám do ${lang.toUpperCase()}`);
     const out = await translateOne({ code, lang }, signal);
     if (out.error) errors.push(`${lang}: ${out.error}`);
+    /*
+     * Odkazy se dosazují po překladu, ne během něj. Model nechá v textu český
+     * odkaz, nebo si vymění doménu po svém — obojí posílá zákazníka na cizí
+     * trh. Správnou adresu zná e-shop; co se nenajde, se vypíše, ať se to dá
+     * doplnit ručně.
+     */
+    try {
+      const swap = await swapLinks(code, lang, s.sourceLang);
+      for (const one of swap.unresolved) errors.push(`odkaz bez adresy: ${one}`);
+    } catch (e: any) {
+      errors.push(`${lang}: odkazy se nepodařilo dosadit (${e?.message ?? e})`);
+    }
     done++;
   }
   step('Hotovo');

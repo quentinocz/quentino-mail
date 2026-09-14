@@ -3174,10 +3174,15 @@ button, kbd, label,
   flex-direction: column;
   gap: 2px;
   padding: 5px;
-  /* Nabídka se drží šířky přepínače, ale nesmí být užší, než na kolik se
-     vejde popisek na jeden řádek — jinak se text láme a řádky vypadají
-     rozhozeně. */
-  min-width: 272px;
+  /*
+   * Nabídka se drží šířky přepínače a ven z panelu nesmí.
+   *
+   * Byla širší (272 px) v naději, že se popisek vejde na jeden řádek. Jenže
+   * postranní panel obsah ořezává, takže se popisky uřezávaly v půlce slova —
+   * širší nabídka se nezobrazila širší, jen oříznutá. Radši dvouřádkový
+   * popisek než useknutý.
+   */
+  min-width: 0;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 11px;
@@ -7915,7 +7920,13 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .np-loading, .np-blank { padding: 24px; }
 
 .np-rail { overflow: auto; border-right: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
-.np-new { justify-content: center; margin-bottom: 4px; }
+/* Založit nový produkt je to hlavní, proč se sem chodí — tlačítko to má
+   říct dřív, než se začne číst seznam rozdělaných */
+.np-new {
+  justify-content: center; margin-bottom: 8px; padding: 10px;
+  font-size: 14px; font-weight: 600; gap: 7px;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent);
+}
 .np-empty { padding: 6px 4px; line-height: 1.5; }
 .np-item {
   display: flex; align-items: center; gap: 9px; text-align: left; cursor: pointer;
@@ -7942,7 +7953,7 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .np-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
 .np-head-title { font-weight: 600; }
 .np-head-code { font-size: 12px; color: var(--text-2); background: var(--bg); padding: 1px 6px; border-radius: 5px; }
-.np-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 290px); }
+.np-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 330px); }
 .np-form { overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .np-side { overflow: auto; border-left: 1px solid var(--border); padding: 14px; }
 .np-side h4 { margin: 0 0 8px; }
@@ -8140,3 +8151,41 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .np-lang-note { margin-bottom: 10px; }
 /* Titulní obrázek musí být poznat na první pohled — obrys u náhledu je málo */
 .np-img-main.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+/* Oddělovač skupin v nabídce Funkce — provoz, soubory, obsah a přehled
+   jsou tři různé věci a v jednom sloupci se v nich oko nemělo čeho chytit */
+.ws-sep { border: none; border-top: 1px solid var(--border); margin: 4px 8px; }
+
+/*
+ * Základ: řádek, který se zalomí, ne mřížka s pevnými sloupci.
+ *
+ * Pevné sloupce se do karty nevešly a poslední políčko (EAN) se uřízlo o kraj.
+ * Šířky jsou proto jen doporučené: kód potřebuje víc než cena, ale když místo
+ * dojde, řádek se zalomí místo toho, aby přetekl.
+ */
+.np-basics { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-start; }
+.np-basics .np-field { flex: 1 1 110px; min-width: 0; max-width: 260px; margin-bottom: 0; }
+.np-basics .np-code { flex: 1 1 150px; max-width: 220px; }
+.np-basics .np-price { flex: 0 1 95px; }
+.np-hint { font-size: 11px; color: var(--text-3); }
+
+/* SEO a Google vedle sebe, titulek nad popisem */
+.np-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+.np-meta-col { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.np-meta-col textarea { resize: vertical; font: inherit; }
+
+/* pravý sloupec */
+.np-side-lang { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.np-side-lang .np-langs { margin-left: auto; }
+.np-side .np-box { margin-top: 16px; padding: 10px 12px; }
+.np-side .np-cats { max-height: 240px; }
+.np-side .np-chip-cat { max-width: 100%; }
+.np-side .np-chip-cat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-side .np-cat label span {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.np-side .np-cat { min-width: 0; }
+.np-side .np-cat label { min-width: 0; flex: 1; }
+
+@media (max-width: 1250px) {
+  .np-meta { grid-template-columns: 1fr; }
+}
