@@ -1,0 +1,162 @@
+<!doctype html>
+<meta charset="utf-8">
+<!--
+  Průvodce importem z administrace Upgates.
+
+  Značky karet i obsluha kliknutí jsou opsané ze skutečné stránky
+  (/setup/export-import/default/guide/products/) — bez toho by zkouška
+  ověřovala jen vlastní výmysl. Obsluha je zkrácená o větve, které se nás
+  netýkají (CSV šablony, Pohoda, Money), zbytek je tak, jak ho stránka má.
+-->
+<form id="frm-guideForm">
+<div class="import-guide">
+  <fieldset id="import_type">
+    <div class="card card-item Item" data-value="custom-csv" data-single_id="131" data-file_type="csv">
+      <div class="card-body-title">Vlastní - CSV</div>
+    </div>
+    <div class="card card-item Item" data-value="general-csv" data-single_id="131" data-file_type="csv">
+      <div class="card-body-title">Upgates - CSV</div>
+    </div>
+    <div class="card card-item Item" data-value="general-xml"
+         data-small_id="2" data-single_id="3" data-full_id="1" data-file_type="xml">
+      <div class="card-body-title">Upgates - XML</div>
+    </div>
+    <div class="card card-item Item" data-value="pohoda-xml" data-full_id="16" data-file_type="xml">
+      <div class="card-body-title">Stormware Pohoda</div>
+    </div>
+    <div class="card card-item Item" data-value="unknown" data-file_type="">
+      <div class="card-body-title">Jiné</div>
+    </div>
+  </fieldset>
+
+  <fieldset id="unknown" style="display: none;">technická podpora</fieldset>
+  <fieldset id="csv_type" style="display: none;">CSV šablona</fieldset>
+  <fieldset id="pohoda_message" style="display: none;">Pohoda</fieldset>
+  <fieldset id="money_message" style="display: none;">Money</fieldset>
+
+  <fieldset id="data_processing" style="display: none;">
+    <div class="card card-item Item" data-value="insert"><div class="card-body-title">Pouze nové položky</div></div>
+    <div class="card card-item Item" data-value="update"><div class="card-body-title">Aktualizovat stávající</div></div>
+    <div class="card card-item Item" data-value="both"><div class="card-body-title">Vytvořit nové a aktualizovat</div></div>
+  </fieldset>
+
+  <fieldset id="repetition_type" style="display: none;">
+    <div class="card card-body card-item Item" data-value="once"><div class="card-body-title">Jednorázově</div></div>
+    <div class="card card-body card-item Item" data-value="periodically"><div class="card-body-title">Pravidelně</div></div>
+    <div class="card card-body card-item Item" data-value="periodically_small"><div class="card-body-title">Pravidelně - malý</div></div>
+  </fieldset>
+
+  <fieldset id="file_input" style="display: none;">
+    <div class="btn" onclick="$('#frmguideForm-file').click();">Procházet ...</div>
+    <div id="GuideFileInfo" class="none"></div>
+    <input type="file" class="required none text" name="file" id="frmguideForm-file" accept=".xml, .zip">
+  </fieldset>
+
+  <fieldset id="url_input" style="display: none;">
+    <input type="text" name="url" id="frmguideForm-url" value="">
+    <div id="UrlConfirm" class="btn">Potvrdit</div>
+  </fieldset>
+
+  <div id="payment_alert" style="display: none;"></div>
+  <div id="save" style="display: none;">
+    <input type="submit" name="save" id="frmguideForm-save" value="Vytvořit import">
+  </div>
+</div>
+<div style="display:none">
+  <input type="hidden" name="import_type" id="frmguideForm-import_type" value="">
+  <input type="hidden" name="repetition_type" id="frmguideForm-repetition_type" value="">
+  <input type="hidden" name="data_processing" id="frmguideForm-data_processing" value="">
+  <input type="hidden" name="scheduler_id" id="frmguideForm-scheduler_id" value="">
+</div>
+</form>
+
+<script src="jquery.min.js"></script>
+<script>
+/* Opsáno ze stránky administrace — viz komentář nahoře. */
+var animate = false, items_type = "products", small_id, single_id, full_id, data_type;
+
+$(document).ready(function () {
+  function setDataType(file_type) {
+    data_type = file_type;
+    if (file_type == 'xml') { $('#frmguideForm-file').attr('accept', '.xml, .zip'); }
+    else if (file_type == 'csv') { $('#frmguideForm-file').attr('accept', '.csv, .zip'); }
+    else { $('#frmguideForm-file').removeAttr('accept'); }
+  }
+
+  $('body').on('click', '#import_type .Item', function (e) {
+    if ($(e.target).is('a')) { return; }
+    var value = $(this).data('value');
+    small_id = $(this).data('small_id');
+    single_id = $(this).data('single_id');
+    full_id = $(this).data('full_id');
+    setDataType($(this).data('file_type'));
+    $('#frmguideForm-import_type').val(value);
+    $('#save').hide();
+    $('#unknown').hide();
+    if (value == 'unknown') { $('#unknown').show(); hideFieldsetsFrom('unknown'); }
+    else if (value == 'custom-csv') { $('#csv_type').show(); hideFieldsetsFrom('csv_type'); }
+    else if (value == 'pohoda-xml') { hideFieldsetsFrom('csv_type'); $('#csv_type').hide(); $('#pohoda_message').show(); }
+    else if (value == 'money-products-xml') { hideFieldsetsFrom('csv_type'); $('#csv_type').hide(); $('#money_message').show(); }
+    else { $('#csv_type').hide(); $('#data_processing').show(); hideFieldsetsFrom('data_processing'); }
+  });
+
+  $('body').on('click', '#data_processing .Item', function () {
+    var value = $(this).data('value');
+    $('#frmguideForm-data_processing').val(value);
+    $('#repetition_type').show();
+    if (!small_id) { $('#repetition_type .Item[data-value="periodically_small"]').hide().data('id', ''); }
+    else { $('#repetition_type .Item[data-value="periodically_small"]').show().data('id', small_id); }
+    if (!single_id) { $('#repetition_type .Item[data-value="once"]').hide().data('id', ''); }
+    else { $('#repetition_type .Item[data-value="once"]').show().data('id', single_id); }
+    if (!full_id) { $('#repetition_type .Item[data-value="periodically"]').hide().data('id', ''); }
+    else { $('#repetition_type .Item[data-value="periodically"]').show().data('id', full_id); }
+  });
+
+  $('body').on('click', '#repetition_type .Item', function () {
+    var value = $(this).data('value');
+    $('#frmguideForm-repetition_type').val(value);
+    $('#frmguideForm-scheduler_id').val($(this).data('id'));
+    $('#payment_alert').hide();
+    if (["xml", "csv", "vcard"].indexOf(data_type) >= 0) {
+      if (value == 'once') {
+        $('#file_input').show();
+        $('#url_input').hide();
+        $('#url_input input:text').val('');
+      } else {
+        $('#url_input').show();
+        $('#file_input').hide();
+        $('#file_input input:file').val('').trigger('change');
+        if (items_type == 'products') { $('#payment_alert').show(); }
+      }
+    } else { $('#save').show(); }
+  });
+
+  $('#frmguideForm-file').on('change', function (e) {
+    $('#GuideFileInfo').html('').addClass('none');
+    var file = e.target.files[0];
+    if (file) {
+      $('#GuideFileInfo').html('&nbsp;' + file.name).removeClass('none');
+      $('#save').show();
+    }
+  });
+
+  $('body').on('click', '.card-item', function () {
+    var $this = $(this);
+    $this.closest('fieldset').find('.card-item').removeClass("active").find("input").attr('checked', false);
+    $this.addClass("active");
+  });
+});
+
+function hideFieldsetsFrom(id) {
+  var hide = false;
+  $('.import-guide fieldset').each(function () {
+    if (hide) { $(this).hide(); }
+    if ($(this).attr('id') == id) { hide = true; }
+    if (hide) {
+      $(this).find('.Item').removeClass('active');
+      $(this).find('input:text').val('');
+      $(this).find('input:file').val('').trigger('change');
+    }
+  });
+}
+</script>
