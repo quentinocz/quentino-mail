@@ -165,8 +165,13 @@ export function removeDraft(id: string): void {
   emit({});
 }
 
-export function checkCode(code: string) {
-  return codeTaken(code);
+/**
+ * Je kód volný? `draftId` je rozdělaný produkt, který se na kód ptá —
+ * jeho vlastní, už uložený produkt se za kolizi nepočítá.
+ */
+export function checkCode(code: string, draftId = '') {
+  const own = draftId ? getDraft(draftId) : null;
+  return codeTaken(code, own?.state === 'exported' ? own.code : '');
 }
 
 /* ---------- předloha ---------- */
@@ -270,7 +275,7 @@ export function saveToCatalog(id: string):
   if (blockers.length) {
     throw new Error(`Ještě chybí: ${blockers.map(one => one.label).join(', ')}.`);
   }
-  const clash = codeTaken(draft.code);
+  const clash = codeTaken(draft.code, draft.state === 'exported' ? draft.code : '');
   if (clash.taken) {
     throw new Error(`Kód ${draft.code} už v e-shopu má „${clash.title}". Import by ho přepsal — zvol jiný.`);
   }
@@ -345,7 +350,9 @@ export async function completeProduct(code: string, onStep?: (s: CompleteStep) =
   for (const lang of targets) {
     step(`Překládám do ${lang.toUpperCase()}`);
     const out = await translateOne({ code, lang }, signal);
-    if (out.error) errors.push(`${lang}: ${out.error}`);
+    // Hláška z překladu už kód i jazyk obsahuje — druhý prefix z ní dělal
+    // „en: KR001 (en): …"
+    if (out.error) errors.push(out.error);
     /*
      * Odkazy se dosazují po překladu, ne během něj. Model nechá v textu český
      * odkaz, nebo si vymění doménu po svém — obojí posílá zákazníka na cizí

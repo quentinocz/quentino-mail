@@ -180,9 +180,19 @@ export async function findSpecifics(texts: DraftTexts, lang = 'cz',
  * nekoliduje. Import se stejným kódem by totiž nezaložil nový produkt, ale
  * **přepsal stávající**, a to potichu.
  */
-export function codeTaken(code: string): { taken: boolean; title: string } {
+export function codeTaken(code: string, ownCode = ''): { taken: boolean; title: string } {
   const clean = code.trim();
   if (!clean) return { taken: false, title: '' };
+  /*
+   * Vlastní produkt se za kolizi nepočítá.
+   *
+   * Po uložení do katalogu tam produkt je — a kontrola pak u jeho vlastního
+   * kódu hlásila „má ho …" a ukazovala přitom sama na sebe. Vypadalo to,
+   * že se kód musí změnit, přitom bylo všechno v pořádku.
+   */
+  if (ownCode && ownCode.trim().toLowerCase() === clean.toLowerCase()) {
+    return { taken: false, title: '' };
+  }
   const row = getDb().prepare(
     'SELECT code, title FROM ptrans_products WHERE LOWER(code) = LOWER(?)'
   ).get(clean) as { code: string; title: string } | undefined;

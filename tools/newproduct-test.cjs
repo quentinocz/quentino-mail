@@ -155,6 +155,13 @@ console.log('\nkontrola kódu:');
   // „kr00100" by prošlo jako volné a import by předlohu přepsal
   check('a nezáleží na velikosti písmen', templ.codeTaken('kr00100').taken, true);
   check('volný kód projde', templ.codeTaken('KR00999').taken, false);
+  /*
+   * Po uložení do katalogu tam produkt je — a kontrola u jeho vlastního kódu
+   * hlásila „má ho …" a ukazovala přitom sama na sebe. Vypadalo to, že se kód
+   * musí změnit, přitom bylo všechno v pořádku.
+   */
+  check('vlastní kód není kolize', templ.codeTaken('KR00100', 'KR00100').taken, false);
+  check('cizí kód kolize zůstává', templ.codeTaken('KR00100', 'JINY01').taken, true);
 }
 
 /* ---------- číselník parametrů ---------- */

@@ -310,6 +310,18 @@ export function slugify(value: string): string {
  */
 export async function translateOne(target: TranslateTarget, signal?: AbortSignal):
   Promise<{ saved: number; error?: string; noSource?: string[] }> {
+  return runTranslate(target, signal, 1);
+}
+
+/**
+ * Jeden překlad. `factor` zvětšuje strop odpovědi při opakování.
+ *
+ * Odhad výstupu je jen odhad: angličtina bývá delší než čeština a HTML značky
+ * se do něj nepočítají. Když se odpověď přesto usekne, nestačí to nahlásit —
+ * překlad se zkusí znovu s větším stropem, a když je pole víc, rozdělí se.
+ */
+async function runTranslate(target: TranslateTarget, signal: AbortSignal | undefined,
+                            factor: number): Promise<{ saved: number; error?: string; noSource?: string[] }> {
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
   const rows = productFields(target.code, [target.lang]);
@@ -397,7 +409,7 @@ export async function translateOne(target: TranslateTarget, signal?: AbortSignal
       `${hint}\n\nTexty k překladu:\n${JSON.stringify(payload, null, 1)}`,
       // Strop podle odhadu výstupu, ne podle délky vstupu: překlad je zhruba
       // stejně dlouhý jako zdroj, ale tokenů je zhruba poloviční počet znaků
-      Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.4) + 600),
+      Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.4 * factor) + 600),
       { signal }
     );
     const translated = parseJson(answer);
@@ -423,9 +435,31 @@ export async function translateOne(target: TranslateTarget, signal?: AbortSignal
     return { saved, noSource };
   } catch (e: any) {
     /*
-     * Jedno pole, které se nevejde ani samo, se rozdělit nedá — uvnitř je
-     * HTML a rozpůlit ho by znamenalo rozbít značky. Ať je aspoň jasné,
-     * co s tím: zkrátit popis, nebo použít model s větším stropem.
+     * Useknutá odpověď se dá spravit, ne jen nahlásit.
+     *
+     * Odhad výstupu vychází z délky zdroje, jenže překlad bývá delší (a HTML
+     * značky se do odhadu nepočítají). Když se odpověď usekne, jde se znovu:
+     * nejdřív se rozdělí pole, a když je pole jediné, zvětší se strop.
+     * Bez toho končil dlouhý popis hláškou, se kterou uživatel nic nesvede.
+     */
+    if (e?.truncated && Object.keys(payload).length > 1) {
+      const big = Object.entries(payload).sort((a, b) => b[1].length - a[1].length)[0][0];
+      let saved = 0;
+      for (const fields of [Object.keys(payload).filter(one => one !== big), [big]]) {
+        if (fields.length === 0) continue;
+        const part = await runTranslate({ ...target, fields }, signal, factor);
+        saved += part.saved;
+        if (part.error) return { saved, error: part.error, noSource };
+      }
+      return { saved, noSource };
+    }
+    if (e?.truncated && factor < 3) {
+      return runTranslate(target, signal, factor * 2);
+    }
+    /*
+     * Jedno pole, které se nevejde ani s dvojnásobným stropem, se rozdělit
+     * nedá — uvnitř je HTML a rozpůlit ho by znamenalo rozbít značky. Ať je
+     * aspoň jasné, co s tím: zkrátit popis, nebo použít model s větším stropem.
      */
     if (e?.truncated && Object.keys(payload).length === 1) {
       const field = Object.keys(payload)[0];

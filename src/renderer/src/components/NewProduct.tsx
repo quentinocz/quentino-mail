@@ -239,7 +239,9 @@ function DraftEditor({ draft, state, toast, onReload }: {
 
           <ol className="np-steps">
             <li className={saved ? 'done' : 'now'}>
-              <button className="btn primary" disabled={!!work || blockers.length > 0 || saved}
+              {/* Hotový krok nesmí vypadat jako tlačítko, které jde zmáčknout */}
+              <button className={`btn ${saved ? 'ghost' : 'primary'}`}
+                disabled={!!work || blockers.length > 0 || saved}
                 onClick={() => run('save', async () => {
                   const out = await api.newProduct.toCatalog(local.id);
                   setLocal(out.draft);
@@ -340,11 +342,11 @@ function Basics({ draft, state, onPatch, toast, work, run, onLoaded }: {
     if (!draft.code.trim()) { setClash(null); return; }
     let alive = true;
     const id = window.setTimeout(async () => {
-      const out = await api.newProduct.checkCode(draft.code);
+      const out = await api.newProduct.checkCode(draft.code, draft.id);
       if (alive) setClash(out);
     }, 300);
     return () => { alive = false; window.clearTimeout(id); };
-  }, [draft.code]);
+  }, [draft.code, draft.id, draft.state]);
 
   useEffect(() => {
     if (!search.trim()) { setHits([]); return; }
