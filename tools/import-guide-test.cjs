@@ -13,7 +13,15 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { chromium } = require('playwright');
+
+/*
+ * Zkouška potřebuje prohlížeč, a ten na počítači, kde se jen staví aplikace,
+ * být nemusí — Playwright není v závislostech schválně, stahoval by si k sobě
+ * celý Chromium. Bez něj se zkouška **přeskočí**, ne aby spadl celý `typecheck`
+ * a s ním sestavení aplikace.
+ */
+let chromium = null;
+try { ({ chromium } = require('playwright')); } catch { chromium = null; }
 
 /* Stažené prohlížeče v kontejneru nejsou — bere se ten předinstalovaný. */
 const PREINSTALLED = ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
@@ -37,7 +45,21 @@ function ok(label, condition, detail = '') {
 
 (async () => {
   console.log('\nprůvodce importem:\n');
-  const browser = await chromium.launch(PREINSTALLED ? { executablePath: PREINSTALLED } : {});
+  if (!chromium) {
+    console.log('  · prohlížeč (playwright) tu není — proklikání průvodce se přeskakuje\n');
+    process.exit(0);
+  }
+  let browser;
+  try {
+    browser = await chromium.launch(PREINSTALLED ? { executablePath: PREINSTALLED } : {});
+  } catch (e) {
+    /*
+     * Playwright je nainstalovaný, ale prohlížeč k němu stažený není. Je to
+     * totéž jako by tu nebyl vůbec — sestavení aplikace to zastavovat nemá.
+     */
+    console.log(`  · prohlížeč se nepodařilo spustit (${String(e.message).split('\n')[0]}) — přeskakuje se\n`);
+    process.exit(0);
+  }
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
