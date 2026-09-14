@@ -3216,6 +3216,13 @@ export interface NewProductParamProposal {
   known: boolean;
 }
 
+/** Kurz koruny k euru z denního kurzovního lístku ČNB. */
+export interface EurRate {
+  rate: number;
+  day: string;
+  at: string;
+}
+
 export interface NewProductState {
   drafts: NewProductDraft[];
   langs: string[];

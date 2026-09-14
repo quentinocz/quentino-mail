@@ -412,6 +412,30 @@ console.log('\nco ještě chybí:');
     JSON.stringify(nenahrane));
 }
 
+/* ---------- kurz pro přibližnou cenu ---------- */
+
+console.log('\nkurz z ČNB:');
+{
+  const rate = require(path.join(DIST, 'ptrans/newproduct/rate.js'));
+  const listek = [
+    '11.09.2026 #176',
+    'země|měna|množství|kód|kurz',
+    'Austrálie|dolar|1|AUD|13,918',
+    'EMU|euro|1|EUR|24,260',
+    'Maďarsko|forint|100|HUF|6,142'
+  ].join('\n');
+
+  const eur = rate.__test.parseRate(listek, 'EUR');
+  check('kurz eura se přečte', [eur.rate, eur.day], [24.26, '11.09.2026']);
+  /*
+   * Množství není vždycky jedna — u forintu je to sto. Bez dělení by cena
+   * vyšla stokrát vedle a nikdo by si toho na první pohled nevšiml.
+   */
+  const huf = rate.__test.parseRate(listek, 'HUF');
+  check('množství se započítá', Math.round(huf.rate * 100000) / 100000, 0.06142);
+  ok('neznámá měna vrátí nic', rate.__test.parseRate(listek, 'XYZ') === null);
+}
+
 /* ---------- odkazy v překladech ---------- */
 
 console.log('\nodkazy v přeloženém textu:');

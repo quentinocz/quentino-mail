@@ -737,6 +737,13 @@ await page.waitForTimeout(500);
   // Ceny po měnách: SK i EN prodávají v eurech, políčko má být jedno
   const eura = await page.locator('.np-field > span:text-is("Cena (€)")').count();
   console.log(`${'ceny po měnách'.padEnd(28)} ${eura === 1 ? '✓' : '✗'} (eurových polí ${eura})`);
+  /*
+   * Prázdné euro si řekne o přepočet z korun. Přepočítávat v hlavě u každého
+   * produktu je zbytečná práce a přepsat se přitom dá čárka.
+   */
+  const nabidka = await page.locator('.np-rate').first().innerText().catch(() => '');
+  // 890 Kč při kurzu 24,26 je 36,7 €
+  console.log(`${'přepočet do eur'.padEnd(28)} ${nabidka.includes('36,7') ? '✓' : '✗'} (${nabidka || '—'})`);
   // SEO a Google vedle sebe, popis víceřádkový
   const popisy = await page.locator('.np-meta-col textarea').count();
   console.log(`${'SEO a Google vedle sebe'.padEnd(28)} ${popisy === 2 ? '✓' : '✗'} (popisů ${popisy})`);
