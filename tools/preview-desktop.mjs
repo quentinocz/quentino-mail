@@ -634,6 +634,56 @@ await overflow('recenze — přehled'); await snap('48-recenze-prehled');
 await page.locator('.rv-item').nth(1).click();
 await page.waitForTimeout(400);
 await overflow('recenze — druhá'); await snap('48b-recenze-detail');
+
+/*
+ * Psaní do recenze.
+ *
+ * Ukládalo se po každém úhozu a odpověď ze serveru se vracela zpátky do
+ * políčka: text poskakoval a v popisku (což je HTML editor) skákal kurzor na
+ * začátek — vypadalo to, jako by psaní přestalo fungovat. Náhled schválně
+ * odpovídá **ořezaným** textem, jako to dělá hlavní proces, takže kdyby se to
+ * vrátilo, napsaná mezera by tady zmizela.
+ */
+{
+  const podpis = page.locator('input[placeholder="Jméno zákazníka"]').first();
+  await podpis.click();
+  await podpis.fill('');
+  await page.keyboard.type('Novák ', { delay: 40 });
+  // Delší, než je pauza před uložením — odpověď ze serveru už doběhla
+  await page.waitForTimeout(1200);
+  const value = await podpis.inputValue();
+  const focus = await page.evaluate(() =>
+    document.activeElement?.getAttribute('placeholder') ?? '');
+  const ok = value === 'Novák ' && focus === 'Jméno zákazníka';
+  console.log(`${'psaní podpisu vydrží'.padEnd(28)} ${ok ? '✓' : '✗'} `
+    + `(${JSON.stringify(value)}, zaměření ${focus || '—'})`);
+}
+
+{
+  /*
+   * Popisek je `contenteditable`. Píše se nadvakrát s pauzou mezi tím, aby se
+   * mezi úhozy stihlo uložení: kdyby se obsah políčka přepsal odpovědí,
+   * kurzor by skočil na začátek a druhá půlka by se napsala před první.
+   */
+  const popisek = page.locator('.rv-lang .html-rich').first();
+  await popisek.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('AA', { delay: 40 });
+  await page.waitForTimeout(1200);
+  await page.keyboard.type('BB', { delay: 40 });
+  await page.waitForTimeout(300);
+  const text = await popisek.innerText();
+  const uvnitr = await page.evaluate(() => {
+    const sel = document.getSelection();
+    const box = document.querySelector('.rv-lang .html-rich');
+    return !!(sel && box && sel.anchorNode && box.contains(sel.anchorNode));
+  });
+  const ok = text.includes('AABB') && uvnitr;
+  console.log(`${'kurzor v popisku neskáče'.padEnd(28)} ${ok ? '✓' : '✗'} `
+    + `(${text.includes('AABB') ? 'AABB' : JSON.stringify(text.slice(-24))}, `
+    + `kurzor ${uvnitr ? 'v poli' : 'pryč'})`);
+}
+await overflow('recenze — psaní'); await snap('48c-recenze-psani');
 await click('.rv-modal .modal-head .icon-btn >> nth=-1');
 await page.waitForTimeout(300);
 

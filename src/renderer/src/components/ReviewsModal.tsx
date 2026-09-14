@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Review, ReviewText, ReviewsState } from '@shared/types';
 import { api } from '../api';
 import { pickForArticle, sizeOf, uploadToShop } from '../shopfiles';
@@ -27,6 +27,16 @@ import HtmlField from './HtmlField';
  * adresa se doplní sama. Ručně vložit adresu jde taky — u fotek, které na
  * e-shopu už jsou.
  */
+
+/**
+ * Jak dlouho se čeká, než se rozepsaná recenze uloží.
+ *
+ * Ukládalo se po každém úhozu a odpověď ze serveru se vracela zpátky do
+ * políčka. Při rychlejším psaní se odpovědi míjely, text poskakoval a
+ * v popisku (což je HTML) skákal kurzor na začátek — vypadalo to, jako by
+ * psaní přestalo fungovat. Teď se píše do místní kopie a ukládá po pauze.
+ */
+const SAVE_DELAY = 600;
 
 const LANGS: { code: string; label: string }[] = [
   { code: 'cz', label: 'Čeština' },
@@ -94,17 +104,69 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
     [items, pickedId]
   );
 
-  const patch = async (review: Review, part: Partial<Review>) => {
+  /*
+   * Rozepsaná recenze se drží tady, ne ve `state`.
+   *
+   * Políčka čtou z téhle kopie, takže do nich nikdy nespadne odpověď ze
+   * serveru uprostřed psaní. `state` se obnoví až po uložení a mění jen
+   * seznam vlevo.
+   */
+  const [edit, setEdit] = useState<Review | null>(null);
+  const pending = useRef<Review | null>(null);
+  const timer = useRef<number | null>(null);
+
+  const flush = useCallback(async () => {
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
+    const draft = pending.current;
+    if (!draft) return;
+    pending.current = null;
     try {
-      setState(await api.reviews.save({ ...review, ...part }));
+      setState(await api.reviews.save(draft));
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  }, [toast]);
+
+  // Přepnutí na jinou recenzi: co je rozepsané, se uloží, a vezme se nová
+  useEffect(() => {
+    void flush();
+    setEdit(picked);
+    // Schválně jen podle `id` — při obnovení seznamu se rozepsaná kopie
+    // nesmí přepsat tím, co vrátil server
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked?.id]);
+
+  // Zavření okna nesmí rozepsanou změnu ztratit
+  useEffect(() => () => { void flush(); }, [flush]);
+
+  /** Co se vykresluje v detailu: rozepsaná kopie, dokud nějaká je. */
+  const shown = edit ?? picked;
+
+  /** Uloží hned — pro změny, které se neklepou po písmenech (fotka, zapnutí). */
+  const patch = async (review: Review, part: Partial<Review>) => {
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
+    pending.current = null;
+    const next = { ...review, ...part };
+    setEdit(next);
+    try {
+      setState(await api.reviews.save(next));
     } catch (e: any) {
       toast(e.message, 'error');
     }
   };
 
+  /** Psaní: místní kopie se změní hned, uložení se odloží. */
+  const patchSoon = (review: Review, part: Partial<Review>) => {
+    const next = { ...review, ...part };
+    setEdit(next);
+    pending.current = next;
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => { void flush(); }, SAVE_DELAY);
+  };
+
   const patchLang = (review: Review, lang: string, part: Partial<ReviewText>) => {
     const langs = { ...review.langs, [lang]: { ...(review.langs[lang] ?? blank()), ...part } };
-    return patch(review, { langs });
+    patchSoon(review, { langs });
   };
 
   const add = async () => {
@@ -154,10 +216,15 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
 
   const translate = async (review: Review) => {
     if (busy) return;
+    // Přeložit se má to, co je právě v políčkách, ne to, co bylo naposledy uložené
+    await flush();
     setBusy('Překládám…');
     try {
       const out = await api.reviews.translate(review.id);
       await load();
+      // Překlad dopsal jazyky, které aplikace nemá v rozepsané kopii — ta se
+      // proto zahodí a detail se vykreslí z čerstvých dat
+      setEdit(null);
       toast(out.unresolved.length === 0
         ? 'Přeloženo a odkazy dosazené.'
         : `Přeloženo. U ${out.unresolved.length} odkazů se nenašla adresa na cizím trhu: `
@@ -171,6 +238,8 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
   };
 
   const publish = async () => {
+    // Na web má jít i to, co je zrovna rozepsané
+    await flush();
     setBusy('Vystavuju…');
     try {
       setState(await api.reviews.publish());
@@ -187,6 +256,8 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
     try {
       const out = await api.reviews.pull();
       setState(out.state);
+      // Data z webu jsou od téhle chvíle ta platná — rozepsaná kopie by je přebíjela
+      setEdit(null);
       toast(out.note || 'Načteno.');
     } catch (e: any) {
       toast(e.message, 'error');
@@ -198,7 +269,26 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
   const remove = async (review: Review) => {
     if (!window.confirm('Opravdu smazat tuhle recenzi? Fotka na e-shopu zůstane.')) return;
     try {
+      pending.current = null;
+      setEdit(null);
       setState(await api.reviews.remove(review.id));
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  };
+
+  /**
+   * Posun v pořadí.
+   *
+   * Rozepsané se nejdřív uloží a místní kopie se zahodí. Posun přepočítá
+   * pořadí u všech recenzí — kdyby se pak uložila kopie z doby před posunem,
+   * vrátila by u téhle recenze staré číslo a posun by se zrušil.
+   */
+  const move = async (id: string, dir: -1 | 1) => {
+    await flush();
+    setEdit(null);
+    try {
+      setState(await api.reviews.move(id, dir));
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -290,11 +380,11 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
                   <span className="rv-order">
                     {/* Šipka nahoru je tatáž ikona otočená — jedna sada ikon, jedno pravidlo */}
                     <span className="icon-btn rv-up" role="button" title="Nahoru"
-                      onClick={e => { e.stopPropagation(); void api.reviews.move(one.id, -1).then(setState); }}>
+                      onClick={e => { e.stopPropagation(); void move(one.id, -1); }}>
                       <Icon name="chevDown" size={13} />
                     </span>
                     <span className="icon-btn" role="button" title="Dolů"
-                      onClick={e => { e.stopPropagation(); void api.reviews.move(one.id, 1).then(setState); }}>
+                      onClick={e => { e.stopPropagation(); void move(one.id, 1); }}>
                       <Icon name="chevDown" size={13} />
                     </span>
                   </span>
@@ -305,7 +395,7 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="rv-detail">
-            {!picked ? (
+            {!shown ? (
               <div className="empty-state" style={{ padding: '40px 14px' }}>
                 <div className="big">📷</div>
                 <p>Vyber recenzi vlevo, nebo přidej novou.</p>
@@ -313,31 +403,33 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
             ) : (
               <>
                 <div className="rv-head">
-                  {picked.image
-                    ? <img src={picked.image} alt="" />
+                  {shown.image
+                    ? <img src={shown.image} alt="" />
                     : <span className="rv-noimg big"><Icon name="image" size={22} /></span>}
                   <div className="rv-head-fields">
                     <div className="rv-row">
-                      <button className="btn ghost" onClick={() => uploadPhoto(picked)} disabled={!!busy}>
+                      <button className="btn ghost" onClick={() => uploadPhoto(shown)} disabled={!!busy}>
                         {busy ? <><span className="spinner-inline" /> {busy}</>
                           : <><Icon name="upload" size={14} /> Fotka z počítače</>}
                       </button>
                       <label className="pt-check">
-                        <input type="checkbox" checked={picked.active}
-                          onChange={e => patch(picked, { active: e.target.checked })} />
+                        <input type="checkbox" checked={shown.active}
+                          onChange={e => patch(shown, { active: e.target.checked })} />
                         <span>Ukazovat na webu</span>
                       </label>
                       <span style={{ flex: 1 }} />
-                      <button className="btn ghost" onClick={() => remove(picked)} disabled={!!busy}>
+                      <button className="btn ghost" onClick={() => remove(shown)} disabled={!!busy}>
                         <Icon name="trash" size={14} /> Smazat
                       </button>
                     </div>
-                    <input value={picked.image} placeholder="https://…cdn-upgates.com/… (adresa fotky)"
-                      onChange={e => patch(picked, { image: e.target.value.trim() })} />
+                    {/* Adresa se obvykle vkládá ze schránky, ale dá se i psát —
+                        ukládat po písmenech by znamenalo totéž poskakování */}
+                    <input value={shown.image} placeholder="https://…cdn-upgates.com/… (adresa fotky)"
+                      onChange={e => patchSoon(shown, { image: e.target.value.trim() })} />
                     <p className="desc">
                       Fotka se převede do WebP a nahraje do souborů na e-shopu; adresa se doplní
-                      sama. {picked.width > 0
-                        ? `Rozměr ${picked.width}×${picked.height} px — zeď ho dává do stránky, aby při načítání neposkakovala.`
+                      sama. {shown.width > 0
+                        ? `Rozměr ${shown.width}×${shown.height} px — zeď ho dává do stránky, aby při načítání neposkakovala.`
                         : 'Rozměr se doplní po nahrání fotky.'}
                     </p>
                   </div>
@@ -345,13 +437,13 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
 
                 <div className="rv-langs">
                   {LANGS.map(lang => {
-                    const text = picked.langs[lang.code] ?? blank();
+                    const text = shown.langs[lang.code] ?? blank();
                     return (
                       <section key={lang.code} className="rv-lang">
                         <div className="rv-lang-head">
                           <h3>{lang.label}</h3>
                           {lang.code === 'cz' ? (
-                            <button className="btn ghost" onClick={() => translate(picked)} disabled={!!busy}>
+                            <button className="btn ghost" onClick={() => translate(shown)} disabled={!!busy}>
                               <Icon name="globe" size={13} /> Přeložit do SK a EN
                             </button>
                           ) : (
@@ -361,27 +453,35 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
                           )}
                         </div>
 
-                        <label className="rv-field">
+                        {/*
+                          * Schválně `div`, ne `label`.
+                          *
+                          * Popisek se píše do `contenteditable`, což prohlížeč jako ovládací
+                          * prvek nebere — v `label` se proto kliknutí přeposílalo prvnímu
+                          * tlačítku uvnitř, tedy „Tučně". Kliknutí do textu tak zapnulo tučné
+                          * písmo, zaměření skočilo na tlačítko a psát to nešlo vůbec.
+                          */}
+                        <div className="rv-field">
                           <span>Popisek pod fotkou</span>
                           <HtmlField value={text.caption} rows={3}
-                            onChange={html => patchLang(picked, lang.code, { caption: html })} />
+                            onChange={html => patchLang(shown, lang.code, { caption: html })} />
                           <small className="desc">
                             Odkaz se přidá označením slov a tlačítkem s řetězem. Při překladu se
                             adresa vymění za tu na daném trhu — aplikace ji najde sama.
                           </small>
-                        </label>
+                        </div>
 
                         <label className="rv-field">
                           <span>Recenze zákazníka</span>
                           <textarea rows={3} value={text.review}
                             placeholder="Nepovinné — bez ní zůstane pod fotkou jen popisek"
-                            onChange={e => patchLang(picked, lang.code, { review: e.target.value })} />
+                            onChange={e => patchLang(shown, lang.code, { review: e.target.value })} />
                         </label>
 
                         <label className="rv-field">
                           <span>Podpis</span>
                           <input value={text.name} placeholder="Jméno zákazníka"
-                            onChange={e => patchLang(picked, lang.code, { name: e.target.value })} />
+                            onChange={e => patchLang(shown, lang.code, { name: e.target.value })} />
                           {!!text.review && !text.name && (
                             <small className="rv-warn">
                               Bez podpisu se recenze na webu nevykreslí — je u ní vidět, kdo ji napsal.

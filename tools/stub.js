@@ -1796,6 +1796,29 @@
         return Promise.resolve({ ok: true, data: strety });
       }
       /*
+       * Uložení recenze. Odpovídá **ořezaným** textem schválně — přesně tak,
+       * jak to dělá hlavní proces. Rozhraní si rozepsanou recenzi drží samo,
+       * takže napsaná mezera musí v políčku zůstat; kdyby se ukládání po
+       * každém úhozu vrátilo, tenhle stub by to prozradil.
+       */
+      if (channel === 'reviews:save') {
+        var vstup = arg || {};
+        var stav = answers['reviews:state'];
+        var orez = function (t) { return String(t == null ? '' : t).trim(); };
+        var jazyky = {};
+        Object.keys(vstup.langs || {}).forEach(function (l) {
+          var t = vstup.langs[l] || {};
+          jazyky[l] = { caption: orez(t.caption), review: orez(t.review), name: orez(t.name) };
+        });
+        var kde = -1;
+        stav.items.forEach(function (one, i) { if (one.id === vstup.id) kde = i; });
+        var ulozena = Object.assign({}, kde >= 0 ? stav.items[kde] : {}, vstup, { langs: jazyky });
+        if (kde >= 0) stav.items[kde] = ulozena; else stav.items.unshift(ulozena);
+        stav.dirty = true;
+        return Promise.resolve({ ok: true,
+          data: Object.assign({}, stav, { items: stav.items.slice() }) });
+      }
+      /*
        * Stav parametru proti číselníku. Skutečné hledání je v databázi;
        * náhled si ho musí udělat sám, jinak by u všech řádků svítilo totéž
        * a nepoznalo by se, že rozhraní rozlišuje známý parametr od nového.

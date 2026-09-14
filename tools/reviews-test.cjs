@@ -76,6 +76,41 @@ ok('ale popisek zůstane', items[1].cz.captionHtml === 'MINI motýlek.');
 // Jazyk, který ještě není přeložený, se nevystavuje — zeď si vezme češtinu
 ok('nepřeložený jazyk se nevystavuje', items[1].sk === undefined);
 
+/* ---------- text se ukládá tak, jak se píše ---------- */
+
+console.log('\ntext se drží tak, jak se napsal:');
+{
+  /*
+   * Ořezávání při ukládání bylo k nepoužití: rozepsaná recenze se ukládá
+   * průběžně, takže se každá mezera na konci vrátila z databáze zkrácená
+   * a políčko se přepsalo pod rukama. V popisku (HTML) to navíc přehodilo
+   * kurzor na začátek a vypadalo to, jako by psaní přestalo fungovat.
+   */
+  store.saveReview({
+    id: 'mezera', image: `${CDN}/m/m-mezera.webp`, width: 900, height: 900, sort: 9, active: true,
+    langs: { cz: { caption: '<p>Rozepsaná věta </p>', review: 'Skvělé ', name: 'Petr ' } }
+  });
+  const ulozena = store.listReviews().find(one => one.id === 'mezera');
+  check('mezera na konci zůstane uložená',
+    [ulozena.langs.cz.caption, ulozena.langs.cz.review, ulozena.langs.cz.name],
+    ['<p>Rozepsaná věta </p>', 'Skvělé ', 'Petr ']);
+
+  // Ořezává se až tam, kde na tom záleží — co jde na web
+  const naWebu = store.wallItems().find(one => one.img.includes('m-mezera'));
+  check('na web jde text ořezaný',
+    [naWebu.cz.captionHtml, naWebu.cz.reviewText, naWebu.cz.reviewName],
+    ['<p>Rozepsaná věta </p>', 'Skvělé', 'Petr']);
+
+  // Popisek, ve kterém je jen mezera, na web nepatří
+  store.saveReview({
+    id: 'prazdna', image: `${CDN}/m/m-prazdna.webp`, width: 900, height: 900, sort: 10, active: true,
+    langs: { cz: { caption: '   ', review: '', name: '' } }
+  });
+  const nic = store.wallItems().find(one => one.img.includes('m-prazdna'));
+  ok('recenze jen s mezerou se nevystaví', nic !== undefined && nic.cz === undefined,
+    JSON.stringify(nic));
+}
+
 /* ---------- pořadí ---------- */
 
 console.log('\npořadí:');

@@ -726,6 +726,33 @@ function checkCsp() {
   }
 }
 
+/**
+ * Editor HTML nesmí být uvnitř `<label>`.
+ *
+ * Popisek u recenzí se píše do `contenteditable`, což prohlížeč jako ovládací
+ * prvek nebere. Uvnitř `<label>` se proto kliknutí přeposílalo **prvnímu
+ * tlačítku**, které v něm je — tedy „Tučně" na liště editoru. Kliknutí do
+ * textu tak zaplo tučné písmo, zaměření skočilo na tlačítko a psát to nešlo
+ * vůbec. Na obrazovce to vypadalo, že editor je rozbitý.
+ */
+function checkHtmlFieldLabels() {
+  const files = listFiles(path.join(ROOT, 'src/renderer/src'), '.tsx');
+  const bad = [];
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8');
+    // Hledá se `<label` bez ukončení, po kterém přijde `<HtmlField`
+    const re = /<label\b(?:(?!<\/label>)[\s\S])*?<HtmlField\b/g;
+    if (re.test(text)) bad.push(path.relative(ROOT, file));
+  }
+  if (bad.length) {
+    fail(
+      `Editor HTML je uvnitř <label>: ${bad.join(', ')}`,
+      'Vyměň <label> za <div>. V <label> se kliknutí přepošle prvnímu tlačítku uvnitř '
+      + '(„Tučně") a do editoru se nedá psát.'
+    );
+  }
+}
+
 function listFiles(dir, ext) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -745,9 +772,11 @@ if (mode === 'env') {
   checkEnv(targetArg);
   checkChannels();
   checkCsp();
+  checkHtmlFieldLabels();
 } else if (mode === 'channels') {
   checkChannels();
   checkCsp();
+  checkHtmlFieldLabels();
 } else if (mode === 'dist') {
   checkDist();
 } else if (mode === 'tools') {
