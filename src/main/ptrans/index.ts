@@ -1,5 +1,7 @@
 import { BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { getSetting } from '../db';
 import { syncFromFeed, ingestFile, ingestNewOnly, revertToFeed, recomputeStates, refreshStatesIfNeeded, listCodes,
   getPtransSettings, savePtransSettings, listProducts, productFields,
@@ -451,6 +453,29 @@ export async function exportToFile(options: ExportOptions = {}): Promise<{ path:
   if (res.canceled || !res.filePath) return null;
   fs.writeFileSync(res.filePath, built.xml, 'utf8');
   return { path: res.filePath, products: built.products, fields: built.fields };
+}
+
+/**
+ * Export rovnou do administrace, bez ukládání na disk.
+ *
+ * Soubor stáhnout, najít ho v administraci a proklikat průvodce importem je
+ * pět kroků, po kterých se v tom souboru nic nemění. Aplikace ho proto uloží
+ * do dočasného souboru a vloží ho do průvodce sama — **spuštění importu
+ * zůstává na člověku**, protože od té chvíle se produkty v e-shopu mění.
+ */
+export async function exportToAdmin(options: ExportOptions = {}):
+  Promise<{ filled: boolean; note: string; products: number; fields: number }> {
+  const built = buildExport(options);
+  if (built.products === 0) throw new Error('Není co exportovat — zatím není žádný uložený překlad.');
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quentino-import-'));
+  const file = path.join(dir, `quentino-preklady-${built.langs.join('-')}-${stamp}.xml`);
+  fs.writeFileSync(file, built.xml, 'utf8');
+
+  // Bez kódu produktu: víc produktů najednou je vždycky oprava stávajících
+  const out = await newproduct.openImportFile(file);
+  return { filled: out.filled, note: out.note, products: built.products, fields: built.fields };
 }
 
 export {

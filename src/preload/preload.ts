@@ -54,7 +54,7 @@ const ALLOWED_INVOKE = [
   'ptrans:overview', 'ptrans:saveSettings', 'ptrans:refresh', 'ptrans:list', 'ptrans:codes', 'ptrans:fields',
   'ptrans:edit', 'ptrans:retranslate', 'ptrans:run', 'ptrans:stop', 'ptrans:progress', 'ptrans:plan',
   'ptrans:googleTitles', 'ptrans:templatePreview', 'ptrans:generateSeo', 'ptrans:seoUrl',
-  'ptrans:exportPreview', 'ptrans:export', 'ptrans:importFile', 'ptrans:redirectPreview',
+  'ptrans:exportPreview', 'ptrans:export', 'ptrans:exportToAdmin', 'ptrans:importFile', 'ptrans:redirectPreview',
   'supabase:status', 'supabase:ping',
   'live:status', 'live:save', 'live:newChannel', 'live:offers', 'live:dismiss', 'live:watch',
   'orderfeed:list', 'orderfeed:save', 'orderfeed:refresh',

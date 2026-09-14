@@ -454,9 +454,20 @@ const IMPORT_URL_KEY = 'ptrans.importUrl';
  * kterou aplikace zná kvůli fakturám, a zapamatuje se ta, na které se
  * políčko na soubor opravdu našlo.
  */
+/** Adresa průvodce importem musí být adresa průvodce, ne kdeco. */
+function looksLikeGuide(url: string): boolean {
+  return /\/setup\/export-import\//.test(url);
+}
+
 export function productImportUrl(): string {
   const saved = (getSetting(IMPORT_URL_KEY, '') ?? '').trim();
-  if (saved) return saved;
+  /*
+   * Zapamatovaná adresa se bere jen tehdy, když to opravdu je průvodce
+   * importem. Starší verze si pamatovala adresu, na které našla políčko na
+   * soubor — a to bývala i přihlašovací stránka. Podruhé se pak okno otevřelo
+   * na ní, průvodce se nikdy neobjevil a vypadalo to, že vkládání nefunguje.
+   */
+  if (saved && looksLikeGuide(saved)) return saved;
   const home = (getSetting('invoiceAdminHome', '') ?? '').trim()
     || `${getUpgatesConfig().url.replace(/\/+$/, '')}/manager/`;
   const root = home.replace(/\/manager\/?$/, '').replace(/\/+$/, '');
@@ -474,10 +485,20 @@ let importWin: BrowserWindow | null = null;
  */
 export async function openProductImport(code: string):
   Promise<{ filled: boolean; note: string; file: string }> {
-  const file = exportToTemp(code);
+  return openImportFile(exportToTemp(code), code);
+}
+
+/**
+ * Otevře import v administraci a vloží do něj daný soubor.
+ *
+ * `code` slouží jen k odvození, jestli jde o nový produkt nebo opravu —
+ * prázdný znamená „víc produktů", a to je vždycky oprava.
+ */
+export async function openImportFile(file: string, code = ''):
+  Promise<{ filled: boolean; note: string; file: string }> {
   const win = importWin && !importWin.isDestroyed() ? importWin : new BrowserWindow({
     width: 1200, height: 860,
-    title: `Import produktu ${code} do e-shopu`,
+    title: code ? `Import produktu ${code} do e-shopu` : 'Import do e-shopu',
     webPreferences: { partition: 'persist:upgates', sandbox: true }
   });
   importWin = win;
@@ -487,7 +508,17 @@ export async function openProductImport(code: string):
   await openUrl(win, productImportUrl());
   win.show();
   win.focus();
-  const login = signInNote('upgates', await signIn(win, 'upgates'));
+  /*
+   * Přihlášení a čekání na průvodce běží **vedle sebe**.
+   *
+   * Dřív se čekalo, až přihlášení dopoví, a teprve pak se hledal průvodce.
+   * Kdo byl přihlášený, čekal půl minuty na formulář, který se nikdy
+   * neobjeví — a vypadalo to, že se aplikace zasekla. Takhle se u
+   * přihlášeného jede rovnou a u nepřihlášeného se průvodce dočká hned po
+   * přihlášení.
+   */
+  const signing = signIn(win, 'upgates');
+  signing.catch(() => 'bez formuláře' as const);
 
   /*
    * Průvodce se proklikne sám: formát Upgates XML → jak importovat →
@@ -499,12 +530,15 @@ export async function openProductImport(code: string):
    * import nepovedl. Když ho feed neuvádí, platí opak: „pouze nové" nemůže
    * přepsat cizí produkt.
    */
-  const known = getDb().prepare(
+  const known = code ? getDb().prepare(
     'SELECT origin FROM ptrans_products WHERE LOWER(code) = LOWER(?)'
-  ).get(code) as { origin: string } | undefined;
-  const processing = known?.origin === 'feed' ? 'update' : 'insert';
-  const guide = await runGuide(win, processing);
+  ).get(code) as { origin: string } | undefined : undefined;
+  const processing = !code || known?.origin === 'feed' ? 'update' : 'insert';
+  const guide = await runGuide(win, processing, 90_000);
   if (!guide?.fileStep) {
+    // Až tady má smysl ptát se, jak dopadlo přihlášení: když se průvodce
+    // ukázal, je zjevně v pořádku, ať vrátilo cokoli
+    const login = signInNote('upgates', await signing.catch(() => 'bez formuláře' as const));
     /*
      * Průvodce se prokliknout nepodařilo (stránka se změnila, nebo se
      * nenačetla). Radši se to řekne, než aby se soubor vložil do prvního
@@ -514,7 +548,7 @@ export async function openProductImport(code: string):
     return {
       filled: false, file,
       note: [login, 'Průvodce importem se nepodařilo proklikat. Vyber „Upgates – XML", '
-        + '„Pouze nové položky" a „Jednorázově"; políčko na soubor je pak v posledním kroku.']
+        + 'způsob importu a „Jednorázově"; políčko na soubor je pak v posledním kroku.']
         .filter(Boolean).join(' ')
     };
   }
@@ -530,7 +564,7 @@ export async function openProductImport(code: string):
       .catch(() => ({ name: '', saveShown: false })) as { name: string; saveShown: boolean }
     : { name: '', saveShown: false };
 
-  if (out.filled && out.url) setSetting(IMPORT_URL_KEY, out.url);
+  if (out.filled && out.url && looksLikeGuide(out.url)) setSetting(IMPORT_URL_KEY, out.url);
 
   const note = taken.saveShown || taken.name
     ? `Nastaveno: Upgates XML · ${processing === 'update' ? 'aktualizovat stávající' : 'pouze nové položky'}`
@@ -539,9 +573,5 @@ export async function openProductImport(code: string):
     : (out.filled
       ? 'Soubor jsem vložil, ale stránka ho nepotvrdila — zkontroluj poslední krok průvodce.'
       : out.note);
-  return {
-    filled: !!(taken.saveShown || taken.name),
-    note: [login, note].filter(Boolean).join(' '),
-    file
-  };
+  return { filled: !!(taken.saveShown || taken.name), note, file };
 }

@@ -101,6 +101,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   const [wide, setWide] = useState(() => localStorage.getItem('ptransWide') === '1');
   useEffect(() => { localStorage.setItem('ptransWide', wide ? '1' : '0'); }, [wide]);
   const [selectingAll, setSelectingAll] = useState(false);
+  /** Běží vkládání do administrace — okno se otevírá a čeká se na průvodce */
+  const [busyAdmin, setBusyAdmin] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const [fields, setFields] = useState<PtransField[]>([]);
   /** Které jazykové sloupce jsou v detailu vidět (výchozí: všechny zapnuté) */
@@ -427,6 +429,31 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
       if (result) toast(`Uloženo: ${result.products} produktů, ${result.fields} textů`);
     } catch (e: any) {
       toast(e.message, 'error');
+    }
+  };
+
+  /**
+   * Export rovnou do administrace.
+   *
+   * Stáhnout soubor, najít ho a proklikat průvodce importem je pět kroků,
+   * po kterých se v tom souboru nic nemění. Spuštění importu zůstává na
+   * člověku — od té chvíle se produkty v e-shopu doopravdy mění.
+   */
+  const exportToAdmin = async (state: 'translated' | 'current' = 'translated') => {
+    setBusyAdmin(true);
+    try {
+      const codes = selected.size > 0 ? [...selected] : undefined;
+      if (state === 'current' && !codes) {
+        toast('Pro export v aktuálním stavu vyber produkty.', 'error');
+        return;
+      }
+      const out = await api.ptrans.exportToAdmin({ codes, state });
+      toast(out.note || `Vloženo: ${out.products} produktů, ${out.fields} textů`,
+        out.filled ? undefined : 'error');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusyAdmin(false);
     }
   };
 
@@ -941,6 +968,12 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
               <button className="btn ghost" onClick={() => exportXml('translated')}
                 data-tip="Jen to, co aplikace přeložila nebo vygenerovala">
                 <Icon name="download" size={13} /> Export překladů{selected.size > 0 ? ` (${selected.size})` : ''}
+              </button>
+              <button className="btn ghost" disabled={busyAdmin}
+                onClick={() => exportToAdmin(selected.size > 0 ? 'current' : 'translated')}
+                data-tip="Otevře průvodce importem v administraci a vloží do něj soubor — spuštění importu zůstává na tobě">
+                {busyAdmin ? <span className="spinner-inline" /> : <Icon name="upload" size={13} />}
+                {' '}Do administrace
               </button>
               <button className="btn primary" disabled={selected.size === 0 || progress?.running}
                 onClick={() => setRunOpen(true)}>
