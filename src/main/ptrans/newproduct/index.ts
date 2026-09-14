@@ -18,7 +18,8 @@ import { DraftProduct, DraftGap, draftGaps, listDrafts, getDraft,
 import { loadTemplate, findSpecifics, codeTaken, Specific } from './template';
 import { rewriteSelection, proposeByTitle, TextChange } from './rewrite';
 import { buildProductXml } from './build';
-import { learnParams, paramNames, paramValues, lookupParam, resolveParams, ParamEntry } from './params';
+import { learnParams, paramNames, paramValues, lookupParam, resolveParams, suggestParams,
+  ParamEntry, ParamProposal } from './params';
 
 /**
  * Nový produkt — od prázdného formuláře po XML pro import.
@@ -112,6 +113,24 @@ export function relearnParams(): { names: number; values: number } {
 
 export function checkParam(name: string, value: string) {
   return lookupParam(name, value);
+}
+
+/** Návrh parametrů z popisu — vrací se k potvrzení, nezapisuje se. */
+export async function proposeParams(id: string, signal?: AbortSignal): Promise<ParamProposal[]> {
+  const draft = getDraft(id);
+  if (!draft) throw new Error('Rozdělaný produkt už neexistuje.');
+  const texts = draft.langs[getPtransSettings().sourceLang] ?? emptyTexts();
+  return suggestParams({
+    title: texts.title,
+    text: `${plainText(texts.short)}\n${plainText(texts.long)}`,
+    existing: draft.params,
+    signal
+  });
+}
+
+/** Holý text z HTML — model nemá co dělat se značkami. */
+function plainText(html: string): string {
+  return (html ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 export async function loadCategories(refresh = false): Promise<CategoryTree> {
@@ -231,7 +250,8 @@ export async function titleProposal(id: string, lang: string, signal?: AbortSign
  * při psaní, jenže mezi napsáním a uložením se dá stáhnout feed — a kdyby se
  * kód mezitím objevil, import by předlohu potichu přepsal.
  */
-export function saveToCatalog(id: string): { code: string; gaps: DraftGap[] } {
+export function saveToCatalog(id: string):
+  { code: string; draft: DraftProduct & { gaps: DraftGap[] } } {
   const draft = getDraft(id);
   if (!draft) throw new Error('Rozdělaný produkt už neexistuje.');
   const langs = langsOf();
@@ -269,9 +289,15 @@ export function saveToCatalog(id: string): { code: string; gaps: DraftGap[] } {
       if (known?.value) saveTranslation(draft.code, lang, paramKey(index, 'value'), known.value, '', true);
     }
   });
-  saveDraft(id, { state: 'exported' });
+  const next = saveDraft(id, { state: 'exported' });
   emit({});
-  return { code: draft.code, gaps };
+  /*
+   * Vrací se celý produkt, ne jen kód. Rozhraní si rozdělaný produkt drží
+   * v místní kopii a bez téhle odpovědi by v ní zůstalo „ještě neuloženo" —
+   * tlačítka na doplnění textů a na import by zůstala šedá, dokud se okno
+   * nezavře a neotevře znovu.
+   */
+  return { code: draft.code, draft: { ...next, gaps: draftGaps(next, langs) } };
 }
 
 export interface CompleteStep {
@@ -287,7 +313,8 @@ export interface CompleteStep {
  * hlášení to vypadá, že se aplikace zasekla.
  */
 export async function completeProduct(code: string, onStep?: (s: CompleteStep) => void,
-                                      signal?: AbortSignal): Promise<{ errors: string[] }> {
+                                      signal?: AbortSignal):
+  Promise<{ errors: string[]; draft: (DraftProduct & { gaps: DraftGap[] }) | null }> {
   const s = getPtransSettings();
   const targets = targetLangs(s);
   const errors: string[] = [];
@@ -312,8 +339,40 @@ export async function completeProduct(code: string, onStep?: (s: CompleteStep) =
     done++;
   }
   step('Hotovo');
+  /*
+   * Dopsané texty se načtou zpátky do rozdělaného produktu.
+   *
+   * Doplňování zapisuje do katalogu (`ptrans_fields`), kdežto rozhraní ukazuje
+   * rozdělaný produkt. Bez tohohle kroku doběhlo doplnění i překlad, ale na
+   * obrazovce se nezměnilo nic — vypadalo to, že tlačítko nic nedělá.
+   */
+  const draft = readBack(code);
   emit({});
-  return { errors };
+  return { errors, draft };
+}
+
+/** Přepíše do rozdělaného produktu to, co je po doplnění v katalogu. */
+export function readBack(code: string): (DraftProduct & { gaps: DraftGap[] }) | null {
+  const draft = draftByCode(code);
+  if (!draft) return null;
+  const langs = langsOf();
+  const next: Record<string, any> = {};
+  const google: Record<string, string> = { ...draft.google };
+  for (const lang of langs) {
+    const texts: Record<string, string> = { ...(draft.langs[lang] ?? emptyTexts()) };
+    for (const field of Object.keys(emptyTexts())) {
+      const value = fieldValue(code, lang, field);
+      if (value) texts[field] = value;
+    }
+    next[lang] = texts;
+  }
+  for (const field of ['google_color', 'google_gender', 'google_age',
+    'google_condition', 'google_bundle', 'google_identifier']) {
+    const value = fieldValue(code, getPtransSettings().sourceLang, field);
+    if (value) google[field] = value;
+  }
+  const saved = saveDraft(draft.id, { langs: next, google });
+  return { ...saved, gaps: draftGaps(saved, langs) };
 }
 
 /* ---------- export ---------- */
@@ -345,7 +404,7 @@ export function draftByCode(code: string): DraftProduct | null {
 }
 
 export { getDraft, listDrafts, draftGaps };
-export type { DraftProduct, DraftGap, Specific, TextChange };
+export type { DraftProduct, DraftGap, Specific, TextChange, ParamProposal };
 
 /* ---------- vložení do administrace ---------- */
 

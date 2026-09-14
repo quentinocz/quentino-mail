@@ -683,6 +683,34 @@ await overflow('recenze — druhá'); await snap('48b-recenze-detail');
     + `(${text.includes('AABB') ? 'AABB' : JSON.stringify(text.slice(-24))}, `
     + `kurzor ${uvnitr ? 'v poli' : 'pryč'})`);
 }
+/*
+ * Odkaz na označených slovech.
+ *
+ * Adresa se dřív ptala přes `window.prompt`, který Electron nepodporuje:
+ * kliknutí na řetěz neudělalo vůbec nic a nikde se to neozvalo.
+ */
+{
+  const popisek = page.locator('.rv-lang .html-rich').first();
+  // Označí se prvních pár písmen. Dvojklik doprostřed pole by trefil prázdno
+  // pod textem a nevybral by nic.
+  await popisek.click({ position: { x: 12, y: 10 } });
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowRight');
+  await page.waitForTimeout(150);
+  // Poslední tlačítko v liště je řetěz; před ním jsou tučně, kurzíva,
+  // podtrženě, odrážky a guma
+  await page.locator('.rv-lang .html-bar .icon-btn').nth(5).click();
+  await page.waitForTimeout(200);
+  const otevrelo = await page.locator('.html-link input').count();
+  await page.locator('.html-link input').fill('quentino.cz/kravaty');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  const html = await popisek.evaluate(el => el.innerHTML);
+  // Adresa bez protokolu se doplní na https — jinak by odkaz mířil na soubor
+  const ok = otevrelo === 1 && html.includes('href="https://quentino.cz/kravaty"');
+  console.log(`${'odkaz v popisku'.padEnd(28)} ${ok ? '✓' : '✗'} `
+    + `(políčko ${otevrelo ? 'je' : 'není'}, ${html.includes('https://quentino.cz/kravaty') ? 'odkaz vložen' : 'odkaz chybí'})`);
+}
 await overflow('recenze — psaní'); await snap('48c-recenze-psani');
 await click('.rv-modal .modal-head .icon-btn >> nth=-1');
 await page.waitForTimeout(300);
@@ -699,38 +727,74 @@ await click('.pt-tabs button', { hasText: 'Nový produkt' });
 await page.waitForTimeout(500);
 {
   const drafts = await page.locator('.np-item').count();
-  const blockers = await page.locator('.np-gaps li.blocker').count();
+  const blockers = await page.locator('.np-gaps button.blocker').count();
   const chips = await page.locator('.np-chip').count();
   const done = await page.locator('.np-chip.done').count();
   console.log(`${'nový produkt — rozdělané'.padEnd(28)} ${drafts === 2 ? '✓' : '✗'} (${drafts})`);
   // Přepsané specifikum musí být odlišené od toho, které v textu pořád je
   console.log(`${'z předlohy — co zbývá'.padEnd(28)} ${chips === 3 && done === 1 ? '✓' : '✗'} (${chips}, přepsané ${done})`);
-  /*
-   * Parametr, který e-shop nezná, musí být odlišený od toho, který zná i
-   * s překlady — „Šíře" místo „Šířka" se jinak projeví až tím, že produkt
-   * vypadne z filtru v kategorii.
-   */
-  const zna = await page.locator('.np-param-state.ok').count();
-  const chybi = await page.locator('.np-param-state.half').count();
-  console.log(`${'parametry proti číselníku'.padEnd(28)} ${zna === 1 && chybi === 1 ? '✓' : '✗'} (zná ${zna}, neúplných ${chybi})`);
   console.log(`${'co ještě chybí'.padEnd(28)} ${blockers === 0 ? '✓' : '✗'} (blokuje ${blockers})`);
-  /*
-   * Ceny se zadávají po měnách. Slovenský a anglický e-shop prodávají obojí
-   * v eurech — dvě stejná políčka „€" vedle sebe svádějí vyplnit jen jedno.
-   */
-  const ceny = await page.locator('.np-price').count();
-  console.log(`${'ceny po měnách'.padEnd(28)} ${ceny === 2 ? '✓' : '✗'} (${ceny})`);
+  // Ceny po měnách: SK i EN prodávají v eurech, políčko má být jedno
+  const ceny = await page.locator('.np-narrow input').count();
+  console.log(`${'ceny po měnách'.padEnd(28)} ${await page.locator('.np-field > span:text-is("Cena s DPH (€)")').count() === 1 ? '✓' : '✗'} (polí ${ceny})`);
 }
 await overflow('nový produkt — rozdělaný'); await snap('49-novy-produkt');
+
+/*
+ * Strom kategorií. Zabalený strom je k ničemu, když v zabalené větvi něco
+ * vybraného je — rozbalí se proto sám a u zabalených větví svítí počet.
+ */
 {
-  // Stránky v menu se k zařazení zboží nesmějí nabízet
-  const cats = await page.locator('.np-cats li').count();
-  console.log(`${'kategorie se zbožím'.padEnd(28)} ${cats === 4 ? '✓' : '✗'} (${cats})`);
+  const vybrane = await page.locator('.np-chip-cat').count();
+  const hlavni = await page.locator('.np-chip-cat.main').count();
+  console.log(`${'kategorie — vybrané nahoře'.padEnd(28)} ${vybrane === 2 && hlavni === 1 ? '✓' : '✗'} (${vybrane}, hlavní ${hlavni})`);
+  /*
+   * Kšandy nemají nic vybraného, takže zůstanou zabalené i s podkategorií.
+   * Doplňky vybrané mají, takže se rozbalí samy — schovaná vybraná kategorie
+   * by vypadala, že vybraná není.
+   */
+  const skryta = await page.locator('.np-cat label:has-text("Dětské kšandy")').count();
+  const videt = await page.locator('.np-cat label:has-text("Kravaty")').count();
+  console.log(`${'zabalené a rozbalené větve'.padEnd(28)} ${skryta === 0 && videt >= 1 ? '✓' : '✗'} `
+    + `(schováno ${skryta ? 'ne' : 'ano'}, vybraná větev ${videt ? 'vidět' : 'schovaná'})`);
+
 }
+
+/*
+ * Jazyky v záložkách. Pod sebou se v nich nedalo vyznat — česky se píše
+ * celou dobu, kdežto do překladů se kouká až na konci.
+ */
+{
+  const zalozky = await page.locator('.np-langs button').count();
+  const tecky = await page.locator('.np-dot').count();
+  console.log(`${'jazyky v záložkách'.padEnd(28)} ${zalozky === 3 && tecky === 2 ? '✓' : '✗'} (${zalozky}, nepřeložené ${tecky})`);
+  await click('.np-langs button', { hasText: 'SK' });
+  await page.waitForTimeout(250);
+  await overflow('nový produkt — slovensky'); await snap('49c-novy-produkt-sk');
+  await click('.np-langs button', { hasText: 'CZ' });
+  await page.waitForTimeout(250);
+}
+
+/*
+ * Nabídka u parametru se musí dát rozbalit celá i u vyplněného políčka —
+ * `<input list>` v tom ukazoval jen to, co odpovídalo napsanému textu.
+ */
+{
+  await page.locator('.np-params .np-suggest-open').first().click();
+  await page.waitForTimeout(200);
+  const moznosti = await page.locator('.np-suggest-list button').count();
+  const vyplneno = await page.locator('.np-params .np-suggest input').first().inputValue();
+  console.log(`${'nabídka parametrů'.padEnd(28)} ${moznosti === 3 && vyplneno ? '✓' : '✗'} (${moznosti} u „${vyplneno}")`);
+  await overflow('nový produkt — nabídka parametrů'); await snap('49d-novy-produkt-parametry');
+  await page.keyboard.press('Escape');
+  await page.locator('.np-head').click();
+  await page.waitForTimeout(200);
+}
+
 await page.locator('.np-item').nth(1).click();
 await page.waitForTimeout(400);
 {
-  const blockers = await page.locator('.np-gaps li.blocker').count();
+  const blockers = await page.locator('.np-gaps button.blocker').count();
   console.log(`${'prázdný produkt hlásí chybějící'.padEnd(28)} ${blockers === 6 ? '✓' : '✗'} (${blockers})`);
 }
 await overflow('nový produkt — prázdný'); await snap('49b-novy-produkt-prazdny');

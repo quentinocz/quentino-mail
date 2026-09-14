@@ -18,7 +18,7 @@ import type {
   ArticleUpload, ArticleFolder,
   Review, ReviewsState, ReviewsConfig,
   NewProductState, NewProductDraft, NewProductSpecific, NewProductChange, NewProductGap,
-  ParamDictionary, ParamLookup,
+  ParamDictionary, ParamLookup, NewProductParamProposal,
   ShopCategoryTree,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
@@ -400,6 +400,8 @@ export const api = {
     params: (name?: string) => call<ParamDictionary>('np:params', name ?? ''),
     relearnParams: () => call<{ names: number; values: number }>('np:relearnParams'),
     checkParam: (name: string, value: string) => call<ParamLookup>('np:checkParam', name, value),
+    /** Návrh parametrů z popisu — vrací se k potvrzení, nic se nezapisuje */
+    proposeParams: (id: string) => call<NewProductParamProposal[]>('np:proposeParams', id),
     /** Natažení textů z jiného produktu i s vyznačením toho, co je na něm specifické */
     template: (id: string, code: string) =>
       call<{ draft: NewProductDraft; specifics: NewProductSpecific[]; note: string }>('np:template', id, code),
@@ -408,9 +410,10 @@ export const api = {
     rewrite: (options: { full: string; selection: string; instruction?: string; html?: boolean }) =>
       call<string>('np:rewrite', options),
     titleProposal: (id: string, lang: string) => call<NewProductChange[]>('np:titleProposal', id, lang),
-    toCatalog: (id: string) => call<{ code: string; gaps: NewProductGap[] }>('np:toCatalog', id),
+    toCatalog: (id: string) => call<{ code: string; draft: NewProductDraft }>('np:toCatalog', id),
     /** Dopsání SEO a textů pro Google a překlad do ostatních jazyků */
-    complete: (code: string) => call<{ errors: string[] }>('np:complete', code),
+    complete: (code: string) =>
+      call<{ errors: string[]; draft: NewProductDraft | null }>('np:complete', code),
     exportXml: (code: string) => call<{ xml: string; products: number; fields: number }>('np:exportXml', code),
     /** Otevře import v administraci a vloží soubor; spuštění importu zůstává na člověku */
     openImport: (code: string) => call<{ filled: boolean; note: string; file: string }>('np:openImport', code)

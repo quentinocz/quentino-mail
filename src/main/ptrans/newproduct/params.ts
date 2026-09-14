@@ -1,4 +1,7 @@
 import { getDb } from '../../db';
+import { ask } from '../../ai';
+import { getSettings } from '../../settings';
+import { getPtransSettings } from '../store';
 import { productParameters } from '../xml';
 
 /**
@@ -196,3 +199,79 @@ export function resolveParams(params: { name: string; value: string }[], langs: 
 }
 
 export const __test = { paramKeyOf, readParams };
+
+/* ---------- návrh parametrů ---------- */
+
+export interface ParamProposal {
+  name: string;
+  value: string;
+  why: string;
+  /** Zná takový parametr e-shop? Neznámý je nejčastěji překlep. */
+  known: boolean;
+}
+
+/**
+ * Nechá model vyčíst parametry z popisu produktu.
+ *
+ * Model dostane **seznam parametrů, které v e-shopu jsou**, a má z něj vybírat.
+ * Bez toho vymýšlí vlastní názvy („Odstín" místo „Barva") a každý nový produkt
+ * by si zakládal vlastní filtr v kategorii.
+ *
+ * Vrací návrhy, ne hotové parametry — barva vyčtená z věty o tom, k čemu se
+ * produkt hodí, bývá špatně, a rozhodnout to musí člověk.
+ */
+export async function suggestParams(options: {
+  title: string;
+  text: string;
+  existing: { name: string; value: string }[];
+  signal?: AbortSignal;
+}): Promise<ParamProposal[]> {
+  const known = paramNames();
+  if (!options.title.trim() && !options.text.trim()) return [];
+
+  const source = [
+    `Název: ${options.title}`,
+    `Popis: ${options.text.slice(0, 3000)}`,
+    '',
+    `Parametry, které e-shop používá: ${known.map(one => one.langs.cz ?? one.key).join(', ') || '(zatím žádné)'}`,
+    options.existing.length
+      ? `Už vyplněno: ${options.existing.map(one => `${one.name} = ${one.value}`).join('; ')}`
+      : ''
+  ].filter(Boolean).join('\n');
+
+  const answer = await ask(
+    getPtransSettings().model || getSettings().draftModel,
+    [
+      'Jsi u zakládání produktu v e-shopu s pánskou módou.',
+      'Z názvu a popisu vyčti parametry produktu (barva, vzor, materiál, rozměr, počet kusů…).',
+      'Názvy parametrů ber PŘEDNOSTNĚ ze seznamu, který e-shop používá. Nový název navrhni,',
+      'jen když se opravdu žádný z nich nehodí.',
+      'Co je už vyplněné, znovu nenavrhuj.',
+      'Nehádej: co v textu není, nevypisuj. Raději méně položek.',
+      '',
+      'Odpověz JSON polem, každá položka {"name":"Barva","value":"zelená","why":"z názvu"}.',
+      'Hodnoty piš malými písmeny, jak se píšou v katalogu. Nic jiného než JSON nevracej.'
+    ].join('\n'),
+    source,
+    900,
+    { signal: options.signal }
+  );
+
+  let rows: any[] = [];
+  try {
+    rows = JSON.parse(answer.slice(answer.indexOf('['), answer.lastIndexOf(']') + 1));
+  } catch {
+    return [];
+  }
+  const have = new Set(options.existing.map(one => paramKeyOf(one.name)));
+  const out: ParamProposal[] = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const name = String(row?.name ?? '').trim();
+    const value = String(row?.value ?? '').trim();
+    if (!name || !value) continue;
+    if (have.has(paramKeyOf(name))) continue;
+    if (out.some(one => paramKeyOf(one.name) === paramKeyOf(name))) continue;
+    out.push({ name, value, why: String(row?.why ?? ''), known: lookupParam(name, '').knownName });
+  }
+  return out;
+}
