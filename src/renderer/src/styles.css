@@ -7903,50 +7903,85 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   .rv-list { border-right: 0; border-bottom: 1px solid var(--border); }
 }
 
+/* Adresa odkazu se ptá tady — window.prompt Electron nemá, takže se dřív nestalo nic */
+.html-link {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  border-bottom: 1px solid var(--border); background: var(--bg);
+}
+.html-link input { flex: 1; font-size: 13px; }
+
 /* ---------- nový produkt ---------- */
-.np-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); }
+.np-wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); }
 .np-loading, .np-blank { padding: 24px; }
-.np-rail { overflow: auto; border-right: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
-.np-new { justify-content: center; }
+
+.np-rail { overflow: auto; border-right: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.np-new { justify-content: center; margin-bottom: 4px; }
 .np-empty { padding: 6px 4px; line-height: 1.5; }
 .np-item {
-  text-align: left; background: none; border: 1px solid transparent; border-radius: 8px;
-  padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; cursor: pointer;
+  display: flex; align-items: center; gap: 9px; text-align: left; cursor: pointer;
+  background: none; border: 1px solid transparent; border-radius: 11px; padding: 6px 8px;
 }
 .np-item:hover { background: var(--bg); }
-.np-item.active { background: var(--bg); border-color: var(--accent); }
-.np-item-title { font-weight: 600; }
-.np-item-sub { font-size: 12px; color: var(--text-2); }
-.np-ok { font-size: 12px; color: var(--ok); display: inline-flex; align-items: center; gap: 4px; }
-.np-todo { font-size: 12px; color: var(--warn); }
+.np-item.active { border-color: var(--accent); background: var(--accent-soft); }
+.np-item img, .np-item-noimg {
+  width: 40px; height: 40px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
+  background: var(--bg); display: flex; align-items: center; justify-content: center; color: var(--text-3);
+}
+.np-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.np-item-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-item-text small { color: var(--text-2); font-size: 12px; }
+.np-state { font-size: 11px; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; }
+.np-state.done { color: var(--ok); }
+.np-state.ready { color: var(--text-2); }
+.np-state.todo {
+  color: var(--warn); font-weight: 600; background: color-mix(in srgb, var(--warn) 15%, transparent);
+  border-radius: 999px; padding: 1px 6px;
+}
 
 .np-main { display: flex; flex-direction: column; min-height: 0; }
-.np-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.np-head { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
 .np-head-title { font-weight: 600; }
-.np-badge { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--bg); color: var(--text-2); }
-.np-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); }
-.np-form { overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.np-head-code { font-size: 12px; color: var(--text-2); background: var(--bg); padding: 1px 6px; border-radius: 5px; }
+.np-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 290px); }
+.np-form { overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .np-side { overflow: auto; border-left: 1px solid var(--border); padding: 14px; }
 .np-side h4 { margin: 0 0 8px; }
-.np-side-ok { color: var(--ok); display: flex; align-items: center; gap: 6px; }
+.np-side-ok { color: var(--ok); display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
 
-.np-box { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
-.np-box h4 { margin: 0 0 10px; display: flex; align-items: center; gap: 6px; }
-.np-refresh { margin-left: auto; font-size: 12px; }
-.np-row { display: flex; gap: 10px; flex-wrap: wrap; }
-.np-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 160px; margin-bottom: 8px; }
+.np-box { border: 1px solid var(--border); border-radius: 11px; padding: 12px 14px; background: var(--panel); }
+.np-box h4 { margin: 0 0 10px; display: flex; align-items: center; gap: 7px; }
+.np-right { margin-left: auto; }
+.np-count {
+  font-size: 11px; color: var(--text-2); background: var(--bg);
+  border-radius: 999px; padding: 0 6px; font-weight: 500;
+}
+.np-label { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; }
+
+.np-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.np-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 170px; margin-bottom: 8px; }
 .np-field > span { font-size: 12px; color: var(--text-2); }
-.np-price { max-width: 180px; }
+.np-narrow { flex: 0 1 150px; min-width: 120px; }
+.np-field input.bad { border-color: var(--warn); }
 .np-warn { font-size: 12px; color: var(--warn); display: inline-flex; align-items: center; gap: 4px; }
-.np-ok-note { font-size: 12px; color: var(--ok); }
+.np-good { font-size: 12px; color: var(--ok); }
 .np-step { font-size: 12px; color: var(--text-2); margin: 6px 0 0; }
+.np-wrap button.link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--accent); font: inherit; font-size: 12px; text-decoration: underline;
+}
+.np-wrap button.link:hover { color: var(--accent-dark); }
 
-.np-template { margin-top: 6px; display: flex; align-items: flex-start; gap: 10px; }
-.np-template-label { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; padding-top: 7px; }
-.np-template-set { display: inline-flex; align-items: center; gap: 8px; padding-top: 6px; font-weight: 600; }
+/* předloha */
+.np-template { display: flex; align-items: flex-start; gap: 10px; margin-top: 2px; }
+.np-template .np-label { padding-top: 7px; }
+.np-template-set { display: inline-flex; align-items: center; gap: 8px; padding-top: 6px; }
 .np-pick { flex: 1; position: relative; }
 .np-pick input { width: 100%; }
-.np-hits { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.np-pick-spin { position: absolute; right: 10px; top: 10px; }
+.np-hits {
+  list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--border);
+  border-radius: 9px; overflow: hidden; background: var(--panel);
+}
 .np-hits button {
   width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px;
   background: none; border: none; cursor: pointer; text-align: left;
@@ -7954,56 +7989,113 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .np-hits button:hover { background: var(--bg); }
 .np-hits img, .np-hit-noimg { width: 30px; height: 30px; object-fit: cover; border-radius: 5px; background: var(--bg); }
 .np-hit-title { flex: 1; }
-.np-hit-code { font-size: 12px; color: var(--text-2); }
+.np-hits code, .np-head-code { font-size: 12px; }
 
-.np-filter { width: 100%; margin-bottom: 8px; }
-.np-cats { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
-.np-cats li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
-.np-cats label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+/* kategorie */
+.np-chosen { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.np-chip-cat {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 4px 2px 9px;
+}
+.np-chip-cat.main { border-color: var(--accent); color: var(--accent); }
+.np-chip-cat button {
+  background: none; border: none; cursor: pointer; color: inherit; opacity: .55;
+  display: flex; padding: 2px;
+}
+.np-chip-cat button:hover { opacity: 1; }
+.np-filter { width: 100%; margin-bottom: 6px; }
+.np-cats, .np-cats ul { list-style: none; margin: 0; padding: 0; }
+.np-cats { max-height: 300px; overflow: auto; }
+.np-cat { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.np-cat label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.np-cat-toggle {
+  width: 18px; height: 18px; flex-shrink: 0; background: none; border: none; cursor: pointer;
+  color: var(--text-3); display: flex; align-items: center; justify-content: center;
+}
+.np-cat-toggle svg { transition: transform .12s; transform: rotate(-90deg); }
+.np-cat-toggle.open svg { transform: none; }
+.np-cat-toggle.empty { cursor: default; }
+.np-cat-count {
+  font-size: 11px; color: var(--accent); background: var(--accent-soft);
+  border-radius: 999px; padding: 0 6px;
+}
 .np-main-cat {
   font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
   background: none; cursor: pointer; color: var(--text-2); display: inline-flex; align-items: center; gap: 4px;
 }
 .np-main-cat.on { border-color: var(--accent); color: var(--accent); }
 
-/* Úryvky z předlohy. Zašedne až ve chvíli, kdy text v poli opravdu není —
-   odškrtnout se to rukou nedá, aby se to nedalo odbýt. */
-.np-specifics { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
-.np-spec-head { font-size: 12px; color: var(--text-2); margin-right: 4px; }
+/* texty */
+.np-langs button { padding: 3px 10px; font-size: 12px; position: relative; }
+.np-dot {
+  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--warn); margin-left: 5px; vertical-align: middle;
+}
+.np-specifics { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 10px; }
+/* Zašedne, až když text v poli doopravdy není — odškrtnout rukou nejde */
 .np-chip {
   font-size: 12px; padding: 2px 8px; border-radius: 999px;
-  background: color-mix(in srgb, var(--warn) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
 }
 .np-chip.done {
-  background: none; border-color: var(--border); color: var(--text-2);
+  background: none; border-color: var(--border); color: var(--text-3);
   text-decoration: line-through; display: inline-flex; align-items: center; gap: 4px;
 }
-.np-html { margin-bottom: 10px; }
-.np-html-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-.np-html-head > span { font-size: 12px; color: var(--text-2); }
-.np-propose { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.np-title-row { display: flex; gap: 8px; align-items: center; }
+.np-title-row input { flex: 1; }
+.np-title-row .btn { white-space: nowrap; }
 
-.np-changes { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.np-changes li {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px;
+.np-rewrite {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 6px 8px;
+  border: 1px solid var(--accent); border-radius: 9px; background: var(--accent-soft);
 }
-.np-change-where { font-size: 11px; color: var(--text-2); text-transform: uppercase; }
+.np-rewrite-text { font-size: 12px; max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-rewrite input { flex: 1; font-size: 13px; }
+
+.np-changes, .np-ideas { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.np-changes li, .np-ideas li {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: 9px; padding: 6px 8px;
+}
+.np-changes em, .np-ideas em { font-size: 12px; color: var(--text-2); }
+.np-change-where { font-size: 11px; color: var(--text-3); text-transform: uppercase; }
 .np-change-before { text-decoration: line-through; color: var(--text-2); }
 .np-change-after { font-weight: 600; }
-.np-change-why { font-size: 12px; color: var(--text-2); }
-.np-change-take { margin-left: auto; }
+.np-changes li .btn, .np-ideas li .btn { margin-left: auto; }
 
+/* parametry */
 .np-params { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .np-params li { display: flex; gap: 6px; align-items: center; }
-.np-params input { flex: 1; }
-.np-params li.from-template input { border-left: 3px solid var(--accent); }
+.np-params li.from-template .np-suggest input { border-left: 3px solid var(--accent); }
+.np-suggest { position: relative; flex: 1; }
+.np-suggest input { width: 100%; padding-right: 26px; }
+.np-suggest-open {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; color: var(--text-3); padding: 4px; display: flex;
+}
+.np-suggest-list {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 2px);
+  list-style: none; margin: 0; padding: 4px; max-height: 220px; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow);
+}
+.np-suggest-list button {
+  width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  padding: 4px 7px; border-radius: 6px; font: inherit;
+}
+.np-suggest-list button:hover { background: var(--bg); }
+.np-param-state {
+  font-size: 11px; min-width: 78px; display: inline-flex; align-items: center; gap: 3px; color: var(--text-2);
+}
+.np-param-state.ok { color: var(--ok); }
+.np-param-state.half, .np-param-state.new { color: var(--warn); }
+.np-param-state.new { font-weight: 600; }
 
-.np-images { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* obrázky */
+.np-images { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .np-images li { display: flex; align-items: center; gap: 8px; }
-.np-images img, .np-img-wait { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--bg); }
-.np-images li.main img { outline: 2px solid var(--accent); }
+.np-images img, .np-img-wait { width: 44px; height: 44px; object-fit: cover; border-radius: 7px; background: var(--bg); }
+.np-images li.main img { outline: 2px solid var(--accent); outline-offset: 1px; }
 .np-img-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .np-img-main {
   font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
@@ -8011,35 +8103,40 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 .np-img-main.on { border-color: var(--accent); color: var(--accent); }
 /* Jedna ikona, dva směry — šipka nahoru je ta samá otočená */
-.np-images .icon-btn svg { transform: rotate(180deg); }
-.np-images .np-down svg { transform: none; }
+.np-up svg { transform: rotate(180deg); }
 
-.np-gaps { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
-.np-gaps li { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.np-gaps li.blocker { color: var(--warn); }
-.np-gaps li.warn { color: var(--text-2); }
-.np-actions { display: flex; flex-direction: column; gap: 8px; }
-.np-actions .btn { justify-content: center; }
-.np-actions .desc { margin: -2px 0 6px; }
-.np-lang-note { font-size: 12px; margin-left: 6px; }
-.np-lang-title { font-weight: 600; margin-bottom: 4px; }
-.np-lang-body { font-size: 13px; color: var(--text-2); }
+/* co ještě chybí + kroky */
+.np-gaps { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.np-gaps button {
+  display: flex; align-items: center; gap: 6px; font-size: 13px; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left; padding: 2px 4px;
+  border-radius: 6px; font-family: inherit;
+}
+.np-gaps button:hover { background: var(--bg); }
+.np-gaps button.blocker { color: var(--warn); }
+.np-gaps button.warn { color: var(--text-2); }
 
-@media (max-width: 1100px) {
+.np-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; counter-reset: krok; }
+.np-steps > li { position: relative; padding-left: 26px; opacity: .45; }
+.np-steps > li.now, .np-steps > li.done { opacity: 1; }
+.np-steps > li::before {
+  counter-increment: krok; content: counter(krok);
+  position: absolute; left: 0; top: 4px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg); color: var(--text-2); font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+.np-steps > li.done::before { content: '✓'; background: var(--ok); color: #fff; }
+.np-steps > li.now::before { background: var(--accent); color: #fff; }
+.np-steps .btn { width: 100%; justify-content: center; }
+.np-two { display: flex; gap: 6px; }
+.np-two .btn { flex: 1; }
+.np-steps .desc { margin-top: 4px; }
+
+@media (max-width: 1150px) {
   .np-wrap { grid-template-columns: 1fr; }
   .np-cols { grid-template-columns: 1fr; }
 }
-/* Textové tlačítko uvnitř nového produktu — vypadá jako odkaz, chová se jako tlačítko */
-.np-wrap button.link {
-  background: none; border: none; padding: 0; cursor: pointer;
-  color: var(--accent); font: inherit; font-size: 12px; text-decoration: underline;
-}
-.np-wrap button.link:hover { color: var(--accent-dark); }
-/* Stav parametru proti číselníku z feedu — „nový" je varování před překlepem */
-.np-param-state {
-  font-size: 11px; min-width: 76px; display: inline-flex; align-items: center; gap: 3px;
-  color: var(--text-2);
-}
-.np-param-state.ok { color: var(--ok); }
-.np-param-state.half { color: var(--warn); }
-.np-param-state.new { color: var(--warn); font-weight: 600; }
+.np-chip i { font-style: normal; font-size: 10px; text-transform: uppercase; opacity: .6; margin-right: 5px; }
+.np-lang-note { margin-bottom: 10px; }
+/* Titulní obrázek musí být poznat na první pohled — obrys u náhledu je málo */
+.np-img-main.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }

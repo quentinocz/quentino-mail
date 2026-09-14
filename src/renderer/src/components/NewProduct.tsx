@@ -1,35 +1,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import Icon from './Icon';
-import HtmlField from './HtmlField';
+import HtmlField, { HtmlFieldHandle } from './HtmlField';
 import { uploadToShop, pickForArticle } from '../shopfiles';
 import type {
-  NewProductState, NewProductDraft, NewProductSpecific, NewProductChange,
-  NewProductGap, NewProductTexts, ShopCategoryTree, PtransProduct,
+  NewProductState, NewProductDraft, NewProductChange, NewProductGap, NewProductTexts,
+  NewProductParamProposal, ShopCategoryTree, ShopCategoryItem, PtransProduct,
   ParamDictionary, ParamLookup
 } from '@shared/types';
 
 /**
  * Nový produkt.
  *
- * Vědomě to **není průvodce po krocích**. Nový produkt se nevyplňuje odshora
- * dolů: člověk vybere předlohu, přepíše barvu, vzpomene si na parametr, vrátí
- * se k názvu. Průvodce by ho nutil chodit dopředu a dozadu a pořád by nebylo
- * vidět, co ještě chybí.
+ * Aby se vyplatilo zakládat produkt tady a ne v administraci, musí být na
+ * jedné obrazovce vidět tři věci naráz: co je vyplněné, co chybí a co ještě
+ * zbývá přepsat po předloze. Proto ne průvodce po krocích — ten by pokaždé
+ * ukazoval jen jednu z nich.
  *
- * Proto je vlevo seznam „co ještě chybí" — je vidět celou dobu a rozlišuje,
- * co export zastaví a co je jen škoda.
+ * Jazyky jsou v záložkách, ne pod sebou: slovenština a angličtina vznikají
+ * překladem a dívá se do nich až na konci, kdežto čeština se píše celou dobu.
  */
 
 /** Jak dlouho se čeká, než se rozepsané pole uloží. */
 const SAVE_DELAY = 700;
 
-type Lang = string;
+/** Kam se z „co ještě chybí" skáče. */
+const GAP_SECTION: Record<string, string> = {
+  code: 'zaklad', price: 'zaklad', 'price-eur': 'zaklad',
+  category: 'kategorie',
+  title: 'texty', short: 'texty', long: 'texty', seo: 'texty', google: 'texty',
+  params: 'parametry',
+  images: 'obrazky', 'main-image': 'obrazky', upload: 'obrazky'
+};
+
+const EMPTY: NewProductTexts = {
+  title: '', short: '', long: '', seo_title: '', seo_desc: '', seo_url: '',
+  google_title: '', google_desc: ''
+};
 
 export default function NewProduct({ toast }: { toast: (text: string) => void }) {
   const [state, setState] = useState<NewProductState | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [busy, setBusy] = useState('');
 
   const load = useCallback(async () => {
     const next = await api.newProduct.state();
@@ -49,14 +60,6 @@ export default function NewProduct({ toast }: { toast: (text: string) => void })
     setActiveId(fresh.id);
   };
 
-  const remove = async (id: string) => {
-    setBusy('delete');
-    try {
-      await api.newProduct.remove(id);
-      await load();
-    } finally { setBusy(''); }
-  };
-
   if (!state) return <div className="ig-muted np-loading">Načítám…</div>;
 
   return (
@@ -67,26 +70,26 @@ export default function NewProduct({ toast }: { toast: (text: string) => void })
         </button>
         {state.drafts.length === 0 ? (
           <p className="ig-muted np-empty">
-            Zatím tu nic není. Nový produkt se dá vyplnit od nuly, ale rychlejší je
-            vybrat si podobný kus jako předlohu — texty se natáhnou a zvýrazní se v nich to,
-            co je pro předlohu specifické.
+            Nejrychlejší je vybrat podobný kus jako předlohu — texty, parametry
+            i kategorie se natáhnou a zvýrazní se, co je potřeba přepsat.
           </p>
         ) : state.drafts.map(one => (
           <button key={one.id} className={`np-item ${one.id === activeId ? 'active' : ''}`}
             onClick={() => setActiveId(one.id)}>
-            <span className="np-item-title">{one.langs.cz?.title || one.code || 'Bez názvu'}</span>
-            <span className="np-item-sub">
-              {one.code || 'bez kódu'}
-              {one.state === 'exported' ? ' · v katalogu' : ''}
+            {one.images.find(img => img.main)?.url
+              ? <img src={one.images.find(img => img.main)!.url} alt="" />
+              : <span className="np-item-noimg"><Icon name="image" size={14} /></span>}
+            <span className="np-item-text">
+              <b>{one.langs.cz?.title || 'Bez názvu'}</b>
+              <small>{one.code || 'bez kódu'}</small>
             </span>
-            <Blockers gaps={one.gaps ?? []} />
+            <Stav draft={one} />
           </button>
         ))}
       </div>
 
       {draft ? (
-        <DraftEditor key={draft.id} draft={draft} state={state} toast={toast}
-          onReload={load} onDelete={() => remove(draft.id)} busy={busy} />
+        <DraftEditor key={draft.id} draft={draft} state={state} toast={toast} onReload={load} />
       ) : (
         <div className="np-blank ig-muted">Vyber rozdělaný produkt, nebo založ nový.</div>
       )}
@@ -94,51 +97,61 @@ export default function NewProduct({ toast }: { toast: (text: string) => void })
   );
 }
 
-function Blockers({ gaps }: { gaps: NewProductGap[] }) {
-  const blockers = gaps.filter(one => one.level === 'blocker').length;
-  if (!blockers) return <span className="np-ok"><Icon name="check" size={12} /> připraveno</span>;
-  return <span className="np-todo">{blockers} {blockers === 1 ? 'věc chybí' : 'věci chybí'}</span>;
+function Stav({ draft }: { draft: NewProductDraft }) {
+  const blockers = (draft.gaps ?? []).filter(one => one.level === 'blocker').length;
+  if (draft.state === 'exported') {
+    return <span className="np-state done"><Icon name="check" size={12} /> v katalogu</span>;
+  }
+  if (blockers) return <span className="np-state todo">{blockers}×</span>;
+  return <span className="np-state ready">připraveno</span>;
 }
 
 /* ---------- editor jednoho produktu ---------- */
 
-function DraftEditor({ draft, state, toast, onReload, onDelete, busy }: {
+function DraftEditor({ draft, state, toast, onReload }: {
   draft: NewProductDraft;
   state: NewProductState;
   toast: (text: string) => void;
   onReload: () => Promise<void>;
-  onDelete: () => void;
-  busy: string;
 }) {
+  const source = state.sourceLang;
   const [local, setLocal] = useState<NewProductDraft>(draft);
   const [work, setWork] = useState('');
-  const [clash, setClash] = useState<{ taken: boolean; title: string } | null>(null);
   const [step, setStep] = useState('');
   const timer = useRef<number | null>(null);
-
-  useEffect(() => { setLocal(draft); }, [draft.id]);
+  const pending = useRef<Partial<NewProductDraft> | null>(null);
 
   useEffect(() => {
     const off = api.on('np:step', (s: any) => setStep(s?.step ?? ''));
     return off;
   }, []);
 
+  const flush = useCallback(async () => {
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
+    const patch = pending.current;
+    if (!patch) return;
+    pending.current = null;
+    try {
+      const saved = await api.newProduct.save(draft.id, patch);
+      setLocal(current => ({ ...current, gaps: saved.gaps }));
+    } catch (e: any) { toast(e?.message ?? String(e)); }
+  }, [draft.id, toast]);
+
+  useEffect(() => () => { void flush(); }, [flush]);
+
   /**
-   * Ukládá se se zpožděním, ale **vždycky výřezem**.
+   * Ukládá se výřezem a se zpožděním.
    *
-   * Kdyby se posílal celý produkt, dvě rychlé změny za sebou (napsaný název
-   * a zaškrtnutá kategorie) by si navzájem přepsaly starší hodnoty.
+   * Celý produkt by se navzájem přepisoval: dvě rychlé změny za sebou
+   * (napsaný název a zaškrtnutá kategorie) by si vrátily starší hodnoty.
    */
   const push = useCallback((patch: Partial<NewProductDraft>, now = false) => {
     setLocal(current => ({ ...current, ...patch }));
+    pending.current = { ...(pending.current ?? {}), ...patch };
     if (timer.current) window.clearTimeout(timer.current);
-    const send = async () => {
-      const saved = await api.newProduct.save(draft.id, patch);
-      setLocal(current => ({ ...current, gaps: saved.gaps }));
-    };
-    if (now) { send().catch(() => { /* okno se zavřelo */ }); return; }
-    timer.current = window.setTimeout(() => { send().catch(() => { /* nic */ }); }, SAVE_DELAY);
-  }, [draft.id]);
+    if (now) { void flush(); return; }
+    timer.current = window.setTimeout(() => { void flush(); }, SAVE_DELAY);
+  }, [flush]);
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setWork(key);
@@ -147,55 +160,44 @@ function DraftEditor({ draft, state, toast, onReload, onDelete, busy }: {
     finally { setWork(''); setStep(''); }
   };
 
-  const langs = state.langs;
-  const source = state.sourceLang;
-  const texts = local.langs[source] ?? {
-    title: '', short: '', long: '', seo_title: '', seo_desc: '', seo_url: '',
-    google_title: '', google_desc: ''
-  };
   const gaps = local.gaps ?? [];
-  const blocked = gaps.filter(one => one.level === 'blocker');
+  const blockers = gaps.filter(one => one.level === 'blocker');
+  const saved = local.state === 'exported';
 
-  const setText = (field: keyof typeof texts, value: string, now = false) =>
-    push({ langs: { [source]: { ...texts, [field]: value } } as any }, now);
-
-  const checkCode = async (code: string) => {
-    if (!code.trim()) { setClash(null); return; }
-    setClash(await api.newProduct.checkCode(code));
+  const jump = (key: string) => {
+    const id = GAP_SECTION[key.split(':')[0]] ?? 'texty';
+    document.getElementById(`np-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   return (
     <div className="np-main">
       <div className="np-head">
-        <span className="np-head-title">
-          {texts.title || local.code || 'Nový produkt'}
-        </span>
-        {local.state === 'exported'
-          ? <span className="np-badge">v katalogu</span>
-          : null}
+        <span className="np-head-title">{local.langs[source]?.title || 'Nový produkt'}</span>
+        {local.code ? <code className="np-head-code">{local.code}</code> : null}
         <span style={{ flex: 1 }} />
-        <button className="btn ghost" onClick={onDelete} disabled={busy === 'delete'}>
+        <button className="btn ghost" onClick={() => run('delete', async () => {
+          if (!window.confirm('Zahodit rozdělaný produkt?')) return;
+          await api.newProduct.remove(local.id);
+          await onReload();
+        })}>
           <Icon name="trash" size={14} /> Zahodit
         </button>
       </div>
 
       <div className="np-cols">
         <div className="np-form">
-          <Basics draft={local} clash={clash} onCode={code => { push({ code }); checkCode(code); }}
-            onPatch={push} state={state} toast={toast} work={work} run={run} onReload={onReload} />
+          <Basics draft={local} state={state} onPatch={push} toast={toast} work={work}
+            run={run} onLoaded={setLocal} />
 
-          <Categories draft={local} onPatch={push} toast={toast} />
+          <CategoryPicker draft={local} onPatch={push} toast={toast} />
 
-          <Texts draft={local} texts={texts} lang={source} onText={setText}
-            toast={toast} work={work} run={run} onPatch={push} />
+          <TextsCard draft={local} state={state} onPatch={push} toast={toast}
+            work={work} run={run} />
 
-          <Params draft={local} onPatch={push} langs={langs} toast={toast} />
+          <ParamsCard draft={local} state={state} onPatch={push} toast={toast}
+            work={work} run={run} />
 
-          <Images draft={local} onPatch={push} toast={toast} work={work} run={run} />
-
-          {langs.filter(one => one !== source).map(lang => (
-            <Translated key={lang} draft={local} lang={lang} />
-          ))}
+          <ImagesCard draft={local} onPatch={push} toast={toast} work={work} run={run} />
         </div>
 
         <aside className="np-side">
@@ -205,89 +207,122 @@ function DraftEditor({ draft, state, toast, onReload, onDelete, busy }: {
           ) : (
             <ul className="np-gaps">
               {gaps.map(one => (
-                <li key={one.key} className={one.level}>
-                  <Icon name={one.level === 'blocker' ? 'alert' : 'minus'} size={12} />
-                  {one.label}
+                <li key={one.key}>
+                  <button className={one.level} onClick={() => jump(one.key)}>
+                    <Icon name={one.level === 'blocker' ? 'alert' : 'minus'} size={12} />
+                    {one.label}
+                  </button>
                 </li>
               ))}
             </ul>
           )}
 
-          <div className="np-actions">
-            <button className="btn primary" disabled={!!work || blocked.length > 0}
-              onClick={() => run('save', async () => {
-                const out = await api.newProduct.toCatalog(local.id);
-                toast(`Produkt ${out.code} je v katalogu. Teď se dopíšou texty a překlady.`);
-                await onReload();
-              })}>
-              {work === 'save' ? <span className="spinner-inline" /> : <Icon name="save" size={14} />}
-              {' '}Uložit do katalogu
-            </button>
-            <p className="desc">
-              Zapíše produkt do katalogu překladů. Do e-shopu se tím nedostane —
-              na to je až import na konci.
-            </p>
+          <ol className="np-steps">
+            <li className={saved ? 'done' : 'now'}>
+              <button className="btn primary" disabled={!!work || blockers.length > 0 || saved}
+                onClick={() => run('save', async () => {
+                  const out = await api.newProduct.toCatalog(local.id);
+                  setLocal(out.draft);
+                  await onReload();
+                  toast(`${out.code} je v katalogu.`);
+                })}>
+                {work === 'save' ? <span className="spinner-inline" /> : <Icon name="save" size={14} />}
+                {' '}Uložit do katalogu
+              </button>
+            </li>
 
-            <button className="btn ghost" disabled={!!work || local.state !== 'exported'}
-              onClick={() => run('complete', async () => {
-                const out = await api.newProduct.complete(local.code);
-                toast(out.errors.length
-                  ? `Doplněno, ale ${out.errors.length} věcí nevyšlo: ${out.errors[0]}`
-                  : 'SEO, texty pro Google i překlady jsou hotové.');
-                await onReload();
-              })}>
-              {work === 'complete' ? <span className="spinner-inline" /> : <Icon name="sparkles" size={14} />}
-              {' '}Dopsat texty a přeložit
-            </button>
-            {work === 'complete' && step ? <p className="np-step">{step}</p> : null}
+            <li className={saved ? 'now' : ''}>
+              <button className="btn ghost" disabled={!!work || !saved}
+                onClick={() => run('complete', async () => {
+                  const out = await api.newProduct.complete(local.code);
+                  if (out.draft) setLocal(out.draft);
+                  await onReload();
+                  toast(out.errors.length
+                    ? `Hotovo, ale ${out.errors.length}× to nevyšlo: ${out.errors[0]}`
+                    : 'SEO, texty pro Google i překlady jsou dopsané.');
+                })}>
+                {work === 'complete' ? <span className="spinner-inline" /> : <Icon name="sparkles" size={14} />}
+                {' '}Dopsat SEO, Google a překlady
+              </button>
+              {work === 'complete' && step ? <p className="np-step">{step}</p> : null}
+            </li>
 
-            <button className="btn ghost" disabled={!!work || local.state !== 'exported'}
-              onClick={() => run('xml', async () => {
-                const out = await api.ptrans.export({
-                  codes: [local.code], mode: 'full', state: 'current', includeSource: true
-                });
-                toast(out ? `Uloženo do ${out.path}` : 'Uložení se zrušilo.');
-              })}>
-              {work === 'xml' ? <span className="spinner-inline" /> : <Icon name="download" size={14} />}
-              {' '}Stáhnout XML
-            </button>
-
-            <button className="btn ghost" disabled={!!work || local.state !== 'exported'}
-              onClick={() => run('import', async () => {
-                const out = await api.newProduct.openImport(local.code);
-                toast(out.note);
-              })}>
-              {work === 'import' ? <span className="spinner-inline" /> : <Icon name="upload" size={14} />}
-              {' '}Vložit do administrace
-            </button>
-            <p className="desc">
-              {/* Založení produktu v e-shopu se vzít zpátky nedá — poslední kliknutí
-                  proto zůstává na člověku, stejně jako u nahrávání fotek. */}
-              Otevře okno s importem a vloží do něj soubor. <strong>Import nespustím</strong> —
-              zkontroluj nastavení a spusť ho sám.
-            </p>
-          </div>
+            <li className={saved ? 'now' : ''}>
+              <div className="np-two">
+                <button className="btn ghost" disabled={!!work || !saved}
+                  onClick={() => run('xml', async () => {
+                    const out = await api.ptrans.export({
+                      codes: [local.code], mode: 'full', state: 'current', includeSource: true
+                    });
+                    toast(out ? `Uloženo do ${out.path}` : 'Uložení se zrušilo.');
+                  })}>
+                  <Icon name="download" size={14} /> XML
+                </button>
+                <button className="btn ghost" disabled={!!work || !saved}
+                  onClick={() => run('import', async () => {
+                    const out = await api.newProduct.openImport(local.code);
+                    toast(out.note);
+                  })}>
+                  {work === 'import' ? <span className="spinner-inline" /> : <Icon name="upload" size={14} />}
+                  {' '}Do administrace
+                </button>
+              </div>
+              <p className="desc">Import nespustím — poslední kliknutí je na tobě.</p>
+            </li>
+          </ol>
         </aside>
       </div>
     </div>
   );
 }
 
-/* ---------- základ ---------- */
+/* ---------- 1. základ ---------- */
 
-function Basics({ draft, clash, onCode, onPatch, state, toast, work, run, onReload }: {
+const CURRENCY_LABEL: Record<string, string> = {
+  CZK: 'Kč', EUR: '€', USD: '$', GBP: '£', PLN: 'zł'
+};
+
+/**
+ * Ceny se zadávají po měnách, ne po jazycích: slovenský i anglický e-shop
+ * prodávají v eurech a dvě stejná políčka „€" svádějí vyplnit jen jedno.
+ */
+function priceGroups(state: NewProductState): { currency: string; label: string; langs: string[] }[] {
+  const out: { currency: string; label: string; langs: string[] }[] = [];
+  for (const lang of state.langs) {
+    const currency = state.currencies[lang] || `?${lang}`;
+    const found = out.find(one => one.currency === currency);
+    if (found) found.langs.push(lang);
+    else out.push({
+      currency,
+      label: CURRENCY_LABEL[currency] ?? currency.replace(/^\?/, '').toUpperCase(),
+      langs: [lang]
+    });
+  }
+  return out;
+}
+
+function Basics({ draft, state, onPatch, toast, work, run, onLoaded }: {
   draft: NewProductDraft;
-  clash: { taken: boolean; title: string } | null;
-  onCode: (code: string) => void;
-  onPatch: (patch: Partial<NewProductDraft>, now?: boolean) => void;
   state: NewProductState;
+  onPatch: (patch: Partial<NewProductDraft>, now?: boolean) => void;
   toast: (text: string) => void;
   work: string;
   run: (key: string, fn: () => Promise<void>) => Promise<void>;
-  onReload: () => Promise<void>;
+  onLoaded: (draft: NewProductDraft) => void;
 }) {
+  const [clash, setClash] = useState<{ taken: boolean; title: string } | null>(null);
   const [search, setSearch] = useState('');
   const [hits, setHits] = useState<PtransProduct[]>([]);
+
+  useEffect(() => {
+    if (!draft.code.trim()) { setClash(null); return; }
+    let alive = true;
+    const id = window.setTimeout(async () => {
+      const out = await api.newProduct.checkCode(draft.code);
+      if (alive) setClash(out);
+    }, 300);
+    return () => { alive = false; window.clearTimeout(id); };
+  }, [draft.code]);
 
   useEffect(() => {
     if (!search.trim()) { setHits([]); return; }
@@ -300,87 +335,71 @@ function Basics({ draft, clash, onCode, onPatch, state, toast, work, run, onRelo
   }, [search]);
 
   return (
-    <section className="np-box">
+    <section className="np-box" id="np-zaklad">
       <h4><Icon name="bag" size={14} /> Základ</h4>
 
       <div className="np-row">
         <label className="np-field">
           <span>Kód produktu</span>
-          <input value={draft.code} onChange={e => onCode(e.target.value)}
-            placeholder="např. KR00123" />
-          {clash?.taken ? (
-            /*
-             * Import se stejným kódem nezaloží nový produkt, ale potichu
-             * přepíše ten stávající — proto se to hlásí hned u pole, ne až
-             * na konci při exportu.
-             */
-            <em className="np-warn">
-              <Icon name="alert" size={12} /> Kód už má „{clash.title}". Import by ho přepsal.
-            </em>
-          ) : draft.code.trim() ? <em className="np-ok-note">Kód je volný.</em> : null}
+          <input value={draft.code} placeholder="KR00123"
+            className={clash?.taken ? 'bad' : ''}
+            onChange={e => onPatch({ code: e.target.value })} />
+          {clash?.taken
+            ? <em className="np-warn"><Icon name="alert" size={12} /> Má ho „{clash.title}" — import by ho přepsal.</em>
+            : draft.code.trim() ? <em className="np-good">volný</em> : null}
         </label>
 
-        <label className="np-field">
-          <span>EAN <em className="ig-muted">nepovinné</em></span>
-          <input value={draft.ean} onChange={e => onPatch({ ean: e.target.value })} />
-        </label>
-
-        <label className="np-field">
-          <span>Značka</span>
-          <input value={draft.manufacturer}
-            onChange={e => onPatch({ manufacturer: e.target.value })} />
-        </label>
-      </div>
-
-      <div className="np-row">
         {priceGroups(state).map(group => (
-          <label key={group.currency} className="np-field np-price">
-            <span>Cena s DPH — {group.label}</span>
+          <label key={group.currency} className="np-field np-narrow">
+            <span>Cena s DPH ({group.label})</span>
             <input value={draft.prices[group.langs[0]] ?? ''} inputMode="decimal"
               onChange={e => {
-                /*
-                 * Jedno pole zapisuje cenu všem jazykům se stejnou měnou.
-                 * Dvě stejná políčka „€" vedle sebe (slovensky a anglicky)
-                 * svádějí k tomu vyplnit jen jedno — a druhá mutace by pak
-                 * produkt prodávala za nulu.
-                 */
                 const prices = { ...draft.prices };
                 for (const lang of group.langs) prices[lang] = e.target.value;
                 onPatch({ prices });
               }} />
           </label>
         ))}
+
+        <label className="np-field np-narrow">
+          <span>Značka</span>
+          <input value={draft.manufacturer} onChange={e => onPatch({ manufacturer: e.target.value })} />
+        </label>
+
+        <label className="np-field np-narrow">
+          <span>EAN</span>
+          <input value={draft.ean} placeholder="nepovinné"
+            onChange={e => onPatch({ ean: e.target.value })} />
+        </label>
       </div>
-      <p className="desc">
-        {/* Sklad v XML schválně není: kdyby ho nesl, každý pozdější opravný import
-            textů by po sobě přepsal počet kusů podle staré hodnoty v aplikaci. */}
-        Zásoba se sem nepíše — tu vyplníš v administraci. Import ji nikdy nepřepíše.
-      </p>
 
       <div className="np-template">
-        <span className="np-template-label"><Icon name="copy" size={13} /> Předloha</span>
+        <span className="np-label"><Icon name="copy" size={13} /> Předloha</span>
         {draft.templateCode ? (
           <span className="np-template-set">
-            {draft.templateCode}
-            <button className="link" onClick={() => onPatch({ templateCode: '' }, true)}>zrušit</button>
+            <code>{draft.templateCode}</code>
+            <button className="link" onClick={() => onPatch({ templateCode: '' }, true)}>odpojit</button>
           </span>
         ) : (
           <div className="np-pick">
             <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Najdi podobný produkt — natáhnou se z něj texty" />
+              placeholder="Najdi podobný produkt — natáhnou se texty, parametry i kategorie" />
+            {work === 'template' ? <span className="spinner-inline np-pick-spin" /> : null}
             {hits.length ? (
               <ul className="np-hits">
                 {hits.map(one => (
                   <li key={one.code}>
                     <button disabled={!!work} onClick={() => run('template', async () => {
                       const out = await api.newProduct.template(draft.id, one.code);
-                      toast(out.note || `Texty z ${one.code} jsou natažené — ${out.specifics.length} míst je specifických pro předlohu.`);
+                      onLoaded(out.draft);
                       setSearch('');
-                      await onReload();
+                      setHits([]);
+                      toast(out.note
+                        || `Z ${one.code} natažené texty · ${out.specifics.length}× je v nich něco specifického pro předlohu.`);
                     })}>
                       {one.image ? <img src={one.image} alt="" /> : <span className="np-hit-noimg" />}
                       <span className="np-hit-title">{one.title}</span>
-                      <span className="np-hit-code">{one.code}</span>
+                      <code>{one.code}</code>
                     </button>
                   </li>
                 ))}
@@ -389,36 +408,30 @@ function Basics({ draft, clash, onCode, onPatch, state, toast, work, run, onRelo
           </div>
         )}
       </div>
+
+      <p className="desc">Zásoba se sem nepíše — vyplníš ji v administraci a import ji nepřepíše.</p>
     </section>
   );
 }
 
-const CURRENCY_LABEL: Record<string, string> = {
-  CZK: 'Kč', EUR: '€', USD: '$', GBP: '£', PLN: 'zł'
-};
+/* ---------- 2. kategorie ---------- */
 
-/**
- * Ceny se zadávají po měnách, ne po jazycích.
- *
- * Slovenský a anglický e-shop prodávají obojí v eurech — dvě stejná políčka
- * vedle sebe by jen sváděla vyplnit jedno a druhé nechat prázdné.
- */
-function priceGroups(state: NewProductState): { currency: string; label: string; langs: string[] }[] {
-  const out: { currency: string; label: string; langs: string[] }[] = [];
-  for (const lang of state.langs) {
-    // Když feed měnu neuvádí, drží se jazyk sám — radši políčko navíc než
-    // cena zapsaná do měny, kterou e-shop nečeká
-    const currency = state.currencies[lang] || `?${lang}`;
-    const found = out.find(one => one.currency === currency);
-    if (found) found.langs.push(lang);
-    else out.push({ currency, label: CURRENCY_LABEL[currency] ?? currency.replace(/^\?/, '').toUpperCase(), langs: [lang] });
-  }
-  return out;
+interface CatNode extends ShopCategoryItem {
+  children: CatNode[];
 }
 
-/* ---------- kategorie ---------- */
+function buildTree(items: ShopCategoryItem[]): CatNode[] {
+  const byId = new Map<string, CatNode>();
+  for (const one of items) byId.set(one.id, { ...one, children: [] });
+  const roots: CatNode[] = [];
+  for (const one of byId.values()) {
+    const parent = one.parentId ? byId.get(one.parentId) : undefined;
+    if (parent) parent.children.push(one); else roots.push(one);
+  }
+  return roots;
+}
 
-function Categories({ draft, onPatch, toast }: {
+function CategoryPicker({ draft, onPatch, toast }: {
   draft: NewProductDraft;
   onPatch: (patch: Partial<NewProductDraft>, now?: boolean) => void;
   toast: (text: string) => void;
@@ -426,6 +439,7 @@ function Categories({ draft, onPatch, toast }: {
   const [tree, setTree] = useState<ShopCategoryTree | null>(null);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('');
+  const [open, setOpen] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async (refresh = false) => {
     setBusy(true);
@@ -436,121 +450,195 @@ function Categories({ draft, onPatch, toast }: {
 
   useEffect(() => { load(false).catch(() => { /* nic */ }); }, [load]);
 
-  // Nabízejí se jen kategorie se zbožím. Do stránek v menu („O nás", články)
-  // by se dalo zboží pověsit a v e-shopu by pak nebylo nikde.
-  const items = useMemo(() => (tree?.items ?? [])
-    .filter(one => one.holdsProducts)
-    .filter(one => !filter.trim() || one.path.toLowerCase().includes(filter.trim().toLowerCase())),
-  [tree, filter]);
+  // Nabízejí se jen kategorie se zbožím — do stránek v menu by se dalo pověsit
+  // zboží a v e-shopu by pak nebylo nikde
+  const roots = useMemo(
+    () => buildTree((tree?.items ?? []).filter(one => one.holdsProducts)),
+    [tree]
+  );
+
+  const q = filter.trim().toLowerCase();
+  const chosen = new Set(draft.categories);
 
   const toggle = (code: string) => {
-    const has = draft.categories.includes(code);
+    const has = chosen.has(code);
     const categories = has
       ? draft.categories.filter(one => one !== code)
       : [...draft.categories, code];
-    onPatch({ categories, mainCategory: has && draft.mainCategory === code ? '' : draft.mainCategory }, true);
+    const main = has && draft.mainCategory === code ? (categories[0] ?? '') : draft.mainCategory;
+    onPatch({ categories, mainCategory: main || categories[0] || '' }, true);
   };
 
+  const nameOf = (one: CatNode) => one.names.cz || one.code;
+
+  /** Kolik vybraných je pod uzlem (i v něm samotném). */
+  const countIn = (node: CatNode): number =>
+    (chosen.has(node.code) ? 1 : 0) + node.children.reduce((sum, kid) => sum + countIn(kid), 0);
+
+  const matches = (node: CatNode): boolean =>
+    !q || node.path.toLowerCase().includes(q) || node.children.some(matches);
+
+  const render = (node: CatNode, depth: number): JSX.Element | null => {
+    if (!matches(node)) return null;
+    const on = chosen.has(node.code);
+    const inside = countIn(node);
+    // Rozbalí se samo tam, kde něco je: vybraná podkategorie schovaná
+    // v zabalené větvi by vypadala, že vybraná není
+    const shown = open[node.code] ?? (!!q || inside > 0);
+    return (
+      <li key={node.code}>
+        <div className="np-cat" style={{ paddingLeft: depth * 18 }}>
+          {node.children.length ? (
+            <button className={`np-cat-toggle ${shown ? 'open' : ''}`}
+              onClick={() => setOpen(o => ({ ...o, [node.code]: !shown }))}>
+              <Icon name="chevDown" size={12} />
+            </button>
+          ) : <span className="np-cat-toggle empty" />}
+
+          <label>
+            <input type="checkbox" checked={on} onChange={() => toggle(node.code)} />
+            <span>{nameOf(node)}</span>
+          </label>
+
+          {on ? (
+            <button className={`np-main-cat ${draft.mainCategory === node.code ? 'on' : ''}`}
+              onClick={() => onPatch({ mainCategory: node.code }, true)}
+              title="Hlavní kategorie určuje adresu produktu a drobečkovou navigaci">
+              <Icon name="star" size={11} /> hlavní
+            </button>
+          ) : inside && !shown ? <span className="np-cat-count">{inside}</span> : null}
+        </div>
+        {shown && node.children.length ? (
+          <ul>{node.children.map(kid => render(kid, depth + 1))}</ul>
+        ) : null}
+      </li>
+    );
+  };
+
+  const picked = (tree?.items ?? []).filter(one => chosen.has(one.code));
+
   return (
-    <section className="np-box">
+    <section className="np-box" id="np-kategorie">
       <h4>
         <Icon name="folder" size={14} /> Kategorie
-        <button className="link np-refresh" disabled={busy} onClick={() => load(true)}>
-          {busy ? 'načítám…' : 'načíst znovu'}
+        <span className="np-count">{picked.length}</span>
+        <button className="link np-right" disabled={busy} onClick={() => load(true)}>
+          {busy ? 'načítám…' : 'načíst z e-shopu'}
         </button>
       </h4>
 
       {!tree ? (
-        <p className="ig-muted">
-          Kategorie se berou z exportu kategorií. Adresu vyplň v Nastavení → Produkty.
-        </p>
+        <p className="ig-muted">Adresu exportu kategorií vyplň v Nastavení → AI.</p>
       ) : (
         <>
+          {picked.length ? (
+            <div className="np-chosen">
+              {picked.map(one => (
+                <span key={one.code}
+                  className={`np-chip-cat ${draft.mainCategory === one.code ? 'main' : ''}`}>
+                  {draft.mainCategory === one.code ? <Icon name="star" size={11} /> : null}
+                  {one.path}
+                  <button onClick={() => toggle(one.code)}><Icon name="x" size={11} /></button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+
           <input className="np-filter" value={filter} onChange={e => setFilter(e.target.value)}
             placeholder="Hledat kategorii" />
-          <ul className="np-cats">
-            {items.map(one => {
-              const on = draft.categories.includes(one.code);
-              return (
-                <li key={one.code} style={{ paddingLeft: 6 + one.depth * 16 }}>
-                  <label>
-                    <input type="checkbox" checked={on} onChange={() => toggle(one.code)} />
-                    <span>{one.names.cz || one.code}</span>
-                  </label>
-                  {on ? (
-                    <button className={`np-main-cat ${draft.mainCategory === one.code ? 'on' : ''}`}
-                      onClick={() => onPatch({ mainCategory: one.code }, true)}
-                      title="Hlavní kategorie — určuje adresu produktu a drobečkovou navigaci">
-                      <Icon name="star" size={12} /> hlavní
-                    </button>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-          {draft.categories.length && !draft.mainCategory ? (
-            <em className="np-warn"><Icon name="alert" size={12} /> Vyber hlavní kategorii.</em>
-          ) : null}
+          <ul className="np-cats">{roots.map(one => render(one, 0))}</ul>
         </>
       )}
     </section>
   );
 }
 
-/* ---------- texty ---------- */
+/* ---------- 3. texty ---------- */
 
 const FIELD_LABELS: Record<string, string> = {
   title: 'Název', short: 'Krátký popis', long: 'Dlouhý popis'
 };
 
-function Texts({ draft, texts, lang, onText, toast, work, run, onPatch }: {
+/** Kratší podoba do štítků — „Modrá" se stejným zněním bývá ve dvou polích. */
+const FIELD_SHORT: Record<string, string> = {
+  title: 'název', short: 'krátký', long: 'dlouhý'
+};
+
+function TextsCard({ draft, state, onPatch, toast, work, run }: {
   draft: NewProductDraft;
-  texts: NewProductTexts;
-  lang: Lang;
-  onText: (field: any, value: string, now?: boolean) => void;
+  state: NewProductState;
+  onPatch: (patch: Partial<NewProductDraft>, now?: boolean) => void;
   toast: (text: string) => void;
   work: string;
   run: (key: string, fn: () => Promise<void>) => Promise<void>;
-  onPatch: (patch: Partial<NewProductDraft>, now?: boolean) => void;
 }) {
+  const source = state.sourceLang;
+  const [lang, setLang] = useState(source);
   const [changes, setChanges] = useState<NewProductChange[] | null>(null);
-  const selection = useSelection();
+  const [picked, setPicked] = useState<{ field: 'short' | 'long'; text: string } | null>(null);
+  const [hint, setHint] = useState('');
+  const fields = useRef<Record<string, HtmlFieldHandle | null>>({});
+
+  const texts = draft.langs[lang] ?? EMPTY;
+  const setText = (field: keyof NewProductTexts, value: string, now = false) =>
+    onPatch({ langs: { ...draft.langs, [lang]: { ...texts, [field]: value } } }, now);
 
   /*
-   * Specifikum se nepovažuje za vyřešené podle toho, že na něj někdo klikl,
-   * ale podle toho, jestli je jeho text pořád v poli. Odškrtávání rukou by
-   * se dalo odbýt — tohle ne.
+   * Specifika se hlídají jen ve zdrojovém jazyce — v překladech se stejně
+   * přepisují spolu s ním. Za vyřešené se bere to, co v poli doopravdy není;
+   * odškrtnout rukou nejde, aby se to nedalo odbýt.
    */
-  const open = draft.specifics.filter(one => ((texts as any)[one.field] ?? '').includes(one.text));
+  const specifics = lang === source ? draft.specifics : [];
+  const left = specifics.filter(one => ((texts as any)[one.field] ?? '').includes(one.text));
 
-  const rewrite = (field: string, html: boolean) => run('rewrite', async () => {
-    const full = (texts as any)[field] ?? '';
-    const picked = selection.current;
-    if (!picked) throw new Error('Nejdřív označ kus textu, který se má přepsat.');
-    if (!full.includes(picked)) {
-      throw new Error('Označený text se v poli nenašel celý — označ raději celou větu v jednom odstavci.');
+  const rewrite = () => run('rewrite', async () => {
+    if (!picked) return;
+    const handle = fields.current[picked.field];
+    if (!handle) return;
+    const next = await api.newProduct.rewrite({
+      full: handle.plain(), selection: picked.text, instruction: hint.trim() || undefined
+    });
+    if (!handle.replaceSelection(next)) {
+      throw new Error('Výběr už neplatí — označ text znovu.');
     }
-    const next = await api.newProduct.rewrite({ full, selection: picked, html });
-    onText(field, full.replace(picked, next), true);
-    toast('Přepsáno. Kdyby to nesedělo, Cmd+Z to vrátí.');
+    setPicked(null);
+    setHint('');
   });
 
   return (
-    <section className="np-box">
-      <h4><Icon name="pen" size={14} /> Texty ({lang.toUpperCase()})</h4>
+    <section className="np-box" id="np-texty">
+      <h4>
+        <Icon name="pen" size={14} /> Texty
+        <div className="ig-seg np-langs np-right">
+          {state.langs.map(one => {
+            const filled = !!(draft.langs[one]?.title || '').trim();
+            return (
+              <button key={one} className={one === lang ? 'active' : ''} onClick={() => setLang(one)}>
+                {one.toUpperCase()}
+                {one !== source && !filled ? <i className="np-dot" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      </h4>
 
-      {draft.specifics.length ? (
+      {lang !== source && !texts.title.trim() ? (
+        <p className="ig-muted np-lang-note">Doplní se překladem po uložení do katalogu.</p>
+      ) : null}
+
+      {specifics.length ? (
         <div className="np-specifics">
-          <span className="np-spec-head">
-            Z předlohy — {open.length ? `${open.length} ještě beze změny` : 'všechno přepsané'}
+          <span className="np-label">
+            {left.length ? `Z předlohy zbývá přepsat ${left.length}` : 'Z předlohy je vše přepsané'}
           </span>
-          {draft.specifics.map((one, index) => {
+          {specifics.map((one, index) => {
             const still = ((texts as any)[one.field] ?? '').includes(one.text);
             return (
               <span key={index} className={`np-chip ${still ? '' : 'done'}`}
                 title={`${FIELD_LABELS[one.field] ?? one.field} · ${one.why}`}>
                 {still ? null : <Icon name="check" size={11} />}
-                {one.text.length > 42 ? `${one.text.slice(0, 42)}…` : one.text}
+                <i>{FIELD_SHORT[one.field] ?? one.field}</i>
+                {one.text.length > 38 ? `${one.text.slice(0, 38)}…` : one.text}
               </span>
             );
           })}
@@ -559,25 +647,21 @@ function Texts({ draft, texts, lang, onText, toast, work, run, onPatch }: {
 
       <label className="np-field">
         <span>Název</span>
-        <input value={texts.title} onChange={e => onText('title', e.target.value)} />
-      </label>
-
-      {draft.templateCode ? (
-        <div className="np-propose">
-          <button className="btn ghost" disabled={!!work || !texts.title.trim()}
-            onClick={() => run('title', async () => {
-              const out = await api.newProduct.titleProposal(draft.id, lang);
-              setChanges(out);
-              if (out.length === 0) toast('Podle nového názvu není co měnit.');
-            })}>
-            {work === 'title' ? <span className="spinner-inline" /> : <Icon name="brain" size={14} />}
-            {' '}Projít texty podle nového názvu
-          </button>
-          <span className="desc">
-            Vrátí návrhy „tohle → tohle". Nic se nepřepíše samo.
-          </span>
+        <div className="np-title-row">
+          <input value={texts.title} onChange={e => setText('title', e.target.value)} />
+          {draft.templateCode && lang === source ? (
+            <button className="btn ghost" disabled={!!work || !texts.title.trim()}
+              onClick={() => run('title', async () => {
+                const out = await api.newProduct.titleProposal(draft.id, lang);
+                setChanges(out);
+                if (out.length === 0) toast('Podle nového názvu není v textech co měnit.');
+              })}>
+              {work === 'title' ? <span className="spinner-inline" /> : <Icon name="brain" size={14} />}
+              {' '}Sladit texty s názvem
+            </button>
+          ) : null}
         </div>
-      ) : null}
+      </label>
 
       {changes?.length ? (
         <ul className="np-changes">
@@ -587,11 +671,11 @@ function Texts({ draft, texts, lang, onText, toast, work, run, onPatch }: {
               <span className="np-change-before">{one.before}</span>
               <Icon name="chevRight" size={12} />
               <span className="np-change-after">{one.after}</span>
-              {one.why ? <em className="np-change-why">{one.why}</em> : null}
-              <button className="btn ghost np-change-take" onClick={() => {
+              {one.why ? <em>{one.why}</em> : null}
+              <button className="btn ghost" onClick={() => {
                 const full = (texts as any)[one.field] ?? '';
                 if (!full.includes(one.before)) { toast('Text se mezitím změnil — návrh už nesedí.'); return; }
-                onText(one.field, full.replace(one.before, one.after), true);
+                setText(one.field as keyof NewProductTexts, full.replace(one.before, one.after), true);
                 setChanges(list => (list ?? []).filter((_x, i) => i !== index));
               }}>Použít</button>
               <button className="link" onClick={() =>
@@ -602,96 +686,145 @@ function Texts({ draft, texts, lang, onText, toast, work, run, onPatch }: {
       ) : null}
 
       {(['short', 'long'] as const).map(field => (
-        <div key={field} className="np-html" ref={selection.attach}>
-          <div className="np-html-head">
-            <span>{FIELD_LABELS[field]}</span>
-            <button className="btn ghost" disabled={!!work}
-              // Výběr zmizí, jakmile tlačítko dostane zaměření — proto se
-              // kliknutí bere už na stisknutí myši a zaměření se nepřebírá
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => rewrite(field, true)}>
-              {work === 'rewrite' ? <span className="spinner-inline" /> : <Icon name="sparkles" size={13} />}
-              {' '}Přepsat výběr podle zbytku
-            </button>
-          </div>
-          <HtmlField value={texts[field] ?? ''} rows={field === 'long' ? 14 : 6}
-            onChange={value => onText(field, value)} />
+        <div key={field} className="np-field">
+          <span>{FIELD_LABELS[field]}</span>
+          <HtmlField
+            ref={el => { fields.current[field] = el; }}
+            value={texts[field] ?? ''}
+            rows={field === 'long' ? 14 : 6}
+            onChange={value => setText(field, value)}
+            onSelect={text => setPicked(text.trim() ? { field, text } : null)}
+          />
+          {/*
+            * Nabídka na přepis se ukazuje jen tam, kde je zrovna označeno.
+            * Tlačítko, které je vidět pořád a skoro vždy nejde zmáčknout,
+            * vypadá jako rozbité.
+            */}
+          {picked?.field === field ? (
+            <div className="np-rewrite">
+              <Icon name="sparkles" size={13} />
+              <span className="np-rewrite-text">
+                „{picked.text.length > 60 ? `${picked.text.slice(0, 60)}…` : picked.text}"
+              </span>
+              <input value={hint} placeholder="volitelně: jak to přepsat"
+                onChange={e => setHint(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); rewrite(); } }} />
+              <button className="btn primary" disabled={!!work}
+                onMouseDown={e => e.preventDefault()} onClick={rewrite}>
+                {work === 'rewrite' ? <span className="spinner-inline" /> : null} Přepsat
+              </button>
+            </div>
+          ) : null}
         </div>
       ))}
 
       <div className="np-row">
         <label className="np-field">
           <span>SEO titulek</span>
-          <input value={texts.seo_title} onChange={e => onText('seo_title', e.target.value)}
-            placeholder="doplní se sám" />
+          <input value={texts.seo_title} placeholder="dopíše se"
+            onChange={e => setText('seo_title', e.target.value)} />
         </label>
         <label className="np-field">
           <span>SEO popis</span>
-          <input value={texts.seo_desc} onChange={e => onText('seo_desc', e.target.value)}
-            placeholder="doplní se sám" />
+          <input value={texts.seo_desc} placeholder="dopíše se"
+            onChange={e => setText('seo_desc', e.target.value)} />
         </label>
       </div>
-      <p className="desc">
-        SEO i texty pro Google se dopíšou z českých popisů po uložení do katalogu —
-        vyplňovat je ručně má smysl, jen když chceš něco konkrétního.
-      </p>
+      <div className="np-row">
+        <label className="np-field">
+          <span>Google titulek</span>
+          <input value={texts.google_title} placeholder="dopíše se"
+            onChange={e => setText('google_title', e.target.value)} />
+        </label>
+        <label className="np-field">
+          <span>Google popis</span>
+          <input value={texts.google_desc} placeholder="dopíše se"
+            onChange={e => setText('google_desc', e.target.value)} />
+        </label>
+      </div>
     </section>
   );
 }
 
-/**
- * Poslední označený text uvnitř sledované oblasti.
- *
- * Výběr se musí pamatovat: jakmile se klikne na tlačítko, prohlížeč ho zruší.
- * Sleduje se proto `selectionchange` a drží se poslední neprázdný výběr,
- * který spadá dovnitř pole.
- */
-function useSelection() {
-  const boxes = useRef<HTMLElement[]>([]);
-  const current = useRef('');
+/* ---------- 4. parametry ---------- */
 
-  useEffect(() => {
-    const onChange = () => {
-      const sel = document.getSelection();
-      const text = sel?.toString() ?? '';
-      if (!text.trim() || !sel?.anchorNode) return;
-      const inside = boxes.current.some(box => box.contains(sel.anchorNode));
-      if (inside) current.current = text;
-    };
-    document.addEventListener('selectionchange', onChange);
-    return () => document.removeEventListener('selectionchange', onChange);
-  }, []);
-
-  return {
-    attach: (el: HTMLElement | null) => {
-      if (el && !boxes.current.includes(el)) boxes.current.push(el);
-    },
-    get current() { return current.current; }
-  };
+function keyOf(text: string): string {
+  return text.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
 
-/* ---------- parametry ---------- */
+/**
+ * Políčko s nabídkou.
+ *
+ * Ne `<input list>`: prohlížeč v něm nabízí jen to, co odpovídá napsanému
+ * textu, takže u vyplněného políčka není vidět nic. Tady se tlačítkem
+ * otevře **celá** nabídka a psaním se teprve filtruje.
+ */
+function Suggest({ value, onChange, options, placeholder }: {
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
 
-function Params({ draft, onPatch, langs, toast }: {
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const shown = typing && value.trim()
+    ? options.filter(one => keyOf(one).includes(keyOf(value)))
+    : options;
+
+  return (
+    <div className="np-suggest" ref={box}>
+      <input value={value} placeholder={placeholder}
+        onChange={e => { setTyping(true); setOpen(true); onChange(e.target.value); }}
+        onFocus={() => { setTyping(false); setOpen(true); }} />
+      <button className="np-suggest-open" tabIndex={-1}
+        onMouseDown={e => e.preventDefault()}
+        onClick={() => { setTyping(false); setOpen(o => !o); }}>
+        <Icon name="chevDown" size={12} />
+      </button>
+      {open && shown.length ? (
+        <ul className="np-suggest-list">
+          {shown.slice(0, 60).map(one => (
+            <li key={one}>
+              <button onMouseDown={e => e.preventDefault()}
+                onClick={() => { onChange(one); setOpen(false); setTyping(false); }}>
+                {one}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function ParamsCard({ draft, state, onPatch, toast, work, run }: {
   draft: NewProductDraft;
+  state: NewProductState;
   onPatch: (patch: Partial<NewProductDraft>, now?: boolean) => void;
-  langs: string[];
   toast: (text: string) => void;
+  work: string;
+  run: (key: string, fn: () => Promise<void>) => Promise<void>;
 }) {
   const [dict, setDict] = useState<ParamDictionary | null>(null);
   const [known, setKnown] = useState<Record<number, ParamLookup>>({});
-  const [busy, setBusy] = useState(false);
+  const [ideas, setIdeas] = useState<NewProductParamProposal[] | null>(null);
 
   const load = useCallback(async () => {
     try { setDict(await api.newProduct.params()); } catch { /* číselník je pomoc, ne podmínka */ }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  /*
-   * U každého řádku se ptáme číselníku, jestli takový parametr v e-shopu
-   * vůbec je. Je to jediný způsob, jak před uložením poznat překlep — „Šíře"
-   * místo „Šířka" se jinak projeví až tím, že produkt vypadne z filtru.
-   */
   useEffect(() => {
     let alive = true;
     const id = window.setTimeout(async () => {
@@ -706,98 +839,100 @@ function Params({ draft, onPatch, langs, toast }: {
     return () => { alive = false; window.clearTimeout(id); };
   }, [draft.params]);
 
-  const set = (index: number, patch: { name?: string; value?: string }) => {
-    const params = draft.params.map((one, i) => i === index ? { ...one, ...patch } : one);
-    onPatch({ params });
-  };
-  const add = () => onPatch({ params: [...draft.params, { name: '', value: '' }] }, true);
-  const drop = (index: number) =>
-    onPatch({ params: draft.params.filter((_one, i) => i !== index) }, true);
+  const names = (dict?.names ?? []).map(one => one.langs.cz ?? one.key);
+  const valuesFor = (name: string) => (dict?.values ?? [])
+    .filter(one => one.nameKey === keyOf(name))
+    .map(one => one.langs.cz ?? one.key);
 
-  const valuesFor = (name: string) => {
-    const key = name.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    return (dict?.values ?? []).filter(one => one.nameKey === key);
-  };
+  const set = (index: number, patch: { name?: string; value?: string }) =>
+    onPatch({ params: draft.params.map((one, i) => i === index ? { ...one, ...patch } : one) });
+
+  const add = (name = '', value = '') =>
+    onPatch({ params: [...draft.params, { name, value }] }, true);
 
   return (
-    <section className="np-box">
+    <section className="np-box" id="np-parametry">
       <h4>
-        <Icon name="sliders" size={14} /> Parametry a vlastnosti
-        <button className="link np-refresh" disabled={busy} onClick={async () => {
-          setBusy(true);
-          try {
-            const out = await api.newProduct.relearnParams();
-            await load();
-            toast(`Číselník má ${out.names} parametrů a ${out.values} hodnot.`);
-          } catch (e: any) { toast(e?.message ?? String(e)); }
-          finally { setBusy(false); }
-        }}>{busy ? 'čtu feed…' : 'načíst z feedu'}</button>
+        <Icon name="sliders" size={14} /> Parametry
+        <span className="np-count">{draft.params.length}</span>
+        <button className="btn ghost np-right" disabled={!!work}
+          onClick={() => run('params', async () => {
+            const out = await api.newProduct.proposeParams(draft.id);
+            setIdeas(out);
+            if (out.length === 0) toast('Z popisu se nedá vyčíst žádný další parametr.');
+          })}>
+          {work === 'params' ? <span className="spinner-inline" /> : <Icon name="brain" size={14} />}
+          {' '}Vyčíst z popisu
+        </button>
       </h4>
+
+      {ideas?.length ? (
+        <ul className="np-ideas">
+          {ideas.map((one, index) => (
+            <li key={`${one.name}-${index}`}>
+              <b>{one.name}</b>
+              <span>{one.value}</span>
+              {one.known ? null : <em className="np-warn">nový parametr</em>}
+              {one.why ? <em>{one.why}</em> : null}
+              <button className="btn ghost" onClick={() => {
+                add(one.name, one.value);
+                setIdeas(list => (list ?? []).filter((_x, i) => i !== index));
+              }}>Přidat</button>
+              <button className="link" onClick={() =>
+                setIdeas(list => (list ?? []).filter((_x, i) => i !== index))}>Ne</button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {draft.params.length === 0 ? (
         <p className="ig-muted">Zatím žádné. Z předlohy se natáhnou i s hodnotami.</p>
       ) : (
         <ul className="np-params">
-          {draft.params.map((one, index) => {
-            const found = known[index];
-            const values = valuesFor(one.name);
-            return (
-              <li key={index} className={one.fromTemplate ? 'from-template' : ''}>
-                <input value={one.name} placeholder="Název (Barva)" list={`np-names-${index}`}
-                  onChange={e => set(index, { name: e.target.value })} />
-                <datalist id={`np-names-${index}`}>
-                  {(dict?.names ?? []).map(entry => (
-                    <option key={entry.key} value={entry.langs.cz ?? entry.key} />
-                  ))}
-                </datalist>
-
-                <input value={one.value} placeholder="Hodnota (modrá)" list={`np-values-${index}`}
-                  onChange={e => set(index, { value: e.target.value })} />
-                <datalist id={`np-values-${index}`}>
-                  {values.map(entry => (
-                    <option key={entry.key} value={entry.langs.cz ?? entry.key} />
-                  ))}
-                </datalist>
-
-                <ParamState found={found} langs={langs} />
-                <button className="icon-btn" title="Smazat" onClick={() => drop(index)}>
-                  <Icon name="trash" size={13} />
-                </button>
-              </li>
-            );
-          })}
+          {draft.params.map((one, index) => (
+            <li key={index} className={one.fromTemplate ? 'from-template' : ''}>
+              <Suggest value={one.name} options={names} placeholder="Barva"
+                onChange={name => set(index, { name })} />
+              <Suggest value={one.value} options={valuesFor(one.name)} placeholder="zelená"
+                onChange={value => set(index, { value })} />
+              <ParamState found={known[index]} langs={state.langs} />
+              <button className="icon-btn" title="Smazat"
+                onClick={() => onPatch({ params: draft.params.filter((_x, i) => i !== index) }, true)}>
+                <Icon name="trash" size={13} />
+              </button>
+            </li>
+          ))}
         </ul>
       )}
-      <button className="btn ghost" onClick={add}><Icon name="plus" size={13} /> Přidat parametr</button>
-      <p className="desc">
-        {/* „Barva" vedle „barva" jsou pro e-shop dva parametry: rozpadne se
-            filtrování v kategorii a v Google Nákupech to vypadá jako dva
-            nesouvisející produkty. */}
-        Nabídka se skládá z toho, co ve feedu doopravdy je — i s překlady. Co číselník zná,
-        se zapíše do XML rovnou slovensky i anglicky; co ne, dopřekládá se s texty.
-      </p>
+
+      <div className="np-row">
+        <button className="btn ghost" onClick={() => add()}>
+          <Icon name="plus" size={13} /> Přidat ručně
+        </button>
+        <button className="link" onClick={async () => {
+          const out = await api.newProduct.relearnParams();
+          await load();
+          toast(`Číselník má ${out.names} parametrů a ${out.values} hodnot.`);
+        }}>obnovit číselník z feedu</button>
+      </div>
     </section>
   );
 }
 
-/** Ukazatel „tenhle parametr e-shop zná / nezná" u jednoho řádku. */
+/** Stav parametru proti číselníku z feedu — „nový" je varování před překlepem. */
 function ParamState({ found, langs }: { found?: ParamLookup; langs: string[] }) {
   if (!found) return <span className="np-param-state" />;
   if (!found.knownName) {
     return (
-      <span className="np-param-state new" title="Takový parametr v e-shopu zatím není — zkontroluj překlep">
+      <span className="np-param-state new" title="Takový parametr v e-shopu není — zkontroluj překlep">
         <Icon name="plus" size={11} /> nový
       </span>
     );
   }
-  const missing = langs.filter(lang => lang !== 'cz' && !(found.value[lang] ?? found.name[lang]));
   if (!found.knownValue) {
-    return (
-      <span className="np-param-state half" title="Parametr e-shop zná, tuhle hodnotu ještě ne">
-        nová hodnota
-      </span>
-    );
+    return <span className="np-param-state half" title="Parametr e-shop zná, tuhle hodnotu ještě ne">nová hodnota</span>;
   }
+  const missing = langs.filter(lang => lang !== 'cz' && !(found.value[lang] ?? found.name[lang]));
   return (
     <span className={`np-param-state ${missing.length ? 'half' : 'ok'}`}
       title={missing.length ? `Chybí překlad: ${missing.join(', ').toUpperCase()}` : 'Zná ho e-shop i ve všech jazycích'}>
@@ -806,9 +941,9 @@ function ParamState({ found, langs }: { found?: ParamLookup; langs: string[] }) 
   );
 }
 
-/* ---------- obrázky ---------- */
+/* ---------- 5. obrázky ---------- */
 
-function Images({ draft, onPatch, toast, work, run }: {
+function ImagesCard({ draft, onPatch, toast, work, run }: {
   draft: NewProductDraft;
   onPatch: (patch: Partial<NewProductDraft>, now?: boolean) => void;
   toast: (text: string) => void;
@@ -821,12 +956,11 @@ function Images({ draft, onPatch, toast, work, run }: {
     const files = await pickForArticle();
     if (files.length === 0) return;
     const uploaded = await uploadToShop(files, setStep);
-    const images = [...draft.images, ...uploaded.map((one, index) => ({
-      url: one.url,
-      name: one.name,
-      main: draft.images.length === 0 && index === 0
-    }))];
-    onPatch({ images }, true);
+    onPatch({
+      images: [...draft.images, ...uploaded.map((one, index) => ({
+        url: one.url, name: one.name, main: draft.images.length === 0 && index === 0
+      }))]
+    }, true);
     setStep('');
     toast(`Nahráno ${uploaded.length} ${uploaded.length === 1 ? 'obrázek' : 'obrázků'}.`);
   });
@@ -840,8 +974,18 @@ function Images({ draft, onPatch, toast, work, run }: {
   };
 
   return (
-    <section className="np-box">
-      <h4><Icon name="image" size={14} /> Obrázky</h4>
+    <section className="np-box" id="np-obrazky">
+      <h4>
+        <Icon name="image" size={14} /> Obrázky
+        <span className="np-count">{draft.images.length}</span>
+        <button className="btn ghost np-right" disabled={!!work} onClick={pick}>
+          {work === 'images' ? <span className="spinner-inline" /> : <Icon name="upload" size={14} />}
+          {' '}Z počítače
+        </button>
+      </h4>
+
+      {step ? <p className="np-step">{step}</p> : null}
+
       {draft.images.length ? (
         <ul className="np-images">
           {draft.images.map((one, index) => (
@@ -852,12 +996,12 @@ function Images({ draft, onPatch, toast, work, run }: {
                 onClick={() => onPatch({
                   images: draft.images.map((x, i) => ({ ...x, main: i === index }))
                 }, true)}>
-                <Icon name="star" size={12} /> titulní
+                <Icon name="star" size={11} /> titulní
               </button>
-              <button className="icon-btn" onClick={() => move(index, -1)} title="Nahoru">
+              <button className="icon-btn np-up" onClick={() => move(index, -1)} title="Nahoru">
                 <Icon name="chevDown" size={13} />
               </button>
-              <button className="icon-btn np-down" onClick={() => move(index, 1)} title="Dolů">
+              <button className="icon-btn" onClick={() => move(index, 1)} title="Dolů">
                 <Icon name="chevDown" size={13} />
               </button>
               <button className="icon-btn" title="Odebrat"
@@ -867,40 +1011,9 @@ function Images({ draft, onPatch, toast, work, run }: {
             </li>
           ))}
         </ul>
-      ) : <p className="ig-muted">Zatím žádné.</p>}
-
-      <button className="btn ghost" disabled={!!work} onClick={pick}>
-        {work === 'images' ? <span className="spinner-inline" /> : <Icon name="upload" size={14} />}
-        {' '}Obrázky z počítače
-      </button>
-      {step ? <p className="np-step">{step}</p> : null}
-      <p className="desc">
-        Převedou se na WebP, nahrají do souborů na e-shopu a adresa se přečte zpátky —
-        skládat ji nejde, Upgates soubory při nahrání přejmenuje.
-      </p>
-    </section>
-  );
-}
-
-/* ---------- hotové překlady ---------- */
-
-function Translated({ draft, lang }: { draft: NewProductDraft; lang: Lang }) {
-  const texts = draft.langs[lang];
-  const filled = texts && (texts.title?.trim() || texts.long?.trim());
-  return (
-    <section className="np-box np-lang">
-      <h4>
-        <Icon name="globe" size={14} /> {lang.toUpperCase()}
-        {filled ? null : <span className="ig-muted np-lang-note">zatím nepřeloženo</span>}
-      </h4>
-      {filled ? (
-        <>
-          <div className="np-lang-title">{texts.title}</div>
-          <div className="np-lang-body" dangerouslySetInnerHTML={{ __html: texts.short || '' }} />
-        </>
       ) : (
         <p className="ig-muted">
-          Doplní se po uložení do katalogu tlačítkem „Dopsat texty a přeložit".
+          Převedou se na WebP, nahrají na e-shop a adresa se přečte zpátky.
         </p>
       )}
     </section>

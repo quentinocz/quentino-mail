@@ -343,6 +343,44 @@ ok('a zůstane prázdná, ať si ji Upgates doplní z názvu',
 // Odkaz na produkt v popisu je taky adresa předlohy
 ok('odkaz na produkt v popisu se vyprázdní', !xmlOut.includes('/p/kr00100'), xmlOut);
 
+/* ---------- uložení do katalogu a načtení zpátky ---------- */
+
+console.log('\nuložení do katalogu:');
+{
+  const np = require(path.join(DIST, 'ptrans/newproduct/index.js'));
+  const draftMod2 = require(path.join(DIST, 'ptrans/newproduct/draft.js'));
+
+  const rozdelany = draftMod2.newDraft();
+  draftMod2.saveDraft(rozdelany.id, {
+    code: draft.code, templateCode: draft.templateCode, manufacturer: draft.manufacturer,
+    categories: draft.categories, mainCategory: draft.mainCategory,
+    images: draft.images, params: draft.params, prices: draft.prices,
+    langs: { cz: draft.langs.cz }
+  });
+
+  const out = np.saveToCatalog(rozdelany.id);
+  check('produkt je v katalogu', out.code, 'KR00999');
+  /*
+   * Odpověď nese celý produkt, ne jen kód. Rozhraní si rozdělaný produkt drží
+   * v místní kopii a bez toho v ní zůstalo „ještě neuloženo" — tlačítka na
+   * doplnění textů a na import zůstávala šedá, dokud se okno nezavřelo
+   * a neotevřelo znovu.
+   */
+  check('a vrátí se i jeho nový stav', out.draft.state, 'exported');
+
+  // Doplnění zapisuje do katalogu; rozhraní ukazuje rozdělaný produkt. Bez
+  // načtení zpátky doběhlo doplnění i překlad a na obrazovce se nezměnilo nic.
+  store.saveTranslation('KR00999', 'cz', 'seo_title', 'Kravata zelená | Quentino', '', true);
+  store.saveTranslation('KR00999', 'sk', 'title', 'Kravata zelená hladká', '', true);
+
+  const nacteny = np.readBack('KR00999');
+  check('dopsaný SEO titulek se vrátí do formuláře',
+    nacteny.langs.cz.seo_title, 'Kravata zelená | Quentino');
+  check('a překlad taky', nacteny.langs.sk.title, 'Kravata zelená hladká');
+  // Co člověk napsal, doplnění nepřepisuje prázdnem
+  check('napsaný název zůstane', nacteny.langs.cz.title, 'Kravata zelená hladká');
+}
+
 /* ---------- co ještě chybí ---------- */
 
 console.log('\nco ještě chybí:');

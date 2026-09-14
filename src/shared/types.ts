@@ -3207,6 +3207,15 @@ export interface ParamLookup {
   knownValue: boolean;
 }
 
+/** Parametr navržený z popisu — čeká na potvrzení. */
+export interface NewProductParamProposal {
+  name: string;
+  value: string;
+  why: string;
+  /** Zná takový parametr e-shop? Neznámý bývá překlep. */
+  known: boolean;
+}
+
 export interface NewProductState {
   drafts: NewProductDraft[];
   langs: string[];

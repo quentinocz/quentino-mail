@@ -1338,8 +1338,12 @@
           names: { cz: 'Kravaty' }, holdsProducts: true, depth: 1, path: 'Doplňky / Kravaty' },
         { code: 'K00029', id: '29', parentId: '10', active: true, type: 'siteWithProducts',
           names: { cz: 'Motýlky' }, holdsProducts: true, depth: 1, path: 'Doplňky / Motýlky' },
+        { code: 'K00030', id: '30', parentId: '28', active: true, type: 'siteWithProducts',
+          names: { cz: 'Úzké kravaty' }, holdsProducts: true, depth: 2, path: 'Doplňky / Kravaty / Úzké kravaty' },
         { code: 'K00040', id: '40', parentId: '', active: true, type: 'siteWithProducts',
           names: { cz: 'Kšandy' }, holdsProducts: true, depth: 0, path: 'Kšandy' },
+        { code: 'K00041', id: '41', parentId: '40', active: true, type: 'siteWithProducts',
+          names: { cz: 'Dětské kšandy' }, holdsProducts: true, depth: 1, path: 'Kšandy / Dětské kšandy' },
         // Stránka v menu — k zařazení zboží se nesmí nabídnout
         { code: 'C-ONAS', id: '5', parentId: '', active: true, type: 'url',
           names: { cz: 'O nás' }, holdsProducts: false, depth: 0, path: 'O nás' }
@@ -1364,6 +1368,10 @@
       ]
     },
     'np:checkParam': { name: {}, value: {}, knownName: false, knownValue: false },
+    'np:proposeParams': [
+      { name: 'Materiál', value: 'mikrovlákno', why: 'z dlouhého popisu', known: true },
+      { name: 'Vzor', value: 'hladká', why: 'z názvu', known: false }
+    ],
     'np:relearnParams': { names: 3, values: 3 },
 
 

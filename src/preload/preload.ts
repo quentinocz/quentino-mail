@@ -89,7 +89,7 @@ const ALLOWED_INVOKE = [
   'reviews:pull', 'reviews:translate', 'reviews:path', 'reviews:nextSort', 'reviews:import',
   // Nový produkt — předloha, kategorie, export a import v administraci (jen na počítači)
   'np:state', 'np:categories', 'np:create', 'np:save', 'np:delete', 'np:checkCode',
-  'np:params', 'np:relearnParams', 'np:checkParam',
+  'np:params', 'np:relearnParams', 'np:checkParam', 'np:proposeParams',
   'np:template', 'np:specifics', 'np:rewrite', 'np:titleProposal',
   'np:toCatalog', 'np:complete', 'np:exportXml', 'np:openImport',
   // Katalog, štítky a naskladnění — jen na počítači
