@@ -436,7 +436,7 @@ export function alternatesIn(html: string, sourceUrl: string): Record<string, st
     if (lang && href && !/x-default/i.test(lang)) add(lang, href);
   }
 
-  /* 2) přepínač jazyků v hlavičce */
+  /* 2) přepínač jazyků označený třídou */
   const anchors = html.match(/<a\b[^>]*class=["'][^"']*\bnav-flag\b[^"']*["'][^>]*>/gi)
     ?? html.match(/<a\b[^>]*class=["'][^"']*\bflag-[a-z]{2}\b[^"']*["'][^>]*>/gi) ?? [];
   for (const tag of anchors) {
@@ -448,6 +448,48 @@ export function alternatesIn(html: string, sourceUrl: string): Record<string, st
     const byClass = /\bflag-([a-z]{2})\b/i.exec(tag)?.[1] ?? '';
     if (byDomain) add(byDomain, url);
     else if (byClass) add(byClass, url);
+  }
+
+  /*
+   * 3) přepínač jazyků od Upgates.
+   *
+   * Nemá `hreflang` ani třídu s vlajkou — je to obyčejný odkaz, uvnitř
+   * kterého je obrázek `…/graphics/languages/sk.svg`. Právě tenhle tvar má
+   * Quentino, takže se dřív nenašlo nic a adresa na cizím trhu se jen
+   * hádala výměnou domény: `/kravaty` na `wearquentino.com/kravaty`, i když
+   * ta stránka se jmenuje `/neckties`.
+   */
+  const blocks = html.match(/<a\b[^>]*>[\s\S]{0,400}?<\/a>/gi) ?? [];
+  for (const block of blocks) {
+    const flag = /graphics\/languages\/([a-z]{2})\.svg/i.exec(block)?.[1] ?? '';
+    if (!flag) continue;
+    const href = /href=["']([^"']+)["']/i.exec(block)?.[1] ?? '';
+    const url = href ? absolute(href) : '';
+    if (!url) continue;
+    add(langOfUrl(url) ?? flag, url);
+  }
+
+  /*
+   * 4) záloha: odkazy na ostatní trhy, ale jen když je jich celá sada.
+   *
+   * Osamocený odkaz na cizí trh bývá upoutávka („navštivte náš slovenský
+   * e-shop") a míří na úvodní stránku — zapamatovat si ho jako překlad
+   * téhle stránky by bylo horší než nemít nic. Přepínač jazyků naopak
+   * vypisuje **všechny** trhy, a podle toho se pozná.
+   */
+  const source = langOfUrl(sourceUrl);
+  const others = [...known].filter(one => one !== source);
+  if (others.some(lang => !out[lang])) {
+    const found: Record<string, string> = {};
+    for (const block of html.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi) ?? []) {
+      const href = /href=["']([^"']+)["']/i.exec(block)?.[1] ?? '';
+      const url = href ? absolute(href) : '';
+      const lang = url ? langOfUrl(url) : null;
+      if (lang && lang !== source && !found[lang]) found[lang] = url;
+    }
+    if (others.every(lang => found[lang])) {
+      for (const [lang, url] of Object.entries(found)) add(lang, url);
+    }
   }
   return out;
 }
