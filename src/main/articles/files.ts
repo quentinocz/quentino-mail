@@ -186,9 +186,13 @@ async function read<T>(win: BrowserWindow, script: string, fallback: T): Promise
 /**
  * Nahraje soubory do správce souborů a vrátí jejich veřejné adresy.
  *
- * Okno zůstane otevřené i po doběhnutí: je v něm vidět, co se nahrálo,
- * a kdyby se adresa nenašla, dá se odtud opsat. Zavřít si ho člověk může
- * sám.
+ * Když se adresy najdou všechny, okno se **samo zavře** — aplikace z něj
+ * dostala všechno, co potřebovala, a nechávat ho otevřené znamenalo jen
+ * další okno, které musí člověk zavírat po každé fotce.
+ *
+ * Zůstane otevřené jedině tehdy, když se některá adresa přečíst nepovedla:
+ * pak je to jediné místo, odkud se dá opsat, a zavřít ho by znamenalo
+ * zahodit výsledek nahrávání.
  */
 export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload[]> {
   const list = (files ?? []).filter(one => one && fs.existsSync(one));
@@ -245,7 +249,26 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
         + 've správci souborů tlačítkem oka a adresu sem vlož.'
     });
   }
+
+  closeIfDone(win, out);
   return out;
+}
+
+/**
+ * Zavře okno správce souborů, když už v něm není co dělat.
+ *
+ * Zavírá se až po přečtení adres, ne hned po nahrání: dokud adresy nejsou,
+ * je ta stránka jediné místo, kde jsou vidět.
+ */
+function closeIfDone(win: BrowserWindow, out: ArticleUpload[]): void {
+  if (out.some(one => !one.url)) return;
+  if (win.isDestroyed()) return;
+  /*
+   * Se zavřením se chvíli počká — kvůli člověku, ne kvůli stránce. Okno,
+   * které zmizí v tutéž vteřinu, co se v něm objeví nahraná fotka, vypadá
+   * jako by se zavřelo chybou; po chvilce je vidět, že se nahrálo.
+   */
+  setTimeout(() => { if (!win.isDestroyed()) win.close(); }, 900);
 }
 
 /**

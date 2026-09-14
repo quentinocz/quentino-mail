@@ -48,11 +48,22 @@ export function blankText(): ReviewText {
  * Rozlišit „nevyplněno" od „prázdné" je proto potřeba všude: na e-shopu se
  * blok s recenzí vůbec nevykreslí, když chybí text nebo podpis.
  */
+/**
+ * Texty se při ukládání **neořezávají**.
+ *
+ * Ořezávaly se — a bylo to k nepoužití: rozepsaná recenze se ukládá průběžně,
+ * takže se každá mezera na konci vrátila z databáze zkrácená a políčko se
+ * přepsalo pod rukama. V popisku, který je HTML, to navíc přehodilo kurzor na
+ * začátek a vypadalo to, jako by psaní přestalo fungovat.
+ *
+ * Ořezává se až tam, kde na tom záleží — když se rozhoduje, co jde na web
+ * (`wallItems`).
+ */
 export function normalizeText(value: any): ReviewText {
   return {
-    caption: String(value?.caption ?? '').trim(),
-    review: String(value?.review ?? '').trim(),
-    name: String(value?.name ?? '').trim()
+    caption: String(value?.caption ?? ''),
+    review: String(value?.review ?? ''),
+    name: String(value?.name ?? '')
   };
 }
 
@@ -172,7 +183,12 @@ export function wallItems(items = listReviews()): any[] {
     .filter(one => one.active && one.image)
     .map(one => {
       const row: any = { img: one.image, w: one.width, h: one.height };
-      for (const [lang, text] of Object.entries(one.langs)) {
+      for (const [lang, raw] of Object.entries(one.langs)) {
+        // Tady se ořezává: v aplikaci se text drží tak, jak se píše, ale na
+        // web nemá co jít popisek, ve kterém je jen mezera
+        const text = {
+          caption: raw.caption.trim(), review: raw.review.trim(), name: raw.name.trim()
+        };
         if (!text.caption && !text.review) continue;
         const part: any = { captionHtml: text.caption };
         // Recenze se vykreslí, jen když má text i podpis — jinak visí ve vzduchu
