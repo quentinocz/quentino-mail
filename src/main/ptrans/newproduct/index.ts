@@ -20,6 +20,7 @@ import { rewriteSelection, proposeByTitle, TextChange } from './rewrite';
 import { buildProductXml } from './build';
 import { swapLinks } from './links';
 import { eurRate, EurRate } from './rate';
+import { runGuide, FILE_TAKEN } from './guide';
 import { learnParams, paramNames, paramValues, lookupParam, resolveParams, suggestParams,
   ParamEntry, ParamProposal } from './params';
 
@@ -465,28 +466,6 @@ export function productImportUrl(): string {
 let importWin: BrowserWindow | null = null;
 
 /**
- * Počká, až se člověk proklikne přes výběr typu importu.
- *
- * Import v Upgates začíná výběrem (Zbozi.cz, Heureka, …, Jiné) a políčko na
- * soubor se objeví až po „Vytvořit import". Aplikace přitom nějaké skryté
- * políčko na soubor najde na té stránce vždycky — a hlásila „soubor je
- * vložený", přestože na obrazovce byl pořád výběr a nikam se nic nevložilo.
- */
-async function waitPastChooser(win: BrowserWindow, timeoutMs = 3 * 60_000): Promise<boolean> {
-  const script = `(() => [...document.querySelectorAll('button, a, input[type=submit]')]
-    .some(el => ((el.textContent || el.value || '') + '').trim().toLowerCase()
-      .includes('vytvořit import')))()`;
-  const until = Date.now() + timeoutMs;
-  while (Date.now() < until) {
-    if (win.isDestroyed()) return false;
-    const onChooser = await win.webContents.executeJavaScript(script, true).catch(() => false);
-    if (onChooser !== true) return true;
-    await new Promise(resolve => setTimeout(resolve, 700));
-  }
-  return false;
-}
-
-/**
  * Otevře import v administraci a vloží do něj soubor s novým produktem.
  *
  * **Import se nespouští.** Založení produktu je zásah do e-shopu, který
@@ -510,24 +489,59 @@ export async function openProductImport(code: string):
   win.focus();
   const login = signInNote('upgates', await signIn(win, 'upgates'));
 
-  emit({});
-  for (const w of BrowserWindow.getAllWindows()) {
-    w.webContents.send('np:step', { step: 'Vyber typ importu a dej „Vytvořit import" — soubor vložím pak', done: 0, total: 2 });
-  }
-  if (!await waitPastChooser(win)) {
+  /*
+   * Průvodce se proklikne sám: formát Upgates XML → jak importovat →
+   * jednorázově. Poslední tlačítko „Vytvořit import" zůstává na člověku.
+   *
+   * Jak importovat se odvodí od toho, jestli e-shop produkt už má. Když ho
+   * feed uvádí, je to oprava a musí se zvolit „aktualizovat stávající" —
+   * „pouze nové položky" by soubor tiše přeskočil a vypadalo by to, že se
+   * import nepovedl. Když ho feed neuvádí, platí opak: „pouze nové" nemůže
+   * přepsat cizí produkt.
+   */
+  const known = getDb().prepare(
+    'SELECT origin FROM ptrans_products WHERE LOWER(code) = LOWER(?)'
+  ).get(code) as { origin: string } | undefined;
+  const processing = known?.origin === 'feed' ? 'update' : 'insert';
+  const guide = await runGuide(win, processing);
+  if (!guide?.fileStep) {
+    /*
+     * Průvodce se prokliknout nepodařilo (stránka se změnila, nebo se
+     * nenačetla). Radši se to řekne, než aby se soubor vložil do prvního
+     * políčka, které se na stránce najde — takové políčko tam bývá skryté
+     * i ve chvíli, kdy je na obrazovce pořád výběr typu importu.
+     */
     return {
       filled: false, file,
-      note: [login, 'Na stránce zůstal výběr typu importu — soubor jsem nevkládal. '
-        + 'Vyber typ, dej „Vytvořit import" a zkus to znovu.'].filter(Boolean).join(' ')
+      note: [login, 'Průvodce importem se nepodařilo proklikat. Vyber „Upgates – XML", '
+        + '„Pouze nové položky" a „Jednorázově"; políčko na soubor je pak v posledním kroku.']
+        .filter(Boolean).join(' ')
     };
   }
 
-  const out = await fillFileInput(win, file);
-  // Adresa, na které se políčko našlo, se zapamatuje — příště se okno otevře
-  // rovnou tam a nikdo se nemusí proklikávat
+  const out = await fillFileInput(win, file, ['#frmguideForm-file', 'input[type=file]']);
+  /*
+   * Že soubor stránka opravdu vzala, se pozná z ní samotné: vypíše jméno
+   * a odkryje „Vytvořit import". Bez téhle kontroly se hlásilo „vloženo"
+   * i tehdy, když se trefilo cizí skryté políčko.
+   */
+  const taken = out.filled
+    ? await win.webContents.executeJavaScript(FILE_TAKEN, true)
+      .catch(() => ({ name: '', saveShown: false })) as { name: string; saveShown: boolean }
+    : { name: '', saveShown: false };
+
   if (out.filled && out.url) setSetting(IMPORT_URL_KEY, out.url);
-  const note = out.filled
-    ? 'Soubor je vložený. Zkontroluj nastavení importu a spusť ho — spouštět ho za tebe nebudu.'
-    : out.note;
-  return { filled: out.filled, note: [login, note].filter(Boolean).join(' '), file };
+
+  const note = taken.saveShown || taken.name
+    ? `Nastaveno: Upgates XML · ${processing === 'update' ? 'aktualizovat stávající' : 'pouze nové položky'}`
+      + ' · jednorázově, soubor vložený. Zkontroluj to a dej „Vytvořit import" — '
+      + 'spouštět ho za tebe nebudu.'
+    : (out.filled
+      ? 'Soubor jsem vložil, ale stránka ho nepotvrdila — zkontroluj poslední krok průvodce.'
+      : out.note);
+  return {
+    filled: !!(taken.saveShown || taken.name),
+    note: [login, note].filter(Boolean).join(' '),
+    file
+  };
 }
