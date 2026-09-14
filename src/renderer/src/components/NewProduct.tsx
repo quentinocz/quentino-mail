@@ -169,6 +169,13 @@ function DraftEditor({ draft, state, toast, onReload }: {
   const gaps = local.gaps ?? [];
   const blockers = gaps.filter(one => one.level === 'blocker');
   const saved = local.state === 'exported';
+  /*
+   * Druhý krok se odškrtne podle toho, co v produktu opravdu je, ne podle
+   * toho, že tlačítko doběhlo. Dopisování se dá spustit znovu a může u něj
+   * část selhat — zelená fajfka by pak lhala.
+   */
+  const written = saved && !gaps.some(one =>
+    one.key === 'seo' || one.key === 'google' || one.key.startsWith('lang:'));
 
   const jump = (key: string) => {
     const id = GAP_SECTION[key.split(':')[0]] ?? 'texty';
@@ -253,7 +260,7 @@ function DraftEditor({ draft, state, toast, onReload }: {
               </button>
             </li>
 
-            <li className={saved ? 'now' : ''}>
+            <li className={written ? 'done' : (saved ? 'now' : '')}>
               <button className="btn ghost" disabled={!!work || !saved}
                 onClick={() => run('complete', async () => {
                   const out = await api.newProduct.complete(local.code);
@@ -269,7 +276,7 @@ function DraftEditor({ draft, state, toast, onReload }: {
               {work === 'complete' && step ? <p className="np-step">{step}</p> : null}
             </li>
 
-            <li className={saved ? 'now' : ''}>
+            <li className={written ? 'now' : ''}>
               <div className="np-two">
                 <button className="btn ghost" disabled={!!work || !saved}
                   onClick={() => run('xml', async () => {

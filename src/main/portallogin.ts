@@ -139,17 +139,43 @@ function fillScript(user: string, pass: string, submit: boolean): string {
        * takže by se u moderních portálů neodeslalo nic.
        */
       var form = pass.form;
-      var button = form
-        ? form.querySelector('button[type=submit], input[type=submit], button:not([type])')
-        : null;
+      if (!form) return 'vyplněno';
+
+      /*
+       * Tlačítka se hledají **po skupinách**, ne jedním seznamem selektorů.
+       *
+       * Metoda querySelector s čárkou vrací první prvek v pořadí dokumentu,
+       * ne první podle pořadí selektorů. Když je ve formuláři dřív tlačítko
+       * bez atributu type (oko u hesla, přepínač jazyka), kliklo se na ně — heslo
+       * zůstalo vyplněné, nic se neodeslalo a aplikace přesto hlásila
+       * „odesláno". Vypadalo to, že uložené přihlášení nefunguje.
+       */
+      var groups = ['button[type=submit]', 'input[type=submit]', 'input[type=image]',
+        'button:not([type])'];
+      var button = null;
+      for (var g = 0; g < groups.length && !button; g++) {
+        var found = Array.prototype.slice.call(form.querySelectorAll(groups[g])).filter(visible);
+        button = found[0] || null;
+      }
       if (button) { button.click(); return 'odesláno'; }
-      if (form) { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); return 'odesláno'; }
-      return 'vyplněno';
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      return 'odesláno';
     })()
   `;
 }
 
-export type SignInResult = 'odesláno' | 'vyplněno' | 'bez formuláře' | 'nenastaveno';
+export type SignInResult = 'odesláno' | 'vyplněno' | 'bez formuláře' | 'nenastaveno' | 'neprošlo';
+
+/** Je na stránce (v kterémkoli rámu) pořád přihlašovací formulář? */
+const STILL_FORM = `
+  (function () {
+    var all = Array.prototype.slice.call(document.querySelectorAll('input[type=password]'));
+    return all.some(function (el) {
+      var box = el.getBoundingClientRect();
+      return !el.disabled && (box.width > 0 && box.height > 0);
+    });
+  })()
+`;
 
 /**
  * Spustí skript ve **všech rámech** stránky, ne jen v tom hlavním.
@@ -188,10 +214,37 @@ export async function signIn(
   while (Date.now() < until) {
     if (win.isDestroyed()) return 'bez formuláře';
     const out = await everyFrame(win, fillScript(saved.user, decrypt(saved.pass), saved.auto !== false));
-    if (out === 'odesláno' || out === 'vyplněno') return out;
+    if (out === 'vyplněno') return out;
+    if (out === 'odesláno') return await landed(win) ? 'odesláno' : 'neprošlo';
     await new Promise(resolve => setTimeout(resolve, 800));
   }
   return 'bez formuláře';
+}
+
+/**
+ * Počká, jestli přihlášení opravdu prošlo.
+ *
+ * Kliknout na tlačítko není totéž co být přihlášený: heslo může být špatně,
+ * portál si může říct o kód a formulář prostě zůstane na obrazovce. Dřív se
+ * v takovém případě hlásilo „odesláno" a aplikace jela dál, jako by byla
+ * uvnitř — a člověk pak koukal na přihlašovací stránku a nevěděl proč.
+ *
+ * Pozná se to podle toho, že políčko na heslo ze stránky zmizelo.
+ */
+async function landed(win: BrowserWindow, timeoutMs = 15_000): Promise<boolean> {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    if (win.isDestroyed()) return false;
+    await new Promise(resolve => setTimeout(resolve, 700));
+    const frames = [win.webContents.mainFrame, ...(win.webContents.mainFrame.framesInSubtree ?? [])];
+    let form = false;
+    for (const frame of frames) {
+      if (!frame) continue;
+      if (await frame.executeJavaScript(STILL_FORM, true).catch(() => false) === true) form = true;
+    }
+    if (!form) return true;
+  }
+  return false;
 }
 
 /**
@@ -205,6 +258,10 @@ export function signInNote(id: PortalId, result: SignInResult): string {
   if (result === 'nenastaveno') {
     return `Přihlášení k „${LABELS[id]}" není v aplikaci uložené `
       + '(Nastavení → Doprava a doklady → Přihlášení do administrací) — přihlas se ručně.';
+  }
+  if (result === 'neprošlo') {
+    return `Přihlášení k „${LABELS[id]}" jsem odeslal, ale formulář na stránce zůstal `
+      + '— zkontroluj jméno a heslo v Nastavení, nebo se přihlas v okně ručně.';
   }
   return '';
 }

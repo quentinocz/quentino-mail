@@ -765,6 +765,7 @@ export function registerIpc() {
 
   handle('ptrans:exportPreview', (options: any) => ptrans.exportPreview(options ?? {}));
   handle('ptrans:export', (options: any) => ptrans.exportToFile(options ?? {}));
+  handle('ptrans:exportToAdmin', (options: any) => ptrans.exportToAdmin(options ?? {}));
   handle('ptrans:importFile', () => ptrans.importFromFile());
   handle('ptrans:consistency', (lang: string) => ptrans.consistencyCheck(lang));
   handle('ptrans:suggestPattern', (category: string, lang: string) => ptrans.suggestPattern(category, lang));
