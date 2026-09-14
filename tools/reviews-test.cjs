@@ -202,5 +202,39 @@ console.log('\npřevzetí původního skriptu:');
   }
 }
 
-console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
-process.exit(failed === 0 ? 0 : 1);
+/* ---------- odkazy v přeložené recenzi ---------- */
+
+(async () => {
+  console.log('\nodkazy v překladu:');
+  const fixLinks = require(path.join(DIST, 'reviews/index.js')).__test.fixLinks;
+  const zdroj = ['https://www.quentino.cz/motylek-a-ksandy', 'https://www.quentino.cz/kravaty'];
+  const mapa = new Map([
+    ['https://www.quentino.cz/motylek-a-ksandy',
+      { sk: { url: 'https://www.quentino.sk/motylik-a-traky', via: 'page' } }],
+    ['https://www.quentino.cz/kravaty',
+      { sk: { url: 'https://www.quentino.sk/kravaty', via: 'page' } }]
+  ]);
+
+  /*
+   * Model při překladu občas vymění doménu po svém. Hledalo se podle adresy
+   * v přeloženém textu, takže se u přepsaného odkazu nenašlo nic a v cizí
+   * mutaci zůstal český odkaz. Páruje se proto podle pořadí odkazů.
+   */
+  const prelozeno = 'Ženích a naše <a href="https://www.quentino.sk/motylek-a-ksandy">sety</a> '
+    + 'i <a href="https://www.quentino.cz/kravaty">kravaty</a>.';
+  const out = await fixLinks(prelozeno, zdroj, mapa, 'sk');
+  ok('adresa přepsaná modelem se stejně opraví',
+    out.includes('quentino.sk/motylik-a-traky'), out);
+  ok('a druhý odkaz taky', out.includes('quentino.sk/kravaty'), out);
+  ok('český odkaz v překladu nezůstane', !out.includes('quentino.cz'), out);
+
+  // Odkaz, pro který se adresa nenašla, se nechá být — nefunkční odkaz
+  // je horší než odkaz na český web
+  const nenalezeny = await fixLinks(
+    '<a href="https://www.quentino.cz/neco">x</a>', ['https://www.quentino.cz/neco'], new Map(), 'sk');
+  ok('nenalezená adresa zůstane, jak byla',
+    nenalezeny.includes('quentino.cz/neco'), nenalezeny);
+
+  console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
+  process.exit(failed === 0 ? 0 : 1);
+})();

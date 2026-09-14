@@ -209,6 +209,45 @@ console.log('\nadresy z přepínače jazyků:');
       === 'https://www.quentino.cz/ponozky');
   check('na stránce bez přepínače nic nevznikne',
     Object.keys(urlmap.alternatesIn('<html><body>nic</body></html>', 'https://www.quentino.cz/a')).length, 0);
+
+  /*
+   * Přepínač, jaký má Quentino doopravdy: žádný `hreflang`, žádná třída
+   * s vlajkou — obyčejný odkaz, uvnitř kterého je obrázek vlajky od Upgates.
+   * Dřív se tu nenašlo nic a adresa se jen hádala výměnou domény, takže
+   * z `/kravaty` vzniklo `wearquentino.com/kravaty` místo `/neckties`.
+   */
+  const upgates = `
+    <a href="https://www.quentino.cz/kravaty">
+      <img src="https://files.upgates.com/graphics/languages/cs.svg" alt="">Česky (CZK)</a>
+    <a href="https://www.quentino.sk/kravaty">
+      <img src="https://files.upgates.com/graphics/languages/sk.svg" alt="">Slovensky (EUR)</a>
+    <a href="https://www.wearquentino.com/neckties">
+      <img src="https://files.upgates.com/graphics/languages/en.svg" alt="">English (EUR)</a>`;
+  const zUpgates = urlmap.alternatesIn(upgates, 'https://www.quentino.cz/kravaty');
+  check('přepínač od Upgates se přečte',
+    [zUpgates.sk, zUpgates.en],
+    ['https://www.quentino.sk/kravaty', 'https://www.wearquentino.com/neckties']);
+
+  /*
+   * Osamocený odkaz na cizí trh je upoutávka, ne překlad téhle stránky —
+   * zapamatovat si ho by znamenalo posílat zákazníky z kravat na úvodní
+   * stránku. Sada se bere, jen když jsou v ní všechny trhy.
+   */
+  const upoutavka = '<p>Objednáváte ze Slovenska? <a href="https://www.quentino.sk/">Náš slovenský e-shop</a></p>';
+  check('osamocený odkaz na cizí trh se nebere',
+    Object.keys(urlmap.alternatesIn(upoutavka, 'https://www.quentino.cz/kravaty')).length, 0);
+
+  /*
+   * Přepínač bez vlajek i bez tříd (holé odkazy na všechny trhy) se vzít dá —
+   * je to celá sada, takže o upoutávku nejde.
+   */
+  const holy = '<a href="https://www.quentino.cz/kravaty">CZ</a>'
+    + '<a href="https://www.quentino.sk/kravaty">SK</a>'
+    + '<a href="https://www.wearquentino.com/neckties">EN</a>';
+  const zHolych = urlmap.alternatesIn(holy, 'https://www.quentino.cz/kravaty');
+  check('celá sada odkazů se vezme i bez vlajek',
+    [zHolych.sk, zHolych.en],
+    ['https://www.quentino.sk/kravaty', 'https://www.wearquentino.com/neckties']);
 }
 
 /* ---------- export do e-shopu ---------- */

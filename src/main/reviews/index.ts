@@ -352,11 +352,22 @@ async function translateBatch(texts: string[]): Promise<{ sk: string; en: string
  * vymyslel. Správnou zná e-shop sám: `linkUrls` ji dohledá v mapě adres,
  * a co v ní není, zjistí z přepínače jazyků na samotné stránce.
  */
-async function fixLinks(html: string, links: Map<string, Record<string, { url: string; via: string }>>,
+async function fixLinks(html: string, sourceHrefs: string[],
+  links: Map<string, Record<string, { url: string; via: string }>>,
   lang: string): Promise<string> {
+  /*
+   * Páruje se **podle pořadí odkazů**, ne podle adresy v přeloženém textu.
+   *
+   * Překlad má značky ve stejném pořadí (to překladač hlídá), ale adresu
+   * v nich už model mohl přepsat — a z přepsané se ta správná nedohledá.
+   * Hledalo se podle adresy a u přepsaného odkazu se nenašlo nic, takže
+   * v cizí mutaci zůstal český odkaz.
+   */
+  let index = 0;
   return (html ?? '').replace(/(<a\b[^>]*\bhref\s*=\s*)(["'])([^"']+)\2/gi,
     (match, head, quote, href) => {
-      const found = links.get(String(href))?.[lang];
+      const key = sourceHrefs[index++] ?? String(href);
+      const found = links.get(key)?.[lang];
       return found?.url ? `${head}${quote}${found.url}${quote}` : match;
     });
 }
@@ -396,11 +407,12 @@ export async function translateReview(id: string): Promise<ReviewTranslation> {
     }
   }
 
+  const sourceHrefs = extractLinks(cz.caption);
   const [caption, text] = await translateBatch([cz.caption, cz.review]);
   const langs = { ...review.langs };
   for (const lang of ['sk', 'en'] as const) {
     langs[lang] = {
-      caption: await fixLinks(caption[lang], links, lang),
+      caption: await fixLinks(caption[lang], sourceHrefs, links, lang),
       review: text[lang],
       // Podpis se přenáší beze změny — jméno se nepřekládá
       name: cz.name
@@ -414,4 +426,4 @@ export {
   SCHEMA, listReviews, getReview, saveReview, deleteReview, moveReview, nextSort,
   wallItems, normalize, isDirty
 };
-export const __test = { secrets, publicUrl, TRANSLATE_SYSTEM, parseLegacy };
+export const __test = { secrets, publicUrl, TRANSLATE_SYSTEM, parseLegacy, fixLinks };
