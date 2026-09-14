@@ -841,6 +841,7 @@ export function registerIpc() {
   handle('np:checkParam', (name: string, value: string) =>
     ptrans.newproduct.checkParam(name ?? '', value ?? ''));
   handle('np:proposeParams', (id: string) => ptrans.newproduct.proposeParams(id));
+  handle('np:rate', (force?: boolean) => ptrans.newproduct.rateEur(!!force));
   handle('np:template', (id: string, code: string) => ptrans.newproduct.useTemplate(id, code));
   handle('np:specifics', (id: string, lang: string) => ptrans.newproduct.markSpecifics(id, lang));
   handle('np:rewrite', (options: any) => ptrans.newproduct.rewritePart(options ?? {}));

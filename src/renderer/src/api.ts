@@ -18,7 +18,7 @@ import type {
   ArticleUpload, ArticleFolder,
   Review, ReviewsState, ReviewsConfig,
   NewProductState, NewProductDraft, NewProductSpecific, NewProductChange, NewProductGap,
-  ParamDictionary, ParamLookup, NewProductParamProposal,
+  ParamDictionary, ParamLookup, NewProductParamProposal, EurRate,
   ShopCategoryTree,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
@@ -403,6 +403,8 @@ export const api = {
     checkParam: (name: string, value: string) => call<ParamLookup>('np:checkParam', name, value),
     /** Návrh parametrů z popisu — vrací se k potvrzení, nic se nezapisuje */
     proposeParams: (id: string) => call<NewProductParamProposal[]>('np:proposeParams', id),
+    /** Kurz z ČNB — pro přibližnou cenu v eurech */
+    rate: (force = false) => call<EurRate | null>('np:rate', force),
     /** Natažení textů z jiného produktu i s vyznačením toho, co je na něm specifické */
     template: (id: string, code: string) =>
       call<{ draft: NewProductDraft; specifics: NewProductSpecific[]; note: string }>('np:template', id, code),

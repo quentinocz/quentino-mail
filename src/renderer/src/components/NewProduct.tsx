@@ -6,7 +6,7 @@ import { uploadToShop, pickForArticle } from '../shopfiles';
 import type {
   NewProductState, NewProductDraft, NewProductChange, NewProductGap, NewProductTexts,
   NewProductParamProposal, ShopCategoryTree, ShopCategoryItem, PtransProduct,
-  ParamDictionary, ParamLookup
+  ParamDictionary, ParamLookup, EurRate
 } from '@shared/types';
 
 /**
@@ -289,6 +289,7 @@ function DraftEditor({ draft, state, toast, onReload }: {
                   {' '}Do administrace
                 </button>
               </div>
+              {work === 'import' && step ? <p className="np-step">{step}</p> : null}
               <p className="desc">Import nespustím — poslední kliknutí je na tobě.</p>
             </li>
           </ol>
@@ -337,6 +338,9 @@ function Basics({ draft, state, onPatch, toast, work, run, onLoaded }: {
   const [clash, setClash] = useState<{ taken: boolean; title: string } | null>(null);
   const [search, setSearch] = useState('');
   const [hits, setHits] = useState<PtransProduct[]>([]);
+  const [rate, setRate] = useState<EurRate | null>(null);
+
+  useEffect(() => { api.newProduct.rate().then(setRate).catch(() => { /* bez kurzu se obejde */ }); }, []);
 
   useEffect(() => {
     if (!draft.code.trim()) { setClash(null); return; }
@@ -373,18 +377,36 @@ function Basics({ draft, state, onPatch, toast, work, run, onLoaded }: {
             : draft.code.trim() ? <em className="np-good">volný</em> : <em className="np-hint">povinné</em>}
         </label>
 
-        {priceGroups(state).map(group => (
-          <label key={group.currency} className="np-field np-price">
-            <span>Cena ({group.label})</span>
-            <input value={draft.prices[group.langs[0]] ?? ''} inputMode="decimal"
-              onChange={e => {
-                const prices = { ...draft.prices };
-                for (const lang of group.langs) prices[lang] = e.target.value;
-                onPatch({ prices });
-              }} />
-            <em className="np-hint">s DPH</em>
-          </label>
-        ))}
+        {priceGroups(state).map(group => {
+          const value = draft.prices[group.langs[0]] ?? '';
+          const set = (next: string) => {
+            const prices = { ...draft.prices };
+            for (const lang of group.langs) prices[lang] = next;
+            onPatch({ prices });
+          };
+          /*
+           * Přibližná cena v eurech z kurzu ČNB. Přesnou (s koncovkou .90)
+           * si člověk nastaví sám — přepočítávat v hlavě u každého produktu
+           * je zbytečná práce a přepsat se přitom dá čárka.
+           */
+          const czk = Number((draft.prices[state.sourceLang] ?? '').replace(',', '.'));
+          const suggest = group.currency === 'EUR' && rate && czk > 0
+            ? (Math.round((czk / rate.rate) * 10) / 10).toFixed(1).replace('.', ',')
+            : '';
+          return (
+            <label key={group.currency} className="np-field np-price">
+              <span>Cena ({group.label})</span>
+              <input value={value} inputMode="decimal" onChange={e => set(e.target.value)} />
+              {suggest && !value.trim() ? (
+                <button type="button" className="link np-rate"
+                  title={`Kurz ČNB ${rate!.rate.toFixed(3).replace('.', ',')} Kč/€ ze dne ${rate!.day}`}
+                  onClick={() => set(suggest)}>
+                  ≈ {suggest} € — použít
+                </button>
+              ) : <em className="np-hint">s DPH</em>}
+            </label>
+          );
+        })}
 
         <label className="np-field">
           <span>Značka</span>

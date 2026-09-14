@@ -286,7 +286,12 @@ const VOLATILE_SETTING_KEYS = [
    * Stažená kopie stromu kategorií. Není to nastavení, ale otisk e-shopu —
    * adresa exportu se zálohuje, samotný strom si druhý počítač stáhne sám.
    */
-  'ptrans.categories'
+  'ptrans.categories',
+  /*
+   * Kurz z ČNB. Stažená kopie cizích dat, ne nastavení — na druhém počítači
+   * by to byl včerejší kurz a čerstvý by se stáhl stejně sám.
+   */
+  'ptrans.rateEur'
 ];
 
 /**

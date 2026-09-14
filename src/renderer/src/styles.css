@@ -8035,6 +8035,10 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   background: none; cursor: pointer; color: var(--text-2); display: inline-flex; align-items: center; gap: 4px;
 }
 .np-main-cat.on { border-color: var(--accent); color: var(--accent); }
+/* U patnácti vybraných kategorií svítilo „hlavní" patnáctkrát a hlavní se
+   v tom ztrácela. Ukazuje se proto jen ta jedna; ostatní až po najetí. */
+.np-cat .np-main-cat { visibility: hidden; }
+.np-cat:hover .np-main-cat, .np-cat .np-main-cat.on { visibility: visible; }
 
 /* texty */
 .np-langs button { padding: 3px 10px; font-size: 12px; position: relative; }
@@ -8189,3 +8193,5 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 @media (max-width: 1250px) {
   .np-meta { grid-template-columns: 1fr; }
 }
+/* Nabídnutý přepočet z korun — textové tlačítko pod polem, ne popisek */
+.np-rate { align-self: flex-start; }

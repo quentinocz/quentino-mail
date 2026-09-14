@@ -19,6 +19,7 @@ import { loadTemplate, findSpecifics, codeTaken, Specific } from './template';
 import { rewriteSelection, proposeByTitle, TextChange } from './rewrite';
 import { buildProductXml } from './build';
 import { swapLinks } from './links';
+import { eurRate, EurRate } from './rate';
 import { learnParams, paramNames, paramValues, lookupParam, resolveParams, suggestParams,
   ParamEntry, ParamProposal } from './params';
 
@@ -110,6 +111,11 @@ export function paramDictionary(name?: string): { names: ParamEntry[]; values: P
 
 export function relearnParams(): { names: number; values: number } {
   return learnParams(getPtransSettings().sourceLang);
+}
+
+/** Kurz koruny k euru z ČNB — pro přibližnou cenu u nového produktu. */
+export async function rateEur(force = false): Promise<EurRate | null> {
+  return eurRate(force);
 }
 
 export function checkParam(name: string, value: string) {
@@ -459,6 +465,28 @@ export function productImportUrl(): string {
 let importWin: BrowserWindow | null = null;
 
 /**
+ * Počká, až se člověk proklikne přes výběr typu importu.
+ *
+ * Import v Upgates začíná výběrem (Zbozi.cz, Heureka, …, Jiné) a políčko na
+ * soubor se objeví až po „Vytvořit import". Aplikace přitom nějaké skryté
+ * políčko na soubor najde na té stránce vždycky — a hlásila „soubor je
+ * vložený", přestože na obrazovce byl pořád výběr a nikam se nic nevložilo.
+ */
+async function waitPastChooser(win: BrowserWindow, timeoutMs = 3 * 60_000): Promise<boolean> {
+  const script = `(() => [...document.querySelectorAll('button, a, input[type=submit]')]
+    .some(el => ((el.textContent || el.value || '') + '').trim().toLowerCase()
+      .includes('vytvořit import')))()`;
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    if (win.isDestroyed()) return false;
+    const onChooser = await win.webContents.executeJavaScript(script, true).catch(() => false);
+    if (onChooser !== true) return true;
+    await new Promise(resolve => setTimeout(resolve, 700));
+  }
+  return false;
+}
+
+/**
  * Otevře import v administraci a vloží do něj soubor s novým produktem.
  *
  * **Import se nespouští.** Založení produktu je zásah do e-shopu, který
@@ -481,6 +509,18 @@ export async function openProductImport(code: string):
   win.show();
   win.focus();
   const login = signInNote('upgates', await signIn(win, 'upgates'));
+
+  emit({});
+  for (const w of BrowserWindow.getAllWindows()) {
+    w.webContents.send('np:step', { step: 'Vyber typ importu a dej „Vytvořit import" — soubor vložím pak', done: 0, total: 2 });
+  }
+  if (!await waitPastChooser(win)) {
+    return {
+      filled: false, file,
+      note: [login, 'Na stránce zůstal výběr typu importu — soubor jsem nevkládal. '
+        + 'Vyber typ, dej „Vytvořit import" a zkus to znovu.'].filter(Boolean).join(' ')
+    };
+  }
 
   const out = await fillFileInput(win, file);
   // Adresa, na které se políčko našlo, se zapamatuje — příště se okno otevře

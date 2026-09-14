@@ -1289,7 +1289,7 @@
                 '<p>Zelená kravata bez vzoru.</p>',
                 '<p>Modrá se hodí k šedému obleku a jemný vzor ji drží decentní.</p>')
             },
-            google: {}, prices: { cz: '890', sk: '36', en: '36' },
+            google: {}, prices: { cz: '890' },
             /*
              * Půl práce hotové: krátký popis už je přepsaný (barva z předlohy
              * v něm není), dlouhý pořád mluví o modré. Přesně ten stav, ve
@@ -1373,6 +1373,8 @@
       { name: 'Vzor', value: 'hladká', why: 'z názvu', known: false }
     ],
     'np:relearnParams': { names: 3, values: 3 },
+    // Kurz ČNB pro přibližnou cenu v eurech
+    'np:rate': { rate: 24.26, day: '11.09.2026', at: '2026-09-14T06:00:00Z' },
 
 
     'articles:filesUrl': {

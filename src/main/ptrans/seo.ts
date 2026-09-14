@@ -232,5 +232,11 @@ export function refreshSeoUrl(code: string, lang: string): string {
    */
   const title = fieldValue(code, lang, 'title');
   const result = applySlug(code, lang, productFields(code, [lang]), 'přepis', title);
-  return result?.slug ?? '';
+  if (result) return result.slug;
+  /*
+   * `applySlug` vrací nic i tehdy, když je adresa **už správná**. To není
+   * chyba, ale hlásilo se to jako „nedá se složit" — po druhém spuštění
+   * doplňování u hotového produktu svítila chyba, přestože bylo vše v pořádku.
+   */
+  return fieldValue(code, lang, 'seo_url');
 }
