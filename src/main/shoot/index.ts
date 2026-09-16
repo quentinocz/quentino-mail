@@ -353,6 +353,19 @@ export function cameraBusy(error: string): boolean {
   return BUSY.test(String(error ?? ''));
 }
 
+/**
+ * Kde má tělo vypínač živého náhledu.
+ *
+ * Jméno se mezi značkami i řadami liší — Canon má `viewfinder`, jinde je
+ * to `liveview` nebo `eosviewfinder`. Hledat jen jedno jméno znamená, že
+ * se na cizím těle nevypne nic a spoušť přijde do vyklopeného zrcátka.
+ */
+export function viewfinderPath(paths: string[]): string {
+  const hit = paths.find(one => /\/(eos)?viewfinder$/i.test(one))
+    ?? paths.find(one => /liveview/i.test(one));
+  return hit ?? '';
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -376,43 +389,64 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
   if (!shoot) return { ok: false, error: 'focení neexistuje', photo: null };
   if (!session.alive) return { ok: false, error: 'fotoaparát není připojený', photo: null };
 
-  const viewfinder = allPaths.find(one => one.endsWith('/viewfinder'));
+  const viewfinder = viewfinderPath(allPaths);
   const wasLive = live.liveRunning();
 
-  const reply = await live.hold(async () => {
-    if (viewfinder) {
-      await session.send(`set-config ${viewfinder}=0`, { urgent: true, timeout: 15000 });
-      /*
-       * Zrcátko se nevrací okamžitě. Spoušť poslaná hned za vypnutím
-       * náhledu je přesně ta, kterou tělo odmítne jako zaneprázdněné.
-       */
-      await wait(350);
-    }
+  /*
+   * Náhled se **zastaví celý**, ne jen pozastaví. Pozastavení zabrání
+   * dalším dotazům, ale ten rozdělaný ještě doběhne — a `capture-preview`
+   * je právě to, co tělo do živého náhledu přepne. Spoušť by pak zase
+   * přišla do vyklopeného zrcátka.
+   */
+  if (wasLive) {
+    live.stopLive();
+    await live.liveSettled();
+  }
 
-    let out = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
+  if (viewfinder) {
+    await session.send(`set-config ${viewfinder}=0`, { urgent: true, timeout: 15000 });
     /*
-     * Dva pokusy navíc. Zaneprázdněné tělo je stav na půl vteřiny, ne
-     * porucha — a nechat člověka mačkat spoušť znovu ručně je horší než
-     * počkat za něj.
+     * Zrcátko se nevrací okamžitě. Spoušť poslaná hned za vypnutím
+     * náhledu je přesně ta, kterou tělo odmítne jako zaneprázdněné.
      */
-    for (let attempt = 0; attempt < 2 && !out.ok && cameraBusy(out.error) && session.alive; attempt++) {
-      await wait(800);
-      out = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
-    }
+    await wait(600);
+  } else if (wasLive) {
+    // Tělo vypínač nemá — zbývá dát mu čas, aby se z náhledu vzpamatovalo samo
+    await wait(900);
+  }
 
-    if (viewfinder && wasLive && session.alive) {
-      await session.send(`set-config ${viewfinder}=1`, { urgent: true, timeout: 15000 });
-    }
-    return out;
-  });
+  let reply = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
+  /*
+   * Dva pokusy navíc. Zaneprázdněné tělo je stav na půl vteřiny, ne
+   * porucha — a nechat člověka mačkat spoušť znovu ručně je horší než
+   * počkat za něj. Před posledním pokusem se náhled vypne ještě jednou:
+   * některá těla si ho po chybě samy zapnou zpátky.
+   */
+  for (let attempt = 0; attempt < 2 && !reply.ok && cameraBusy(reply.error) && session.alive; attempt++) {
+    if (viewfinder) await session.send(`set-config ${viewfinder}=0`, { urgent: true, timeout: 15000 });
+    await wait(1000);
+    reply = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
+  }
+
+  // Náhled se rozjede zpátky, i když se vyfotit nepovedlo — jinak zůstane okno slepé
+  if (wasLive && session.alive) await startLive();
 
   if (!reply.ok) {
     return {
       ok: false,
       photo: null,
+      /*
+       * Do hlášky patří i to, co odpovědělo tělo. „Fotoaparát je
+       * zaneprázdněný" samo o sobě neřekne, co dál — a bez čísla chyby
+       * se to nedá ani dohledat.
+       */
       error: cameraBusy(reply.error)
-        ? `Fotoaparát byl zaneprázdněný (${reply.error}). Zkus to znovu; když to bude dělat `
-          + 'pořád, vypni na těle Wi-Fi a přepni ho do režimu M nebo Av.'
+        ? `Fotoaparát spoušť odmítl: ${reply.error}. `
+          + (viewfinder
+            ? 'Živý náhled jsem před snímkem vypnul. '
+            : 'Tělo nehlásí vypínač živého náhledu, takže se vypnout nedal. ')
+          + 'Zkus vypnout na těle Wi-Fi a přepnout ho do režimu M nebo Av; '
+          + 'podrobnosti jsou v protokolu pod nastavením.'
         : reply.error
     };
   }

@@ -510,6 +510,14 @@ async function liveSection() {
     remember('shootSetup', JSON.stringify({ lastCamera: 'Canon EOS 250D' }));
     await shoot.connect('usb:001,004', 'Canon EOS 250D');
 
+    check('vypínač náhledu se najde i pod jiným jménem',
+      [shoot.viewfinderPath(['/main/actions/viewfinder']),
+        shoot.viewfinderPath(['/main/actions/eosviewfinder']),
+        shoot.viewfinderPath(['/main/capturesettings/liveviewsize']),
+        shoot.viewfinderPath(['/main/imgsettings/iso'])],
+      ['/main/actions/viewfinder', '/main/actions/eosviewfinder',
+        '/main/capturesettings/liveviewsize', '']);
+
     check('zaneprázdněné tělo se pozná', shoot.cameraBusy("-110: 'I/O in progress'"), true);
     check('a „device busy" taky', shoot.cameraBusy('0x2019: PTP Device Busy'), true);
     check('běžná chyba ne', shoot.cameraBusy("-1: 'Unspecified error'"), false);
@@ -523,6 +531,13 @@ async function liveSection() {
     ok('vyfotí se i při běžícím náhledu', snimek.ok, snimek.error);
     ok('a soubor opravdu vznikl', snimek.photo && fs.existsSync(snimek.photo.file),
       snimek.photo ? snimek.photo.file : 'nic');
+
+    /*
+     * Po snímku se náhled musí rozjet zpátky sám. Kdyby zůstal vypnutý,
+     * zbylo by po každé fotce černé okno a musel by se spouštět ručně.
+     */
+    await new Promise(done => setTimeout(done, 400));
+    ok('náhled po snímku zase běží', (await shoot.shootState()).live);
 
     shoot.stopLive();
     await new Promise(done => setTimeout(done, 300));
