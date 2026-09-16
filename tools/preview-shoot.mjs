@@ -77,6 +77,8 @@ const snap = async name => { await page.waitForTimeout(250); await page.screensh
 const FRAME = fs.readFileSync(new URL('./fixtures/shoot-frame.jpg', import.meta.url).pathname);
 await page.evaluate(bytes => {
   window.__emit('shoot:frame', new Uint8Array(bytes));
+  // Týmiž bajty odpovídá i čtení souboru — galerie i průsvitka mají co vykreslit
+  window.__shootFile = new Uint8Array(bytes);
 }, [...FRAME]);
 await page.waitForTimeout(500);
 
@@ -245,11 +247,79 @@ await snap('04-galerie');
   say('vyřazená fotka zmizela', await page.locator('.sh-tile').count() === 1);
 }
 
+/* ---------- ořez ---------- */
+
+/*
+ * Ořez je vlastní věc, ne jedno z vodítek: vodítka jsou čáry, podle kterých
+ * se míří, ořez mění, co vyleze na disk. Táhne se nástrojem a musí se
+ * srovnat do zvoleného poměru — natažený „čtverec" od oka čtverec není.
+ */
+await page.locator('.sh-tool', { hasText: 'Ořez' }).click();
+await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.15);
+await page.mouse.down();
+await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.9, { steps: 10 });
+/*
+ * Zámek poměru musí být vidět **už při tažení**. Kdyby se srovnával až po
+ * puštění, táhl by se obdélník, po puštění by skočil na čtverec jinam, než
+ * kam se mířilo, a musel by se táhnout znovu.
+ */
+{
+  const rect = await page.locator('.sh-crop rect').boundingBox();
+  say('čtverec je čtvercový už při tažení',
+    rect && Math.abs(rect.width - rect.height) <= 2,
+    rect ? `${Math.round(rect.width)} × ${Math.round(rect.height)}` : 'nic');
+}
+await page.mouse.up();
+await page.waitForTimeout(600);
+{
+  const crop = await page.evaluate(() => window.__shoot.shoot.crop);
+  say('ořez se natáhl a zapnul', crop.on && crop.w > 0.1, JSON.stringify({
+    x: +crop.x.toFixed(2), y: +crop.y.toFixed(2), w: +crop.w.toFixed(2), h: +crop.h.toFixed(2) }));
+
+  // Poměr stran obrazu je 3:2, takže čtverec je na šířku užší než na výšku
+  const frame = await page.locator('img.sh-frame').evaluate(el => el.naturalWidth / el.naturalHeight);
+  const sideW = crop.w * frame;
+  say('čtverec je opravdu čtvercový', Math.abs(sideW - crop.h) < 0.02,
+    `${sideW.toFixed(3)} × ${crop.h.toFixed(3)}`);
+  say('ztmavené okolí je vidět', await page.locator('.sh-crop path').count() === 1);
+
+  /*
+   * Volný poměr nechá rámeček přesně tak, jak se natáhl — od toho tam je.
+   * Kdyby ho srovnával taky, nedal by se udělat výřez na šířku.
+   */
+  await page.locator('.sh-panel', { hasText: 'KAM SE FOTÍ' }).count();
+  await page.locator('.sh-tabs button', { hasText: 'Soubor' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('.sh-field select').first().selectOption('');
+  await page.waitForTimeout(400);
+  await page.locator('.sh-tool', { hasText: 'Ořez' }).click();
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height * 0.55, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  const free = await page.evaluate(() => window.__shoot.shoot.crop);
+  const frameB = await page.locator('img.sh-frame').evaluate(el => el.naturalWidth / el.naturalHeight);
+  say('volně nechá rámeček na šířku',
+    free.w * frameB > free.h * 1.5,
+    `${(free.w * frameB).toFixed(2)} × ${free.h.toFixed(2)}`);
+
+  // Zpátky na čtverec, ať následující snímky sedí
+  await page.locator('.sh-field select').first().selectOption('1:1');
+  await page.waitForTimeout(400);
+  const back = await page.evaluate(() => window.__shoot.shoot.crop);
+  say('přepnutí zpět rámeček rovnou srovná',
+    Math.abs(back.w * frameB - back.h) < 0.02,
+    `${(back.w * frameB).toFixed(3)} × ${back.h.toFixed(3)}`);
+}
+await snap('10-orez');
+
 /* ---------- korekce ---------- */
 
 await page.locator('.sh-tabs button', { hasText: 'Barvy' }).click();
 await page.waitForTimeout(300);
-await page.locator('.sh-switch input').check();
+// První přepínač v panelu je celá korekce, druhý zebra
+await page.locator('.sh-switch input').first().check();
 await page.locator('.sh-presets button', { hasText: 'Bílé pozadí' }).click();
 await page.waitForTimeout(500);
 {
@@ -258,7 +328,83 @@ await page.waitForTimeout(500);
   const saved = await page.evaluate(() => window.__shoot.shoot.fix.background);
   say('a uložila se do focení', saved === 70, String(saved));
 }
+/*
+ * Zebra: růžové pruhy tam, kde už není kresba. Kreslí se na plátno nad
+ * obrazem — kdyby zůstalo prázdné, varování by nikdy nesvítilo a nikdo by
+ * si toho nevšiml, protože chybějící varování nikde nechybí.
+ */
+await page.locator('.sh-switch input').last().check();
+await page.waitForTimeout(700);
+{
+  const painted = await page.locator('canvas.sh-zebra').evaluate(el => {
+    const ctx = el.getContext('2d');
+    if (!el.width || !el.height) return -1;
+    const data = ctx.getImageData(0, 0, el.width, el.height).data;
+    let on = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) on++;
+    return on;
+  });
+  // Obraz má světlé pozadí nad prahem, takže pruhy být musí — ale ne všude
+  say('zebra označila přepálená místa', painted > 100, `${painted} bodů`);
+  say('a nepřekryla celý obraz',
+    await page.locator('canvas.sh-zebra.on').count() === 1);
+}
 await snap('05-barvy');
+
+/* ---------- záběry v sérii ---------- */
+
+/*
+ * Seznam záběrů odškrtává, co je hotové, a sám se posune na další. Bez
+ * toho se u dvacátého kusu nepozná, že u pátého chybí rub.
+ */
+await page.locator('.sh-tabs button', { hasText: 'Šablona' }).click();
+await page.locator('.sh-panel .sh-mini', { hasText: 'Založit seznam' }).click();
+await page.waitForTimeout(600);
+{
+  const slots = await page.locator('.sh-slot').count();
+  say('založily se tři záběry', slots === 3, String(slots));
+  const names = await page.locator('.sh-slot').allInnerTexts();
+  say('a jmenují se, jak mají', names.join(',').includes('Detail vazby'), names.join(' | '));
+
+  await page.locator('.sh-slot', { hasText: 'Celek' }).click();
+  await page.locator('.sh-view').first().click();
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(900);
+  const done = await page.locator('.sh-slot.done').count();
+  say('nafocený záběr se odškrtl', done === 1, String(done));
+  const now = await page.locator('.sh-slot.now').innerText().catch(() => '');
+  say('a samo to skočilo na další', now.includes('Detail vazby'), now.trim());
+}
+await snap('11-zabery');
+
+/* ---------- srovnání vedle sebe ---------- */
+
+/*
+ * Vedle sebe, ne přes sebe: rozdíl ve světle se v prolnutí dvou obrazů
+ * ztratí, a právě ten je na řadě fotek vidět nejvíc. Oba rámečky musí být
+ * stejně velké, jinak se porovnává zdání.
+ */
+await page.locator('.sh-tile').first().hover();
+await page.locator('.sh-tile-acts button[title*="průsvitk"]').first().click();
+await page.waitForTimeout(900);
+await page.locator('.sh-mini', { hasText: 'Vedle sebe' }).click();
+await page.waitForTimeout(700);
+{
+  const views = await page.locator('.sh-pair .sh-view').count();
+  const sizes = await page.locator('.sh-pair .sh-view').evaluateAll(
+    list => list.map(el => Math.round(el.getBoundingClientRect().width)));
+  say('srovnání má dva stejné rámečky',
+    views === 2 && Math.abs(sizes[0] - sizes[1]) <= 1, sizes.join(' × '));
+  /*
+   * Průsvitka se přes náhled nekreslí — byla by na obrazovce dvakrát a
+   * překrytím by rušila právě to porovnání, kvůli kterému se sem přepnulo.
+   */
+  say('a průsvitka není zároveň přes náhled',
+    await page.locator('.sh-stage img.sh-ghost').count() === 0);
+}
+await snap('12-vedle-sebe');
+await page.locator('.sh-mini', { hasText: 'Přes sebe' }).click();
+await page.waitForTimeout(400);
 
 /* ---------- nastavení fotoaparátu ---------- */
 

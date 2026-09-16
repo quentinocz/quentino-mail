@@ -29,7 +29,13 @@ async function thumbOf(photo: ShootPhoto): Promise<string> {
   if (had) return had;
   const file = photo.webp || photo.file;
   if (!file) return '';
-  const bytes = await api.shoot.read(file);
+  /*
+   * `view`, ne `read`: u RAW vrátí JPEG, který do souboru uložil
+   * fotoaparát. Chromium CR2 ani CR3 neotevře, takže při focení do RAW
+   * tu dřív zůstávala prázdná dlaždice se jménem souboru a nafocené
+   * nešlo zkontrolovat, dokud se neotevřelo jinde.
+   */
+  const bytes = await api.shoot.view(file);
   if (!bytes) return '';
   try {
     const bitmap = await createImageBitmap(bytesToBlob(bytes));
@@ -47,9 +53,9 @@ async function thumbOf(photo: ShootPhoto): Promise<string> {
     return url;
   } catch {
     /*
-     * RAW se v prohlížeči otevřít nedá — kodér pro CR3 v Chromiu není.
-     * Není to chyba: u focení do RAW+JPEG se náhled vezme z JPEGu, u
-     * samotného RAW zůstane dlaždice bez obrázku, ale s názvem souboru.
+     * Ani vnořený náhled se nenašel — starší nebo neobvyklý formát.
+     * Dlaždice zůstane se jménem souboru; to je pořád srozumitelnější
+     * než rozbitý obrázek bez vysvětlení.
      */
     return '';
   }
@@ -60,6 +66,22 @@ export function forgetThumb(photoId: string): void {
   if (url) URL.revokeObjectURL(url);
   cache.delete(photoId);
 }
+
+/**
+ * Ostrost jako podíl nejlepší fotky v sérii.
+ *
+ * Absolutní číslo neříká nic — závisí na tom, co je na fotce. V jednom
+ * focení se ale fotí pořád totéž, takže nejlepší snímek je slušné měřítko
+ * a „62 % nejlepší" už dává smysl. Hlásí se až pod dvěma třetinami;
+ * blíž k sobě jsou rozdíly v kresbě, ne v zaostření.
+ */
+export function sharpShare(photo: ShootPhoto, photos: ShootPhoto[]): number {
+  const best = Math.max(...photos.map(one => one.sharp || 0), 0);
+  if (!best || !photo.sharp) return 0;
+  return Math.round((photo.sharp / best) * 100);
+}
+
+const SHARP_WARN = 67;
 
 export default function ShootGallery({ photos, onDrop, onPick, onGhost }: {
   photos: ShootPhoto[];
@@ -98,7 +120,7 @@ export default function ShootGallery({ photos, onDrop, onPick, onGhost }: {
     let alive = true;
     let made = '';
     (async () => {
-      const bytes = await api.shoot.read(big.webp || big.file);
+      const bytes = await api.shoot.view(big.webp || big.file);
       if (!alive || !bytes) return;
       made = URL.createObjectURL(bytesToBlob(bytes));
       setBigUrl(made);
@@ -131,6 +153,24 @@ export default function ShootGallery({ photos, onDrop, onPick, onGhost }: {
             </button>
             <span className="sh-tile-no">{index + 1}</span>
             {photo.raw && <span className="sh-tile-raw-tag">RAW</span>}
+            {(() => {
+              const share = sharpShare(photo, photos);
+              const soft = !!share && share < SHARP_WARN;
+              const blown = photo.clipped >= 1;
+              if (!soft && !blown) return null;
+              return (
+                <span
+                  className="sh-tile-warn"
+                  title={[
+                    soft ? `Ostrost ${share} % nejlepší v sérii — nejspíš mimo zaostření` : '',
+                    blown ? `Přepálená barva na ${photo.clipped.toFixed(1)} % plochy` : ''
+                  ].filter(Boolean).join('\n')}
+                >
+                  <Icon name="alert" size={11} />
+                  {soft ? `${share} %` : 'přepal'}
+                </span>
+              );
+            })()}
             <div className="sh-tile-acts">
               <button
                 onClick={() => onPick(photo)}

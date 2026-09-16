@@ -3304,6 +3304,30 @@ export interface ShootGhost {
   mirror: boolean;
 }
 
+/**
+ * Ořez, který se použije na uložené kopie.
+ *
+ * Je to samostatná věc, ne jedno z vodítek: vodítka jsou čáry, podle
+ * kterých se míří, kdežto ořez mění, co vyleze na disk. Splést je dohromady
+ * by znamenalo, že smazání pomocné čáry změní hotové fotky.
+ */
+export interface ShootCrop {
+  on: boolean;
+  /** Zámek poměru stran: `1:1`, `4:5`, `3:2`, `4:3`, nebo prázdné = volně. */
+  ratio: string;
+  /** Rámeček v podílu obrazu (0–1). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Jeden záběr v sérii — „Celek", „Detail vazby", „Rub". */
+export interface ShootSlot {
+  id: string;
+  name: string;
+}
+
 export interface ShootFix {
   on: boolean;
   /** Barva vybraná v obraze jako „tohle je bílá", ve tvaru `r,g,b`. */
@@ -3317,6 +3341,10 @@ export interface ShootFix {
   /** Od jaké světlosti se pozadí považuje za bílé (0–255). */
   backgroundLevel: number;
   preset: string;
+  /** Ukazovat v náhledu přepálená místa. */
+  zebra: boolean;
+  /** Od jaké světlosti se bere jako přepal (0–255). */
+  zebraLevel: number;
 }
 
 export interface Shoot {
@@ -3333,6 +3361,11 @@ export interface Shoot {
   /** Nastavení těla tak, jak bylo při focení — kvůli návratu k sérii. */
   settings: Record<string, string>;
   fix: ShootFix;
+  crop: ShootCrop;
+  /** Záběry, které se mají nafotit. Prázdné = volné focení bez seznamu. */
+  plan: ShootSlot[];
+  /** Focení, podle kterého se série opakuje — z něj se bere průsvitka. */
+  reference: string;
   note: string;
   createdAt: string;
   updatedAt: string;
@@ -3353,6 +3386,15 @@ export interface ShootPhoto {
   sort: number;
   /** Vybraná fotka — ta, co půjde na e-shop. */
   pick: boolean;
+  /** Ke kterému záběru ze série patří. Prázdné = mimo seznam. */
+  slot: string;
+  /**
+   * Ostrost z hran uvnitř ořezu. Samotné číslo nic neznamená — porovnává se
+   * s ostatními v témže focení, protože závisí na obsahu, ne jen na zaostření.
+   */
+  sharp: number;
+  /** Podíl přepálených míst v procentech. */
+  clipped: number;
   createdAt: string;
 }
 

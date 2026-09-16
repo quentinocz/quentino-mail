@@ -6,6 +6,7 @@ import * as store from './store';
 import * as gphoto from './gphoto';
 import * as config from './config';
 import * as live from './live';
+import * as preview from './preview';
 import { CameraSession } from './session';
 import type {
   Shoot, ShootPhoto, ShootState, ShootSettings, ShootTool, ShootCamera, CameraSetting
@@ -442,6 +443,17 @@ export async function removePhoto(photoId: string, alsoFile = true): Promise<boo
 
 export function readFile(file: string): Uint8Array | null {
   try { return new Uint8Array(fs.readFileSync(file)); } catch { return null; }
+}
+
+/**
+ * Obsah, který okno umí vykreslit.
+ *
+ * U RAW vrátí JPEG vnořený fotoaparátem — Chromium CR2 ani CR3 neotevře,
+ * takže při focení do RAW zůstávala v galerii prázdná dlaždice a nafocené
+ * nešlo zkontrolovat, dokud se soubory neotevřely jinde.
+ */
+export function viewableFile(file: string): Uint8Array | null {
+  return preview.viewable(file);
 }
 
 export async function pickFolder(shootId: string): Promise<string> {

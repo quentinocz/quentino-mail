@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Shoot, ShootPhoto, ShootState, ShootOverlay, ShootFix } from '@shared/types';
+import type {
+  Shoot, ShootPhoto, ShootState, ShootOverlay, ShootFix, ShootCrop, ShootSlot
+} from '@shared/types';
 import { api } from '../api';
 import { bytesToBlob } from '../media';
 import { useToast } from '../toast';
-import { applyFix, autoFix, cssFilter, fixActive, PRESETS, preset } from '../shoot/fix';
+import {
+  applyFix, autoFix, cssFilter, fixActive, PRESETS, preset,
+  sharpness, clipping, cropBox, lockRatio, ratioValue, RATIOS
+} from '../shoot/fix';
 import Icon from './Icon';
 import ShootView, { Tool } from './ShootView';
 import ShootGallery, { forgetThumb } from './ShootGallery';
@@ -38,6 +43,14 @@ const COLORS = ['#37d67a', '#ff4d6d', '#ffd166', '#4dabff', '#ffffff', '#111111'
 
 type Panel = 'kamera' | 'vodítka' | 'barvy' | 'soubor';
 
+/** Záběry, kterými produktové focení obvykle začíná. Jde je přepsat. */
+const PLAN_START = ['Celek', 'Detail vazby', 'Rub'];
+
+let slotSeq = 0;
+function makeSlot(name: string): ShootSlot {
+  return { id: `s${Date.now().toString(36)}${(slotSeq++).toString(36)}`, name };
+}
+
 export default function ShootModal({ onClose, standalone = false }: {
   onClose: () => void;
   /** Ve vlastním okně se nezavírá křížkem do aplikace, ale zavře se okno. */
@@ -58,6 +71,12 @@ export default function ShootModal({ onClose, standalone = false }: {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
   const [webcamId, setWebcamId] = useState('');
+  /** Ke kterému záběru ze série patří příští snímek. */
+  const [slot, setSlot] = useState('');
+  /** Srovnání vedle sebe místo průsvitky přes sebe. */
+  const [side, setSide] = useState(false);
+  /** Poměr stran obrazu z fotoaparátu — podle něj se přepočítává zámek ořezu. */
+  const [frameRatio, setFrameRatio] = useState(3 / 2);
   const video = useRef<HTMLVideoElement | null>(null);
   const lastFrame = useRef('');
 
@@ -254,7 +273,8 @@ export default function ShootModal({ onClose, standalone = false }: {
     let alive = true;
     let made = '';
     (async () => {
-      const bytes = await api.shoot.read(file);
+      // `view` kvůli tomu, aby jako průsvitka šla použít i fotka v RAW
+      const bytes = await api.shoot.view(file);
       if (!alive || !bytes) return;
       made = URL.createObjectURL(bytesToBlob(bytes));
       setGhostUrl(made);
@@ -264,66 +284,149 @@ export default function ShootModal({ onClose, standalone = false }: {
 
   /* ---------- fotí se ---------- */
 
+  /**
+   * Prohlédne hotový snímek.
+   *
+   * Měří se **uvnitř ořezu**, ne přes celý obraz. Kolem produktu je bílý
+   * papír bez hran — kdyby se počítal s ním, vyšla by ostrost tím nižší,
+   * čím víc je kolem místa, a s číslem by nešlo pracovat.
+   */
+  const inspect = useCallback((ctx: CanvasRenderingContext2D, crop: ShootCrop,
+    width: number, height: number): { sharp: number; clipped: number } => {
+    const box = crop.on ? cropBox(crop, width, height) : { x: 0, y: 0, w: width, h: height };
+    /*
+     * Ostrost se počítá z prostředka, ne z celého ořezu. Dvacet megapixelů
+     * projet po bodech znamená vteřinu čekání po každém snímku — a na
+     * zaostření produktu uprostřed záběru stačí střed.
+     */
+    const side = Math.max(64, Math.min(600, Math.round(Math.min(box.w, box.h) / 2)));
+    const mid = {
+      x: box.x + Math.round((box.w - side) / 2),
+      y: box.y + Math.round((box.h - side) / 2)
+    };
+    const middle = ctx.getImageData(Math.max(0, mid.x), Math.max(0, mid.y), side, side);
+    const whole = ctx.getImageData(box.x, box.y, box.w, box.h);
+    return {
+      sharp: Math.round(sharpness(middle.data, side, side)),
+      clipped: Math.round(clipping(whole.data, shoot?.fix.zebraLevel ?? 250) * 10) / 10
+    };
+  }, [shoot?.fix.zebraLevel]);
+
+  /**
+   * Nakreslí snímek na plátno, ořízne ho a použije korekci.
+   *
+   * Pořadí je dané: nejdřív ořez, pak korekce. Obráceně by se bílá počítala
+   * i z toho, co se stejně odřízne — a kus stolu za okrajem papíru by
+   * posunul barvy celé série.
+   */
+  const toCanvas = useCallback((
+    source: CanvasImageSource, width: number, height: number, crop: ShootCrop, fix: ShootFix
+  ): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null => {
+    const box = crop.on ? cropBox(crop, width, height) : { x: 0, y: 0, w: width, h: height };
+    const canvas = document.createElement('canvas');
+    canvas.width = box.w;
+    canvas.height = box.h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(source, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+    if (fixActive(fix)) {
+      const data = ctx.getImageData(0, 0, box.w, box.h);
+      applyFix(data.data, fix);
+      ctx.putImageData(data, 0, 0);
+    }
+    return { canvas, ctx };
+  }, []);
+
   const shotFromWebcam = useCallback(async () => {
     const element = video.current;
     if (!shoot || !element?.videoWidth) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = element.videoWidth;
-    canvas.height = element.videoHeight;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
-    ctx.drawImage(element, 0, 0);
-    if (fixActive(shoot.fix)) {
-      const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      applyFix(data.data, shoot.fix);
-      ctx.putImageData(data, 0, 0);
-    }
+    const made = toCanvas(element, element.videoWidth, element.videoHeight, shoot.crop, shoot.fix);
+    if (!made) return;
     const type = shoot.webp ? 'image/webp' : 'image/jpeg';
     const quality = shoot.webp ? shoot.webpQuality / 100 : 0.94;
-    const blob = await new Promise<Blob | null>(done => canvas.toBlob(done, type, quality));
+    const blob = await new Promise<Blob | null>(done => made.canvas.toBlob(done, type, quality));
     if (!blob) { note('Snímek se nepovedl uložit.', true); return; }
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const out = await api.shoot.bytes(shoot.id, shoot.webp ? 'webp' : 'jpg', bytes);
-    if (!out.ok) note(out.error, true);
-  }, [shoot, note]);
+    if (!out.ok) { note(out.error, true); return; }
+    if (out.photo) {
+      const look = inspect(made.ctx, { ...shoot.crop, on: false }, made.canvas.width, made.canvas.height);
+      await api.shoot.savePhoto(out.photo.id, { ...look, slot });
+    }
+  }, [shoot, note, toCanvas, inspect, slot]);
 
   /**
-   * Převede právě nafocený snímek do WebP vedle originálu.
+   * Ořízne a převede právě nafocený snímek — vedle originálu.
    *
-   * Originál se **nikdy nepřepisuje**: z JPEGu ze zrcadlovky jde WebP
-   * udělat znovu jinak, z WebP originál zpátky ne. Na e-shop jde kopie,
-   * na disku zůstane obojí.
+   * Originál se **nikdy nepřepisuje**: z JPEGu ze zrcadlovky jde kopie
+   * udělat znovu jinak, z oříznuté kopie originál zpátky ne. Na e-shop
+   * jde kopie, na disku zůstane obojí.
+   *
+   * Kopie vzniká, i když je WebP vypnuté — tehdy jako JPEG. Ořez je důvod
+   * sám o sobě: bez kopie by se čtvercový výřez musel dělat ručně u každé
+   * fotky zvlášť.
    */
-  const alsoWebp = useCallback(async (photo: ShootPhoto) => {
-    if (!shoot?.webp || !photo.file) return;
-    const bytes = await api.shoot.read(photo.file);
+  const afterShot = useCallback(async (photo: ShootPhoto) => {
+    if (!shoot) return;
+
+    /*
+     * Záběr ze série se zapíše hned, ještě před prohlédnutím fotky.
+     * Prohlédnout se dá jen to, co Chromium otevře — u samotného RAW nic —
+     * a kdyby se zápis vázal na to, při focení do RAW by se seznam záběrů
+     * nikdy neodškrtl a vypadal by jako rozbitý.
+     */
+    if (slot) {
+      const marked = await api.shoot.savePhoto(photo.id, { slot });
+      if (marked) setPhotos(list => list.map(one => (one.id === marked.id ? marked : one)));
+    }
+
+    if (!photo.file) return;
+    /*
+     * U RAW se prohlíží vnořený náhled — na porovnání ostrosti v rámci
+     * série stačí, protože se u všech snímků měří stejně. Vyvolaná kopie
+     * se z něj ale nedělá: ta by měla horší rozlišení než originál.
+     */
+    const bytes = await api.shoot.view(photo.file);
     if (!bytes) return;
+    const fromRaw = /\.(cr2|cr3|nef|arw|dng|raf|orf|rw2|pef)$/i.test(photo.file);
     try {
       const bitmap = await createImageBitmap(bytesToBlob(bytes));
-      const canvas = document.createElement('canvas');
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) return;
-      ctx.drawImage(bitmap, 0, 0);
+      const made = toCanvas(bitmap, bitmap.width, bitmap.height, shoot.crop, shoot.fix);
       bitmap.close();
-      if (fixActive(shoot.fix)) {
-        const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        applyFix(data.data, shoot.fix);
-        ctx.putImageData(data, 0, 0);
+      if (!made) return;
+
+      const look = inspect(made.ctx, { ...shoot.crop, on: false }, made.canvas.width, made.canvas.height);
+      let saved = await api.shoot.savePhoto(photo.id, { ...look, slot });
+
+      const wantCopy = (shoot.webp || shoot.crop.on) && !fromRaw;
+      if (wantCopy) {
+        const ext = shoot.webp ? 'webp' : 'jpg';
+        const blob = await new Promise<Blob | null>(done => made.canvas.toBlob(
+          done,
+          shoot.webp ? 'image/webp' : 'image/jpeg',
+          shoot.webp ? shoot.webpQuality / 100 : 0.94
+        ));
+        if (blob) {
+          const out = await api.shoot.bytes(
+            shoot.id, ext, new Uint8Array(await blob.arrayBuffer()), photo.file);
+          if (out.photo) saved = out.photo;
+        }
       }
-      const blob = await new Promise<Blob | null>(done =>
-        canvas.toBlob(done, 'image/webp', shoot.webpQuality / 100));
-      if (!blob) return;
-      const out = await api.shoot.bytes(
-        shoot.id, 'webp', new Uint8Array(await blob.arrayBuffer()), photo.file);
-      if (out.photo) {
-        forgetThumb(out.photo.id);
-        setPhotos(list => list.map(one => (one.id === out.photo!.id ? out.photo! : one)));
+      if (saved) {
+        forgetThumb(saved.id);
+        setPhotos(list => list.map(one => (one.id === saved!.id ? saved! : one)));
       }
     } catch {
-      // RAW Chromium neotevře; převod se u něj prostě neudělá
+      // RAW Chromium neotevře; kopie ani kontrola se u něj prostě neudělá
     }
+  }, [shoot, toCanvas, inspect, slot]);
+
+  /** Po snímku se přeskočí na další nenafocený záběr v seznamu. */
+  const nextSlot = useCallback((taken: ShootPhoto[]) => {
+    if (!shoot?.plan.length) return;
+    const done = new Set(taken.map(one => one.slot).filter(Boolean));
+    const next = shoot.plan.find(one => !done.has(one.id));
+    setSlot(next?.id ?? '');
   }, [shoot]);
 
   const capture = useCallback(async () => {
@@ -333,11 +436,14 @@ export default function ShootModal({ onClose, standalone = false }: {
       if (stream) { await shotFromWebcam(); return; }
       const out = await api.shoot.capture(shoot.id);
       if (!out.ok) { note(out.error, true); return; }
-      if (out.photo) await alsoWebp(out.photo);
+      if (out.photo) await afterShot(out.photo);
     } finally {
       setBusy('');
+      const fresh = await api.shoot.photos(shoot.id);
+      setPhotos(fresh);
+      nextSlot(fresh);
     }
-  }, [shoot, busy, stream, shotFromWebcam, note, alsoWebp]);
+  }, [shoot, busy, stream, shotFromWebcam, note, afterShot, nextSlot]);
 
   // Mezerník fotí. Při psaní do políčka ne — tam patří mezera do textu.
   useEffect(() => {
@@ -496,6 +602,7 @@ export default function ShootModal({ onClose, standalone = false }: {
             <ToolButton now={tool} id="thirds" icon="drawThirds" label="Třetiny" set={setTool} />
             <ToolButton now={tool} id="grid" icon="drawGrid" label="Mřížka" set={setTool} />
             <span className="sh-sep" />
+            <ToolButton now={tool} id="crop" icon="crop" label="Ořez" set={setTool} />
             <ToolButton now={tool} id="pick" icon="pipette" label="Bílá z obrazu" set={setTool} />
             <span className="sh-sep" />
             {COLORS.map(one => (
@@ -527,12 +634,19 @@ export default function ShootModal({ onClose, standalone = false }: {
             )}
           </div>
 
+          {/*
+            * Srovnání vedle sebe, ne přes sebe. Průsvitka ukáže, jestli
+            * produkt leží stejně, ale rozdíl ve světle se v prolnutí dvou
+            * obrazů ztratí — a právě ten je na řadě fotek vidět nejvíc.
+            */}
+          <div className={`sh-pair ${side && ghostUrl ? 'on' : ''}`}>
           <ShootView
             frame={frame}
             stream={stream}
             media={video}
             ghost={shoot.ghost}
-            ghostUrl={ghostUrl}
+            /* Vedle sebe se průsvitka přes náhled nekreslí — byla by dvakrát */
+            ghostUrl={side ? '' : ghostUrl}
             overlay={shoot.overlay}
             fix={shoot.fix}
             tool={tool}
@@ -542,8 +656,18 @@ export default function ShootModal({ onClose, standalone = false }: {
             onSelect={setSelected}
             onAdd={addShape}
             onChange={changeShape}
+            crop={shoot.crop}
+            onCrop={box => patch({ crop: { ...shoot.crop, ...box, on: true } })}
+            onAspect={setFrameRatio}
             onPickWhite={rgb => setFix({ white: rgb, on: true })}
           />
+          {side && ghostUrl && (
+            <div className="sh-view sh-ref">
+              <img src={ghostUrl} alt="" />
+              <span className="sh-ref-tag">minulá série</span>
+            </div>
+          )}
+          </div>
 
           <div className="sh-shoot">
             <button
@@ -574,7 +698,34 @@ export default function ShootModal({ onClose, standalone = false }: {
             >
               {running ? 'Zastavit náhled' : 'Spustit náhled'}
             </button>
+            {!!shoot.plan.length && (
+              <div className="sh-slots">
+                {shoot.plan.map(one => {
+                  const done = photos.some(photo => photo.slot === one.id);
+                  return (
+                    <button
+                      key={one.id}
+                      className={`sh-slot ${done ? 'done' : ''} ${slot === one.id ? 'now' : ''}`}
+                      onClick={() => setSlot(one.id)}
+                      title={done ? 'Už nafoceno — kliknutím se k němu vrátíš' : 'Tenhle záběr se fotí teď'}
+                    >
+                      {done ? <Icon name="check" size={11} /> : null}
+                      {one.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <span className="sh-top-space" />
+            {!!shoot.ghost.file && (
+              <button
+                className={`sh-mini ${side ? 'on' : ''}`}
+                onClick={() => setSide(one => !one)}
+                title="Minulá série vedle náhledu místo přes něj"
+              >
+                <Icon name="layers" size={12} /> {side ? 'Přes sebe' : 'Vedle sebe'}
+              </button>
+            )}
             <small>{photos.length} {photoWord(photos.length)}</small>
             <button className="sh-mini" onClick={() => api.shoot.openFolder(shoot.id)}>
               <Icon name="folder" size={12} /> Složka
@@ -708,6 +859,46 @@ export default function ShootModal({ onClose, standalone = false }: {
                 </>
               )}
 
+              <div className="sh-panel-head" style={{ marginTop: 14 }}><b>Záběry v sérii</b></div>
+              <div className="sh-panel-note">
+                Seznam toho, co se u každého kusu fotí. Po snímku se sám posune
+                na další nenafocený — nemusíš hlídat, jestli ti něco nechybí.
+              </div>
+              {!shoot.plan.length && (
+                <button
+                  className="sh-mini"
+                  onClick={() => patch({ plan: PLAN_START.map(makeSlot) })}
+                >
+                  <Icon name="plus" size={12} /> Založit seznam záběrů
+                </button>
+              )}
+              {shoot.plan.map((one, index) => (
+                <div className="sh-shape-row" key={one.id}>
+                  <input
+                    className="sh-slot-name"
+                    value={one.name}
+                    onChange={e => patch({
+                      plan: shoot.plan.map(row =>
+                        (row.id === one.id ? { ...row, name: e.target.value } : row))
+                    })}
+                  />
+                  <button
+                    onClick={() => patch({ plan: shoot.plan.filter(row => row.id !== one.id) })}
+                    title="Odebrat záběr"
+                  >
+                    <Icon name="x" size={11} />
+                  </button>
+                  {index === shoot.plan.length - 1 && (
+                    <button
+                      onClick={() => patch({ plan: [...shoot.plan, makeSlot('Další záběr')] })}
+                      title="Přidat záběr"
+                    >
+                      <Icon name="plus" size={11} />
+                    </button>
+                  )}
+                </div>
+              ))}
+
               <div className="sh-panel-head" style={{ marginTop: 14 }}><b>Vodítka</b></div>
               <div className="sh-panel-note">
                 {shoot.overlay.length
@@ -782,6 +973,24 @@ export default function ShootModal({ onClose, standalone = false }: {
               <Slide label="Teplota" min={-40} max={40} step={1} value={shoot.fix.temperature}
                 onChange={value => setFix({ temperature: value, preset: '' })} />
 
+              <div className="sh-panel-head" style={{ marginTop: 14 }}>
+                <b>Přepálená světla</b>
+                <label className="sh-switch">
+                  <input
+                    type="checkbox"
+                    checked={shoot.fix.zebra}
+                    onChange={e => setFix({ zebra: e.target.checked })}
+                  />
+                  <span>ukazovat</span>
+                </label>
+              </div>
+              <div className="sh-panel-note">
+                Růžové pruhy v náhledu tam, kde už není kresba. Na displeji
+                fotoaparátu se to nepozná a v postprodukci se to nespraví.
+              </div>
+              <Slide label="Od světlosti" min={230} max={255} step={1} value={shoot.fix.zebraLevel}
+                onChange={value => setFix({ zebraLevel: value })} />
+
               <div className="sh-panel-head" style={{ marginTop: 10 }}><b>Bílé pozadí</b></div>
               <Slide label="Dočistit" min={0} max={100} step={5} value={shoot.fix.background}
                 onChange={value => setFix({ background: value, preset: '' })} unit=" %" />
@@ -804,6 +1013,55 @@ export default function ShootModal({ onClose, standalone = false }: {
               }}>
                 <Icon name="folder" size={12} /> Vybrat složku
               </button>
+
+              <div className="sh-panel-head" style={{ marginTop: 14 }}>
+                <b>Ořez</b>
+                <label className="sh-switch">
+                  <input
+                    type="checkbox"
+                    checked={shoot.crop.on}
+                    onChange={e => patch({ crop: { ...shoot.crop, on: e.target.checked } })}
+                  />
+                  <span>zapnout</span>
+                </label>
+              </div>
+              <div className="sh-panel-note">
+                Rámeček se táhne nástrojem <b>Ořez</b> nad náhledem. Oříznutá kopie
+                vzniká vedle originálu — ten zůstává celý pro Photoshop.
+              </div>
+              <label className="sh-field">
+                <span>Poměr stran</span>
+                <select
+                  value={shoot.crop.ratio}
+                  onChange={e => {
+                    const ratio = e.target.value;
+                    /*
+                     * Změna poměru musí rámeček rovnou srovnat, ne čekat na
+                     * další tažení — jinak by „čtverec" ořízl obdélník až do
+                     * chvíle, kdy si toho někdo všimne na hotových fotkách.
+                     */
+                    const box = lockRatio(shoot.crop, ratioValue(ratio), frameRatio);
+                    patch({ crop: { ...shoot.crop, ...box, ratio } });
+                  }}
+                >
+                  {RATIOS.map(one => (
+                    <option key={one.id || 'free'} value={one.id}>{one.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="sh-row">
+                <button
+                  className="sh-mini"
+                  onClick={() => {
+                    // Vycentrovat na největší rámeček, který se do obrazu vejde
+                    const box = lockRatio({ x: 0, y: 0, w: 1, h: 1 }, ratioValue(shoot.crop.ratio), frameRatio);
+                    patch({ crop: { ...shoot.crop, on: true,
+                      x: (1 - box.w) / 2, y: (1 - box.h) / 2, w: box.w, h: box.h } });
+                  }}
+                >
+                  Na střed, co největší
+                </button>
+              </div>
 
               <div className="sh-panel-head" style={{ marginTop: 14 }}><b>Formát</b></div>
               <div className="sh-panel-note">

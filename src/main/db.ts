@@ -5,7 +5,7 @@ import { app } from 'electron';
 import { igSchema, igAlters } from './instagram/schema';
 import { SCHEMA as ptransSchema, ALTERS as ptransAlters } from './ptrans/schema';
 import { SCHEMA as artSchema, ALTERS as artAlters } from './articles/schema';
-import { SCHEMA as shootSchema } from './shoot/store';
+import { SCHEMA as shootSchema, ALTERS as shootAlters } from './shoot/store';
 
 let db: Database.Database;
 
@@ -386,6 +386,9 @@ function migrate(d: Database.Database) {
   }
   // Focení: uložené série, jejich vodítka a nafocené soubory
   d.exec(shootSchema);
+  for (const sql of shootAlters) {
+    try { d.exec(sql); } catch { /* sloupec už existuje */ }
+  }
   // Instagram: účty, trhy, příspěvky, popisky a fronta publikací
   d.exec(igSchema);
   for (const sql of igAlters) {

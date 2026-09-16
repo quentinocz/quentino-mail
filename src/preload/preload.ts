@@ -121,7 +121,7 @@ const ALLOWED_INVOKE = [
   'shoot:gphotoPath', 'shoot:live', 'shoot:settings', 'shoot:setting', 'shoot:setSetting',
   'shoot:focus', 'shoot:capture',
   'shoot:shoots', 'shoot:shoot', 'shoot:new', 'shoot:save', 'shoot:deleteShoot',
-  'shoot:photos', 'shoot:savePhoto', 'shoot:dropPhoto', 'shoot:bytes', 'shoot:read',
+  'shoot:photos', 'shoot:savePhoto', 'shoot:dropPhoto', 'shoot:bytes', 'shoot:read', 'shoot:view',
   'shoot:folder', 'shoot:ghost', 'shoot:reveal', 'shoot:openFolder',
   'shoot:window', 'shoot:windowOpen', 'shoot:closeWindow',
   'ship:notes',

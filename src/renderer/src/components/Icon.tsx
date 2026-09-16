@@ -68,6 +68,8 @@ const PATHS: Record<string, ReactNode> = {
   drawThirds: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M9 4v16" /><path d="M15 4v16" /><path d="M3 9.33h18" /><path d="M3 14.66h18" /></>,
   /* Mřížka: hustší dělení — tři a tři čáry */
   drawGrid: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M7.5 4v16" /><path d="M12 4v16" /><path d="M16.5 4v16" /><path d="M3 8h18" /><path d="M3 12h18" /><path d="M3 16h18" /></>,
+  /* Ořez — dva rohy, jak se značí výřez */
+  crop: <><path d="M6 2v14a2 2 0 0 0 2 2h14" /><path d="M18 22V8a2 2 0 0 0-2-2H2" /></>,
   /* Kapátko — odečtení barvy z obrazu */
   pipette: <><path d="m2 22 1-4 9.5-9.5" /><path d="m15 5 4 4" /><path d="M13.5 3.5a2.1 2.1 0 0 1 3 0l4 4a2.1 2.1 0 0 1 0 3l-2 2-7-7Z" /><path d="m3 18 3 3" /></>,
   eraser: <><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" /><path d="M22 21H7" /><path d="m5 11 9 9" /></>,

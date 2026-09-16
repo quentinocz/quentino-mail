@@ -623,6 +623,8 @@ export function registerIpc() {
   handle('shoot:bytes', (id: string, ext: string, bytes: any, beside: string) =>
     shoot.savePhotoBytes(id ?? '', ext ?? 'webp', new Uint8Array(bytes), beside ?? ''));
   handle('shoot:read', (file: string) => shoot.readFile(file ?? ''));
+  // Náhled pro okno: u RAW se vytáhne JPEG, který do něj uložil fotoaparát
+  handle('shoot:view', (file: string) => shoot.viewableFile(file ?? ''));
   handle('shoot:folder', (id: string) => shoot.pickFolder(id ?? ''));
   handle('shoot:ghost', () => shoot.pickGhost());
   handle('shoot:reveal', (file: string) => { shoot.reveal(file ?? ''); return true; });

@@ -1122,6 +1122,8 @@ export const api = {
       call<{ ok: boolean; error: string; photo: ShootPhoto | null; file: string }>(
         'shoot:bytes', id, ext, bytes, beside),
     read: (file: string) => call<Uint8Array | null>('shoot:read', file),
+    /** Obsah, který okno umí vykreslit — u RAW vnořený JPEG z fotoaparátu */
+    view: (file: string) => call<Uint8Array | null>('shoot:view', file),
     folder: (id: string) => call<string>('shoot:folder', id),
     ghost: () => call<string>('shoot:ghost'),
     reveal: (file: string) => call<boolean>('shoot:reveal', file),

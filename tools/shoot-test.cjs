@@ -187,6 +187,94 @@ console.log('\nfocení:\n');
   check('vyřazená fotka zmizela', store.listPhotos(made.id).length, 1);
 }
 
+/* ---------- náhled z RAW ---------- */
+
+/*
+ * Chromium CR2 ani CR3 neotevře, takže se z RAWu vytahuje JPEG, který do
+ * něj uložil fotoaparát. Skládá se tady skutečná struktura TIFF — jen tak
+ * se pozná, že se čtou správné značky a ne jen náhodná shoda bajtů.
+ */
+{
+  const rawlib = require(path.join(DIST, 'shoot/preview.js'));
+
+  const jpeg = (size) => {
+    const body = Buffer.alloc(size, 0x55);
+    // Začátek JPEGu i s hlavičkou APP0 a koncová značka — jinak se nebere
+    Buffer.from([0xff, 0xd8, 0xff, 0xe0]).copy(body, 0);
+    Buffer.from([0xff, 0xd9]).copy(body, size - 2);
+    return body;
+  };
+
+  /**
+   * Poskládá CR2: hlavička TIFF, tabulka se značkami „kde leží pruhy
+   * obrazu", a za ní dva JPEGy — malý náhled pro displej a velký pro
+   * prohlížení. Vrátit se musí ten velký.
+   */
+  const makeCr2 = () => {
+    const small = jpeg(2048);
+    const large = jpeg(40000);
+    const head = Buffer.alloc(200);
+    head.write('II', 0, 'ascii');
+    head.writeUInt16LE(42, 2);
+    head.writeUInt32LE(16, 4);           // IFD0 začíná na 16
+
+    let at = 16;
+    head.writeUInt16LE(2, at); at += 2;  // dva záznamy
+    head.writeUInt16LE(0x0111, at); head.writeUInt32LE(200, at + 8); at += 12;
+    head.writeUInt16LE(0x0117, at); head.writeUInt32LE(large.length, at + 8); at += 12;
+    head.writeUInt32LE(at + 4, at);      // odkaz na IFD1 hned za IFD0
+    at += 4;
+
+    head.writeUInt16LE(2, at); at += 2;
+    head.writeUInt16LE(0x0111, at); head.writeUInt32LE(200 + large.length, at + 8); at += 12;
+    head.writeUInt16LE(0x0117, at); head.writeUInt32LE(small.length, at + 8); at += 12;
+    head.writeUInt32LE(0, at);           // konec řetězu tabulek
+
+    return Buffer.concat([head, large, small]);
+  };
+
+  const cr2 = makeCr2();
+  const found = rawlib.__test.tiffJpegs(cr2);
+  check('v CR2 se našly oba vnořené JPEGy', found.length, 2);
+  const out = rawlib.__test.embeddedJpeg(cr2);
+  // Vrátit se musí ten velký; malý je náhled pro displej fotoaparátu
+  check('vrací se ten větší', out.length, 40000);
+  ok('a je to opravdu JPEG', out[0] === 0xff && out[1] === 0xd8
+    && out[out.length - 2] === 0xff && out[out.length - 1] === 0xd9);
+
+  /*
+   * CR3 tabulku TIFF nemá — je zabalený jako video. Tam se soubor projde
+   * a vezme nejdelší JPEG. Napodobí se to souborem bez hlavičky TIFF.
+   */
+  const cr3 = Buffer.concat([
+    Buffer.from('ftypcrx ', 'ascii'), Buffer.alloc(64, 7),
+    jpeg(3000), Buffer.alloc(128, 9), jpeg(30000)
+  ]);
+  check('v CR3 se hledá průchodem', rawlib.__test.tiffJpegs(cr3).length, 0);
+  check('a najde se ten největší', rawlib.__test.embeddedJpeg(cr3).length, 30000);
+
+  /*
+   * Syrová data obsahují `ffd8` náhodou každou chvíli. Bez kontroly, co za
+   * ním následuje, by se vracel nesmysl — a v galerii by svítil rozbitý
+   * obrázek, u kterého nikdo nepozná proč.
+   */
+  const sum = Buffer.concat([Buffer.alloc(4, 0), Buffer.from([0xff, 0xd8, 0x12, 0x34]), Buffer.alloc(9000, 3)]);
+  check('náhodné ffd8 v datech se nebere', rawlib.__test.scanJpegs(sum).length, 0);
+
+  check('malý drobek se nebere', rawlib.__test.biggest([{ start: 0, length: 300 }]), null);
+  check('JPG není RAW', rawlib.__test.isRawFile('/x/a.JPG'), false);
+  check('CR2 je RAW', rawlib.__test.isRawFile('/x/a.CR2'), true);
+
+  // Poškozený soubor nesmí zacyklit smyčku přes tabulky
+  const cyklus = Buffer.alloc(64);
+  cyklus.write('II', 0, 'ascii');
+  cyklus.writeUInt16LE(42, 2);
+  cyklus.writeUInt32LE(16, 4);
+  cyklus.writeUInt16LE(0, 16);
+  cyklus.writeUInt32LE(16, 18);   // tabulka odkazuje sama na sebe
+  check('poškozený soubor nezacyklí', rawlib.__test.tiffJpegs(cyklus).length, 0);
+}
+
 /* ---------- živé spojení s falešným gphoto2 ---------- */
 
 const fake = path.join(__dirname, 'fake-gphoto2.cjs');
@@ -499,6 +587,92 @@ async function liveSection() {
 
   check('předvolba „bílé pozadí" existuje', !!fix.preset('bile-pozadi'), true);
   check('neznámá předvolba nic nevrátí', fix.preset('nic'), null);
+
+  /* ---------- ostrost ---------- */
+
+  /**
+   * Dvě stejně velké plochy: jedna s ostrou hranou, druhá rozmazaná
+   * přechodem. Ostrá musí vyjít výrazně výš — kdyby ne, hlásilo by se
+   * rozmazání u ostrých fotek a naopak.
+   */
+  const plocha = (draw) => {
+    const w = 64, h = 64;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const v = draw(x, y);
+        const at = (y * w + x) * 4;
+        data[at] = data[at + 1] = data[at + 2] = v;
+        data[at + 3] = 255;
+      }
+    }
+    return { data, w, h };
+  };
+
+  const ostra = plocha((x) => (x < 32 ? 40 : 220));
+  // Rozmazaná: tatáž hrana roztažená přes dvacet bodů
+  const mekka = plocha((x) => {
+    if (x < 22) return 40;
+    if (x > 42) return 220;
+    return 40 + ((x - 22) / 20) * 180;
+  });
+  const hladka = plocha(() => 128);
+
+  const sOstra = fix.sharpness(ostra.data, ostra.w, ostra.h);
+  const sMekka = fix.sharpness(mekka.data, mekka.w, mekka.h);
+  ok('ostrá hrana má vyšší ostrost než měkká', sOstra > sMekka * 3,
+    `${Math.round(sOstra)} vs ${Math.round(sMekka)}`);
+  check('jednolitá plocha nemá hrany',
+    Math.round(fix.sharpness(hladka.data, hladka.w, hladka.h)), 0);
+  check('na drobku se nepočítá nic', fix.sharpness(new Uint8ClampedArray(16), 2, 2), 0);
+
+  /* ---------- přepaly ---------- */
+
+  {
+    /*
+     * Vybílené bílé pozadí je záměr, ne vada. Kdyby se hlásilo, svítilo
+     * by varování u každé fotky produktu na papíru — a to si za týden
+     * nikdo nevšimne.
+     */
+    const bily = new Uint8ClampedArray([255, 255, 255, 255, 254, 255, 255, 255]);
+    check('bílé pozadí není přepal', fix.clipping(bily, 250), 0);
+
+    /*
+     * Barevný přepal: červená dojela na 255, modrá zůstala nízko. Právě
+     * tady vzniká lem, kterého si na fotce všimne každý.
+     */
+    const lem = new Uint8ClampedArray([255, 200, 120, 255]);
+    check('barevný přepal se hlásí', Math.round(fix.clipping(lem, 250)), 100);
+
+    const klidny = new Uint8ClampedArray([200, 200, 200, 255]);
+    check('normální obraz je bez přepalů', fix.clipping(klidny, 250), 0);
+  }
+
+  /* ---------- ořez ---------- */
+
+  {
+    const box = fix.cropBox({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, 6000, 4000);
+    check('ořez v pixelech sedí', box, { x: 1500, y: 1000, w: 3000, h: 2000 });
+
+    // Ven z obrazu se ořez nedostane, i když se rámeček přetáhne
+    const big = fix.cropBox({ x: 0.9, y: 0.9, w: 0.5, h: 0.5 }, 1000, 1000);
+    ok('ořez nepřeteče snímek', big.x + big.w <= 1000 && big.y + big.h <= 1000,
+      JSON.stringify(big));
+
+    /*
+     * Čtverec na obraze 3:2 není v podílech čtverec — na šířku zabírá
+     * dvě třetiny toho, co na výšku. Kdyby se to nepřepočítalo, vyšel by
+     * z „čtverce" obdélník a na e-shopu by fotka vyčnívala z řady.
+     */
+    const ctverec = fix.lockRatio({ x: 0.1, y: 0.1, w: 0.9, h: 0.6 }, 1, 3 / 2);
+    const px = fix.cropBox(ctverec, 6000, 4000);
+    ok('čtverec je na fotce opravdu čtverec', Math.abs(px.w - px.h) <= 1,
+      `${px.w}×${px.h}`);
+
+    check('volný poměr nic nemění',
+      fix.lockRatio({ x: 0, y: 0, w: 0.8, h: 0.3 }, null, 1.5).h, 0.3);
+    check('čtverec je výchozí poměr', fix.ratioValue('1:1'), 1);
+  }
   }
 
   fs.rmSync(work, { recursive: true, force: true });

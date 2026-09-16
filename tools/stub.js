@@ -1784,7 +1784,10 @@
     overlay: [], ghost: { file: '', opacity: 40, mirror: false },
     settings: {}, note: '',
     fix: { on: false, white: '', exposure: 0, contrast: 0, saturation: 0,
-      temperature: 0, background: 0, backgroundLevel: 242, preset: '' },
+      temperature: 0, background: 0, backgroundLevel: 242, preset: '',
+      zebra: false, zebraLevel: 250 },
+    crop: { on: false, ratio: '1:1', x: 1 / 6, y: 1 / 6, w: 2 / 3, h: 2 / 3 },
+    plan: [], reference: '',
     createdAt: '2026-09-16T08:00:00.000Z', updatedAt: '2026-09-16T08:00:00.000Z', photos: 0
   };
   shootState.shoots = [shootOne];
@@ -1853,10 +1856,25 @@
           id: 'p' + no, shootId: 's1',
           file: '/Users/p/Obrázky/Kravaty/kravaty-hedvabi-' + String(no).padStart(3, '0') + '.jpg',
           raw: '', webp: '', width: 6000, height: 4000, bytes: 5200000,
-          sort: no, pick: false, createdAt: new Date().toISOString()
+          sort: no, pick: false, slot: '', sharp: 0, clipped: 0,
+          createdAt: new Date().toISOString()
         };
         shootPhotos.push(photo);
         return Promise.resolve({ ok: true, data: { ok: true, error: '', photo: photo } });
+      }
+      /*
+       * Ostrost a záběr se dopisují k fotce až po prohlédnutí na plátně.
+       * Stub to musí uložit stejně jako hlavní proces, jinak by se nepoznalo,
+       * že se výsledek kontroly do galerie vůbec nedostane.
+       */
+      if (channel === 'shoot:savePhoto') {
+        var pid = arguments[1];
+        var zmena = arguments[2] || {};
+        var nalez = null;
+        shootPhotos.forEach(function (one) {
+          if (one.id === pid) { Object.assign(one, zmena); nalez = one; }
+        });
+        return Promise.resolve({ ok: true, data: nalez });
       }
       if (channel === 'shoot:dropPhoto') {
         var id = arguments[1];
@@ -1865,8 +1883,14 @@
         }
         return Promise.resolve({ ok: true, data: true });
       }
-      // Soubor z disku se v náhledu přečíst nedá; galerie z toho udělá dlaždici bez obrázku
-      if (channel === 'shoot:read') return Promise.resolve({ ok: true, data: null });
+      /*
+       * Obsah souboru. Náhled si ho podstrčí přes `window.__shootFile` —
+       * bez něj by galerie neměla co vykreslit a průsvitka by se nikdy
+       * nenačetla, takže by se srovnání vedle sebe nedalo vyzkoušet.
+       */
+      if (channel === 'shoot:read' || channel === 'shoot:view') {
+        return Promise.resolve({ ok: true, data: window.__shootFile || null });
+      }
       if (channel === 'orders:shorts') {
         var shorts = {};
         (arg || []).forEach(function (code) {

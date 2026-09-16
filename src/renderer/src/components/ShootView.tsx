@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ShootOverlay, ShootGhost, ShootFix } from '@shared/types';
-import { cssFilter } from '../shoot/fix';
+import type { ShootOverlay, ShootGhost, ShootFix, ShootCrop } from '@shared/types';
+import { cssFilter, lockRatio, ratioValue } from '../shoot/fix';
 
 /**
  * Živý náhled s vodítky a průsvitkou.
@@ -21,7 +21,8 @@ import { cssFilter } from '../shoot/fix';
  * snímkem. V SVG je prohlížeč drží sám a překresluje se jen obraz.
  */
 
-export type Tool = 'zoom' | 'line' | 'rect' | 'ellipse' | 'cross' | 'thirds' | 'grid' | 'pick';
+export type Tool = 'zoom' | 'line' | 'rect' | 'ellipse' | 'cross' | 'thirds' | 'grid'
+  | 'pick' | 'crop';
 
 let nextId = 0;
 function makeId(): string {
@@ -43,6 +44,23 @@ function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value;
 }
 
+function p(value: number): number {
+  return value * 100;
+}
+
+/** Rámeček tažený zprava doleva má zápornou šířku — srovná se na kladnou. */
+function normalize(box: { x: number; y: number; w: number; h: number }):
+  { x: number; y: number; w: number; h: number } {
+  const x = box.w < 0 ? box.x + box.w : box.x;
+  const y = box.h < 0 ? box.y + box.h : box.y;
+  const w = Math.abs(box.w);
+  const h = Math.abs(box.h);
+  return {
+    x: clamp01(x), y: clamp01(y),
+    w: Math.min(w, 1 - clamp01(x)), h: Math.min(h, 1 - clamp01(y))
+  };
+}
+
 /**
  * Přetahování vodítka.
  *
@@ -54,8 +72,8 @@ function clamp01(value: number): number {
 type Drag = { id: string; from: ShootOverlay; startX: number; startY: number; x: number; y: number };
 
 export default function ShootView({
-  frame, stream, media, ghost, ghostUrl, overlay, fix, tool, color, lineWidth,
-  selected, onSelect, onAdd, onChange, onPickWhite, onAspect
+  frame, stream, media, ghost, ghostUrl, overlay, fix, crop, tool, color, lineWidth,
+  selected, onSelect, onAdd, onChange, onCrop, onPickWhite, onAspect
 }: {
   /** Adresa blobu s posledním snímkem náhledu, nebo prázdné. */
   frame: string;
@@ -85,6 +103,8 @@ export default function ShootView({
   onAdd: (shape: ShootOverlay) => void;
   /** Posunuté vodítko — volá se až po puštění, ne při každém pohybu myši. */
   onChange: (shape: ShootOverlay) => void;
+  crop: ShootCrop;
+  onCrop: (box: { x: number; y: number; w: number; h: number }) => void;
   onPickWhite: (rgb: string) => void;
   onAspect?: (ratio: number) => void;
 }) {
@@ -99,6 +119,9 @@ export default function ShootView({
    * do databáze na jedno přetažení a trhaný pohyb.
    */
   const [drag, setDrag] = useState<Drag | null>(null);
+  /** Rozdělaný ořez. Do focení se zapíše až po puštění, jako u vodítek. */
+  const [cropDraft, setCropDraft] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const zebra = useRef<HTMLCanvasElement>(null);
 
   /*
    * Poměr stran se drží podle obrazu, aby se vodítka nemusela přepočítávat
@@ -207,6 +230,11 @@ export default function ShootView({
     const point = at(e);
     if (tool === 'pick') { pick(point); return; }
     if (tool === 'zoom') { onSelect(''); return; }
+    if (tool === 'crop') {
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      setCropDraft({ x: point.x, y: point.y, w: 0, h: 0 });
+      return;
+    }
     if (tool === 'cross' || tool === 'thirds' || tool === 'grid') {
       onAdd(wholeStage(tool, color, lineWidth, point));
       return;
@@ -219,15 +247,31 @@ export default function ShootView({
 
   const onMove = useCallback((e: React.PointerEvent) => {
     const point = at(e);
+    if (cropDraft) {
+      /*
+       * Drží se počátek a rozdíl, ne srovnaný rámeček. Tažením doleva nebo
+       * nahoru vyjde záporná šířka — srovnává se až při zápisu (`normalize`),
+       * aby se počátek tažení nikdy neposunul pod rukou.
+       */
+      setCropDraft(had => (had ? { ...had, w: point.x - had.x, h: point.y - had.y } : had));
+      return;
+    }
     if (drag) {
       setDrag(had => (had ? { ...had, x: point.x, y: point.y } : had));
       return;
     }
     if (!draft) return;
     setDraft(had => (had ? { ...had, x2: point.x, y2: point.y } : had));
-  }, [draft, drag, at]);
+  }, [draft, drag, cropDraft, at]);
 
   const onUp = useCallback(() => {
+    if (cropDraft) {
+      const box = lockRatio(normalize(cropDraft), ratioValue(crop.ratio), ratio);
+      // Klepnutí bez tažení ořez nemění — jinak by jedno kliknutí zrušilo nastavený výřez
+      if (box.w > 0.02 && box.h > 0.02) onCrop(box);
+      setCropDraft(null);
+      return;
+    }
     if (drag) {
       const moved = shift(drag.from, drag.x - drag.startX, drag.y - drag.startY);
       // Klepnutí bez tažení jen vybírá; zapsat by znamenalo uložení beze změny
@@ -240,11 +284,56 @@ export default function ShootView({
     // Klepnutí bez tažení není tvar, ale nechtěná čárka o nulové délce
     if (!tiny) onAdd(draft);
     setDraft(null);
-  }, [draft, drag, onAdd, onChange, shift]);
+  }, [draft, drag, cropDraft, onAdd, onChange, onCrop, shift, crop.ratio, ratio]);
 
   useEffect(() => {
     if (tool === 'zoom') setDraft(null);
   }, [tool]);
+
+  /**
+   * Zebra přes přepálená místa.
+   *
+   * Kreslí se na zmenšeném plátně, ne v plném rozlišení náhledu: rozhoduje,
+   * **kde** přepal je, ne jak přesně je velký, a čtyřnásobně méně bodů
+   * znamená, že se náhled kvůli kontrole nezačne trhat.
+   *
+   * Šikmé pruhy, ne plná barva — přes plnou by nebylo vidět, co se pod ní
+   * přepaluje, a tím by kontrola ztratila smysl.
+   */
+  useEffect(() => {
+    const canvas = zebra.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    if (!fix.zebra) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
+    const source: HTMLImageElement | HTMLVideoElement | null = stream ? video.current : image.current;
+    const wide = source instanceof HTMLVideoElement ? source.videoWidth : source?.naturalWidth ?? 0;
+    const tall = source instanceof HTMLVideoElement ? source.videoHeight : source?.naturalHeight ?? 0;
+    if (!source || !wide || !tall) return;
+
+    const k = Math.min(1, 480 / wide);
+    canvas.width = Math.max(1, Math.round(wide * k));
+    canvas.height = Math.max(1, Math.round(tall * k));
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+    const level = Math.max(0, Math.min(255, fix.zebraLevel ?? 250));
+    const picture = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = picture.data;
+    for (let y = 0, i = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++, i += 4) {
+        const top = Math.max(data[i], data[i + 1], data[i + 2]);
+        // Šikmý pruh každých osm bodů; mezi nimi je vidět obraz
+        const stripe = ((x + y) % 8) < 4;
+        if (top >= level && stripe) {
+          data[i] = 255; data[i + 1] = 40; data[i + 2] = 90; data[i + 3] = 235;
+        } else {
+          data[i + 3] = 0;
+        }
+      }
+    }
+    ctx.putImageData(picture, 0, 0);
+  }, [frame, stream, fix.zebra, fix.zebraLevel]);
 
   const dragged = drag ? shift(drag.from, drag.x - drag.startX, drag.y - drag.startY) : null;
   const shown = dragged
@@ -252,6 +341,15 @@ export default function ShootView({
     : overlay;
   const shapes = draft ? [...shown, draft] : shown;
   const filter = cssFilter(fix);
+  /*
+   * Zámek poměru se uplatňuje **už při tažení**, ne až po puštění. Jinak
+   * se táhne obdélník, po puštění skočí na čtverec a výřez je jinde, než
+   * kam se mířilo — a musí se táhnout znovu.
+   */
+  const box = cropDraft
+    ? lockRatio(normalize(cropDraft), ratioValue(crop.ratio), ratio)
+    : crop;
+  const showCrop = crop.on || !!cropDraft;
 
   return (
     <div className="sh-view">
@@ -289,6 +387,27 @@ export default function ShootView({
               transform: ghost.mirror ? 'scaleX(-1)' : undefined
             }}
           />
+        )}
+
+        <canvas className={`sh-zebra ${fix.zebra ? 'on' : ''}`} ref={zebra} />
+
+        {showCrop && (
+          <svg className="sh-crop" viewBox="0 0 100 100" preserveAspectRatio="none">
+            {/*
+              * Ztmavení okolo ořezu, ne jen rámeček. Na obrázku s bílým
+              * pozadím se tenká čára ztratí a nebylo by poznat, co z fotky
+              * doopravdy zbude.
+              */}
+            <path
+              d={`M0,0 H100 V100 H0 Z M${p(box.x)},${p(box.y)} v${p(box.h)} h${p(box.w)} v${-p(box.h)} Z`}
+              fill="rgba(0,0,0,.55)"
+              fillRule="evenodd"
+            />
+            <rect
+              x={p(box.x)} y={p(box.y)} width={p(box.w)} height={p(box.h)}
+              fill="none" stroke="#fff" strokeWidth={1.5} vectorEffect="non-scaling-stroke"
+            />
+          </svg>
         )}
 
         <svg className="sh-lines" viewBox="0 0 100 100" preserveAspectRatio="none">

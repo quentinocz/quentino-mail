@@ -257,3 +257,141 @@ export function cssFilter(fix: ShootFix): string {
   if (fix.temperature) parts.push(`sepia(${Math.min(0.4, Math.abs(fix.temperature) / 250).toFixed(3)})`);
   return parts.join(' ');
 }
+
+/* ---------- kontrola snímku ---------- */
+
+/**
+ * Ostrost podle hran.
+ *
+ * ## Proč se to vůbec počítá
+ *
+ * Na displeji fotoaparátu ani na náhledu v okně se rozmazání nepozná —
+ * náhled má osminu rozlišení, takže i fotka mimo zaostření v něm vypadá
+ * dobře. Zjistí se to až u počítače, kdy je zboží dávno uklizené a znovu
+ * se stejně nepostaví.
+ *
+ * ## Jak
+ *
+ * Laplace: rozdíl bodu proti čtyřem sousedům. Na ostré hraně je velký,
+ * v rozmazané ploše malý. Měří se **rozptyl** těch rozdílů, ne jejich
+ * průměr — průměr je u souměrné hrany nula.
+ *
+ * ## Co číslo znamená
+ *
+ * Samo o sobě nic. Fotka kravaty s výraznou vazbou má i rozostřená větší
+ * čísla než hladká jednobarevná ostrá — hodnota závisí na obsahu. Smysl
+ * dává **porovnání v rámci jednoho focení**, kde se fotí totéž: tam
+ * nejnižší hodnota v sérii opravdu znamená nejhůř zaostřený kus.
+ */
+export function sharpness(data: Uint8ClampedArray, width: number, height: number): number {
+  if (width < 3 || height < 3) return 0;
+
+  const gray = new Float32Array(width * height);
+  for (let i = 0, at = 0; i < data.length; i += 4, at++) {
+    gray[at] = luma(data[i], data[i + 1], data[i + 2]);
+  }
+
+  let sum = 0;
+  let squares = 0;
+  let count = 0;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const at = y * width + x;
+      const edge = 4 * gray[at]
+        - gray[at - 1] - gray[at + 1] - gray[at - width] - gray[at + width];
+      sum += edge;
+      squares += edge * edge;
+      count++;
+    }
+  }
+  if (!count) return 0;
+  const mean = sum / count;
+  return Math.max(0, squares / count - mean * mean);
+}
+
+/**
+ * Podíl přepálených míst v procentech.
+ *
+ * Počítá se podle **nejsvětlejšího** kanálu: přepálená je i plocha, kde
+ * dojela jen červená, i když ostatní mají rezervu — a právě tam vzniká
+ * barevný lem, kterého si na fotce všimne každý.
+ *
+ * Bílé pozadí se do toho nepočítá, protože přepálené bílé pozadí je
+ * záměr. Bere se jen to, co je uvnitř ořezu a co je barevné — tedy s
+ * rozdílem mezi kanály.
+ */
+export function clipping(data: Uint8ClampedArray, level = 250): number {
+  let hits = 0;
+  let count = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    count++;
+    const top = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    if (top < level) continue;
+    const floor = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    /*
+     * Neutrálně světlý bod se za přepal **nepočítá**, ani když je na
+     * čisté bílé. U produktu na bílém papíru je vybílené pozadí záměr —
+     * hlásit ho znamená hlásit u každé fotky, a varování, které svítí
+     * pořád, si za týden nikdo nevšimne.
+     *
+     * Počítá se barevný přepal: jeden kanál dojel a ostatní ne, takže na
+     * hraně vznikl barevný lem. Ten je vada, a to i na bílém pozadí.
+     * Práh patnácti úrovní je tam, kde je nádech vidět okem.
+     */
+    if (top - floor >= 15) hits++;
+  }
+  return count ? (hits / count) * 100 : 0;
+}
+
+/**
+ * Ořez v pixelech ze zlomkového rámečku.
+ *
+ * Zaokrouhluje se ven a ořezává na hranice obrazu — jinak u fotky
+ * 6000 px na šířku vyjde ze zaokrouhlení rámeček o pixel menší a
+ * z „čtverce" je obdélník 2999×3000, který na e-shopu nesedí do řady.
+ */
+export function cropBox(
+  crop: { x: number; y: number; w: number; h: number },
+  width: number,
+  height: number
+): { x: number; y: number; w: number; h: number } {
+  const x = Math.max(0, Math.min(width - 1, Math.round(crop.x * width)));
+  const y = Math.max(0, Math.min(height - 1, Math.round(crop.y * height)));
+  const w = Math.max(1, Math.min(width - x, Math.round(crop.w * width)));
+  const h = Math.max(1, Math.min(height - y, Math.round(crop.h * height)));
+  return { x, y, w, h };
+}
+
+/** Poměry stran, které dávají u produktové fotky smysl. */
+export const RATIOS: { id: string; label: string; value: number | null }[] = [
+  { id: '1:1', label: 'Čtverec', value: 1 },
+  { id: '4:5', label: 'Na výšku 4:5', value: 4 / 5 },
+  { id: '3:4', label: 'Na výšku 3:4', value: 3 / 4 },
+  { id: '3:2', label: 'Na šířku 3:2', value: 3 / 2 },
+  { id: '', label: 'Volně', value: null }
+];
+
+export function ratioValue(id: string): number | null {
+  return RATIOS.find(one => one.id === id)?.value ?? null;
+}
+
+/**
+ * Srovná rámeček do zadaného poměru.
+ *
+ * Řídí se **kratší** stranou, takže se rámeček nikdy nezvětší přes okraj
+ * obrazu. Kdyby se řídil delší, vyjel by čtverec tažený u kraje mimo
+ * snímek a ořízlo by se i to, co tam není.
+ */
+export function lockRatio(
+  box: { x: number; y: number; w: number; h: number },
+  ratio: number | null,
+  frame: number
+): { x: number; y: number; w: number; h: number } {
+  if (!ratio) return box;
+  // `frame` je poměr stran obrazu — rámeček je v podílech, takže čtverec
+  // na širokém snímku není stejné číslo na šířku a na výšku
+  const wantW = Math.min(box.w, (box.h * ratio) / frame);
+  const wantH = wantW * frame / ratio;
+  return { ...box, w: wantW, h: wantH };
+}
