@@ -192,16 +192,28 @@ console.log('\nfocení:\n');
 const fake = path.join(__dirname, 'fake-gphoto2.cjs');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'shoot-'));
 
-/*
- * gphoto2 je skript pro node, ne binárka. Cesta se proto podstrčí jako
- * spouštěč i s argumentem — jinak by se musela do repozitáře dávat
- * zkompilovaná náhrada.
+/**
+ * Rozhovor s gphoto2 se zkouší jen tam, kde gphoto2 existuje.
+ *
+ * Falešný gphoto2 je skript pro node, ne binárka, takže se spouští přes
+ * `#!/bin/sh`. Na Windows takový spouštěč nejde — a `.cmd` by nepomohlo,
+ * protože `execFile` ho od Node 18 bez shellu odmítá. Hlavně ale **gphoto2
+ * pro Windows vůbec neexistuje**: tahle část aplikace se tam nikdy
+ * nespustí, takže ověřovat ji tam znamená zkoušet něco, co se nemůže stát.
+ * Na Windows se místo toho fotí přes webkameru a tu obsluhuje okno samo.
+ *
+ * Rozbor výpisů — konec odpovědi, chyby, jména souborů, nabídka voleb —
+ * běží všude; ten na systému nezávisí.
  */
-const wrapper = path.join(work, 'gphoto2');
-fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
-fs.chmodSync(wrapper, 0o755);
+const CAN_SPAWN = process.platform !== 'win32';
 
-(async () => {
+const wrapper = path.join(work, 'gphoto2');
+if (CAN_SPAWN) {
+  fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
+  fs.chmodSync(wrapper, 0o755);
+}
+
+async function liveSection() {
   const tool = await (async () => {
     const { setSetting } = require(path.join(DIST, 'db.js'));
     setSetting('shootGphoto', wrapper);
@@ -257,7 +269,9 @@ fs.chmodSync(wrapper, 0o755);
   const made = session.__test.savedFiles(shot.text);
   // Formát je RAW+JPEG, takže musí přijít oba soubory
   check('RAW i JPEG se stáhly', made, ['IMG_1001.JPG', 'IMG_1001.CR3']);
-  ok('a oba jsou na disku', made.every(name => fs.existsSync(path.join(work, name))));
+  // `every` na prázdném poli je true — bez počtu by se prázdné stažení tvářilo jako úspěch
+  ok('a oba jsou na disku',
+    made.length === 2 && made.every(name => fs.existsSync(path.join(work, name))));
 
   /*
    * Tělo, které přestane odpovídat. Spojení se musí samo ukončit a čekající
@@ -269,6 +283,11 @@ fs.chmodSync(wrapper, 0o755);
   ok('a je poznat proč', talk.lastError.includes('hang'), talk.lastError);
 
   talk.close();
+}
+
+(async () => {
+  if (CAN_SPAWN) await liveSection();
+  else console.log('  – rozhovor s gphoto2 přeskočen (pro Windows gphoto2 není)');
 
   /* ---------- korekce barev ---------- */
 
