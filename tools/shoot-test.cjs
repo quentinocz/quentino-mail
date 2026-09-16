@@ -414,10 +414,21 @@ async function liveSection() {
     [zabrano.ok, /I\/O in progress/.test(zabrano.error)], [false, true]);
 
   await talk.send('set-config /main/actions/viewfinder=0');
+
+  /*
+   * Do vnitřní paměti se RAW nevejde — tělo spoušť odmítne `-110` a
+   * nevyfotí nic. Tohle bylo v protokolu od skutečného 600D a byla to
+   * ta příčina, kterou nešlo uhodnout bez výpisu.
+   */
+  const doPameti = await talk.send('capture-image-and-download');
+  check('RAW do vnitřní paměti tělo odmítne',
+    [doPameti.ok, /I\/O in progress/.test(doPameti.error)], [false, true]);
+
+  await talk.send('set-config-value /main/settings/capturetarget=Memory card');
   const shot = await talk.send('capture-image-and-download');
   const made = session.__test.savedFiles(shot.text);
   // Formát je RAW+JPEG, takže musí přijít oba soubory
-  check('po vypnutí náhledu se vyfotí', made, ['IMG_1001.JPG', 'IMG_1001.CR3']);
+  check('na kartu a bez náhledu se vyfotí', made, ['IMG_1001.JPG', 'IMG_1001.CR3']);
   // `every` na prázdném poli je true — bez počtu by se prázdné stažení tvářilo jako úspěch
   ok('a oba jsou na disku',
     made.length === 2 && made.every(name => fs.existsSync(path.join(work, name))));
@@ -522,13 +533,26 @@ async function liveSection() {
     check('a „device busy" taky', shoot.cameraBusy('0x2019: PTP Device Busy'), true);
     check('běžná chyba ne', shoot.cameraBusy("-1: 'Unspecified error'"), false);
 
+    check('tělo zmizelé z USB se pozná',
+      shoot.cameraGone("-52: 'Could not find the requested device on the USB port'"), true);
+    check('a zaneprázdněné se za zmizelé nepovažuje',
+      shoot.cameraGone("-110: 'I/O in progress'"), false);
+
+    /*
+     * Ukládání se po připojení přestaví z vnitřní paměti na kartu. Do
+     * vnitřní paměti se RAW nevejde a tělo pak spoušť odmítne `-110` —
+     * přesně to ukázal protokol od skutečného 600D.
+     */
+    const kam = await shoot.readSetting('/main/settings/capturetarget');
+    check('po připojení se ukládá na kartu', kam.value, 'Memory card');
+
     // Náhled běží → tělo je v živém náhledu
     await shoot.startLive();
     await new Promise(done => setTimeout(done, 300));
 
     const foceni = store.newShoot('Zkouška', work);
     const snimek = await shoot.capture(foceni.id);
-    ok('vyfotí se i při běžícím náhledu', snimek.ok, snimek.error);
+    ok('vyfotí se i při běžícím náhledu a RAW', snimek.ok, snimek.error);
     ok('a soubor opravdu vznikl', snimek.photo && fs.existsSync(snimek.photo.file),
       snimek.photo ? snimek.photo.file : 'nic');
 

@@ -1103,7 +1103,9 @@ export const api = {
     live: (on: boolean) => call<boolean>('shoot:live', on),
 
     /** Běžné volby i s hodnotami; `rest` jsou jen cesty, dočtou se na vyžádání */
-    settings: () => call<{ handy: CameraSetting[]; rest: string[]; error: string }>('shoot:settings'),
+    /** `force` přečte nastavení z těla znovu; bez něj se vrátí to už načtené */
+    settings: (force = false) =>
+      call<{ handy: CameraSetting[]; rest: string[]; error: string }>('shoot:settings', force),
     setting: (path: string) => call<CameraSetting | null>('shoot:setting', path),
     setSetting: (path: string, value: string) =>
       call<{ ok: boolean; error: string; setting: CameraSetting | null }>('shoot:setSetting', path, value),

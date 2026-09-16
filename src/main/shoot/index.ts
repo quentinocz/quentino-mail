@@ -135,6 +135,12 @@ export async function connect(port: string, model: string): Promise<ShootState> 
     if (probe.ok) {
       if (model) saveShootSetup({ lastCamera: model });
       await loadSettings();
+      /*
+       * Ukládání na kartu se přestaví hned po připojení, ne až u spouště.
+       * Do vnitřní paměti se RAW nevejde a tělo pak spoušť odmítne — a to
+       * je chyba, na kterou se u stolu kouká s produktem v ruce.
+       */
+      await preferCard();
       return shootState();
     }
 
@@ -222,9 +228,18 @@ export function stopLive(): boolean {
 
 /* ---------- nastavení fotoaparátu ---------- */
 
-export async function loadSettings():
+export async function loadSettings(force = false):
   Promise<{ handy: CameraSetting[]; rest: string[]; error: string }> {
   if (!session.alive) return { handy: [], rest: [], error: 'fotoaparát není připojený' };
+
+  /*
+   * Přečtené nastavení se vrací z paměti. Jedno načtení je jeden
+   * `list-config` a dvacet `get-config` — a v protokolu bylo vidět, jak
+   * tentýž sled proběhl třikrát po sobě, protože si o něj řeklo připojení
+   * i panel v okně. Šedesát dotazů navíc tělo zbytečně zaměstnává zrovna
+   * ve chvíli, kdy se chystá fotit.
+   */
+  if (!force && settingsCache.handy.length) return { ...settingsCache, error: '' };
 
   const listed = await live.hold(() => session.send('list-config', { urgent: true, timeout: 30000 }));
   if (!listed.ok) return { handy: [], rest: [], error: listed.error };
@@ -349,6 +364,19 @@ function shootFolder(shoot: Shoot): string {
  */
 const BUSY = /-110|i\/o in progress|device busy|0x2019|-53/i;
 
+/**
+ * Tělo zmizelo z USB.
+ *
+ * `-52` není zaneprázdněné tělo, ale odpojené: vypnuté, vybité, uvolněný
+ * kabel, nebo se po neúspěšné spoušti samo shodilo. Zkoušet dál je
+ * k ničemu — pomůže jedině odpojit a znovu připojit kabel.
+ */
+const GONE = /-52|could not find the requested device|no camera found/i;
+
+export function cameraGone(error: string): boolean {
+  return GONE.test(String(error ?? ''));
+}
+
 export function cameraBusy(error: string): boolean {
   return BUSY.test(String(error ?? ''));
 }
@@ -360,6 +388,35 @@ export function cameraBusy(error: string): boolean {
  * to `liveview` nebo `eosviewfinder`. Hledat jen jedno jméno znamená, že
  * se na cizím těle nevypne nic a spoušť přijde do vyklopeného zrcátka.
  */
+/**
+ * Kam tělo ukládá snímek při focení přes kabel.
+ *
+ * ## Proč se to přestavuje
+ *
+ * Canon umí ukládat do vnitřní paměti (`Internal RAM`) nebo na kartu.
+ * Do vnitřní paměti se vejde náhled, ne dvacetimegabajtový RAW — a když
+ * se tam nevejde, vrátí tělo `-110 I/O in progress` a nevyfotí nic.
+ * Přesně tak se to chovalo: formát RAW, cíl vnitřní paměť, spoušť odmítnuta.
+ *
+ * Na kartu se ukládá vždycky, když to tělo nabízí. Snímek se odtud stáhne
+ * a díky `--keep` na ní zůstane i jako záloha — plná karta je menší
+ * problém než ztracená série.
+ */
+export function targetPath(paths: string[]): string {
+  return paths.find(one => /\/capturetarget$/i.test(one)) ?? '';
+}
+
+export async function preferCard(): Promise<string> {
+  const where = targetPath(allPaths);
+  if (!where || !session.alive) return '';
+  const now = await readSetting(where);
+  if (!now) return '';
+  const card = now.choices.find(one => /card/i.test(one.value));
+  if (!card || now.value === card.value) return '';
+  const out = await session.send(`set-config-value ${where}=${card.value}`, { urgent: true });
+  return out.ok ? card.value : '';
+}
+
 export function viewfinderPath(paths: string[]): string {
   const hit = paths.find(one => /\/(eos)?viewfinder$/i.test(one))
     ?? paths.find(one => /liveview/i.test(one));
@@ -415,6 +472,9 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
     await wait(900);
   }
 
+  // Pojistka pro případ, že se cíl mezitím přestavil na těle
+  await preferCard();
+
   let reply = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
   /*
    * Dva pokusy navíc. Zaneprázdněné tělo je stav na půl vteřiny, ne
@@ -440,7 +500,10 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
        * zaneprázdněný" samo o sobě neřekne, co dál — a bez čísla chyby
        * se to nedá ani dohledat.
        */
-      error: cameraBusy(reply.error)
+      error: cameraGone(reply.error)
+        ? `Fotoaparát zmizel z USB (${reply.error}). Odpoj a znovu připoj kabel `
+          + 'a zkontroluj, že tělo není vybité ani uspané.'
+        : cameraBusy(reply.error)
         ? `Fotoaparát spoušť odmítl: ${reply.error}. `
           + (viewfinder
             ? 'Živý náhled jsem před snímkem vypnul. '

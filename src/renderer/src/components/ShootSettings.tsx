@@ -39,11 +39,11 @@ export default function ShootSettings({ connected, onNote }: {
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const load = async () => {
+  const load = async (force = false) => {
     if (!connected) { setHandy([]); setRest([]); return; }
     setLoading(true);
     try {
-      const out = await api.shoot.settings();
+      const out = await api.shoot.settings(force);
       setHandy(out.handy);
       setRest(out.rest);
       if (out.error) onNote(out.error, true);
@@ -89,7 +89,8 @@ export default function ShootSettings({ connected, onNote }: {
     <div className="sh-settings">
       <div className="sh-panel-head">
         <b>Fotoaparát</b>
-        <button className="sh-mini" onClick={load} disabled={loading}>
+        {/* Tlačítko čte z těla znovu; při otevření panelu se bere to už načtené */}
+        <button className="sh-mini" onClick={() => load(true)} disabled={loading}>
           <Icon name="refresh" size={12} /> {loading ? 'Čtu…' : 'Načíst znovu'}
         </button>
       </div>

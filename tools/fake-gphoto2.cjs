@@ -90,7 +90,8 @@ const TREE = {
    */
   '/main/actions/viewfinder': { label: 'Canon EOS Viewfinder', type: 'TOGGLE', value: '0' },
   '/main/settings/capturetarget': {
-    label: 'Capture Target', type: 'RADIO', value: 'Memory card',
+    // Výchozí je vnitřní paměť — stejně jako to měl skutečný 600D
+    label: 'Capture Target', type: 'RADIO', value: 'Internal RAM',
     choices: ['Internal RAM', 'Memory card']
   },
   '/main/other/d402': { label: 'PTP Property 0xd402', type: 'TEXT', value: 'Canon EOS 250D' }
@@ -214,6 +215,16 @@ function run(line) {
     if (TREE['/main/actions/viewfinder'].value === '1') {
       fail(-110, 'I/O in progress',
         'Canon EOS Full-Press failed (0x2019: PTP Device Busy)');
+      return;
+    }
+    /*
+     * Do vnitřní paměti se RAW nevejde. Tělo na to odpoví `-110` a
+     * nevyfotí nic — přesně to, co bylo v protokolu od skutečného 600D:
+     * formát RAW, cíl „Internal RAM", spoušť odmítnuta třikrát po sobě.
+     */
+    if (TREE['/main/settings/capturetarget'].value === 'Internal RAM'
+      && TREE['/main/imgsettings/imageformat'].value.startsWith('RAW')) {
+      fail(-110, 'I/O in progress', '');
       return;
     }
     shots++;

@@ -103,6 +103,18 @@ export async function startLive(session: CameraSession): Promise<void> {
         if (mine.stop) break;
         if (!reply.ok) {
           /*
+           * `-52` znamená, že tělo zmizelo z USB — vypnuté, vybité, nebo
+           * uvolněný kabel. Zkoušet dál je k ničemu a pětkrát za sebou to
+           * jen zaplní protokol; řekne se to rovnou.
+           */
+          if (/-52|could not find the requested device/i.test(reply.error)) {
+            emit('shoot:live', {
+              running: false,
+              error: 'Fotoaparát zmizel z USB. Odpoj a znovu připoj kabel.'
+            });
+            break;
+          }
+          /*
            * Jedna chyba nic neznamená — tělo zrovna ostří nebo dopisuje na
            * kartu. Teprve když se náhled nepovede pětkrát po sobě, je to
            * porucha a má se to říct, ne mlčky zkoušet dál donekonečna.

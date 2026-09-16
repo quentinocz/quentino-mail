@@ -607,7 +607,7 @@ export function registerIpc() {
   handle('shoot:log', () => shoot.cameraLog());
   handle('shoot:gphotoPath', (value: string) => shoot.saveGphotoPath(value ?? ''));
   handle('shoot:live', (on: boolean) => (on ? shoot.startLive() : shoot.stopLive()));
-  handle('shoot:settings', () => shoot.loadSettings());
+  handle('shoot:settings', (force: boolean) => shoot.loadSettings(!!force));
   handle('shoot:setting', (settingPath: string) => shoot.readSetting(settingPath ?? ''));
   handle('shoot:setSetting', (settingPath: string, value: string) =>
     shoot.setCameraSetting(settingPath ?? '', value ?? ''));
