@@ -1850,6 +1850,23 @@
         Object.assign(shootOne, arguments[2] || {});
         return Promise.resolve({ ok: true, data: Object.assign({}, shootOne) });
       }
+      /*
+       * Spuštění a zastavení náhledu. Stav hlásí hlavní proces událostí,
+       * ne návratovou hodnotou — stub to musí dělat stejně, jinak by se
+       * nepoznalo, že se tlačítko zasekne.
+       */
+      if (channel === 'shoot:live') {
+        shootState.live = !!arguments[1];
+        /*
+         * Událost odchází **dřív** než odpověď, přesně jako v Electronu:
+         * hlavní proces ji pošle uvnitř obsluhy kanálu, takže do okna
+         * dorazí před návratovou hodnotou. Na tomhle pořadí záleží —
+         * s obráceným by se nepoznalo, že okno stav přepíše po události
+         * a tlačítko se zasekne.
+         */
+        window.__emit('shoot:live', { running: shootState.live, error: '' });
+        return Promise.resolve({ ok: true, data: true });
+      }
       if (channel === 'shoot:capture') {
         var no = shootPhotos.length + 1;
         var photo = {

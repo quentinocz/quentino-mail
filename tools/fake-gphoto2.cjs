@@ -219,11 +219,22 @@ function run(line) {
   fail(-1, 'Unspecified error', `The command '${command}' is not known.`);
 }
 
+/**
+ * Zpoždění odpovědi na snímek náhledu.
+ *
+ * Skutečné tělo odpovídá desetinu vteřiny. Bez toho odpovídá falešný
+ * gphoto2 okamžitě, takže se do aplikace nevejde stav „smyčka ještě čeká
+ * na odpověď" — a právě v něm vznikají závody, kvůli kterým se náhled
+ * zasekával. Pro takové zkoušky se dá zpoždění zapnout.
+ */
+const SLOW = Number(process.env.FAKE_PREVIEW_DELAY || 0);
+
 prompt();
 readline.createInterface({ input: process.stdin, terminal: false }).on('line', (line) => {
   // Pravý shell zapsaný řádek vypíše ozvěnou — jednou za výzvu, podruhé samostatně
   process.stdout.write(`${line}\n${line}\n`);
   const hang = line.trim() === 'hang';
-  run(line);
-  if (!hang) prompt();
+  const finish = () => { run(line); if (!hang) prompt(); };
+  if (SLOW > 0 && line.trim() === 'capture-preview') setTimeout(finish, SLOW);
+  else finish();
 });

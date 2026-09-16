@@ -37,6 +37,45 @@ export function isRawFile(file: string): boolean {
 type Found = { start: number; length: number };
 
 /**
+ * Umí tenhle JPEG vykreslit prohlížeč?
+ *
+ * ## Proč se to musí ptát
+ *
+ * V CR2 nejsou JPEGy dva, ale tři, a jeden z nich je past: syrová data ze
+ * senzoru jsou uložená jako **bezztrátový JPEG** (SOF3). Začíná stejnou
+ * značkou jako obyčejný JPEG a je zdaleka největší, takže „vezmi ten
+ * největší" sáhne přesně po něm — a Chromium ho neotevře, protože
+ * bezztrátový JPEG neumí nikdo kromě vyvolávacích programů. V galerii pak
+ * zůstane prázdná dlaždice a vypadá to, že se náhled nenašel.
+ *
+ * ## Jak se to pozná
+ *
+ * Projdou se značky až k té, která popisuje snímek (SOF). Prohlížeč umí
+ * SOF0 (základní), SOF1 (rozšířený) a SOF2 (postupný); cokoliv jiného —
+ * hlavně SOF3 — je pro něj k ničemu.
+ */
+export function browserReadable(buffer: Buffer, start: number, length: number): boolean {
+  const end = Math.min(buffer.length, start + length);
+  let at = start + 2;
+  while (at + 3 < end) {
+    if (buffer[at] !== 0xff) return false;
+    const marker = buffer[at + 1];
+    // Výplňové bajty mezi značkami se přeskakují
+    if (marker === 0xff) { at++; continue; }
+    // SOF0/1/2 — tyhle prohlížeč vykreslí
+    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) return true;
+    // Bezztrátový (c3), aritmetický (c9–cb) a hierarchický (c5–c7, cd–cf) ne
+    if (marker >= 0xc3 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xcc) return false;
+    // Začátek obrazových dat bez předchozího SOF — dál se nic nedozvíme
+    if (marker === 0xda) return false;
+    const size = buffer.readUInt16BE(at + 2);
+    if (size < 2) return false;
+    at += 2 + size;
+  }
+  return false;
+}
+
+/**
  * Projde tabulky TIFF a posbírá, kde všude leží JPEG.
  *
  * Značky jsou dvě dvojice, protože se to mezi značkami liší: Canon píše
@@ -100,6 +139,12 @@ export function tiffJpegs(buffer: Buffer): Found[] {
       if (hit.start + hit.length > buffer.length) continue;
       // Jen to, co opravdu začíná JPEGem — „pruhy obrazu" bývají i syrová data
       if (buffer[hit.start] !== 0xff || buffer[hit.start + 1] !== 0xd8) continue;
+      /*
+       * A jen to, co prohlížeč vykreslí. Tabulka IFD#3 ukazuje na syrová
+       * data ze senzoru, taky uložená jako JPEG — jenže bezztrátový, a ten
+       * je navíc desetkrát větší než náhled, takže by vyhrál.
+       */
+      if (!browserReadable(buffer, hit.start, hit.length)) continue;
       out.push(hit);
     }
 
@@ -124,7 +169,8 @@ export function scanJpegs(buffer: Buffer): Found[] {
     if (marker < 0xc0 || marker > 0xef) continue;
     const end = buffer.indexOf(Buffer.from([0xff, 0xd9]), i + 4);
     if (end < 0) continue;
-    out.push({ start: i, length: end + 2 - i });
+    const length = end + 2 - i;
+    if (browserReadable(buffer, i, length)) out.push({ start: i, length });
     i = end + 1;
   }
   return out;
@@ -139,8 +185,25 @@ export function biggest(found: Found[]): Found | null {
   return best;
 }
 
+/**
+ * Pod touhle velikostí je nález nejspíš jen náhled pro displej.
+ *
+ * Sto šedesát na sto dvacet bodů má pár desítek kilobajtů. V galerii by
+ * to byla rozmazaná placka, takže se radši ještě projde celý soubor —
+ * velký náhled bývá i tam, kde ho tabulka neuvádí tak, jak čekáme.
+ */
+const TOO_SMALL = 200 * 1024;
+
 export function embeddedJpeg(buffer: Buffer): Buffer | null {
-  const hit = biggest(tiffJpegs(buffer)) ?? biggest(scanJpegs(buffer));
+  const fromTables = biggest(tiffJpegs(buffer));
+  /*
+   * Průchodem se hledá jen tehdy, když tabulky nic pořádného nedaly.
+   * U dvacetimegabajtového souboru to není zadarmo a v obvyklém případě
+   * to není potřeba.
+   */
+  const hit = fromTables && fromTables.length >= TOO_SMALL
+    ? fromTables
+    : biggest([...(fromTables ? [fromTables] : []), ...scanJpegs(buffer)]);
   return hit ? buffer.subarray(hit.start, hit.start + hit.length) : null;
 }
 
@@ -162,4 +225,4 @@ export function viewable(file: string): Uint8Array | null {
   }
 }
 
-export const __test = { tiffJpegs, scanJpegs, biggest, embeddedJpeg, isRawFile };
+export const __test = { tiffJpegs, scanJpegs, biggest, embeddedJpeg, isRawFile, browserReadable };

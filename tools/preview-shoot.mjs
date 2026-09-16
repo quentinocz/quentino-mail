@@ -96,6 +96,34 @@ say('a náhled se nespouští ručně',
   (await page.locator('.sh-shoot .sh-mini', { hasText: 'náhled' }).innerText()).includes('Zastavit'));
 await snap('01-nahled');
 
+/* ---------- spuštění a zastavení náhledu ---------- */
+
+/*
+ * Tlačítko se zasekávalo: stav se měnil dvakrát — jednou událostí
+ * z hlavního procesu, podruhé v okně — a druhá změna tu první vracela.
+ * Napsané pak zůstalo „Zastavit náhled" u něčeho, co neběží, a spustit
+ * se to nedalo vůbec.
+ */
+{
+  const label = () => page.locator('.sh-shoot .sh-mini', { hasText: 'náhled' }).innerText();
+  say('náhled běží', (await label()).includes('Zastavit'), (await label()).trim());
+
+  await page.locator('.sh-shoot .sh-mini', { hasText: 'náhled' }).click();
+  await page.waitForTimeout(500);
+  say('po zastavení nabízí spuštění', (await label()).includes('Spustit'), (await label()).trim());
+
+  await page.locator('.sh-shoot .sh-mini', { hasText: 'náhled' }).click();
+  await page.waitForTimeout(500);
+  say('a dá se zase spustit', (await label()).includes('Zastavit'), (await label()).trim());
+
+  // A ještě jednou dokola — zaseknutí se projevovalo až napodruhé
+  await page.locator('.sh-shoot .sh-mini', { hasText: 'náhled' }).click();
+  await page.waitForTimeout(400);
+  await page.locator('.sh-shoot .sh-mini', { hasText: 'náhled' }).click();
+  await page.waitForTimeout(400);
+  say('a podruhé taky', (await label()).includes('Zastavit'), (await label()).trim());
+}
+
 /* ---------- kreslení vodítka ---------- */
 
 await page.locator('.sh-tool[title="Rámeček"]').click();

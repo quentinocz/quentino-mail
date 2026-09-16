@@ -689,10 +689,17 @@ export default function ShootModal({ onClose, standalone = false }: {
             )}
             <button
               className="sh-mini"
-              onClick={async () => {
+              onClick={() => {
                 if (stream) { stopWebcam(); return; }
-                await api.shoot.live(!state.live);
-                setState(had => (had ? { ...had, live: !had.live } : had));
+                /*
+                 * Jen se řekne, co se má stát — jestli náhled běží, hlásí
+                 * hlavní proces událostí `shoot:live`. Dřív se stav měnil
+                 * i tady, takže se přehodil dvakrát: událost ho srovnala
+                 * a obrácení hned zase vrátilo zpátky. Tlačítko pak
+                 * navždy hlásilo „Zastavit náhled" u něčeho, co neběží,
+                 * a spustit se to už nedalo.
+                 */
+                api.shoot.live(!state.live);
               }}
               disabled={!connected && !stream}
             >

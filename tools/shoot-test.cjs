@@ -197,10 +197,24 @@ console.log('\nfocení:\n');
 {
   const rawlib = require(path.join(DIST, 'shoot/preview.js'));
 
+  /**
+   * Obyčejný JPEG, jaký do RAWu ukládá fotoaparát.
+   *
+   * Značky musí mít platné délky, ne jen správný začátek — právě podle
+   * nich se prochází až k popisu snímku (SOF0). Výplň o samých 0x55 by
+   * se četla jako délka 21845 a skočilo by se mimo soubor.
+   */
   const jpeg = (size) => {
     const body = Buffer.alloc(size, 0x55);
-    // Začátek JPEGu i s hlavičkou APP0 a koncová značka — jinak se nebere
-    Buffer.from([0xff, 0xd8, 0xff, 0xe0]).copy(body, 0);
+    let at = 0;
+    const put = (bytes) => { Buffer.from(bytes).copy(body, at); at += bytes.length; };
+    put([0xff, 0xd8]);                          // SOI
+    put([0xff, 0xe0, 0x00, 0x10]);              // APP0 s délkou 16
+    at += 14;
+    put([0xff, 0xdb, 0x00, 0x08]); at += 6;     // DQT
+    put([0xff, 0xc0, 0x00, 0x0b]);              // SOF0 — tuhle značku prohlížeč umí
+    at += 9;
+    put([0xff, 0xda, 0x00, 0x08]);              // SOS, za ním obrazová data
     Buffer.from([0xff, 0xd9]).copy(body, size - 2);
     return body;
   };
@@ -218,27 +232,63 @@ console.log('\nfocení:\n');
     head.writeUInt16LE(42, 2);
     head.writeUInt32LE(16, 4);           // IFD0 začíná na 16
 
+    // IFD#3 ukazuje na syrová data — taky „JPEG", ale bezztrátový a největší
+    const senzor = lossless(120000);
+
     let at = 16;
-    head.writeUInt16LE(2, at); at += 2;  // dva záznamy
+    head.writeUInt16LE(2, at); at += 2;  // IFD0: velký náhled
     head.writeUInt16LE(0x0111, at); head.writeUInt32LE(200, at + 8); at += 12;
     head.writeUInt16LE(0x0117, at); head.writeUInt32LE(large.length, at + 8); at += 12;
-    head.writeUInt32LE(at + 4, at);      // odkaz na IFD1 hned za IFD0
+    head.writeUInt32LE(at + 4, at);
     at += 4;
 
-    head.writeUInt16LE(2, at); at += 2;
+    head.writeUInt16LE(2, at); at += 2;  // IFD1: malý náhled pro displej
     head.writeUInt16LE(0x0111, at); head.writeUInt32LE(200 + large.length, at + 8); at += 12;
     head.writeUInt16LE(0x0117, at); head.writeUInt32LE(small.length, at + 8); at += 12;
-    head.writeUInt32LE(0, at);           // konec řetězu tabulek
+    head.writeUInt32LE(at + 4, at);
+    at += 4;
 
-    return Buffer.concat([head, large, small]);
+    head.writeUInt16LE(2, at); at += 2;  // IFD3: syrová data ze senzoru
+    head.writeUInt16LE(0x0111, at);
+    head.writeUInt32LE(200 + large.length + small.length, at + 8); at += 12;
+    head.writeUInt16LE(0x0117, at); head.writeUInt32LE(senzor.length, at + 8); at += 12;
+    head.writeUInt32LE(0, at);
+
+    return Buffer.concat([head, large, small, senzor]);
   };
+
+  /*
+   * Bezztrátový JPEG, jak v CR2 leží syrová data ze senzoru: začíná
+   * stejnou značkou jako obyčejný JPEG, ale má SOF3. Prohlížeč ho
+   * neotevře — a protože je zdaleka největší, „vezmi ten největší" by
+   * sáhl přesně po něm a v galerii by zůstala prázdná dlaždice.
+   */
+  const lossless = (size) => {
+    const body = Buffer.alloc(size, 0x55);
+    let at = 0;
+    Buffer.from([0xff, 0xd8]).copy(body, at); at += 2;
+    // DHT s hlavičkou délky, jak to má bezztrátový JPEG
+    Buffer.from([0xff, 0xc4, 0x00, 0x04]).copy(body, at); at += 4;
+    // SOF3 — právě tohle prohlížeč nezvládne
+    Buffer.from([0xff, 0xc3, 0x00, 0x0b]).copy(body, at);
+    Buffer.from([0xff, 0xd9]).copy(body, size - 2);
+    return body;
+  };
+
+  check('bezztrátový JPEG prohlížeč nevykreslí',
+    rawlib.__test.browserReadable(lossless(5000), 0, 5000), false);
+  check('obyčejný ano', rawlib.__test.browserReadable(jpeg(5000), 0, 5000), true);
 
   const cr2 = makeCr2();
   const found = rawlib.__test.tiffJpegs(cr2);
-  check('v CR2 se našly oba vnořené JPEGy', found.length, 2);
+  // Tři tabulky, ale syrová data se zahodí — vykreslit se nedají
+  check('ze tří tabulek zbydou dva použitelné náhledy', found.length, 2);
   const out = rawlib.__test.embeddedJpeg(cr2);
-  // Vrátit se musí ten velký; malý je náhled pro displej fotoaparátu
-  check('vrací se ten větší', out.length, 40000);
+  /*
+   * Přesně ta chyba, na kterou to spadlo: vracela se syrová data (120 kB),
+   * protože byla největší. Vrátit se musí náhled (40 kB).
+   */
+  check('vrací se náhled, ne syrová data ze senzoru', out.length, 40000);
   ok('a je to opravdu JPEG', out[0] === 0xff && out[1] === 0xd8
     && out[out.length - 2] === 0xff && out[out.length - 1] === 0xd9);
 
@@ -435,6 +485,80 @@ async function liveSection() {
   check('po ručním připojení se model pamatuje',
     shoot.shootSetup().lastCamera, 'Canon EOS 250D');
   await shoot.disconnect();
+
+  /* ---------- spouštění a zastavování náhledu ---------- */
+
+  /*
+   * Zaseknuté tlačítko „Spustit/Zastavit náhled". Zastavení smyčku
+   * neukončí hned — ta ještě čeká na odpověď na poslední `capture-preview`.
+   * Dřív se odkaz na ni rovnou zahodil, takže se dala spustit druhá, obě
+   * pak posílaly dotazy naráz a náhled se zasekl tak, že nešel ani
+   * spustit, ani zastavit.
+   */
+  {
+    const sent = [];
+    const okno = { webContents: { send: (channel, payload) => sent.push({ channel, payload }) } };
+    const elektron = require.cache[require.resolve('electron')].exports;
+    const puvodni = elektron.BrowserWindow.getAllWindows;
+    elektron.BrowserWindow.getAllWindows = () => [okno];
+
+    const pocet = () => sent.filter(one => one.channel === 'shoot:frame').length;
+    const pauza = (ms) => new Promise(done => setTimeout(done, ms));
+
+    /*
+     * Tělo odpovídá na snímek náhledu se zpožděním, jako to skutečné.
+     * Bez něj by falešný gphoto2 odpovídal okamžitě, stav „smyčka čeká na
+     * odpověď" by nikdy nenastal a závod, kvůli kterému se náhled
+     * zasekával, by se neměl kde projevit — zkouška by procházela i s tou
+     * chybou.
+     */
+    process.env.FAKE_PREVIEW_DELAY = '120';
+    remember('shootSetup', JSON.stringify({ lastCamera: 'Canon EOS 250D' }));
+    await shoot.connect('usb:001,004', 'Canon EOS 250D');
+
+    await shoot.startLive();
+    await pauza(600);
+    const prvni = pocet();
+    ok('náhled posílá snímky', prvni > 0, `${prvni}`);
+
+    shoot.stopLive();
+    await pauza(600);
+    const poZastaveni = pocet();
+    await pauza(400);
+    check('po zastavení už nic nechodí', pocet(), poZastaveni);
+
+    /* A hlavně: musí jít spustit znovu. */
+    await shoot.startLive();
+    await pauza(700);
+    ok('a dá se spustit znovu', pocet() > poZastaveni, `${pocet() - poZastaveni} snímků`);
+
+    /*
+     * Dvakrát spuštěný náhled musí běžet pořád jen jednou. Dvě smyčky by
+     * posílaly na tělo dvakrát tolik dotazů — pozná se to podle toho, že
+     * se tempo snímků skokem zdvojnásobí.
+     */
+    /*
+     * Dvakrát spuštěný náhled běží pořád jen jednou. Dvě smyčky by na tělo
+     * posílaly dvakrát tolik dotazů — pozná se to podle skokově vyššího
+     * tempa snímků.
+     */
+    const zacatek = pocet();
+    await pauza(800);
+    const samo = pocet() - zacatek;
+
+    await shoot.startLive();
+    const pred = pocet();
+    await pauza(800);
+    const podruhe = pocet() - pred;
+    ok('podruhé spuštěný náhled běží pořád jednou', podruhe < samo * 1.6,
+      `${samo} → ${podruhe} snímků za 0,8 s`);
+
+    shoot.stopLive();
+    await pauza(400);
+    await shoot.disconnect();
+    delete process.env.FAKE_PREVIEW_DELAY;
+    elektron.BrowserWindow.getAllWindows = puvodni;
+  }
 
   /* ---------- zapomenutý vlastní proces ---------- */
 

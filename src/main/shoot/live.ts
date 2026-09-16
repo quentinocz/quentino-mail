@@ -30,6 +30,8 @@ type Loop = {
   stop: boolean;
   /** Náhled je pozastavený, dokud se fotí nebo mění nastavení. */
   hold: number;
+  /** Splní se, až smyčka doopravdy skončí. */
+  done: Promise<void>;
 };
 
 let loop: Loop | null = null;
@@ -62,51 +64,90 @@ export async function hold<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-export function startLive(session: CameraSession): void {
+/**
+ * Spustí náhled.
+ *
+ * ## Proč se čeká na doběhnutí předchozí smyčky
+ *
+ * Zastavení náhledu neukončí smyčku hned — ta ještě čeká na odpověď na
+ * poslední `capture-preview`, což trvá desetinu vteřiny. Kdyby se mezitím
+ * spustila druhá, běžely by obě: na tělo by chodily dva dotazy najednou,
+ * náhled by blikal a fotoaparát hlásil, že je zaneprázdněný. Proto se
+ * počká, až ta stará doopravdy skončí.
+ */
+export async function startLive(session: CameraSession): Promise<void> {
   if (loop && !loop.stop) return;
-  const mine: Loop = { stop: false, hold: 0 };
+  // Předchozí smyčka ještě dobíhá — počká se na ni, ne aby běžely dvě
+  if (loop) await loop.done;
+
+  let finished = () => { /* nahradí se hned */ };
+  const mine: Loop = {
+    stop: false,
+    hold: 0,
+    done: new Promise<void>(resolve => { finished = resolve; })
+  };
   loop = mine;
 
   const file = path.join(session.dir, PREVIEW_FILE);
 
   (async () => {
     let misses = 0;
-    while (!mine.stop) {
-      if (mine.hold > 0 || !session.alive) {
-        await wait(60);
-        if (!session.alive) break;
-        continue;
-      }
-      const reply = await session.send('capture-preview', { timeout: 12000 });
-      if (mine.stop) break;
-      if (!reply.ok) {
-        /*
-         * Jedna chyba nic neznamená — tělo zrovna ostří nebo dopisuje na
-         * kartu. Teprve když se náhled nepovede pětkrát po sobě, je to
-         * porucha a má se to říct, ne mlčky zkoušet dál donekonečna.
-         */
-        if (++misses >= 5) {
-          emit('shoot:live', { running: false, error: reply.error || 'náhled se nepovedl' });
-          break;
+    try {
+      while (!mine.stop) {
+        if (mine.hold > 0 || !session.alive) {
+          await wait(60);
+          if (!session.alive) break;
+          continue;
         }
-        await wait(300);
-        continue;
+        const reply = await session.send('capture-preview', { timeout: 12000 });
+        if (mine.stop) break;
+        if (!reply.ok) {
+          /*
+           * Jedna chyba nic neznamená — tělo zrovna ostří nebo dopisuje na
+           * kartu. Teprve když se náhled nepovede pětkrát po sobě, je to
+           * porucha a má se to říct, ne mlčky zkoušet dál donekonečna.
+           */
+          if (++misses >= 5) {
+            emit('shoot:live', { running: false, error: reply.error || 'náhled se nepovedl' });
+            break;
+          }
+          await wait(300);
+          continue;
+        }
+        misses = 0;
+        const bytes = readFrame(file, reply.text, session.dir);
+        if (bytes) emit('shoot:frame', bytes);
       }
-      misses = 0;
-      const bytes = readFrame(file, reply.text, session.dir);
-      if (bytes) emit('shoot:frame', bytes);
+    } finally {
+      /*
+       * Uvolnit se musí **vždycky**, i když smyčka spadne. Jinak by na
+       * `done` čekal příští start navěky a náhled by se už nikdy nerozjel.
+       */
+      if (loop === mine) loop = null;
+      finished();
+      if (!mine.stop) emit('shoot:live', { running: false, error: '' });
     }
-    if (loop === mine) loop = null;
-    if (!mine.stop) emit('shoot:live', { running: false, error: '' });
   })();
 
   emit('shoot:live', { running: true, error: '' });
 }
 
+/**
+ * Zastaví náhled.
+ *
+ * Odkaz na smyčku se **nezahazuje** — uklidí si ho sama, až doopravdy
+ * skončí. Dřív se nulovala tady, takže se hned dala spustit druhá, zatímco
+ * první ještě čekala na odpověď od těla; obě pak posílaly dotazy naráz
+ * a náhled se zasekl tak, že ho nešlo spustit ani zastavit.
+ */
 export function stopLive(): void {
   if (loop) loop.stop = true;
-  loop = null;
   emit('shoot:live', { running: false, error: '' });
+}
+
+/** Počká, až náhled doopravdy skončí. Používá se při zavírání. */
+export function liveSettled(): Promise<void> {
+  return loop ? loop.done : Promise.resolve();
 }
 
 /**

@@ -174,7 +174,7 @@ export async function autoConnect(): Promise<ShootState> {
 
   const next = await connect(hit.port, hit.model);
   if (!next.connected) return next;
-  startLive();
+  await startLive();
   /*
    * Stav se musí přečíst znovu. Ten z `connect` vznikl ještě před
    * spuštěním náhledu, takže by v okně svítilo „Spustit náhled" u něčeho,
@@ -201,9 +201,9 @@ export function closeCamera(): void {
   settingsCache = { handy: [], rest: [] };
 }
 
-export function startLive(): boolean {
+export async function startLive(): Promise<boolean> {
   if (!session.alive) return false;
-  live.startLive(session);
+  await live.startLive(session);
   return true;
 }
 
