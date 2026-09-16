@@ -73,9 +73,25 @@ export default function ShootModal({ onClose, standalone = false }: {
     return next;
   }, []);
 
+  /*
+   * Připojit se smí jen jednou. React v režimu kontroly spustí efekt při
+   * prvním vykreslení dvakrát — a dvě připojení naráz znamenají dva
+   * procesy gphoto2, z nichž si ten druhý sáhne na fotoaparát, který už
+   * drží ten první, a oba skončí chybou.
+   */
+  const started = useRef(false);
+
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     (async () => {
-      const next = await refresh();
+      /*
+       * Fotoaparát se hledá sám a známé tělo se rovnou připojí i s
+       * náhledem. Focení začíná vždycky stejně — zapojit kabel, otevřít
+       * okno — a klikat u toho ještě dvakrát je práce navíc pokaždé.
+       */
+      const next = await api.shoot.auto();
+      setState(next);
       const last = localStorage.getItem('shootLast') || '';
       const pick = next.shoots.find(one => one.id === last) ?? next.shoots[0] ?? null;
       if (pick) openShoot(pick.id);
@@ -333,6 +349,18 @@ export default function ShootModal({ onClose, standalone = false }: {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selected) { e.preventDefault(); dropShape(selected); }
       }
+      /*
+       * Šipkami po drobných krocích. Myší se vodítko umístí zhruba, ale
+       * „zhruba" je přesně to, co u série fotek nestačí — s Shiftem je
+       * krok desetkrát větší na hrubé posunutí.
+       */
+      if (selected && /^Arrow(Left|Right|Up|Down)$/.test(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 0.01 : 0.001;
+        nudge(selected,
+          e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
+          e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -345,6 +373,30 @@ export default function ShootModal({ onClose, standalone = false }: {
     if (!shoot) return;
     patch({ overlay: [...shoot.overlay, shape] });
   }, [shoot, patch]);
+
+  /**
+   * Posunuté vodítko. Nahradí se podle `id`, ostatní zůstávají.
+   *
+   * Přepsat celé pole novým seznamem by při přetahování jednoho vodítka
+   * přepsalo i to, co mezitím vzniklo jinde — třeba střed přidaný
+   * kliknutím uprostřed tažení.
+   */
+  const changeShape = useCallback((shape: ShootOverlay) => {
+    if (!shoot) return;
+    patch({ overlay: shoot.overlay.map(one => (one.id === shape.id ? shape : one)) });
+  }, [shoot, patch]);
+
+  /** Posun vodítka z klávesnice. Mřížka a třetiny drží celý obraz, ty se nehýbou. */
+  const nudge = useCallback((id: string, dx: number, dy: number) => {
+    if (!shoot) return;
+    const shape = shoot.overlay.find(one => one.id === id);
+    if (!shape || shape.kind === 'thirds' || shape.kind === 'grid') return;
+    const keep = (value: number) => Math.max(0, Math.min(1, value));
+    const moved: ShootOverlay = shape.kind === 'cross'
+      ? { ...shape, x: keep(shape.x + dx), y: keep(shape.y + dy) }
+      : { ...shape, x: shape.x + dx, x2: shape.x2 + dx, y: shape.y + dy, y2: shape.y2 + dy };
+    changeShape(moved);
+  }, [shoot, changeShape]);
 
   const dropShape = useCallback((id: string) => {
     if (!shoot) return;
@@ -431,15 +483,20 @@ export default function ShootModal({ onClose, standalone = false }: {
       <div className="sh-body">
         <main className="sh-main">
           <div className="sh-tools">
-            <ToolButton now={tool} id="zoom" icon="eye" label="Prohlížet" set={setTool} />
-            <ToolButton now={tool} id="line" icon="minus" label="Čára" set={setTool} />
-            <ToolButton now={tool} id="rect" icon="expand" label="Rámeček" set={setTool} />
-            <ToolButton now={tool} id="ellipse" icon="sun" label="Elipsa" set={setTool} />
-            <ToolButton now={tool} id="cross" icon="plus" label="Střed" set={setTool} />
-            <ToolButton now={tool} id="thirds" icon="layers" label="Třetiny" set={setTool} />
-            <ToolButton now={tool} id="grid" icon="sliders" label="Mřížka" set={setTool} />
+            {/*
+              * Popisek je u ikony vidět, ne jen v bublině. Nástrojů je osm
+              * a nakreslit „elipsu" jde poznat z obrázku, ale „třetiny" od
+              * „mřížky" ne — bez popisku by se mezi nimi hádalo.
+              */}
+            <ToolButton now={tool} id="zoom" icon="cursor" label="Vybrat" set={setTool} />
+            <ToolButton now={tool} id="line" icon="drawLine" label="Čára" set={setTool} />
+            <ToolButton now={tool} id="rect" icon="drawRect" label="Rámeček" set={setTool} />
+            <ToolButton now={tool} id="ellipse" icon="drawEllipse" label="Elipsa" set={setTool} />
+            <ToolButton now={tool} id="cross" icon="drawCross" label="Střed" set={setTool} />
+            <ToolButton now={tool} id="thirds" icon="drawThirds" label="Třetiny" set={setTool} />
+            <ToolButton now={tool} id="grid" icon="drawGrid" label="Mřížka" set={setTool} />
             <span className="sh-sep" />
-            <ToolButton now={tool} id="pick" icon="eraser" label="Odečíst bílou" set={setTool} />
+            <ToolButton now={tool} id="pick" icon="pipette" label="Bílá z obrazu" set={setTool} />
             <span className="sh-sep" />
             {COLORS.map(one => (
               <button
@@ -484,6 +541,7 @@ export default function ShootModal({ onClose, standalone = false }: {
             selected={selected}
             onSelect={setSelected}
             onAdd={addShape}
+            onChange={changeShape}
             onPickWhite={rgb => setFix({ white: rgb, on: true })}
           />
 
@@ -803,7 +861,8 @@ function ToolButton({ now, id, icon, label, set }: {
 }) {
   return (
     <button className={`sh-tool ${now === id ? 'on' : ''}`} onClick={() => set(id)} title={label}>
-      <Icon name={icon} size={14} />
+      <Icon name={icon} size={15} />
+      <span>{label}</span>
     </button>
   );
 }

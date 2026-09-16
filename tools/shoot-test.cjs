@@ -283,6 +283,107 @@ async function liveSection() {
   ok('a je poznat proč', talk.lastError.includes('hang'), talk.lastError);
 
   talk.close();
+
+  /* ---------- zabrané tělo ---------- */
+
+  /*
+   * Přesně ta chyba, na kterou to spadlo na Macu: Digitalizace obrazu drží
+   * fotoaparát a gphoto2 vrátí -53. Hláška je přeložená do systémového
+   * jazyka, takže rozpoznat se musí podle čísla, ne podle slov.
+   */
+  const shoot = require(path.join(DIST, 'shoot/index.js'));
+  check('zabrané tělo se pozná i česky',
+    shoot.claimFailed("-53: 'Nelze přidělit USB zařízení' — Nelze přidělit rozhraní 0"), true);
+  check('a anglicky taky',
+    shoot.claimFailed("-53: 'Could not claim the USB device' — Could not claim interface 0"), true);
+  check('jiná chyba se za zabrané tělo nepovažuje',
+    shoot.claimFailed("-1: 'Unspecified error'"), false);
+
+  const busyFile = path.join(work, 'busy.txt');
+  process.env.FAKE_BUSY_FILE = busyFile;
+
+  /*
+   * První pokus narazí na zabrané tělo, druhý projde. Kdyby se to zkoušelo
+   * jen jednou, focení by hlásilo poruchu tam, kde stačí zkusit znovu —
+   * a přesně tak se to chovalo, než tahle zkouška vznikla.
+   */
+  fs.writeFileSync(busyFile, '1');
+  const second = await shoot.connect('usb:001,004', 'Canon EOS 250D');
+  check('napodruhé se připojí', second.connected, true);
+  await shoot.disconnect();
+
+  // Když tělo drží někdo pořád, musí se to říct srozumitelně, ne číslem chyby
+  fs.writeFileSync(busyFile, '9');
+  const never = await shoot.connect('usb:001,004', 'Canon EOS 250D');
+  check('trvale zabrané tělo se vzdá', never.connected, false);
+  ok('a poradí, co s tím', never.error.includes('Digitalizaci obrazu'), never.error);
+  await shoot.disconnect();
+  delete process.env.FAKE_BUSY_FILE;
+
+  /* ---------- samo si to najde a připojí ---------- */
+
+  /*
+   * Po zapojení kabelu dostane tělo pokaždé jiný port, takže se pamatuje
+   * model. Kdyby se pamatoval port, podruhé by se nepoznalo nic.
+   */
+  const { setSetting: remember } = require(path.join(DIST, 'db.js'));
+  remember('shootSetup', JSON.stringify({ lastCamera: 'Canon EOS 250D' }));
+  const auto = await shoot.autoConnect();
+  check('známé tělo se připojí samo', [auto.connected, auto.camera],
+    [true, 'Canon EOS 250D']);
+  ok('a rovnou běží náhled', auto.live);
+  await shoot.disconnect();
+
+  // Cizí tělo se nepřipojí — jinak by aplikace sáhla na fotoaparát, který obsluhuje někdo jiný
+  remember('shootSetup', JSON.stringify({ lastCamera: 'Nikon Z6' }));
+  const foreign = await shoot.autoConnect();
+  check('neznámé tělo se samo nepřipojí', foreign.connected, false);
+  ok('ale najde se, aby šlo kliknout', foreign.cameras.length === 2, String(foreign.cameras.length));
+
+  // Bez paměti se nic nepřipojuje; první připojení si model zapamatuje
+  remember('shootSetup', JSON.stringify({ lastCamera: '' }));
+  check('bez paměti se nepřipojuje', (await shoot.autoConnect()).connected, false);
+  await shoot.connect('usb:001,004', 'Canon EOS 250D');
+  check('po ručním připojení se model pamatuje',
+    shoot.shootSetup().lastCamera, 'Canon EOS 250D');
+  await shoot.disconnect();
+
+  /* ---------- zapomenutý vlastní proces ---------- */
+
+  /*
+   * Tohle byla ta skutečná příčina na Macu: `gphoto2 --shell`, který
+   * zůstal viset po nepovedeném pokusu, držel fotoaparát sám proti sobě.
+   * Další připojení pak hlásilo „Could not claim the USB device" i po
+   * odpojení kabelu — proces to přežil a zmizel až s restartem počítače.
+   */
+  const orphan = require('child_process').spawn(
+    wrapper, ['--force-overwrite', '--port', 'usb:001,004', '--shell'],
+    /*
+     * Vstup musí zůstat otevřený. Se zavřeným vstupem shell hned skončí —
+     * a právě tím se liší od skutečnosti: aplikace mu rouru drží otevřenou,
+     * takže zapomenutý proces žije dál a drží s sebou i fotoaparát.
+     */
+    { cwd: work, stdio: ['pipe', 'ignore', 'ignore'], detached: true });
+  orphan.unref();
+  await new Promise(done => setTimeout(done, 400));
+  check('zapomenutý proces je vidět', await gphoto.ownShellsAlive(), true);
+
+  await gphoto.freeOwnShells();
+  await new Promise(done => setTimeout(done, 400));
+  check('a uklidí se před dalším připojením', await gphoto.ownShellsAlive(), false);
+
+  /*
+   * Zavření musí být nekompromisní. Slušné SIGTERM proces uprostřed
+   * přenosu po USB nemusí slyšet a přežít — a přežilý proces je přesně
+   * ten, který pak fotoaparát blokuje.
+   */
+  const closing = new session.CameraSession();
+  Object.defineProperty(closing, 'dir', { value: work });
+  await closing.open('usb:001,004', 'Canon EOS 250D');
+  check('spojení běží', closing.alive, true);
+  closing.close();
+  await new Promise(done => setTimeout(done, 600));
+  check('a po zavření nezůstane nic', await gphoto.ownShellsAlive(), false);
 }
 
 (async () => {

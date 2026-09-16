@@ -82,6 +82,16 @@ await page.waitForTimeout(500);
 
 say('okno focení se otevřelo', await page.locator('.sh-wrap').count() === 1);
 say('náhled ukazuje obraz', await page.locator('img.sh-frame').count() === 1);
+
+/*
+ * Tělo se má najít a připojit samo. V okně to musí být vidět jako
+ * „Připojeno", ne jako nabídka k proklikání — jinak by se změna projevila
+ * jen v hlavním procesu a člověk by pořád klikal na „Najít fotoaparát".
+ */
+say('tělo je připojené samo', await page.locator('.sh-ok').count() === 1,
+  (await page.locator('.sh-ok').innerText().catch(() => '')).trim());
+say('a náhled se nespouští ručně',
+  (await page.locator('.sh-shoot .sh-mini', { hasText: 'náhled' }).innerText()).includes('Zastavit'));
 await snap('01-nahled');
 
 /* ---------- kreslení vodítka ---------- */
@@ -93,7 +103,11 @@ await page.mouse.down();
 await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.8, { steps: 8 });
 await page.mouse.up();
 await page.waitForTimeout(400);
-say('tažením vznikl rámeček', await page.locator('.sh-lines rect').count() === 1);
+/*
+ * Počítají se skupiny, ne obdélníky: každý tvar kreslí dvakrát — jednou
+ * viditelně a pod tím široký průhledný pás, aby se dal chytit myší.
+ */
+say('tažením vznikl rámeček', await page.locator('.sh-lines g.sh-shape').count() === 1);
 
 /*
  * Vodítko se musí uložit, ne jen nakreslit. Nový snímek náhledu překreslí
@@ -101,7 +115,7 @@ say('tažením vznikl rámeček', await page.locator('.sh-lines rect').count() =
  */
 await page.evaluate(bytes => window.__emit('shoot:frame', new Uint8Array(bytes)), [...FRAME]);
 await page.waitForTimeout(400);
-say('a přežil překreslení náhledu', await page.locator('.sh-lines rect').count() === 1);
+say('a přežil překreslení náhledu', await page.locator('.sh-lines g.sh-shape').count() === 1);
 say('a uložil se do focení',
   await page.evaluate(() => (window.__shoot.shoot.overlay || []).length) === 1);
 
@@ -109,16 +123,90 @@ say('a uložil se do focení',
 await page.locator('.sh-tool[title="Čára"]').click();
 await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
 await page.waitForTimeout(300);
-say('klepnutí nedělá čáru o nulové délce', await page.locator('.sh-lines line').count() === 0);
+say('klepnutí nedělá čáru o nulové délce', await page.locator('.sh-lines g.sh-shape').count() === 1);
 
 // Třetiny se přidají kliknutím, netáhnou se
 await page.locator('.sh-tool[title="Třetiny"]').click();
 await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
 await page.waitForTimeout(400);
-say('třetiny jsou čtyři čáry', await page.locator('.sh-lines line').count() === 4);
+say('třetiny přibyly jako druhý tvar', await page.locator('.sh-lines g.sh-shape').count() === 2);
+say('a jsou to čtyři čáry', await page.locator('.sh-lines line').count() === 4);
 await snap('02-voditka');
 
 /* ---------- šablona a průsvitka ---------- */
+
+/* ---------- přesouvání vodítek ---------- */
+
+/*
+ * Nakreslený rámeček se musí dát chytit a posunout. Tenká čára se myší
+ * netrefí, proto je pod ní široký průhledný pás — kdyby zmizel, tažení by
+ * se nechytlo a vypadalo by to, že přesouvání nefunguje.
+ */
+await page.locator('.sh-tool', { hasText: 'Vybrat' }).click();
+{
+  const before = await page.evaluate(() => {
+    const one = window.__shoot.shoot.overlay.find(s => s.kind === 'rect');
+    return one ? { x: one.x, y: one.y } : null;
+  });
+  // Chytit horní hranu rámečku (ten je od 25 % do 75 % šířky, 20–80 % výšky)
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.5 + 100, box.y + box.height * 0.2 + 40, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  const after = await page.evaluate(() => {
+    const one = window.__shoot.shoot.overlay.find(s => s.kind === 'rect');
+    return one ? { x: one.x, y: one.y } : null;
+  });
+  say('rámeček se dá přetáhnout',
+    !!before && !!after && after.x > before.x + 0.03 && after.y > before.y + 0.01,
+    before && after ? `${before.x.toFixed(2)},${before.y.toFixed(2)} → ${after.x.toFixed(2)},${after.y.toFixed(2)}` : 'nic');
+
+  // Šipka posune o kousek — pro doladění, kde myš nestačí
+  const beforeKey = after;
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(500);
+  const afterKey = await page.evaluate(() =>
+    window.__shoot.shoot.overlay.find(s => s.kind === 'rect').x);
+  say('šipka posune o kousek',
+    afterKey > beforeKey.x && afterKey - beforeKey.x < 0.01, String((afterKey - beforeKey.x).toFixed(4)));
+
+  /*
+   * Ven z obrazu se vytáhnout nesmí. Vodítko, které zmizí za okrajem,
+   * se nedá chytit zpátky — dalo by se jen smazat a nakreslit znovu.
+   */
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 3, box.y + box.height * 3, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  const out = await page.evaluate(() => {
+    const one = window.__shoot.shoot.overlay.find(s => s.kind === 'rect');
+    return Math.max(one.x, one.x2, one.y, one.y2);
+  });
+  say('ven z obrazu to nejde', out <= 1.0001, String(out.toFixed(3)));
+}
+/*
+ * Tažením se kreslí, ne označuje. Modře označená půlka okna vypadá jako
+ * porucha vykreslování a pod ní není vidět, co se vlastně kreslí.
+ */
+say('tažení neoznačuje text',
+  (await page.evaluate(() => String(window.getSelection() || ''))).trim() === '');
+await snap('09-presun');
+
+/*
+ * Při psaní do políčka musí mezerník psát mezeru, ne fotit. Název focení
+ * se přepisuje často a „Kravaty hedvábí" se bez mezer napsat nedá.
+ */
+{
+  const before = await page.locator('.sh-tile').count();
+  await page.locator('.sh-name').click();
+  await page.keyboard.type('a b');
+  await page.waitForTimeout(500);
+  const after = await page.locator('.sh-tile').count();
+  const text = await page.locator('.sh-name').inputValue();
+  say('v políčku mezerník píše, nefotí', after === before && text.includes('a b'), text);
+}
 
 await page.locator('.sh-tabs button', { hasText: 'Šablona' }).click();
 await page.waitForTimeout(300);
@@ -135,8 +223,15 @@ await snap('03-sablona');
 
 await page.locator('.sh-shutter').click();
 await page.waitForTimeout(600);
-await page.locator('.sh-shutter').click();
-await page.waitForTimeout(600);
+/*
+ * Druhý snímek mezerníkem. U stolu se drží fotoaparát, ne myš — a kdyby
+ * mezerník místo focení jen posunul stránku, poznalo by se to až při
+ * focení.
+ */
+await page.locator('.sh-view').click();
+await page.keyboard.press('Space');
+await page.waitForTimeout(700);
+say('mezerník vyfotí', await page.locator('.sh-tile').count() === 2);
 say('nafocené jsou v galerii', await page.locator('.sh-tile').count() === 2);
 say('a jsou očíslované',
   (await page.locator('.sh-tile-no').allInnerTexts()).join(',') === '1,2');

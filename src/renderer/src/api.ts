@@ -1092,6 +1092,8 @@ export const api = {
     setup: (patch: Partial<ShootSettings>) => call<ShootSettings>('shoot:setup', patch),
     scan: () => call<ShootCamera[]>('shoot:scan'),
     connect: (port: string, model: string) => call<ShootState>('shoot:connect', port, model),
+    /** Najde tělo a známé rovnou připojí i s náhledem */
+    auto: () => call<ShootState>('shoot:auto'),
     disconnect: () => call<ShootState>('shoot:disconnect'),
     gphotoPath: (value: string) => call<string>('shoot:gphotoPath', value),
     live: (on: boolean) => call<boolean>('shoot:live', on),

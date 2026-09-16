@@ -3364,6 +3364,8 @@ export interface ShootSettings {
   lastFolder: string;
   /** `gphoto` = tělo na USB, `webcam` = fotoaparát v režimu webkamery. */
   backend: 'gphoto' | 'webcam';
+  /** Model naposledy připojeného těla. Podle něj se příště připojí samo. */
+  lastCamera: string;
 }
 
 export interface ShootState {

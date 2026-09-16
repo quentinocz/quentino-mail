@@ -73,23 +73,99 @@ export function saveGphotoPath(value: string): string {
 /**
  * macOS si fotoaparát zabere dřív než my.
  *
- * Jakmile se tělo připojí, spustí systém `PTPCamera` (pomocník Digitalizace
- * obrazu) a ten drží PTP relaci otevřenou. gphoto2 pak hlásí
- * „Could not claim the USB device" a nikde není vidět proč. Řešení je jediné,
- * které funguje a které používají všechny tetheringové aplikace: proces
- * ukončit. Systém si ho po odpojení fotoaparátu spustí znovu sám, takže se
- * tím nic trvale nerozbije.
+ * Jakmile se tělo připojí, sáhne po něm Digitalizace obrazu a drží PTP
+ * relaci otevřenou. gphoto2 pak hlásí „Could not claim the USB device"
+ * a nikde není vidět proč. Řešení je jediné, které funguje a které
+ * používají všechny tetheringové aplikace: procesy ukončit. Systém si je
+ * spustí znovu sám, takže se tím nic trvale nerozbije — odstranit je
+ * nadobro stejně nejde, brání tomu ochrana systému.
+ *
+ * Jmen je víc, protože se to mezi verzemi macOS měnilo: dřív to byl
+ * `PTPCamera`, dnes `ptpcamerad` a `icdd`. Vypisovat jen ten starý
+ * znamená, že na novém systému killall uspěje (nic nenašel) a fotoaparát
+ * zůstane zabraný — což vypadá jako porucha fotoaparátu, ne jako tohle.
  *
  * Na jiných systémech se nic nedělá — tam problém není.
  */
-export async function freeCamera(): Promise<boolean> {
-  if (process.platform !== 'darwin') return false;
+const HOGS = ['ptpcamerad', 'icdd', 'PTPCamera'];
+
+/**
+ * Zapomenutý vlastní gphoto2 drží fotoaparát stejně jako systémový proces.
+ *
+ * Tohle byla ta horší polovina potíže. Když se první pokus o připojení
+ * nepovedl, zůstal spuštěný `gphoto2 --shell` viset — a od té chvíle
+ * blokoval tělo *on sám*. Každý další pokus proto skončil stejnou chybou
+ * „Could not claim the USB device" a vypadalo to na macOS, přitom to byla
+ * aplikace proti sobě. Nepomohlo ani odpojení kabelu, ani restart okna,
+ * protože proces přežil obojí; zmizel až s restartem celého počítače.
+ *
+ * Vzor je schválně úzký — `--shell` spolu s `--force-overwrite` posíláme
+ * jen my. Holé `gphoto2 --summary`, které si pustí člověk v terminálu,
+ * se tím nezabije.
+ */
+const OWN_SHELL = 'gphoto2.*--force-overwrite.*--shell';
+
+/**
+ * Vyhledá čísla procesů. Vrací prázdno, když nic neběží nebo `pgrep` chybí.
+ */
+function findOwnShells(): Promise<number[]> {
+  if (process.platform === 'win32') return Promise.resolve([]);
   return new Promise(resolve => {
-    execFile('/usr/bin/killall', ['PTPCamera'], { timeout: 4000 }, err => {
-      // Nenulový návratový kód znamená „žádný takový proces" — to je v pořádku
-      resolve(!err);
+    execFile('/usr/bin/pgrep', ['-f', OWN_SHELL], { timeout: 4000 }, (err, out) => {
+      if (err) { resolve([]); return; }
+      resolve(String(out).split('\n')
+        .map(line => Number(line.trim()))
+        .filter(pid => Number.isInteger(pid) && pid > 0));
     });
   });
+}
+
+/**
+ * Zabije zapomenuté procesy po číslech, ne přes `pkill`.
+ *
+ * `pkill -f` porovnává vzor s celým příkazovým řádkem — **včetně shellu,
+ * ze kterého byl spuštěn**. Když se v něm ten text náhodou vyskytne,
+ * zabije `pkill` vlastního rodiče. Stalo se to při psaní téhle opravy
+ * a shodilo to celou zkoušku; v aplikaci by to znamenalo, že si pokus
+ * o uvolnění fotoaparátu shodí aplikaci samotnou.
+ *
+ * Čísla procesů se proto nejdřív vyhledají a než se na ně sáhne, vyřadí
+ * se z nich my sami a náš rodič.
+ */
+export async function freeOwnShells(): Promise<void> {
+  const mine = new Set([process.pid, process.ppid]);
+  for (const pid of await findOwnShells()) {
+    if (mine.has(pid)) continue;
+    try { process.kill(pid, 'SIGKILL'); } catch { /* mezitím skončil */ }
+  }
+}
+
+export async function freeCamera(): Promise<boolean> {
+  await freeOwnShells();
+  if (process.platform !== 'darwin') return false;
+  let killed = false;
+  for (const name of HOGS) {
+    const gone = await new Promise<boolean>(resolve => {
+      execFile('/usr/bin/killall', [name], { timeout: 4000 }, err => {
+        // Nenulový návratový kód znamená „žádný takový proces" — to je v pořádku
+        resolve(!err);
+      });
+    });
+    killed = killed || gone;
+  }
+  /*
+   * Chvilka navíc. Ukončený proces zařízení nepustí okamžitě a gphoto2
+   * spuštěné hned za `killall` sáhne po USB dřív, než ho systém uvolní —
+   * a vrátí přesně tutéž chybu, kvůli které se zabíjelo.
+   */
+  if (killed) await new Promise(resolve => setTimeout(resolve, 400));
+  return killed;
+}
+
+/** Je ještě naživu nějaký náš gphoto2? Kvůli hlášce a kontrole, ne kvůli rozhodování. */
+export async function ownShellsAlive(): Promise<boolean> {
+  const mine = new Set([process.pid, process.ppid]);
+  return (await findOwnShells()).some(pid => !mine.has(pid));
 }
 
 function run(args: string[], timeout = 15000): Promise<{ out: string; err: string }> {

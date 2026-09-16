@@ -8214,6 +8214,21 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   font-family: var(--font);
   /* Posuvníky a zaškrtávátka ve výchozí modré na tmavém pozadí křičí */
   accent-color: var(--accent);
+  /*
+   * Tažením se kreslí a přesouvají vodítka, takže se nesmí označovat text.
+   * Bez tohohle se při každém tažení přes náhled modře označila půlka okna
+   * — název focení, popisky, všechno — a fotka pod tím zmodrala. Vypadalo
+   * to jako porucha vykreslování.
+   */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Do políček se píše a kopíruje, tam označování patří */
+.sh-wrap input,
+.sh-wrap textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 .sh-wrap.standalone { position: absolute; z-index: 1; }
 
@@ -8285,6 +8300,8 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   cursor: pointer;
   font-size: 12px;
 }
+.sh-tool { padding: 5px 9px; }
+.sh-tool span { font-size: 11.5px; }
 .sh-tool:hover, .sh-mini:hover { background: #2e2e3a; color: #fff; }
 .sh-tool.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .sh-mini:disabled { opacity: .45; cursor: default; }
@@ -8335,6 +8352,7 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .sh-ghost { pointer-events: none; }
 .sh-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
 .sh-shape { cursor: pointer; }
+.sh-shape.movable { cursor: move; }
 .sh-shape.on { filter: drop-shadow(0 0 3px #fff); }
 .sh-blank {
   display: flex;

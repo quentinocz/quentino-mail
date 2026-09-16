@@ -117,7 +117,7 @@ const ALLOWED_INVOKE = [
   'media:products', 'media:productStats', 'media:productFetch', 'media:productSave',
   'media:productUpload', 'media:productReveal', 'media:productSetup', 'media:productSetupSave',
   // Focení: živý náhled z fotoaparátu na USB, vodítka a uložené série
-  'shoot:state', 'shoot:setup', 'shoot:scan', 'shoot:connect', 'shoot:disconnect',
+  'shoot:state', 'shoot:setup', 'shoot:scan', 'shoot:connect', 'shoot:auto', 'shoot:disconnect',
   'shoot:gphotoPath', 'shoot:live', 'shoot:settings', 'shoot:setting', 'shoot:setSetting',
   'shoot:focus', 'shoot:capture',
   'shoot:shoots', 'shoot:shoot', 'shoot:new', 'shoot:save', 'shoot:deleteShoot',

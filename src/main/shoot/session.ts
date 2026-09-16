@@ -105,12 +105,31 @@ export class CameraSession {
     return ready;
   }
 
+  /**
+   * Ukončí spojení — a trvá na tom.
+   *
+   * Zdvořilé `kill()` (SIGTERM) gphoto2 uprostřed přenosu po USB nemusí
+   * slyšet, a proces, který přežije, **drží fotoaparát dál**. Nedrží ho
+   * pro nás: drží ho proti nám, takže každý další pokus o připojení
+   * skončí na „Could not claim the USB device" a vypadá to jako porucha
+   * macOS. Přesně tohle se stalo — zapomenutý shell blokoval tělo tak
+   * dlouho, že si ho nevzal ani terminál.
+   *
+   * Po vteřině a půl proto přijde SIGKILL, který se ignorovat nedá.
+   */
   close(): void {
     const proc = this.proc;
     this.proc = null;
     if (proc) {
       try { proc.stdin?.end(); } catch { /* už zavřené */ }
       try { proc.kill(); } catch { /* už mrtvé */ }
+      const hard = setTimeout(() => {
+        try { if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL'); }
+        catch { /* mezitím skončil */ }
+      }, 1500);
+      // Časovač nesmí držet aplikaci naživu při ukončování
+      hard.unref?.();
+      proc.once('exit', () => clearTimeout(hard));
     }
     this.flush('spojení s fotoaparátem skončilo');
   }

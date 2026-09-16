@@ -1774,7 +1774,7 @@
     connected: true, camera: 'Canon EOS 250D', port: 'usb:001,004',
     live: true, error: '',
     setup: { keepOnCamera: true, pattern: '%n', webp: false, webpQuality: 82,
-      lastFolder: '', backend: 'gphoto' },
+      lastFolder: '', backend: 'gphoto', lastCamera: 'Canon EOS 250D' },
     shoots: []
   };
   var shootOne = {
@@ -1789,6 +1789,8 @@
   };
   shootState.shoots = [shootOne];
   answers['shoot:state'] = shootState;
+  // Po otevření okna se tělo najde a známé se rovnou připojí
+  answers['shoot:auto'] = shootState;
   answers['shoot:shoots'] = shootState.shoots;
   answers['shoot:shoot'] = shootOne;
   answers['shoot:photos'] = shootPhotos;

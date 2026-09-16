@@ -48,7 +48,13 @@ const DEFAULTS: ShootSettings = {
   webp: false,
   webpQuality: 82,
   lastFolder: '',
-  backend: 'gphoto'
+  backend: 'gphoto',
+  /*
+   * Který fotoaparát tu byl posledně — podle **modelu**, ne portu. Port
+   * (`usb:008,001`) se mění při každém zapojení kabelu, takže zapamatovat
+   * si ho znamená, že se podruhé nepozná nic.
+   */
+  lastCamera: ''
 };
 
 export function shootSetup(): ShootSettings {
@@ -94,21 +100,104 @@ export async function scanCameras(): Promise<ShootCamera[]> {
   return cameras;
 }
 
+/**
+ * Zabrané tělo se pozná až prvním příkazem, ne otevřením spojení.
+ *
+ * `gphoto2 --shell` naskočí a vypíše výzvu, i když k fotoaparátu vůbec
+ * nedosáhne — relaci s tělem otevírá až první příkaz. „Spojení je
+ * navázané" proto samo o sobě neznamená nic a zkusit se to musí.
+ */
+const CLAIM = /could not claim|-53|claim the usb|claim interface/i;
+
+export function claimFailed(error: string): boolean {
+  return CLAIM.test(String(error ?? ''));
+}
+
 export async function connect(port: string, model: string): Promise<ShootState> {
   if (!tool.path) tool = await gphoto.findGphoto();
   session.lastError = '';
-  if (tool.ok) {
+  if (!tool.ok) return shootState();
+
+  /*
+   * Zkouší se třikrát. Digitalizace obrazu se po ukončení sama znovu
+   * spustí a někdy stihne tělo zabrat dřív než my — je to závod, ne
+   * trvalý stav, a druhý pokus proto obvykle projde. Před každým dalším
+   * se procesy ukončí znovu.
+   */
+  for (let attempt = 1; attempt <= 3; attempt++) {
     const ok = await session.open(port, model);
-    if (ok) await loadSettings();
+    if (!ok) break;
+
+    const probe = await session.send('list-config', { urgent: true, timeout: 30000 });
+    if (probe.ok) {
+      if (model) saveShootSetup({ lastCamera: model });
+      await loadSettings();
+      return shootState();
+    }
+
+    session.lastError = probe.error;
+    session.close();
+    if (!claimFailed(probe.error) || attempt === 3) break;
+    await gphoto.freeCamera();
+  }
+
+  if (claimFailed(session.lastError)) {
+    session.lastError = 'Fotoaparát drží jiný program. Zavři Digitalizaci obrazu, Fotky, '
+      + 'EOS Utility a Lightroom, odpoj a znovu připoj kabel a zkus to znovu. '
+      + 'Pomáhá i přepnout tělo z režimu čtečky karet na „PC připojení".';
   }
   return shootState();
 }
 
+/**
+ * Po otevření okna najde fotoaparát sám a známý rovnou připojí.
+ *
+ * Focení začíná vždycky stejně: zapojit kabel, zapnout tělo, otevřít okno.
+ * Klikat u toho ještě na „Najít fotoaparát" a pak na model je práce, kterou
+ * počítač zvládne sám — a při focení dvaceti kusů se k tomu okno otevírá
+ * opakovaně.
+ *
+ * Sám se připojí **jen ke známému tělu**. Kdyby se připojoval k čemukoliv,
+ * co najde, sáhl by při zapojeném telefonu nebo druhém fotoaparátu na to
+ * špatné a odpojil by ho z toho, k čemu ho člověk připojil.
+ */
+export async function autoConnect(): Promise<ShootState> {
+  if (session.alive) return shootState();
+  if (!tool.path) tool = await gphoto.findGphoto();
+  if (!tool.ok) return shootState();
+
+  const want = (shootSetup().lastCamera || '').trim();
+  const found = await scanCameras();
+  const hit = want ? found.find(one => one.model === want) : undefined;
+  if (!hit) return shootState();
+
+  const next = await connect(hit.port, hit.model);
+  if (!next.connected) return next;
+  startLive();
+  /*
+   * Stav se musí přečíst znovu. Ten z `connect` vznikl ještě před
+   * spuštěním náhledu, takže by v okně svítilo „Spustit náhled" u něčeho,
+   * co už běží — a kliknutí by ho místo spuštění zastavilo.
+   */
+  return shootState();
+}
+
 export function disconnect(): Promise<ShootState> {
+  closeCamera();
+  return shootState();
+}
+
+/**
+ * Pustí fotoaparát. Volá se i při ukončení aplikace.
+ *
+ * Nic nevrací a nic nečeká — při `will-quit` na odpověď není čas a hlavní
+ * je, aby proces gphoto2 zhasl. Kdyby přežil, držel by tělo dál a další
+ * spuštění aplikace by se k němu nedostalo.
+ */
+export function closeCamera(): void {
   live.stopLive();
   session.close();
   settingsCache = { handy: [], rest: [] };
-  return shootState();
 }
 
 export function startLive(): boolean {

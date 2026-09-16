@@ -121,6 +121,24 @@ if (has('--auto-detect')) {
 if (!has('--shell')) process.exit(0);
 
 let shots = 0;
+
+/**
+ * Zabrané tělo, jak ho hlásí macOS.
+ *
+ * Soubor z `FAKE_BUSY_FILE` drží počet spuštění, která mají skončit chybou
+ * -53. Každé spuštění si číslo sníží — díky tomu jde vyzkoušet, že se
+ * aplikace o připojení pokusí znovu a že se napodruhé chytí. Digitalizace
+ * obrazu se chová stejně: je to závod, ne trvalý stav.
+ */
+let busy = 0;
+const busyFile = process.env.FAKE_BUSY_FILE || '';
+if (busyFile) {
+  try {
+    busy = Number(fs.readFileSync(busyFile, 'utf8').trim()) || 0;
+    if (busy > 0) fs.writeFileSync(busyFile, String(busy - 1));
+  } catch { busy = 0; }
+}
+
 const prompt = () => process.stdout.write(`\ngphoto2: {${process.cwd()}} /> `);
 
 function fail(code, message, why) {
@@ -143,6 +161,17 @@ function run(line) {
   if (!command) return;
 
   if (command === 'exit' || command === 'quit' || command === 'q') { process.exit(0); }
+
+  if (busy > 0) {
+    /*
+     * Hláška je opsaná z macOS i s tím, že ji systém překládá — chyba se
+     * proto musí poznat podle čísla -53, ne podle textu.
+     */
+    fail(-53, 'Nelze přidělit USB zařízení',
+      'Vyskytla se chyba ve vstupně/výstupní knihovně („Nelze přidělit USB zařízení“): '
+      + 'Nelze přidělit rozhraní 0 (No such file or directory).');
+    return;
+  }
 
   if (command === 'list-config') {
     process.stdout.write(Object.keys(TREE).join('\n') + '\n');

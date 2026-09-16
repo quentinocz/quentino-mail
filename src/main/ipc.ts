@@ -598,6 +598,8 @@ export function registerIpc() {
   handle('shoot:setup', (patch: any) => shoot.saveShootSetup(patch ?? {}));
   handle('shoot:scan', () => shoot.scanCameras());
   handle('shoot:connect', (port: string, model: string) => shoot.connect(port ?? '', model ?? ''));
+  // Po otevření okna: najít tělo a známé rovnou připojit včetně náhledu
+  handle('shoot:auto', () => shoot.autoConnect());
   handle('shoot:disconnect', () => shoot.disconnect());
   handle('shoot:gphotoPath', (value: string) => shoot.saveGphotoPath(value ?? ''));
   handle('shoot:live', (on: boolean) => (on ? shoot.startLive() : shoot.stopLive()));

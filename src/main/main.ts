@@ -13,6 +13,7 @@ import { handleCallbackUrl } from './instagram';
 import { refreshWatchers, restartWatchers } from './idle';
 import { restartWatchers as restartMediaWatchers } from './media';
 import { refreshTokens as refreshIgTokens } from './instagram/publish';
+import { closeCamera } from './shoot';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -338,4 +339,17 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+/**
+ * Fotoaparát se musí pustit, i když aplikace končí neplánovaně.
+ *
+ * `gphoto2 --shell` je samostatný proces a po ukončení rodiče na Macu ani
+ * na Linuxu sám nezhasne — zůstane viset a **drží fotoaparát**. Dokud
+ * běží, hlásí každé další připojení „Could not claim the USB device",
+ * a to i v terminálu, takže to vypadá jako porucha systému. Zmizel by až
+ * s restartem počítače.
+ */
+app.on('will-quit', () => {
+  try { closeCamera(); } catch { /* focení se ani neotevřelo */ }
 });

@@ -52,6 +52,24 @@ const PATHS: Record<string, ReactNode> = {
   underline: <><path d="M6 4v6a6 6 0 0 0 12 0V4" /><line x1="4" y1="20" x2="20" y2="20" /></>,
   list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></>,
   link: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></>,
+  /*
+   * Nástroje focení. Kreslí se doslova to, co nástroj udělá — ikona
+   * „obdélník" je obdélník, „mřížka" je mřížka. Vypůjčené ikony na to
+   * nestačily: slunce jako elipsa a posuvníky jako mřížka neřekly nic
+   * a nabídka se pak četla podle popisků, ne podle obrázků.
+   */
+  cursor: <><path d="M4 3.5 19 12l-6.5 1.6L9.5 20Z" /></>,
+  drawLine: <><path d="M4 20 20 4" /><circle cx="4" cy="20" r="1.8" /><circle cx="20" cy="4" r="1.8" /></>,
+  drawRect: <rect x="4" y="6" width="16" height="12" rx="1" />,
+  drawEllipse: <ellipse cx="12" cy="12" rx="9" ry="7" />,
+  /* Střed: nitkový kříž s mezerou uprostřed, aby bylo vidět, co je pod ním */
+  drawCross: <><path d="M12 3v6" /><path d="M12 15v6" /><path d="M3 12h6" /><path d="M15 12h6" /><circle cx="12" cy="12" r="1.5" /></>,
+  /* Třetiny: dvě a dvě čáry, přesně jak to vykreslí na náhledu */
+  drawThirds: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M9 4v16" /><path d="M15 4v16" /><path d="M3 9.33h18" /><path d="M3 14.66h18" /></>,
+  /* Mřížka: hustší dělení — tři a tři čáry */
+  drawGrid: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M7.5 4v16" /><path d="M12 4v16" /><path d="M16.5 4v16" /><path d="M3 8h18" /><path d="M3 12h18" /><path d="M3 16h18" /></>,
+  /* Kapátko — odečtení barvy z obrazu */
+  pipette: <><path d="m2 22 1-4 9.5-9.5" /><path d="m15 5 4 4" /><path d="M13.5 3.5a2.1 2.1 0 0 1 3 0l4 4a2.1 2.1 0 0 1 0 3l-2 2-7-7Z" /><path d="m3 18 3 3" /></>,
   eraser: <><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" /><path d="M22 21H7" /><path d="m5 11 9 9" /></>,
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></>,
   moon: <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />,
