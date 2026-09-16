@@ -434,7 +434,19 @@ export default function ShootModal({ onClose, standalone = false }: {
     setBusy('shot');
     try {
       if (stream) { await shotFromWebcam(); return; }
-      const out = await api.shoot.capture(shoot.id);
+      let out = await api.shoot.capture(shoot.id);
+      /*
+       * Spadlé spojení uprostřed focení se navazuje samo a snímek se
+       * zkusí ještě jednou. gphoto2 umí skončit kvůli uspanému USB nebo
+       * pohnutému kabelu — bez tohohle by v okně zbylo „fotoaparát není
+       * připojený" a dál by se nedalo fotit, přestože tělo je na kabelu.
+       */
+      if (!out.ok && /není připojený|gphoto2 skončil|spojení s fotoaparátem/i.test(out.error)) {
+        note('Spojení spadlo, připojuji znovu…');
+        const back = await api.shoot.reconnect();
+        setState(back);
+        if (back.connected) out = await api.shoot.capture(shoot.id);
+      }
       if (!out.ok) { note(out.error, true); return; }
       if (out.photo) await afterShot(out.photo);
     } finally {
@@ -819,6 +831,8 @@ export default function ShootModal({ onClose, standalone = false }: {
               <div style={{ marginTop: 14 }}>
                 <ShootSettings connected={connected} onNote={note} />
               </div>
+
+              <CameraLog onNote={note} />
             </div>
           )}
 
@@ -1117,6 +1131,69 @@ export default function ShootModal({ onClose, standalone = false }: {
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Protokol posledních příkazů.
+ *
+ * Focení běží u fotoaparátu, který nikdo jiný nemá. Když se něco pokazí,
+ * je rozdíl mezi „nefunguje to" a přesným výpisem toho, co tělo
+ * odpovědělo — a získat ten výpis jinak znamená spouštět gphoto2 ručně
+ * v terminálu.
+ */
+function CameraLog({ onNote }: { onNote: (text: string, bad?: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<{ at: string; command: string; ok: boolean; error: string; text: string }[]>([]);
+
+  const load = useCallback(async () => {
+    // Prázdný protokol se vrací jako nic; pole musí zůstat polem
+    setRows((await api.shoot.log()) ?? []);
+  }, []);
+
+  useEffect(() => { if (open) load(); }, [open, load]);
+
+  const asText = () => rows.map(one =>
+    `${one.at.slice(11, 19)}  ${one.ok ? 'ok ' : 'CHYBA'}  ${one.command}`
+    + (one.error ? `\n   ${one.error}` : '')
+    + (one.text ? `\n   ${one.text.replace(/\n/g, '\n   ')}` : '')
+  ).join('\n');
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <button className="sh-more" onClick={() => setOpen(one => !one)}>
+        <Icon name={open ? 'chevDown' : 'chevRight'} size={12} />
+        Protokol fotoaparátu
+      </button>
+      {open && (
+        <>
+          <div className="sh-row">
+            <button className="sh-mini" onClick={load}>
+              <Icon name="refresh" size={12} /> Načíst
+            </button>
+            <button
+              className="sh-mini"
+              onClick={async () => {
+                await navigator.clipboard.writeText(asText());
+                onNote('Protokol je ve schránce.');
+              }}
+              disabled={!rows.length}
+            >
+              <Icon name="copy" size={12} /> Zkopírovat
+            </button>
+          </div>
+          <div className="sh-log">
+            {!rows.length && <small>Zatím nic — protokol se plní při práci s fotoaparátem.</small>}
+            {rows.slice().reverse().map((one, index) => (
+              <div key={`${one.at}-${index}`} className={one.ok ? '' : 'bad'}>
+                <b>{one.at.slice(11, 19)}</b> {one.command}
+                {one.error ? <i>{one.error}</i> : null}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

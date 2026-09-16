@@ -111,7 +111,12 @@ export async function startLive(session: CameraSession): Promise<void> {
             emit('shoot:live', { running: false, error: reply.error || 'náhled se nepovedl' });
             break;
           }
-          await wait(300);
+          /*
+           * Zaneprázdněné tělo potřebuje víc než okamžik. Ptát se hned
+           * znovu ho jen drží zaneprázdněné dál a pět pokusů proletí
+           * za vteřinu, takže se náhled vypne dřív, než se tělo vzpamatuje.
+           */
+          await wait(/-110|busy|0x2019/i.test(reply.error) ? 900 : 300);
           continue;
         }
         misses = 0;

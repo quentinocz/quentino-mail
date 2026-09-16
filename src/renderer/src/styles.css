@@ -8578,6 +8578,19 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 .sh-rest-name:hover { color: #fff; }
 
+/* Protokol — hustý výpis, ať se ho na obrazovku vejde co nejvíc */
+.sh-log {
+  max-height: 220px; overflow-y: auto;
+  background: #16161c; border: 1px solid #2a2a33; border-radius: 7px;
+  padding: 6px 8px; margin-top: 6px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; line-height: 1.5;
+  color: #a5a1b5;
+}
+.sh-log > div { padding: 1px 0; }
+.sh-log > div.bad { color: #ff8b90; }
+.sh-log b { color: #6b6779; font-weight: 400; margin-right: 5px; }
+.sh-log i { display: block; padding-left: 10px; font-style: normal; opacity: .85; }
+
 .sh-presets { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 12px; }
 .sh-presets button {
   background: #24242e; border: 1px solid #33333f; color: #cfcbdb;

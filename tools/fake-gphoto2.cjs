@@ -84,6 +84,11 @@ const TREE = {
     label: 'Focus Mode', type: 'RADIO', value: 'One Shot',
     choices: ['One Shot', 'AI Focus', 'AI Servo', 'Manual']
   },
+  /*
+   * Vypínač živého náhledu. Canon ho má a bez jeho vypnutí spoušť buď
+   * odmítne, nebo jen zaostří — přesně to, co se dělo.
+   */
+  '/main/actions/viewfinder': { label: 'Canon EOS Viewfinder', type: 'TOGGLE', value: '0' },
   '/main/settings/capturetarget': {
     label: 'Capture Target', type: 'RADIO', value: 'Memory card',
     choices: ['Internal RAM', 'Memory card']
@@ -192,12 +197,25 @@ function run(line) {
   }
 
   if (command === 'capture-preview') {
+    // Náhled tělo přepne do živého náhledu a nechá ho zapnutý
+    TREE['/main/actions/viewfinder'].value = '1';
     fs.writeFileSync(path.join(process.cwd(), 'capture_preview.jpg'), FRAME);
     process.stdout.write('Saving file as capture_preview.jpg\n');
     return;
   }
 
   if (command === 'capture-image-and-download') {
+    /*
+     * Se zapnutým živým náhledem tělo spoušť odmítne. Přesně tak se chová
+     * Canon: zrcátko je vyklopené a přijde `PTP Device Busy`, případně
+     * `-110 I/O in progress` — vypadá to, že fotoaparát zaostřil a nic
+     * nevyfotil.
+     */
+    if (TREE['/main/actions/viewfinder'].value === '1') {
+      fail(-110, 'I/O in progress',
+        'Canon EOS Full-Press failed (0x2019: PTP Device Busy)');
+      return;
+    }
     shots++;
     const raw = TREE['/main/imgsettings/imageformat'].value.startsWith('RAW');
     const jpeg = TREE['/main/imgsettings/imageformat'].value.includes('JPEG');

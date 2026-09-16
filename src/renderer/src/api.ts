@@ -1095,6 +1095,10 @@ export const api = {
     /** Najde tělo a známé rovnou připojí i s náhledem */
     auto: () => call<ShootState>('shoot:auto'),
     disconnect: () => call<ShootState>('shoot:disconnect'),
+    /** Spojení spadlo uprostřed focení — navázat znovu bez proklikávání */
+    reconnect: () => call<ShootState>('shoot:reconnect'),
+    /** Posledních pár příkazů i s odpovědí; k poslání, když se něco pokazí */
+    log: () => call<{ at: string; command: string; ok: boolean; error: string; text: string }[]>('shoot:log'),
     gphotoPath: (value: string) => call<string>('shoot:gphotoPath', value),
     live: (on: boolean) => call<boolean>('shoot:live', on),
 

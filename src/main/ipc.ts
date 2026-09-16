@@ -601,6 +601,10 @@ export function registerIpc() {
   // Po otevření okna: najít tělo a známé rovnou připojit včetně náhledu
   handle('shoot:auto', () => shoot.autoConnect());
   handle('shoot:disconnect', () => shoot.disconnect());
+  // Spojení spadlo uprostřed focení — navázat znovu bez proklikávání nastavení
+  handle('shoot:reconnect', () => shoot.reconnect());
+  // Protokol posledních příkazů; k poslání, když se něco pokazí
+  handle('shoot:log', () => shoot.cameraLog());
   handle('shoot:gphotoPath', (value: string) => shoot.saveGphotoPath(value ?? ''));
   handle('shoot:live', (on: boolean) => (on ? shoot.startLive() : shoot.stopLive()));
   handle('shoot:settings', () => shoot.loadSettings());

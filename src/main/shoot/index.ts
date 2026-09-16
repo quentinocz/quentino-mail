@@ -79,6 +79,8 @@ const session = new CameraSession();
 let tool: ShootTool = { ok: false, path: '', version: '', note: '' };
 let cameras: ShootCamera[] = [];
 let settingsCache: { handy: CameraSetting[]; rest: string[] } = { handy: [], rest: [] };
+/** Všechny cesty, co tělo umí. Kvůli tomu, jestli má vypínač živého náhledu. */
+let allPaths: string[] = [];
 
 export async function shootState(): Promise<ShootState> {
   if (!tool.path) tool = await gphoto.findGphoto();
@@ -199,6 +201,12 @@ export function closeCamera(): void {
   live.stopLive();
   session.close();
   settingsCache = { handy: [], rest: [] };
+  allPaths = [];
+}
+
+/** Posledních pár příkazů i s odpovědí — k poslání, když se něco pokazí. */
+export function cameraLog() {
+  return session.log();
 }
 
 export async function startLive(): Promise<boolean> {
@@ -222,6 +230,7 @@ export async function loadSettings():
   if (!listed.ok) return { handy: [], rest: [], error: listed.error };
 
   const paths = config.parsePaths(listed.text);
+  allPaths = paths;
   const handy: CameraSetting[] = [];
   for (const wanted of config.handyPaths(paths)) {
     const one = await readSetting(wanted.path);
@@ -330,14 +339,83 @@ function shootFolder(shoot: Shoot): string {
  * cílové složky pod jménem focení — přesouvá se, aby v pracovní složce
  * nezůstávaly kopie celé série.
  */
+/**
+ * Chyby, které znamenají „zkus to za chvíli znovu".
+ *
+ * `-110 I/O in progress` a `PTP Device Busy` nejsou poruchy, ale zaneprázdněné
+ * tělo: dopisuje na kartu, přeostřuje, nebo se ještě nevzpamatovalo
+ * z živého náhledu. Hlásit je jako chybu znamená, že se člověk u stolu
+ * dívá na hlášku místo na zboží — přitom stačí počkat půl vteřiny.
+ */
+const BUSY = /-110|i\/o in progress|device busy|0x2019|-53/i;
+
+export function cameraBusy(error: string): boolean {
+  return BUSY.test(String(error ?? ''));
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Vyfotí a stáhne snímek do složky focení.
+ *
+ * ## Proč se před vyfocením vypíná živý náhled na těle
+ *
+ * Zastavit naši smyčku nestačí. `capture-preview` přepne Canon do režimu
+ * živého náhledu a v něm zrcátko zůstane vyklopené — tělo pak spoušť buď
+ * odmítne (`PTP Device Busy`, `-110 I/O in progress`), nebo jen zaostří
+ * a nevyfotí. Přesně tak se to chovalo: doostřilo a fotka žádná.
+ *
+ * Náhled se proto na těle vypne (`viewfinder=0`), počká se, až se zrcátko
+ * vrátí, a po snímku se zapne zpátky. Vypínač nemají všechna těla, takže
+ * se sahá jen na to, co se ve stromu opravdu našlo.
+ */
 export async function capture(shootId: string): Promise<{ ok: boolean; error: string; photo: ShootPhoto | null }> {
   const shoot = store.getShoot(shootId);
   if (!shoot) return { ok: false, error: 'focení neexistuje', photo: null };
   if (!session.alive) return { ok: false, error: 'fotoaparát není připojený', photo: null };
 
-  const reply = await live.hold(() =>
-    session.send('capture-image-and-download', { urgent: true, timeout: 60000 }));
-  if (!reply.ok) return { ok: false, error: reply.error, photo: null };
+  const viewfinder = allPaths.find(one => one.endsWith('/viewfinder'));
+  const wasLive = live.liveRunning();
+
+  const reply = await live.hold(async () => {
+    if (viewfinder) {
+      await session.send(`set-config ${viewfinder}=0`, { urgent: true, timeout: 15000 });
+      /*
+       * Zrcátko se nevrací okamžitě. Spoušť poslaná hned za vypnutím
+       * náhledu je přesně ta, kterou tělo odmítne jako zaneprázdněné.
+       */
+      await wait(350);
+    }
+
+    let out = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
+    /*
+     * Dva pokusy navíc. Zaneprázdněné tělo je stav na půl vteřiny, ne
+     * porucha — a nechat člověka mačkat spoušť znovu ručně je horší než
+     * počkat za něj.
+     */
+    for (let attempt = 0; attempt < 2 && !out.ok && cameraBusy(out.error) && session.alive; attempt++) {
+      await wait(800);
+      out = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
+    }
+
+    if (viewfinder && wasLive && session.alive) {
+      await session.send(`set-config ${viewfinder}=1`, { urgent: true, timeout: 15000 });
+    }
+    return out;
+  });
+
+  if (!reply.ok) {
+    return {
+      ok: false,
+      photo: null,
+      error: cameraBusy(reply.error)
+        ? `Fotoaparát byl zaneprázdněný (${reply.error}). Zkus to znovu; když to bude dělat `
+          + 'pořád, vypni na těle Wi-Fi a přepni ho do režimu M nebo Av.'
+        : reply.error
+    };
+  }
 
   const saved = savedFiles(reply.text)
     .map(name => path.resolve(session.dir, name))
@@ -346,8 +424,8 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
     return {
       ok: false,
       photo: null,
-      error: 'fotoaparát snímek nestáhl. Bývá to nastavením „Kam ukládat" na těle — '
-        + 'zkus ho přepnout na paměťovou kartu.'
+      error: 'Fotoaparát snímek nestáhl. Bývá to nastavením „Kam ukládat" na těle — '
+        + 'zkus ho přepnout na paměťovou kartu. Podrobnosti jsou v protokolu pod nastavením.'
     };
   }
 
@@ -376,6 +454,30 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
   });
   emit('shoot:photo', photo);
   return { ok: true, error: '', photo };
+}
+
+/**
+ * Naváže spojení znovu, když během focení spadlo.
+ *
+ * gphoto2 umí skončit uprostřed práce — uspané USB, uvolněný kabel,
+ * vybitá baterie. Bez tohohle zbyde v okně „fotoaparát není připojený"
+ * a další snímek se nedá udělat, dokud se ručně neproklikáš nastavením,
+ * přestože tělo je pořád na kabelu.
+ */
+export async function reconnect(): Promise<ShootState> {
+  if (session.alive) return shootState();
+  const port = session.port;
+  const model = session.model || shootSetup().lastCamera;
+  if (!model && !port) return shootState();
+
+  await gphoto.freeCamera();
+  const found = await scanCameras();
+  const hit = found.find(one => one.model === model) ?? found[0];
+  if (!hit) return shootState();
+
+  const next = await connect(hit.port, hit.model);
+  if (next.connected) await startLive();
+  return shootState();
 }
 
 function safeSize(file: string): number {

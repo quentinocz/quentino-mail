@@ -369,7 +369,8 @@ async function liveSection() {
   check('spojení se otevřelo', opened, true);
 
   const listed = await talk.send('list-config');
-  ok('seznam voleb dorazil celý', listed.ok && listed.text.split('\n').length === 14, String(listed.text.split('\n').length));
+  ok('seznam voleb dorazil celý', listed.ok && listed.text.split('\n').length === 15,
+    String(listed.text.split('\n').length));
 
   const bad = await talk.send('bogus');
   check('neznámý příkaz je chyba', [bad.ok, bad.error.includes('not known')], [false, true]);
@@ -403,10 +404,20 @@ async function liveSection() {
   ok('snímek náhledu je obrázek', frame && frame[0] === 0xff && frame[1] === 0xd8,
     frame ? `${frame.length} B` : 'nic');
 
+  /*
+   * Předchozí `capture-preview` nechal tělo v živém náhledu — a v něm
+   * spoušť odmítne. Není to chyba zkoušky, ale skutečné chování Canonu:
+   * právě kvůli tomu „jen doostřilo a nic nevyfotilo".
+   */
+  const zabrano = await talk.send('capture-image-and-download');
+  check('v živém náhledu tělo spoušť odmítne',
+    [zabrano.ok, /I\/O in progress/.test(zabrano.error)], [false, true]);
+
+  await talk.send('set-config /main/actions/viewfinder=0');
   const shot = await talk.send('capture-image-and-download');
   const made = session.__test.savedFiles(shot.text);
   // Formát je RAW+JPEG, takže musí přijít oba soubory
-  check('RAW i JPEG se stáhly', made, ['IMG_1001.JPG', 'IMG_1001.CR3']);
+  check('po vypnutí náhledu se vyfotí', made, ['IMG_1001.JPG', 'IMG_1001.CR3']);
   // `every` na prázdném poli je true — bez počtu by se prázdné stažení tvářilo jako úspěch
   ok('a oba jsou na disku',
     made.length === 2 && made.every(name => fs.existsSync(path.join(work, name))));
@@ -485,6 +496,38 @@ async function liveSection() {
   check('po ručním připojení se model pamatuje',
     shoot.shootSetup().lastCamera, 'Canon EOS 250D');
   await shoot.disconnect();
+
+  /* ---------- vyfocení při běžícím náhledu ---------- */
+
+  /*
+   * Tohle je ta chyba, kvůli které tělo „jen doostřilo a nic nevyfotilo":
+   * `capture-preview` přepne Canon do živého náhledu, v něm zůstane
+   * zrcátko vyklopené a spoušť tělo odmítne (`-110 I/O in progress`,
+   * `PTP Device Busy`). Zastavit naši smyčku nestačí — vypnout se musí
+   * náhled na těle.
+   */
+  {
+    remember('shootSetup', JSON.stringify({ lastCamera: 'Canon EOS 250D' }));
+    await shoot.connect('usb:001,004', 'Canon EOS 250D');
+
+    check('zaneprázdněné tělo se pozná', shoot.cameraBusy("-110: 'I/O in progress'"), true);
+    check('a „device busy" taky', shoot.cameraBusy('0x2019: PTP Device Busy'), true);
+    check('běžná chyba ne', shoot.cameraBusy("-1: 'Unspecified error'"), false);
+
+    // Náhled běží → tělo je v živém náhledu
+    await shoot.startLive();
+    await new Promise(done => setTimeout(done, 300));
+
+    const foceni = store.newShoot('Zkouška', work);
+    const snimek = await shoot.capture(foceni.id);
+    ok('vyfotí se i při běžícím náhledu', snimek.ok, snimek.error);
+    ok('a soubor opravdu vznikl', snimek.photo && fs.existsSync(snimek.photo.file),
+      snimek.photo ? snimek.photo.file : 'nic');
+
+    shoot.stopLive();
+    await new Promise(done => setTimeout(done, 300));
+    await shoot.disconnect();
+  }
 
   /* ---------- spouštění a zastavování náhledu ---------- */
 

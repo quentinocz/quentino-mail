@@ -33,6 +33,9 @@ const PROMPT = /gphoto2: \{[^}]*\}[^\n]*> $/;
 
 export type Reply = { ok: boolean; text: string; error: string };
 
+/** Záznam do protokolu — co se poslalo a co na to tělo řeklo. */
+export type LogRow = { at: string; command: string; ok: boolean; error: string; text: string };
+
 type Job = {
   command: string;
   timeout: number;
@@ -55,11 +58,43 @@ export class CameraSession {
   /** Poslední důvod, proč spojení spadlo — ukazuje se v aplikaci. */
   lastError = '';
 
+  /**
+   * Posledních pár příkazů i s odpovědí.
+   *
+   * Focení běží na cizím počítači s fotoaparátem, který tady nikdo nemá.
+   * Když se něco pokazí, je rozdíl mezi „nefunguje to" a přesným výpisem
+   * toho, co tělo odpovědělo — a bez protokolu se ten výpis nedá získat
+   * jinak než spouštěním gphoto2 ručně v terminálu.
+   */
+  private history: LogRow[] = [];
+
+  log(): LogRow[] {
+    return [...this.history];
+  }
+
+  private note(command: string, reply: Reply): void {
+    this.history.push({
+      at: new Date().toISOString(),
+      command,
+      ok: reply.ok,
+      error: reply.error,
+      // Delší výpisy se zkrátí; zajímavý je začátek, ne celý seznam voleb
+      text: reply.text.length > 400 ? `${reply.text.slice(0, 400)}…` : reply.text
+    });
+    /*
+     * Náhled posílá `capture-preview` patnáctkrát za vteřinu — kdyby se
+     * zapisoval, protokol by za minutu měl tisíc řádků a to podstatné by
+     * v něm zmizelo. Zapisují se jen povedené náhledy jako jeden řádek,
+     * chyby vždycky.
+     */
+    if (this.history.length > 60) this.history = this.history.slice(-60);
+  }
+
   get alive(): boolean {
     return !!this.proc && !this.proc.killed;
   }
 
-  async open(port: string, model: string): Promise<boolean> {
+  async open(port: string, model: string, keep = true): Promise<boolean> {
     if (this.alive && this.port === port) return true;
     this.close();
     const bin = gphotoBinary();
@@ -68,6 +103,13 @@ export class CameraSession {
     await freeCamera();
 
     const args = ['--force-overwrite'];
+    /*
+     * `--keep` nechá snímky i na kartě. Přenos po USB umí selhat uprostřed
+     * focení a nafocené zboží už zpátky nepostavíš stejně; plná karta je
+     * menší problém než ztracená série. Bez tohohle přepínače gphoto2
+     * stažený snímek z karty **smaže**.
+     */
+    if (keep) args.push('--keep');
     if (port) args.push('--port', port);
     if (model) args.push('--camera', model);
     args.push('--shell');
@@ -175,7 +217,10 @@ export class CameraSession {
     this.out = '';
     this.err = '';
     this.busy = null;
-    job.resolve({ ok: !error, text, error });
+    const reply: Reply = { ok: !error, text, error };
+    // Povedený náhled se nezapisuje — zaplavil by protokol patnácti řádky za vteřinu
+    if (error || job.command !== 'capture-preview') this.note(job.command, reply);
+    job.resolve(reply);
     this.next();
   }
 
