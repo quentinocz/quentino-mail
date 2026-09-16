@@ -116,6 +116,14 @@ const ALLOWED_INVOKE = [
   'media:watchLog', 'media:watchNote', 'media:writeBeside',
   'media:products', 'media:productStats', 'media:productFetch', 'media:productSave',
   'media:productUpload', 'media:productReveal', 'media:productSetup', 'media:productSetupSave',
+  // Focení: živý náhled z fotoaparátu na USB, vodítka a uložené série
+  'shoot:state', 'shoot:setup', 'shoot:scan', 'shoot:connect', 'shoot:disconnect',
+  'shoot:gphotoPath', 'shoot:live', 'shoot:settings', 'shoot:setting', 'shoot:setSetting',
+  'shoot:focus', 'shoot:capture',
+  'shoot:shoots', 'shoot:shoot', 'shoot:new', 'shoot:save', 'shoot:deleteShoot',
+  'shoot:photos', 'shoot:savePhoto', 'shoot:dropPhoto', 'shoot:bytes', 'shoot:read',
+  'shoot:folder', 'shoot:ghost', 'shoot:reveal', 'shoot:openFolder',
+  'shoot:window', 'shoot:windowOpen', 'shoot:closeWindow',
   'ship:notes',
   'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
@@ -129,6 +137,8 @@ const ALLOWED_EVENTS = [
   'ptrans:progress', 'ptrans:changed', 'np:step',
   'articles:progress', 'articles:changed', 'articles:check',
   'media:progress', 'media:incoming', 'media:watched',
+  // Snímek náhledu chodí jako bajty; data URL by za vteřinu nasypala megabajty řetězců
+  'shoot:frame', 'shoot:live', 'shoot:photo',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
   'stockin:changed', 'stockin:progress', 'invoices:progress', 'invoices:ready', 'scan:code', 'scan:qty', 'scan:closed',
   'live:state', 'live:offers', 'live:work', 'packing:changed'

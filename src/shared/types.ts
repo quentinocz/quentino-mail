@@ -3245,3 +3245,135 @@ export interface NewProductStep {
   done: number;
   total: number;
 }
+
+/* ---------- Focení ---------- */
+
+/** Nalezený gphoto2 — stejný tvar jako `MediaTool` u ffmpegu. */
+export type ShootTool = MediaTool;
+
+export interface ShootCamera {
+  model: string;
+  /** `usb:001,004` — tímhle se tělo otevírá, model sám nestačí. */
+  port: string;
+}
+
+export interface CameraChoice {
+  index: number;
+  value: string;
+}
+
+export interface CameraSetting {
+  /** Cesta ve stromu gphoto2, např. `/main/imgsettings/iso`. */
+  path: string;
+  /** Poslední část cesty — podle ní se pozná, o co jde napříč značkami. */
+  name: string;
+  /** Popisek. U běžných voleb ho přepisuje český název z `HANDY`. */
+  label: string;
+  type: 'RADIO' | 'MENU' | 'TOGGLE' | 'RANGE' | 'TEXT' | 'DATE';
+  readonly: boolean;
+  value: string;
+  choices: CameraChoice[];
+  bottom?: number;
+  top?: number;
+  step?: number;
+  group?: 'expozice' | 'barvy' | 'soubor' | 'ostření';
+}
+
+/** Tvar nakreslený přes živý náhled. Souřadnice jsou v podílu obrazu (0–1). */
+export interface ShootOverlay {
+  id: string;
+  kind: 'line' | 'rect' | 'ellipse' | 'grid' | 'thirds' | 'cross';
+  x: number;
+  y: number;
+  /** U čáry druhý bod, u obdélníku a elipsy šířka a výška. */
+  x2: number;
+  y2: number;
+  color: string;
+  width: number;
+  /** U mřížky počet dílků. */
+  cells?: number;
+  label?: string;
+}
+
+export interface ShootGhost {
+  /** Cesta k fotce, která se podkládá pod náhled. Prázdné = žádná. */
+  file: string;
+  /** Krytí v procentech. */
+  opacity: number;
+  /** Překlopit vodorovně — pro pravý a levý kus téhož zboží. */
+  mirror: boolean;
+}
+
+export interface ShootFix {
+  on: boolean;
+  /** Barva vybraná v obraze jako „tohle je bílá", ve tvaru `r,g,b`. */
+  white: string;
+  exposure: number;
+  contrast: number;
+  saturation: number;
+  temperature: number;
+  /** Síla dočištění pozadí v procentech. */
+  background: number;
+  /** Od jaké světlosti se pozadí považuje za bílé (0–255). */
+  backgroundLevel: number;
+  preset: string;
+}
+
+export interface Shoot {
+  id: string;
+  name: string;
+  folder: string;
+  camera: string;
+  port: string;
+  format: 'jpg' | 'raw' | 'raw+jpg';
+  webp: boolean;
+  webpQuality: number;
+  overlay: ShootOverlay[];
+  ghost: ShootGhost;
+  /** Nastavení těla tak, jak bylo při focení — kvůli návratu k sérii. */
+  settings: Record<string, string>;
+  fix: ShootFix;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+  photos: number;
+}
+
+export interface ShootPhoto {
+  id: string;
+  shootId: string;
+  file: string;
+  /** RAW vedle JPEGu, když tělo fotí obojí. */
+  raw: string;
+  /** Převedená kopie pro web. */
+  webp: string;
+  width: number;
+  height: number;
+  bytes: number;
+  sort: number;
+  /** Vybraná fotka — ta, co půjde na e-shop. */
+  pick: boolean;
+  createdAt: string;
+}
+
+export interface ShootSettings {
+  keepOnCamera: boolean;
+  pattern: string;
+  webp: boolean;
+  webpQuality: number;
+  lastFolder: string;
+  /** `gphoto` = tělo na USB, `webcam` = fotoaparát v režimu webkamery. */
+  backend: 'gphoto' | 'webcam';
+}
+
+export interface ShootState {
+  tool: ShootTool;
+  cameras: ShootCamera[];
+  connected: boolean;
+  camera: string;
+  port: string;
+  live: boolean;
+  error: string;
+  setup: ShootSettings;
+  shoots: Shoot[];
+}

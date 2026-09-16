@@ -1761,6 +1761,61 @@
     }
   };
 
+  /*
+   * Focení. Fotoaparát v náhledu není, takže se tváří jako připojený a
+   * náhled se posílá ručně přes `window.__emit('shoot:frame', …)`. Zkouší se
+   * to, co je na focení rozhraní: kreslení vodítek, průsvitka, galerie
+   * a posuvníky korekce.
+   */
+  var shootPhotos = [];
+  var shootState = {
+    tool: { ok: true, path: '/opt/homebrew/bin/gphoto2', version: 'gphoto2 2.5.28', note: '' },
+    cameras: [{ model: 'Canon EOS 250D', port: 'usb:001,004' }],
+    connected: true, camera: 'Canon EOS 250D', port: 'usb:001,004',
+    live: true, error: '',
+    setup: { keepOnCamera: true, pattern: '%n', webp: false, webpQuality: 82,
+      lastFolder: '', backend: 'gphoto' },
+    shoots: []
+  };
+  var shootOne = {
+    id: 's1', name: 'Kravaty hedvábí', folder: '/Users/p/Obrázky/Kravaty',
+    camera: 'Canon EOS 250D', port: 'usb:001,004',
+    format: 'jpg', webp: true, webpQuality: 82,
+    overlay: [], ghost: { file: '', opacity: 40, mirror: false },
+    settings: {}, note: '',
+    fix: { on: false, white: '', exposure: 0, contrast: 0, saturation: 0,
+      temperature: 0, background: 0, backgroundLevel: 242, preset: '' },
+    createdAt: '2026-09-16T08:00:00.000Z', updatedAt: '2026-09-16T08:00:00.000Z', photos: 0
+  };
+  shootState.shoots = [shootOne];
+  answers['shoot:state'] = shootState;
+  answers['shoot:shoots'] = shootState.shoots;
+  answers['shoot:shoot'] = shootOne;
+  answers['shoot:photos'] = shootPhotos;
+  answers['shoot:settings'] = {
+    handy: [
+      { path: '/main/imgsettings/iso', name: 'iso', label: 'ISO', type: 'RADIO',
+        readonly: false, value: '100', group: 'expozice',
+        choices: ['Auto', '100', '200', '400', '800'].map(function (v, i) { return { index: i, value: v }; }) },
+      { path: '/main/capturesettings/aperture', name: 'aperture', label: 'Clona', type: 'RADIO',
+        readonly: false, value: '8', group: 'expozice',
+        choices: ['4', '5.6', '8', '11'].map(function (v, i) { return { index: i, value: v }; }) },
+      { path: '/main/capturesettings/shutterspeed', name: 'shutterspeed', label: 'Čas', type: 'RADIO',
+        readonly: false, value: '1/125', group: 'expozice',
+        choices: ['1/60', '1/125', '1/200'].map(function (v, i) { return { index: i, value: v }; }) },
+      { path: '/main/imgsettings/whitebalance', name: 'whitebalance', label: 'Vyvážení bílé',
+        type: 'RADIO', readonly: false, value: 'Auto', group: 'barvy',
+        choices: ['Auto', 'Daylight', 'Tungsten'].map(function (v, i) { return { index: i, value: v }; }) },
+      { path: '/main/imgsettings/imageformat', name: 'imageformat', label: 'Formát snímku',
+        type: 'RADIO', readonly: false, value: 'Large Fine JPEG', group: 'soubor',
+        choices: ['Large Fine JPEG', 'RAW + Large Fine JPEG', 'RAW']
+          .map(function (v, i) { return { index: i, value: v }; }) }
+    ],
+    rest: ['/main/status/batterylevel', '/main/other/d402'],
+    error: ''
+  };
+  window.__shoot = { state: shootState, shoot: shootOne, photos: shootPhotos };
+
   // Náhledy si potřebují data upravit za běhu (např. „právě doběhl překlad")
   window.__answers = answers;
 
@@ -1781,6 +1836,35 @@
        * `window.__badgeDelay`, protože jinak by se nepoznalo, že doprava
        * s platbou naskočí hned a nekouká se do té doby na číslo s cenou.
        */
+      /*
+       * Uložení focení. Vrací **uložený** stav, přesně jako hlavní proces —
+       * kdyby rozhraní nakreslené vodítko jen ukázalo a neuložilo, tenhle
+       * stub by to prozradil: po překreslení by zmizelo.
+       */
+      if (channel === 'shoot:save') {
+        Object.assign(shootOne, arguments[2] || {});
+        return Promise.resolve({ ok: true, data: Object.assign({}, shootOne) });
+      }
+      if (channel === 'shoot:capture') {
+        var no = shootPhotos.length + 1;
+        var photo = {
+          id: 'p' + no, shootId: 's1',
+          file: '/Users/p/Obrázky/Kravaty/kravaty-hedvabi-' + String(no).padStart(3, '0') + '.jpg',
+          raw: '', webp: '', width: 6000, height: 4000, bytes: 5200000,
+          sort: no, pick: false, createdAt: new Date().toISOString()
+        };
+        shootPhotos.push(photo);
+        return Promise.resolve({ ok: true, data: { ok: true, error: '', photo: photo } });
+      }
+      if (channel === 'shoot:dropPhoto') {
+        var id = arguments[1];
+        for (var i = shootPhotos.length - 1; i >= 0; i--) {
+          if (shootPhotos[i].id === id) shootPhotos.splice(i, 1);
+        }
+        return Promise.resolve({ ok: true, data: true });
+      }
+      // Soubor z disku se v náhledu přečíst nedá; galerie z toho udělá dlaždici bez obrázku
+      if (channel === 'shoot:read') return Promise.resolve({ ok: true, data: null });
       if (channel === 'orders:shorts') {
         var shorts = {};
         (arg || []).forEach(function (code) {

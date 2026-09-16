@@ -17,6 +17,8 @@ import { searchProducts, refreshFeed, feedStatus, listProducts, productFacets,
 import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
 import * as live from './live';
+import * as shoot from './shoot';
+import { openShootWindow, closeShootWindow, shootWindowOpen } from './shootwindow';
 import { shorthandRows, saveShorthand, shorthandScope, shortsForCodes } from './shorthand';
 import { liveOffers, dismissOffer, watchLive } from './livework';
 import { scanOld, freeUp } from './cleanup';
@@ -584,6 +586,52 @@ export function registerIpc() {
   handle('media:productSetup', (code: string) => mediashop.productSetup(code));
   handle('media:productSetupSave', (code: string, value: any) =>
     mediashop.saveProductSetup(code, value ?? null));
+
+  /* ---------- focení ---------- */
+  /*
+   * Fotoaparát obsluhuje hlavní proces, protože jen ten smí spustit gphoto2
+   * a držet s tělem otevřenou USB relaci. Okno dostává hotové snímky náhledu
+   * jako bajty a posílá zpátky to, co samo vyrobí — převod do WebP a korekce
+   * barev dělá plátno v Chromiu, stejně jako u konvertoru médií.
+   */
+  handle('shoot:state', () => shoot.shootState());
+  handle('shoot:setup', (patch: any) => shoot.saveShootSetup(patch ?? {}));
+  handle('shoot:scan', () => shoot.scanCameras());
+  handle('shoot:connect', (port: string, model: string) => shoot.connect(port ?? '', model ?? ''));
+  handle('shoot:disconnect', () => shoot.disconnect());
+  handle('shoot:gphotoPath', (value: string) => shoot.saveGphotoPath(value ?? ''));
+  handle('shoot:live', (on: boolean) => (on ? shoot.startLive() : shoot.stopLive()));
+  handle('shoot:settings', () => shoot.loadSettings());
+  handle('shoot:setting', (settingPath: string) => shoot.readSetting(settingPath ?? ''));
+  handle('shoot:setSetting', (settingPath: string, value: string) =>
+    shoot.setCameraSetting(settingPath ?? '', value ?? ''));
+  handle('shoot:focus', () => shoot.autofocus());
+  handle('shoot:capture', (id: string) => shoot.capture(id ?? ''));
+
+  handle('shoot:shoots', () => shoot.listShoots());
+  handle('shoot:shoot', (id: string) => shoot.getShoot(id ?? ''));
+  handle('shoot:new', (name: string, folder: string) => shoot.newShoot(name ?? '', folder ?? ''));
+  handle('shoot:save', (id: string, patch: any) => shoot.saveShoot(id ?? '', patch ?? {}));
+  handle('shoot:deleteShoot', (id: string) => shoot.deleteShoot(id ?? ''));
+  handle('shoot:photos', (id: string) => shoot.listPhotos(id ?? ''));
+  handle('shoot:savePhoto', (id: string, patch: any) => shoot.savePhoto(id ?? '', patch ?? {}));
+  // Vyřazený snímek jde do koše systému, ne do nenávratna
+  handle('shoot:dropPhoto', (id: string, alsoFile: boolean) =>
+    shoot.removePhoto(id ?? '', alsoFile !== false));
+  handle('shoot:bytes', (id: string, ext: string, bytes: any, beside: string) =>
+    shoot.savePhotoBytes(id ?? '', ext ?? 'webp', new Uint8Array(bytes), beside ?? ''));
+  handle('shoot:read', (file: string) => shoot.readFile(file ?? ''));
+  handle('shoot:folder', (id: string) => shoot.pickFolder(id ?? ''));
+  handle('shoot:ghost', () => shoot.pickGhost());
+  handle('shoot:reveal', (file: string) => { shoot.reveal(file ?? ''); return true; });
+  handle('shoot:openFolder', (id: string) => shoot.openFolder(id ?? ''));
+  /*
+   * Focení běží ve vlastním okně, aby se u něj dala vyřizovat pošta. Otevírá
+   * se odsud, protože okno smí vytvořit jen hlavní proces.
+   */
+  handle('shoot:window', () => openShootWindow());
+  handle('shoot:windowOpen', () => shootWindowOpen());
+  handle('shoot:closeWindow', () => closeShootWindow());
 
   /* ---------- texty na webu ---------- */
   handle('webtexts:state', () => webtexts.webTextsState());

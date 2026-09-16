@@ -14,7 +14,7 @@ export type Workspace = 'mail' | 'chat' | 'instagram';
  * místa pro tutéž věc a v poště přebývala tlačítka, která s poštou nesouvisí.
  */
 export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles'
-  | 'webtexts' | 'media' | 'reviews';
+  | 'webtexts' | 'media' | 'shoot' | 'reviews';
 
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
@@ -57,6 +57,12 @@ export const AI_TOOLS: {
 
   { id: 'media', icon: 'image', label: 'Konvertor médií', group: 'soubory', color: '#3a9ec2',
     hint: 'WebP, WebM, ořez a hlídané složky', desktopOnly: true },
+  /*
+   * Focení se otevírá ve vlastním okně, ne v modálu — trvá hodinu a po celou
+   * tu dobu musí být vidět náhled, zatímco se vedle vyřizuje pošta.
+   */
+  { id: 'shoot', icon: 'eye', label: 'Focení', group: 'soubory', color: '#2f9e8f',
+    hint: 'Živý náhled z fotoaparátu, vodítka a šablony', desktopOnly: true },
 
   { id: 'reviews', icon: 'star', label: 'Recenze zákazníků', group: 'obsah', color: '#d99a1b',
     hint: 'Fotky a recenze na e-shopu', desktopOnly: true },

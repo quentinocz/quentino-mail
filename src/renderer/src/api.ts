@@ -20,6 +20,7 @@ import type {
   NewProductState, NewProductDraft, NewProductSpecific, NewProductChange, NewProductGap,
   ParamDictionary, ParamLookup, NewProductParamProposal, EurRate,
   ShopCategoryTree,
+  Shoot, ShootPhoto, ShootState, ShootSettings, ShootCamera, CameraSetting,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
@@ -1079,5 +1080,56 @@ export const api = {
     /** Návrh odpovědi podle průběhu konverzace a znalostní báze */
     suggest: (id: string, note = '') => call<string>('chat:suggest', id, note)
   },
+  /**
+   * Focení — fotoaparát na USB, živý náhled a uložené série.
+   *
+   * Náhled nechodí odsud: snímky posílá hlavní proces sám událostí
+   * `shoot:frame`, protože se jich za vteřinu posílá patnáct a čekat na
+   * odpověď na každý dotaz by náhled zpomalilo na polovinu.
+   */
+  shoot: {
+    state: () => call<ShootState>('shoot:state'),
+    setup: (patch: Partial<ShootSettings>) => call<ShootSettings>('shoot:setup', patch),
+    scan: () => call<ShootCamera[]>('shoot:scan'),
+    connect: (port: string, model: string) => call<ShootState>('shoot:connect', port, model),
+    disconnect: () => call<ShootState>('shoot:disconnect'),
+    gphotoPath: (value: string) => call<string>('shoot:gphotoPath', value),
+    live: (on: boolean) => call<boolean>('shoot:live', on),
+
+    /** Běžné volby i s hodnotami; `rest` jsou jen cesty, dočtou se na vyžádání */
+    settings: () => call<{ handy: CameraSetting[]; rest: string[]; error: string }>('shoot:settings'),
+    setting: (path: string) => call<CameraSetting | null>('shoot:setting', path),
+    setSetting: (path: string, value: string) =>
+      call<{ ok: boolean; error: string; setting: CameraSetting | null }>('shoot:setSetting', path, value),
+    focus: () => call<{ ok: boolean; error: string }>('shoot:focus'),
+    capture: (id: string) =>
+      call<{ ok: boolean; error: string; photo: ShootPhoto | null }>('shoot:capture', id),
+
+    shoots: () => call<Shoot[]>('shoot:shoots'),
+    shoot: (id: string) => call<Shoot | null>('shoot:shoot', id),
+    create: (name: string, folder: string) => call<Shoot>('shoot:new', name, folder),
+    save: (id: string, patch: Partial<Shoot>) => call<Shoot | null>('shoot:save', id, patch),
+    deleteShoot: (id: string) => call<boolean>('shoot:deleteShoot', id),
+
+    photos: (id: string) => call<ShootPhoto[]>('shoot:photos', id),
+    savePhoto: (id: string, patch: Partial<ShootPhoto>) =>
+      call<ShootPhoto | null>('shoot:savePhoto', id, patch),
+    dropPhoto: (id: string, alsoFile = true) => call<boolean>('shoot:dropPhoto', id, alsoFile),
+    /** Snímek vyrobený v okně — z webkamery nebo převedená kopie k `beside` */
+    bytes: (id: string, ext: string, bytes: Uint8Array, beside = '') =>
+      call<{ ok: boolean; error: string; photo: ShootPhoto | null; file: string }>(
+        'shoot:bytes', id, ext, bytes, beside),
+    read: (file: string) => call<Uint8Array | null>('shoot:read', file),
+    folder: (id: string) => call<string>('shoot:folder', id),
+    ghost: () => call<string>('shoot:ghost'),
+    reveal: (file: string) => call<boolean>('shoot:reveal', file),
+    openFolder: (id: string) => call<boolean>('shoot:openFolder', id),
+
+    /** Focení má vlastní okno, aby se u něj dala vyřizovat pošta */
+    window: () => call<boolean>('shoot:window'),
+    windowOpen: () => call<boolean>('shoot:windowOpen'),
+    closeWindow: () => call<boolean>('shoot:closeWindow')
+  },
+
   on: (channel: string, cb: (payload: any) => void) => window.api.on(channel, cb)
 };

@@ -3,6 +3,7 @@ import type { AccountPublic, FolderInfo, MessageHeader, MessageFull, Settings, C
 import { isOutgoingFolder } from '@shared/folders';
 import { api } from './api';
 import { ToastProvider, useToast } from './toast';
+import ShootModal from './components/ShootModal';
 import Sidebar, { View } from './components/Sidebar';
 import Icon from './components/Icon';
 import MessageList from './components/MessageList';
@@ -87,6 +88,12 @@ function AppInner() {
     if (tool === 'instagram') { setWorkspace('instagram'); return; }
     if (tool === 'digest') { setDigestOpen(true); return; }
     if (tool === 'packing') { setPackingOpen(true); return; }
+    /*
+     * Focení má vlastní okno aplikace. Trvá hodinu a po celou tu dobu musí
+     * být vidět náhled — v modálu by se u něj nedala vyřizovat pošta a
+     * každé zavření by náhled zhaslo.
+     */
+    if (tool === 'shoot') { api.shoot.window(); return; }
     setAiTool(tool);
   }, []);
 
@@ -638,7 +645,25 @@ function AppInner() {
   );
 }
 
+/**
+ * Focení běží ve vlastním okně aplikace.
+ *
+ * Je to tentýž balík skriptů i tentýž preload; okno se pozná jen podle
+ * `#foceni` v adrese a vykreslí se v něm jen focení. Druhý vstupní bod by
+ * znamenal druhý build a dvě místa, kde se zapojují kanály.
+ */
+function standaloneWindow(): string {
+  return typeof window === 'undefined' ? '' : (window.location.hash || '').replace('#', '');
+}
+
 export default function App() {
+  if (standaloneWindow() === 'foceni') {
+    return (
+      <ToastProvider>
+        <ShootModal standalone onClose={() => window.close()} />
+      </ToastProvider>
+    );
+  }
   return (
     <ToastProvider>
       <AppInner />

@@ -8195,3 +8195,372 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 /* Nabídnutý přepočet z korun — textové tlačítko pod polem, ne popisek */
 .np-rate { align-self: flex-start; }
+
+/* ---------- Focení ---------- */
+/*
+ * Tmavé, a to i ve světlém režimu aplikace. Světlost okolo náhledu mění, jak
+ * se barva na fotce jeví: na světlém pozadí vypadá bílý papír našedle a
+ * dobělovalo by se podle něj špatně. Ze stejného důvodu je kolem obrazu
+ * neutrální šeď, ne čerň — ta by zase fotku přesvětlila.
+ */
+.sh-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: #15151a;
+  color: #e8e6ef;
+  font-family: var(--font);
+  /* Posuvníky a zaškrtávátka ve výchozí modré na tmavém pozadí křičí */
+  accent-color: var(--accent);
+}
+.sh-wrap.standalone { position: absolute; z-index: 1; }
+
+.sh-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2a33;
+  background: #1b1b22;
+  /* Na Macu je v horním pruhu okna schovaný semafor — tudy se okno táhne */
+  -webkit-app-region: drag;
+}
+.sh-top > * { -webkit-app-region: no-drag; }
+.sh-wrap.standalone .sh-top { padding-left: 84px; }
+.sh-top-space { flex: 1; }
+.sh-name {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 5px 8px;
+  min-width: 180px;
+}
+.sh-name:hover { border-color: #33333f; }
+.sh-name:focus { border-color: var(--accent); outline: none; background: #24242e; }
+.sh-when { color: #8b8799; }
+.sh-pick {
+  background: #24242e;
+  color: #e8e6ef;
+  border: 1px solid #33333f;
+  border-radius: 8px;
+  padding: 5px 8px;
+  max-width: 260px;
+}
+
+.sh-body { flex: 1; display: flex; min-height: 0; }
+.sh-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  gap: 8px;
+}
+
+.sh-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  background: #1b1b22;
+  border: 1px solid #2a2a33;
+  border-radius: 10px;
+  padding: 5px 8px;
+}
+.sh-tool, .sh-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #24242e;
+  border: 1px solid #33333f;
+  color: #cfcbdb;
+  border-radius: 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.sh-tool:hover, .sh-mini:hover { background: #2e2e3a; color: #fff; }
+.sh-tool.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sh-mini:disabled { opacity: .45; cursor: default; }
+.sh-sep { width: 1px; height: 18px; background: #33333f; margin: 0 4px; }
+.sh-color {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.sh-color.on { border-color: #fff; }
+.sh-thick { width: 70px; }
+
+/*
+ * Rám má tvar obrazu, ne okna. Vodítka se ukládají v podílu 0–1 a takhle
+ * je podíl rámu přímo podílem obrazu — bez počítání, kam se obraz uvnitř
+ * rámu vešel.
+ */
+.sh-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f0f13;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.sh-stage {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: 100%;
+  background: #000;
+  touch-action: none;
+}
+.sh-stage.tool-line, .sh-stage.tool-rect, .sh-stage.tool-ellipse { cursor: crosshair; }
+.sh-stage.tool-pick { cursor: cell; }
+.sh-frame, .sh-ghost {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+}
+.sh-ghost { pointer-events: none; }
+.sh-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sh-shape { cursor: pointer; }
+.sh-shape.on { filter: drop-shadow(0 0 3px #fff); }
+.sh-blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #6b6779;
+  font-size: 13px;
+}
+
+.sh-shoot { display: flex; align-items: center; gap: 8px; }
+.sh-shutter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sh-shutter:hover { background: var(--accent-dark); }
+.sh-shutter:disabled { background: #33333f; color: #7a768a; cursor: default; }
+.sh-shoot small { color: #8b8799; }
+
+/* ---------- galerie ---------- */
+.sh-gallery { flex: 0 0 auto; }
+.sh-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 6px 2px;
+  min-height: 104px;
+  scroll-behavior: smooth;
+}
+.sh-empty {
+  color: #6b6779; font-size: 12px; padding: 0 6px;
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; min-height: 92px;
+}
+.sh-tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: 124px;
+  height: 92px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1b1b22;
+  border: 2px solid #2a2a33;
+}
+.sh-tile.pick { border-color: var(--warn); }
+.sh-tile-open {
+  width: 100%; height: 100%;
+  padding: 0; border: none; background: none; cursor: zoom-in;
+}
+.sh-tile-open img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sh-tile-raw { color: #8b8799; font-size: 10px; padding: 6px; display: block; word-break: break-all; }
+.sh-tile-no {
+  position: absolute; top: 3px; left: 4px;
+  background: rgba(0,0,0,.6); color: #fff;
+  border-radius: 5px; padding: 1px 5px; font-size: 10px;
+}
+.sh-tile-raw-tag {
+  position: absolute; top: 3px; right: 4px;
+  background: rgba(124,92,255,.85); color: #fff;
+  border-radius: 5px; padding: 1px 5px; font-size: 9px; letter-spacing: .04em;
+}
+.sh-tile-acts {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; gap: 2px; padding: 3px;
+  background: linear-gradient(transparent, rgba(0,0,0,.75));
+  opacity: 0;
+  transition: opacity .12s;
+}
+.sh-tile:hover .sh-tile-acts { opacity: 1; }
+.sh-tile-acts button {
+  flex: 1;
+  background: rgba(255,255,255,.12);
+  border: none; color: #fff;
+  border-radius: 5px; padding: 3px 0; cursor: pointer;
+}
+.sh-tile-acts button:hover { background: rgba(255,255,255,.28); }
+.sh-tile-acts button.on { background: var(--warn); }
+
+.sh-big {
+  position: fixed; inset: 0; z-index: 70;
+  background: rgba(0,0,0,.88);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.sh-big-inner { display: flex; flex-direction: column; gap: 8px; max-width: 100%; max-height: 100%; }
+.sh-big-inner img { max-width: 100%; max-height: calc(100vh - 100px); object-fit: contain; border-radius: 8px; }
+.sh-big-bar { display: flex; align-items: center; gap: 8px; color: #cfcbdb; font-size: 12px; }
+.sh-big-space { flex: 1; }
+.sh-big-bar button {
+  background: #24242e; border: 1px solid #33333f; color: #cfcbdb;
+  border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12px;
+}
+.sh-big-bar button:hover { background: #2e2e3a; color: #fff; }
+
+/* ---------- pravý sloupec ---------- */
+.sh-side {
+  flex: 0 0 316px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid #2a2a33;
+  background: #1b1b22;
+}
+.sh-tabs { display: flex; border-bottom: 1px solid #2a2a33; }
+.sh-tabs button {
+  flex: 1;
+  background: none; border: none;
+  color: #8b8799;
+  padding: 9px 4px;
+  cursor: pointer;
+  font-size: 12px;
+  border-bottom: 2px solid transparent;
+}
+.sh-tabs button.on { color: #fff; border-bottom-color: var(--accent); }
+.sh-panel { flex: 1; overflow-y: auto; padding: 12px; min-height: 0; }
+.sh-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 6px;
+}
+.sh-panel-head b { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: #a5a1b5; }
+.sh-panel-note { color: #8b8799; font-size: 11.5px; line-height: 1.5; margin: 4px 0 8px; }
+.sh-panel-note.bad { color: #ff8b90; }
+.sh-ok { color: var(--ok); font-size: 12px; margin: 6px 0; }
+.sh-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+
+.sh-cam {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  width: 100%;
+  background: #24242e; border: 1px solid #33333f; color: #cfcbdb;
+  border-radius: 8px; padding: 7px 9px; margin-bottom: 5px; cursor: pointer; text-align: left;
+}
+.sh-cam:hover { background: #2e2e3a; }
+.sh-cam.on { border-color: var(--ok); }
+.sh-cam b { font-size: 12.5px; color: #fff; }
+.sh-cam small { font-size: 10.5px; color: #8b8799; }
+
+.sh-field {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 7px; font-size: 12px; color: #cfcbdb;
+}
+.sh-field > span:first-child { flex: 0 0 108px; color: #a5a1b5; }
+.sh-field select, .sh-field input[type=text] {
+  flex: 1; min-width: 0;
+  background: #24242e; border: 1px solid #33333f; color: #e8e6ef;
+  border-radius: 7px; padding: 4px 7px; font-size: 12px;
+}
+.sh-field-toggle { justify-content: space-between; }
+.sh-range { flex: 1; display: flex; align-items: center; gap: 7px; min-width: 0; }
+.sh-range input[type=range] { flex: 1; min-width: 0; }
+.sh-range b { flex: 0 0 52px; text-align: right; font-size: 11px; color: #fff; font-variant-numeric: tabular-nums; }
+
+.sh-group { margin-bottom: 12px; }
+.sh-group > small {
+  display: block; color: #6b6779; font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px;
+}
+.sh-more {
+  background: none; border: none; color: #a5a1b5; cursor: pointer;
+  display: flex; align-items: center; gap: 5px; padding: 4px 0; font-size: 12px;
+}
+.sh-rest { padding-left: 4px; }
+.sh-rest-row { margin-bottom: 4px; }
+.sh-rest-name {
+  background: none; border: none; color: #8b8799; cursor: pointer;
+  font-size: 11.5px; padding: 2px 0; text-align: left;
+}
+.sh-rest-name:hover { color: #fff; }
+
+.sh-presets { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 12px; }
+.sh-presets button {
+  background: #24242e; border: 1px solid #33333f; color: #cfcbdb;
+  border-radius: 20px; padding: 4px 11px; font-size: 11.5px; cursor: pointer;
+}
+.sh-presets button:hover { background: #2e2e3a; color: #fff; }
+.sh-presets button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.sh-white {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11.5px; color: #a5a1b5; margin-bottom: 8px;
+}
+.sh-white i { width: 15px; height: 15px; border-radius: 4px; border: 1px solid #44444f; }
+.sh-white button { background: none; border: none; color: #8b8799; cursor: pointer; }
+
+.sh-switch { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: #a5a1b5; }
+
+.sh-shape-row, .sh-shoot-row {
+  display: flex; align-items: center; gap: 4px; margin-bottom: 4px;
+}
+.sh-shape-row > button:first-child, .sh-shoot-row > button:first-child {
+  flex: 1; display: flex; align-items: center; gap: 7px;
+  background: #24242e; border: 1px solid #33333f; color: #cfcbdb;
+  border-radius: 7px; padding: 5px 8px; cursor: pointer; font-size: 12px; text-align: left;
+}
+.sh-shoot-row > button:first-child { flex-direction: column; align-items: flex-start; gap: 0; }
+.sh-shoot-row b { color: #fff; font-size: 12px; }
+.sh-shoot-row small { color: #8b8799; font-size: 10.5px; }
+.sh-shape-row.on > button:first-child, .sh-shoot-row.on > button:first-child { border-color: var(--accent); }
+.sh-shape-row i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.sh-shape-row > button:last-child, .sh-shoot-row > button:last-child {
+  background: none; border: none; color: #6b6779; cursor: pointer; padding: 4px;
+}
+.sh-shape-row > button:last-child:hover, .sh-shoot-row > button:last-child:hover { color: var(--danger); }
+
+.sh-folder {
+  background: #24242e; border: 1px solid #33333f; border-radius: 7px;
+  padding: 6px 8px; font-size: 11.5px; color: #cfcbdb;
+  word-break: break-all; margin-bottom: 6px;
+}
+.sh-note {
+  width: 100%; min-height: 64px; resize: vertical;
+  background: #24242e; border: 1px solid #33333f; color: #e8e6ef;
+  border-radius: 7px; padding: 7px 8px; font-size: 12px; font-family: inherit;
+}
+
+/* Úzké okno: pravý sloupec se schová pod náhled, ať zbyde na obraz místo */
+@media (max-width: 1060px) {
+  .sh-body { flex-direction: column; }
+  .sh-side { flex: 0 0 auto; max-height: 42vh; border-left: none; border-top: 1px solid #2a2a33; }
+}

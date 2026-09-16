@@ -868,7 +868,12 @@ await overflow('média — před a po'); await snap('45d-media-srovnani');
 await click('.mc-modal .modal-head .icon-btn >> nth=-1');
 await page.waitForTimeout(300);
 
-await click('.md-modal .ig-seg button', { hasText: 'Focení' });
+/*
+ * Záložka se dřív jmenovala „Focení" — stejně jako celý nový nástroj v nabídce
+ * Funkce, což byly dvě různé věci pod jedním jménem. Tady jsou to hlídané
+ * složky, kam fotoaparát odkládá soubory; focení samo je vlastní okno.
+ */
+await click('.md-modal .ig-seg button', { hasText: 'Hlídané složky' });
 await page.waitForTimeout(400);
 {
   const folders = await page.locator('.md-folder').count();

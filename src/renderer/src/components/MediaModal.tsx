@@ -198,7 +198,7 @@ export default function MediaModal({ onClose }: { onClose: () => void }) {
           <div className="ig-seg">
             <button className={tab === 'files' ? 'active' : ''} onClick={() => setTab('files')}>Soubory</button>
             <button className={tab === 'shop' ? 'active' : ''} onClick={() => setTab('shop')}>Produkty</button>
-            <button className={tab === 'watch' ? 'active' : ''} onClick={() => setTab('watch')}>Focení</button>
+            <button className={tab === 'watch' ? 'active' : ''} onClick={() => setTab('watch')}>Hlídané složky</button>
             <button className={tab === 'setup' ? 'active' : ''} onClick={() => setTab('setup')}>Nastavení</button>
           </div>
           <button className="icon-btn"
