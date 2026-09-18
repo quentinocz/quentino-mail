@@ -95,7 +95,7 @@ export default function ShootModal({ onClose, standalone = false }: {
    * druhý monitor je dobrovolný, ne podmínka.
    */
   const [second, setSecond] = useState<ShootSecond>(
-    { open: false, displayId: 0, mode: 'live', tile: 220 });
+    { open: false, displayId: 0, mode: 'live', tile: 220, webcam: '', webcamLabel: '' });
   const [screens, setScreens] = useState<ShootScreen[]>([]);
   const video = useRef<HTMLVideoElement | null>(null);
   const lastFrame = useRef('');
@@ -282,14 +282,24 @@ export default function ShootModal({ onClose, standalone = false }: {
       });
       setStream(next);
       setWebcamId(deviceId);
+      /*
+       * Velká obrazovka si obraz otevře sama — proud mezi okny poslat nejde.
+       * Posílá se i název: `deviceId` je v každém okně jiný, název ne.
+       */
+      api.shoot.setSecond({
+        webcam: deviceId,
+        webcamLabel: cams.find(one => one.deviceId === deviceId)?.label ?? ''
+      });
     } catch {
       note('Kameru se nepodařilo otevřít. Používá ji nejspíš jiný program.', true);
     }
-  }, [stream, note]);
+  }, [stream, note, cams]);
 
   const stopWebcam = useCallback(() => {
     stream?.getTracks().forEach(track => track.stop());
     setStream(null);
+    setWebcamId('');
+    api.shoot.setSecond({ webcam: '', webcamLabel: '' });
   }, [stream]);
 
   useEffect(() => () => { stream?.getTracks().forEach(track => track.stop()); }, [stream]);
@@ -738,7 +748,11 @@ export default function ShootModal({ onClose, standalone = false }: {
               photos={photos}
               tile={second.tile}
               onTile={size => { setSecond(had => ({ ...had, tile: size })); api.shoot.setSecond({ tile: size }); }}
-              onOpen={photo => patch({ ghost: { ...shoot.ghost, file: photo.webp || photo.file } })}
+              onDrop={async photo => {
+                await api.shoot.dropPhoto(photo.id, true);
+                forgetThumb(photo.id);
+                setPhotos(list => list.filter(one => one.id !== photo.id));
+              }}
             />
           ) : (
           <div className={`sh-pair ${side && ghostUrl ? 'on' : ''}`}>

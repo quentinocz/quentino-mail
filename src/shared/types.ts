@@ -3431,6 +3431,23 @@ export interface ShootSecond {
   mode: 'live' | 'grid';
   /** Velikost dlaždice v mřížce, v bodech. */
   tile: number;
+  /**
+   * Zařízení webkamery, ze kterého má velká obrazovka brát obraz.
+   *
+   * Proud z `getUserMedia` se mezi okny poslat nedá — je to živé spojení
+   * s ovladačem, ne data. Velká obrazovka si ho proto otevře sama; tady
+   * se předává jen to, které zařízení to je. Prázdné znamená, že se fotí
+   * přes gphoto2 a snímky chodí událostí.
+   */
+  webcam: string;
+  /**
+   * Název zařízení, kdyby `deviceId` v druhém okně neplatilo.
+   *
+   * Chromium čísluje zařízení zvlášť pro každé okno, takže `deviceId`
+   * z jednoho okna ve druhém skončí na `OverconstrainedError`. Název je
+   * to jediné, co přes okno přenese — podle něj se zařízení dohledá.
+   */
+  webcamLabel: string;
 }
 
 export interface ShootState {

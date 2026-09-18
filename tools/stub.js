@@ -1824,7 +1824,11 @@
    * `window.__shootScreens` — s jedním monitorem se volba vůbec nenabízí
    * a okno musí vypadat jako vždycky.
    */
-  var shootSecond = { open: false, displayId: 2, mode: 'live', tile: 220 };
+  var shootSecond = { open: false, displayId: 2, mode: 'live', tile: 220, webcam: '', webcamLabel: '' };
+  /*
+   * Náhled si zařízení kamery podstrčí přes `window.__bigWebcam` — velká
+   * obrazovka si obraz otevírá sama a bez zařízení by neměla co otevřít.
+   */
   answers['shoot:secondState'] = shootSecond;
   answers['shoot:screens'] = [
     { id: 1, label: '1512 × 982 (hlavní)', primary: true, width: 1512, height: 982 },
@@ -1883,6 +1887,10 @@
         Object.assign(shootSecond, arguments[1] || {});
         window.__emit('shoot:second', Object.assign({}, shootSecond));
         return Promise.resolve({ ok: true, data: Object.assign({}, shootSecond) });
+      }
+      if (channel === 'shoot:secondState') {
+        return Promise.resolve({ ok: true,
+          data: Object.assign({}, shootSecond, { webcam: window.__bigWebcam || shootSecond.webcam }) });
       }
       if (channel === 'shoot:screens') {
         return Promise.resolve({ ok: true,

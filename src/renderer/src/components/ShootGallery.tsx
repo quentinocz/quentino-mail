@@ -3,6 +3,7 @@ import type { ShootPhoto } from '@shared/types';
 import { api } from '../api';
 import { bytesToBlob } from '../media';
 import Icon from './Icon';
+import ShootPhotoView from './ShootPhotoView';
 
 /**
  * Nafocené snímky.
@@ -133,9 +134,7 @@ export default function ShootGallery({ photos, working, onDrop, onPick, onGhost 
 }) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [big, setBig] = useState<ShootPhoto | null>(null);
-  const [bigUrl, setBigUrl] = useState('');
-  /** Zvětšení otevřené fotky. 1 = celá na obrazovku. */
-  const [zoom, setZoom] = useState(1);
+
   const strip = useRef<HTMLDivElement>(null);
   const count = photos.length;
 
@@ -174,33 +173,6 @@ export default function ShootGallery({ photos, working, onDrop, onPick, onGhost 
     const box = strip.current;
     if (box) box.scrollLeft = box.scrollWidth;
   }, [count]);
-
-  useEffect(() => { setZoom(1); }, [big]);
-
-  useEffect(() => {
-    if (!big) { setBigUrl(''); return; }
-    let alive = true;
-    let made = '';
-    (async () => {
-      const bytes = await api.shoot.view(big.webp || big.file);
-      if (!alive || !bytes) return;
-      made = URL.createObjectURL(bytesToBlob(bytes));
-      setBigUrl(made);
-    })();
-    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
-  }, [big]);
-
-  useEffect(() => {
-    if (!big) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setBig(null); return; }
-      const at = photos.findIndex(one => one.id === big.id);
-      if (e.key === 'ArrowRight' && at < photos.length - 1) setBig(photos[at + 1]);
-      if (e.key === 'ArrowLeft' && at > 0) setBig(photos[at - 1]);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [big, photos]);
 
   return (
     <div className="sh-gallery">
@@ -263,45 +235,13 @@ export default function ShootGallery({ photos, working, onDrop, onPick, onGhost 
       </div>
 
       {big && (
-        <div className="sh-big" onClick={() => setBig(null)}>
-          <div className="sh-big-inner" onClick={e => e.stopPropagation()}>
-            {bigUrl
-              ? (
-                /*
-                 * Kolečkem se zvětšuje, tažením posouvá. U produktu se
-                 * ostrost pozná až ve stoprocentním zvětšení — na fotce
-                 * zmenšené do okna vypadá dobře i rozmazaná.
-                 */
-                <div
-                  className={`sh-big-pan ${zoom > 1 ? 'on' : ''}`}
-                  onWheel={e => setZoom(one =>
-                    Math.max(1, Math.min(8, one * (e.deltaY < 0 ? 1.15 : 1 / 1.15))))}
-                >
-                  <img src={bigUrl} alt="" style={{ transform: `scale(${zoom})` }} />
-                </div>
-              )
-              : <div className="sh-blank">Načítám…</div>}
-            <div className="sh-big-bar">
-              <span>{fileName(big)}</span>
-              {(() => {
-                const share = sharpShare(big, photos);
-                if (!share) return null;
-                return (
-                  <span className="sh-big-sharp" title={SHARP_HELP}>
-                    ostrost {share} % nejostřejší v sérii
-                  </span>
-                );
-              })()}
-              <span className="sh-big-space" />
-              <button onClick={() => setZoom(one => Math.max(1, one / 1.5))} disabled={zoom <= 1}>−</button>
-              <button onClick={() => setZoom(1)}>{Math.round(zoom * 100)} %</button>
-              <button onClick={() => setZoom(one => Math.min(8, one * 1.5))} disabled={zoom >= 8}>+</button>
-              <button onClick={() => api.shoot.reveal(big.file)}>Ve složce</button>
-              <button onClick={() => { onDrop(big); setBig(null); }}>Vyřadit</button>
-              <button onClick={() => setBig(null)}>Zavřít</button>
-            </div>
-          </div>
-        </div>
+        <ShootPhotoView
+          photo={big}
+          photos={photos}
+          onClose={() => setBig(null)}
+          onGo={setBig}
+          onDrop={onDrop}
+        />
       )}
     </div>
   );

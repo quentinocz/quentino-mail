@@ -26,19 +26,36 @@ const KEY = 'shootSecond';
 let secondWindow: BrowserWindow | null = null;
 let watching = false;
 
-const DEFAULTS: ShootSecond = { open: false, displayId: 0, mode: 'live', tile: 220 };
+const DEFAULTS: ShootSecond = {
+  open: false, displayId: 0, mode: 'live', tile: 220, webcam: '', webcamLabel: ''
+};
+
+/** Které zařízení webkamery zrovna běží. Drží se jen za běhu, viz `save`. */
+let webcam = '';
+let webcamLabel = '';
 
 export function secondSetup(): ShootSecond {
   try {
     const saved = JSON.parse(getSetting(KEY, '{}') ?? '{}');
-    return { ...DEFAULTS, ...saved, open: !!secondWindow && !secondWindow.isDestroyed() };
+    return {
+      ...DEFAULTS,
+      ...saved,
+      webcam,
+      webcamLabel,
+      open: !!secondWindow && !secondWindow.isDestroyed()
+    };
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, webcam, webcamLabel };
   }
 }
 
 function save(patch: Partial<ShootSecond>): ShootSecond {
   const next = { ...secondSetup(), ...patch };
+  /*
+   * Zařízení webkamery se **neukládá**. Platí jen pro spuštěné okno —
+   * po restartu už žádný proud neběží a uložená hodnota by velkou
+   * obrazovku nechala čekat na obraz, který nikdo neposílá.
+   */
   setSetting(KEY, JSON.stringify({ displayId: next.displayId, mode: next.mode, tile: next.tile }));
   return next;
 }
@@ -160,7 +177,12 @@ export function closeSecond(): ShootSecond {
 
 /** Přepnutí mezi náhledem a mřížkou. Okno v aplikaci ukáže to druhé. */
 export function setSecond(patch: Partial<ShootSecond>): ShootSecond {
-  const next = { ...save(patch), open: !!secondWindow && !secondWindow.isDestroyed() };
+  if (patch.webcam !== undefined) webcam = patch.webcam;
+  if (patch.webcamLabel !== undefined) webcamLabel = patch.webcamLabel;
+  const next = {
+    ...save(patch), webcam, webcamLabel,
+    open: !!secondWindow && !secondWindow.isDestroyed()
+  };
   emit(next);
   return next;
 }

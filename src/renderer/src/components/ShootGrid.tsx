@@ -3,6 +3,7 @@ import type { ShootPhoto } from '@shared/types';
 import { api } from '../api';
 import { bytesToBlob } from '../media';
 import { sharpShare, SHARP_HELP } from './ShootGallery';
+import ShootPhotoView from './ShootPhotoView';
 import Icon from './Icon';
 
 /**
@@ -48,17 +49,23 @@ async function bigThumb(photo: ShootPhoto, side: number): Promise<string> {
   }
 }
 
-export default function ShootGrid({ photos, tile, onTile, onOpen, big = false }: {
+export default function ShootGrid({ photos, tile, onTile, onDrop, big = false }: {
   photos: ShootPhoto[];
   /** Velikost dlaždice v bodech. */
   tile: number;
   /** Když chybí, mřížka velikost nenabízí — na velké obrazovce se neovládá. */
   onTile?: (size: number) => void;
-  onOpen?: (photo: ShootPhoto) => void;
+  /** Vyřazení z otevřené fotky. Na velké obrazovce se nic neovládá, takže chybí. */
+  onDrop?: (photo: ShootPhoto) => void;
   /** Na velké obrazovce: bez ovládání, tmavší, hustší. */
   big?: boolean;
 }) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  /*
+   * Otevřená fotka. Na velké obrazovce se neotevírá — u stolu se do ní
+   * neklika a zakrytá mřížka by tam jen překážela.
+   */
+  const [open, setOpen] = useState<ShootPhoto | null>(null);
   const ids = photos.map(one => one.id).join(',');
   /*
    * Zmenšenina se vyrábí pro největší velikost dlaždice, ne pro tu
@@ -91,6 +98,15 @@ export default function ShootGrid({ photos, tile, onTile, onOpen, big = false }:
 
   return (
     <div className={`sh-grid-wrap ${big ? 'big' : ''}`}>
+      {open && (
+        <ShootPhotoView
+          photo={open}
+          photos={photos}
+          onClose={() => setOpen(null)}
+          onGo={setOpen}
+          onDrop={onDrop}
+        />
+      )}
       {!!onTile && (
         <div className="sh-grid-bar">
           <Icon name="layers" size={13} />
@@ -119,8 +135,8 @@ export default function ShootGrid({ photos, tile, onTile, onOpen, big = false }:
           return (
             <button
               key={photo.id}
-              className={`sh-cell ${photo.pick ? 'pick' : ''}`}
-              onClick={() => onOpen?.(photo)}
+              className={`sh-cell ${photo.pick ? 'pick' : ''} ${big ? 'still' : ''}`}
+              onClick={() => { if (!big) setOpen(photo); }}
               title={soft
                 ? `Ostrost ${share} % nejostřejší fotky v této sérii.\n\n${SHARP_HELP}`
                 : fileName(photo)}

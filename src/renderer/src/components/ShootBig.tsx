@@ -22,16 +22,85 @@ export default function ShootBig() {
   const [frame, setFrame] = useState('');
   const [photos, setPhotos] = useState<ShootPhoto[]>([]);
   const [shoot, setShoot] = useState<Shoot | null>(null);
+  /**
+   * Obraz z webkamery si tahle obrazovka otevírá sama.
+   *
+   * Proud z `getUserMedia` se mezi okny poslat nedá — je to živé spojení
+   * s ovladačem, ne data. Z okna aplikace proto přijde jen to, které
+   * zařízení to je, a obraz se otevře znovu tady. Bez toho tu při focení
+   * přes webkameru svítilo „Náhled neběží" u kamery, která běžela.
+   */
+  const [webcam, setWebcam] = useState('');
+  const [webcamLabel, setWebcamLabel] = useState('');
+  const [failed, setFailed] = useState('');
+  const stream = useRef<MediaStream | null>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
   const last = useRef('');
 
   useEffect(() => {
-    api.shoot.secondState().then(one => { setMode(one.mode); setTile(one.tile); });
+    api.shoot.secondState().then(one => {
+      setMode(one.mode);
+      setTile(one.tile);
+      setWebcam(one.webcam || '');
+      setWebcamLabel(one.webcamLabel || '');
+    });
   }, []);
 
   useEffect(() => api.on('shoot:second', (one: ShootSecond) => {
     setMode(one.mode);
     setTile(one.tile);
+    setWebcam(one.webcam || '');
+    setWebcamLabel(one.webcamLabel || '');
   }), []);
+
+  useEffect(() => {
+    let alive = true;
+    stream.current?.getTracks().forEach(track => track.stop());
+    stream.current = null;
+    setFailed('');
+    if (!webcam) return;
+    (async () => {
+      const size = { width: { ideal: 3840 }, height: { ideal: 2160 } };
+      const open = (id: string) => navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: id }, ...size }
+      });
+
+      let got: MediaStream | null = null;
+      try {
+        got = await open(webcam);
+      } catch {
+        /*
+         * Chromium čísluje zařízení zvlášť pro každé okno, takže `deviceId`
+         * z okna aplikace tady neplatí a skončí na `OverconstrainedError`.
+         * Dohledá se proto podle názvu — ten je to jediné, co mezi okny
+         * přenese. Bez tohohle tu při focení přes webkameru svítilo
+         * „Náhled neběží" u kamery, která běžela.
+         */
+        try {
+          const all = await navigator.mediaDevices.enumerateDevices();
+          const hit = all.find(one => one.kind === 'videoinput' && one.label === webcamLabel)
+            ?? all.find(one => one.kind === 'videoinput');
+          if (hit) got = await open(hit.deviceId);
+        } catch { got = null; }
+      }
+
+      if (!alive) { got?.getTracks().forEach(track => track.stop()); return; }
+      if (!got) {
+        setFailed('Kameru se nepodařilo otevřít. Přepni velkou obrazovku na mřížku.');
+        return;
+      }
+      stream.current = got;
+      if (video.current) {
+        video.current.srcObject = got;
+        video.current.play().catch(() => { /* prohlížeč odmítl */ });
+      }
+    })();
+    return () => {
+      alive = false;
+      stream.current?.getTracks().forEach(track => track.stop());
+      stream.current = null;
+    };
+  }, [webcam, webcamLabel]);
 
   /*
    * Snímek náhledu chodí jako bajty; předchozí adresa se hned uvolní.
@@ -71,9 +140,22 @@ export default function ShootBig() {
 
   return (
     <div className="sh-big-screen live">
-      {frame
-        ? <img src={frame} alt="" style={filter ? { filter } : undefined} />
-        : <div className="sh-blank">Náhled neběží</div>}
+      {webcam
+        ? (
+          <>
+            <video
+              ref={video}
+              muted
+              playsInline
+              style={filter ? { filter } : undefined}
+              onLoadedMetadata={e => e.currentTarget.play().catch(() => { /* odmítnuto */ })}
+            />
+            {failed && <div className="sh-blank">{failed}</div>}
+          </>
+        )
+        : frame
+          ? <img src={frame} alt="" style={filter ? { filter } : undefined} />
+          : <div className="sh-blank">Náhled neběží</div>}
     </div>
   );
 }

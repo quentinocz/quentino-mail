@@ -52,7 +52,15 @@ await new Promise(r => server.listen(4323, r));
 const preinstalled = ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome']
   .find(p => fs.existsSync(p));
 let browser;
-try { browser = await pw.chromium.launch(preinstalled ? { executablePath: preinstalled } : {}); }
+/*
+ * Falešná kamera. Bez ní se nedá vyzkoušet, že si velká obrazovka umí
+ * otevřít vlastní obraz — a právě tam svítilo „Náhled neběží".
+ */
+const LAUNCH = {
+  ...(preinstalled ? { executablePath: preinstalled } : {}),
+  args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream']
+};
+try { browser = await pw.chromium.launch(LAUNCH); }
 catch (e) { console.log('prohlížeč se nespustil — náhled focení se přeskakuje:', e.message.split('\n')[0]); server.close(); process.exit(0); }
 
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -555,6 +563,54 @@ await page.waitForTimeout(500);
     await page.locator('.sh-panel', { hasText: 'VELKÁ OBRAZOVKA' }).count() === 0);
   say('a v okně je náhled i pás',
     await page.locator('.sh-stage').count() === 1 && await page.locator('.sh-strip').count() === 1);
+}
+
+/* ---------- velká obrazovka s webkamerou ---------- */
+
+/*
+ * Proud z kamery se mezi okny poslat nedá, takže si ho velká obrazovka
+ * otevírá sama. Zkouší se v samostatné stránce se stejným zařízením —
+ * kdyby to nešlo otevřít dvakrát, bylo by to vidět tady, ne až u stolu.
+ */
+{
+  const devices = await page.evaluate(async () => {
+    const probe = await navigator.mediaDevices.getUserMedia({ video: true });
+    probe.getTracks().forEach(t => t.stop());
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return all.filter(one => one.kind === 'videoinput').map(one => one.deviceId);
+  });
+  say('falešná kamera je k dispozici', devices.length > 0, `${devices.length}`);
+
+  const okno = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  okno.on('console', m => { if (m.type() === 'error') console.log('   velká obrazovka:', m.text()); });
+  okno.on('pageerror', e => console.log('   velká obrazovka spadla:', e.message));
+  await okno.addInitScript(id => { window.__bigWebcam = id; }, devices[0]);
+  await okno.goto('http://localhost:4323/index.html#foceni-velka', { waitUntil: 'load' });
+  await okno.waitForTimeout(800);
+  await okno.evaluate(id => {
+    window.__emit('shoot:second', { open: true, displayId: 2, mode: 'live', tile: 220, webcam: id });
+  }, devices[0]);
+  await okno.waitForTimeout(1500);
+
+  const why = await okno.evaluate(async id => {
+    try {
+      const got = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: id } } });
+      got.getTracks().forEach(t => t.stop());
+      return 'ok';
+    } catch (e) { return String(e && e.name) + ': ' + String(e && e.message); }
+  }, devices[0]);
+  console.log('   přímý pokus o kameru:', why);
+
+  const live = await okno.evaluate(() => {
+    const el = document.querySelector('.sh-big-screen video');
+    return el ? { w: el.videoWidth, h: el.videoHeight, playing: !el.paused } : null;
+  });
+  say('velká obrazovka má obraz z kamery',
+    !!live && live.w > 0 && live.playing, live ? `${live.w}×${live.h}` : 'nic');
+  say('a nehlásí, že náhled neběží',
+    !(await okno.locator('.sh-big-screen .sh-blank').count()));
+  await okno.screenshot({ path: path.join(SHOTS, 'foceni-15-velka-webkamera.png') });
+  await okno.close();
 }
 
 /* ---------- nic nepřetéká ---------- */
