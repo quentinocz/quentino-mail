@@ -89,6 +89,14 @@ const TREE = {
    * odmítne, nebo jen zaostří — přesně to, co se dělo.
    */
   '/main/actions/viewfinder': { label: 'Canon EOS Viewfinder', type: 'TOGGLE', value: '0' },
+  /*
+   * Kam Canon posílá živý náhled. Dokud není `Off`, je tělo v náhledu
+   * a spoušť neprojde — i když `viewfinder` hlásí, že je vypnutý.
+   */
+  '/main/settings/output': {
+    label: 'Output', type: 'RADIO', value: 'TFT',
+    choices: ['Off', 'TFT', 'PC', 'TFT + PC']
+  },
   '/main/settings/capturetarget': {
     // Výchozí je vnitřní paměť — stejně jako to měl skutečný 600D
     label: 'Capture Target', type: 'RADIO', value: 'Internal RAM',
@@ -127,6 +135,8 @@ if (has('--auto-detect')) {
 if (!has('--shell')) process.exit(0);
 
 let shots = 0;
+/** Snímek, který čeká na stažení po `trigger-capture`. */
+let pending = '';
 
 /**
  * Zabrané tělo, jak ho hlásí macOS.
@@ -218,12 +228,16 @@ function run(line) {
       return;
     }
     /*
-     * Do vnitřní paměti se RAW nevejde. Tělo na to odpoví `-110` a
-     * nevyfotí nic — přesně to, co bylo v protokolu od skutečného 600D:
-     * formát RAW, cíl „Internal RAM", spoušť odmítnuta třikrát po sobě.
+     * V těle není karta. Cíl „Memory card" pak znamená, že snímek nemá
+     * kam uložit, a tělo vrátí `-110` — přesně tak se choval skutečný
+     * 600D poté, co mu aplikace cíl sama přepnula.
      */
-    if (TREE['/main/settings/capturetarget'].value === 'Internal RAM'
-      && TREE['/main/imgsettings/imageformat'].value.startsWith('RAW')) {
+    if (TREE['/main/settings/capturetarget'].value === 'Memory card') {
+      fail(-110, 'I/O in progress', '');
+      return;
+    }
+    // Živý náhled v těle drží zrcátko nahoře; spoušť neprojde
+    if (TREE['/main/settings/output'].value !== 'Off') {
       fail(-110, 'I/O in progress', '');
       return;
     }
@@ -240,6 +254,35 @@ function run(line) {
       process.stdout.write(`Saving file as ${name}\n`);
       process.stdout.write(`Deleting file /store_00020001/DCIM/100CANON/${name} on the camera\n`);
     }
+    return;
+  }
+
+  /*
+   * Druhá cesta ke spoušti: zmáčknout a stáhnout zvlášť. Některým tělům
+   * nesedí `capture-image-and-download` a tohle projde.
+   */
+  if (command === 'trigger-capture') {
+    if (TREE['/main/settings/output'].value !== 'Off') {
+      fail(-110, 'I/O in progress', '');
+      return;
+    }
+    pending = `IMG_${String(1000 + ++shots)}`;
+    return;
+  }
+
+  if (command.startsWith('wait-event-and-download')) {
+    if (!pending) { process.stdout.write('No new file.\n'); return; }
+    const raw = TREE['/main/imgsettings/imageformat'].value.startsWith('RAW');
+    const jpeg = TREE['/main/imgsettings/imageformat'].value.includes('L')
+      || TREE['/main/imgsettings/imageformat'].value.includes('JPEG');
+    const made = [];
+    if (jpeg) made.push(`${pending}.JPG`);
+    if (raw) made.push(`${pending}.CR2`);
+    for (const name of made) {
+      fs.writeFileSync(path.join(process.cwd(), name), FRAME);
+      process.stdout.write(`Saving file as ${name}\n`);
+    }
+    pending = '';
     return;
   }
 

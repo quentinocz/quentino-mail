@@ -200,8 +200,17 @@ export function parseCameras(text: string): ShootCamera[] {
   return out;
 }
 
-export async function detectCameras(): Promise<ShootCamera[]> {
-  await freeCamera();
+/**
+ * Vypíše připojená těla.
+ *
+ * Úklid se dělá jen tehdy, když žádné spojení neběží. Zabíjí totiž i
+ * **naše** `gphoto2 --shell` — a hledání fotoaparátu uprostřed focení by
+ * shodilo právě to spojení, přes které se fotí. Kdyby k tomu došlo při
+ * stahování snímku, zůstala by fotka jen na kartě a aplikace by o ní
+ * nevěděla.
+ */
+export async function detectCameras(free = true): Promise<ShootCamera[]> {
+  if (free) await freeCamera();
   const { out } = await run(['--auto-detect']);
   return parseCameras(out);
 }

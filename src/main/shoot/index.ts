@@ -99,7 +99,8 @@ export async function shootState(): Promise<ShootState> {
 
 export async function scanCameras(): Promise<ShootCamera[]> {
   if (!tool.path) tool = await gphoto.findGphoto();
-  cameras = tool.ok ? await gphoto.detectCameras() : [];
+  // Běžící spojení se kvůli hledání neshazuje — viz `detectCameras`
+  cameras = tool.ok ? await gphoto.detectCameras(!session.alive) : [];
   return cameras;
 }
 
@@ -135,12 +136,6 @@ export async function connect(port: string, model: string): Promise<ShootState> 
     if (probe.ok) {
       if (model) saveShootSetup({ lastCamera: model });
       await loadSettings();
-      /*
-       * Ukládání na kartu se přestaví hned po připojení, ne až u spouště.
-       * Do vnitřní paměti se RAW nevejde a tělo pak spoušť odmítne — a to
-       * je chyba, na kterou se u stolu kouká s produktem v ruce.
-       */
-      await preferCard();
       return shootState();
     }
 
@@ -391,30 +386,31 @@ export function cameraBusy(error: string): boolean {
 /**
  * Kam tělo ukládá snímek při focení přes kabel.
  *
- * ## Proč se to přestavuje
+ * ## Aplikace to nepřestavuje
  *
- * Canon umí ukládat do vnitřní paměti (`Internal RAM`) nebo na kartu.
- * Do vnitřní paměti se vejde náhled, ne dvacetimegabajtový RAW — a když
- * se tam nevejde, vrátí tělo `-110 I/O in progress` a nevyfotí nic.
- * Přesně tak se to chovalo: formát RAW, cíl vnitřní paměť, spoušť odmítnuta.
+ * Zkoušel jsem to a byla to chyba: přepnul jsem cíl na paměťovou kartu
+ * u těla, ve kterém žádná karta nebyla. Focení tím přestalo fungovat
+ * úplně — tělo nemělo kam snímek uložit a vracelo `-110 I/O in progress`,
+ * tedy tutéž chybu, kterou to mělo vyřešit.
  *
- * Na kartu se ukládá vždycky, když to tělo nabízí. Snímek se odtud stáhne
- * a díky `--keep` na ní zůstane i jako záloha — plná karta je menší
- * problém než ztracená série.
+ * Nastavení fotoaparátu je věc toho, kdo u něj stojí. Aplikace ho čte,
+ * nabízí ke změně a když focení selže, řekne, na co se podívat — ale
+ * sama ho nepřepíná. Hádat, co má v těle zasunuté, nejde.
  */
 export function targetPath(paths: string[]): string {
   return paths.find(one => /\/capturetarget$/i.test(one)) ?? '';
 }
 
-export async function preferCard(): Promise<string> {
-  const where = targetPath(allPaths);
-  if (!where || !session.alive) return '';
-  const now = await readSetting(where);
-  if (!now) return '';
-  const card = now.choices.find(one => /card/i.test(one.value));
-  if (!card || now.value === card.value) return '';
-  const out = await session.send(`set-config-value ${where}=${card.value}`, { urgent: true });
-  return out.ok ? card.value : '';
+/**
+ * Kam Canon posílá živý náhled.
+ *
+ * `output` má hodnoty `Off`, `TFT`, `PC` a podobně. Dokud není `Off`, je
+ * tělo v živém náhledu — a v něm spoušť neprojde, i když `viewfinder`
+ * hlásí, že je vypnutý. Dokumentace gphoto2 to u novějších EOS uvádí jako
+ * nutný krok před focením (`--set-config output=Off`).
+ */
+export function outputPath(paths: string[]): string {
+  return paths.find(one => /\/output$/i.test(one)) ?? '';
 }
 
 export function viewfinderPath(paths: string[]): string {
@@ -441,7 +437,23 @@ function wait(ms: number): Promise<void> {
  * vrátí, a po snímku se zapne zpátky. Vypínač nemají všechna těla, takže
  * se sahá jen na to, co se ve stromu opravdu našlo.
  */
-export async function capture(shootId: string): Promise<{ ok: boolean; error: string; photo: ShootPhoto | null }> {
+/**
+ * Rozdělané focení.
+ *
+ * Dvě spouště naráz (podržený mezerník, nebo okno a modál současně) si
+ * obě spočítají totéž pořadové číslo a druhá by přejmenováním přepsala
+ * soubor té první. Je to jediné místo v celém modulu, kde by se dala
+ * ztratit hotová fotka — proto zámek tady, ne jen příznak v okně.
+ */
+let shooting: Promise<{ ok: boolean; error: string; photo: ShootPhoto | null }> | null = null;
+
+export function capture(shootId: string): Promise<{ ok: boolean; error: string; photo: ShootPhoto | null }> {
+  if (shooting) return shooting;
+  shooting = captureOne(shootId).finally(() => { shooting = null; });
+  return shooting;
+}
+
+async function captureOne(shootId: string): Promise<{ ok: boolean; error: string; photo: ShootPhoto | null }> {
   const shoot = store.getShoot(shootId);
   if (!shoot) return { ok: false, error: 'focení neexistuje', photo: null };
   if (!session.alive) return { ok: false, error: 'fotoaparát není připojený', photo: null };
@@ -460,6 +472,18 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
     await live.liveSettled();
   }
 
+  /*
+   * Vypnout se musí obojí. `viewfinder=0` ukončí náhled v ovladači,
+   * `output=Off` ho ukončí v těle — a bez toho druhého zůstane zrcátko
+   * vyklopené i po prvním. V protokolu bylo vidět, jak `viewfinder=0`
+   * projde a spoušť přesto skončí na `-110`.
+   */
+  const output = outputPath(allPaths);
+  if (output) {
+    await session.send(`set-config-value ${output}=Off`, { urgent: true, timeout: 15000 });
+    await wait(300);
+  }
+
   if (viewfinder) {
     await session.send(`set-config ${viewfinder}=0`, { urgent: true, timeout: 15000 });
     /*
@@ -472,9 +496,6 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
     await wait(900);
   }
 
-  // Pojistka pro případ, že se cíl mezitím přestavil na těle
-  await preferCard();
-
   let reply = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
   /*
    * Dva pokusy navíc. Zaneprázdněné tělo je stav na půl vteřiny, ne
@@ -483,15 +504,72 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
    * některá těla si ho po chybě samy zapnou zpátky.
    */
   for (let attempt = 0; attempt < 2 && !reply.ok && cameraBusy(reply.error) && session.alive; attempt++) {
+    if (output) await session.send(`set-config-value ${output}=Off`, { urgent: true, timeout: 15000 });
     if (viewfinder) await session.send(`set-config ${viewfinder}=0`, { urgent: true, timeout: 15000 });
     await wait(1000);
     reply = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
   }
 
+  /*
+   * Druhá cesta ke spoušti.
+   *
+   * `capture-image-and-download` je jeden příkaz, který zmáčkne spoušť
+   * a rovnou čeká na soubor. Některým tělům to nesedí a vrací `-110`,
+   * i když živý náhled je vypnutý a karta je v pořádku. Dokumentace
+   * gphoto2 pro ně uvádí druhou cestu: spoušť a stahování zvlášť —
+   * `trigger-capture` a pak počkat na událost o novém souboru.
+   *
+   * Zkouší se až jako záchrana, protože rozdělená cesta je pomalejší
+   * a u těla, kterému vyhovuje ta první, není důvod ji používat.
+   */
+  if (!reply.ok && cameraBusy(reply.error) && session.alive) {
+    const pressed = await session.send('trigger-capture', { urgent: true, timeout: 30000 });
+    if (pressed.ok) {
+      reply = await session.send('wait-event-and-download 8s', { urgent: true, timeout: 60000 });
+    }
+  }
+
   // Náhled se rozjede zpátky, i když se vyfotit nepovedlo — jinak zůstane okno slepé
   if (wasLive && session.alive) await startLive();
 
+  /*
+   * Poslední záchrana: postavit spojení znovu.
+   *
+   * Jakmile tělo jednou vrátí `-110`, bývá zaseknutá celá relace v gphoto2
+   * — v protokolu pak selhávalo i obyčejné `set-config`. Zkoušet dál je
+   * marné; co pomůže, je zavřít proces a otevřít nový, protože se s tělem
+   * naváže čistá relace. Jinak to musí uživatel řešit odpojením kabelu,
+   * a to uprostřed série znamená rozestavěné zboží a ztracený výřez.
+   */
+  if (!reply.ok && cameraBusy(reply.error)) {
+    session.close();
+    const again = await session.open(session.port, session.model);
+    if (again) {
+      await loadSettings(true);
+      const fresh = outputPath(allPaths);
+      if (fresh) await session.send(`set-config-value ${fresh}=Off`, { urgent: true, timeout: 15000 });
+      await wait(500);
+      reply = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
+    }
+  }
+
   if (!reply.ok) {
+    /*
+     * Co se na těle nejčastěji pokazí. Pořadí je podle toho, jak často to
+     * doopravdy je — ostření je na prvním místě, protože v režimu One Shot
+     * tělo spoušť nespustí, dokud nezaostří, a u produktu zblízka na bílém
+     * pozadí se objektiv často nechytí.
+     */
+    // Bez cesty by se poslalo holé `get-config ` a tělo by hlásilo chybu navíc
+    const where = targetPath(allPaths);
+    const target = where ? await readSetting(where) : null;
+    const hint = target && /card/i.test(target.value)
+      ? 'Tělo ukládá na paměťovou kartu — zkontroluj, že je v něm zasunutá. '
+        + 'Bez karty nemá snímek kam uložit. Přepnout se to dá výš pod „Kam ukládat".'
+      : 'Nejčastěji to je ostřením: v režimu One Shot tělo nevyfotí, dokud '
+        + 'nezaostří. Přepni objektiv na MF a zaostři rukou. Pomáhá i vypnout '
+        + 'na těle Wi-Fi a nechat ho v režimu M.';
+
     return {
       ok: false,
       photo: null,
@@ -505,11 +583,13 @@ export async function capture(shootId: string): Promise<{ ok: boolean; error: st
           + 'a zkontroluj, že tělo není vybité ani uspané.'
         : cameraBusy(reply.error)
         ? `Fotoaparát spoušť odmítl: ${reply.error}. `
-          + (viewfinder
-            ? 'Živý náhled jsem před snímkem vypnul. '
-            : 'Tělo nehlásí vypínač živého náhledu, takže se vypnout nedal. ')
-          + 'Zkus vypnout na těle Wi-Fi a přepnout ho do režimu M nebo Av; '
-          + 'podrobnosti jsou v protokolu pod nastavením.'
+          /*
+           * Nejčastější příčina, kterou aplikace nespraví: v režimu
+           * One Shot tělo nespustí spoušť, dokud nezaostří. U produktu
+           * zblízka na bílém pozadí se objektiv často nechytí — a pak to
+           * vypadá, že „jen doostřilo a nevyfotilo".
+           */
+          + hint
         : reply.error
     };
   }

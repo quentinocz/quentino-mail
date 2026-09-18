@@ -139,9 +139,11 @@ export class CameraSession {
      */
     const ready = await new Promise<boolean>(resolve => {
       this.waitingForFirstPrompt = resolve;
-      setTimeout(() => {
+      const giveUp = setTimeout(() => {
         if (this.waitingForFirstPrompt) { this.waitingForFirstPrompt = null; resolve(false); }
       }, 5000);
+      // Nevyčištěný časovač drží Node vzhůru ještě pět vteřin po připojení
+      giveUp.unref?.();
     });
     if (!ready) { this.lastError = 'gphoto2 se neozval'; this.close(); }
     return ready;
@@ -163,6 +165,18 @@ export class CameraSession {
     const proc = this.proc;
     this.proc = null;
     if (proc) {
+      /*
+       * Posluchače je nutné odpojit **hned**. Umírající proces ještě chvíli
+       * píše na výstup a jeho poslední výzva by se zapsala do téhož
+       * nárazníku, ze kterého čte nově otevřené spojení — to by ji přijalo
+       * jako odpověď na svůj první příkaz a dál by četlo všechno o jeden
+       * příkaz posunuté. Tělo by hlásilo, že je připojené, a nefungovalo
+       * by nic.
+       */
+      proc.stdout?.removeAllListeners();
+      proc.stderr?.removeAllListeners();
+      proc.removeAllListeners('exit');
+      proc.removeAllListeners('error');
       try { proc.stdin?.end(); } catch { /* už zavřené */ }
       try { proc.kill(); } catch { /* už mrtvé */ }
       const hard = setTimeout(() => {

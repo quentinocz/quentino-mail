@@ -73,7 +73,7 @@ type Drag = { id: string; from: ShootOverlay; startX: number; startY: number; x:
 
 export default function ShootView({
   frame, stream, media, ghost, ghostUrl, overlay, fix, crop, tool, color, lineWidth,
-  selected, onSelect, onAdd, onChange, onCrop, onPickWhite, onAspect
+  selected, onSelect, onAdd, onChange, onCrop, onPickWhite, onAspect, zoom = 1
 }: {
   /** Adresa blobu s posledním snímkem náhledu, nebo prázdné. */
   frame: string;
@@ -107,6 +107,11 @@ export default function ShootView({
   onCrop: (box: { x: number; y: number; w: number; h: number }) => void;
   onPickWhite: (rgb: string) => void;
   onAspect?: (ratio: number) => void;
+  /**
+   * Zvětšení obrazu. Vodítka se zvětšují s ním — jsou v podílu obrazu,
+   * takže by jinak zůstala viset jinde, než kam ukazují.
+   */
+  zoom?: number;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLImageElement>(null);
@@ -354,9 +359,9 @@ export default function ShootView({
   return (
     <div className="sh-view">
       <div
-        className={`sh-stage tool-${tool}`}
+        className={`sh-stage tool-${tool} ${zoom > 1 ? 'zoomed' : ''}`}
         ref={stage}
-        style={{ aspectRatio: String(ratio) }}
+        style={{ aspectRatio: String(ratio), transform: zoom > 1 ? `scale(${zoom})` : undefined }}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}

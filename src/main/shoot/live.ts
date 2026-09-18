@@ -75,7 +75,24 @@ export async function hold<T>(work: () => Promise<T>): Promise<T> {
  * náhled by blikal a fotoaparát hlásil, že je zaneprázdněný. Proto se
  * počká, až ta stará doopravdy skončí.
  */
-export async function startLive(session: CameraSession): Promise<void> {
+/**
+ * Rozdělané spouštění.
+ *
+ * Mezi „počkej, až doběhne stará smyčka" a „ustav novou" je `await`, a dva
+ * souběžné starty se v něm oba zastaví a pak si oba nastaví vlastní
+ * smyčku. Ta první pak běží dál mimo dosah: `stopLive` už ji nevidí,
+ * takže ji nikdo nezastaví a pořád přepíná tělo do živého náhledu —
+ * spoušť by hlásila zaneprázdněné tělo a náhled by nešel vypnout.
+ */
+let starting: Promise<void> | null = null;
+
+export function startLive(session: CameraSession): Promise<void> {
+  if (starting) return starting;
+  starting = begin(session).finally(() => { starting = null; });
+  return starting;
+}
+
+async function begin(session: CameraSession): Promise<void> {
   if (loop && !loop.stop) return;
   // Předchozí smyčka ještě dobíhá — počká se na ni, ne aby běžely dvě
   if (loop) await loop.done;

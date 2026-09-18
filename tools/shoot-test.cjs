@@ -369,7 +369,7 @@ async function liveSection() {
   check('spojení se otevřelo', opened, true);
 
   const listed = await talk.send('list-config');
-  ok('seznam voleb dorazil celý', listed.ok && listed.text.split('\n').length === 15,
+  ok('seznam voleb dorazil celý', listed.ok && listed.text.split('\n').length === 16,
     String(listed.text.split('\n').length));
 
   const bad = await talk.send('bogus');
@@ -420,15 +420,25 @@ async function liveSection() {
    * nevyfotí nic. Tohle bylo v protokolu od skutečného 600D a byla to
    * ta příčina, kterou nešlo uhodnout bez výpisu.
    */
-  const doPameti = await talk.send('capture-image-and-download');
-  check('RAW do vnitřní paměti tělo odmítne',
-    [doPameti.ok, /I\/O in progress/.test(doPameti.error)], [false, true]);
+  const vNahledu = await talk.send('capture-image-and-download');
+  check('v živém náhledu tělo spoušť odmítne i podruhé',
+    [vNahledu.ok, /I\/O in progress/.test(vNahledu.error)], [false, true]);
 
+  /*
+   * A bez karty v těle je „Memory card" cesta do pekla: snímek nemá kam
+   * uložit a tělo vrátí tutéž chybu. Přesně tohle aplikace svým
+   * přepínáním způsobila.
+   */
   await talk.send('set-config-value /main/settings/capturetarget=Memory card');
+  await talk.send('set-config-value /main/settings/output=Off');
+  const bezKarty = await talk.send('capture-image-and-download');
+  check('bez karty se na kartu fotit nedá', bezKarty.ok, false);
+
+  await talk.send('set-config-value /main/settings/capturetarget=Internal RAM');
   const shot = await talk.send('capture-image-and-download');
   const made = session.__test.savedFiles(shot.text);
   // Formát je RAW+JPEG, takže musí přijít oba soubory
-  check('na kartu a bez náhledu se vyfotí', made, ['IMG_1001.JPG', 'IMG_1001.CR3']);
+  check('s vypnutým výstupem se vyfotí', made, ['IMG_1001.JPG', 'IMG_1001.CR3']);
   // `every` na prázdném poli je true — bez počtu by se prázdné stažení tvářilo jako úspěch
   ok('a oba jsou na disku',
     made.length === 2 && made.every(name => fs.existsSync(path.join(work, name))));
@@ -539,12 +549,13 @@ async function liveSection() {
       shoot.cameraGone("-110: 'I/O in progress'"), false);
 
     /*
-     * Ukládání se po připojení přestaví z vnitřní paměti na kartu. Do
-     * vnitřní paměti se RAW nevejde a tělo pak spoušť odmítne `-110` —
-     * přesně to ukázal protokol od skutečného 600D.
+     * Aplikace nastavení fotoaparátu **nepřepíná**. Zkoušel jsem to a byla
+     * to chyba: cíl se přestavil na paměťovou kartu u těla, ve kterém
+     * žádná karta nebyla, a focení tím přestalo fungovat úplně. Co má
+     * člověk v těle zasunuté, se z počítače uhodnout nedá.
      */
     const kam = await shoot.readSetting('/main/settings/capturetarget');
-    check('po připojení se ukládá na kartu', kam.value, 'Memory card');
+    check('cíl ukládání zůstal, jak ho měl uživatel', kam.value, 'Internal RAM');
 
     // Náhled běží → tělo je v živém náhledu
     await shoot.startLive();

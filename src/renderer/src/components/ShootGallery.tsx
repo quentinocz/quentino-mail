@@ -23,6 +23,15 @@ import Icon from './Icon';
  */
 
 const cache = new Map<string, string>();
+/**
+ * Fotky, ze kterých se náhled vyrobit nepodařilo.
+ *
+ * Bez tohohle seznamu se u nich zkouší znovu při každém překreslení —
+ * a každý pokus je čtení pětadvacetimegabajtového RAWu a průchod celým
+ * souborem v hlavním procesu. Při focení do RAW se tím náhled zasekával
+ * po každém snímku tím víc, čím víc fotek v sérii bylo.
+ */
+const failed = new Set<string>();
 
 async function thumbOf(photo: ShootPhoto): Promise<string> {
   const had = cache.get(photo.id);
@@ -65,6 +74,23 @@ export function forgetThumb(photoId: string): void {
   const url = cache.get(photoId);
   if (url) URL.revokeObjectURL(url);
   cache.delete(photoId);
+  failed.delete(photoId);
+}
+
+/**
+ * Uklidí náhledy fotek, které už nejsou na obrazovce.
+ *
+ * Adresy blobů drží dekódovaný obrázek v paměti, dokud se neuvolní. Při
+ * přepínání mezi foceními se jinak za den nasbírají stovky obrázků, které
+ * už nikdo neuvidí.
+ */
+export function keepOnly(ids: Set<string>): void {
+  for (const [id, url] of [...cache]) {
+    if (ids.has(id)) continue;
+    URL.revokeObjectURL(url);
+    cache.delete(id);
+    failed.delete(id);
+  }
 }
 
 /**
@@ -83,8 +109,23 @@ export function sharpShare(photo: ShootPhoto, photos: ShootPhoto[]): number {
 
 const SHARP_WARN = 67;
 
-export default function ShootGallery({ photos, onDrop, onPick, onGhost }: {
+/** Vysvětlení k procentům u dlaždice. Bez něj to číslo nic neříká. */
+export const SHARP_HELP = 'Ostrost se porovnává uvnitř jednoho focení: 100 % má '
+  + 'nejostřejší snímek série, ostatní podíl z něj. Samotné číslo nic neznamená — '
+  + 'závisí na tom, co je na fotce — ale v sérii, kde se fotí pořád totéž, '
+  + 'označuje nejnižší hodnota nejhůř zaostřený kus.';
+
+export default function ShootGallery({ photos, working, onDrop, onPick, onGhost }: {
   photos: ShootPhoto[];
+  /**
+   * Snímek se právě fotí nebo zpracovává.
+   *
+   * Mezi zmáčknutím spouště a fotkou v pásu je u zrcadlovky několik vteřin
+   * — tělo fotí, stahuje po USB a okno z toho pak počítá ostrost a dělá
+   * oříznutou kopii. Bez čekající dlaždice to vypadá, že se nestalo nic,
+   * a spoušť se zmáčkne podruhé.
+   */
+  working: boolean;
   onDrop: (photo: ShootPhoto) => void;
   onPick: (photo: ShootPhoto) => void;
   /** Použít fotku jako průsvitku pro další snímky */
@@ -93,27 +134,48 @@ export default function ShootGallery({ photos, onDrop, onPick, onGhost }: {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [big, setBig] = useState<ShootPhoto | null>(null);
   const [bigUrl, setBigUrl] = useState('');
+  /** Zvětšení otevřené fotky. 1 = celá na obrazovku. */
+  const [zoom, setZoom] = useState(1);
   const strip = useRef<HTMLDivElement>(null);
   const count = photos.length;
+
+  /*
+   * Seznam fotek se v závislostech drží podle **identit**, ne podle pole:
+   * `photos` je nové pole při každém překreslení a s ním v závislostech
+   * se efekt spouštěl pořád dokola.
+   */
+  const ids = photos.map(one => one.id).join(',');
 
   useEffect(() => {
     let alive = true;
     (async () => {
       for (const photo of photos) {
-        if (thumbs[photo.id]) continue;
+        if (cache.has(photo.id) || failed.has(photo.id)) continue;
         const url = await thumbOf(photo);
         if (!alive) return;
+        // Neúspěch se zapíše taky — jinak se to u něj zkouší při každém překreslení
         if (url) setThumbs(had => ({ ...had, [photo.id]: url }));
+        else failed.add(photo.id);
       }
+      if (alive) setThumbs(had => ({ ...had, ...Object.fromEntries(cache) }));
     })();
     return () => { alive = false; };
-  }, [photos, thumbs]);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [ids]);
+
+  // Náhledy fotek z jiných focení se uvolní; jinak se v paměti hromadí celý den
+  useEffect(() => {
+    keepOnly(new Set(photos.map(one => one.id)));
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [ids]);
 
   // Poslední nafocená je ta, na kterou se člověk dívá — posune se k ní sama
   useEffect(() => {
     const box = strip.current;
     if (box) box.scrollLeft = box.scrollWidth;
   }, [count]);
+
+  useEffect(() => { setZoom(1); }, [big]);
 
   useEffect(() => {
     if (!big) { setBigUrl(''); return; }
@@ -143,7 +205,7 @@ export default function ShootGallery({ photos, onDrop, onPick, onGhost }: {
   return (
     <div className="sh-gallery">
       <div className="sh-strip" ref={strip}>
-        {!photos.length && <div className="sh-empty">Zatím nic nafoceného</div>}
+        {!photos.length && !working && <div className="sh-empty">Zatím nic nafoceného</div>}
         {photos.map((photo, index) => (
           <div key={photo.id} className={`sh-tile ${photo.pick ? 'pick' : ''}`}>
             <button className="sh-tile-open" onClick={() => setBig(photo)} title="Zvětšit">
@@ -162,12 +224,13 @@ export default function ShootGallery({ photos, onDrop, onPick, onGhost }: {
                 <span
                   className="sh-tile-warn"
                   title={[
-                    soft ? `Ostrost ${share} % nejlepší v sérii — nejspíš mimo zaostření` : '',
-                    blown ? `Přepálená barva na ${photo.clipped.toFixed(1)} % plochy` : ''
-                  ].filter(Boolean).join('\n')}
+                    soft ? `Ostrost ${share} % nejostřejší fotky v této sérii — nejspíš mimo zaostření.` : '',
+                    blown ? `Přepálená barva na ${photo.clipped.toFixed(1)} % plochy.` : '',
+                    soft ? SHARP_HELP : ''
+                  ].filter(Boolean).join('\n\n')}
                 >
                   <Icon name="alert" size={11} />
-                  {soft ? `${share} %` : 'přepal'}
+                  {soft ? `ostrost ${share} %` : 'přepal'}
                 </span>
               );
             })()}
@@ -191,15 +254,48 @@ export default function ShootGallery({ photos, onDrop, onPick, onGhost }: {
             </div>
           </div>
         ))}
+      {working && (
+          <div className="sh-tile sh-tile-wait" title="Fotí se a stahuje z těla">
+            <span className="sh-spin" />
+            <small>Stahuji…</small>
+          </div>
+        )}
       </div>
 
       {big && (
         <div className="sh-big" onClick={() => setBig(null)}>
           <div className="sh-big-inner" onClick={e => e.stopPropagation()}>
-            {bigUrl ? <img src={bigUrl} alt="" /> : <div className="sh-blank">Načítám…</div>}
+            {bigUrl
+              ? (
+                /*
+                 * Kolečkem se zvětšuje, tažením posouvá. U produktu se
+                 * ostrost pozná až ve stoprocentním zvětšení — na fotce
+                 * zmenšené do okna vypadá dobře i rozmazaná.
+                 */
+                <div
+                  className={`sh-big-pan ${zoom > 1 ? 'on' : ''}`}
+                  onWheel={e => setZoom(one =>
+                    Math.max(1, Math.min(8, one * (e.deltaY < 0 ? 1.15 : 1 / 1.15))))}
+                >
+                  <img src={bigUrl} alt="" style={{ transform: `scale(${zoom})` }} />
+                </div>
+              )
+              : <div className="sh-blank">Načítám…</div>}
             <div className="sh-big-bar">
               <span>{fileName(big)}</span>
+              {(() => {
+                const share = sharpShare(big, photos);
+                if (!share) return null;
+                return (
+                  <span className="sh-big-sharp" title={SHARP_HELP}>
+                    ostrost {share} % nejostřejší v sérii
+                  </span>
+                );
+              })()}
               <span className="sh-big-space" />
+              <button onClick={() => setZoom(one => Math.max(1, one / 1.5))} disabled={zoom <= 1}>−</button>
+              <button onClick={() => setZoom(1)}>{Math.round(zoom * 100)} %</button>
+              <button onClick={() => setZoom(one => Math.min(8, one * 1.5))} disabled={zoom >= 8}>+</button>
               <button onClick={() => api.shoot.reveal(big.file)}>Ve složce</button>
               <button onClick={() => { onDrop(big); setBig(null); }}>Vyřadit</button>
               <button onClick={() => setBig(null)}>Zavřít</button>

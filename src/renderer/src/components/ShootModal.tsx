@@ -77,6 +77,14 @@ export default function ShootModal({ onClose, standalone = false }: {
   const [side, setSide] = useState(false);
   /** Poměr stran obrazu z fotoaparátu — podle něj se přepočítává zámek ořezu. */
   const [frameRatio, setFrameRatio] = useState(3 / 2);
+  /**
+   * Zvětšení živého náhledu.
+   *
+   * Náhled má osminu rozlišení snímku, takže se v něm zaostření pozná
+   * špatně. Zvětšení nezlepší kvalitu obrazu, ale ukáže detail větší —
+   * a na to, jestli je vazba kravaty ostrá, to stačí.
+   */
+  const [viewZoom, setViewZoom] = useState(1);
   const video = useRef<HTMLVideoElement | null>(null);
   const lastFrame = useRef('');
 
@@ -305,10 +313,24 @@ export default function ShootModal({ onClose, standalone = false }: {
       y: box.y + Math.round((box.h - side) / 2)
     };
     const middle = ctx.getImageData(Math.max(0, mid.x), Math.max(0, mid.y), side, side);
-    const whole = ctx.getImageData(box.x, box.y, box.w, box.h);
+    /*
+     * Přepaly se počítají z vodorovných pruhů, ne z celé plochy. Celý
+     * dvacetimegapixelový snímek znamená osmdesát megabajtů dat na jeden
+     * `getImageData` — a k nim ještě plátno, obrázek a kopii s korekcí.
+     * Okno se u toho na vteřinu zastaví a paměť vyskočí o stovky
+     * megabajtů; podíl přepalů z toho přitom vyjde stejný.
+     */
+    const bands = 12;
+    const bandHigh = Math.max(1, Math.floor(box.h / (bands * 2)));
+    let clipped = 0;
+    for (let i = 0; i < bands; i++) {
+      const y = box.y + Math.round((box.h - bandHigh) * (i / (bands - 1 || 1)));
+      const strip = ctx.getImageData(box.x, Math.max(0, y), box.w, bandHigh);
+      clipped += clipping(strip.data, shoot?.fix.zebraLevel ?? 250);
+    }
     return {
       sharp: Math.round(sharpness(middle.data, side, side)),
-      clipped: Math.round(clipping(whole.data, shoot?.fix.zebraLevel ?? 250) * 10) / 10
+      clipped: Math.round((clipped / bands) * 10) / 10
     };
   }, [shoot?.fix.zebraLevel]);
 
@@ -416,6 +438,13 @@ export default function ShootModal({ onClose, standalone = false }: {
         forgetThumb(saved.id);
         setPhotos(list => list.map(one => (one.id === saved!.id ? saved! : one)));
       }
+      /*
+       * Plátno se uvolní hned. Bez toho zůstane osmdesát megabajtů viset,
+       * dokud se uklízeč paměti neprobere — a při sérii dvaceti kusů se
+       * to nasčítá do gigabajtů a okno spadne na nedostatek paměti.
+       */
+      made.canvas.width = 0;
+      made.canvas.height = 0;
     } catch {
       // RAW Chromium neotevře; kopie ani kontrola se u něj prostě neudělá
     }
@@ -633,6 +662,26 @@ export default function ShootModal({ onClose, standalone = false }: {
               onChange={e => setLineWidth(Number(e.target.value))}
               title="Tloušťka čáry"
             />
+            <span className="sh-sep" />
+            <button
+              className="sh-mini"
+              onClick={() => setViewZoom(one => Math.max(1, one / 1.5))}
+              disabled={viewZoom <= 1}
+              title="Oddálit náhled"
+            >
+              <Icon name="minus" size={12} />
+            </button>
+            <button className="sh-mini" onClick={() => setViewZoom(1)} title="Celý obraz">
+              {Math.round(viewZoom * 100)} %
+            </button>
+            <button
+              className="sh-mini"
+              onClick={() => setViewZoom(one => Math.min(6, one * 1.5))}
+              disabled={viewZoom >= 6}
+              title="Přiblížit náhled"
+            >
+              <Icon name="plus" size={12} />
+            </button>
             <span className="sh-top-space" />
             {!!selected && (
               <button className="sh-mini" onClick={() => dropShape(selected)}>
@@ -671,6 +720,7 @@ export default function ShootModal({ onClose, standalone = false }: {
             crop={shoot.crop}
             onCrop={box => patch({ crop: { ...shoot.crop, ...box, on: true } })}
             onAspect={setFrameRatio}
+            zoom={viewZoom}
             onPickWhite={rgb => setFix({ white: rgb, on: true })}
           />
           {side && ghostUrl && (
@@ -753,6 +803,7 @@ export default function ShootModal({ onClose, standalone = false }: {
 
           <ShootGallery
             photos={photos}
+            working={busy === 'shot'}
             onDrop={async photo => {
               await api.shoot.dropPhoto(photo.id, true);
               forgetThumb(photo.id);

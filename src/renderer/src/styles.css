@@ -8354,6 +8354,27 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .sh-shape { cursor: pointer; }
 .sh-shape.movable { cursor: move; }
 .sh-shape.on { filter: drop-shadow(0 0 3px #fff); }
+/* Čekající dlaždice: mezi spouští a fotkou v pásu je u zrcadlovky pár vteřin */
+.sh-tile-wait {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; color: #8b8799; border-style: dashed;
+}
+.sh-tile-wait small { font-size: 10px; }
+.sh-spin {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid #33333f; border-top-color: var(--accent);
+  animation: sh-turn .7s linear infinite;
+}
+@keyframes sh-turn { to { transform: rotate(360deg); } }
+
+/* Zvětšení: obraz se zvětší uvnitř rámu, ven z něj nepřeteče */
+.sh-view { overflow: hidden; }
+.sh-stage.zoomed { transform-origin: center; }
+.sh-big-pan { overflow: auto; max-width: 100%; max-height: calc(100vh - 100px); }
+.sh-big-pan.on { cursor: grab; }
+.sh-big-pan img { transform-origin: top left; display: block; }
+.sh-big-sharp { color: #8b8799; }
+
 .sh-blank {
   display: flex;
   align-items: center;

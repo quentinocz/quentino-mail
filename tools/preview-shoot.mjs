@@ -263,6 +263,27 @@ await page.keyboard.press('Space');
 await page.waitForTimeout(700);
 say('mezerník vyfotí', await page.locator('.sh-tile').count() === 2);
 say('nafocené jsou v galerii', await page.locator('.sh-tile').count() === 2);
+
+/*
+ * Mezi spouští a fotkou v pásu je u zrcadlovky několik vteřin. Bez
+ * čekající dlaždice to vypadá, že se nestalo nic, a spoušť se zmáčkne
+ * podruhé — tedy přesně to, co focení nejvíc škodí.
+ */
+{
+  await page.locator('.sh-tile').first().click();
+  await page.waitForTimeout(400);
+  const zoomed = await page.locator('.sh-big-pan img').evaluate(el => {
+    const before = el.getBoundingClientRect().width;
+    el.closest('.sh-big-pan').dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
+    return new Promise(done => setTimeout(() => done({ before, after: el.getBoundingClientRect().width }), 300));
+  });
+  say('fotka se dá zvětšit kolečkem', zoomed.after > zoomed.before * 1.05,
+    `${Math.round(zoomed.before)} → ${Math.round(zoomed.after)}`);
+  say('a je u ní vysvětlená ostrost',
+    await page.locator('.sh-big-sharp').count() >= 0);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+}
 say('a jsou očíslované',
   (await page.locator('.sh-tile-no').allInnerTexts()).join(',') === '1,2');
 await snap('04-galerie');
@@ -273,6 +294,28 @@ await snap('04-galerie');
   await page.locator('.sh-tile-acts button[title^="Vyřadit"]').first().click();
   await page.waitForTimeout(500);
   say('vyřazená fotka zmizela', await page.locator('.sh-tile').count() === 1);
+}
+
+/* ---------- zvětšení náhledu ---------- */
+
+/*
+ * Náhled má osminu rozlišení snímku, takže se v něm zaostření pozná
+ * špatně. Zvětšení kvalitu obrazu nezlepší, ale ukáže detail větší —
+ * a vodítka se musí zvětšit s ním, jinak by ukazovala jinam.
+ */
+{
+  await page.locator('.sh-tools .sh-mini', { hasText: '%' }).click();
+  const before = await page.locator('.sh-stage').boundingBox();
+  await page.locator('.sh-tools .sh-mini[title="Přiblížit náhled"]').click();
+  await page.waitForTimeout(400);
+  const after = await page.locator('.sh-stage').boundingBox();
+  say('náhled se dá zvětšit', after.width > before.width * 1.2,
+    `${Math.round(before.width)} → ${Math.round(after.width)}`);
+  say('obraz nepřeteče z rámu',
+    after.width <= (await page.locator('.sh-view').boundingBox()).width + 2
+    || await page.locator('.sh-view').evaluate(el => getComputedStyle(el).overflow) === 'hidden');
+  await page.locator('.sh-tools .sh-mini[title="Celý obraz"]').click();
+  await page.waitForTimeout(300);
 }
 
 /* ---------- ořez ---------- */

@@ -323,7 +323,13 @@ export function sharpness(data: Uint8ClampedArray, width: number, height: number
 export function clipping(data: Uint8ClampedArray, level = 250): number {
   let hits = 0;
   let count = 0;
-  for (let i = 0; i < data.length; i += 4) {
+  /*
+   * Čte se každý čtvrtý bod. Podíl přepalů se na dvaceti megapixelech
+   * vzorkem nezmění ani o desetinu procenta, ale projít je všechny znamená
+   * sto milionů porovnání a s nimi vteřinu, po kterou okno stojí — zrovna
+   * ve chvíli, kdy se člověk dívá, jestli fotka dopadla.
+   */
+  for (let i = 0; i < data.length; i += 16) {
     const r = data[i], g = data[i + 1], b = data[i + 2];
     count++;
     const top = r > g ? (r > b ? r : b) : (g > b ? g : b);
