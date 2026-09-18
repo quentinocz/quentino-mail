@@ -5,6 +5,7 @@ import type {
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import { inToolWindow } from '../toolwindows';
 
 /**
  * Naplánované náhrady textů na e-shopu.
@@ -195,6 +196,8 @@ function Area({ title, hint, on, onToggle, children }: {
 }
 
 export default function WebTextsModal({ onClose }: { onClose: () => void }) {
+  // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
+  const okno = inToolWindow();
   const toast = useToast();
   const [state, setState] = useState<WebTextsState | null>(null);
   const [draft, setDraft] = useState<WebPlan | null>(null);
@@ -432,7 +435,10 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
             <button className={`tab ${tab === 'plan' ? 'active' : ''}`} onClick={() => setTab('plan')}>Plán</button>
             <button className={`tab ${tab === 'xmas' ? 'active' : ''}`} onClick={() => setTab('xmas')}>Vánoce</button>
             <button className={`tab ${tab === 'setup' ? 'active' : ''}`} onClick={() => setTab('setup')}>Napojení</button>
-            <button className="icon-btn" onClick={onClose} disabled={!!busy}><Icon name="x" size={16} /></button>
+            {/* Ve vlastním okně zavírá rám okna */}
+            {!okno && (
+              <button className="icon-btn" onClick={onClose} disabled={!!busy}><Icon name="x" size={16} /></button>
+            )}
           </div>
         </div>
 

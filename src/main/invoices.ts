@@ -8,6 +8,7 @@ import { adminOrderId } from './ordercard';
 import { openUrl } from './formfile';
 import { signIn, keepSignedIn } from './portallogin';
 import type { InvoiceJob, InvoiceOutcome, InvoiceRun, InvoiceSetup, InvoiceLearned } from '../shared/types';
+import { callerWindow } from './caller';
 
 /**
  * Hromadné stažení faktur z administrace — bez API.
@@ -426,7 +427,7 @@ export async function downloadInvoices(codes: string[]): Promise<InvoiceRun> {
   note(`sloučeno ${parts.length - merged.bad.length} faktur, ${merged.pages} stran`);
 
   const stamp = new Date().toISOString().slice(0, 10);
-  const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+  const res = await dialog.showSaveDialog(callerWindow()!, {
     defaultPath: path.join(app.getPath('downloads'), `faktury-${stamp}.pdf`),
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   });

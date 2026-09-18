@@ -12,6 +12,7 @@ import ProductGoogle from './ProductGoogle';
 import PtransAuditPanel from './PtransAudit';
 import HtmlField from './HtmlField';
 import NewProduct from './NewProduct';
+import { inToolWindow } from '../toolwindows';
 
 /**
  * Překlady produktů.
@@ -79,6 +80,8 @@ function relTime(iso: string | null): string {
 }
 
 export default function ProductsModal({ onClose }: { onClose: () => void }) {
+  // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
+  const okno = inToolWindow();
   const toast = useToast();
   const [overview, setOverview] = useState<PtransOverview | null>(null);
   const [tab, setTab] = useState<'work' | 'new' | 'audit' | 'consistency' | 'memory' | 'settings'>('work');
@@ -570,10 +573,13 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
               onClick={() => setTab('memory')}>Paměť</button>
             <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Nastavení</button>
           </div>
-          <button className="icon-btn" onClick={() => setWide(v => !v)}
-            data-tip={wide ? 'Zmenšit okno' : 'Zvětšit okno na celou obrazovku'}>
-            <Icon name={wide ? 'minimize' : 'expand'} size={15} />
-          </button>
+          {/* Ve vlastním okně velikost řeší systém */}
+          {!okno && (
+            <button className="icon-btn" onClick={() => setWide(v => !v)}
+              data-tip={wide ? 'Zmenšit okno' : 'Zvětšit okno na celou obrazovku'}>
+              <Icon name={wide ? 'minimize' : 'expand'} size={15} />
+            </button>
+          )}
           <button className="icon-btn" onClick={importFile}
             data-tip="Přidat produkty z XML souboru — novinky, které ve feedu ještě nejsou">
             <Icon name="upload" size={15} />
@@ -597,10 +603,12 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
               <Icon name="minimize" size={13} /> Na pozadí
             </button>
           )}
-          <button className="icon-btn" onClick={onClose}
-            data-tip={progress?.running ? 'Zavřít — překlad běží dál na pozadí' : 'Zavřít'}>
-            <Icon name="x" size={16} />
-          </button>
+          {!okno && (
+            <button className="icon-btn" onClick={onClose}
+              data-tip={progress?.running ? 'Zavřít — překlad běží dál na pozadí' : 'Zavřít'}>
+              <Icon name="x" size={16} />
+            </button>
+          )}
         </div>
 
         {tab === 'new' ? (

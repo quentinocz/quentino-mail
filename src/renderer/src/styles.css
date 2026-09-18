@@ -814,13 +814,32 @@ input:focus, textarea:focus, select:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  /*
+   * Rozestup mezi vším v hlavičce. Tlačítka v ní se skládají z několika
+   * míst (záložky, akce nástroje, ovládání okna) a bez mezery se slepila
+   * do jednoho pásu, ve kterém nešlo poznat, kde jedno končí a druhé začíná.
+   */
+  gap: 8px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--border);
   font-weight: 700;
   font-size: 16px;
 }
 .modal-body { padding: 18px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-.modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+/*
+ * Patička s akcemi. Zalamuje se: u překladů je v ní osm tlačítek a v okně
+ * širokém 1280 px se poslední dvě uřízla o levý okraj — vypadalo to, že
+ * tam nejsou.
+ */
+.modal-foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }

@@ -7,6 +7,7 @@ import { useToast } from '../toast';
 import Icon from './Icon';
 import CallContact from './CallContact';
 import { useIsPhone } from '../mobile';
+import { inToolWindow } from '../toolwindows';
 
 /**
  * Nástroj na balení objednávek.
@@ -240,6 +241,8 @@ interface Props {
 }
 
 export default function PackingModal({ onClose, onOpenMessage, openOrder }: Props) {
+  // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
+  const okno = inToolWindow();
   const toast = useToast();
   const [days, setDays] = useState(3);
   const [orders, setOrders] = useState<PackingOrder[]>([]);
@@ -1144,8 +1147,9 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
           {/*
             Velikost okna. Při balení se kouká do seznamu i do položek a hodí
             se celá plocha; při nakouknutí mezi jinou prací zase malé okno.
+            Ve vlastním okně to dělá systém, tam se nenabízí.
           */}
-          {!phone && (
+          {!phone && !okno && (
             <>
               <button className="icon-btn" data-tip={size === 'mini' ? 'Obnovit velikost' : 'Zmenšit'}
                 onClick={() => setWindowSize(size === 'mini' ? 'normal' : 'mini')}>
@@ -1157,7 +1161,9 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
               </button>
             </>
           )}
-          <button className="icon-btn" onClick={onClose} data-tip="Zavřít"><Icon name="x" size={16} /></button>
+          {!okno && (
+            <button className="icon-btn" onClick={onClose} data-tip="Zavřít"><Icon name="x" size={16} /></button>
+          )}
         </div>
 
         <div className="pk-filters">

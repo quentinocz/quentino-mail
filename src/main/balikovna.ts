@@ -7,6 +7,7 @@ import { contentOf } from './ppl';
 import { fillFileInput, openUrl } from './formfile';
 import { signIn, signInNote, keepSignedIn } from './portallogin';
 import type { BalikovnaSetup, BalikovnaExport } from '../shared/types';
+import { callerWindow } from './caller';
 
 /**
  * Vývoz zásilek pro Balíkovnu (Podání Online České pošty).
@@ -232,7 +233,7 @@ export async function exportBalikovna(
   if (rows.length === 0) return { file: null, rows: 0, skipped, columns: columns(setup).length, notes: 0 };
 
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
-  const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+  const res = await dialog.showSaveDialog(callerWindow()!, {
     defaultPath: path.join(app.getPath('downloads'), `balikovna-${stamp}.csv`),
     filters: [{ name: 'CSV pro Podání Online', extensions: ['csv'] }]
   });

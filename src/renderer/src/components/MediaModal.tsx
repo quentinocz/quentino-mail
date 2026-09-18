@@ -5,6 +5,7 @@ import { bytesToBlob, targetSize, toWebp } from '../media';
 import { useToast } from '../toast';
 import Icon from './Icon';
 import MediaProducts from './MediaProducts';
+import { inToolWindow } from '../toolwindows';
 
 /**
  * Konvertor médií — fotky do WebP, videa do WebM.
@@ -63,6 +64,8 @@ function pretty(bytes: number): string {
 }
 
 export default function MediaModal({ onClose }: { onClose: () => void }) {
+  // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
+  const okno = inToolWindow();
   const toast = useToast();
   const [setup, setSetup] = useState<MediaSetup | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -201,16 +204,21 @@ export default function MediaModal({ onClose }: { onClose: () => void }) {
             <button className={tab === 'watch' ? 'active' : ''} onClick={() => setTab('watch')}>Hlídané složky</button>
             <button className={tab === 'setup' ? 'active' : ''} onClick={() => setTab('setup')}>Nastavení</button>
           </div>
-          <button className="icon-btn"
-            onClick={() => {
-              const next = size === 'full' ? 'normal' : 'full';
-              setSize(next);
-              localStorage.setItem('mediaSize', next);
-            }}
-            data-tip={size === 'full' ? 'Zmenšit okno' : 'Na celou obrazovku'}>
-            <Icon name={size === 'full' ? 'shrink' : 'expand'} size={15} />
-          </button>
-          <button className="icon-btn" onClick={onClose} disabled={busy}><Icon name="x" size={16} /></button>
+          {/* Ve vlastním okně velikost i zavření řeší systém */}
+          {!okno && (
+            <>
+              <button className="icon-btn"
+                onClick={() => {
+                  const next = size === 'full' ? 'normal' : 'full';
+                  setSize(next);
+                  localStorage.setItem('mediaSize', next);
+                }}
+                data-tip={size === 'full' ? 'Zmenšit okno' : 'Na celou obrazovku'}>
+                <Icon name={size === 'full' ? 'shrink' : 'expand'} size={15} />
+              </button>
+              <button className="icon-btn" onClick={onClose} disabled={busy}><Icon name="x" size={16} /></button>
+            </>
+          )}
         </div>
 
         {tab === 'files' ? (

@@ -56,13 +56,14 @@ await page.waitForTimeout(900);
  * adresu toho okna — je to tentýž balík skriptů a v okně se vykreslí
  * přesně to, co by vykreslilo v aplikaci.
  *
- * Sociální sítě v seznamu nejsou schválně: to není nástroj, ale pracovní
- * prostor v hlavním okně, a ten se pořád přepíná klepnutím.
+ * Sociální sítě jsou v seznamu taky — na počítači se přestěhovaly z
+ * pracovního prostoru do vlastního okna.
  */
 const NASTROJE = {
   'Produkty a překlady': 'produkty', 'Články': 'clanky', 'AI Přehled': 'prehled',
   'Balení objednávek': 'baleni', 'Katalog a naskladnění': 'katalog',
-  'Texty na webu': 'texty', 'Recenze zákazníků': 'recenze', 'Konvertor médií': 'media'
+  'Texty na webu': 'texty', 'Recenze zákazníků': 'recenze', 'Konvertor médií': 'media',
+  'Sociální sítě': 'socialni'
 };
 const vOkneNastroje = () => page.url().includes('#');
 /*
@@ -178,11 +179,11 @@ await overflow('překlady — po překladu'); await snap('01b-preklady-po-prekla
     + (held === 1 && after === 0 ? ' ✓' : ' ✗'));
 }
 
-// Zvětšené okno: s tisícem produktů se v malém dialogu pracuje mizerně
-await click('.pt-modal .modal-head .icon-btn');
+/*
+ * Zvětšení okna se přestalo nabízet — nástroj má vlastní okno aplikace a
+ * velikost řeší jeho rám. V náhledu je proto rovnou na celé ploše.
+ */
 await overflow('překlady — zvětšeno'); await snap('02b-preklady-zvetseno');
-await click('.pt-modal .modal-head .icon-btn');
-await page.waitForTimeout(200);
 
 await click('.pt-detail-head .btn.ghost');
 await overflow('překlady — spuštění'); await snap('03-preklady-spusteni');
@@ -215,7 +216,6 @@ await click('.pt-tabs button', { hasText: 'Produkty' });
 await click('.pt-tabs button', { hasText: 'Paměť' });
 await overflow('překlady — paměť'); await snap('07-preklady-pamet');
 await page.keyboard.press('Escape');
-await click('.pt-modal .modal-head .icon-btn:last-child');
 
 // Nabídka AI v postranním panelu
 await click('.ig-switch button', { hasText: 'Funkce' });
@@ -575,8 +575,6 @@ await page.waitForSelector('.kat-preview iframe');
 await click('.kat-tabs button', { hasText: 'Produkty' });
 await click('.modal-foot .btn.ghost', { hasText: 'Vybrat vše' });
 await overflow('katalog — vybráno vše'); await snap('35-vybrat-vse');
-await click('.modal-head .icon-btn');
-await page.waitForTimeout(300);
 
 // Pruh s běžícím překladem na pozadí — je vidět i mimo okno překladů
 await page.evaluate(() => window.__emit('ptrans:progress', {
@@ -634,8 +632,6 @@ await overflow('texty na webu — Vánoce'); await snap('44b-texty-vanoce');
 
 await click('.wt-head-right .tab', { hasText: 'Napojení' });
 await overflow('texty na webu — napojení'); await snap('44-texty-napojeni');
-await click('.modal-head .icon-btn');
-await page.waitForTimeout(300);
 
 /*
  * Poznámka zákazníka v detailu balené objednávky a dotaz před vývozem
@@ -764,8 +760,6 @@ await overflow('recenze — druhá'); await snap('48b-recenze-detail');
     + `(políčko ${otevrelo ? 'je' : 'není'}, ${html.includes('https://quentino.cz/kravaty') ? 'odkaz vložen' : 'odkaz chybí'})`);
 }
 await overflow('recenze — psaní'); await snap('48c-recenze-psani');
-await click('.rv-modal .modal-head .icon-btn >> nth=-1');
-await page.waitForTimeout(300);
 
 /*
  * Nový produkt. Rozhoduje se tu o jediné věci: jestli je na první pohled
@@ -936,8 +930,6 @@ await overflow('média — focení'); await snap('46-media-foceni');
 
 await click('.md-modal .ig-seg button', { hasText: 'Nastavení' });
 await overflow('média — nastavení'); await snap('47-media-nastaveni');
-await click('.md-modal .modal-head .icon-btn >> nth=-1');
-await page.waitForTimeout(300);
 
 console.log(problems.length ? '\nPROBLÉMY:\n' + problems.slice(0, 10).join('\n') : '\nžádné chyby');
 await browser.close();

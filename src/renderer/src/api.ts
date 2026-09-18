@@ -1173,7 +1173,7 @@ export const api = {
     /** Přečte se jednou, při otevření okna */
     arg: (id: ToolWindowId) => call<string>('tool:arg', id),
     /** Skok do pošty nebo chatu v hlavním okně */
-    goto: (kind: 'message' | 'chat', id: string | number) =>
+    goto: (kind: 'message' | 'chat' | 'mail' | 'settings', id: string | number = '') =>
       call<boolean>('tool:goto', kind, String(id))
   },
 

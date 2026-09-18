@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useIsPhone } from '../mobile';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import { inToolWindow } from '../toolwindows';
 
 /**
  * AI Přehled.
@@ -815,6 +816,8 @@ function safeFacts(one: any): DigestFacts {
 }
 
 export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Props) {
+  // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
+  const okno = inToolWindow();
   const phone = useIsPhone();
   const toast = useToast();
   const [report, setReport] = useState<DigestReport | null>(null);
@@ -1064,7 +1067,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
             >
               <Icon name="refresh" size={15} />
             </button>
-            <button className="icon-btn" data-tip="Zavřít" onClick={onClose}><Icon name="x" size={15} /></button>
+            {/* Ve vlastním okně zavírá rám okna */}
+            {!okno && (
+              <button className="icon-btn" data-tip="Zavřít" onClick={onClose}><Icon name="x" size={15} /></button>
+            )}
           </span>
         </div>
 

@@ -8,6 +8,7 @@ import { useToast } from '../toast';
 import Icon from './Icon';
 import ArticleSettingsPanel from './ArticleSettings';
 import { ArticleBriefPanel, ArticleTextPanel, ArticleLinksPanel } from './ArticleEditor';
+import { inToolWindow } from '../toolwindows';
 
 /**
  * Články pro e-shop.
@@ -38,6 +39,8 @@ const LENGTHS: { label: string; words: number }[] = [
 ];
 
 export default function ArticlesModal({ onClose }: { onClose: () => void }) {
+  // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
+  const okno = inToolWindow();
   const toast = useToast();
   const [overview, setOverview] = useState<ArticleOverview | null>(null);
   const [tab, setTab] = useState<'work' | 'check' | 'map' | 'settings'>('work');
@@ -197,16 +200,19 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
             <Icon name="download" size={15} />
           </button>
           {/*
-            Zvětšení okna. Psaní článku je práce na dvě obrazovky — zadání,
-            text, odkazy — a v malém okně se v tom scrolluje víc, než píše.
-            Volba se pamatuje, stejně jako u balení: kdo si okno jednou
-            zvětší, chce ho velké i příště.
+            Zvětšení okna a zavření. Ve vlastním okně obojí dělá systém —
+            proto se nabízí jen tam, kde je nástroj překryvem (telefon).
+            Psaní článku je práce na dvě obrazovky: zadání, text, odkazy.
           */}
-          <button className="icon-btn" onClick={() => setWindowSize(size === 'full' ? 'normal' : 'full')}
-            data-tip={size === 'full' ? 'Zmenšit okno' : 'Na celou obrazovku'}>
-            <Icon name={size === 'full' ? 'shrink' : 'expand'} size={15} />
-          </button>
-          <button className="icon-btn" onClick={onClose} data-tip="Zavřít"><Icon name="x" size={16} /></button>
+          {!okno && (
+            <>
+              <button className="icon-btn" onClick={() => setWindowSize(size === 'full' ? 'normal' : 'full')}
+                data-tip={size === 'full' ? 'Zmenšit okno' : 'Na celou obrazovku'}>
+                <Icon name={size === 'full' ? 'shrink' : 'expand'} size={15} />
+              </button>
+              <button className="icon-btn" onClick={onClose} data-tip="Zavřít"><Icon name="x" size={16} /></button>
+            </>
+          )}
         </div>
 
         {progress?.running && (

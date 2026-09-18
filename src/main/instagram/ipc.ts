@@ -4,6 +4,7 @@
  */
 import { ipcMain, dialog, shell, BrowserWindow } from 'electron';
 import * as ig from './index';
+import { callerWindow } from '../caller';
 
 function handle(channel: string, fn: (...args: any[]) => any) {
   ipcMain.handle(channel, async (_e, ...args) => {
@@ -53,7 +54,7 @@ export function registerIgIpc() {
 
   /* Příspěvky */
   handle('ig:pickMedia', async () => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = callerWindow();
     const res = await dialog.showOpenDialog(win!, {
       properties: ['openFile', 'multiSelections'],
       filters: [

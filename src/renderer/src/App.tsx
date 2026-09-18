@@ -89,14 +89,23 @@ function AppInner() {
    */
   const openAiTool = useCallback((tool: AiTool) => {
     setDrawer(false);
-    // Sociální sítě jsou vlastní prostor, ne nástroj
-    if (tool === 'instagram') { setWorkspace('instagram'); return; }
     const own = toolWindow(tool);
     if (!phone && own) { api.tool.open(own.id).catch(() => {}); return; }
+    // Na telefonu okna nejsou: sociální sítě jsou prostor, zbytek přes obrazovku
+    if (tool === 'instagram') { setWorkspace('instagram'); return; }
     if (tool === 'digest') { setDigestOpen(true); return; }
     if (tool === 'packing') { setPackingOpen(true); return; }
     setAiTool(tool);
   }, [phone]);
+
+  /*
+   * Sociální sítě se na počítači přestěhovaly do vlastního okna. Zapamatovaný
+   * prostor z dřívějška by ale hlavní okno otevřel rovnou v nich — a přepínač
+   * na ně už nikde není, takže by z toho nešlo ven.
+   */
+  useEffect(() => {
+    if (!phone && workspace === 'instagram') setWorkspace('mail');
+  }, [phone, workspace]);
 
 
   /*
@@ -307,6 +316,7 @@ function AppInner() {
    * a pošle sem, co otevřít.
    */
   useEffect(() => api.on('app:goto', (p: any) => {
+    if (p?.kind === 'settings') { setSettingsOpen(true); return; }
     if (p?.kind === 'chat') { setDigestChat(String(p.id ?? '')); setWorkspace('chat'); return; }
     setWorkspace('mail');
     const id = Number(p?.id);

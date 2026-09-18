@@ -98,6 +98,11 @@ const OKNA = [
   { hash: 'produkty', nadpis: 'Produkty' }
 ];
 
+/*
+ * Sociální sítě nejsou překryv, ale celá obrazovka s vlastním panelem —
+ * kontrolují se zvlášť, níž.
+ */
+
 for (const okno of OKNA) {
   const page = await open(okno.hash);
   const mira = await page.evaluate(() => {
@@ -123,6 +128,24 @@ for (const okno of OKNA) {
   say('  a nekreslí ztmavení do prázdna',
     !!mira && /rgba\(0, 0, 0, 0\)|transparent/.test(mira.ztmaveni), mira?.ztmaveni ?? '');
   await page.screenshot({ path: path.join(SHOTS, `okno-${okno.hash}.png`) });
+  await page.close();
+}
+
+/* ---------- sociální sítě ve vlastním okně ---------- */
+
+{
+  const page = await open('socialni');
+  const stav = await page.evaluate(() => ({
+    app: document.querySelectorAll('#root > .ig-app').length,
+    // V okně nástroje se prostory nepřepínají, zůstává jen nabídka Funkcí
+    tabs: [...document.querySelectorAll('.ig-switch > button')].map(b => b.textContent?.trim() ?? ''),
+    panel: document.querySelectorAll('.ig-app .sidebar').length
+  }));
+  say('okno sociálních sítí se vykreslí', stav.app === 1 && stav.panel === 1,
+    `app ${stav.app}, panel ${stav.panel}`);
+  say('  a nenabízí přepnutí na poštu uvnitř',
+    stav.tabs.length === 1 && stav.tabs[0].includes('Funkce'), stav.tabs.join(' | '));
+  await page.screenshot({ path: path.join(SHOTS, 'okno-socialni.png') });
   await page.close();
 }
 

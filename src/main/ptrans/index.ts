@@ -26,6 +26,7 @@ import { runAudit, auditFor, worstProducts, auditProduct, storedSummary, AuditOp
 import { planSourceFill, fillSourceOne, missingByField, SOURCE_FIELDS, SOURCE_LABELS,
   SourceField, SourceFillOptions } from './source';
 import * as newproduct from './newproduct';
+import { callerWindow } from '../caller';
 
 /**
  * Překlady produktů — vstupní bod pro zbytek aplikace.
@@ -107,7 +108,7 @@ export async function revertProducts(codes: string[], keepManual = false):
  * objeví, spárují se podle kódu a překlady u nich zůstanou.
  */
 export async function importFromFile(): Promise<(SyncResult & { file: string }) | null> {
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const res = await dialog.showOpenDialog(win!, {
     properties: ['openFile'],
     filters: [{ name: 'XML export z Upgates', extensions: ['xml'] }]
@@ -444,7 +445,7 @@ export async function exportToFile(options: ExportOptions = {}): Promise<{ path:
   const built = buildExport(options);
   if (built.products === 0) throw new Error('Není co exportovat — zatím není žádný uložený překlad.');
 
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const stamp = new Date().toISOString().slice(0, 10);
   const res = await dialog.showSaveDialog(win!, {
     defaultPath: `quentino-preklady-${built.langs.join('-')}-${stamp}.xml`,

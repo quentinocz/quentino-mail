@@ -14,6 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { app, dialog, BrowserWindow } from 'electron';
 import type { DigestFacts, DigestInsight, DigestSignal, DigestSlice } from '../shared/types';
+import { callerWindow } from './caller';
 
 const MONEY = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 });
 
@@ -200,7 +201,7 @@ export async function digestToPdf(
     });
 
     const stamp = (at || new Date().toISOString()).slice(0, 10);
-    const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+    const res = await dialog.showSaveDialog(callerWindow()!, {
       defaultPath: path.join(app.getPath('downloads'), `quentino-prehled-${stamp}.pdf`),
       filters: [{ name: 'PDF', extensions: ['pdf'] }]
     });

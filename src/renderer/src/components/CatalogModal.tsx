@@ -8,6 +8,7 @@ import { api, type LabelItemRow } from '../api';
 import { useToast } from '../toast';
 import { useIsPhone } from '../mobile';
 import Icon from './Icon';
+import { inToolWindow } from '../toolwindows';
 
 /**
  * Katalog, naskladnění a štítky.
@@ -55,6 +56,8 @@ export default function CatalogModal({ onClose, openStockin }: {
    */
   openStockin?: string | null;
 }) {
+  // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
+  const okno = inToolWindow();
   const toast = useToast();
   const phone = useIsPhone();
   const [tab, setTab] = useState<Tab>(openStockin ? 'stockin' : 'catalog');
@@ -243,7 +246,10 @@ export default function CatalogModal({ onClose, openStockin }: {
             )}
           </div>
           <span style={{ flex: 1 }} />
-          <button className="icon-btn" onClick={onClose} aria-label="Zavřít"><Icon name="x" size={16} /></button>
+          {/* Ve vlastním okně zavírá rám okna */}
+          {!okno && (
+            <button className="icon-btn" onClick={onClose} aria-label="Zavřít"><Icon name="x" size={16} /></button>
+          )}
         </div>
 
         {tab === 'catalog' && (

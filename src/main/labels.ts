@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import { getDb } from './db';
 import { LabelLayout, RollLabel, ZplPlan } from '../shared/types';
 import { gapY, labelGeometry, safeMm } from '../shared/labels';
+import { callerWindow } from './caller';
 
 /**
  * Štítky s kódem na A4.
@@ -259,7 +260,7 @@ export async function labelsToPdf(items: LabelItem[], layout: LabelLayout):
     });
 
     const stamp = new Date().toISOString().slice(0, 10);
-    const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+    const res = await dialog.showSaveDialog(callerWindow()!, {
       defaultPath: path.join(app.getPath('downloads'), `stitky-${stamp}.pdf`),
       filters: [{ name: 'PDF', extensions: ['pdf'] }]
     });
@@ -430,7 +431,7 @@ export async function labelsExport(kind: 'zpl' | 'csv', items: LabelItem[], roll
 
   const body = kind === 'zpl' ? zplLabels(items, roll) : labelsCsv(items);
   const stamp = new Date().toISOString().slice(0, 10);
-  const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+  const res = await dialog.showSaveDialog(callerWindow()!, {
     defaultPath: path.join(app.getPath('downloads'), `stitky-${stamp}.${kind}`),
     filters: kind === 'zpl'
       ? [{ name: 'ZPL pro Zebru', extensions: ['zpl', 'txt'] }]

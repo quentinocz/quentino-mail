@@ -6,6 +6,7 @@ import { getSetting, setSetting } from './db';
 import crypto from 'crypto';
 import type { MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow }
   from '../shared/types';
+import { callerWindow } from './caller';
 
 /**
  * Převod fotek a videí do formátů pro web.
@@ -98,7 +99,7 @@ function describe(file: string): MediaFile | null {
 
 /** Výběr souborů. Vrací i ty, které se přetáhnou do okna — proto samostatně. */
 export async function pickMedia(): Promise<MediaFile[]> {
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const res = await dialog.showOpenDialog(win!, {
     properties: ['openFile', 'multiSelections'],
     filters: [
@@ -122,7 +123,7 @@ export function readMedia(file: string): Uint8Array {
 }
 
 export async function pickOutDir(): Promise<string> {
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const res = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'] });
   if (res.canceled || res.filePaths.length === 0) return mediaSetup().outDir;
   return saveMediaSetup({ outDir: res.filePaths[0] }).outDir;
@@ -375,7 +376,7 @@ function writeWatches(list: MediaWatch[]): MediaWatch[] {
 }
 
 export async function addWatchFolder(): Promise<MediaWatch[]> {
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const res = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'] });
   if (res.canceled || res.filePaths.length === 0) return watchFolders();
   const folder = res.filePaths[0];

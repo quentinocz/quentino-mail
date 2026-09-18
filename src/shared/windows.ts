@@ -22,7 +22,7 @@
 
 export type ToolWindowId =
   | 'shoot' | 'packing' | 'catalog' | 'ptrans' | 'articles'
-  | 'webtexts' | 'media' | 'reviews' | 'digest';
+  | 'webtexts' | 'media' | 'reviews' | 'digest' | 'instagram';
 
 export type ToolWindowDef = {
   id: ToolWindowId;
@@ -71,7 +71,14 @@ export const TOOL_WINDOWS: ToolWindowDef[] = [
   { id: 'reviews', hash: 'recenze', title: 'Recenze zákazníků — Quentino App',
     width: 1280, height: 860, minWidth: 860, minHeight: 600 },
   { id: 'digest', hash: 'prehled', title: 'AI Přehled — Quentino App',
-    width: 1140, height: 860, minWidth: 780, minHeight: 600 }
+    width: 1140, height: 860, minWidth: 780, minHeight: 600 },
+  /*
+   * Sociální sítě byly pracovní prostor v hlavním okně, ne překryv — psaní
+   * příspěvku ale trvá stejně dlouho jako focení a po tu dobu se v hlavním
+   * okně nedalo na poštu. Ve vlastním okně jde obojí vedle sebe.
+   */
+  { id: 'instagram', hash: 'socialni', title: 'Sociální sítě — Quentino App',
+    width: 1320, height: 880, minWidth: 900, minHeight: 620 }
 ];
 
 export function toolWindow(id: string): ToolWindowDef | undefined {

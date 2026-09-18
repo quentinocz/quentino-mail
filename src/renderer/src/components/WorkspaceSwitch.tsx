@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
 import { SIDE_COMPACT, useSidebarWidth } from '../sidebar';
 import { useIsPhone } from '../mobile';
-import { useOpenTools } from '../toolwindows';
+import { useOpenTools, inToolWindow } from '../toolwindows';
 import type { ToolWindowId } from '@shared/windows';
 
 export type Workspace = 'mail' | 'chat' | 'instagram';
@@ -103,7 +103,12 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
    * zbývá jen „Funkce" — bez něj by se na telefon nedalo dostat do katalogu,
    * balení ani přehledu dne.
    */
-  const tabs = phone ? TABS.filter(t => t.id === 'ai') : TABS;
+  /*
+   * V okně nástroje se prostory nepřepínají — pošta ani chat v něm nejsou.
+   * Zůstává jen nabídka Funkcí, přes kterou se dá otevřít další okno; na
+   * poštu se dostane přepnutím okna, ne přepínačem uvnitř.
+   */
+  const tabs = phone || inToolWindow() ? TABS.filter(t => t.id === 'ai') : TABS;
   const [menu, setMenu] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 

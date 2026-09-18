@@ -6,6 +6,7 @@ import { shipOrders, shortNote, approvedNotes, cell } from './shipexport';
 import { fillFileInput, openUrl } from './formfile';
 import { signIn, signInNote, keepSignedIn } from './portallogin';
 import type { PplRow, PplExport, PplSetup, ShopOrderItem } from '../shared/types';
+import { callerWindow } from './caller';
 
 /**
  * Vývoz zásilek pro PPL.
@@ -299,7 +300,7 @@ export async function exportPpl(
 
   let file = target;
   if (ask) {
-    const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+    const res = await dialog.showSaveDialog(callerWindow()!, {
       defaultPath: target,
       filters: [{ name: 'CSV pro PPL', extensions: ['csv'] }]
     });

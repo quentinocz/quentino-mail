@@ -6,6 +6,7 @@ import { encrypt, decrypt } from './secure';
 import type { PacketaSetup, PacketaResult, PacketaPacket, ShopOrderItem } from '../shared/types';
 import { contentOf } from './ppl';
 import { shortNote, approvedNotes } from './shipexport';
+import { callerWindow } from './caller';
 
 /**
  * Zásilkovna (Packeta) přes API.
@@ -342,7 +343,7 @@ export async function labelsPdf(codes: string[], format?: string, offset?: numbe
   }
 
   const stamp = new Date().toISOString().slice(0, 10);
-  const res = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+  const res = await dialog.showSaveDialog(callerWindow()!, {
     defaultPath: path.join(app.getPath('downloads'), `stitky-zasilkovna-${stamp}.pdf`),
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   });

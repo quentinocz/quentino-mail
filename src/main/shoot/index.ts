@@ -11,6 +11,7 @@ import { CameraSession } from './session';
 import type {
   Shoot, ShootPhoto, ShootState, ShootSettings, ShootTool, ShootCamera, CameraSetting
 } from '../../shared/types';
+import { callerWindow } from '../caller';
 
 /**
  * Focení produktů — spojení fotoaparátu, vodítek a hotových souborů.
@@ -752,7 +753,7 @@ export function viewableFile(file: string): Uint8Array | null {
 }
 
 export async function pickFolder(shootId: string): Promise<string> {
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const res = await dialog.showOpenDialog(win!, {
     properties: ['openDirectory', 'createDirectory'],
     defaultPath: shootSetup().lastFolder || app.getPath('pictures')
@@ -766,7 +767,7 @@ export async function pickFolder(shootId: string): Promise<string> {
 
 /** Fotka jako průsvitka. Bere se odkudkoliv, nemusí být z tohoto focení. */
 export async function pickGhost(): Promise<string> {
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const res = await dialog.showOpenDialog(win!, {
     properties: ['openFile'],
     filters: [{ name: 'Fotky', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'] }]

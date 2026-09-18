@@ -3,6 +3,7 @@ import path from 'path';
 import { getSetting, setSetting } from './db';
 import { TOOL_WINDOWS, toolWindow } from '../shared/windows';
 import type { ToolWindowId } from '../shared/windows';
+import { mainWindow } from './caller';
 
 /**
  * Okna nástrojů.
@@ -225,10 +226,8 @@ export function mainWindowMaker(fn: () => BrowserWindow): void {
  * Hlavní okno je to, které není nástroj ani velká obrazovka — tedy jediné
  * bez mřížky v adrese.
  */
-export function gotoInMain(kind: 'message' | 'chat', id: string): boolean {
-  const ours = new Set(windows.values());
-  const main = BrowserWindow.getAllWindows().find(win =>
-    !win.isDestroyed() && !ours.has(win) && !win.webContents.getURL().includes('#'));
+export function gotoInMain(kind: 'message' | 'chat' | 'mail' | 'settings', id: string): boolean {
+  const main = mainWindow();
   if (main) {
     if (main.isMinimized()) main.restore();
     main.focus();

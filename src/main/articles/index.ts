@@ -14,6 +14,7 @@ import { generateArticle, translateArticle, articleProgress, stopArticles, resea
 import { checkLinks, lastCheck, applyFix, applyAllFixes, dismissLink, testUrl, checkProgress, stopCheck, CheckOptions } from './check';
 import { learnUrlMap, listUrlMap, rememberPair, deletePair, extractImages, extractLinks, decodeUrl,
   translateUrl, alternatesOf } from './urlmap';
+import { callerWindow } from '../caller';
 
 /**
  * Články — vstupní bod pro zbytek aplikace.
@@ -39,7 +40,7 @@ export function overview() {
 
 /** Nahrání exportu článků z Upgates. */
 export async function importFromFile() {
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const res = await dialog.showOpenDialog(win!, {
     properties: ['openFile'],
     filters: [{ name: 'XML export článků z Upgates', extensions: ['xml'] }]
@@ -97,7 +98,7 @@ export async function exportToFile(input: { ids?: number[]; langs?: string[]; on
 
   if (blocks.length === 0) throw new Error('Není co exportovat — vyber článek, který má hotový text.');
 
-  const win = BrowserWindow.getFocusedWindow();
+  const win = callerWindow();
   const stamp = new Date().toISOString().slice(0, 10);
   const res = await dialog.showSaveDialog(win!, {
     defaultPath: `quentino-clanky-${stamp}.xml`,

@@ -82,6 +82,7 @@ import {
   downloadInvoices, learnInvoiceUrl, invoiceSetup, saveInvoiceSetup,
   invoicesLastDetail, jobsSince, openAdminLogin, prefetchInvoices, invoicesReady, forgetInvoices
 } from './invoices';
+import { callerWindow, withCaller } from './caller';
 
 /** Zpráva do všech oken — po stažení feedu se musí překreslit, co je otevřené. */
 function emit(channel: string, payload: unknown) {
@@ -91,11 +92,20 @@ function emit(channel: string, payload: unknown) {
 /** Záloha zamčená heslem čeká tady, než uživatel heslo doplní. */
 let pendingImport: any = null;
 
-/** Všechny handlery vrací { ok, data | error } — renderer nikdy nedostane výjimku bez kontextu. */
+/**
+ * Všechny handlery vrací { ok, data | error } — renderer nikdy nedostane
+ * výjimku bez kontextu.
+ *
+ * Zároveň si obsluha pamatuje, ze kterého okna zpráva přišla. Systémové
+ * dialogy (výběr souboru, uložení) se pak přivěsí k tomu oknu, které si o
+ * ně řeklo — dřív se braly podle zaostření, což s jedním oknem vycházelo
+ * vždycky, ale s otevřenou hrstkou oken už ne.
+ */
 function handle(channel: string, fn: (...args: any[]) => any) {
-  ipcMain.handle(channel, async (_e, ...args) => {
+  ipcMain.handle(channel, async (event, ...args) => {
+    const from = BrowserWindow.fromWebContents(event.sender);
     try {
-      return { ok: true, data: await fn(...args) };
+      return { ok: true, data: await withCaller(from, () => fn(...args)) };
     } catch (err: any) {
       return { ok: false, error: err?.message ?? String(err) };
     }
@@ -156,7 +166,7 @@ export function registerIpc() {
   handle('appsync:save', (cfg) => saveSyncConfig(cfg));
   handle('appsync:run', () => runSync());
   handle('appsync:pickFolder', async () => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = callerWindow();
     const res = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'] });
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
   });
@@ -182,7 +192,7 @@ export function registerIpc() {
 
   // Export / import nastavení
   handle('config:export', async (passphrase?: string) => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = callerWindow();
     const res = await dialog.showSaveDialog(win!, {
       defaultPath: `quentino-mail-zaloha-${new Date().toISOString().slice(0, 10)}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }]
@@ -193,7 +203,7 @@ export function registerIpc() {
     return res.filePath;
   });
   handle('config:import', async () => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = callerWindow();
     const res = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }]
@@ -220,7 +230,7 @@ export function registerIpc() {
   handle('knowledge:save', (doc) => saveKnowledge(doc));
   handle('knowledge:delete', (id) => deleteKnowledge(id));
   handle('knowledge:importFile', async () => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = callerWindow();
     const res = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: [{ name: 'Textové soubory', extensions: ['txt', 'md', 'html', 'csv'] }]
@@ -395,7 +405,7 @@ export function registerIpc() {
 
   // Export zprávy do PDF
   handle('messages:exportPdf', async (fileName: string, html: string) => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = callerWindow();
     const res = await dialog.showSaveDialog(win!, {
       defaultPath: `${fileName.replace(/[/\\:*?"<>|]/g, '_').slice(0, 80) || 'zprava'}.pdf`,
       filters: [{ name: 'PDF', extensions: ['pdf'] }]
@@ -673,8 +683,10 @@ export function registerIpc() {
    * na zprávu, které se věc týká — ta je ale v hlavním okně, takže se musí
    * vytáhnout dopředu a teprve pak se mu řekne, co otevřít.
    */
-  handle('tool:goto', (kind: any, id: string) =>
-    gotoInMain(kind === 'chat' ? 'chat' : 'message', String(id ?? '')));
+  handle('tool:goto', (kind: any, id: string) => {
+    const kinds = ['message', 'chat', 'mail', 'settings'];
+    return gotoInMain(kinds.includes(kind) ? kind : 'message', String(id ?? ''));
+  });
 
   /* ---------- texty na webu ---------- */
   handle('webtexts:state', () => webtexts.webTextsState());
@@ -739,12 +751,12 @@ export function registerIpc() {
   handle('files:openAttachment', (p: string) => shell.openPath(p));
   handle('files:showInFolder', (p: string) => shell.showItemInFolder(p));
   handle('files:pickAttachments', async () => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = callerWindow();
     const res = await dialog.showOpenDialog(win!, { properties: ['openFile', 'multiSelections'] });
     return res.canceled ? [] : res.filePaths;
   });
   handle('files:pickImage', async () => {
-    const win = BrowserWindow.getFocusedWindow();
+    const win = callerWindow();
     const res = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: [{ name: 'Obrázky', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }]

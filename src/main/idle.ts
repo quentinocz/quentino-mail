@@ -17,6 +17,7 @@ import { getDb } from './db';
 import { getSettings } from './settings';
 import { syncFolder } from './imap';
 import { mailLink, mailNotification, notifyPhone, wantsNotify } from './notify';
+import { mainWindow } from './caller';
 
 interface Watcher {
   accountId: number;
@@ -82,7 +83,10 @@ function notifyAbout(accountId: number, sinceId: number): void {
   const show = (title: string, body: string, openId?: number) => {
     const n = new Notification({ title, body, silent: false });
     n.on('click', () => {
-      const win = BrowserWindow.getAllWindows()[0];
+      // Klepnutí na upozornění patří poště — ne tomu oknu, které zrovna
+      // vzniklo první. Od chvíle, kdy má každý nástroj vlastní okno, to
+      // bývalo i okno katalogu nebo focení.
+      const win = mainWindow() ?? BrowserWindow.getAllWindows()[0];
       if (win) {
         if (win.isMinimized()) win.restore();
         win.show();

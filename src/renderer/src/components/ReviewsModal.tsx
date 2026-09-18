@@ -5,6 +5,7 @@ import { pickForArticle, sizeOf, uploadToShop } from '../shopfiles';
 import { useToast } from '../toast';
 import Icon from './Icon';
 import HtmlField from './HtmlField';
+import { inToolWindow } from '../toolwindows';
 
 /**
  * Recenze zákazníků na e-shopu.
@@ -71,6 +72,8 @@ function pocetRecenzi(n: number): string {
 }
 
 export default function ReviewsModal({ onClose }: { onClose: () => void }) {
+  // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
+  const okno = inToolWindow();
   const toast = useToast();
   const [state, setState] = useState<ReviewsState | null>(null);
   const [pickedId, setPickedId] = useState('');
@@ -320,16 +323,21 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
             {busy ? <><span className="spinner-inline" /> {busy}</>
               : <><Icon name="upload" size={14} /> Vystavit{state?.dirty ? ' změny' : ''}</>}
           </button>
-          <button className="icon-btn"
-            onClick={() => {
-              const next = size === 'full' ? 'normal' : 'full';
-              setSize(next);
-              localStorage.setItem('reviewsSize', next);
-            }}
-            data-tip={size === 'full' ? 'Zmenšit okno' : 'Na celou obrazovku'}>
-            <Icon name={size === 'full' ? 'shrink' : 'expand'} size={15} />
-          </button>
-          <button className="icon-btn" onClick={onClose} disabled={!!busy}><Icon name="x" size={16} /></button>
+          {/* Ve vlastním okně velikost i zavření řeší systém */}
+          {!okno && (
+            <>
+              <button className="icon-btn"
+                onClick={() => {
+                  const next = size === 'full' ? 'normal' : 'full';
+                  setSize(next);
+                  localStorage.setItem('reviewsSize', next);
+                }}
+                data-tip={size === 'full' ? 'Zmenšit okno' : 'Na celou obrazovku'}>
+                <Icon name={size === 'full' ? 'shrink' : 'expand'} size={15} />
+              </button>
+              <button className="icon-btn" onClick={onClose} disabled={!!busy}><Icon name="x" size={16} /></button>
+            </>
+          )}
         </div>
 
         {!ready && (
