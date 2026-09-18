@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  Shoot, ShootPhoto, ShootState, ShootOverlay, ShootFix, ShootCrop, ShootSlot
+  Shoot, ShootPhoto, ShootState, ShootOverlay, ShootFix, ShootCrop, ShootSlot,
+  ShootSecond, ShootScreen
 } from '@shared/types';
 import { api } from '../api';
 import { bytesToBlob } from '../media';
@@ -13,6 +14,7 @@ import Icon from './Icon';
 import ShootView, { Tool } from './ShootView';
 import ShootGallery, { forgetThumb } from './ShootGallery';
 import ShootSettings from './ShootSettings';
+import ShootGrid from './ShootGrid';
 
 /**
  * Focení produktů.
@@ -85,6 +87,16 @@ export default function ShootModal({ onClose, standalone = false }: {
    * a na to, jestli je vazba kravaty ostrá, to stačí.
    */
   const [viewZoom, setViewZoom] = useState(1);
+  /**
+   * Velká obrazovka u stolu.
+   *
+   * `mode` říká, co je na **ní**; v okně se pak ukazuje to druhé, aby se
+   * obojí vidělo zároveň. Když je zavřená, okno vypadá jako vždycky —
+   * druhý monitor je dobrovolný, ne podmínka.
+   */
+  const [second, setSecond] = useState<ShootSecond>(
+    { open: false, displayId: 0, mode: 'live', tile: 220 });
+  const [screens, setScreens] = useState<ShootScreen[]>([]);
   const video = useRef<HTMLVideoElement | null>(null);
   const lastFrame = useRef('');
 
@@ -153,6 +165,13 @@ export default function ShootModal({ onClose, standalone = false }: {
     if (payload.error) note(payload.error, true);
   }), [note]);
 
+  useEffect(() => {
+    api.shoot.secondState().then(setSecond);
+    api.shoot.screens().then(setScreens);
+  }, []);
+
+  useEffect(() => api.on('shoot:second', (one: ShootSecond) => setSecond(one)), []);
+
   useEffect(() => api.on('shoot:photo', (photo: ShootPhoto) => {
     setPhotos(list => (list.some(one => one.id === photo.id) ? list : [...list, photo]));
   }), []);
@@ -166,6 +185,8 @@ export default function ShootModal({ onClose, standalone = false }: {
     setPhotos(await api.shoot.photos(id));
     setSelected('');
     localStorage.setItem('shootLast', id);
+    // Velká obrazovka je vlastní okno a musí ukazovat totéž focení
+    api.shoot.current(id);
   }, []);
 
   /**
@@ -629,6 +650,12 @@ export default function ShootModal({ onClose, standalone = false }: {
 
       <div className="sh-body">
         <main className="sh-main">
+          {/*
+            * Nástroje na kreslení dávají smysl jen nad náhledem. Když je
+            * v okně mřížka (protože náhled je na velké obrazovce), není
+            * do čeho kreslit a lišta by jen zabírala místo.
+            */}
+          {!(second.open && second.mode === 'live') && (
           <div className="sh-tools">
             {/*
               * Popisek je u ikony vidět, ne jen v bublině. Nástrojů je osm
@@ -694,12 +721,26 @@ export default function ShootModal({ onClose, standalone = false }: {
               </button>
             )}
           </div>
+          )}
 
           {/*
             * Srovnání vedle sebe, ne přes sebe. Průsvitka ukáže, jestli
             * produkt leží stejně, ale rozdíl ve světle se v prolnutí dvou
             * obrazů ztratí — a právě ten je na řadě fotek vidět nejvíc.
             */}
+          {/*
+            * Když je na velké obrazovce živý náhled, v okně je mřížka —
+            * a naopak. Bez druhého monitoru (`second.open === false`)
+            * zůstává v okně náhled i pás, jako vždycky.
+            */}
+          {second.open && second.mode === 'live' ? (
+            <ShootGrid
+              photos={photos}
+              tile={second.tile}
+              onTile={size => { setSecond(had => ({ ...had, tile: size })); api.shoot.setSecond({ tile: size }); }}
+              onOpen={photo => patch({ ghost: { ...shoot.ghost, file: photo.webp || photo.file } })}
+            />
+          ) : (
           <div className={`sh-pair ${side && ghostUrl ? 'on' : ''}`}>
           <ShootView
             frame={frame}
@@ -730,6 +771,7 @@ export default function ShootModal({ onClose, standalone = false }: {
             </div>
           )}
           </div>
+          )}
 
           <div className="sh-shoot">
             <button
@@ -801,6 +843,7 @@ export default function ShootModal({ onClose, standalone = false }: {
             </button>
           </div>
 
+          {!(second.open && second.mode === 'live') && (
           <ShootGallery
             photos={photos}
             working={busy === 'shot'}
@@ -815,6 +858,7 @@ export default function ShootModal({ onClose, standalone = false }: {
             }}
             onGhost={photo => patch({ ghost: { ...shoot.ghost, file: photo.webp || photo.file } })}
           />
+          )}
         </main>
 
         <aside className="sh-side">
@@ -882,6 +926,65 @@ export default function ShootModal({ onClose, standalone = false }: {
               <div style={{ marginTop: 14 }}>
                 <ShootSettings connected={connected} onNote={note} />
               </div>
+
+              {/*
+                * Velká obrazovka se nabízí jen tam, kde je co použít.
+                * S jedním monitorem by to byla volba, která nic nedělá.
+                */}
+              {screens.length > 1 && (
+                <>
+                  <div className="sh-panel-head" style={{ marginTop: 14 }}>
+                    <b>Velká obrazovka</b>
+                  </div>
+                  <div className="sh-panel-note">
+                    Na monitoru u stolu bude přes celou plochu jedna věc; v tomhle
+                    okně ta druhá. Zavřením se všechno vrátí sem.
+                  </div>
+                  <label className="sh-field">
+                    <span>Monitor</span>
+                    <select
+                      value={second.displayId || (screens.find(one => !one.primary)?.id ?? 0)}
+                      onChange={e => setSecond(had => ({ ...had, displayId: Number(e.target.value) }))}
+                    >
+                      {screens.map(one => (
+                        <option key={one.id} value={one.id}>{one.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="sh-presets">
+                    <button
+                      className={second.open && second.mode === 'live' ? 'on' : ''}
+                      onClick={() => api.shoot.openSecond(
+                        second.displayId || (screens.find(one => !one.primary)?.id ?? 0), 'live')
+                        .then(setSecond)}
+                    >
+                      Náhled na velké
+                    </button>
+                    <button
+                      className={second.open && second.mode === 'grid' ? 'on' : ''}
+                      onClick={() => api.shoot.openSecond(
+                        second.displayId || (screens.find(one => !one.primary)?.id ?? 0), 'grid')
+                        .then(setSecond)}
+                    >
+                      Mřížka na velké
+                    </button>
+                    {second.open && (
+                      <button onClick={() => api.shoot.closeSecond().then(setSecond)}>
+                        Zavřít
+                      </button>
+                    )}
+                  </div>
+                  {second.open && second.mode === 'grid' && (
+                    <Slide
+                      label="Dlaždice" min={120} max={520} step={20} value={second.tile}
+                      onChange={value => {
+                        setSecond(had => ({ ...had, tile: value }));
+                        api.shoot.setSecond({ tile: value });
+                      }}
+                    />
+                  )}
+                </>
+              )}
 
               <CameraLog onNote={note} />
             </div>

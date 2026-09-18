@@ -14,6 +14,7 @@ import { refreshWatchers, restartWatchers } from './idle';
 import { restartWatchers as restartMediaWatchers } from './media';
 import { refreshTokens as refreshIgTokens } from './instagram/publish';
 import { closeCamera } from './shoot';
+import { closeSecondQuietly } from './shootsecond';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -352,4 +353,6 @@ app.on('window-all-closed', () => {
  */
 app.on('will-quit', () => {
   try { closeCamera(); } catch { /* focení se ani neotevřelo */ }
+  // Okno na druhé obrazovce je bez rámu — samo by se zavřít nedalo
+  try { closeSecondQuietly(); } catch { /* velká obrazovka nebyla otevřená */ }
 });

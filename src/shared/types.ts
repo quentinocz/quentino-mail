@@ -3410,6 +3410,29 @@ export interface ShootSettings {
   lastCamera: string;
 }
 
+/** Připojená obrazovka, na kterou se dá poslat velký náhled. */
+export interface ShootScreen {
+  id: number;
+  label: string;
+  primary: boolean;
+  width: number;
+  height: number;
+}
+
+/**
+ * Velká obrazovka u focení.
+ *
+ * `mode` říká, co je na **velké** obrazovce; v okně aplikace je vždy to
+ * druhé, aby se obojí vidělo zároveň.
+ */
+export interface ShootSecond {
+  open: boolean;
+  displayId: number;
+  mode: 'live' | 'grid';
+  /** Velikost dlaždice v mřížce, v bodech. */
+  tile: number;
+}
+
 export interface ShootState {
   tool: ShootTool;
   cameras: ShootCamera[];

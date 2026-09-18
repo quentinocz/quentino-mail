@@ -21,6 +21,7 @@ import type {
   ParamDictionary, ParamLookup, NewProductParamProposal, EurRate,
   ShopCategoryTree,
   Shoot, ShootPhoto, ShootState, ShootSettings, ShootCamera, CameraSetting,
+  ShootSecond, ShootScreen,
   CleanupItem, CleanupScan,
   ProductDetail, ScanHit, CatalogSuggestion, StockinSession, StockinItem, StockinPlanRow, SkippedRow, LabelLayout,
   RollLabel, ZplPlan, LiveStatus, LiveOffer, ShorthandRow, ShorthandView,
@@ -1138,7 +1139,23 @@ export const api = {
     /** Focení má vlastní okno, aby se u něj dala vyřizovat pošta */
     window: () => call<boolean>('shoot:window'),
     windowOpen: () => call<boolean>('shoot:windowOpen'),
-    closeWindow: () => call<boolean>('shoot:closeWindow')
+    closeWindow: () => call<boolean>('shoot:closeWindow'),
+
+    /**
+     * Velká obrazovka u stolu s fotoaparátem.
+     *
+     * `mode` říká, co je na **ní**; v okně aplikace je vždy to druhé.
+     * Bez druhého monitoru se nic z toho nepoužívá a okno zůstává celé.
+     */
+    screens: () => call<ShootScreen[]>('shoot:screens'),
+    secondState: () => call<ShootSecond>('shoot:secondState'),
+    openSecond: (displayId: number, mode: ShootSecond['mode']) =>
+      call<ShootSecond>('shoot:openSecond', displayId, mode),
+    closeSecond: () => call<ShootSecond>('shoot:closeSecond'),
+    setSecond: (patch: Partial<ShootSecond>) => call<ShootSecond>('shoot:setSecond', patch),
+
+    /** Které focení je otevřené — sdílí se mezi okny */
+    current: (id?: string) => call<string>('shoot:current', id)
   },
 
   on: (channel: string, cb: (payload: any) => void) => window.api.on(channel, cb)

@@ -205,6 +205,22 @@ export function closeCamera(): void {
   allPaths = [];
 }
 
+/**
+ * Které focení je otevřené.
+ *
+ * Drží se v hlavním procesu, ne v okně: velká obrazovka je vlastní okno
+ * a musí ukazovat totéž focení jako to hlavní. Kdyby si to každé okno
+ * pamatovalo samo, ukazovala by velká obrazovka po přepnutí série pořád
+ * tu starou.
+ */
+export function currentShoot(id?: string): string {
+  if (id !== undefined) {
+    setSetting('shootCurrent', id);
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send('shoot:current', id);
+  }
+  return getSetting('shootCurrent', '') ?? '';
+}
+
 /** Posledních pár příkazů i s odpovědí — k poslání, když se něco pokazí. */
 export function cameraLog() {
   return session.log();

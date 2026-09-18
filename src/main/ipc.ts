@@ -19,6 +19,7 @@ import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersN
 import * as live from './live';
 import * as shoot from './shoot';
 import { openShootWindow, closeShootWindow, shootWindowOpen } from './shootwindow';
+import * as bigscreen from './shootsecond';
 import { shorthandRows, saveShorthand, shorthandScope, shortsForCodes } from './shorthand';
 import { liveOffers, dismissOffer, watchLive } from './livework';
 import { scanOld, freeUp } from './cleanup';
@@ -640,6 +641,19 @@ export function registerIpc() {
   handle('shoot:window', () => openShootWindow());
   handle('shoot:windowOpen', () => shootWindowOpen());
   handle('shoot:closeWindow', () => closeShootWindow());
+  /*
+   * Velká obrazovka u stolu s fotoaparátem. Na ní je přes celou plochu
+   * jedna věc — náhled nebo mřížka — a v okně aplikace ta druhá. Bez
+   * druhého monitoru se nic nemění: okno zůstává, jak bylo.
+   */
+  handle('shoot:screens', () => bigscreen.screens());
+  handle('shoot:secondState', () => bigscreen.secondSetup());
+  handle('shoot:openSecond', (displayId: number, mode: any) =>
+    bigscreen.openSecond(Number(displayId) || 0, mode === 'grid' ? 'grid' : 'live'));
+  handle('shoot:closeSecond', () => bigscreen.closeSecond());
+  handle('shoot:setSecond', (patch: any) => bigscreen.setSecond(patch ?? {}));
+  // Které focení je otevřené — obě okna musí ukazovat totéž
+  handle('shoot:current', (id?: string) => shoot.currentShoot(id));
 
   /* ---------- texty na webu ---------- */
   handle('webtexts:state', () => webtexts.webTextsState());

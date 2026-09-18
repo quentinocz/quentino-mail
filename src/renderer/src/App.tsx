@@ -4,6 +4,7 @@ import { isOutgoingFolder } from '@shared/folders';
 import { api } from './api';
 import { ToastProvider, useToast } from './toast';
 import ShootModal from './components/ShootModal';
+import ShootBig from './components/ShootBig';
 import Sidebar, { View } from './components/Sidebar';
 import Icon from './components/Icon';
 import MessageList from './components/MessageList';
@@ -657,6 +658,14 @@ function standaloneWindow(): string {
 }
 
 export default function App() {
+  /*
+   * Velká obrazovka u stolu s fotoaparátem. Je to tentýž balík skriptů,
+   * jen se v adrese předá `#foceni-velka` a vykreslí se jen obsah bez
+   * ovládání — u stolu se drží fotoaparát, ne myš.
+   */
+  if (standaloneWindow() === 'foceni-velka') {
+    return <ShootBig />;
+  }
   if (standaloneWindow() === 'foceni') {
     return (
       <ToastProvider>

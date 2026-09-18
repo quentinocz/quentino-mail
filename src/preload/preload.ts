@@ -125,6 +125,8 @@ const ALLOWED_INVOKE = [
   'shoot:photos', 'shoot:savePhoto', 'shoot:dropPhoto', 'shoot:bytes', 'shoot:read', 'shoot:view',
   'shoot:folder', 'shoot:ghost', 'shoot:reveal', 'shoot:openFolder',
   'shoot:window', 'shoot:windowOpen', 'shoot:closeWindow',
+  'shoot:screens', 'shoot:secondState', 'shoot:openSecond', 'shoot:closeSecond',
+  'shoot:setSecond', 'shoot:current',
   'ship:notes',
   'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
@@ -139,7 +141,7 @@ const ALLOWED_EVENTS = [
   'articles:progress', 'articles:changed', 'articles:check',
   'media:progress', 'media:incoming', 'media:watched',
   // Snímek náhledu chodí jako bajty; data URL by za vteřinu nasypala megabajty řetězců
-  'shoot:frame', 'shoot:live', 'shoot:photo',
+  'shoot:frame', 'shoot:live', 'shoot:photo', 'shoot:second', 'shoot:current',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
   'stockin:changed', 'stockin:progress', 'invoices:progress', 'invoices:ready', 'scan:code', 'scan:qty', 'scan:closed',
   'live:state', 'live:offers', 'live:work', 'packing:changed'

@@ -1819,7 +1819,19 @@
     rest: ['/main/status/batterylevel', '/main/other/d402'],
     error: ''
   };
-  window.__shoot = { state: shootState, shoot: shootOne, photos: shootPhotos };
+  /*
+   * Velká obrazovka. Náhled si počet monitorů podstrčí přes
+   * `window.__shootScreens` — s jedním monitorem se volba vůbec nenabízí
+   * a okno musí vypadat jako vždycky.
+   */
+  var shootSecond = { open: false, displayId: 2, mode: 'live', tile: 220 };
+  answers['shoot:secondState'] = shootSecond;
+  answers['shoot:screens'] = [
+    { id: 1, label: '1512 × 982 (hlavní)', primary: true, width: 1512, height: 982 },
+    { id: 2, label: '2560 × 1440', primary: false, width: 2560, height: 1440 }
+  ];
+  answers['shoot:current'] = 's1';
+  window.__shoot = { state: shootState, shoot: shootOne, photos: shootPhotos, second: shootSecond };
 
   // Náhledy si potřebují data upravit za běhu (např. „právě doběhl překlad")
   window.__answers = answers;
@@ -1855,6 +1867,27 @@
        * ne návratovou hodnotou — stub to musí dělat stejně, jinak by se
        * nepoznalo, že se tlačítko zasekne.
        */
+      if (channel === 'shoot:openSecond') {
+        shootSecond.open = true;
+        shootSecond.displayId = arguments[1];
+        shootSecond.mode = arguments[2];
+        window.__emit('shoot:second', Object.assign({}, shootSecond));
+        return Promise.resolve({ ok: true, data: Object.assign({}, shootSecond) });
+      }
+      if (channel === 'shoot:closeSecond') {
+        shootSecond.open = false;
+        window.__emit('shoot:second', Object.assign({}, shootSecond));
+        return Promise.resolve({ ok: true, data: Object.assign({}, shootSecond) });
+      }
+      if (channel === 'shoot:setSecond') {
+        Object.assign(shootSecond, arguments[1] || {});
+        window.__emit('shoot:second', Object.assign({}, shootSecond));
+        return Promise.resolve({ ok: true, data: Object.assign({}, shootSecond) });
+      }
+      if (channel === 'shoot:screens') {
+        return Promise.resolve({ ok: true,
+          data: window.__shootScreens || answers['shoot:screens'] });
+      }
       if (channel === 'shoot:live') {
         shootState.live = !!arguments[1];
         /*

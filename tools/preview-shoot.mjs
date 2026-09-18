@@ -497,6 +497,66 @@ await page.waitForTimeout(600);
 }
 await snap('06-kamera');
 
+/* ---------- velká obrazovka ---------- */
+
+/*
+ * S druhým monitorem je na něm přes celou plochu jedna věc a v okně ta
+ * druhá. Bez druhého monitoru se volba vůbec nenabízí a okno zůstává
+ * celé — druhý monitor je dobrovolný, ne podmínka.
+ */
+await page.locator('.sh-tabs button', { hasText: 'Kamera' }).click();
+await page.waitForTimeout(400);
+{
+  say('volba velké obrazovky je vidět',
+    await page.locator('.sh-panel', { hasText: 'VELKÁ OBRAZOVKA' }).count() === 1);
+
+  await page.locator('.sh-presets button', { hasText: 'Náhled na velké' }).click();
+  await page.waitForTimeout(600);
+  say('náhled zmizel z okna', await page.locator('.sh-stage').count() === 0);
+  say('a místo něj je mřížka', await page.locator('.sh-grid').count() === 1);
+  say('pás náhledů se neukazuje dvakrát', await page.locator('.sh-strip').count() === 0);
+  // Kreslit není do čeho, takže lišta nástrojů nemá co zabírat místo
+  say('lišta kreslení zmizela s náhledem', await page.locator('.sh-tools').count() === 0);
+  await snap('13-velka-nahled');
+
+  await page.locator('.sh-presets button', { hasText: 'Mřížka na velké' }).click();
+  await page.waitForTimeout(600);
+  say('s mřížkou na velké je v okně náhled', await page.locator('.sh-stage').count() === 1);
+  say('a dlaždice se dají zvětšit',
+    await page.locator('.sh-panel input[type=range]').count() > 0);
+
+  await page.locator('.sh-presets button', { hasText: 'Zavřít' }).click();
+  await page.waitForTimeout(600);
+  say('po zavření je v okně zase všechno',
+    await page.locator('.sh-stage').count() === 1 && await page.locator('.sh-strip').count() === 1);
+}
+await snap('14-velka-zavrena');
+
+/*
+ * Jeden monitor. Podstrčí se **před** načtením stránky — panel si počet
+ * obrazovek čte při vzniku, takže pozdější změna by se nikam neprojevila.
+ */
+await page.addInitScript(() => {
+  window.__shootScreens = [
+    { id: 1, label: '1512 × 982 (hlavní)', primary: true, width: 1512, height: 982 }
+  ];
+});
+await page.reload({ waitUntil: 'load' });
+await page.waitForTimeout(1400);
+await page.evaluate(bytes => {
+  window.__emit('shoot:frame', new Uint8Array(bytes));
+  window.__shootFile = new Uint8Array(bytes);
+}, [...FRAME]);
+await page.waitForTimeout(500);
+{
+  await page.locator('.sh-tabs button', { hasText: 'Kamera' }).click();
+  await page.waitForTimeout(500);
+  say('s jedním monitorem se volba nenabízí',
+    await page.locator('.sh-panel', { hasText: 'VELKÁ OBRAZOVKA' }).count() === 0);
+  say('a v okně je náhled i pás',
+    await page.locator('.sh-stage').count() === 1 && await page.locator('.sh-strip').count() === 1);
+}
+
 /* ---------- nic nepřetéká ---------- */
 
 for (const tab of ['Kamera', 'Šablona', 'Barvy', 'Soubor']) {
