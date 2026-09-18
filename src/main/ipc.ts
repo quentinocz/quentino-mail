@@ -18,7 +18,8 @@ import { searchContacts } from './contacts';
 import { getSyncConfig, saveSyncConfig, runSync, pushVouchersSoon, syncVouchersNow } from './appsync';
 import * as live from './live';
 import * as shoot from './shoot';
-import { openShootWindow, closeShootWindow, shootWindowOpen } from './shootwindow';
+import { openToolWindow, closeToolWindow, toolWindowOpen, openTools, takeToolArg,
+  gotoInMain } from './toolwindow';
 import * as bigscreen from './shootsecond';
 import { shorthandRows, saveShorthand, shorthandScope, shortsForCodes } from './shorthand';
 import { liveOffers, dismissOffer, watchLive } from './livework';
@@ -636,11 +637,12 @@ export function registerIpc() {
   handle('shoot:openFolder', (id: string) => shoot.openFolder(id ?? ''));
   /*
    * Focení běží ve vlastním okně, aby se u něj dala vyřizovat pošta. Otevírá
-   * se odsud, protože okno smí vytvořit jen hlavní proces.
+   * se odsud, protože okno smí vytvořit jen hlavní proces. Stejnou cestou
+   * dnes jdou i ostatní nástroje — kanály `tool:` níž.
    */
-  handle('shoot:window', () => openShootWindow());
-  handle('shoot:windowOpen', () => shootWindowOpen());
-  handle('shoot:closeWindow', () => closeShootWindow());
+  handle('shoot:window', () => openToolWindow('shoot'));
+  handle('shoot:windowOpen', () => toolWindowOpen('shoot'));
+  handle('shoot:closeWindow', () => closeToolWindow('shoot'));
   /*
    * Velká obrazovka u stolu s fotoaparátem. Na ní je přes celou plochu
    * jedna věc — náhled nebo mřížka — a v okně aplikace ta druhá. Bez
@@ -654,6 +656,25 @@ export function registerIpc() {
   handle('shoot:setSecond', (patch: any) => bigscreen.setSecond(patch ?? {}));
   // Které focení je otevřené — obě okna musí ukazovat totéž
   handle('shoot:current', (id?: string) => shoot.currentShoot(id));
+
+  /* ---------- okna nástrojů ---------- */
+  /*
+   * Každý nástroj z nabídky Funkce má vlastní okno. Otevřít ho smí jen
+   * hlavní proces; rozhraní odsud jen řekne který a případně na co se má
+   * okno rovnou podívat.
+   */
+  handle('tool:open', (id: string, arg?: string) => openToolWindow(String(id ?? ''), String(arg ?? '')));
+  handle('tool:close', (id: string) => closeToolWindow(String(id ?? '')));
+  handle('tool:open?', (id: string) => toolWindowOpen(String(id ?? '')));
+  handle('tool:list', () => openTools());
+  handle('tool:arg', (id: string) => takeToolArg(String(id ?? '')));
+  /*
+   * Skok do pošty nebo chatu z okna nástroje. Přehled dne i balení odkazují
+   * na zprávu, které se věc týká — ta je ale v hlavním okně, takže se musí
+   * vytáhnout dopředu a teprve pak se mu řekne, co otevřít.
+   */
+  handle('tool:goto', (kind: any, id: string) =>
+    gotoInMain(kind === 'chat' ? 'chat' : 'message', String(id ?? '')));
 
   /* ---------- texty na webu ---------- */
   handle('webtexts:state', () => webtexts.webTextsState());

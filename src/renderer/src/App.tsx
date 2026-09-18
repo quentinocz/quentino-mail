@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AccountPublic, FolderInfo, MessageHeader, MessageFull, Settings, Category, MessageSort, ListFilters } from '@shared/types';
 import { isOutgoingFolder } from '@shared/folders';
+import { toolWindow, toolWindowByHash } from '@shared/windows';
 import { api } from './api';
 import { ToastProvider, useToast } from './toast';
-import ShootModal from './components/ShootModal';
 import ShootBig from './components/ShootBig';
+import ToolWindow from './components/ToolWindow';
 import Sidebar, { View } from './components/Sidebar';
 import Icon from './components/Icon';
 import MessageList from './components/MessageList';
@@ -16,11 +17,6 @@ import OutboxModal from './components/OutboxModal';
 import TooltipLayer from './components/TooltipLayer';
 import DigestModal from './components/DigestModal';
 import PackingModal from './components/PackingModal';
-import ProductsModal from './components/ProductsModal';
-import ArticlesModal from './components/ArticlesModal';
-import WebTextsModal from './components/WebTextsModal';
-import MediaModal from './components/MediaModal';
-import ReviewsModal from './components/ReviewsModal';
 import { handleIncoming } from './media';
 import CatalogModal from './components/CatalogModal';
 import PtransStatusBar from './components/PtransStatusBar';
@@ -30,6 +26,7 @@ import ChatWorkspace from './components/chat/ChatWorkspace';
 import type { Workspace, AiTool } from './components/WorkspaceSwitch';
 import { SidebarResizer, useSidebarWidth } from './sidebar';
 import { useIsPhone } from './mobile';
+import { useOpenTools } from './toolwindows';
 import { useEdgeBack } from './gestures';
 import MobileTabs from './components/MobileTabs';
 import { viewTitle, viewUnread } from './viewtitle';
@@ -56,10 +53,6 @@ function AppInner() {
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [digestOpen, setDigestOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
-  /** Naskladnění, na které se má skočit z proužku s prací z telefonu */
-  const [liveStockin, setLiveStockin] = useState<string | null>(null);
-  /** Objednávka, na kterou se má skočit z proužku s prací z telefonu */
-  const [livePacking, setLivePacking] = useState<string | null>(null);
   /** Konverzace, na kterou se má skočit z přehledu dne */
   const [digestChat, setDigestChat] = useState<string | null>(null);
   // Nástroje pod záložkou AI: překlady a články. Otevírají se přes celé okno,
@@ -80,23 +73,31 @@ function AppInner() {
   // Chat a pod ním zůstal viset panel složek
   useEffect(() => { setDrawer(false); }, [workspace]);
 
-  // Nabídka AI je ve všech prostorech; Instagram je vlastní prostor, zbytek
-  // jsou okna nad tím, ve kterém zrovna jsi
+  /** Nástroje, které mají zrovna otevřené okno — co je otevřené, se nenabízí */
+  const openTools = useOpenTools();
+
+  /**
+   * Nástroj z nabídky Funkce.
+   *
+   * Na počítači se otevře ve vlastním okně. Dřív se kreslil přes celé okno
+   * aplikace a pod ním zůstala schovaná pošta — katalog u regálu, balení
+   * objednávek i překlady běží klidně hodinu a po tu dobu se k poště nedalo
+   * jinak než nástroj zavřít. Ve vlastním okně se přepíná v doku a obojí
+   * běží vedle sebe.
+   *
+   * Telefon okna nemá, tam se pořád otevírá přes celou obrazovku.
+   */
   const openAiTool = useCallback((tool: AiTool) => {
     setDrawer(false);
-    // Sociální sítě jsou vlastní prostor, přehled dne a balení mají vlastní
-    // okna; zbytek se otevírá přes `aiTool`
+    // Sociální sítě jsou vlastní prostor, ne nástroj
     if (tool === 'instagram') { setWorkspace('instagram'); return; }
+    const own = toolWindow(tool);
+    if (!phone && own) { api.tool.open(own.id).catch(() => {}); return; }
     if (tool === 'digest') { setDigestOpen(true); return; }
     if (tool === 'packing') { setPackingOpen(true); return; }
-    /*
-     * Focení má vlastní okno aplikace. Trvá hodinu a po celou tu dobu musí
-     * být vidět náhled — v modálu by se u něj nedala vyřizovat pošta a
-     * každé zavření by náhled zhaslo.
-     */
-    if (tool === 'shoot') { api.shoot.window(); return; }
     setAiTool(tool);
-  }, []);
+  }, [phone]);
+
 
   /*
    * Tah od levého okraje = zpět.
@@ -298,6 +299,21 @@ function AppInner() {
   useEffect(() => api.on('chat:open', () => setWorkspace('chat')), []);
 
   /*
+   * Skok z okna nástroje zpátky do pošty nebo chatu.
+   *
+   * Přehled dne i balení odkazují na zprávu, které se věc týká. Dokud byly
+   * překryvem nad poštou, stačilo překryv zavřít; ve vlastním okně je pošta
+   * jinde — okno proto požádá hlavní proces, ten vytáhne dopředu tohle okno
+   * a pošle sem, co otevřít.
+   */
+  useEffect(() => api.on('app:goto', (p: any) => {
+    if (p?.kind === 'chat') { setDigestChat(String(p.id ?? '')); setWorkspace('chat'); return; }
+    setWorkspace('mail');
+    const id = Number(p?.id);
+    if (Number.isFinite(id) && id > 0) openMessage(id);
+  }), [openMessage]);
+
+  /*
    * Hlídané složky pro focení.
    *
    * Posluchač bydlí tady, ne v modulu konvertoru — celý smysl je, že se
@@ -344,19 +360,22 @@ function AppInner() {
   }, [workspace, pendingEmail, activeAccountId]);
 
   /**
-   * Okna nástrojů AI a pruh s průběhem překladu. Jsou stejná ve všech
-   * prostorech — proto se vykreslují z jednoho místa a ne v každé větvi zvlášť.
+   * Nástroje na telefonu a pruhy s rozdělanou prací.
    *
-   * Překlady a články jsou jen na počítači: na malé obrazovce se dělat nedají
-   * a nativní obal pro ně nemá kanály. Bez téhle pojistky by se hned po
-   * spuštění zeptal na průběh překladu a dostal chybu.
-   *
-   * Katalog je naopak i na telefonu — naskladnění se dělá u regálu, ne u stolu.
+   * Na počítači má každý nástroj vlastní okno (`openAiTool`), takže se tady
+   * nevykresluje nic z toho — jen pruhy, které do pošty patří. Telefon okna
+   * nemá, tam se nástroj otevře přes celou obrazovku; nabízí se na něm jen
+   * katalog, balení a přehled dne, zbytek se na malé obrazovce dělat nedá.
    */
   const aiLayer = (
     <>
+      {/*
+        * Rozdělaná práce z telefonu se nabízí jen na počítači (`LiveOfferBar`
+        * níž) a otevře rovnou okno toho nástroje — tady proto není na co
+        * skákat a nástroj se otevře od začátku.
+        */}
       {aiTool === 'catalog' && (
-        <CatalogModal openStockin={liveStockin} onClose={() => { setAiTool(null); setLiveStockin(null); }} />
+        <CatalogModal openStockin={null} onClose={() => setAiTool(null)} />
       )}
       {/* AI přehled a balení se otevírají z nabídky Funkce, která je ve všech
           prostorech — proto se kreslí tady, ne jen v poště */}
@@ -374,8 +393,8 @@ function AppInner() {
       )}
       {packingOpen && (
         <PackingModal
-          openOrder={livePacking}
-          onClose={() => { setPackingOpen(false); setLivePacking(null); }}
+          openOrder={null}
+          onClose={() => setPackingOpen(false)}
           onOpenMessage={id => {
             setPackingOpen(false);
             setWorkspace('mail');
@@ -385,21 +404,17 @@ function AppInner() {
       )}
       {!phone && (
         <>
-          {aiTool === 'ptrans' && <ProductsModal onClose={() => setAiTool(null)} />}
-          {aiTool === 'articles' && <ArticlesModal onClose={() => setAiTool(null)} />}
-          {aiTool === 'webtexts' && <WebTextsModal onClose={() => setAiTool(null)} />}
-          {aiTool === 'media' && <MediaModal onClose={() => setAiTool(null)} />}
-          {aiTool === 'reviews' && <ReviewsModal onClose={() => setAiTool(null)} />}
-          <PtransStatusBar hidden={aiTool ?? undefined} onOpen={tool => setAiTool(tool)} />
+          {/* Nabízet otevření toho, co už je otevřené v jiném okně, nemá smysl */}
+          <PtransStatusBar hidden={openTools} onOpen={tool => { api.tool.open(tool).catch(() => {}); }} />
           {/*
             * Rozdělaná práce z telefonu. Nabízí se, nevnucuje — a když je
             * příslušné okno stejně otevřené, není co nabízet.
             */}
           <LiveOfferBar
-            hidden={aiTool === 'catalog' || packingOpen}
+            hidden={openTools.includes('catalog') || openTools.includes('packing')}
             onOpen={one => {
-              if (one.kind === 'stockin') { setLiveStockin(one.id); setAiTool('catalog'); }
-              else { setLivePacking(one.id); setPackingOpen(true); }
+              // Okno se otevře rovnou na tom, co se rozdělalo v telefonu
+              api.tool.open(one.kind === 'stockin' ? 'catalog' : 'packing', one.id).catch(() => {});
             }}
           />
         </>
@@ -647,29 +662,32 @@ function AppInner() {
 }
 
 /**
- * Focení běží ve vlastním okně aplikace.
+ * Nástroje běží ve vlastních oknech aplikace.
  *
  * Je to tentýž balík skriptů i tentýž preload; okno se pozná jen podle
- * `#foceni` v adrese a vykreslí se v něm jen focení. Druhý vstupní bod by
- * znamenal druhý build a dvě místa, kde se zapojují kanály.
+ * textu za mřížkou v adrese a vykreslí se v něm jen ten jeden nástroj.
+ * Druhý vstupní bod by znamenal druhý build a dvě místa, kde se zapojují
+ * kanály.
  */
 function standaloneWindow(): string {
   return typeof window === 'undefined' ? '' : (window.location.hash || '').replace('#', '');
 }
 
 export default function App() {
+  const hash = standaloneWindow();
   /*
    * Velká obrazovka u stolu s fotoaparátem. Je to tentýž balík skriptů,
    * jen se v adrese předá `#foceni-velka` a vykreslí se jen obsah bez
    * ovládání — u stolu se drží fotoaparát, ne myš.
    */
-  if (standaloneWindow() === 'foceni-velka') {
+  if (hash === 'foceni-velka') {
     return <ShootBig />;
   }
-  if (standaloneWindow() === 'foceni') {
+  const tool = toolWindowByHash(hash);
+  if (tool) {
     return (
       <ToastProvider>
-        <ShootModal standalone onClose={() => window.close()} />
+        <ToolWindow id={tool.id} />
       </ToastProvider>
     );
   }

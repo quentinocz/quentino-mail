@@ -31,6 +31,7 @@ import type {
   MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow,
   MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload
 } from '@shared/types';
+import type { ToolWindowId } from '@shared/windows';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
 export interface LabelItemRow {
@@ -1156,6 +1157,24 @@ export const api = {
 
     /** Které focení je otevřené — sdílí se mezi okny */
     current: (id?: string) => call<string>('shoot:current', id)
+  },
+
+  /**
+   * Okna nástrojů. Každá funkce z nabídky se otevírá ve vlastním okně, aby
+   * se vedle ní dalo dál pracovat s poštou.
+   */
+  tool: {
+    /** `arg` je, na co se má okno rovnou podívat — objednávka, naskladnění */
+    open: (id: ToolWindowId, arg = '') => call<boolean>('tool:open', id, arg),
+    close: (id: ToolWindowId) => call<boolean>('tool:close', id),
+    isOpen: (id: ToolWindowId) => call<boolean>('tool:open?', id),
+    /** Které nástroje mají otevřené okno — kvůli zvýraznění v nabídce */
+    list: () => call<ToolWindowId[]>('tool:list'),
+    /** Přečte se jednou, při otevření okna */
+    arg: (id: ToolWindowId) => call<string>('tool:arg', id),
+    /** Skok do pošty nebo chatu v hlavním okně */
+    goto: (kind: 'message' | 'chat', id: string | number) =>
+      call<boolean>('tool:goto', kind, String(id))
   },
 
   on: (channel: string, cb: (payload: any) => void) => window.api.on(channel, cb)

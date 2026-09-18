@@ -2,6 +2,8 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
 import { SIDE_COMPACT, useSidebarWidth } from '../sidebar';
 import { useIsPhone } from '../mobile';
+import { useOpenTools } from '../toolwindows';
+import type { ToolWindowId } from '@shared/windows';
 
 export type Workspace = 'mail' | 'chat' | 'instagram';
 
@@ -94,6 +96,8 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
   const compact = useSidebarWidth() < SIDE_COMPACT;
   const phone = useIsPhone();
   const tools = AI_TOOLS.filter(tool => !(phone && tool.desktopOnly));
+  // Otevřené okno nástroje drží záložku Funkce zvýrazněnou, i když je pošta vepředu
+  const openTools = useOpenTools();
   /*
    * Na telefonu se mezi prostory přepíná spodní lištou, takže z přepínače
    * zbývá jen „Funkce" — bez něj by se na telefon nedalo dostat do katalogu,
@@ -118,7 +122,7 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
     };
   }, [menu]);
 
-  const aiActive = current === 'instagram' || !!activeTool;
+  const aiActive = current === 'instagram' || !!activeTool || openTools.length > 0;
 
   return (
     <div className={`ig-switch ${compact ? 'compact' : ''}`} ref={box}>
@@ -172,6 +176,13 @@ export function FunctionsMenu({ activeTool, onPick, highlightInstagram = false, 
   className?: string;
 }) {
   const phone = useIsPhone();
+  /*
+   * Nástroj otevřený ve vlastním okně se zvýrazní stejně jako ten, který je
+   * zrovna přes obrazovku. Bez toho se v nabídce nedá poznat, co už někde
+   * běží, a okno se hledá znovu — nebo se klepnutím jen vytáhne dopředu a
+   * vypadá to, že se nestalo nic.
+   */
+  const openTools = useOpenTools();
   const tools = AI_TOOLS.filter(tool => !(phone && tool.desktopOnly));
 
   return (
@@ -181,7 +192,9 @@ export function FunctionsMenu({ activeTool, onPick, highlightInstagram = false, 
           {index > 0 && tools[index - 1].group !== tool.group ? <hr className="ws-sep" /> : null}
           <button
             className={'ws-menu-item '
-              + ((tool.id === 'instagram' ? highlightInstagram : activeTool === tool.id) ? 'on' : '')}
+              + ((tool.id === 'instagram'
+                ? highlightInstagram
+                : activeTool === tool.id || openTools.includes(tool.id as ToolWindowId)) ? 'on' : '')}
             onClick={() => onPick(tool.id)}
           >
             <Icon name={tool.icon} size={15} style={{ color: tool.color }} />

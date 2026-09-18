@@ -614,7 +614,9 @@ const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
   // Převod fotek a videí potřebuje soubory na disku a ffmpeg — telefon nemá ani jedno
   'media:',
   // Focení drží USB relaci s fotoaparátem přes gphoto2 — to je věc počítače
-  'shoot:'];
+  'shoot:',
+  // Okna nástrojů: telefon okna nemá, nástroj se na něm otevře přes obrazovku
+  'tool:'];
 const DESKTOP_ONLY = [
   'app:version',
   // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači

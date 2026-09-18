@@ -8711,3 +8711,34 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   .sh-body { flex-direction: column; }
   .sh-side { flex: 0 0 auto; max-height: 42vh; border-left: none; border-top: 1px solid #2a2a33; }
 }
+
+/* ---------- okno nástroje ---------- */
+/*
+ * Nástroj ve vlastním okně.
+ *
+ * Nástroje jsou psané jako překryv nad aplikací: ztmavené pozadí, uprostřed
+ * plovoucí panel se zaoblenými rohy a stínem. Ve vlastním okně už pod nimi
+ * nic není, co by se dalo ztmavovat — zbyl by rám kolem dokola a stín do
+ * prázdna. První překryv v okně se proto roztáhne přes celou plochu.
+ *
+ * Platí to jen pro ten první: dialogy, které si nástroj otevře sám nad
+ * sebou (potvrzení, náhled skriptu), zůstávají plovoucí, jak mají být.
+ *
+ * `!important` je tu kvůli tomu, že si některé nástroje šířku panelu
+ * nastavují přímo v atributu `style` podle vlastní volby „normální/přes
+ * celé" — a tu by třída nepřebila.
+ */
+.okno-nastroje #root > .overlay {
+  position: static;
+  background: none;
+  backdrop-filter: none;
+  height: 100%;
+}
+.okno-nastroje #root > .overlay > .modal {
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  max-height: none !important;
+  border-radius: 0;
+  box-shadow: none;
+}

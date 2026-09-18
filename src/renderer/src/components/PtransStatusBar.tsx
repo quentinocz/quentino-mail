@@ -35,7 +35,11 @@ function humanEta(seconds: number | null): string {
 
 export default function PtransStatusBar({ hidden, onOpen }: {
   /** Který nástroj je otevřený — pro ten se pruh neukazuje */
-  hidden?: string | boolean;
+  /**
+   * Co se nemá nabízet. Buď jeden nástroj, nebo seznam — od chvíle, kdy má
+   * každý nástroj vlastní okno, jich může být otevřených několik naráz.
+   */
+  hidden?: string | boolean | string[];
   onOpen: (kind: Kind) => void;
 }) {
   const [ptrans, setPtrans] = useState<PtransProgress | null>(null);
@@ -85,6 +89,7 @@ export default function PtransStatusBar({ hidden, onOpen }: {
 
   if (!line) return null;
   if (hidden === true || hidden === line.kind) return null;
+  if (Array.isArray(hidden) && hidden.includes(line.kind)) return null;
 
   const stop = () => {
     setStopping(true);

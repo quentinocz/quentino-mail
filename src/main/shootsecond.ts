@@ -149,6 +149,15 @@ export function openSecond(displayId: number, mode: ShootSecond['mode']): ShootS
     }
   });
 
+  /*
+   * Jméno okna si drží aplikace, ne stránka: všechna okna načítají tentýž
+   * `index.html` a z jeho `<title>` by se i tady stalo „Quentino App".
+   * V doku a v nabídce Okno pak byla dvě stejná jména a nedalo se poznat,
+   * které je které.
+   */
+  secondWindow.on('page-title-updated', event => { event.preventDefault(); });
+  secondWindow.setTitle('Focení — velká obrazovka');
+
   secondWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http')) shell.openExternal(url);
     return { action: 'deny' };

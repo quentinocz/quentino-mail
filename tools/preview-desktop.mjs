@@ -50,7 +50,52 @@ await page.addInitScript(() => {
 await page.goto('http://localhost:4322/index.html', { waitUntil: 'load' });
 await page.waitForTimeout(900);
 
+/*
+ * Nástroje z nabídky Funkce mají vlastní okno aplikace. Prohlížeč okna
+ * neotevírá, takže se náhled místo klepnutí v nabídce přepne rovnou na
+ * adresu toho okna — je to tentýž balík skriptů a v okně se vykreslí
+ * přesně to, co by vykreslilo v aplikaci.
+ *
+ * Sociální sítě v seznamu nejsou schválně: to není nástroj, ale pracovní
+ * prostor v hlavním okně, a ten se pořád přepíná klepnutím.
+ */
+const NASTROJE = {
+  'Produkty a překlady': 'produkty', 'Články': 'clanky', 'AI Přehled': 'prehled',
+  'Balení objednávek': 'baleni', 'Katalog a naskladnění': 'katalog',
+  'Texty na webu': 'texty', 'Recenze zákazníků': 'recenze', 'Konvertor médií': 'media'
+};
+const vOkneNastroje = () => page.url().includes('#');
+/*
+ * Po adrese se musí stránka načíst znovu.
+ *
+ * Změna textu za mřížkou je pro prohlížeč pohyb uvnitř téže stránky — nic
+ * se nepřekreslí a v okně zůstane viset pošta. Aplikace o okno adresu
+ * nikdy nemění (okno se s ní rovnou otevře), takže tohle je čistě věc
+ * náhledu; bez `reload` náhled ukazoval poštu a tvrdil, že nástroj chybí.
+ */
+const doOkna = async hash => {
+  await page.goto(`http://localhost:4322/index.html#${hash}`, { waitUntil: 'load' });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(1000);
+};
+const doPosty = async () => {
+  await page.goto('http://localhost:4322/index.html', { waitUntil: 'load' });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(800);
+};
+
 const click = async (selector, options = {}) => {
+  // Nástroj z nabídky = vlastní okno, ne překryv nad poštou
+  if (selector === '.ws-menu-item' && NASTROJE[options.hasText]) {
+    await doOkna(NASTROJE[options.hasText]);
+    return;
+  }
+  /*
+   * Přepínač prostorů je jen v hlavním okně. Zavírací křížek nástroje
+   * v prohlížeči nic neudělá (`window.close()` na stránce, kterou nikdo
+   * neotevřel skriptem, se ignoruje), takže se sem náhled vrací sám.
+   */
+  if (selector.startsWith('.ig-switch') && vOkneNastroje()) await doPosty();
   try { await page.locator(selector, options).first().click({ timeout: 4000 }); }
   catch { problems.push(`nešlo kliknout: ${selector}${options.hasText ? ` (${options.hasText})` : ''}`); }
   await page.waitForTimeout(500);
@@ -398,13 +443,22 @@ await page.waitForTimeout(300);
 /*
  * Proužek s rozdělanou prací z telefonu. Nevyskakuje přes obrazovku — na
  * počítači může být rozepsaná odpověď zákazníkovi — jen se nabídne dole.
+ *
+ * Klepnutí má skončit u té krabice, ne v seznamu, kde se k ní musí doklikat.
+ * Od doby, co má každý nástroj vlastní okno, se to okno otevře rovnou na ní
+ * — okno v prohlížeči nevznikne, takže se kontroluje, že si o ně rozhraní
+ * řeklo i s číslem té práce.
  */
+const otevrelo = async (nastroj, popis) => {
+  const volani = await page.evaluate(() => (window.__calls || []).filter(one => one[0] === 'tool:open'));
+  const one = volani[volani.length - 1];
+  const ok = !!one && one[1] === nastroj && !!one[2];
+  console.log(`${popis.padEnd(28)} ${ok ? '✓' : '✗'} (${JSON.stringify(one ?? null)})`);
+};
+
 await overflow('proužek: práce z telefonu'); await snap('07c-zivy-prouzek');
-// Klepnutí má skončit u té krabice, ne v seznamu, kde se k ní musí doklikat
 await click('.live-offer .btn.primary');
-await overflow('proužek: pokračování u objednávky'); await snap('07d-zivy-otevreno');
-await click('.modal-head .icon-btn:last-child');
-await page.waitForTimeout(300);
+await otevrelo('packing', 'proužek otevře objednávku');
 
 // Totéž u naskladnění: proužek má otevřít tu relaci, na které se pracuje
 await page.evaluate(() => window.__emit('live:offers', [{
@@ -413,9 +467,7 @@ await page.evaluate(() => window.__emit('live:offers', [{
 }]));
 await page.waitForTimeout(200);
 await click('.live-offer .btn.primary');
-await overflow('proužek: pokračování u naskladnění'); await snap('07e-zivy-naskladneni');
-await click('.modal-head .icon-btn:last-child');
-await page.waitForTimeout(300);
+await otevrelo('catalog', 'proužek otevře naskladnění');
 
 /*
  * Balení: hledání podle čísla. Ze čtečky je to vždycky faktura — přepínač je

@@ -127,6 +127,8 @@ const ALLOWED_INVOKE = [
   'shoot:window', 'shoot:windowOpen', 'shoot:closeWindow',
   'shoot:screens', 'shoot:secondState', 'shoot:openSecond', 'shoot:closeSecond',
   'shoot:setSecond', 'shoot:current',
+  // Okna nástrojů: každá funkce z nabídky má vlastní okno aplikace
+  'tool:open', 'tool:close', 'tool:open?', 'tool:list', 'tool:arg', 'tool:goto',
   'ship:notes',
   'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
@@ -142,6 +144,8 @@ const ALLOWED_EVENTS = [
   'media:progress', 'media:incoming', 'media:watched',
   // Snímek náhledu chodí jako bajty; data URL by za vteřinu nasypala megabajty řetězců
   'shoot:frame', 'shoot:live', 'shoot:photo', 'shoot:second', 'shoot:current',
+  // Která okna nástrojů jsou otevřená, a skok z okna do pošty v hlavním okně
+  'tool:windows', 'tool:look', 'app:goto',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
   'stockin:changed', 'stockin:progress', 'invoices:progress', 'invoices:ready', 'scan:code', 'scan:qty', 'scan:closed',
   'live:state', 'live:offers', 'live:work', 'packing:changed'

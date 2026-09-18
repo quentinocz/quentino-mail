@@ -15,6 +15,7 @@ import { restartWatchers as restartMediaWatchers } from './media';
 import { refreshTokens as refreshIgTokens } from './instagram/publish';
 import { closeCamera } from './shoot';
 import { closeSecondQuietly } from './shootsecond';
+import { mainWindowMaker } from './toolwindow';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -187,7 +188,7 @@ function saveWindowState() {
   } catch { /* zapamatování okna není kritické */ }
 }
 
-function createWindow() {
+function createWindow(): BrowserWindow {
   const state = loadWindowState();
 
   mainWindow = new BrowserWindow({
@@ -245,7 +246,15 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../../renderer/index.html'));
   }
+  return mainWindow;
 }
+
+/*
+ * Okno nástroje umí skočit do pošty — a ta nemusí být otevřená. Na Macu
+ * aplikace běží dál i po zavření hlavního okna, takže by odkaz z přehledu
+ * dne neudělal nic. Okna nástrojů proto vědí, jak si hlavní okno vyžádat.
+ */
+mainWindowMaker(createWindow);
 
 // Nad jednou SQLite databází smí běžet jen jedna instance; druhé spuštění
 // jen probudí okno (a předá případný odkaz z prohlížeče).

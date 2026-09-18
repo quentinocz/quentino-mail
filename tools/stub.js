@@ -1842,6 +1842,19 @@
 
   window.api = {
     invoke: function (channel, arg) {
+      // Náhledy si na volání sahají: co se kam poslalo (okna nástrojů)
+      (window.__calls = window.__calls || []).push([channel].concat([].slice.call(arguments, 1)));
+      /*
+       * Okna nástrojů. V náhledu žádná nejsou — prohlížeč okna aplikace
+       * neotevírá — takže se jen zaznamená, že si o ně rozhraní řeklo.
+       */
+      if (channel === 'tool:list') return Promise.resolve({ ok: true, data: [] });
+      if (channel === 'tool:arg') {
+        return Promise.resolve({ ok: true, data: window.__toolArg || '' });
+      }
+      if (channel === 'tool:open' || channel === 'tool:close' || channel === 'tool:goto') {
+        return Promise.resolve({ ok: true, data: true });
+      }
       /*
        * Balení: na fotoaparát chodí dvojí kód a rozhraní je rozlišuje tím, že
        * nejdřív zkusí položku v objednávce. Samé číslice jsou faktura, takže
