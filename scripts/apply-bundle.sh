@@ -33,6 +33,20 @@ echo "· záloha současného stavu ve větvi $ZALOHA"
 git fetch "$BUNDLE" HEAD:prichozi-balicek -f
 echo "· balíček načten"
 
+# Už nasazený balíček se musí poznat a nechat být.
+#
+# Sloučení by samo o sobě neudělalo nic („Already up to date"), jenže o pár
+# řádků níž se soubory přepisují natvrdo — a starším balíčkem se tím celý
+# repozitář vrátí zpátky, aniž by o tom někdo věděl. Přesně to se stalo při
+# druhém spuštění se stejným souborem: HEAD zůstal na novém commitu, ale
+# v souborech byla zase stará verze a typecheck spadl na kód, který nikdo
+# nepsal.
+if git merge-base --is-ancestor prichozi-balicek HEAD; then
+  echo "· tenhle balíček už je nasazený, HEAD ho obsahuje — nic se nemění"
+  git log --oneline -1
+  exit 0
+fi
+
 # Při konfliktu vyhrává balíček; zbylé rozdíly se pak přebijí natvrdo, protože
 # merge umí u některých souborů nechat starou verzi a typecheck to odhalí až
 # na konci — to je přesně ta situace, kvůli které vznikl tenhle skript.
