@@ -149,10 +149,37 @@ for (const okno of OKNA) {
       // Kolik řádků drobným písmem pod číslem — víc než jeden se nedá přečíst
       subs: one.querySelectorAll('.dg-tile-sub').length
     }));
-    const grids = [...document.querySelectorAll('.dg-grid')].map(one => getComputedStyle(one).columnCount);
+    /*
+     * Karty v jednom řádku mřížky. Hlídá se poměr nejvyšší ku nejnižší:
+     * dvojnásobek ještě vypadá jako sloupec s víc řádky, trojnásobek už
+     * jako díra vedle krátké karty. Přesně to se stalo, když karta „Sítě"
+     * vyrostla přes celou obrazovku vedle pětiřádkových „Stavů".
+     */
+    const grids = [...document.querySelectorAll('.dg-grid')].map(one => {
+      const deti = [...one.children].map(d => Math.round(d.getBoundingClientRect().height))
+        .filter(h => h > 20);
+      return { deti, pomer: deti.length ? Math.max(...deti) / Math.min(...deti) : 1 };
+    });
+    // Sezóny: tři karty vedle sebe, ne tři odstavce pod sebou
+    const sezony = [...document.querySelectorAll('.dg-season')]
+      .map(one => Math.round(one.getBoundingClientRect().top));
+    // Čísla v kartě musí začínat na stejné svislici, jinak se pruhy rozjedou
+    // Karty s vnořenými kartami se přeskakují — tam mají pruhy svislic víc
+    // právem, každá vnořená karta má svoji
+    const cisla = [...document.querySelectorAll('.dg-card')]
+      .filter(card => !card.querySelector('.dg-card'))
+      .map(card => {
+      const kraje = [...card.querySelectorAll('.dg-bar-track')]
+        .map(one => Math.round(one.getBoundingClientRect().left));
+      return { kde: card.querySelector('.dg-card-head')?.textContent?.trim().slice(0, 24) ?? '?',
+        ruznych: kraje.length > 1 ? new Set(kraje).size : 1 };
+    });
     return {
       tiles,
       grids,
+      sezony,
+      krive: cisla.filter(one => one.ruznych > 1),
+      novyden: !!document.querySelector('.dg-newday'),
       udalosti: document.querySelectorAll('.dg-ev').length,
       // Prázdné místo pod kartou v mřížce: rozdíl výšky mřížky a nejvyšší karty
       vyska: [...document.querySelectorAll('.dg-grid')].map(one => {
@@ -166,12 +193,22 @@ for (const okno of OKNA) {
   say('  a upřesnění mají v bublině', stav.tiles.every(one => one.tip.length > 10));
   say('karta událostí je v přehledu', stav.udalosti >= 2, `${stav.udalosti} řádků`);
   /*
-   * Mřížka se sloupci textu: karty se sypou pod sebe. V obyčejné mřížce
-   * měl řádek výšku nejvyšší karty a vedle krátké zůstala díra až dolů —
-   * přesně to na přehledu vadilo.
+   * Karty v řádku mají srovnatelnou výšku. Rozvržení díry neřeší — řeší je
+   * obsah: každá karta ukazuje nejvýš šest řádků a zbytek shrne do věty.
+   * Když se poměr rozejde, je to tím, že některá karta zase roste bez
+   * stropu, a v mřížce po ní zůstane prázdné místo.
    */
-  say('karty se skládají do sloupců, ne do mřížky',
-    stav.grids.length > 0 && stav.grids.every(one => one !== 'auto'), stav.grids.join(', '));
+  say('karty v řádku mají srovnatelnou výšku',
+    stav.grids.length > 0 && stav.grids.every(one => one.pomer <= 2.2),
+    stav.grids.map(one => `${one.deti.join('/')} → ${one.pomer.toFixed(1)}×`).join(' · '));
+  // Tři sezóny vedle sebe: stejná horní hrana, ne tři odstavce pod sebou
+  say('sezóny jsou tři karty vedle sebe',
+    stav.sezony.length === 3 && new Set(stav.sezony).size === 1,
+    `${stav.sezony.length} karet, hran ${new Set(stav.sezony).size}`);
+  say('pruhy v kartě začínají pod sebou', stav.krive.length === 0,
+    stav.krive.map(one => `${one.kde}: ${one.ruznych} svislic`).join(', '));
+  // Nový den se nabízí tlačítkem, negeneruje se sám
+  say('nabídne sestavit dnešní přehled', stav.novyden);
 
   const body = await page.$('.dg-body');
   for (const [i, frac] of [[1, 0], [2, 0.45], [3, 0.9]]) {
@@ -183,6 +220,82 @@ for (const okno of OKNA) {
     await page.screenshot({ path: path.join(SHOTS, `okno-prehled-${i}.png`) });
   }
   void body;
+
+  // Sezóny zvlášť — je to ta část, kterou má smysl posoudit okem
+  await page.evaluate(() => {
+    document.querySelector('.dg-seasons')?.scrollIntoView({ block: 'center' });
+  });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-prehled-sezony.png') });
+
+  /*
+   * Bublina po najetí. Hlídá se, že se otevře **nad** kurzorem: dole
+   * zakrývala právě ten řádek, na který se přecházelo dál.
+   */
+  const bublina = await page.evaluate(async () => {
+    const row = [...document.querySelectorAll('.dg-bar-row')].find(one => one.querySelector('.dg-pop'));
+    if (!row) return null;
+    row.scrollIntoView({ block: 'center' });
+    await new Promise(r => setTimeout(r, 200));
+    const rect = row.getBoundingClientRect();
+    row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true,
+      clientX: rect.left + 40, clientY: rect.top + rect.height / 2 }));
+    await new Promise(r => setTimeout(r, 120));
+    const pop = row.querySelector('.dg-pop');
+    const kde = pop ? pop.getBoundingClientRect() : null;
+    return kde ? { nad: kde.bottom <= rect.top + 2, radek: Math.round(rect.top) } : null;
+  });
+  say('vysvětlení v tabulce se otevírá nahoru', !!bublina?.nad,
+    bublina ? `řádek na ${bublina.radek}px` : 'bublina nenalezena');
+
+  // A bublina od dlaždic taky — ta se kreslí až po prodlevě, přes vrstvu
+  const tip = await page.evaluate(async () => {
+    const tile = document.querySelector('.dg-tile[data-tip]');
+    if (!tile) return null;
+    tile.scrollIntoView({ block: 'center' });
+    await new Promise(r => setTimeout(r, 200));
+    const rect = tile.getBoundingClientRect();
+    const y = rect.top + rect.height / 2;
+    tile.dispatchEvent(new MouseEvent('mouseover', { bubbles: true,
+      clientX: rect.left + 30, clientY: y }));
+    await new Promise(r => setTimeout(r, 600));
+    const layer = document.querySelector('.tip-layer');
+    if (!layer) return null;
+    const kde = layer.getBoundingClientRect();
+    return { nad: kde.bottom <= y, sirka: Math.round(kde.width), vyska: Math.round(kde.height) };
+  });
+  /*
+   * Události z hlavičky. Zapisuje se do nich ve chvíli, kdy se člověk dívá
+   * na čísla nahoře — karta je někde uprostřed okna, takže se kvůli zápisu
+   * rolovalo dolů a zpátky.
+   */
+  await page.click('.modal-head .icon-btn[data-tip^="Události"]');
+  await page.waitForTimeout(400);
+  const dialog = await page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('.overlay .modal')];
+    const last = boxes[boxes.length - 1];
+    return {
+      kolik: boxes.length,
+      nadpis: last?.querySelector('.modal-head')?.textContent?.trim() ?? '',
+      formular: !!last?.querySelector('.dg-ev-form'),
+      radky: last?.querySelectorAll('.dg-ev').length ?? 0
+    };
+  });
+  say('události jdou otevřít z hlavičky', dialog.kolik === 2 && dialog.nadpis.includes('Události')
+    && dialog.formular && dialog.radky >= 2,
+    `${dialog.nadpis} · formulář ${dialog.formular ? 'ano' : 'ne'} · ${dialog.radky} řádků`);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-prehled-udalosti.png') });
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('.overlay')];
+    boxes[boxes.length - 1]?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  });
+  await page.waitForTimeout(200);
+
+  say('bublina u dlaždice je nad kurzorem a drží rozměr',
+    !!tip?.nad && (tip?.sirka ?? 999) <= 330 && (tip?.vyska ?? 999) <= 175,
+    tip ? `${tip.sirka}×${tip.vyska} px` : 'bublina nenalezena');
+  await page.screenshot({ path: path.join(SHOTS, 'okno-prehled-bublina.png') });
   await page.close();
 }
 

@@ -890,6 +890,8 @@ export interface DigestSeason {
   /** „vánoční sezóna", „svatební sezóna" — jméno, ne výpočet */
   name: string;
   index: number;
+  /** Vybočuje z průměru natolik, že je to sezóna? Karty jsou tři vždycky. */
+  strong?: boolean;
   startBy: string;
   /** Za kolik dní začíná; 0 = už běží */
   inDays: number;
@@ -1297,6 +1299,14 @@ export interface DigestReport {
   pending: DigestPending;
   tasks: DigestTask[];
   insight: DigestInsight | null;
+  /**
+   * Postřehy jsou ze včerejška (nebo žádné) a dnešní se dají sestavit.
+   *
+   * Otevření okna samo nic negeneruje: čísla jsou z databáze hned, ale
+   * postřehy stojí čas i peníze a člověk se často jen chce podívat na
+   * včerejšek. Tohle říká oknu, že má nabídnout tlačítko.
+   */
+  insightStale: boolean;
   /** Kdy se postřehy smějí dělat znovu (do té doby se ukazují uložené) */
   nextInsightAt: string | null;
   /** Proč postřehy nejsou — chybí klíč, spadla síť, ještě se nedělaly */

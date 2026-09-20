@@ -681,7 +681,12 @@ export function signalsOf(input: SignalInput): DigestSignal[] {
   const seasons = input.history.seasons?.length
     ? input.history.seasons
     : (input.history.season ? [input.history.season] : []);
-  for (const season of seasons.slice(0, 2)) {
+  /*
+   * Mezi signály patří jen to, co z průměru doopravdy vybočuje. Karet se
+   * ukazují tři vždycky, aby bylo vidět, co přijde jako první — ale klidný
+   * měsíc mezi „čísly, co stojí za pozornost" by byl šum.
+   */
+  for (const season of seasons.filter(one => one.strong !== false).slice(0, 2)) {
     out.push({ kind: 'watch', text: season.text, basis: season.basis });
   }
 
@@ -1397,9 +1402,12 @@ function historyForAi(history: DigestHistory): string {
     ? history.seasons
     : (history.season ? [history.season] : []);
   if (seasons.length) {
-    parts.push(`sezóny (nejbližší první): ${seasons.map(one =>
-      `${one.text} (${one.basis})`).join(' | ')}`);
-  } else if (history.seasonNote) parts.push(`sezóna: ${history.seasonNote}`);
+    // Slabé období se posílá taky, ale označené — jinak by z něj model
+    // udělal sezónu a radil chystat kampaň na klidný měsíc
+    parts.push(`nejbližší období (nejbližší první): ${seasons.map(one =>
+      `${one.text}${one.strong === false ? ' [nevybočuje z průměru]' : ''} (${one.basis})`).join(' | ')}`);
+  }
+  if (history.seasonNote) parts.push(`sezóna: ${history.seasonNote}`);
   if (!parts.length) return '';
   return `Dlouhodobě (feed pokrývá ${history.coverage} měsíců): ${parts.join('; ')}`;
 }
@@ -1773,7 +1781,16 @@ export async function digestReport(force = false): Promise<DigestReport> {
 
   let insight = last;
   let insightError: string | null = null;
-  if (force || age >= EVERY_MS) {
+  /*
+   * Otevření okna samo postřehy **nedělá**.
+   *
+   * Dřív se spustily hned, jakmile byly starší než den — okno se otevřelo,
+   * dvacet vteřin se čekalo a teprve pak šlo listovat. Přitom polovina
+   * otevření je „co bylo včera". Čísla jsou z databáze a jsou hned; nový
+   * postřeh si člověk vyžádá tlačítkem, když ho chce.
+   */
+  const stale = age >= EVERY_MS;
+  if (force) {
     try {
       insight = await makeInsight(facts, ga4);
     } catch (e: any) {
@@ -1801,6 +1818,7 @@ export async function digestReport(force = false): Promise<DigestReport> {
     },
     tasks: all,
     insight,
+    insightStale: force ? false : stale,
     nextInsightAt,
     insightError,
     chatError: chat.error

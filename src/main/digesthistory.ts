@@ -57,6 +57,14 @@ export interface SeasonHint {
   name: string;
   /** Kolikrát silnější než průměrný měsíc (1,6 = o 60 % víc) */
   index: number;
+  /**
+   * Vybočuje z průměru natolik, že je to sezóna?
+   *
+   * Karty se ukazují tři vždycky — i když je žádná sezóna. Bez tohohle by
+   * klidný měsíc vypadal stejně jako Vánoce a příprava by se plánovala
+   * podle ničeho.
+   */
+  strong: boolean;
   /** Do kdy se má začít, ať to má náběh */
   startBy: string;
   /** Za kolik dní sezóna začíná (0 = už běží) */
@@ -302,32 +310,71 @@ function seasonFrom(months: MonthStat[], now: Date): { seasons: SeasonHint[]; no
   const threshold = closed.length >= 12 ? 1.2 : 1.3;
 
   /*
-   * Měsíce, které teprve přijdou. Půl roku dopředu a **všechny**, které
-   * vybočují, ne jen ten první: leden může být silnější než Vánoce a
-   * kdo se chystá jen na nejbližší, ten druhou vlnu prošvihne. Chystat se
-   * dá na obojí, když se o obojím ví včas.
+   * Období, která teprve přijdou — **rok dopředu**, ne půl.
+   *
+   * Půl roku znamenalo, že se v září ukázal jen leden: prosinec byl pod
+   * hranicí, spadl pod stůl, a svatby v květnu byly za obzorem. Přitom na
+   * Vánoce se chystá zboží v září, ne v listopadu.
+   *
+   * Měsíce se slučují podle jména (listopad a prosinec jsou jedny Vánoce,
+   * květen až září jedny svatby): chystá se celé období, ne jednotlivý
+   * měsíc. Z období se bere jeho **nejsilnější** měsíc i s datem — podle
+   * něj se rozhoduje, jestli se tím vůbec zabývat, a datum „začít do" je
+   * stejně tři týdny před ním. Kdyby se datum bralo z prvního měsíce
+   * období, u běžících svateb by karta hlásila „běží svatební sezóna
+   * (srpen)" — začátek z jednoho měsíce a sílu z druhého.
    */
   const upcoming: { index: number; ratio: number }[] = [];
-  const seasons: SeasonHint[] = [];
-  for (let ahead = 0; ahead <= 5; ahead++) {
+  type Group = { name: string; when: Date; ahead: number; peak: number; ratio: number; value: number };
+  const groups = new Map<string, Group>();
+  for (let ahead = 0; ahead <= 11; ahead++) {
     const when = new Date(now.getFullYear(), now.getMonth() + ahead, 1);
     const index = when.getMonth();
     const value = daily.get(index);
     if (value == null) continue;
     const ratio = value / average;
-    upcoming.push({ index, ratio });
-    if (ratio < threshold || seasons.length >= 3) continue;
-    // Dvě sezóny za sebou pod stejným jménem (listopad a prosinec) jsou
-    // jedny Vánoce — druhá by jen opakovala tutéž radu
+    if (ahead <= 5) upcoming.push({ index, ratio });
     const name = seasonName(index);
-    if (seasons.some(one => one.name === name)) continue;
+    const found = groups.get(name);
+    if (!found) {
+      groups.set(name, { name, when, ahead, peak: index, ratio, value });
+      continue;
+    }
+    // Do jména se vejde víc měsíců — platí ten nejsilnější, i s datem
+    if (ratio > found.ratio) {
+      found.ratio = ratio;
+      found.peak = index;
+      found.value = value;
+      found.when = when;
+      found.ahead = ahead;
+    }
+  }
 
+  /*
+   * Tři karty, vždycky.
+   *
+   * Dřív se ukazovalo jen to, co překročilo hranici — a e-shopu, kterému
+   * vychází silně jen leden, zbyla jedna karta a žádné Vánoce. Přitom
+   * otázka nezní „je prosinec nadprůměrný", ale „co mě čeká nejdřív a co
+   * z toho stojí za přípravu". Vybírají se proto **tři nejsilnější** období
+   * roku dopředu a řadí se podle data; u každého je vidět jeho index, takže
+   * slabší se pozná na první pohled a nedělá ze sebe sezónu.
+   */
+  const picked = [...groups.values()]
+    .sort((a, b) => b.ratio - a.ratio)
+    .slice(0, 3)
+    .sort((a, b) => a.when.getTime() - b.when.getTime());
+
+  const seasons: SeasonHint[] = [];
+  for (const group of picked) {
+    const { name, when, ahead, peak, ratio, value } = group;
     // Už běží? Pak se nemá co chystat, jen ať se ví, v čem se je
     const running = ahead === 0;
     const startBy = new Date(when.getTime() - 21 * 86_400_000);
-    const label = `${MONTHS[index]}`;
+    const label = `${MONTHS[peak]}`;
     const inDays = Math.max(0, Math.round((when.getTime() - now.getTime()) / 86_400_000));
     const stronger = Math.round((ratio - 1) * 100);
+    const strong = ratio >= threshold;
 
     /*
      * Co se v té sezóně prodávalo a co se k ní hodilo napsat. Bez toho je
@@ -335,7 +382,7 @@ function seasonFrom(months: MonthStat[], now: Date): { seasons: SeasonHint[]; no
      * Bere se **celá historie**, ne jen loňsko: dva prosince řeknou víc
      * než jeden.
      */
-    const months = seasonMonths(index);
+    const months = seasonMonths(peak);
     const products = seasonProducts(months);
     const posts = bestPosts({ months, limit: 2 });
 
@@ -345,14 +392,21 @@ function seasonFrom(months: MonthStat[], now: Date): { seasons: SeasonHint[]; no
         ? `${name.charAt(0).toUpperCase()}${name.slice(1)} se blíží — začíná zhruba za ${Math.round(inDays / 30)} měsíce`
         : `${name.charAt(0).toUpperCase()}${name.slice(1)} se blíží — začíná zhruba za ${inDays} dní`;
 
+    const sila = strong
+      ? `${label} bývá o ${stronger} % silnější než průměrný měsíc`
+      : stronger >= 0
+        ? `${label} je na úrovni průměrného měsíce (o ${stronger} % víc)`
+        : `${label} bývá o ${Math.abs(stronger)} % slabší než průměrný měsíc`;
+
     seasons.push({
       month: monthKey(when),
       label,
       name,
       index: Math.round(ratio * 100) / 100,
+      strong,
       startBy: dayKey(startBy),
       inDays: running ? 0 : inDays,
-      text: `${whenText}; ${label} bývá o ${stronger} % silnější než průměrný měsíc`
+      text: `${whenText}; ${sila}`
         + (running ? '.' : ` — propagaci zahájit do ${startBy.getDate()}. ${startBy.getMonth() + 1}.`)
         + (products.length
           ? ` Nejvíc se v ní prodávalo: ${products.slice(0, 3).map(one => one.title).join(', ')}.`
@@ -363,7 +417,19 @@ function seasonFrom(months: MonthStat[], now: Date): { seasons: SeasonHint[]; no
       posts
     });
   }
-  if (seasons.length) return { seasons, note: '' };
+  if (seasons.length) {
+    /*
+     * Když nic nepřekročilo hranici, karty se ukážou i tak — ale musí se
+     * říct nahlas, že se žádná sezóna nenašla a proč. Bez toho by tři karty
+     * se slabými měsíci vypadaly jako tři sezóny.
+     */
+    const any = seasons.some(one => one.strong);
+    return {
+      seasons,
+      note: any ? '' : `Nejbližší období z průměru nevybočují — sezóna se hlásí od `
+        + `${Math.round(threshold * 100)} % celoročního průměru. Karty ukazují, co přijde jako první.`
+    };
+  }
 
   /*
    * Nic nevybočilo. I to je odpověď — jen se musí říct nahlas a s čísly,
@@ -522,7 +588,12 @@ export function historyView(
     rank,
     // `season` je ta nejbližší; `seasons` jsou i ty za ní — leden bývá
     // silnější než prosinec a chystat se dá na obojí, když se o obojím ví
-    season: season.seasons[0] ?? null,
+    /*
+     * `season` je nejbližší **sezóna**, ne první karta. Karty se ukazují
+     * tři vždycky, i když z průměru nevybočují — kdyby se za sezónu bral
+     * první z nich, hlásil by se jako sezóna klidný měsíc.
+     */
+    season: season.seasons.find(one => one.strong) ?? null,
     seasons: season.seasons,
     seasonNote: season.note
   };

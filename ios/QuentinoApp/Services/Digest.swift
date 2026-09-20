@@ -523,8 +523,14 @@ enum Digest {
             }
         }
 
-        // 10c) Sezóna — z vlastních dat, ne z kalendáře
-        if let season = history["season"] as? [String: Any] {
+        /*
+         10c) Sezóna — z vlastních dat, ne z kalendáře. Mezi signály patří
+         jen období, které z průměru doopravdy vybočuje: karty se ukazují
+         tři vždycky, ale klidný měsíc mezi „čísly, co stojí za pozornost"
+         by byl šum.
+         */
+        for season in (history["seasons"] as? [[String: Any]] ?? []).prefix(2)
+        where (season["strong"] as? Bool ?? true) {
             out.append(signal("watch", season["text"] as? String ?? "", season["basis"] as? String ?? ""))
         }
 
@@ -1263,9 +1269,17 @@ enum Digest {
             "\($0["month"] as? String ?? ""):\($0["orders"] as? Int ?? 0)"
         }.joined(separator: " ")
         if !months.isEmpty { parts.append("měsíce (počet objednávek): \(months)") }
-        if let season = history["season"] as? [String: Any] {
-            parts.append("sezóna: \(season["text"] as? String ?? "") (\(season["basis"] as? String ?? ""))")
-        } else if let note = history["seasonNote"] as? String, !note.isEmpty {
+        let seasons = history["seasons"] as? [[String: Any]] ?? []
+        if !seasons.isEmpty {
+            // Slabé období se posílá taky, ale označené — jinak by z něj model
+            // udělal sezónu a radil chystat kampaň na klidný měsíc
+            let list = seasons.map { one -> String in
+                let weak = (one["strong"] as? Bool ?? true) ? "" : " [nevybočuje z průměru]"
+                return "\(one["text"] as? String ?? "")\(weak) (\(one["basis"] as? String ?? ""))"
+            }.joined(separator: " | ")
+            parts.append("nejbližší období (nejbližší první): \(list)")
+        }
+        if let note = history["seasonNote"] as? String, !note.isEmpty {
             // I „žádná sezóna" je zjištění — bez něj si ji AI klidně domyslí
             parts.append("sezóna: \(note)")
         }
@@ -1640,7 +1654,16 @@ enum Digest {
             : Date().timeIntervalSince(Formats.date(lastAt) ?? Date(timeIntervalSince1970: 0))
 
         var insightError: Any = NSNull()
-        if force || age >= everySeconds {
+        /*
+         Otevření okna samo postřehy nedělá.
+
+         Dřív se spustily hned, jakmile byly starší než den — okno se
+         otevřelo, dvacet vteřin se čekalo a teprve pak šlo listovat.
+         Přitom polovina otevření je „co bylo včera". Čísla jsou z databáze
+         a jsou hned; nový postřeh si člověk vyžádá tlačítkem.
+         */
+        let stale = age >= everySeconds
+        if force {
             do {
                 insight = try await makeInsight(facts, ga4: ga4)
             } catch {
@@ -1674,6 +1697,7 @@ enum Digest {
         out["pending"] = pending
         out["tasks"] = tasks
         out["insight"] = insight
+        out["insightStale"] = force ? false : stale
         out["nextInsightAt"] = nextInsightAt
         out["insightError"] = insightError
         out["chatError"] = chat.error

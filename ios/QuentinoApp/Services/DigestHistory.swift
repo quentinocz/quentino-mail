@@ -224,30 +224,71 @@ enum DigestHistory {
         let threshold = closed.count >= 12 ? 1.2 : 1.3
 
         /*
-         Půl roku dopředu: na Vánoce se kampaň chystá v září a „za dva měsíce"
-         je přesně ta zpráva, která se hodí — se čtyřměsíčním výhledem se
-         v létě neukázalo nic.
+         Rok dopředu, ne půl.
+
+         S půlročním výhledem se v září ukázal jen leden: prosinec byl pod
+         hranicí a spadl pod stůl, svatby v květnu byly za obzorem. Přitom
+         na Vánoce se zboží objednává v září.
+
+         Měsíce se slučují podle jména (listopad a prosinec jsou jedny
+         Vánoce): z období platí jeho nejsilnější měsíc i s datem — podle něj
+         se rozhoduje, jestli se tím vůbec zabývat, a „začít do" je stejně tři
+         týdny před ním. S datem z prvního měsíce období hlásila karta
+         „běží svatební sezóna (srpen)": začátek z jednoho měsíce, sílu
+         z druhého.
          */
         var upcoming: [(index: Int, ratio: Double)] = []
-        // Sezón se hlásí víc: leden bývá silnější než prosinec a kdo se
-        // chystá jen na tu nejbližší, druhou vlnu prošvihne
-        var found: [[String: Any]] = []
-        var names = Set<String>()
-        for ahead in 0...5 {
+        struct Group { var name: String; var when: Date; var ahead: Int
+                       var peak: Int; var ratio: Double; var value: Double }
+        var groups: [String: Group] = [:]
+        for ahead in 0...11 {
             guard let when = Calendar.current.date(byAdding: .month, value: ahead, to: now) else { continue }
             let index = Calendar.current.component(.month, from: when) - 1
             guard let value = daily[index] else { continue }
             let ratio = value / average
-            upcoming.append((index, ratio))
-            if ratio < threshold || found.count >= 3 { continue }
-            // Listopad a prosinec pod jedním jménem jsou jedny Vánoce
-            if names.contains(seasonName(index)) { continue }
+            if ahead <= 5 { upcoming.append((index, ratio)) }
+            let name = seasonName(index)
+            guard var group = groups[name] else {
+                groups[name] = Group(name: name, when: when, ahead: ahead,
+                                     peak: index, ratio: ratio, value: value)
+                continue
+            }
+            if ratio > group.ratio {
+                group.ratio = ratio
+                group.peak = index
+                group.value = value
+                group.when = when
+                group.ahead = ahead
+                groups[name] = group
+            }
+        }
 
+        /*
+         Tři karty, vždycky.
+
+         Dřív se ukazovalo jen to, co překročilo hranici — a e-shopu, kterému
+         vychází silně jen leden, zbyla jedna karta a žádné Vánoce. Otázka
+         přitom nezní „je prosinec nadprůměrný", ale „co mě čeká nejdřív a co
+         z toho stojí za přípravu". Vybírají se tři nejsilnější období roku
+         dopředu a řadí se podle data; index u každého říká, jak je silné.
+         */
+        let picked = groups.values
+            .sorted { $0.ratio > $1.ratio }
+            .prefix(3)
+            .sorted { $0.when < $1.when }
+
+        var found: [[String: Any]] = []
+        for group in picked {
+            let when = group.when
+            let ahead = group.ahead
+            let ratio = group.ratio
+            let value = group.value
             let startBy = when.addingTimeInterval(-21 * 86_400)
-            let label = monthNames[max(0, min(11, index))]
+            let label = monthNames[max(0, min(11, group.peak))]
             let percent = Int(((ratio - 1) * 100).rounded())
             let startDay = Calendar.current.component(.day, from: startBy)
             let startMonth = Calendar.current.component(.month, from: startBy)
+            let strong = ratio >= threshold
 
             /*
              Sílu měsíce spočítala data, jméno je z kalendáře — ale bez něj
@@ -256,8 +297,8 @@ enum DigestHistory {
              použít, proto se k tomu přidává, co se tehdy prodávalo a které
              příspěvky fungovaly.
              */
-            let name = seasonName(index)
-            let months = seasonMonths(index)
+            let name = group.name
+            let months = seasonMonths(group.peak)
             let products = seasonProducts(months)
             let posts = DigestSocial.bestPosts(months: months, limit: 2)
             let inDays = max(0, Int((when.timeIntervalSince(now) / 86_400).rounded()))
@@ -270,25 +311,40 @@ enum DigestHistory {
             let sold = products.isEmpty ? "" :
                 " Nejvíc se v ní prodávalo: "
                 + products.prefix(3).map { $0["title"] as? String ?? "" }.joined(separator: ", ") + "."
+            let power = strong
+                ? "\(label) bývá o \(percent) % silnější než průměrný měsíc"
+                : percent >= 0
+                    ? "\(label) je na úrovni průměrného měsíce (o \(percent) % víc)"
+                    : "\(label) bývá o \(abs(percent)) % slabší než průměrný měsíc"
 
             var out: [String: Any] = [:]
             out["month"] = monthKey(when)
             out["label"] = label
             out["name"] = name
             out["index"] = (ratio * 100).rounded() / 100
+            out["strong"] = strong
             out["startBy"] = dayKey(startBy)
             out["inDays"] = ahead == 0 ? 0 : inDays
-            out["text"] = "\(head); \(label) bývá o \(percent) % silnější než průměrný měsíc"
+            out["text"] = "\(head); \(power)"
                 + (ahead == 0 ? "." : " — propagaci zahájit do \(startDay). \(startMonth).")
                 + sold
             out["basis"] = String(format: "průměrně %.1f objednávky na den proti celoročním %.1f, z %d měsíců historie",
                                   value, average, closed.count)
             out["products"] = products
             out["posts"] = posts
-            names.insert(name)
             found.append(out)
         }
-        if !found.isEmpty { return (found, "") }
+        if !found.isEmpty {
+            /*
+             Když nic nepřekročilo hranici, karty se ukážou i tak — ale musí
+             se říct nahlas, že žádná sezóna není. Bez toho by tři klidné
+             měsíce vypadaly jako tři sezóny.
+             */
+            let any = found.contains { $0["strong"] as? Bool ?? false }
+            return (found, any ? "" : "Nejbližší období z průměru nevybočují — sezóna se hlásí od "
+                + "\(Int((threshold * 100).rounded())) % celoročního průměru. "
+                + "Karty ukazují, co přijde jako první.")
+        }
 
         /*
          Nic nevybočilo. I to je odpověď — jen se musí říct nahlas a s čísly,
@@ -419,7 +475,11 @@ enum DigestHistory {
         out["lastYear"] = lastYear
         out["rank"] = rank
         let seasons = season(months, now)
-        out["season"] = seasons.all.first ?? NSNull()
+        /*
+         `season` je nejbližší sezóna, ne první karta — karty jsou tři
+         vždycky, i když z průměru nevybočují.
+         */
+        out["season"] = seasons.all.first { $0["strong"] as? Bool ?? false } ?? NSNull()
         out["seasons"] = seasons.all
         out["seasonNote"] = seasons.note
         return out

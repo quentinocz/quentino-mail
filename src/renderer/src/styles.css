@@ -924,11 +924,21 @@ input:focus, textarea:focus, select:focus {
   padding: 5px 10px;
   border-radius: 7px;
   width: max-content;
-  max-width: 240px;
+  /*
+   * Strop na šířku i výšku. Delší vysvětlení u některých metrik se dřív
+   * roztáhlo přes půl okna a zakrylo právě to, co se pod ním porovnávalo.
+   * Zleva doprava se čte dobře do zhruba padesáti znaků; co se nevejde ani
+   * na osm řádků, je stejně na kartu, ne do bubliny.
+   */
+  max-width: 320px;
+  max-height: 168px;
+  overflow: hidden;
   text-align: center;
   box-shadow: var(--shadow-lg);
   transition: opacity 0.1s ease;
 }
+/* Delší vysvětlení se na střed čte špatně — každý řádek začíná jinde */
+.tip-layer.long { text-align: left; }
 
 /* ---------- Kapacita schránky na serveru ---------- */
 
@@ -1136,6 +1146,26 @@ input:focus, textarea:focus, select:focus {
 }
 /* Jiskra = k tomuhle číslu má AI poznámku; text visí v bublině */
 .dg-tile-ai { display: inline-flex; color: var(--accent-dark); cursor: help; }
+/*
+ * Číslo, které si žádá pozornost.
+ *
+ * Všechno v přehledu je fialové a dvanáct stejných dlaždic se čte jako
+ * jedna plocha — nešlo poznat, které číslo je dnes to důležité, dokud se
+ * nepřečetly všechny komentáře pod sebou. Barva se proto používá jen tady
+ * a jen ve dvou významech: červená „koukni se na to", zelená „povedlo se".
+ * Samotná barva nic nenese, tečka má vysvětlení po najetí.
+ */
+.dg-tile.is-alert { box-shadow: inset 3px 0 0 var(--danger); }
+.dg-tile.is-good { box-shadow: inset 3px 0 0 var(--ok); }
+.dg-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  cursor: help;
+}
+.dg-dot.alert { background: var(--danger); }
+.dg-dot.good { background: var(--ok); }
 .dg-tile-value { font-size: 24px; font-weight: 700; line-height: 1.15; }
 .dg-tile-sub { font-size: 12px; color: var(--text-2); }
 .dg-tile-sub.tone-up { color: var(--ok); }
@@ -1165,6 +1195,8 @@ input:focus, textarea:focus, select:focus {
   padding: 1px 8px;
   font-size: 11.5px;
 }
+/* Počet varování v hlavičce karty — jediné místo, kde má číslo výstražnou barvu */
+.dg-count.alert { background: rgba(229, 72, 77, .12); color: var(--danger); font-weight: 600; }
 .dg-when { color: var(--text-3); font-weight: 500; font-size: 12px; }
 .dg-again {
   margin-left: auto;
@@ -1233,23 +1265,28 @@ input:focus, textarea:focus, select:focus {
 .dg-switch button.on { background: var(--panel); color: var(--accent-dark); font-weight: 600; box-shadow: var(--shadow); }
 
 /*
- * Karty vedle sebe začínají nahoře a končí tam, kde jim došel obsah.
- * S výchozím `stretch` se všechny natáhly na výšku té nejdelší, takže
- * vedle seznamu příspěvků zely dva prázdné sloupce přes celou obrazovku.
- */
-/*
- * Karty vedle sebe. Ne mřížka — v ní má řádek výšku nejvyšší karty a vedle
- * krátké („Stavy objednávek", pět řádků) zůstane sloupec prázdný až dolů,
- * zatímco vedle běží karta na tři obrazovky. Přesně tak vznikaly ty díry
- * uprostřed přehledu.
+ * Karty vedle sebe.
  *
- * Sloupce textu to řeší samy: karta se zalomí do dalšího sloupce tam, kde
- * předchozí skončila. `break-inside` hlídá, aby se nerozsekla uprostřed.
+ * Dvakrát to bylo jinak a dvakrát špatně. Mřížka s natahováním na výšku
+ * nejvyšší karty nechávala vedle krátkého seznamu prázdný sloupec až dolů.
+ * Sloupcová sazba (`columns`) díry zaplnila, ale rozházela pořadí a karty
+ * v řádku nezačínaly pod sebou — vypadalo to nedodělaně.
+ *
+ * Teď je to mřížka a díry se neřeší rozvržením, ale **obsahem**: každá
+ * karta ukazuje nejvýš šest řádků a zbytek shrne do jedné věty, takže
+ * karty v řádku mají podobnou výšku a natažení na stejnou výšku je vidět
+ * jako záměr, ne jako prázdno.
  */
-.dg-grid { columns: 3; column-gap: 12px; }
-.dg-grid > * { break-inside: avoid; margin-bottom: 12px; }
-@media (max-width: 1180px) { .dg-grid { columns: 2; } }
-@media (max-width: 800px) { .dg-grid { columns: 1; } }
+.dg-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+/* Čtyři karty: dvě řady po dvou, ať v druhé řadě nezbývají prázdné sloupce */
+.dg-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1180px) { .dg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .dg-grid { grid-template-columns: minmax(0, 1fr); } }
 
 /*
  * Řádek řezu: název, proužek, číslo, peníze.
@@ -1263,14 +1300,31 @@ input:focus, textarea:focus, select:focus {
 .dg-bar-label { flex: 1 1 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dg-bar-track { flex: 1 1 34px; min-width: 24px; height: 7px; background: var(--bg); border-radius: 999px; overflow: hidden; }
 .dg-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
-.dg-bar-num { flex: 0 0 auto; min-width: 48px; text-align: right; color: var(--text-2); font-variant-numeric: tabular-nums; }
+ /*
+  * Číselné sloupce mají šířku podle nejdelší hodnoty v kartě (`--dg-num`,
+  * `--dg-money` nastavuje komponenta). S pouhým `min-width` stačilo jedno
+  * delší číslo a proužek na jeho řádku se odsunul doprava — pruhy v kartě
+  * pak nezačínaly pod sebou. Tabulkový řez drží číslice ve sloupcích.
+  */
+.dg-bar-num {
+  flex: 0 0 auto;
+  width: var(--dg-num, 48px);
+  min-width: 42px;
+  text-align: right;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .dg-bar-money {
   flex: 0 0 auto;
-  min-width: 96px;
+  width: var(--dg-money, 96px);
+  min-width: 72px;
   text-align: right;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dg-bar-rev { color: var(--text-2); }
 
@@ -1401,17 +1455,47 @@ input:focus, textarea:focus, select:focus {
   padding: 8px 10px;
 }
 
+/*
+ * Nabídka sestavit dnešní přehled.
+ *
+ * Nespouští se sama — tohle je to místo, kde se o to řekne. Barvou je to
+ * jemné (podklad, ne výstraha): není to problém, jen možnost, a vedle
+ * dlaždic s čísly by křiklavý pruh přebil to, kvůli čemu se okno otevírá.
+ */
+.dg-newday {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-soft);
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+}
+.dg-newday > svg { color: var(--accent-dark); flex-shrink: 0; }
+.dg-newday > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dg-newday b { font-size: 13px; }
+.dg-newday .btn { margin-left: auto; flex-shrink: 0; }
+/* Karta v dialogu nemá rám — rám kreslí dialog sám */
+.dg-card.plain { border: 0; padding: 0; }
+
 .dg-ranges { display: flex; align-items: center; gap: 10px; }
 .dg-ranges .dg-switch { margin-left: 0; }
 
-/* Rozpad dopravce po platbách — až po najetí, ať nezabírá místo */
+/*
+ * Rozpad dopravce po platbách — až po najetí, ať nezabírá místo.
+ *
+ * Otevírá se **nahoru**. Dole zakrýval řádky pod sebou: člověk si přečetl
+ * vysvětlení, posunul myš o řádek níž a musel projet přes bublinu, která
+ * mu cíl schovávala. Nahoře zůstává cesta dolů volná.
+ */
 .dg-bar-row { position: relative; }
 .dg-pop {
   display: none;
   position: absolute;
   left: 8px;
   right: 8px;
-  top: 100%;
+  bottom: 100%;
+  margin-bottom: 4px;
   z-index: 5;
   min-width: 190px;
   background: var(--panel);
@@ -1425,14 +1509,50 @@ input:focus, textarea:focus, select:focus {
 }
 .dg-bar-row:hover .dg-pop { display: flex; }
 /*
- * U posledních řádků se bublina otevírá nahoru. Dole v kartě se jinak
- * schovala pod její okraj a poslední čtyři řádky byly bez vysvětlení.
+ * První dva řádky nahoru nemají kam — tam se bublina otevře dolů. Jinak by
+ * vylezla nad kartu a u prvního řádku přehledu i mimo viditelnou plochu.
  */
-.dg-bar-row:nth-last-child(-n+3) .dg-pop { top: auto; bottom: 100%; }
+.dg-bar-row.dg-top .dg-pop {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 4px;
+}
 .dg-pop-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); }
 
-/* Sezóna a příspěvky */
-.dg-season { display: flex; flex-direction: column; gap: 8px; }
+/* Sezóny a příspěvky */
+/*
+ * Tři karty vedle sebe. Ve sloupci pod sebou se sezóny lišily jen tučným
+ * jménem a při jedné nalezené z toho zbyl osamělý odstavec — vedle sebe
+ * je vidět pořadí i to, která je silná.
+ */
+.dg-seasons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+@media (max-width: 900px) { .dg-seasons { grid-template-columns: 1fr; } }
+.dg-season {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+/*
+ * Období, které z průměru doopravdy vybočuje. Karty jsou tři vždycky, takže
+ * bez tohohle by klidný měsíc vypadal jako sezóna — rozdíl dělá levá hrana
+ * a štítek, ne jiná barva textu.
+ */
+.dg-season.strong {
+  background: var(--panel);
+  border-color: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 .dg-season-list { display: flex; flex-direction: column; gap: 3px; }
 .dg-post {
   display: flex;
@@ -1459,27 +1579,53 @@ input:focus, textarea:focus, select:focus {
  * Rozbor má dvě karty vedle sebe, ne tři. Ve třísloupcovém rastru zbývala
  * napravo prázdná třetina a tabulky se mačkaly do zbylých dvou.
  */
-.dg-deep .dg-grid { margin-top: 2px; columns: 2; }
+.dg-deep .dg-grid { margin-top: 2px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
-/* Hlavička sezóny — co, kdy, jak silné; všechno na jednom řádku */
-.dg-season-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.dg-season-head > svg { color: var(--accent-dark); flex-shrink: 0; }
-.dg-season-when { color: var(--text-2); font-size: 12px; }
-.dg-season-index {
-  margin-left: auto;
-  font-size: 11.5px;
-  font-weight: 600;
+/*
+ * Hlavička sezóny a číslo pod ní.
+ *
+ * Hlavní údaj karty je index — kolikrát je to období silnější než průměrný
+ * měsíc. Je proto největší a bez tabulkového řezu (u velkého čísla dělá
+ * mezery mezi číslicemi); pod ním proužek, protože „1,4×" se bez měřítka
+ * čte špatně.
+ */
+.dg-season-head { display: flex; align-items: center; gap: 7px; font-size: 13px; min-width: 0; }
+.dg-season-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dg-season-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
   color: var(--accent-dark);
   background: var(--accent-soft);
   border-radius: 999px;
-  padding: 2px 9px;
+  padding: 1px 7px;
   white-space: nowrap;
 }
-.dg-season-do { font-size: 12.5px; color: var(--text-2); margin: 0; }
+.dg-season-when { color: var(--text-3); font-size: 11.5px; }
+.dg-season-index {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  cursor: help;
+}
+.dg-season-unit { font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+.dg-season-meter { height: 5px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.dg-season-meter span { display: block; height: 100%; background: var(--accent); opacity: .45; }
+.dg-season.strong .dg-season-meter span { opacity: 1; }
+.dg-season-do { font-size: 12px; color: var(--text-2); margin: 0; }
 .dg-paid { color: var(--accent-dark); font-weight: 600; }
 
 /* Zboží sezóny s obrázky — pruh, který se dá projet do strany */
 .dg-thumbs { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+/* V kartě sezóny jsou tři vedle sebe na třetinové šířce — menší a bez názvu,
+   ten visí v bublině; s popiskem se do třetiny okna nevešly */
+.dg-thumbs.season { gap: 6px; margin-top: auto; }
+.dg-thumbs.season .dg-thumb { width: 60px; font-size: 11px; }
+.dg-thumbs.season .dg-thumb img, .dg-thumbs.season .dg-thumb-ph { width: 60px; height: 60px; }
 .dg-thumb {
   display: flex;
   flex-direction: column;
@@ -1614,6 +1760,10 @@ input:focus, textarea:focus, select:focus {
   .dg-bar-label { flex-basis: 34%; }
   .dg-bar-money { min-width: 84px; }
   .dg-tile-value { font-size: 20px; }
+  /* Nabídka nového přehledu pod sebe — vedle sebe se text mačkal do sloupečku */
+  .dg-newday { flex-direction: column; align-items: stretch; gap: 8px; }
+  .dg-newday .btn { margin-left: 0; width: 100%; }
+  .dg-seasons { grid-template-columns: 1fr; }
 }
 
 

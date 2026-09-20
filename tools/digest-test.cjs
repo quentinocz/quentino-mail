@@ -337,11 +337,25 @@ check('a jak je daleko', typeof pohled.season?.inDays, 'number');
 check('má i jméno sezóny', typeof pohled.season?.name, 'string');
 check('a co se v ní prodávalo', Array.isArray(pohled.season?.products), true);
 /*
- * Sezón může být na půl roku dopředu víc. Leden bývá silnější než prosinec —
- * a kdo se chystá jen na tu nejbližší, druhou vlnu prošvihne.
+ * Období se hlásí tři a vždycky. Dřív se ukazovalo jen to, co překročilo
+ * hranici — a e-shopu, kterému vychází silně jen jeden měsíc, zbyla jedna
+ * osamělá věta a nejbližší Vánoce pod stolem, protože o kousek nedosáhly.
+ * Otázka přitom nezní „je prosinec nadprůměrný", ale „co mě čeká nejdřív".
  */
-check('sezóny se hlásí postupně, ne jen ta první', Array.isArray(pohled.seasons), true);
-check('a ta nejbližší je první', pohled.seasons[0]?.month, pohled.season?.month);
+check('období se hlásí tři', pohled.seasons.length, 3);
+check('a jsou seřazená podle data',
+  pohled.seasons.every((one, i) => i === 0 || one.month > pohled.seasons[i - 1].month), true);
+check('u každého je vidět, jestli je to sezóna',
+  pohled.seasons.every(one => typeof one.strong === 'boolean'), true);
+check('slabší období mezi nimi být smí', pohled.seasons.some(one => !one.strong), true);
+check('a jako sezóna se hlásí jen to silné', pohled.season?.strong, true);
+/*
+ * Období, které z průměru nevybočuje, nepatří mezi „čísla, co stojí za
+ * pozornost" — karta o něm říct může, signál ne.
+ */
+const slabe = pohled.seasons.find(one => !one.strong);
+check('a slabé se do signálů nedostane',
+  dg.digestFacts(NOW).signals.some(one => one.text.includes(slabe.name)), false);
 /*
  * Když sezóna není, nesmí zůstat prázdné místo: z ničeho se nepozná, jestli
  * se nepočítalo, nebo jestli fakt žádná nepřichází.
@@ -428,17 +442,27 @@ check('a je označené', tasks[0].urgent, true);
 
 (async () => {
   console.log('\npostřehy a paměť:\n');
-  const first = await dg.digestReport();
-  check('poprvé se model zeptá', asked.length, 1);
+  /*
+   * Otevření okna samo nic negeneruje. Dřív se postřehy spustily, jakmile
+   * byly starší než den — okno se otevřelo a dvacet vteřin se čekalo,
+   * i když se člověk chtěl jen podívat na včerejšek.
+   */
+  const open = await dg.digestReport();
+  check('otevření okna se modelu neptá', asked.length, 0);
+  check('ale řekne, že dnešní chybí', open.insightStale, true);
+  check('čísla jsou vždy čerstvá', open.facts.today.orders, 5);
+  check('chat bez nastavení přehled neshodí', open.chatError, null);
+
+  const first = await dg.digestReport(true);
+  check('tlačítko postřeh sestaví', asked.length, 1);
   check('postřeh se rozebere na body', first.insight.headline, 'Klidný den, tržba drží.');
   check('i s otázkami k doptání', first.insight.questions, ['Proč klesla dobírka?']);
   check('a s poznámkou pro sebe na příště', first.insight.focus, 'ověřit propad ve čtvrtek');
-  check('čísla jsou vždy čerstvá', first.facts.today.orders, 5);
-  check('chat bez nastavení přehled neshodí', first.chatError, null);
 
   const second = await dg.digestReport();
   check('podruhé už se neptá', asked.length, 1);
   check('a ukáže se uložený postřeh', second.insight.headline, 'Klidný den, tržba drží.');
+  check('čerstvý přehled se znovu nenabízí', second.insightStale, false);
   check('ví se, kdy bude nový', typeof second.nextInsightAt, 'string');
 
   /*

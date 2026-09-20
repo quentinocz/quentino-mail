@@ -269,12 +269,13 @@
               ]
             },
             /*
-             * Sezóny postupně: leden bývá silnější než prosinec a kdo se
-             * chystá jen na tu nejbližší, druhou vlnu prošvihne.
+             * Tři období vedle sebe. Jedno z nich schválně slabé: karty
+             * jsou tři vždycky a musí být na první pohled poznat, které
+             * z nich je sezóna a které jen „co přijde".
              */
             seasons: [
               {
-                month: '2026-12', label: 'prosinec', name: 'vánoční sezóna', index: 1.9,
+                month: '2026-12', label: 'prosinec', name: 'vánoční sezóna', index: 1.9, strong: true,
                 startBy: '2026-11-10', inDays: 86,
                 text: 'Vánoční sezóna se blíží — začíná zhruba za 3 měsíce.',
                 basis: 'průměrně 6,8 objednávky na den proti celoročním 3,6, z 19 měsíců historie',
@@ -290,13 +291,24 @@
                 ]
               },
               {
-                month: '2027-01', label: 'leden', name: 'povánoční výprodej', index: 2.1,
+                month: '2027-01', label: 'leden', name: 'povánoční výprodej', index: 2.1, strong: true,
                 startBy: '2026-12-11', inDays: 117,
                 text: 'Povánoční výprodej se blíží — začíná zhruba za 4 měsíce.',
                 basis: 'průměrně 7,5 objednávky na den proti celoročním 3,6, z 19 měsíců historie',
                 products: [
                   { code: 'QW-311', title: 'Peněženka Slim', qty: 61, image: null },
                   { code: 'QM-042', title: 'Manžetové knoflíčky Onyx', qty: 44, image: null }
+                ],
+                posts: []
+              },
+              {
+                month: '2027-05', label: 'květen', name: 'svatební sezóna', index: 0.9, strong: false,
+                startBy: '2027-04-10', inDays: 237,
+                text: 'Svatební sezóna se blíží — začíná zhruba za 8 měsíce; květen je na úrovni '
+                  + 'průměrného měsíce.',
+                basis: 'průměrně 3,2 objednávky na den proti celoročním 3,6, z 19 měsíců historie',
+                products: [
+                  { code: 'QT-220', title: 'Motýlek Bordó', qty: 38, image: null }
                 ],
                 posts: []
               }
@@ -384,6 +396,12 @@
           model: 'claude-sonnet-5'
         },
         nextInsightAt: new Date(Date.now() + 19 * 3600e3).toISOString(),
+        /*
+         * Postřehy ze včerejška. Okno je samo negeneruje — náhled tak
+         * ukáže i pruh s nabídkou sestavit dnešní přehled, což je stav,
+         * ve kterém se okno ráno otevírá nejčastěji.
+         */
+        insightStale: true,
         insightError: null,
         chatError: null,
         // Návštěvnost z GA4 přes Sequel — jediná čísla, která nejsou z feedu

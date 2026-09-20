@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type {
   DigestArchiveRow, DigestDay, DigestFacts, DigestInsight, DigestMonth, DigestReport,
   DigestMoney, DigestNote, DigestMetric, DigestPost, DigestSlice, DigestTask, DigestTotals, DigestTurn,
   Ga4Deep, Ga4Funnel, Ga4Month, Ga4Slice, Ga4Note, Ga4Notes, ArticleStatsView,
-  ShopEvent, ShopEventImpact, ShopEventKind
+  ShopEvent, ShopEventImpact, ShopEventKind, DigestSeason
 } from '@shared/types';
 import { api } from '../api';
 import { useIsPhone } from '../mobile';
@@ -333,14 +334,23 @@ function TrafficSlice({ title, icon, rows, note, sales = true, notes = [], where
     ? measured.reduce((sum, one) => sum + (one.conversion ?? 0), 0) / measured.length
     : null;
   const general = notes.filter(one => one.where === where && !one.row);
+  const shown = rows.slice(0, 8);
+  const moneyCol = shown.map(one => (sales
+    ? `${one.conversion != null ? `${dec(one.conversion)} %` : '—'}`
+      + (one.revenue ? ` · ${money(one.revenue, 'CZK')}` : '')
+    : `${fmt(one.users)} lidí`));
 
   return (
-    <div className="dg-card">
+    <div className="dg-card" style={{
+      '--dg-num': colWidth(shown.map(one => fmt(one.sessions))),
+      '--dg-money': colWidth(moneyCol, 6)
+    } as CSSProperties}>
       <div className="dg-card-head"><Icon name={icon} size={14} /> {title}</div>
       {note && <div className="dg-caption">{note}</div>}
       {rows.length === 0 && <div className="dg-empty">Zatím není z čeho brát.</div>}
-      {rows.slice(0, 8).map(one => (
-        <div className="dg-bar-row" key={one.name}>
+      {shown.map((one, i) => (
+        // První dva řádky nemají nahoru kam — jim se bublina otevře dolů
+        <div className={`dg-bar-row${i < 2 ? ' dg-top' : ''}`} key={one.name}>
           <span className="dg-bar-label" title={one.name}>{one.name}</span>
           <span className="dg-bar-track">
             <span className="dg-bar-fill" style={{ width: `${(one.sessions / top) * 100}%` }} />
@@ -388,6 +398,22 @@ function kindClass(kind: Ga4Note['kind']): string {
 /** Tisíce s mezerou — 8569 se čte hůř než 8 569 */
 function fmt(value: number): string {
   return value.toLocaleString('cs-CZ');
+}
+
+/**
+ * Šířka číselného sloupce v kartě.
+ *
+ * Čísla mají v každé kartě vlastní šířku podle té nejdelší hodnoty, která
+ * se v ní objeví. Bez toho stačilo jedno dlouhé číslo — „194 600 Kč" mezi
+ * čtyřmi trojcifernými — a proužek na tom řádku se odsunul doprava:
+ * pruhy v kartě přestaly začínat pod sebou a celá tabulka vypadala křivě.
+ *
+ * Počítá se ve znacích, protože čísla jsou v tabulkovém řezu (`tabular-nums`)
+ * a tam má každá číslice stejnou šířku.
+ */
+function colWidth(values: (string | number)[], least = 3): string {
+  const longest = values.reduce<number>((max, one) => Math.max(max, String(one).length), least);
+  return `${longest + 0.5}ch`;
 }
 
 /** Desetinná čárka, ne tečka — „2.4 %" je v českém textu překlep */
@@ -454,7 +480,11 @@ function ArticleStats({ view }: { view: ArticleStatsView }) {
   const rows = view.rows.filter(one => one.found).slice(0, 8);
   const top = Math.max(1, ...rows.map(one => one.views));
   return (
-    <div className="dg-card">
+    <div className="dg-card" style={{
+      '--dg-num': colWidth(rows.map(one => fmt(one.views))),
+      '--dg-money': colWidth(rows.map(one => (one.entries ? `${fmt(one.entries)} vstupů` : 'bez vstupů')
+        + (one.revenue ? ` · ${money(one.revenue, 'CZK')}` : '')), 8)
+    } as CSSProperties}>
       <div className="dg-card-head"><Icon name="fileText" size={14} /> Články</div>
       <div className="dg-caption">
         Čtenost a co z toho bylo — {view.scope}. Vlevo návštěvy článku, vpravo kolik lidí
@@ -467,8 +497,8 @@ function ArticleStats({ view }: { view: ArticleStatsView }) {
             : 'Analytics zatím žádný z článků nezná.'}
         </div>
       )}
-      {rows.map(one => (
-        <div className="dg-bar-row" key={one.id}>
+      {rows.map((one, i) => (
+        <div className={`dg-bar-row${i < 2 ? ' dg-top' : ''}`} key={one.id}>
           <span className="dg-bar-label" title={one.title}>{one.title}</span>
           <span className="dg-bar-track">
             <span className="dg-bar-fill" style={{ width: `${(one.views / top) * 100}%` }} />
@@ -521,7 +551,10 @@ function Funnel({ funnel, notes = [] }: { funnel: Ga4Funnel; notes?: Ga4Note[] }
   const top = Math.max(1, funnel.sessions);
   const general = notes.filter(one => one.where === 'funnel' && !one.row);
   return (
-    <div className="dg-card">
+    <div className="dg-card" style={{
+      '--dg-num': colWidth(steps.map(one => fmt(one.value))),
+      '--dg-money': colWidth(['100 %'], 5)
+    } as CSSProperties}>
       <div className="dg-card-head"><Icon name="sliders" size={14} /> Cesta k nákupu</div>
       <div className="dg-caption">Kde se lidé cestou ztrácejí. Najeď na krok a dozvíš se, co s ním.</div>
       {steps.map((step, i) => {
@@ -531,7 +564,7 @@ function Funnel({ funnel, notes = [] }: { funnel: Ga4Funnel; notes?: Ga4Note[] }
           : null;
         const keep = i > 0 && before > 0 ? Math.round((step.value / before) * 100) : 100;
         return (
-          <div className="dg-bar-row" key={step.label}>
+          <div className={`dg-bar-row${i < 2 ? ' dg-top' : ''}`} key={step.label}>
             <span className="dg-bar-label">{step.label}</span>
             <span className="dg-bar-track">
               <span className="dg-bar-fill" style={{ width: `${(step.value / top) * 100}%` }} />
@@ -610,6 +643,93 @@ function Post({ post }: { post: DigestPost }) {
   );
 }
 
+/**
+ * Co přijde — tři období vedle sebe.
+ *
+ * Předtím to byl jeden dlouhý sloupec, ve kterém se sezóny lišily jen
+ * tučným jménem; při jedné nalezené sezóně z něj zbyl osamělý odstavec a
+ * část „dlouhodobě" vypadala nedodělaně. Tři karty vedle sebe odpovídají
+ * na to, na co se kouká: **co je první, jak je to silné a dokdy se má
+ * začít**. Zbytek (zboží, příspěvky) je pod tím, protože se čte až potom.
+ *
+ * Karty jsou tři vždycky, i když žádné období z průměru nevybočuje —
+ * slabší se pozná podle indexu a podle toho, že nemá zvýrazněnou hlavičku.
+ * Prázdné místo by se četlo jako „nepočítalo se".
+ */
+function Seasons({ seasons, note }: { seasons: DigestSeason[]; note: string }) {
+  if (!seasons.length) {
+    return note ? (
+      <p className="dg-note sig-eye"><Icon name="clock" size={13} /><span>{note}</span></p>
+    ) : null;
+  }
+  return (
+    <>
+      {note && <div className="dg-caption">{note}</div>}
+      <div className="dg-seasons">
+        {seasons.map(season => {
+          const strong = season.strong !== false;
+          const running = season.inDays === 0;
+          /*
+           * Proužek pod číslem. Index sám („1,4×") se bez měřítka čte
+           * špatně — tohle ukazuje, kde je proti průměrnému měsíci, což je
+           * ta jediná hodnota, se kterou se porovnává. Dvojnásobek je strop,
+           * aby se silná sezóna nedala splést s mimořádným měsícem.
+           */
+          const fill = Math.min(100, (season.index / 2) * 100);
+          return (
+            <div className={`dg-season${strong ? ' strong' : ''}`} key={season.month}>
+              <div className="dg-season-head">
+                <b>{season.name.charAt(0).toUpperCase()}{season.name.slice(1)}</b>
+                {strong && <span className="dg-season-tag">sezóna</span>}
+              </div>
+              <div className="dg-season-when">
+                {running ? 'právě běží' : `za ${season.inDays} dní`} · {season.label}
+              </div>
+              <div className="dg-season-index" data-tip={season.basis}>
+                {season.index.toLocaleString('cs-CZ', { maximumFractionDigits: 1 })}×
+                <span className="dg-season-unit">průměrný měsíc</span>
+              </div>
+              <div className="dg-season-meter" aria-hidden="true">
+                <span style={{ width: `${fill}%` }} />
+              </div>
+              <div className="dg-season-do">
+                {running
+                  ? 'Běží — držet zásobu toho, co se v ní prodává nejvíc.'
+                  : <>Začít do <b>{new Date(season.startBy)
+                    .toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' })}</b>
+                    {' '}— tři týdny předem, ať to má náběh a stihne se doskladnit.</>}
+              </div>
+              {(season.products ?? []).length > 0 && (
+                <div className="dg-thumbs season">
+                  {(season.products ?? []).slice(0, 3).map(one => (
+                    <div className="dg-thumb" key={one.code} data-tip={`${one.title} · ${one.code}`}>
+                      {one.image
+                        ? <img src={one.image} alt="" loading="lazy" />
+                        : <span className="dg-thumb-ph"><Icon name="bag" size={16} /></span>}
+                      <span className="dg-thumb-qty">{one.qty} ks</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(season.posts ?? []).length > 0 && (
+                <div className="dg-season-list">
+                  {(season.posts ?? []).slice(0, 1).map(post => (
+                    <Post key={post.at + post.permalink} post={post} />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="dg-caption">
+        Spočítáno z vlastních objednávek napříč roky — zboží pod kartou je to,
+        co se v tom období prodávalo nejvíc, příspěvek ten, který tehdy fungoval.
+      </div>
+    </>
+  );
+}
+
 /** Řez daty jako proužky — země, doprava, platba, zboží */
 function Bars({ title, icon, rows: given, currency, empty }: {
   title: string; icon: string; rows: DigestSlice[] | undefined; currency: string; empty: string;
@@ -617,12 +737,14 @@ function Bars({ title, icon, rows: given, currency, empty }: {
   // Starší přehled z archivu některé řezy nemá — prázdno je lepší než pád
   const rows = given ?? [];
   const top = Math.max(1, ...rows.map(one => one.orders));
+  const shown = rows.slice(0, 6);
   return (
-    <div className="dg-card">
+    <div className="dg-card" style={{ '--dg-num': colWidth(shown.map(one => one.orders)) } as CSSProperties}>
       <div className="dg-card-head"><Icon name={icon} size={14} /> {title}</div>
       {rows.length === 0 && <div className="dg-empty">{empty}</div>}
-      {rows.slice(0, 6).map(one => (
-        <div className="dg-bar-row" key={one.key} title={`${one.label}: ${money(one.revenue, currency)}`}>
+      {shown.map((one, i) => (
+        <div className={`dg-bar-row${i < 2 ? ' dg-top' : ''}`} key={one.key}
+          title={`${one.label}: ${money(one.revenue, currency)}`}>
           <span className="dg-bar-label">{one.label}</span>
           <span className="dg-bar-track"><span className="dg-bar-fill" style={{ width: `${(one.orders / top) * 100}%` }} /></span>
           <span className="dg-bar-num">{one.orders}</span>
@@ -644,6 +766,11 @@ function Bars({ title, icon, rows: given, currency, empty }: {
           )}
         </div>
       ))}
+      {/* Zbytek se nezahazuje, jen se nekreslí — karty vedle sebe mají mít
+          podobnou výšku, jinak vznikají ty díry mezi nimi */}
+      {rows.length > shown.length && (
+        <div className="dg-caption">a dalších {rows.length - shown.length} s menším podílem</div>
+      )}
     </div>
   );
 }
@@ -827,8 +954,13 @@ function safeFacts(one: any): DigestFacts {
  * `note` je postřeh od AI, který se té metriky týká. Ukáže se jako jiskra
  * u čísla a text visí v bublině — u čísla, kterého se týká, je k něčemu;
  * v seznamu postřehů si ho k němu musí každý přiřadit sám.
+ *
+ * `watch` říká, že tohle číslo si žádá pozornost: dlaždice dostane barevnou
+ * hranu a u popisku tečku. Bez toho vypadalo všech dvanáct čísel stejně a
+ * jediný způsob, jak poznat, které z nich je dnes to důležité, bylo přečíst
+ * všechny komentáře pod sebou — což nikdo nedělá.
  */
-function Tile({ label, value, sub, tone, tip, note }: {
+function Tile({ label, value, sub, tone, tip, note, watch }: {
   label: string;
   value: string | number;
   sub?: string;
@@ -836,10 +968,19 @@ function Tile({ label, value, sub, tone, tip, note }: {
   /** Upřesnění po najetí myší — čísla, ze kterých se to skládá */
   tip?: string;
   note?: DigestNote | null;
+  /** `alert` = něco je špatně, `good` = mimořádně dobré; proč, říká `watch.why` */
+  watch?: { level: 'alert' | 'good'; why: string } | null;
 }) {
+  /*
+   * Upozornění od AI je silnější než spočítaný rozdíl: když model u čísla
+   * píše „pozor", je to ono. Bez postřehu rozhoduje výpočet.
+   */
+  const level = note?.kind === 'pozor' ? 'alert' : watch?.level ?? null;
+  const why = note?.kind === 'pozor' ? note.text : watch?.why ?? '';
   return (
-    <div className="dg-tile" data-tip={tip || undefined}>
+    <div className={`dg-tile${level ? ` is-${level}` : ''}`} data-tip={tip || undefined}>
       <span className="dg-tile-label">
+        {level && <span className={`dg-dot ${level}`} data-tip={why} aria-label={why} />}
         {label}
         {note && (
           <span className="dg-tile-ai" data-tip={`${note.text}${note.basis ? ` (${note.basis})` : ''}`}>
@@ -875,10 +1016,22 @@ function czDay(day: string): string {
  * spočítá, co se v jejích dnech dělo, proti běžnému dni před ní; je to
  * odhad, ne účetnictví, a přesně tak je to i popsané.
  */
-function Events({ currency, note }: { currency: string; note?: DigestNote | null }) {
+function Events({ currency, note, inDialog = false, limit = 8 }: {
+  currency: string;
+  note?: DigestNote | null;
+  /**
+   * Otevřeno z hlavičky jako samostatný dialog. Hlavičku kreslí dialog,
+   * formulář je rovnou vyklopený — kdo sem klepnul, jde zapisovat.
+   */
+  inDialog?: boolean;
+  limit?: number;
+}) {
   const toast = useToast();
   const [rows, setRows] = useState<ShopEventImpact[]>([]);
-  const [form, setForm] = useState<Partial<ShopEvent> | null>(null);
+  const today0 = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState<Partial<ShopEvent> | null>(
+    inDialog ? { kind: 'akce', from: today0, to: today0 } : null
+  );
 
   const load = useCallback(() => {
     api.events.list(currency).then(setRows).catch(() => {});
@@ -903,18 +1056,21 @@ function Events({ currency, note }: { currency: string; note?: DigestNote | null
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="dg-card">
+    <div className={inDialog ? 'dg-card plain' : 'dg-card'}>
       <div className="dg-card-head">
-        <Icon name="clock" size={14} /> Události
+        {!inDialog && <><Icon name="clock" size={14} /> Události</>}
         {note && (
           <span className="dg-tile-ai" data-tip={`${note.text}${note.basis ? ` (${note.basis})` : ''}`}>
             <Icon name="sparkles" size={12} />
           </span>
         )}
         <span className="dg-when">akce, dovolená, inventura — vysvětlují čísla</span>
-        <button className="dg-again" onClick={() => setForm(form ? null : { kind: 'akce', from: today, to: today })}>
-          {form ? 'Zavřít' : 'Přidat'}
-        </button>
+        {/* V dialogu je formulář otevřený pořád — zavírá se celý dialog */}
+        {!inDialog && (
+          <button className="dg-again" onClick={() => setForm(form ? null : { kind: 'akce', from: today, to: today })}>
+            {form ? 'Zavřít' : 'Přidat'}
+          </button>
+        )}
       </div>
 
       {form && (
@@ -943,7 +1099,7 @@ function Events({ currency, note }: { currency: string; note?: DigestNote | null
         </div>
       )}
 
-      {rows.slice(0, 8).map(one => (
+      {rows.slice(0, limit).map(one => (
         <div className="dg-ev" key={one.id}>
           <span className={`dg-ev-kind k-${one.kind}`}>{EVENT_KINDS.find(k => k.id === one.kind)?.label}</span>
           <button className="dg-ev-name" onClick={() => setForm(one)} data-tip={one.note || 'Upravit'}>
@@ -1017,6 +1173,8 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   const [older, setOlder] = useState<{ at: string; facts: DigestFacts; insight: DigestInsight } | null>(null);
   /** Jednotlivé zprávy jsou pod rozbalením — v souhrnu je jen počet */
   const [openTasks, setOpenTasks] = useState(false);
+  /** Události v dialogu z hlavičky — zapisuje se u čísel, ne až dole v okně */
+  const [eventsOpen, setEventsOpen] = useState(false);
   /** Rozkliknuté zboží — pod řádkem se ukáže, kam se prodávalo a jak si vede */
   const [openProduct, setOpenProduct] = useState<string | null>(null);
   /*
@@ -1141,6 +1299,52 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
     return delta(now, before);
   }, [facts]);
 
+  /*
+   * Která čísla si dnes žádají pozornost.
+   *
+   * Zvýraznit se dá jen to, co se **spočítá** — jinak by hrana svítila u
+   * každé dlaždice a přestala by cokoli znamenat. Hranice jsou schválně
+   * hrubé: třetina dolů proti včerejšku je den, kdy se stalo něco jiného
+   * než náhoda, a pětina dolů za celé období je trend, ne výkyv. Nahoru
+   * se hlásí stejně, ale zeleně — dobrá zpráva se taky snadno přehlédne.
+   */
+  const watchDay = useMemo(() => {
+    if (!facts) return null;
+    const { orders } = facts.today;
+    const before = facts.yesterday.orders;
+    // Do odpoledne je dnešek useknutý a proti celému včerejšku prohraje vždycky
+    if (before < 5 || new Date().getHours() < 16) return null;
+    const pct = Math.round(((orders - before) / before) * 100);
+    if (pct <= -33) return { level: 'alert' as const, why: `Dnešek je o ${Math.abs(pct)} % pod včerejškem.` };
+    if (pct >= 50) return { level: 'good' as const, why: `Dnešek je o ${pct} % nad včerejškem.` };
+    return null;
+  }, [facts]);
+
+  const watchWindow = useMemo(() => {
+    if (!facts) return null;
+    const now = facts.window.orders;
+    const before = facts.prevWindow.orders;
+    if (before < 10) return null;
+    const pct = Math.round(((now - before) / before) * 100);
+    if (pct <= -20) return { level: 'alert' as const, why: `Objednávek je o ${Math.abs(pct)} % míň než v předchozím stejně dlouhém období.` };
+    if (pct >= 25) return { level: 'good' as const, why: `Objednávek je o ${pct} % víc než v předchozím stejně dlouhém období.` };
+    return null;
+  }, [facts]);
+
+  /*
+   * Pořadí signálů: nejdřív to, co se kazí, pak dobré zprávy, nakonec
+   * pozorování. Kód je počítá v pořadí, v jakém je psal — čtyři věty
+   * o pozorování před jedinou o propadu znamenaly, že se ta podstatná
+   * přečetla poslední, nebo taky ne.
+   */
+  const signals = useMemo(() => {
+    const vaha: Record<string, number> = { down: 0, watch: 1, up: 2, eye: 3, info: 4 };
+    return [...(facts?.signals ?? [])]
+      .map((one, i) => ({ one, i }))
+      .sort((a, b) => (vaha[a.one.kind] ?? 9) - (vaha[b.one.kind] ?? 9) || a.i - b.i)
+      .map(row => row.one);
+  }, [facts]);
+
   const ask = async (text: string) => {
     const asked = text.trim();
     if (!asked || asking) return;
@@ -1222,6 +1426,21 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 ))}
               </select>
             )}
+            {/*
+              * Události hned vedle přepínače přehledů.
+              *
+              * Karta s nimi je někde uprostřed okna a zapisuje se do ní
+              * většinou ve chvíli, kdy se člověk dívá na čísla nahoře —
+              * dolů se kvůli tomu rolovalo a zpátky taky. Tady je to jedno
+              * klepnutí od čísel, kterých se zápis týká.
+              */}
+            <button
+              className="icon-btn"
+              data-tip="Události — akce, dovolená, inventura"
+              onClick={() => setEventsOpen(true)}
+            >
+              <Icon name="clock" size={15} />
+            </button>
             {/* PDF ukládá počítač — na telefonu není kam */}
             {!phone && (
               <button
@@ -1293,6 +1512,32 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
               </div>
 
               {/*
+                * Nový přehled se nespouští sám.
+                *
+                * Dřív se postřehy začaly sestavovat hned po otevření, jakmile
+                * byly starší než den — okno se otevřelo, dvacet vteřin se
+                * čekalo a teprve pak šlo listovat. Přitom polovina otevření
+                * je „co bylo včera". Čísla jsou z databáze a jsou hned,
+                * postřehy si člověk vyžádá, až je bude chtít.
+                */}
+              {!archived && report.insightStale && (
+                <div className="dg-newday">
+                  <Icon name="sunrise" size={15} />
+                  <span>
+                    <b>{insight ? 'Dnešní postřehy zatím nejsou' : 'Postřehy se ještě nedělaly'}</b>
+                    <span className="dg-caption">
+                      {insight
+                        ? `Na obrazovce je poslední hotový přehled (${since(insight.at)}). Čísla výš jsou aktuální.`
+                        : 'Čísla jsou z databáze a platí; postřehy sestaví AI nad nimi.'}
+                    </span>
+                  </span>
+                  <button className="btn primary" disabled={!!busy} onClick={() => load(true)}>
+                    {busy === 'insight' ? 'Sestavuji…' : 'Sestavit dnešní přehled'}
+                  </button>
+                </div>
+              )}
+
+              {/*
                 * Dlaždice. Každá nese **jedno** číslo, které se čte na první
                 * pohled; podrobnosti visí v bublině po najetí. Dřív měla
                 * každá pod sebou dva až tři údaje drobným písmem a hlavní
@@ -1314,6 +1559,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     + (facts.today.cancelled > 0 ? `, z toho ${facts.today.cancelled}× storno` : '')
                     + `. Včera ${facts.yesterday.orders} objednávek za ${moneyOf(facts.yesterday, currency)}.`}
                   note={noteFor('dnes')}
+                  watch={watchDay}
                 />
                 {/*
                   * Hlavní číslo je klouzavých třicet dní, ne kalendářní měsíc:
@@ -1329,6 +1575,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     + ` za ${moneyOf(facts.prevWindow, currency)}.`
                     + (facts.window.cancelled > 0 ? ` Storno ${facts.window.cancelled}×.` : '')}
                   note={noteFor('okno')}
+                  watch={watchWindow}
                 />
                 <Tile
                   label="Tržba za období"
@@ -1341,6 +1588,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     + ` Předtím ${moneyOf(facts.prevWindow, currency)}.`
                     + ` Cizí měny se nesčítají — visí za hlavní částkou.`}
                   note={noteFor('okno')}
+                  watch={facts.window.unpaid >= 5
+                    ? { level: 'alert' as const,
+                        why: `${facts.window.unpaid} objednávek čeká na zaplacení — v tržbě výš už započítané jsou.` }
+                    : null}
                 />
                 <Tile
                   label="Průměrná objednávka"
@@ -1429,9 +1680,19 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 <div className="dg-card">
                   <div className="dg-card-head">
                     <Icon name="sliders" size={14} /> Čísla, co stojí za pozornost
+                    {/*
+                      * Kolik z nich je varování. Seznam má pět až osm vět a
+                      * všechny vypadají stejně vážně — číslo v hlavičce říká
+                      * dřív, než se začne číst, jestli je co řešit.
+                      */}
+                    {signals.filter(one => one.kind === 'down' || one.kind === 'watch').length > 0 && (
+                      <span className="dg-count alert">
+                        {signals.filter(one => one.kind === 'down' || one.kind === 'watch').length}× pozor
+                      </span>
+                    )}
                     <span className="dg-when">spočítáno z feedu</span>
                   </div>
-                  {(facts.signals ?? []).map((one, i) => (
+                  {signals.map((one, i) => (
                     <p className={`dg-note sig-${one.kind}`} key={i}>
                       <Icon
                         name={one.kind === 'up' ? 'zap' : one.kind === 'down' ? 'chevDown' : one.kind === 'watch' ? 'alert' : 'eye'}
@@ -1500,76 +1761,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                       {' '}z {facts.history?.rank?.of} uzavřených měsíců.</>}
                   </div>
                   {/*
-                    * Sezóna. Samotné „prosinec bývá silný" se nedá použít —
-                    * proto je u ní i co se v ní prodávalo, dokdy se má začít
-                    * a které příspěvky tehdy fungovaly. To všechno je z dat,
-                    * ne od AI.
+                    * Sezóny. Samotné „prosinec bývá silný" se nedá použít —
+                    * proto je u každé i co se v ní prodávalo, dokdy se má
+                    * začít a které příspěvky tehdy fungovaly. Všechno je
+                    * spočítané z feedu, ne od AI.
                     */}
-                  {!facts.history?.season && facts.history?.seasonNote && (
-                    <p className="dg-note sig-eye">
-                      <Icon name="clock" size={13} />
-                      <span>{facts.history.seasonNote}</span>
-                    </p>
-                  )}
-                  {/*
-                    * Sezón může být na půl roku dopředu víc: leden bývá
-                    * silnější než prosinec a kdo se chystá jen na tu
-                    * nejbližší, druhou vlnu prošvihne. U každé je vidět
-                    * hlavička (co, kdy, jak silné), věta „co s tím",
-                    * zboží s obrázky a příspěvky, které tehdy fungovaly —
-                    * všechno spočítané z feedu, ne od AI.
-                    */}
-                  {(facts.history?.seasons ?? (facts.history?.season ? [facts.history.season] : []))
-                    .map(season => (
-                    <div className="dg-season" key={season.month}>
-                      <div className="dg-season-head">
-                        <Icon name="clock" size={14} />
-                        <b>{season.name.charAt(0).toUpperCase()}{season.name.slice(1)}</b>
-                        <span className="dg-season-when">
-                          {season.inDays === 0 ? 'právě běží' : `za ${season.inDays} dní · ${season.label}`}
-                        </span>
-                        <span className="dg-season-index" title="Kolikrát silnější než průměrný měsíc">
-                          {season.index.toFixed(1)}× průměr
-                        </span>
-                      </div>
-                      <p className="dg-season-do">
-                        {season.inDays === 0
-                          ? 'Sezóna běží — teď se hodí držet zásobu toho, co se v ní prodává nejvíc.'
-                          : `Propagaci zahájit do ${new Date(season.startBy)
-                            .toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' })}`
-                            + ' — tři týdny předem, ať má náběh a stihne se doskladnit.'}
-                        <span className="dg-basis">{season.basis}</span>
-                      </p>
-                      {(season.products ?? []).length > 0 && (
-                        <>
-                          <span className="dg-caption">
-                            Co se v ní prodávalo nejvíc (za celou historii, ne jen loni)
-                          </span>
-                          <div className="dg-thumbs">
-                            {(season.products ?? []).map(one => (
-                              <div className="dg-thumb" key={one.code} title={one.code}>
-                                {one.image
-                                  ? <img src={one.image} alt="" loading="lazy" />
-                                  : <span className="dg-thumb-ph"><Icon name="bag" size={18} /></span>}
-                                <span className="dg-thumb-title">{one.title}</span>
-                                <span className="dg-thumb-qty">{one.qty} ks</span>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                      {(season.posts ?? []).length > 0 && (
-                        <div className="dg-season-list">
-                          <span className="dg-caption">
-                            Příspěvky, které v tom období fungovaly — s čím se dá začít
-                          </span>
-                          {(season.posts ?? []).map(post => (
-                            <Post key={post.at + post.permalink} post={post} />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                  <Seasons
+                    seasons={facts.history?.seasons
+                      ?? (facts.history?.season ? [facts.history.season] : [])}
+                    note={facts.history?.seasonNote ?? ''}
+                  />
                 </div>
               )}
 
@@ -1582,7 +1783,12 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   empty={missing('platbu')} />
               </div>
 
-              <div className="dg-grid">
+              {/*
+                * Čtyři karty do třísloupcové mřížky nejdou: v druhé řadě
+                * zůstane jedna a vedle ní dvě prázdné třetiny. Ve dvou
+                * sloupcích jsou dvě řady po dvou a nic nezbývá.
+                */}
+              <div className="dg-grid two">
                 <Bars title="Stavy objednávek" icon="fileText" rows={facts.statuses} currency={currency}
                   empty={archived ? 'Starší přehled stavy neuchoval.' : 'Feed stavy nenese.'} />
                 {/*
@@ -1590,7 +1796,12 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   * ohledu na barvu, takže se podle tohohle skládá sklad — ale
                   * délka kšand a šířka kravaty se sčítat nedají, proto zvlášť.
                   */}
-                <div className="dg-card">
+                <div className="dg-card" style={{
+                  '--dg-num': colWidth((facts.sizes ?? [])
+                    .flatMap(group => group.sizes.map(one => `${one.qty} ks`))),
+                  '--dg-money': colWidth((facts.sizes ?? [])
+                    .flatMap(group => group.sizes.map(one => `u ${one.products} výrobků`)), 8)
+                } as CSSProperties}>
                   <div className="dg-card-head"><Icon name="sliders" size={14} /> Velikosti po kategoriích</div>
                   {/*
                     * Poslední sloupec dřív říkal jen „6× zboží" a nikdo
@@ -1607,13 +1818,20 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   {(facts.sizes ?? []).length === 0 && (
                     <div className="dg-empty">Zboží v okně nemá varianty, nebo katalog není stažený.</div>
                   )}
-                  {(facts.sizes ?? []).map(group => {
+                  {/*
+                    * Dvě kategorie po čtyřech velikostech. Celý seznam měl
+                    * i patnáct řádků a karta pak byla dvakrát vyšší než ta
+                    * vedle — přesně to dělalo v mřížce ty prázdné plochy.
+                    * Co se nevejde, shrne věta pod tím; podle prvních čtyř
+                    * velikostí se stejně objednává.
+                    */}
+                  {(facts.sizes ?? []).slice(0, 2).map(group => {
                     const top = Math.max(1, ...group.sizes.map(s => s.qty));
                     return (
                       <div key={group.category}>
                         <div className="dg-caption">{group.category} · {group.qty} ks</div>
-                        {group.sizes.map(one => (
-                          <div className="dg-bar-row" key={one.label}>
+                        {group.sizes.slice(0, 4).map((one, i) => (
+                          <div className={`dg-bar-row${i < 2 ? ' dg-top' : ''}`} key={one.label}>
                             <span className="dg-bar-label">{one.label}</span>
                             <span className="dg-bar-track">
                               <span className="dg-bar-fill" style={{ width: `${(one.qty / top) * 100}%` }} />
@@ -1624,9 +1842,17 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                             </span>
                           </div>
                         ))}
+                        {group.sizes.length > 4 && (
+                          <div className="dg-caption">a dalších {group.sizes.length - 4} velikostí</div>
+                        )}
                       </div>
                     );
                   })}
+                  {(facts.sizes ?? []).length > 2 && (
+                    <div className="dg-caption">
+                      a dalších {(facts.sizes ?? []).length - 2} kategorií — celé rozdělení je v katalogu
+                    </div>
+                  )}
                 </div>
                 {/*
                   * Sítě a návštěvnost byly jedna karta a byla nejvyšší ze
@@ -1674,10 +1900,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                           ))}
                         </div>
                       )}
+                      {/*
+                        * Jeden nejúspěšnější, ne dva. Karta se čtyřmi
+                        * příspěvky byla dvakrát vyšší než sousední a vedle
+                        * ní zůstávalo prázdno až dolů; pro rozhodnutí
+                        * „čím se inspirovat" stačí ten nejlepší.
+                        */}
                       {(facts.social.bestEver ?? []).length > 0 && (
                         <div className="dg-season-list">
                           <span className="dg-caption">Nejúspěšnější za poslední půlrok</span>
-                          {(facts.social.bestEver ?? []).map(post => (
+                          {(facts.social.bestEver ?? []).slice(0, 1).map(post => (
                             <Post key={post.at + post.permalink} post={post} />
                           ))}
                         </div>
@@ -1693,7 +1925,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                           <span className="dg-caption">
                             Ze starších — jen na připomenutí, měřítko pro dnešek to není
                           </span>
-                          {(facts.social.bestOlder ?? []).map(post => (
+                          {(facts.social.bestOlder ?? []).slice(0, 1).map(post => (
                             <Post key={post.at + post.permalink} post={post} />
                           ))}
                         </div>
@@ -1709,7 +1941,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   {!facts.social && <div className="dg-empty">Instagram není napojený.</div>}
                 </div>
 
-                <div className="dg-card">
+                <div className="dg-card" style={{
+                  '--dg-num': colWidth((report.ga4?.sources ?? []).slice(0, 5)
+                    .map(one => fmt(one.sessions)))
+                } as CSSProperties}>
                   <div className="dg-card-head">
                     <Icon name="globe" size={14} /> Návštěvnost
                     {noteFor('navstevnost') && (
@@ -1735,14 +1970,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                         <b>{report.ga4.window.sessions ?? '—'}</b> návštěv
                         {report.ga4.conversion != null && <> · konverze {report.ga4.conversion} %</>}
                       </div>
-                      {report.ga4.sources.slice(0, 3).map(one => (
-                        <div className="dg-bar-row" key={one.name}>
+                      {/* Pět zdrojů místo tří: karta vedle je vyšší a tohle
+                          je právě to, čím se místo smysluplně zaplní */}
+                      {report.ga4.sources.slice(0, 5).map((one, i) => (
+                        <div className={`dg-bar-row${i < 2 ? ' dg-top' : ''}`} key={one.name}>
                           <span className="dg-bar-label" title={one.name}>{one.name}</span>
                           <span className="dg-bar-track">
                             <span className="dg-bar-fill"
                               style={{ width: `${(one.sessions / Math.max(1, report.ga4!.sources[0].sessions)) * 100}%` }} />
                           </span>
-                          <span className="dg-bar-num">{one.sessions}</span>
+                          <span className="dg-bar-num">{fmt(one.sessions)}</span>
                         </div>
                       ))}
                     </>
@@ -1867,7 +2104,12 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
               )}
 
               {/* Nejprodávanější zboží za zvolené období */}
-              <div className="dg-card">
+              <div className="dg-card" style={{
+                '--dg-num': colWidth((facts.products ?? []).slice(0, topCount)
+                  .map(one => `${one.qty} ks`)),
+                '--dg-money': colWidth((facts.products ?? []).slice(0, topCount)
+                  .map(one => productMoney(one.revenueAll, currency) || '—'), 9)
+              } as CSSProperties}>
                 <div className="dg-card-head">
                   <Icon name="bag" size={14} /> Nejprodávanější — {rangeLabel(range).toLowerCase()}
                   {/*
@@ -2001,7 +2243,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   <Icon name="brain" size={14} /> Postřehy
                   {insight && <span className="dg-when">{since(insight.at)}</span>}
                   <button className="dg-again" disabled={!!busy} onClick={() => load(true)}>
-                    {busy === 'insight' ? 'Sestavuji…' : 'Přegenerovat'}
+                    {busy === 'insight' ? 'Sestavuji…' : report.insightStale ? 'Sestavit dnešní' : 'Přegenerovat'}
                   </button>
                 </div>
                 {/*
@@ -2015,7 +2257,9 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   </div>
                 )}
                 {!insight && !report.insightError && (
-                  <div className="dg-empty">Postřehy se sestaví při prvním ranním otevření.</div>
+                  <div className="dg-empty">
+                    Zatím žádné. Tlačítkem výš (nebo tímhle) je AI sestaví nad čísly, která jsou na obrazovce.
+                  </div>
                 )}
                 {report.insightError && (
                   <div className="dg-empty">Nové postřehy se nepovedly: {report.insightError}</div>
@@ -2091,6 +2335,29 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
           )}
         </div>
       </div>
+
+      {/*
+        * Události z hlavičky. Je to tentýž seznam jako karta v přehledu —
+        * jen dosažitelný od čísel nahoře, aniž by se kvůli zápisu rolovalo
+        * přes celé okno a zpátky.
+        */}
+      {eventsOpen && (
+        <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) setEventsOpen(false); }}>
+          <div className="modal" style={{ width: 'min(720px, 94vw)' }}>
+            <div className="modal-head">
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="clock" size={17} /> Události
+              </span>
+              <button className="icon-btn" data-tip="Zavřít" onClick={() => setEventsOpen(false)}>
+                <Icon name="x" size={15} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <Events currency={currency} note={noteFor('udalosti')} inDialog limit={40} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
