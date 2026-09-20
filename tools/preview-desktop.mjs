@@ -60,10 +60,11 @@ await page.waitForTimeout(900);
  * pracovního prostoru do vlastního okna.
  */
 const NASTROJE = {
-  'Produkty a překlady': 'produkty', 'Články': 'clanky', 'AI Přehled': 'prehled',
-  'Balení objednávek': 'baleni', 'Katalog a naskladnění': 'katalog',
-  'Texty na webu': 'texty', 'Recenze zákazníků': 'recenze', 'Konvertor médií': 'media',
-  'Sociální sítě': 'socialni'
+  'Produkty a překlady': ['ptrans', 'produkty'], 'Články': ['articles', 'clanky'],
+  'AI Přehled': ['digest', 'prehled'], 'Balení objednávek': ['packing', 'baleni'],
+  'Katalog a naskladnění': ['catalog', 'katalog'], 'Texty na webu': ['webtexts', 'texty'],
+  'Recenze zákazníků': ['reviews', 'recenze'], 'Konvertor médií': ['media', 'media'],
+  'Sociální sítě': ['instagram', 'socialni']
 };
 const vOkneNastroje = () => page.url().includes('#');
 /*
@@ -88,7 +89,23 @@ const doPosty = async () => {
 const click = async (selector, options = {}) => {
   // Nástroj z nabídky = vlastní okno, ne překryv nad poštou
   if (selector === '.ws-menu-item' && NASTROJE[options.hasText]) {
-    await doOkna(NASTROJE[options.hasText]);
+    /*
+     * V nabídce se opravdu klepne a teprve pak se náhled přepne na adresu
+     * okna. Skok rovnou na adresu obsluhu tlačítka obešel — a právě v ní
+     * zůstal starý řádek, který sociální sítě místo okna rozbalil přes
+     * poštu; náhled si toho nevšiml, protože se na tlačítko nikdy nesáhlo.
+     */
+    const [id, hash] = NASTROJE[options.hasText];
+    await page.evaluate(() => { window.__calls = []; });
+    try { await page.locator(selector, options).first().click({ timeout: 4000 }); }
+    catch { problems.push(`nešlo kliknout: ${selector} (${options.hasText})`); }
+    await page.waitForTimeout(300);
+    const rekl = await page.evaluate(() => (window.__calls || [])
+      .filter(c => c[0] === 'tool:open').map(c => c[1]));
+    if (!rekl.includes(id)) {
+      problems.push(`${options.hasText}: nabídka si neřekla o vlastní okno (${rekl.join(', ') || 'nic'})`);
+    }
+    await doOkna(hash);
     return;
   }
   /*

@@ -154,10 +154,17 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
       {menu && (
         <FunctionsMenu
           activeTool={activeTool}
+          /*
+           * Všechno jde stejnou cestou, včetně sociálních sítí. Dřív se na ně
+           * tady přepínal prostor hlavního okna — to platilo, dokud sítě byly
+           * prostor jako pošta. Teď mají vlastní okno, a tenhle řádek ho
+           * obcházel: okno se neotevřelo a sítě se zase rozbalily přes poštu.
+           * Kam nástroj patří, ví jedno místo v App — na telefonu prostor,
+           * na počítači okno.
+           */
           onPick={tool => {
             setMenu(false);
-            if (tool === 'instagram') onChange('instagram');
-            else onAiTool?.(tool);
+            onAiTool?.(tool);
           }}
           highlightInstagram={current === 'instagram'}
         />
@@ -198,7 +205,7 @@ export function FunctionsMenu({ activeTool, onPick, highlightInstagram = false, 
           <button
             className={'ws-menu-item '
               + ((tool.id === 'instagram'
-                ? highlightInstagram
+                ? highlightInstagram || openTools.includes('instagram')
                 : activeTool === tool.id || openTools.includes(tool.id as ToolWindowId)) ? 'on' : '')}
             onClick={() => onPick(tool.id)}
           >
