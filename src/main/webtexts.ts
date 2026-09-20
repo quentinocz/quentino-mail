@@ -4,6 +4,7 @@ import { ask } from './ai';
 import { getSettings } from './settings';
 import { encrypt, decrypt } from './secure';
 import { headScript } from './webscript';
+import { eventFromPlan, dropEventOfPlan } from './events';
 import type {
   WebText, WebPlan, WebProductArea, WebBarArea, WebLinksArea, WebButtonArea,
   WebSeason, WebTextsConfig, WebTextsState, WebClash
@@ -578,12 +579,22 @@ export async function saveWebPlan(value: any): Promise<WebTextsState> {
   writePlans(prune(plans));
   setSetting('webTextsDirty', '1');
 
+  /*
+   * Z plánované změny se založí událost do přehledu — akce se na webu
+   * ohlašuje, takže datum i obsah už tady jsou a psát totéž podruhé do
+   * událostí by nikdo nedělal. Nečeká se na to: rozhoduje o tom model a
+   * uložení textu kvůli tomu nesmí trvat déle ani spadnout.
+   */
+  void eventFromPlan(plan).catch(() => { /* událost je doplněk, ne podmínka */ });
+
   return publishSafely();
 }
 
 export async function deleteWebPlan(id: string): Promise<WebTextsState> {
   writePlans(readPlans().filter(one => one.id !== String(id)));
   setSetting('webTextsDirty', '1');
+  // Zrušená změna si odnese i svoji událost, jinak by v přehledu zůstala viset
+  try { dropEventOfPlan(String(id)); } catch { /* událost je doplněk */ }
   return publishSafely();
 }
 

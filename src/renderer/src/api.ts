@@ -32,6 +32,7 @@ import type {
   MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload
 } from '@shared/types';
 import type { ToolWindowId } from '@shared/windows';
+import type { ShopEvent, ShopEventImpact } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
 export interface LabelItemRow {
@@ -1157,6 +1158,17 @@ export const api = {
 
     /** Které focení je otevřené — sdílí se mezi okny */
     current: (id?: string) => call<string>('shoot:current', id)
+  },
+
+  /**
+   * Události, které vysvětlují čísla — akce, dovolená, inventura. Vrací se
+   * i s dopadem spočítaným z feedu.
+   */
+  events: {
+    list: (currency = 'CZK') => call<ShopEventImpact[]>('events:list', currency),
+    save: (patch: Partial<ShopEvent>, currency = 'CZK') =>
+      call<ShopEventImpact[]>('events:save', patch, currency),
+    delete: (id: number, currency = 'CZK') => call<ShopEventImpact[]>('events:delete', id, currency)
   },
 
   /**

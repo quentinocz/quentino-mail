@@ -83,6 +83,17 @@
   ];
 
   const answers = {
+  'events:list': [
+    { id: 1, kind: 'dovolena', title: 'Dovolená — zavřeno', from: '2026-08-04', to: '2026-08-10',
+      note: 'balíky se neodesílaly', days: 7, future: false, orders: 3, revenue: 4200, currency: 'CZK',
+      perDay: 0.4, basePerDay: 3.8, deltaPct: -89, moneyDiff: -58400, posts: 1, likes: 42, comments: 0 },
+    { id: 2, kind: 'akce', title: 'Sleva 20 % na kšandy', from: '2026-09-05', to: '2026-09-08',
+      note: 'newsletter + IG', source: 'webtext', days: 4, future: false, orders: 31, revenue: 41800, currency: 'CZK',
+      perDay: 7.8, basePerDay: 3.6, deltaPct: 117, moneyDiff: 22600, posts: 3, likes: 214, comments: 7 },
+    { id: 3, kind: 'inventura', title: 'Inventura skladu', from: '2026-10-02', to: '2026-10-02',
+      note: '', days: 1, future: true, orders: 0, revenue: 0, currency: 'CZK',
+      perDay: 0, basePerDay: null, deltaPct: null, moneyDiff: null, posts: 0, likes: 0, comments: 0 }
+  ],
     'settings:get': settings,
     'accounts:list': accounts,
     'folders:list': folders,
@@ -1849,6 +1860,14 @@
        * neotevírá — takže se jen zaznamená, že si o ně rozhraní řeklo.
        */
       if (channel === 'tool:list') return Promise.resolve({ ok: true, data: [] });
+      /*
+       * Události v přehledu. Náhled potřebuje aspoň jednu změřenou (dovolená
+       * v mínusu) a jednu budoucí — na nich je vidět, že se řádek chová
+       * jinak podle toho, jestli je co měřit.
+       */
+      if (channel === 'events:list' || channel === 'events:save' || channel === 'events:delete') {
+        return Promise.resolve({ ok: true, data: answers['events:list'] });
+      }
       if (channel === 'tool:arg') {
         return Promise.resolve({ ok: true, data: window.__toolArg || '' });
       }

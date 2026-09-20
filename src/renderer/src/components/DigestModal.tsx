@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DigestArchiveRow, DigestDay, DigestFacts, DigestInsight, DigestMonth, DigestReport,
-  DigestMoney, DigestPost, DigestSlice, DigestTask, DigestTotals, DigestTurn,
-  Ga4Deep, Ga4Funnel, Ga4Month, Ga4Slice, Ga4Note, Ga4Notes, ArticleStatsView
+  DigestMoney, DigestNote, DigestMetric, DigestPost, DigestSlice, DigestTask, DigestTotals, DigestTurn,
+  Ga4Deep, Ga4Funnel, Ga4Month, Ga4Slice, Ga4Note, Ga4Notes, ArticleStatsView,
+  ShopEvent, ShopEventImpact, ShopEventKind
 } from '@shared/types';
 import { api } from '../api';
 import { useIsPhone } from '../mobile';
@@ -815,12 +816,193 @@ function safeFacts(one: any): DigestFacts {
   };
 }
 
+/**
+ * Dlaždice s jedním číslem.
+ *
+ * Pravidlo je jednoduché: **jedno číslo, na první pohled**. Všechno ostatní
+ * je buď jednou krátkou větou pod ním, nebo po najetí myší. Dřív měla každá
+ * dlaždice pod číslem dva až tři údaje drobným písmem — dohromady dvanáct
+ * čísel, ve kterých se to hlavní ztratilo.
+ *
+ * `note` je postřeh od AI, který se té metriky týká. Ukáže se jako jiskra
+ * u čísla a text visí v bublině — u čísla, kterého se týká, je k něčemu;
+ * v seznamu postřehů si ho k němu musí každý přiřadit sám.
+ */
+function Tile({ label, value, sub, tone, tip, note }: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  tone?: 'up' | 'down' | 'flat';
+  /** Upřesnění po najetí myší — čísla, ze kterých se to skládá */
+  tip?: string;
+  note?: DigestNote | null;
+}) {
+  return (
+    <div className="dg-tile" data-tip={tip || undefined}>
+      <span className="dg-tile-label">
+        {label}
+        {note && (
+          <span className="dg-tile-ai" data-tip={`${note.text}${note.basis ? ` (${note.basis})` : ''}`}>
+            <Icon name="sparkles" size={12} />
+          </span>
+        )}
+      </span>
+      <span className="dg-tile-value">{value}</span>
+      {sub && <span className={`dg-tile-sub${tone ? ` tone-${tone}` : ''}`}>{sub}</span>}
+    </div>
+  );
+}
+
+/** Jak se druh události jmenuje a jakou má barvu. */
+const EVENT_KINDS: { id: ShopEventKind; label: string }[] = [
+  { id: 'akce', label: 'Akce' },
+  { id: 'dovolena', label: 'Dovolená' },
+  { id: 'inventura', label: 'Inventura' },
+  { id: 'jine', label: 'Jiné' }
+];
+
+function czDay(day: string): string {
+  if (!day) return '';
+  const at = new Date(`${day}T12:00:00`);
+  return at.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric', year: '2-digit' });
+}
+
+/**
+ * Události, které čísla vysvětlují.
+ *
+ * Z feedu se pozná, že týden byl slabý — ne proč. Tahle jediná věta je
+ * rozdíl mezi „nedělej nic" a „příště zavři obchod jindy". U každé se
+ * spočítá, co se v jejích dnech dělo, proti běžnému dni před ní; je to
+ * odhad, ne účetnictví, a přesně tak je to i popsané.
+ */
+function Events({ currency, note }: { currency: string; note?: DigestNote | null }) {
+  const toast = useToast();
+  const [rows, setRows] = useState<ShopEventImpact[]>([]);
+  const [form, setForm] = useState<Partial<ShopEvent> | null>(null);
+
+  const load = useCallback(() => {
+    api.events.list(currency).then(setRows).catch(() => {});
+  }, [currency]);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!form) return;
+    try {
+      setRows(await api.events.save(form, currency));
+      setForm(null);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  };
+
+  const drop = async (id: number) => {
+    try { setRows(await api.events.delete(id, currency)); }
+    catch (e: any) { toast(e.message, 'error'); }
+  };
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div className="dg-card">
+      <div className="dg-card-head">
+        <Icon name="clock" size={14} /> Události
+        {note && (
+          <span className="dg-tile-ai" data-tip={`${note.text}${note.basis ? ` (${note.basis})` : ''}`}>
+            <Icon name="sparkles" size={12} />
+          </span>
+        )}
+        <span className="dg-when">akce, dovolená, inventura — vysvětlují čísla</span>
+        <button className="dg-again" onClick={() => setForm(form ? null : { kind: 'akce', from: today, to: today })}>
+          {form ? 'Zavřít' : 'Přidat'}
+        </button>
+      </div>
+
+      {form && (
+        <div className="dg-ev-form">
+          <select value={form.kind ?? 'akce'}
+            onChange={e => setForm({ ...form, kind: e.target.value as ShopEventKind })}>
+            {EVENT_KINDS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
+          </select>
+          <input type="date" value={form.from ?? ''}
+            onChange={e => setForm({ ...form, from: e.target.value, to: form.to || e.target.value })} />
+          <span className="dg-caption">až</span>
+          <input type="date" value={form.to ?? form.from ?? ''}
+            onChange={e => setForm({ ...form, to: e.target.value })} />
+          <input className="dg-ev-title" placeholder="Název — ať se za rok pozná, co to bylo"
+            value={form.title ?? ''} onChange={e => setForm({ ...form, title: e.target.value })} />
+          <input className="dg-ev-note" placeholder="Poznámka (nepovinná)"
+            value={form.note ?? ''} onChange={e => setForm({ ...form, note: e.target.value })} />
+          <button className="btn primary" onClick={save}>Uložit</button>
+        </div>
+      )}
+
+      {rows.length === 0 && !form && (
+        <div className="dg-empty">
+          Zatím nic. Zapiš akci, dovolenou nebo inventuru — příště bude u čísel vidět proč,
+          a za rok se dá říct, co která akce přinesla.
+        </div>
+      )}
+
+      {rows.slice(0, 8).map(one => (
+        <div className="dg-ev" key={one.id}>
+          <span className={`dg-ev-kind k-${one.kind}`}>{EVENT_KINDS.find(k => k.id === one.kind)?.label}</span>
+          <button className="dg-ev-name" onClick={() => setForm(one)} data-tip={one.note || 'Upravit'}>
+            {one.title}
+          </button>
+          {/*
+            * Událost z naplánované změny textů na webu. Je vidět, že ji
+            * nezaložil člověk — jinak by vypadala jako cizí zápis v jeho
+            * seznamu. Přepsat se dá, ale další úprava textu ji srovná
+            * zpátky podle toho, co na webu doopravdy stojí.
+            */}
+          {one.source === 'webtext' && (
+            <span className="dg-ev-auto" data-tip="Založeno z naplánované změny textů na webu">
+              <Icon name="globe" size={12} />
+            </span>
+          )}
+          <span className="dg-ev-when">
+            {czDay(one.from)}{one.to !== one.from ? ` – ${czDay(one.to)}` : ''}
+            {one.days > 1 ? ` · ${one.days} dní` : ''}
+          </span>
+          <span className="dg-ev-money"
+            data-tip={one.future
+              ? 'Událost je teprve před námi — měřit zatím není co.'
+              : one.moneyDiff == null
+                ? 'Před událostí není dost objednávek na to, aby šlo říct, co je běžný den.'
+                : `${one.orders} objednávek za ${one.days} dní, tedy ${one.perDay} na den.`
+                  + ` Běžný den před událostí: ${one.basePerDay}.`
+                  + (one.posts ? ` Na sítích v tom období ${one.posts} příspěvků, ${one.likes} lajků.` : '')}>
+            {one.future
+              ? 'čeká'
+              : one.moneyDiff == null
+                ? '—'
+                : `${one.moneyDiff > 0 ? '+' : ''}${money(one.moneyDiff, one.currency)}`}
+          </span>
+          <button className="icon-btn" data-tip="Smazat" onClick={() => drop(one.id)}>
+            <Icon name="trash" size={13} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Props) {
   // Ve vlastním okně nekreslíme ovládání okna — to má okno svoje
   const okno = inToolWindow();
   const phone = useIsPhone();
   const toast = useToast();
   const [report, setReport] = useState<DigestReport | null>(null);
+  /**
+   * Postřeh, který patří k danému číslu.
+   *
+   * Model u každého bodu říká, čeho se týká. Bod pověšený u čísla, kterého
+   * se týká, je k něčemu hned; tentýž bod v seznamu dole si musí každý
+   * k číslu přiřadit sám — a většinou to neudělá.
+   */
+  const noteFor = (metric: DigestMetric): DigestNote | null =>
+    (report?.insight?.notes ?? []).find(one => one.metric === metric) ?? null;
+
   const [error, setError] = useState<string | null>(null);
   /** Co se počítá: čísla z databáze (hned), nebo postřehy od AI (dlouho) */
   const [busy, setBusy] = useState<'numbers' | 'insight' | null>(null);
@@ -1110,43 +1292,64 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 {showing && <span className="dg-caption">u staršího přehledu platí čísla, která k němu patří</span>}
               </div>
 
-              {/* Dlaždice: dnešek proti včerejšku a měsíc proti minulému */}
+              {/*
+                * Dlaždice. Každá nese **jedno** číslo, které se čte na první
+                * pohled; podrobnosti visí v bublině po najetí. Dřív měla
+                * každá pod sebou dva až tři údaje drobným písmem a hlavní
+                * číslo se v nich ztrácelo — dvanáct čísel vedle sebe se
+                * nedá přečíst, jedno ano.
+                *
+                * Včerejšek dostal vlastní dlaždici zbytečně: sám o sobě
+                * neříká nic, zajímavý je jen jako srovnání s dneškem — takže
+                * je z něj podtitulek. Místo po něm vzala tržba, což je číslo,
+                * na které se u e-shopu kouká první.
+                */}
               <div className="dg-tiles">
-                <div className="dg-tile">
-                  <span className="dg-tile-label">Dnes</span>
-                  <span className="dg-tile-value">{facts.today.orders}</span>
-                  <span className="dg-tile-sub">
-                    {moneyOf(facts.today, currency)}
-                    {facts.today.cancelled > 0 && <> · {facts.today.cancelled}× storno</>}
-                  </span>
-                </div>
-                <div className="dg-tile">
-                  <span className="dg-tile-label">Včera</span>
-                  <span className="dg-tile-value">{facts.yesterday.orders}</span>
-                  <span className={`dg-tile-sub tone-${delta(facts.today.orders, facts.yesterday.orders).tone}`}>
-                    dnes {delta(facts.today.orders, facts.yesterday.orders).text}
-                  </span>
-                </div>
+                <Tile
+                  label="Dnes"
+                  value={facts.today.orders}
+                  sub={`včera ${facts.yesterday.orders} · ${delta(facts.today.orders, facts.yesterday.orders).text}`}
+                  tone={delta(facts.today.orders, facts.yesterday.orders).tone}
+                  tip={`Dnes ${moneyOf(facts.today, currency)}`
+                    + (facts.today.cancelled > 0 ? `, z toho ${facts.today.cancelled}× storno` : '')
+                    + `. Včera ${facts.yesterday.orders} objednávek za ${moneyOf(facts.yesterday, currency)}.`}
+                  note={noteFor('dnes')}
+                />
                 {/*
                   * Hlavní číslo je klouzavých třicet dní, ne kalendářní měsíc:
                   * prvního v měsíci by se srovnával jeden den s jedním dnem
                   * a vycházely by z toho nesmysly. Měsíc je pod grafem jako údaj.
                   */}
-                <div className="dg-tile">
-                  <span className="dg-tile-label">{rangeLabel(range)}</span>
-                  <span className="dg-tile-value">{facts.window.orders}</span>
-                  <span className={`dg-tile-sub tone-${windowDelta?.tone ?? 'flat'}`}>
-                    {moneyOf(facts.window, currency)} · {windowDelta?.text} proti předchozímu období
-                  </span>
-                </div>
-                <div className="dg-tile">
-                  <span className="dg-tile-label">Průměrná objednávka</span>
-                  <span className="dg-tile-value">{money(facts.average, currency)}</span>
-                  <span className="dg-tile-sub">
-                    {facts.returning}× stálý zákazník
-                    {facts.window.unpaid > 0 && <> · {facts.window.unpaid} nezaplacených</>}
-                  </span>
-                </div>
+                <Tile
+                  label={rangeLabel(range)}
+                  value={facts.window.orders}
+                  sub={`${windowDelta?.text} proti předchozímu období`}
+                  tone={windowDelta?.tone}
+                  tip={`Předchozí stejně dlouhé období: ${facts.prevWindow.orders} objednávek`
+                    + ` za ${moneyOf(facts.prevWindow, currency)}.`
+                    + (facts.window.cancelled > 0 ? ` Storno ${facts.window.cancelled}×.` : '')}
+                  note={noteFor('okno')}
+                />
+                <Tile
+                  label="Tržba za období"
+                  value={moneyOf(facts.window, currency)}
+                  sub={facts.window.unpaid > 0
+                    ? `${facts.window.unpaid} objednávek zatím nezaplacených`
+                    : 'všechno zaplacené'}
+                  tone={facts.window.unpaid > 0 ? 'down' : 'up'}
+                  tip={`Stornované objednávky se do tržby nepočítají.`
+                    + ` Předtím ${moneyOf(facts.prevWindow, currency)}.`
+                    + ` Cizí měny se nesčítají — visí za hlavní částkou.`}
+                  note={noteFor('okno')}
+                />
+                <Tile
+                  label="Průměrná objednávka"
+                  value={money(facts.average, currency)}
+                  sub={`${facts.returning}× stálý zákazník`}
+                  tip={`Průměr z objednávek v ${currency} za zvolené období.`
+                    + ` Dvě objednávky téhož člověka do dvou dnů se počítají jako jeden nákup.`}
+                  note={noteFor('prumer')}
+                />
               </div>
 
               {/* Co čeká na vyřízení. Nahoře schválně: je to jediná část, kde
@@ -1242,6 +1445,14 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   ))}
                 </div>
               )}
+
+              {/*
+                * Události. Stojí hned pod spočítanými signály schválně: to,
+                * co se stalo mimo data (dovolená, akce, inventura), je
+                * nejčastější vysvětlení čísel nad tím — a jediné, které do
+                * aplikace nedostane nikdo jiný než člověk.
+                */}
+              {!archived && <Events currency={currency} note={noteFor('udalosti')} />}
 
               {/* Graf: počet objednávek, nebo tržba — jedno tlačítko, dvě čtení */}
               <div className="dg-card">
@@ -1417,9 +1628,22 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     );
                   })}
                 </div>
-                {/* Sítě a návštěvnost — obojí jen když je z čeho brát */}
+                {/*
+                  * Sítě a návštěvnost byly jedna karta a byla nejvyšší ze
+                  * všech — sama zabrala celý sloupec a vedle ní zbylo prázdno
+                  * až dolů. Jsou to přitom dvě různé věci: co jsme vydali a
+                  * kolik lidí přišlo. Rozdělené se poskládají mezi ostatní.
+                  */}
                 <div className="dg-card">
-                  <div className="dg-card-head"><Icon name="image" size={14} /> Sítě a návštěvnost</div>
+                  <div className="dg-card-head">
+                    <Icon name="image" size={14} /> Sítě
+                    {noteFor('site') && (
+                      <span className="dg-tile-ai"
+                        data-tip={`${noteFor('site')!.text}${noteFor('site')!.basis ? ` (${noteFor('site')!.basis})` : ''}`}>
+                        <Icon name="sparkles" size={12} />
+                      </span>
+                    )}
+                  </div>
                   {facts.social && (
                     <>
                       <div className="dg-line">
@@ -1483,27 +1707,44 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     </>
                   )}
                   {!facts.social && <div className="dg-empty">Instagram není napojený.</div>}
+                </div>
+
+                <div className="dg-card">
+                  <div className="dg-card-head">
+                    <Icon name="globe" size={14} /> Návštěvnost
+                    {noteFor('navstevnost') && (
+                      <span className="dg-tile-ai"
+                        data-tip={`${noteFor('navstevnost')!.text}${noteFor('navstevnost')!.basis ? ` (${noteFor('navstevnost')!.basis})` : ''}`}>
+                        <Icon name="sparkles" size={12} />
+                      </span>
+                    )}
+                    {/*
+                      * Čí návštěvy to jsou. GA4 měří zatím jen jeden web,
+                      * objednávky chodí ze všech trhů — dělit jedno druhým
+                      * dá nesmysl, tak ať je to vidět hned u nadpisu, ne až
+                      * pod čísly, kde si toho nikdo nevšiml.
+                      */}
+                    {report.ga4?.scope && <span className="dg-when">{report.ga4.scope}</span>}
+                  </div>
                   {report.ga4 && !report.ga4.error && (
                     <>
-                      <div className="dg-line">
+                      <div className="dg-line"
+                        data-tip={report.ga4.scope
+                          ? `Měří ${report.ga4.scope}; objednávky výš jsou ze všech trhů, konverze proto sedí jen na tenhle web.`
+                          : undefined}>
                         <b>{report.ga4.window.sessions ?? '—'}</b> návštěv
                         {report.ga4.conversion != null && <> · konverze {report.ga4.conversion} %</>}
                       </div>
-                      {report.ga4.sources[0] && (
-                        <div className="dg-caption">
-                          Nejvíc z „{report.ga4.sources[0].name}" ({report.ga4.sources[0].sessions})
+                      {report.ga4.sources.slice(0, 3).map(one => (
+                        <div className="dg-bar-row" key={one.name}>
+                          <span className="dg-bar-label" title={one.name}>{one.name}</span>
+                          <span className="dg-bar-track">
+                            <span className="dg-bar-fill"
+                              style={{ width: `${(one.sessions / Math.max(1, report.ga4!.sources[0].sessions)) * 100}%` }} />
+                          </span>
+                          <span className="dg-bar-num">{one.sessions}</span>
                         </div>
-                      )}
-                      {/*
-                        * Čí návštěvy to jsou. GA4 měří zatím jen jeden web,
-                        * objednávky chodí ze všech trhů — dělit jedno druhým
-                        * dá nesmysl, tak ať je vidět, co s čím nejde srovnat.
-                        */}
-                      {report.ga4.scope && (
-                        <div className="dg-caption">
-                          Měří {report.ga4.scope}; objednávky výš jsou ze všech trhů.
-                        </div>
-                      )}
+                      ))}
                     </>
                   )}
                   {report.ga4?.error && (

@@ -526,6 +526,72 @@ check('a je označené', tasks[0].urgent, true);
   check('a odpověď se vrátí', typeof answerText, 'string');
   check('v zadání jsou i čekající zprávy', asked[2].user.includes('Čeká na vyřízení'), true);
 
+  /* ---------- události, které čísla vysvětlují ---------- */
+
+  /*
+   * Dovolená a akce se do čísel propíšou samy, ale **proč** to tak je, ví
+   * jen člověk. Zkouší se, že se z jeho zápisu spočítá rozdíl proti
+   * běžnému provozu — na tom stojí odpověď na otázku „o kolik přijdu,
+   * když zavřu na týden".
+   */
+  const ev = require(path.join(DIST, 'events.js'));
+
+  /*
+   * Schválně dávno: zkouška si musí hlídat vlastní čísla a v posledních
+   * dvou letech leží objednávky z jiných částí téhle zkoušky (dlouhodobý
+   * pohled jich rozdává celý rok). Ty by se do základu připletly a rozdíl
+   * by vycházel jinak.
+   */
+  const den = (posun) => {
+    const d = new Date('2019-06-01T12:00:00Z');
+    d.setDate(d.getDate() + posun);
+    return d.toISOString().slice(0, 10);
+  };
+  // Čtyři týdny běžného provozu: dvě objednávky denně po tisíci
+  for (let back = 35; back >= 8; back--) {
+    for (let i = 0; i < 2; i++) {
+      db.prepare(
+        `INSERT INTO shop_orders (code, market, status, created_at, currency, total)
+         VALUES (?, 'cz', 'Vyřízeno', ?, 'CZK', 1000)`
+      ).run(`B${back}-${i}`, `${den(-back)}T10:00:00`);
+    }
+  }
+  // Týden dovolené: nic
+  ev.saveEvent({ kind: 'dovolena', title: 'Dovolená', from: den(-7), to: den(-1) });
+  // A jednodenní akce ještě dřív, ať je vidět, že se počítá i jeden den
+  ev.saveEvent({ kind: 'akce', title: 'Sleva 20 %', from: den(-40), to: den(-40), note: 'newsletter' });
+
+  const udalosti = ev.eventsWithImpact('CZK', den(0));
+  const dovolena = udalosti.find(one => one.title === 'Dovolená');
+  check('dovolená se spočítá na dny', dovolena.days, 7);
+  check('v jejích dnech se neprodalo nic', dovolena.orders, 0);
+  check('a proti běžnému dni je to propad', dovolena.deltaPct, -100);
+  check('odhad ztráty je za celé období', dovolena.moneyDiff, -14000);
+
+  // Otočené datum se narovná — kdo píše „od 20. do 15.", myslel to naopak
+  ev.saveEvent({ kind: 'jine', title: 'Otočená', from: den(-3), to: den(-9) });
+  const otocena = ev.eventsWithImpact('CZK', den(0)).find(one => one.title === 'Otočená');
+  check('otočené datum se narovná', [otocena.from < otocena.to, otocena.days], [true, 7]);
+
+  // Bez názvu se neuloží: za rok by nikdo nepoznal, co to bylo
+  let zamitnuto = '';
+  try { ev.saveEvent({ kind: 'akce', title: '  ', from: den(-2) }); }
+  catch (e) { zamitnuto = e.message; }
+  check('událost bez názvu se neuloží', zamitnuto.includes('název'), true);
+
+  const proAi = ev.eventsForAi('CZK');
+  check('do zadání pro model jde název', proAi.includes('Dovolená'), true);
+  check('i spočítaný rozdíl v penězích', proAi.includes('-14000'), true);
+  check('i poznámka u akce', proAi.includes('newsletter'), true);
+
+  /*
+   * A hlavně: události se musí dostat do zadání postřehů. Bez toho model
+   * vidí propad a hledá pro něj vysvětlení v datech, kde žádné není.
+   */
+  const bylo = asked.length;
+  await dg.digestReport(true);
+  check('události jdou i do postřehů', asked[bylo].user.includes('Dovolená'), true);
+
   console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ přehled dne sedí\n');
   process.exit(failed ? 1 : 0);
 })();

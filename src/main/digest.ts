@@ -55,6 +55,7 @@ import { isConfigured as chatConfigured } from './chat/config';
 import * as live from './live';
 import { historyView } from './digesthistory';
 import { socialView } from './digestsocial';
+import { eventsForAi } from './events';
 import { ga4Snapshot, ga4Deep, ga4DeepForAi } from './ga4';
 import type {
   DigestDay, DigestFacts, DigestGa4, DigestHistory, DigestInsight, DigestNote, DigestPending, DigestPost,
@@ -1491,6 +1492,9 @@ function memoryForAi(history: { at: string; facts: any; insight: DigestInsight }
   }).join('\n\n');
 }
 
+/** Čísla, u kterých se postřeh dá ukázat rovnou v přehledu. */
+const METRICS = ['dnes', 'okno', 'prumer', 'ceka', 'navstevnost', 'site', 'udalosti'];
+
 const INSIGHT_SYSTEM = `Jsi obchodní analytik e-shopu Quentino (pásky, kšandy, kravaty a kožená galanterie; trhy CZ, SK a EU).
 Dostaneš spočítané signály, čísla z feedu objednávek a svoje dřívější postřehy. Tvůj úkol NENÍ počítat — to je hotové. Tvůj úkol je vybrat, co z toho stojí za pozornost, říct proč a co s tím.
 
@@ -1504,15 +1508,17 @@ Tvrdá pravidla:
 - Nevymýšlej si čísla ani skutečnosti, které v zadání nejsou (náklady, marže, ceny dopravy, kampaně, konkurence). Když by závěr takový údaj potřeboval, napiš, co by bylo potřeba zjistit.
 - Návrh (kind "napad") musí mít cíl a být proveditelný tenhle týden; do "check" napiš, podle čeho se za týden pozná, jestli zabral.
 - Nikdy nepiš obecné rady typu „zaměřte se na marketing" nebo „zlepšete komunikaci se zákazníky".
+- U bodu vyplň "metric", když se týká některého čísla nahoře v přehledu (dnešek, okno posledních dnů, průměrná objednávka, co čeká na vyřízení, návštěvnost, sítě, události). Ukáže se pak rovnou u něj. Když se týká něčeho jiného, dej null — špatně pověšený bod mate.
 - Radši dva podložené body než pět dojmů. Když data na nic nestačí (málo objednávek, krátké období), napiš jeden bod, že zatím není z čeho soudit.
 - Když už jsi něco navrhoval dřív, navaž: co se potvrdilo, co ne.
+- Události v zadání zapsal člověk a vysvětlují, proč čísla v těch dnech vypadají jinak. Propad ve dnech dovolené nebo inventury nekomentuj jako trend a u akcí piš, kolik doopravdy přinesly — čísla k tomu v zadání jsou.
 - Když je v zadání návštěvnost, spoj ji s objednávkami: jmenuj konkrétní kanál, vstupní stránku nebo krok cesty k nákupu (košík, pokladna), kde je největší ztráta nebo příležitost. Pozor na to, že návštěvnost je jen z jednoho webu, kdežto objednávky ze všech trhů — konverzi přes ně nepočítej.
 - Česky, věcně, bez oslovení a bez marketingových frází. Každý bod jedna věta, nejvýš pět bodů. Celá odpověď do 1600 znaků.
 
 Vrať POUZE JSON, nic dalšího, a hlídej, ať se celý vejde:
 {"headline":"jedna až dvě věty souhrnu",
  "followUp":"navázání na minulý přehled nebo null",
- "notes":[{"kind":"trend|napad|pozor","text":"…","basis":"čísla, ze kterých to plyne","check":"u návrhu jak se pozná, že zabral, jinak null"}],
+ "notes":[{"kind":"trend|napad|pozor","text":"…","basis":"čísla, ze kterých to plyne","check":"u návrhu jak se pozná, že zabral, jinak null","metric":"kterého čísla se bod týká: dnes|okno|prumer|ceka|navstevnost|site|udalosti, jinak null"}],
  "focus":"co si sám chceš ověřit v příštím přehledu, nebo null",
  "questions":["dvě až tři otázky, na které se podle tebe vyplatí doptat"]}`;
 
@@ -1571,7 +1577,10 @@ export function parseInsight(raw: string, model: string): DigestInsight {
             kind: ['trend', 'napad', 'pozor'].includes(note?.kind) ? note.kind : 'trend',
             text: String(note?.text ?? '').trim(),
             basis: note?.basis ? String(note.basis).trim() : null,
-            check: note?.check ? String(note.check).trim() : null
+            check: note?.check ? String(note.check).trim() : null,
+            // Ke kterému číslu bod patří. Nesmysl se zahodí — postřeh
+            // pověšený u špatné metriky mate víc, než když visí jen v seznamu
+            metric: METRICS.includes(note?.metric) ? note.metric : null
           }))
           .filter((note: DigestNote) => note.text)
           .slice(0, 6)
@@ -1651,8 +1660,15 @@ async function makeInsight(facts: DigestFacts, ga4: DigestGa4 | null = null): Pr
    */
   let deep = '';
   try { deep = ga4DeepForAi(await ga4Deep(365)); } catch { /* rozbor je doplněk */ }
+  /*
+   * Ručně zapsané události. Bez nich model vidí jen propad a hledá pro něj
+   * vysvětlení v datech, kde žádné není — týden dovolené se pozná jedině
+   * tak, že ho někdo zapsal.
+   */
+  const events = eventsForAi(facts.currency);
   const user = `# Spočítané signály (z nich vycházej)\n${signalsForAi(facts)}\n\n`
     + `# Čísla\n${factsForAi(facts)}\n\n`
+    + `${events ? `# Události\n${events}\n\n` : ''}`
     + `${traffic ? `# Návštěvnost\n${traffic}\n\n` : ''}`
     + `${deep ? `# Návštěvnost dlouhodobě\n${deep}\n\n` : ''}`
     + `${memory ? `# Co jsi psal dřív (nejnovější nahoře)\n${memory}\n` : ''}`;
@@ -1839,6 +1855,7 @@ export async function digestAsk(
     ASK_SYSTEM,
     `# Spočítané signály\n${signalsForAi(facts)}\n\n`
     + `# Čísla\n${factsForAi(facts)}\n\n`
+    + `${eventsForAi(facts.currency) ? `# Události\n${eventsForAi(facts.currency)}\n\n` : ''}`
     + `${traffic ? `# Návštěvnost\n${traffic}\n\n` : ''}`
     + `# Čeká na vyřízení (${tasks.length})\n`
     + (tasks.map(one => `- ${one.who}: ${one.subject}`).join('\n') || '— nic')

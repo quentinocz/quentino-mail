@@ -131,6 +131,61 @@ for (const okno of OKNA) {
   await page.close();
 }
 
+/* ---------- AI Přehled: hlavní čísla, události, žádné díry ---------- */
+
+/*
+ * Přehled je jediné okno, kde se čte víc čísel než vět, a taky jediné, kde
+ * se rozvržení pozná až na snímku. Hlídá se to, co se z kódu nevidí: že
+ * dlaždice nesou jedno číslo a upřesnění mají v bublině, že je v něm karta
+ * událostí, a že karty vedle sebe nenechávají prázdné sloupce.
+ */
+{
+  const page = await open('prehled');
+  const stav = await page.evaluate(() => {
+    const tiles = [...document.querySelectorAll('.dg-tile')].map(one => ({
+      label: one.querySelector('.dg-tile-label')?.textContent?.trim() ?? '',
+      value: one.querySelector('.dg-tile-value')?.textContent?.trim() ?? '',
+      tip: one.getAttribute('data-tip') ?? '',
+      // Kolik řádků drobným písmem pod číslem — víc než jeden se nedá přečíst
+      subs: one.querySelectorAll('.dg-tile-sub').length
+    }));
+    const grids = [...document.querySelectorAll('.dg-grid')].map(one => getComputedStyle(one).columnCount);
+    return {
+      tiles,
+      grids,
+      udalosti: document.querySelectorAll('.dg-ev').length,
+      // Prázdné místo pod kartou v mřížce: rozdíl výšky mřížky a nejvyšší karty
+      vyska: [...document.querySelectorAll('.dg-grid')].map(one => {
+        const deti = [...one.children].map(d => d.getBoundingClientRect().height);
+        return Math.round(one.getBoundingClientRect().height - Math.max(0, ...deti));
+      })
+    };
+  });
+  say('dlaždice nesou jedno číslo', stav.tiles.length === 4 && stav.tiles.every(one => one.subs <= 1),
+    stav.tiles.map(one => `${one.label}: ${one.value}`).join(' | '));
+  say('  a upřesnění mají v bublině', stav.tiles.every(one => one.tip.length > 10));
+  say('karta událostí je v přehledu', stav.udalosti >= 2, `${stav.udalosti} řádků`);
+  /*
+   * Mřížka se sloupci textu: karty se sypou pod sebe. V obyčejné mřížce
+   * měl řádek výšku nejvyšší karty a vedle krátké zůstala díra až dolů —
+   * přesně to na přehledu vadilo.
+   */
+  say('karty se skládají do sloupců, ne do mřížky',
+    stav.grids.length > 0 && stav.grids.every(one => one !== 'auto'), stav.grids.join(', '));
+
+  const body = await page.$('.dg-body');
+  for (const [i, frac] of [[1, 0], [2, 0.45], [3, 0.9]]) {
+    await page.evaluate(f => {
+      const el = document.querySelector('.dg-body');
+      if (el) el.scrollTop = el.scrollHeight * f;
+    }, frac);
+    await page.waitForTimeout(350);
+    await page.screenshot({ path: path.join(SHOTS, `okno-prehled-${i}.png`) });
+  }
+  void body;
+  await page.close();
+}
+
 /* ---------- sociální sítě ve vlastním okně ---------- */
 
 {

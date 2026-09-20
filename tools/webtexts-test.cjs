@@ -33,6 +33,23 @@ require.cache[secPath] = { id: secPath, filename: secPath, loaded: true, exports
   encrypt: v => v, decrypt: v => v
 } };
 
+/*
+ * Model se v zkoušce nevolá. Sleduje se, s čím by se volal a kolikrát —
+ * u událostí z textů jde právě o to, aby se neptal při každém uložení.
+ */
+const asked = [];
+let answer = JSON.stringify({
+  kind: 'dovolena', title: 'Dovolená do 7. 7.', note: 'Zavřeno, expedice až po návratu.'
+});
+const aiPath = require.resolve(path.join(DIST, 'ai.js'));
+require.cache[aiPath] = { id: aiPath, filename: aiPath, loaded: true, exports: {
+  ask: async (model, system, user) => { asked.push({ model, system, user }); return answer; }
+} };
+const setPath = require.resolve(path.join(DIST, 'settings.js'));
+require.cache[setPath] = { id: setPath, filename: setPath, loaded: true, exports: {
+  getSettings: () => ({ draftModel: 'zkousky-model', fastModel: 'zkousky-model' })
+} };
+
 const webtexts = require(path.join(DIST, 'webtexts.js'));
 const { headScript } = require(path.join(DIST, 'webscript.js'));
 const T = webtexts.__test;
@@ -584,5 +601,51 @@ for (const field of ['fromMs', 'toMs', 'product', 'topbar', 'links', 'button',
   ok(`skript čte pole ${field}`, body.includes(field));
 }
 
-console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
-process.exit(failed === 0 ? 0 : 1);
+/* ---------- událost z naplánované změny ---------- */
+
+/*
+ * Akce se na webu ohlašuje: kdo do plánu napsal „do 7. 7. máme dovolenou",
+ * už zapsal co i odkdy dokdy. Zapisovat totéž ještě jednou do událostí by
+ * nikdo nedělal, takže se událost založí sama — a model rozhoduje jen o
+ * tom, co kód nepozná: jestli je to akce, dovolená, nebo běžná hláška.
+ */
+(async () => {
+  const ev = require(path.join(DIST, 'events.js'));
+  const bylo = asked.length;
+
+  await ev.eventFromPlan(plan());
+  const prvni = ev.listEvents();
+  check('z plánované změny vznikne událost', prvni.length, 1);
+  check('a ví se, že je z textů na webu', prvni[0].source, 'webtext');
+  check('druh určil model', prvni[0].kind, 'dovolena');
+  check('název taky', prvni[0].title, 'Dovolená do 7. 7.');
+  check('datum je bez času', [prvni[0].from, prvni[0].to], ['2026-07-01', '2026-07-07']);
+  check('model se zeptal jednou', asked.length - bylo, 1);
+  ok('a dostal, co změna říká', asked[bylo].user.includes('máme dovolenou'));
+
+  // Beze změny textu se model neptá znovu — jinak by každé uložení stálo volání
+  await ev.eventFromPlan(plan());
+  check('stejná změna se znovu neptá', asked.length - bylo, 1);
+  check('a událost se nezdvojí', ev.listEvents().length, 1);
+
+  // Jiný text = jiná událost, ne druhá
+  answer = JSON.stringify({ kind: 'akce', title: 'Doprava zdarma', note: 'Po celý týden.' });
+  await ev.eventFromPlan(plan({ topbar: { on: true, text: { cz: 'Doprava zdarma celý týden', sk: '', en: '' } } }));
+  const druha = ev.listEvents();
+  check('změněný text událost přepíše', [druha.length, druha[0].kind, druha[0].title],
+    [1, 'akce', 'Doprava zdarma']);
+
+  // Když model selže, událost stejně vznikne — s názvem od člověka
+  answer = 'tohle není JSON';
+  await ev.eventFromPlan(plan({ id: 'x', name: 'Ruční název',
+    topbar: { on: true, text: { cz: 'Něco jiného', sk: '', en: '' } } }));
+  const bezAi = ev.listEvents().find(one => one.title === 'Ruční název');
+  ok('bez modelu se použije název změny', !!bezAi);
+
+  ev.dropEventOfPlan('a');
+  check('smazaná změna si odnese událost',
+    ev.listEvents().some(one => one.title === 'Doprava zdarma'), false);
+
+  console.log(failed === 0 ? '\nvše sedí\n' : `\n${failed} nesedí\n`);
+  process.exit(failed === 0 ? 0 : 1);
+})();

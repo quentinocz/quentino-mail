@@ -34,6 +34,7 @@ import { summarize, generateReply, improveText, translateIncoming, translateText
 import { getUpgatesConfig, saveUpgatesConfig, testUpgates, ordersByEmail } from './upgates';
 import { buildOrderCard, buildOrderBadge, resetShopDomains } from './ordercard';
 import { digestReport, digestAsk, digestArchive, digestFromArchive, digestFacts } from './digest';
+import { eventsWithImpact, saveEvent, deleteEvent } from './events';
 import { digestToPdf } from './digestpdf';
 import {
   getGa4Config, saveGa4Config, ga4Test, ga4Apps, ga4Diagnostics, ga4LastDetail, ga4Deep
@@ -273,6 +274,19 @@ export function registerIpc() {
    * třicet dní na denní chod, dva roky na to, jestli má výrobek stálé místo
    * v sortimentu — a nic z toho nemá platit volání modelu.
    */
+  /*
+   * Události, které čísla vysvětlují — akce, dovolená, inventura. Vrací se
+   * rovnou i s dopadem, protože samotný seznam dat nikomu nic neřekne.
+   */
+  handle('events:list', (currency?: string) => eventsWithImpact(String(currency || 'CZK')));
+  handle('events:save', (patch: any, currency?: string) => {
+    saveEvent(patch ?? {});
+    return eventsWithImpact(String(currency || 'CZK'));
+  });
+  handle('events:delete', (id: number, currency?: string) => {
+    deleteEvent(Number(id) || 0);
+    return eventsWithImpact(String(currency || 'CZK'));
+  });
   handle('digest:facts', (days?: number) => digestFacts(new Date(), Number(days) || 30));
   handle('ga4:get', () => getGa4Config());
   handle('ga4:save', (p: any) => saveGa4Config(p ?? {}));

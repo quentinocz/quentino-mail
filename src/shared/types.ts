@@ -1175,6 +1175,13 @@ export interface DigestSignal {
  * nebo jestli si model jen musel něco vymyslet. Právě proto se vypisuje —
  * tvrzení, pod kterým není konkrétní číslo, se pozná na první pohled.
  */
+/**
+ * Čeho se postřeh týká. Podle toho se v přehledu ukáže u té metriky, které
+ * se týká — jinak stojí všechny postřehy v jednom seznamu a k číslu nahoře
+ * si je musí každý přiřadit sám.
+ */
+export type DigestMetric = 'dnes' | 'okno' | 'prumer' | 'ceka' | 'navstevnost' | 'site' | 'udalosti';
+
 export interface DigestNote {
   /** trend = co se děje s čísly, napad = návrh, pozor = riziko */
   kind: 'trend' | 'napad' | 'pozor';
@@ -1183,6 +1190,8 @@ export interface DigestNote {
   basis: string | null;
   /** U návrhu: podle čeho se pozná, že zabral */
   check: string | null;
+  /** U kterého čísla se má bod ukázat; null = jen v seznamu postřehů */
+  metric?: DigestMetric | null;
 }
 
 /**
@@ -1209,6 +1218,49 @@ export interface DigestInsight {
   /** Otázky, na které se podle AI vyplatí doptat — kliknutím se pošlou */
   questions: string[];
   model: string;
+}
+
+/**
+ * Ručně zapsaná událost — akce, dovolená, inventura nebo cokoli, co čísla
+ * vysvětluje. Bez ní se z propadu v datech nedá poznat důvod, a za rok si
+ * ho nikdo nepamatuje.
+ */
+export type ShopEventKind = 'akce' | 'dovolena' | 'inventura' | 'jine';
+
+export interface ShopEvent {
+  id: number;
+  kind: ShopEventKind;
+  title: string;
+  /** Den ve tvaru YYYY-MM-DD; u jednodenní události je `to` stejné */
+  from: string;
+  to: string;
+  note: string;
+  /**
+   * Odkud událost je. `webtext` znamená, že vznikla z naplánované změny
+   * textů na webu — akce se na webu ohlašuje, takže datum i obsah už někdo
+   * jednou zapsal a psát totéž podruhé by nikdo nedělal.
+   */
+  source?: 'rucne' | 'webtext';
+}
+
+/** Událost i s tím, co se v jejích dnech dělo. */
+export interface ShopEventImpact extends ShopEvent {
+  days: number;
+  /** Událost je teprve před námi — měřit není co */
+  future: boolean;
+  orders: number;
+  revenue: number;
+  currency: string;
+  /** Objednávek na den v události */
+  perDay: number;
+  /** Objednávek na den v běžném provozu před ní; null, když není z čeho */
+  basePerDay: number | null;
+  deltaPct: number | null;
+  /** Odhad rozdílu v penězích za celé období proti běžnému provozu */
+  moneyDiff: number | null;
+  posts: number;
+  likes: number;
+  comments: number;
 }
 
 /** Jedna otázka a odpověď v doptávání nad přehledem */

@@ -129,6 +129,8 @@ const ALLOWED_INVOKE = [
   'shoot:setSecond', 'shoot:current',
   // Okna nástrojů: každá funkce z nabídky má vlastní okno aplikace
   'tool:open', 'tool:close', 'tool:open?', 'tool:list', 'tool:arg', 'tool:goto',
+  // Události, které vysvětlují čísla v přehledu
+  'events:list', 'events:save', 'events:delete',
   'ship:notes',
   'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',

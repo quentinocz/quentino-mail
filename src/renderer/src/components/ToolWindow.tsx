@@ -11,6 +11,7 @@ import WebTextsModal from './WebTextsModal';
 import MediaModal from './MediaModal';
 import ReviewsModal from './ReviewsModal';
 import InstagramWorkspace from './instagram/InstagramWorkspace';
+import TooltipLayer from './TooltipLayer';
 
 /**
  * Obsah okna nástroje.
@@ -62,51 +63,61 @@ export default function ToolWindow({ id }: { id: ToolWindowId }) {
 
   if (!ready) return null;
 
-  switch (id) {
-    case 'shoot':
-      return <ShootModal standalone onClose={close} />;
-    case 'catalog':
-      return <CatalogModal openStockin={arg} onClose={close} />;
-    case 'packing':
-      return (
-        <PackingModal openOrder={arg} onClose={close}
-          onOpenMessage={messageId => goto('message', messageId)} />
-      );
-    case 'digest':
-      return (
-        <DigestModal onClose={close}
-          onOpenMessage={messageId => goto('message', messageId)}
-          onOpenChat={chatId => goto('chat', chatId)} />
-      );
-    case 'ptrans':
-      return <ProductsModal onClose={close} />;
-    case 'articles':
-      return <ArticlesModal onClose={close} />;
-    case 'webtexts':
-      return <WebTextsModal onClose={close} />;
-    case 'media':
-      return <MediaModal onClose={close} />;
-    case 'reviews':
-      return <ReviewsModal onClose={close} />;
-    /*
-     * Sociální sítě nejsou překryv, ale celá obrazovka s vlastním panelem —
-     * proto se v okně vykreslí, jak jsou. Pošta a chat v tomhle okně nejsou,
-     * takže přepnutí na ně vytáhne dopředu hlavní okno; nastavení taky,
-     * jsou společná pro celou aplikaci.
-     */
-    case 'instagram':
-      return (
-        <InstagramWorkspace
-          onOpenSettings={() => { api.tool.goto('settings').catch(() => {}); }}
-          onWorkspace={where => { api.tool.goto(where === 'chat' ? 'chat' : 'mail').catch(() => {}); }}
-          chatUnread={0}
-          onAiTool={tool => {
-            if (tool === 'instagram') return;
-            api.tool.open(tool as ToolWindowId).catch(() => {});
-          }}
-        />
-      );
-    default:
-      return null;
-  }
+  /*
+   * Vrstva s bublinami. Kreslí ji hlavní okno na svém konci — v okně
+   * nástroje by jinak nebyl nikdo, kdo by ji vykreslil, a všechna
+   * vysvětlení po najetí myší by mlčela. Zrovna v přehledu, kde se
+   * upřesnění schovává právě do nich, by to byla podstatná ztráta.
+   */
+  const obsah = (() => {
+    switch (id) {
+      case 'shoot':
+        return <ShootModal standalone onClose={close} />;
+      case 'catalog':
+        return <CatalogModal openStockin={arg} onClose={close} />;
+      case 'packing':
+        return (
+          <PackingModal openOrder={arg} onClose={close}
+            onOpenMessage={messageId => goto('message', messageId)} />
+        );
+      case 'digest':
+        return (
+          <DigestModal onClose={close}
+            onOpenMessage={messageId => goto('message', messageId)}
+            onOpenChat={chatId => goto('chat', chatId)} />
+        );
+      case 'ptrans':
+        return <ProductsModal onClose={close} />;
+      case 'articles':
+        return <ArticlesModal onClose={close} />;
+      case 'webtexts':
+        return <WebTextsModal onClose={close} />;
+      case 'media':
+        return <MediaModal onClose={close} />;
+      case 'reviews':
+        return <ReviewsModal onClose={close} />;
+      /*
+       * Sociální sítě nejsou překryv, ale celá obrazovka s vlastním panelem —
+       * proto se v okně vykreslí, jak jsou. Pošta a chat v tomhle okně nejsou,
+       * takže přepnutí na ně vytáhne dopředu hlavní okno; nastavení taky,
+       * jsou společná pro celou aplikaci.
+       */
+      case 'instagram':
+        return (
+          <InstagramWorkspace
+            onOpenSettings={() => { api.tool.goto('settings').catch(() => {}); }}
+            onWorkspace={where => { api.tool.goto(where === 'chat' ? 'chat' : 'mail').catch(() => {}); }}
+            chatUnread={0}
+            onAiTool={tool => {
+              if (tool === 'instagram') return;
+              api.tool.open(tool as ToolWindowId).catch(() => {});
+            }}
+          />
+        );
+      default:
+        return null;
+    }
+  })();
+
+  return <>{obsah}<TooltipLayer /></>;
 }
