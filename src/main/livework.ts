@@ -24,6 +24,7 @@ import { mergeStockin, sessionOf, itemsOf, sessionSlice, sessionFingerprint } fr
 import { applyPacking, packingSlice } from './packing';
 import { applyVoucherJournal } from './appsync';
 import { applyDigestShare } from './digest';
+import { eventsImport } from './events';
 import { getDb } from './db';
 import type { LiveOffer } from '../shared/types';
 
@@ -115,6 +116,13 @@ export function startLiveWork(): void {
      * nechá, aby ho nemusela platit znovu.
      */
     if (message.kind === 'digest') { takeDigest(message.data); return; }
+    /*
+     * Události (akce, dovolená, inventura). Zapisuje je člověk — na tom
+     * zařízení, které má zrovna po ruce — a platí pro celý e-shop. Bez
+     * tohohle by dovolená zapsaná na telefonu chyběla ve vysvětlení čísel
+     * na počítači a přehled by o ní nevěděl.
+     */
+    if (message.kind === 'events') { takeEvents(message.data); return; }
   });
 }
 
@@ -145,6 +153,12 @@ function answerHello(): void {
 function takeDigest(data: any): void {
   if (!applyDigestShare(data)) return;
   emit('digest:changed', {});
+}
+
+/** Události zapsané na jiném zařízení — novější zápis vyhrává */
+function takeEvents(data: any): void {
+  if (!eventsImport(data)) return;
+  emit('events:changed', {});
 }
 
 function takeStockin(from: string, data: any): void {

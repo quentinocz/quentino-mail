@@ -6,6 +6,8 @@ import type {
   Ga4Deep, Ga4Funnel, Ga4Month, Ga4Slice, Ga4Note, Ga4Notes, ArticleStatsView,
   ShopEvent, ShopEventImpact, ShopEventKind, DigestSeason
 } from '@shared/types';
+import type { AdviceItem, AdviceLevel, TileVerdict } from '@shared/advice';
+import { adviceColumns, adviceItems, tileVerdicts } from '@shared/advice';
 import { api } from '../api';
 import { useIsPhone } from '../mobile';
 import { useToast } from '../toast';
@@ -730,9 +732,17 @@ function Seasons({ seasons, note }: { seasons: DigestSeason[]; note: string }) {
   );
 }
 
-/** Řez daty jako proužky — země, doprava, platba, zboží */
-function Bars({ title, icon, rows: given, currency, empty }: {
+/**
+ * Řez daty jako proužky — země, doprava, platba, zboží.
+ *
+ * `purpose` je jedna věta, k čemu ta karta je. Číslo „Dobírka 27" je údaj;
+ * teprve „dobírka stojí poplatek a část balíků se nevyzvedne" z něj dělá
+ * něco, s čím se dá něco udělat — a tohle okno má být k užitku i tomu,
+ * kdo čísla v e-shopu nečte denně.
+ */
+function Bars({ title, icon, rows: given, currency, empty, purpose }: {
   title: string; icon: string; rows: DigestSlice[] | undefined; currency: string; empty: string;
+  purpose?: string;
 }) {
   // Starší přehled z archivu některé řezy nemá — prázdno je lepší než pád
   const rows = given ?? [];
@@ -741,6 +751,7 @@ function Bars({ title, icon, rows: given, currency, empty }: {
   return (
     <div className="dg-card" style={{ '--dg-num': colWidth(shown.map(one => one.orders)) } as CSSProperties}>
       <div className="dg-card-head"><Icon name={icon} size={14} /> {title}</div>
+      {purpose && <div className="dg-caption">{purpose}</div>}
       {rows.length === 0 && <div className="dg-empty">{empty}</div>}
       {shown.map((one, i) => (
         <div className={`dg-bar-row${i < 2 ? ' dg-top' : ''}`} key={one.key}
@@ -960,7 +971,7 @@ function safeFacts(one: any): DigestFacts {
  * jediný způsob, jak poznat, které z nich je dnes to důležité, bylo přečíst
  * všechny komentáře pod sebou — což nikdo nedělá.
  */
-function Tile({ label, value, sub, tone, tip, note, watch }: {
+function Tile({ label, value, sub, tone, tip, note, verdict }: {
   label: string;
   value: string | number;
   sub?: string;
@@ -968,15 +979,26 @@ function Tile({ label, value, sub, tone, tip, note, watch }: {
   /** Upřesnění po najetí myší — čísla, ze kterých se to skládá */
   tip?: string;
   note?: DigestNote | null;
-  /** `alert` = něco je špatně, `good` = mimořádně dobré; proč, říká `watch.why` */
-  watch?: { level: 'alert' | 'good'; why: string } | null;
+
+  /**
+   * Slovo, které z čísla udělá odpověď.
+   *
+   * „1 765 Kč" je údaj, ne zpráva — dobře, nebo špatně? Proti čemu?
+   * Verdikt říká jedním slovem („roste", „klesá", „drží se"), jak na tom
+   * to číslo je proti vlastní minulosti e-shopu, a v bublině proč.
+   */
+  verdict?: TileVerdict | null;
 }) {
   /*
-   * Upozornění od AI je silnější než spočítaný rozdíl: když model u čísla
-   * píše „pozor", je to ono. Bez postřehu rozhoduje výpočet.
+   * Barevná hrana se řídí verdiktem, ne druhým výpočtem vedle něj. Dřív to
+   * byly dvě různé hranice a dlaždice pak měla červenou hranu a pod ní
+   * slovo „drží se" — dvě odpovědi na tutéž otázku. Upozornění od AI je
+   * silnější: když model u čísla píše „pozor", je to ono.
    */
-  const level = note?.kind === 'pozor' ? 'alert' : watch?.level ?? null;
-  const why = note?.kind === 'pozor' ? note.text : watch?.why ?? '';
+  const level = note?.kind === 'pozor' ? 'alert'
+    : verdict?.level === 'watch' ? 'alert'
+      : verdict?.level === 'good' ? 'good' : null;
+  const why = note?.kind === 'pozor' ? note.text : verdict?.why ?? '';
   return (
     <div className={`dg-tile${level ? ` is-${level}` : ''}`} data-tip={tip || undefined}>
       <span className="dg-tile-label">
@@ -989,6 +1011,11 @@ function Tile({ label, value, sub, tone, tip, note, watch }: {
         )}
       </span>
       <span className="dg-tile-value">{value}</span>
+      {verdict && (
+        <span className={`dg-verdict v-${verdict.level}`} data-tip={verdict.why}>
+          {verdict.word}
+        </span>
+      )}
       {sub && <span className={`dg-tile-sub${tone ? ` tone-${tone}` : ''}`}>{sub}</span>}
     </div>
   );
@@ -1009,6 +1036,78 @@ function czDay(day: string): string {
 }
 
 /**
+ * Co z toho plyne.
+ *
+ * Přehled uměl říct, **co se stalo**; tahle karta říká, **co s tím**.
+ * Kdo čísla v e-shopu nečte denně, z „konverze 2,2 %" nepozná, jestli je
+ * to dobře, a ze sloupce dvanácti metrik nepozná, které z nich si dnes
+ * žádá pozornost. Proto tři sloupce v řeči, kterou mluví člověk:
+ *
+ *  - **co funguje** — ať se v tom pokračuje a omylem se to nezruší,
+ *  - **co zlepšit** — kde se ztrácejí peníze a jaký je první krok,
+ *  - **co zkusit** — nápad z dat, u kterého jistota není.
+ *
+ * U každého bodu je vidět, z čeho plyne, a co přesně udělat. Body od AI
+ * jsou označené jiskrou: spočítané věty se dají ověřit o kus výš na
+ * obrazovce, věty od modelu ne, a tvářit se, že platí stejně, by nebylo
+ * poctivé.
+ */
+function Advice({ items }: { items: AdviceItem[] }) {
+  const columns = adviceColumns(items);
+  const sloupce: { key: AdviceLevel; title: string; hint: string; icon: string; rows: AdviceItem[] }[] = [
+    { key: 'good', title: 'Co funguje', hint: 'v tomhle pokračuj', icon: 'zap', rows: columns.good },
+    { key: 'watch', title: 'Co zlepšit', hint: 'tady se ztrácejí peníze', icon: 'alert', rows: columns.watch },
+    { key: 'idea', title: 'Co zkusit', hint: 'nápad z čísel, jistota to není', icon: 'star', rows: columns.idea }
+  ];
+  if (!sloupce.some(one => one.rows.length)) return null;
+
+  return (
+    <div className="dg-card dg-advice">
+      <div className="dg-card-head">
+        <Icon name="sunrise" size={14} /> Co z toho plyne
+        <span className="dg-when">z čísel výš — u každého bodu je i první krok</span>
+      </div>
+      <div className="dg-advice-cols">
+        {sloupce.map(sloupec => (
+          <div className={`dg-advice-col ${sloupec.key}`} key={sloupec.key}>
+            <div className="dg-advice-title">
+              <Icon name={sloupec.icon} size={13} />
+              {sloupec.title}
+              <span className="dg-advice-hint">{sloupec.hint}</span>
+            </div>
+            {sloupec.rows.length === 0 && (
+              <div className="dg-empty">
+                {sloupec.key === 'watch'
+                  ? 'Nic, co by hořelo.'
+                  : sloupec.key === 'good'
+                    ? 'Zatím se nic výrazně nepovedlo — čísla se drží.'
+                    : 'Zatím bez nápadu, který by z čísel plynul.'}
+              </div>
+            )}
+            {sloupec.rows.map(one => (
+              <div className="dg-advice-item" key={one.id}>
+                <div className="dg-advice-what">
+                  {one.from === 'ai' && (
+                    <span className="dg-tile-ai" data-tip="Postřeh od AI — na rozdíl od ostatních se nedá ověřit o kus výš">
+                      <Icon name="sparkles" size={11} />
+                    </span>
+                  )}
+                  {one.title}
+                </div>
+                {one.basis && <div className="dg-advice-basis">{one.basis}</div>}
+                {one.todo && (
+                  <div className="dg-advice-todo"><Icon name="chevRight" size={12} /> {one.todo}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Události, které čísla vysvětlují.
  *
  * Z feedu se pozná, že týden byl slabý — ne proč. Tahle jediná věta je
@@ -1016,7 +1115,30 @@ function czDay(day: string): string {
  * spočítá, co se v jejích dnech dělo, proti běžnému dni před ní; je to
  * odhad, ne účetnictví, a přesně tak je to i popsané.
  */
-function Events({ currency, note, inDialog = false, limit = 8 }: {
+/**
+ * Události drží okno, ne karta.
+ *
+ * Čte je i karta v přehledu, i dialog z hlavičky, i doporučení („akce X
+ * přinesla navíc…") — a hlavně dorazí i odjinud: zapsané na telefonu se
+ * na počítači objeví samy, jakmile je pošle živé propojení. Kdyby si je
+ * každé místo načítalo zvlášť, ukazovalo by po zápisu každé něco jiného.
+ */
+function useEvents(currency: string): {
+  rows: ShopEventImpact[];
+  setRows: (rows: ShopEventImpact[]) => void;
+  reload: () => void;
+} {
+  const [rows, setRows] = useState<ShopEventImpact[]>([]);
+  const reload = useCallback(() => {
+    api.events.list(currency).then(setRows).catch(() => {});
+  }, [currency]);
+  useEffect(() => { reload(); }, [reload]);
+  // Zápis z jiného zařízení — hlavní proces ho po přijetí ohlásí
+  useEffect(() => api.on('events:changed', () => reload()), [reload]);
+  return { rows, setRows, reload };
+}
+
+function Events({ currency, note, inDialog = false, limit = 8, rows, setRows }: {
   currency: string;
   note?: DigestNote | null;
   /**
@@ -1025,18 +1147,14 @@ function Events({ currency, note, inDialog = false, limit = 8 }: {
    */
   inDialog?: boolean;
   limit?: number;
+  rows: ShopEventImpact[];
+  setRows: (rows: ShopEventImpact[]) => void;
 }) {
   const toast = useToast();
-  const [rows, setRows] = useState<ShopEventImpact[]>([]);
   const today0 = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState<Partial<ShopEvent> | null>(
     inDialog ? { kind: 'akce', from: today0, to: today0 } : null
   );
-
-  const load = useCallback(() => {
-    api.events.list(currency).then(setRows).catch(() => {});
-  }, [currency]);
-  useEffect(() => { load(); }, [load]);
 
   const save = async () => {
     if (!form) return;
@@ -1284,6 +1402,12 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   const insight = showing ? (older?.insight ?? null) : (report?.insight ?? null);
   const currency = facts?.currency ?? 'CZK';
   /*
+   * Události se čtou na třech místech (karta, dialog z hlavičky, doporučení),
+   * proto se načtou jednou tady. Zapsaná akce, která něco přinesla, je
+   * jediný záznam v celém přehledu, ze kterého se dá říct „tohle zopakuj".
+   */
+  const events = useEvents(currency);
+  /*
    * Prohlíží se starší přehled? Pak některé části prostě nejsou — dřív se
    * ukládaly jen souhrny. Prázdno se musí vysvětlit jinak než u dnešního
    * přehledu: tam „ve feedu to není", tady „tenkrát se to neukládalo".
@@ -1300,38 +1424,6 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
   }, [facts]);
 
   /*
-   * Která čísla si dnes žádají pozornost.
-   *
-   * Zvýraznit se dá jen to, co se **spočítá** — jinak by hrana svítila u
-   * každé dlaždice a přestala by cokoli znamenat. Hranice jsou schválně
-   * hrubé: třetina dolů proti včerejšku je den, kdy se stalo něco jiného
-   * než náhoda, a pětina dolů za celé období je trend, ne výkyv. Nahoru
-   * se hlásí stejně, ale zeleně — dobrá zpráva se taky snadno přehlédne.
-   */
-  const watchDay = useMemo(() => {
-    if (!facts) return null;
-    const { orders } = facts.today;
-    const before = facts.yesterday.orders;
-    // Do odpoledne je dnešek useknutý a proti celému včerejšku prohraje vždycky
-    if (before < 5 || new Date().getHours() < 16) return null;
-    const pct = Math.round(((orders - before) / before) * 100);
-    if (pct <= -33) return { level: 'alert' as const, why: `Dnešek je o ${Math.abs(pct)} % pod včerejškem.` };
-    if (pct >= 50) return { level: 'good' as const, why: `Dnešek je o ${pct} % nad včerejškem.` };
-    return null;
-  }, [facts]);
-
-  const watchWindow = useMemo(() => {
-    if (!facts) return null;
-    const now = facts.window.orders;
-    const before = facts.prevWindow.orders;
-    if (before < 10) return null;
-    const pct = Math.round(((now - before) / before) * 100);
-    if (pct <= -20) return { level: 'alert' as const, why: `Objednávek je o ${Math.abs(pct)} % míň než v předchozím stejně dlouhém období.` };
-    if (pct >= 25) return { level: 'good' as const, why: `Objednávek je o ${pct} % víc než v předchozím stejně dlouhém období.` };
-    return null;
-  }, [facts]);
-
-  /*
    * Pořadí signálů: nejdřív to, co se kazí, pak dobré zprávy, nakonec
    * pozorování. Kód je počítá v pořadí, v jakém je psal — čtyři věty
    * o pozorování před jedinou o propadu znamenaly, že se ta podstatná
@@ -1344,6 +1436,22 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
       .sort((a, b) => (vaha[a.one.kind] ?? 9) - (vaha[b.one.kind] ?? 9) || a.i - b.i)
       .map(row => row.one);
   }, [facts]);
+
+  /*
+   * Doporučení a verdikty. Počítají se z týchž čísel, která jsou na
+   * obrazovce — u staršího přehledu tedy z těch, které platily tehdy.
+   * Postřehy od AI se k nim přidávají označené, ne smíchané.
+   */
+  const rady = useMemo(() => (facts
+    ? adviceItems({
+        facts,
+        ga4: showing ? null : report?.ga4 ?? null,
+        pending: showing ? null : report?.pending ?? null,
+        events: archived ? [] : events.rows,
+        notes: insight?.notes ?? []
+      })
+    : []), [facts, report, insight, events.rows, showing, archived]);
+  const verdikty = useMemo(() => (facts ? tileVerdicts(facts) : null), [facts]);
 
   const ask = async (text: string) => {
     const asked = text.trim();
@@ -1559,7 +1667,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     + (facts.today.cancelled > 0 ? `, z toho ${facts.today.cancelled}× storno` : '')
                     + `. Včera ${facts.yesterday.orders} objednávek za ${moneyOf(facts.yesterday, currency)}.`}
                   note={noteFor('dnes')}
-                  watch={watchDay}
+                  verdict={verdikty?.dnes ?? null}
                 />
                 {/*
                   * Hlavní číslo je klouzavých třicet dní, ne kalendářní měsíc:
@@ -1575,7 +1683,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     + ` za ${moneyOf(facts.prevWindow, currency)}.`
                     + (facts.window.cancelled > 0 ? ` Storno ${facts.window.cancelled}×.` : '')}
                   note={noteFor('okno')}
-                  watch={watchWindow}
+                  verdict={verdikty?.okno ?? null}
                 />
                 <Tile
                   label="Tržba za období"
@@ -1588,10 +1696,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     + ` Předtím ${moneyOf(facts.prevWindow, currency)}.`
                     + ` Cizí měny se nesčítají — visí za hlavní částkou.`}
                   note={noteFor('okno')}
-                  watch={facts.window.unpaid >= 5
-                    ? { level: 'alert' as const,
-                        why: `${facts.window.unpaid} objednávek čeká na zaplacení — v tržbě výš už započítané jsou.` }
-                    : null}
+                  verdict={verdikty?.trzba ?? null}
                 />
                 <Tile
                   label="Průměrná objednávka"
@@ -1600,8 +1705,16 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   tip={`Průměr z objednávek v ${currency} za zvolené období.`
                     + ` Dvě objednávky téhož člověka do dvou dnů se počítají jako jeden nákup.`}
                   note={noteFor('prumer')}
+                  verdict={verdikty?.prumer ?? null}
                 />
               </div>
+
+              {/*
+                * Co z toho plyne. Hned pod čísly, protože je to jediná část,
+                * která odpovídá na otázku „a co mám dělat" — a kvůli ní se
+                * přehled otevírá.
+                */}
+              <Advice items={rady} />
 
               {/* Co čeká na vyřízení. Nahoře schválně: je to jediná část, kde
                   se něco dělá — zbytek je na dívání. */}
@@ -1713,7 +1826,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 * nejčastější vysvětlení čísel nad tím — a jediné, které do
                 * aplikace nedostane nikdo jiný než člověk.
                 */}
-              {!archived && <Events currency={currency} note={noteFor('udalosti')} />}
+              {!archived && (
+                <Events currency={currency} note={noteFor('udalosti')}
+                  rows={events.rows} setRows={events.setRows} />
+              )}
 
               {/* Graf: počet objednávek, nebo tržba — jedno tlačítko, dvě čtení */}
               <div className="dg-card">
@@ -1751,6 +1867,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     <Icon name="layers" size={14} /> Dlouhodobě
                     <span className="dg-when">{facts.history?.coverage ?? 0} měsíců ve feedu</span>
                   </div>
+                  <div className="dg-caption">
+                    Jestli je tenhle měsíc slabý sám o sobě, nebo bývá slabý každý rok. Bez toho se
+                    z jednoho čísla dělají zbytečné závěry.
+                  </div>
                   <MonthChart months={facts.history?.months} currency={currency} />
                   <div className="dg-caption">
                     {facts.history?.lastYear
@@ -1776,10 +1896,13 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
 
               <div className="dg-grid">
                 <Bars title="Země" icon="globe" rows={facts.countries} currency={currency}
+                  purpose="Kam se prodává — podle toho se rozhoduje o jazycích, cenách dopravy a o tom, kde má smysl inzerovat."
                   empty={archived ? 'Starší přehled země neuchoval.' : 'Feed u objednávek nenese adresu.'} />
                 <Bars title="Doprava" icon="truck" rows={facts.shipments} currency={currency}
+                  purpose="Čím se nejčastěji posílá. S tímhle číslem se dá u dopravce vyjednávat cena."
                   empty={missing('dopravu')} />
                 <Bars title="Platba" icon="card" rows={facts.payments} currency={currency}
+                  purpose="Dobírka stojí poplatek a část balíků se nevyzvedne — čím víc lidí platí předem, tím líp."
                   empty={missing('platbu')} />
               </div>
 
@@ -1790,6 +1913,7 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                 */}
               <div className="dg-grid two">
                 <Bars title="Stavy objednávek" icon="fileText" rows={facts.statuses} currency={currency}
+                  purpose="Kolik objednávek čeká na platbu nebo na odeslání. Co tu leží, jsou peníze, které ještě nedorazily."
                   empty={archived ? 'Starší přehled stavy neuchoval.' : 'Feed stavy nenese.'} />
                 {/*
                   * Velikosti **po kategoriích**. Lidé si drží jednu délku bez
@@ -1872,6 +1996,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                   </div>
                   {facts.social && (
                     <>
+                      <div className="dg-caption">
+                        Jestli se příspěvky propisují do objednávek. Není to důkaz, ale je to jediné
+                        měřítko, které k sítím máme.
+                      </div>
                       <div className="dg-line">
                         <b>{facts.social.posts}</b> příspěvků za 30 dní
                         {facts.social.prevPosts > 0 && <> (předtím {facts.social.prevPosts})</>}
@@ -2128,6 +2256,10 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
                     ))}
                   </span>
                 </div>
+                <div className="dg-caption">
+                  Co držet skladem a co nabízet v setu. Prázdný sklad u prvních řádků zastaví růst
+                  rychleji než cokoli jiného.
+                </div>
                 {(facts.products ?? []).length === 0 && <div className="dg-empty">Za tohle období nic neprošlo.</div>}
                 {(facts.products ?? []).slice(0, topCount).map(one => {
                   const top = Math.max(1, ...(facts.products ?? []).map(p => p.qty));
@@ -2353,7 +2485,8 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
               </button>
             </div>
             <div className="modal-body">
-              <Events currency={currency} note={noteFor('udalosti')} inDialog limit={40} />
+              <Events currency={currency} note={noteFor('udalosti')} inDialog limit={40}
+                rows={events.rows} setRows={events.setRows} />
             </div>
           </div>
         </div>

@@ -104,6 +104,7 @@ enum AppSync {
 
             // 4b) AI přehled — postřehy dne se počítají jednou, ne na každém zařízení
             syncDigest(folder.url)
+            syncEvents(folder.url)
 
             // 5) Naskladnění — rozpracované naskladnění z telefonu na počítač
             syncStockin(folder.url)
@@ -648,6 +649,36 @@ enum AppSync {
         let insight = remote?["insight"] as? [String: Any]
         let remoteAt = (insight?["at"] as? String) ?? (remote?["at"] as? String) ?? ""
         if (mine["at"] as? String ?? "") > remoteAt { _ = try? writeJson(mine, to: file) }
+    }
+
+    /**
+     Události zapsané kdekoli platí všude.
+
+     Slučuje se po řádcích podle `uid` a **novější zápis vyhrává**; smazané
+     jedou s sebou jako škrtnuté, jinak by se vrátily odtud, kde o smazání
+     nikdo neví. Živý posel je zkratka pro zapnutá zařízení, tohle je
+     pojistka pro to, které bylo vypnuté.
+     */
+    private static func syncEvents(_ folder: URL) {
+        let file = folder.appendingPathComponent("events.json")
+        let remote = readJson(file) as? [[String: Any]]
+        if Events.importShare(remote) { Bridge.current?.emitAsync("events:changed") }
+
+        let mine = Events.export()
+        guard !mine.isEmpty else { return }
+        let remoteStamp = (remote ?? []).reduce("") { max, one in
+            let at = one["updatedAt"] as? String ?? ""
+            return at > max ? at : max
+        }
+        let myStamp = mine.reduce("") { max, one in
+            let at = one["updatedAt"] as? String ?? ""
+            return at > max ? at : max
+        }
+        // Zapisuje se, jen když je co přidat — přepsaný soubor v iCloudu
+        // znamená přenos a konflikt i tam, kde se nic nezměnilo
+        if mine.count != (remote?.count ?? -1) || myStamp > remoteStamp {
+            _ = try? writeJson(mine, to: file)
+        }
     }
 
     private static func syncInstagram(_ folder: URL) {

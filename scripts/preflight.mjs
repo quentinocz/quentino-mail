@@ -616,9 +616,7 @@ const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
   // Focení drží USB relaci s fotoaparátem přes gphoto2 — to je věc počítače
   'shoot:',
   // Okna nástrojů: telefon okna nemá, nástroj se na něm otevře přes obrazovku
-  'tool:',
-  // Události se zapisují u počítače; telefon přehled jen čte
-  'events:'];
+  'tool:'];
 const DESKTOP_ONLY = [
   'app:version',
   // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači

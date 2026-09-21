@@ -1399,6 +1399,10 @@ enum Digest {
     - Radši dva podložené body než pět dojmů. Když data na nic nestačí (málo objednávek, krátké období), \
     napiš jeden bod, že zatím není z čeho soudit.
     - Když už jsi něco navrhoval dřív, navaž: co se potvrdilo, co ne.
+    - Píšeš majiteli e-shopu, ne analytikovi: bez odborných výrazů a zkratek. Místo „konverze klesla \
+    o 0,4 p. b." napiš „z každé stovky návštěvníků teď nakoupí o čtyři míň".
+    - Každý bod musí být použitelný: musí být jasné, co se stalo a co se s tím dá dnes udělat. \
+    U bodu „pozor" napiš do "check" první krok, kterým se to spraví.
     - Česky, věcně, bez oslovení a bez marketingových frází. Každý bod jedna věta, nejvýš čtyři body. \
     Celá odpověď do 1200 znaků.
 
@@ -1541,8 +1545,15 @@ enum Digest {
         let history = stored()
         let memory = memoryForAi(history)
         let traffic = ga4ForAi(ga4)
+        /*
+         Ručně zapsané události. Bez nich model vidí jen propad a hledá pro
+         něj vysvětlení v datech, kde žádné není — týden dovolené se pozná
+         jedině tak, že ho někdo zapsal.
+         */
+        let events = Events.forAi(currency: facts["currency"] as? String ?? "CZK")
         let user = "# Spočítané signály (z nich vycházej)\n\(signalsForAi(facts))\n\n"
             + "# Čísla\n\(factsForAi(facts))\n\n"
+            + (events.isEmpty ? "" : "# Události\n\(events)\n\n")
             + (traffic.isEmpty ? "" : "# Návštěvnost\n\(traffic)\n\n")
             + (memory.isEmpty ? "" : "# Co jsi psal dřív (nejnovější nahoře)\n\(memory)\n")
 
@@ -1827,6 +1838,9 @@ enum Digest {
         let traffic = ga4ForAi(await Ga4.snapshot())
         var user = "# Spočítané signály\n\(signalsForAi(facts))\n\n"
         user += "# Čísla\n\(factsForAi(facts))\n\n"
+        // Bez událostí nejde odpovědět na „o kolik přijdu, když zavřu na týden"
+        let events = Events.forAi(currency: facts["currency"] as? String ?? "CZK")
+        if !events.isEmpty { user += "# Události\n\(events)\n\n" }
         if !traffic.isEmpty { user += "# Návštěvnost\n\(traffic)\n\n" }
         user += "# Čeká na vyřízení (\(tasks.count))\n\(waiting.isEmpty ? "— nic" : waiting)"
         if !memory.isEmpty { user += "\n\n# Tvoje dřívější postřehy\n\(memory)" }

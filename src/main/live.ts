@@ -68,7 +68,7 @@ const RETRY_MAX_MS = 60_000;
  * stejné, takže nemá smysl je počítat na čtyřech zařízeních zvlášť — kdo je
  * udělá první, pošle je ostatním.
  */
-export type LiveKind = 'stockin' | 'packing' | 'vouchers' | 'digest' | 'hello';
+export type LiveKind = 'stockin' | 'packing' | 'vouchers' | 'digest' | 'events' | 'hello';
 
 export interface LiveMessage {
   kind: LiveKind;

@@ -230,6 +230,23 @@ extension Bridge {
             Digest.archive((args.first as? Int) ?? 200)
         }
         register("digest:old") { args in Digest.fromArchive(args.first as? String ?? "") ?? NSNull() }
+        /*
+         Události, které čísla vysvětlují — akce, dovolená, inventura.
+         Zapisují se, když si na ně člověk vzpomene, a to bývá u kávy,
+         ne u počítače; proto jsou i tady. Vrací se rovnou i s dopadem,
+         protože samotný seznam dat nikomu nic neřekne.
+         */
+        register("events:list") { args in
+            Events.withImpact(currency: args.first as? String ?? "CZK")
+        }
+        register("events:save") { args in
+            _ = try Events.save(args.first as? [String: Any] ?? [:])
+            return Events.withImpact(currency: args.count > 1 ? (args[1] as? String ?? "CZK") : "CZK")
+        }
+        register("events:delete") { args in
+            _ = Events.remove(args.first as? Int ?? 0)
+            return Events.withImpact(currency: args.count > 1 ? (args[1] as? String ?? "CZK") : "CZK")
+        }
         register("ga4:get") { _ in Ga4.config() }
         register("ga4:save") { args in Ga4.save(args.first as? [String: Any] ?? [:]) }
         register("ga4:test") { _ in try await Ga4.test() }

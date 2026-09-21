@@ -1521,6 +1521,9 @@ Tvrdá pravidla:
 - Když už jsi něco navrhoval dřív, navaž: co se potvrdilo, co ne.
 - Události v zadání zapsal člověk a vysvětlují, proč čísla v těch dnech vypadají jinak. Propad ve dnech dovolené nebo inventury nekomentuj jako trend a u akcí piš, kolik doopravdy přinesly — čísla k tomu v zadání jsou.
 - Když je v zadání návštěvnost, spoj ji s objednávkami: jmenuj konkrétní kanál, vstupní stránku nebo krok cesty k nákupu (košík, pokladna), kde je největší ztráta nebo příležitost. Pozor na to, že návštěvnost je jen z jednoho webu, kdežto objednávky ze všech trhů — konverzi přes ně nepočítej.
+- Píšeš majiteli e-shopu, ne analytikovi. Žádné odborné výrazy bez vysvětlení: místo „konverze klesla o 0,4 p. b." napiš „z každé stovky návštěvníků teď nakoupí o čtyři míň". Zkratky (CTR, AOV, ROAS) nepoužívej vůbec.
+- Každý bod musí být použitelný: z textu musí být jasné, co se stalo a co se s tím dá dnes udělat. Bod, ze kterého neplyne žádný krok, nepiš.
+- U bodu typu "pozor" napiš do "check" první krok — co konkrétně udělat, aby se to spravilo (stejně jako u návrhu píšeš, podle čeho se pozná, že zabral).
 - Česky, věcně, bez oslovení a bez marketingových frází. Každý bod jedna věta, nejvýš pět bodů. Celá odpověď do 1600 znaků.
 
 Vrať POUZE JSON, nic dalšího, a hlídej, ať se celý vejde:
@@ -1774,6 +1777,25 @@ export async function digestReport(force = false): Promise<DigestReport> {
   } catch { /* GA4 je doplněk, ne podmínka */ }
   if (ga4 && !ga4.error) facts.signals = [...facts.signals, ...ga4Signals(ga4)];
 
+  /*
+   * Než se začne počítat, mrkne se do sdílené složky. Postřeh dne je pro
+   * všechna zařízení stejný a stojí volání modelu — když ho ráno udělal
+   * počítač, telefon ho má převzít, ne zaplatit podruhé. Živý posel to
+   * řeší u zapnutých zařízení; tohle je pro to, které bylo vypnuté.
+   */
+  let prisloOdjinud = false;
+  if (force) {
+    try {
+      /*
+       * Načítá se až tady. Sdílená složka sahá zpátky do přehledu (ukládá
+       * přijatý postřeh), takže napevno nahoře by to byl kruh a jeden
+       * z modulů by při startu dostal prázdno.
+       */
+      const appsync = require('./appsync');
+      prisloOdjinud = !!appsync.pullDigest?.();
+    } catch { /* složka nemusí být dostupná */ }
+  }
+
   const history = storedInsights(1);
   const last = history[0]?.insight ?? null;
   const lastAt = last?.at ?? getSetting(INSIGHT_KEY, '') ?? '';
@@ -1790,7 +1812,12 @@ export async function digestReport(force = false): Promise<DigestReport> {
    * postřeh si člověk vyžádá tlačítkem, když ho chce.
    */
   const stale = age >= EVERY_MS;
-  if (force) {
+  /*
+   * Postřeh, který zrovna dorazil z jiného zařízení a je dnešní, stačí —
+   * platit totéž podruhé nemá smysl. „Přegenerovat" u postřehu, který tu
+   * už byl, se pošle normálně: tam si o nový říká člověk vědomě.
+   */
+  if (force && !(prisloOdjinud && !stale)) {
     try {
       insight = await makeInsight(facts, ga4);
     } catch (e: any) {
@@ -1833,7 +1860,8 @@ Pravidla:
 - Piš česky, krátce (nejvýš pět vět nebo pár odrážek), věcně a konkrétně.
 - Odpovídej JEN z předložených čísel a z pošty uvedené v zadání. Když na odpověď data nestačí, řekni to rovnou a napiš, co by k tomu bylo potřeba dotáhnout.
 - Čísla neodhaduj a nezaokrouhluj jinak, než jak jsou.
-- Když se hodí návrh, ať je proveditelný — cena, sada, zásoba, doprava, text.`;
+- Když se hodí návrh, ať je proveditelný — cena, sada, zásoba, doprava, text.
+- Ptá se majitel e-shopu, ne analytik: piš bez odborných výrazů a zkratek, a když nějaký použiješ, hned ho vysvětli běžnými slovy.`;
 
 /**
  * Otázka nad přehledem.

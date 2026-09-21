@@ -37,6 +37,16 @@ enum LiveWork {
                 if Digest.applyShare(message["data"]) {
                     Bridge.current?.emitAsync("digest:changed")
                 }
+            /*
+             Události (akce, dovolená, inventura). Zapisuje je člověk na tom
+             zařízení, které má po ruce, a platí pro celý e-shop — bez
+             tohohle by dovolená zapsaná na počítači chyběla ve vysvětlení
+             čísel v telefonu.
+             */
+            case "events":
+                if Events.importShare(message["data"]) {
+                    Bridge.current?.emitAsync("events:changed")
+                }
             default: break
             }
         }

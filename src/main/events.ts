@@ -58,10 +58,30 @@ function ensureTable(): void {
   for (const sql of [
     "ALTER TABLE shop_events ADD COLUMN source TEXT NOT NULL DEFAULT 'rucne'",
     "ALTER TABLE shop_events ADD COLUMN source_id TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE shop_events ADD COLUMN source_hash TEXT NOT NULL DEFAULT ''"
+    "ALTER TABLE shop_events ADD COLUMN source_hash TEXT NOT NULL DEFAULT ''",
+    /*
+     * Sloupce kvůli sdílení mezi zařízeními.
+     *
+     * `uid` je jméno události napříč zařízeními — číselné `id` je v každé
+     * databázi jiné a podle něj se sloučit nedá. `updated_at` rozhoduje,
+     * která verze platí, a `deleted` drží stopu po smazání: bez ní by se
+     * smazaná událost při první synchronizaci vrátila z druhého zařízení,
+     * kde o smazání nikdo neví.
+     */
+    "ALTER TABLE shop_events ADD COLUMN uid TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE shop_events ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE shop_events ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0'
   ]) {
     try { db.exec(sql); } catch { /* sloupec už je */ }
   }
+  // Události zapsané před sdílením — bez uid by se neměly čím představit
+  try {
+    const stare = db.prepare("SELECT id FROM shop_events WHERE uid = ''").all() as any[];
+    for (const row of stare) {
+      db.prepare('UPDATE shop_events SET uid = ?, updated_at = COALESCE(NULLIF(updated_at, \'\'), created_at) WHERE id = ?')
+        .run(crypto.randomUUID(), row.id);
+    }
+  } catch { /* prázdná tabulka */ }
 }
 
 function day(value: unknown): string {
@@ -97,7 +117,7 @@ function rowToEvent(row: any): ShopEvent {
 export function listEvents(): ShopEvent[] {
   ensureTable();
   const rows = getDb().prepare(
-    'SELECT * FROM shop_events ORDER BY from_day DESC, id DESC'
+    'SELECT * FROM shop_events WHERE deleted = 0 ORDER BY from_day DESC, id DESC'
   ).all() as any[];
   return rows.map(rowToEvent);
 }
@@ -118,23 +138,139 @@ export function saveEvent(patch: Partial<ShopEvent>): ShopEvent[] {
   const [start, end] = from <= to ? [from, to] : [to, from];
 
   const db = getDb();
+  const now = new Date().toISOString();
   if (patch.id) {
     db.prepare(
-      'UPDATE shop_events SET kind = ?, title = ?, from_day = ?, to_day = ?, note = ? WHERE id = ?'
-    ).run(kind, title, start, end, note, patch.id);
+      'UPDATE shop_events SET kind = ?, title = ?, from_day = ?, to_day = ?, note = ?, updated_at = ? WHERE id = ?'
+    ).run(kind, title, start, end, note, now, patch.id);
   } else {
     db.prepare(
-      `INSERT INTO shop_events (kind, title, from_day, to_day, note, created_at)
-       VALUES (?,?,?,?,?,?)`
-    ).run(kind, title, start, end, note, new Date().toISOString());
+      `INSERT INTO shop_events (kind, title, from_day, to_day, note, created_at, uid, updated_at)
+       VALUES (?,?,?,?,?,?,?,?)`
+    ).run(kind, title, start, end, note, now, crypto.randomUUID(), now);
   }
+  shareEvents();
   return listEvents();
 }
 
+/**
+ * Smazání je **značka**, ne výmaz.
+ *
+ * Kdyby se řádek opravdu zahodil, přišel by zpátky při první synchronizaci
+ * z druhého zařízení — tam o smazání nikdo neví a událost by tam pořád
+ * byla. Škrtnutá událost se proto drží dál, jen se nikde neukazuje.
+ */
 export function deleteEvent(id: number): ShopEvent[] {
   ensureTable();
-  getDb().prepare('DELETE FROM shop_events WHERE id = ?').run(id);
+  getDb().prepare('UPDATE shop_events SET deleted = 1, updated_at = ? WHERE id = ?')
+    .run(new Date().toISOString(), id);
+  shareEvents();
   return listEvents();
+}
+
+/* ---------- sdílení mezi zařízeními ---------- */
+
+/** Řádek, jak putuje mezi zařízeními — bez místního `id`, to je v každé databázi jiné */
+export interface EventShare {
+  uid: string;
+  kind: string;
+  title: string;
+  from: string;
+  to: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+  deleted: boolean;
+  source: string;
+  sourceId: string;
+  sourceHash: string;
+}
+
+/**
+ * Všechny události k odeslání — **včetně smazaných**.
+ *
+ * Smazaná událost musí odjet taky, jinak by ji druhá strana poslala zpátky
+ * jako novinku. Je jich pár desítek za celou historii, takže se posílá
+ * prostě všechno a neřeší se, co už druhá strana zná.
+ */
+export function eventsExport(): EventShare[] {
+  ensureTable();
+  const rows = getDb().prepare('SELECT * FROM shop_events').all() as any[];
+  return rows.map(row => ({
+    uid: String(row.uid || ''),
+    kind: String(row.kind || 'jine'),
+    title: String(row.title || ''),
+    from: String(row.from_day || ''),
+    to: String(row.to_day || ''),
+    note: String(row.note || ''),
+    createdAt: String(row.created_at || ''),
+    updatedAt: String(row.updated_at || row.created_at || ''),
+    deleted: !!row.deleted,
+    source: String(row.source || 'rucne'),
+    sourceId: String(row.source_id || ''),
+    sourceHash: String(row.source_hash || '')
+  })).filter(one => one.uid);
+}
+
+/**
+ * Sloučení toho, co přišlo odjinud. **Novější zápis vyhrává.**
+ *
+ * Slučovat po polích nemá smysl: událost je jedna věta a když ji někdo
+ * opraví, platí jeho verze celá. Vrací `true`, když se něco doopravdy
+ * změnilo — jen tehdy má smysl překreslovat okno.
+ */
+export function eventsImport(list: unknown): boolean {
+  if (!Array.isArray(list)) return false;
+  ensureTable();
+  const db = getDb();
+  const mine = new Map<string, { id: number; updated: string }>();
+  for (const row of db.prepare('SELECT id, uid, updated_at, created_at FROM shop_events').all() as any[]) {
+    if (row.uid) mine.set(String(row.uid), { id: row.id, updated: String(row.updated_at || row.created_at || '') });
+  }
+
+  let changed = false;
+  for (const one of list as any[]) {
+    const uid = String(one?.uid ?? '').trim();
+    const from = day(one?.from);
+    if (!uid || !from) continue;
+    const updated = String(one?.updatedAt ?? one?.createdAt ?? '');
+    const found = mine.get(uid);
+    if (found && found.updated >= updated) continue;
+    const kind = (EVENT_KINDS as string[]).includes(String(one?.kind)) ? String(one.kind) : 'jine';
+    const to = day(one?.to) || from;
+    const values = [kind, String(one?.title ?? ''), from, to, String(one?.note ?? ''),
+      updated, one?.deleted ? 1 : 0, String(one?.source ?? 'rucne'),
+      String(one?.sourceId ?? ''), String(one?.sourceHash ?? '')];
+    if (found) {
+      db.prepare(
+        `UPDATE shop_events SET kind = ?, title = ?, from_day = ?, to_day = ?, note = ?,
+           updated_at = ?, deleted = ?, source = ?, source_id = ?, source_hash = ? WHERE id = ?`
+      ).run(...values, found.id);
+    } else {
+      db.prepare(
+        `INSERT INTO shop_events (kind, title, from_day, to_day, note, updated_at, deleted,
+           source, source_id, source_hash, uid, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).run(...values, uid, String(one?.createdAt ?? updated));
+    }
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Rozeslání ostatním zařízením.
+ *
+ * Posílá se po každém zápisu. Živé propojení je zkratka — když zrovna
+ * nedrží, dojde to sdílenou složkou při příští synchronizaci, takže se
+ * tady chyba nemusí řešit.
+ */
+function shareEvents(): void {
+  try {
+    // Načítá se až tady: události samy o živém propojení nic vědět nemusí
+    const live = require('./live');
+    live.publish('events', eventsExport());
+  } catch { /* propojení není zapnuté, nevadí */ }
 }
 
 /* ---------- události z naplánovaných textů na webu ---------- */
@@ -252,25 +388,29 @@ export async function eventFromPlan(plan: WebPlan): Promise<void> {
   }
   if (!title) title = 'Změna textů na webu';
 
+  const now = new Date().toISOString();
   if (found) {
     db.prepare(
-      `UPDATE shop_events SET kind = ?, title = ?, from_day = ?, to_day = ?, note = ?, source_hash = ?
-        WHERE id = ?`
-    ).run(kind, title, from, to, note, stamp, found.id);
+      `UPDATE shop_events SET kind = ?, title = ?, from_day = ?, to_day = ?, note = ?, source_hash = ?,
+         updated_at = ?, deleted = 0 WHERE id = ?`
+    ).run(kind, title, from, to, note, stamp, now, found.id);
   } else {
     db.prepare(
-      `INSERT INTO shop_events (kind, title, from_day, to_day, note, created_at, source, source_id, source_hash)
-       VALUES (?,?,?,?,?,?, 'webtext', ?, ?)`
-    ).run(kind, title, from, to, note, new Date().toISOString(), plan.id, stamp);
+      `INSERT INTO shop_events (kind, title, from_day, to_day, note, created_at, source, source_id, source_hash, uid, updated_at)
+       VALUES (?,?,?,?,?,?, 'webtext', ?, ?, ?, ?)`
+    ).run(kind, title, from, to, note, now, plan.id, stamp, crypto.randomUUID(), now);
   }
+  shareEvents();
 }
 
 /** Zrušená změna textů si odnese i svoji událost — jinak by zůstala viset. */
 export function dropEventOfPlan(planId: string): void {
   ensureTable();
+  // Taky jen škrtnutí — jinak by se událost vrátila z druhého zařízení
   getDb().prepare(
-    "DELETE FROM shop_events WHERE source = 'webtext' AND source_id = ?"
-  ).run(String(planId));
+    "UPDATE shop_events SET deleted = 1, updated_at = ? WHERE source = 'webtext' AND source_id = ?"
+  ).run(new Date().toISOString(), String(planId));
+  shareEvents();
 }
 
 type OrderRow = { created_at: string; status: string; currency: string; total: number };

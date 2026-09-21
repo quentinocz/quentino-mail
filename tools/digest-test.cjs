@@ -608,6 +608,52 @@ check('a je označené', tasks[0].urgent, true);
   check('i spočítaný rozdíl v penězích', proAi.includes('-14000'), true);
   check('i poznámka u akce', proAi.includes('newsletter'), true);
 
+  /* ---------- události mezi zařízeními ---------- */
+
+  /*
+   * Zapisuje se tam, kde je člověk zrovna doma — u počítače, nebo z telefonu
+   * u kávy. Dokud se události nesdílely, znal dovolenou jen jeden přístroj
+   * a na druhém zel v přehledu nevysvětlený propad.
+   */
+  const odeslane = ev.eventsExport();
+  check('k odeslání jde i jméno napříč zařízeními',
+    odeslane.every(one => one.uid && one.updatedAt), true);
+
+  /*
+   * Cizí zápis. Novější vyhrává — událost je jedna věta a když ji někdo
+   * opraví, platí jeho verze celá; slučovat po polích nemá co.
+   */
+  const cizi = odeslane.find(one => one.title === 'Dovolená');
+  const zmena = ev.eventsImport([{ ...cizi, title: 'Dovolená — zavřeno',
+    updatedAt: new Date(Date.now() + 1000).toISOString() }]);
+  check('novější zápis odjinud přepíše starší', zmena, true);
+  check('a je to vidět v seznamu',
+    ev.listEvents().some(one => one.title === 'Dovolená — zavřeno'), true);
+
+  // Starší zápis se zahodí, jinak by se opravené názvy vracely zpátky
+  check('starší zápis odjinud se zahodí',
+    ev.eventsImport([{ ...cizi, title: 'Stará verze', updatedAt: '2019-01-01T00:00:00.000Z' }]), false);
+
+  // Neznámá událost se prostě přidá
+  check('neznámá událost se přidá', ev.eventsImport([{
+    uid: 'cizi-1', kind: 'akce', title: 'Akce z telefonu', from: den(-50), to: den(-50),
+    updatedAt: new Date().toISOString(), createdAt: new Date().toISOString()
+  }]), true);
+  check('a je v seznamu', ev.listEvents().some(one => one.title === 'Akce z telefonu'), true);
+
+  /*
+   * Smazání je značka, ne výmaz. Kdyby se řádek zahodil, přišel by zpátky
+   * při první synchronizaci z druhého zařízení, kde o smazání nikdo neví.
+   */
+  const kSmazani = ev.listEvents().find(one => one.title === 'Akce z telefonu');
+  ev.deleteEvent(kSmazani.id);
+  check('smazaná se neukazuje', ev.listEvents().some(one => one.id === kSmazani.id), false);
+  check('ale odjede jako škrtnutá',
+    ev.eventsExport().some(one => one.uid === 'cizi-1' && one.deleted), true);
+  check('a nevrátí se zpátky',
+    ev.eventsImport([{ uid: 'cizi-1', kind: 'akce', title: 'Akce z telefonu', from: den(-50), to: den(-50),
+      updatedAt: '2019-01-01T00:00:00.000Z' }]), false);
+
   /*
    * A hlavně: události se musí dostat do zadání postřehů. Bez toho model
    * vidí propad a hledá pro něj vysvětlení v datech, kde žádné není.
@@ -615,6 +661,15 @@ check('a je označené', tasks[0].urgent, true);
   const bylo = asked.length;
   await dg.digestReport(true);
   check('události jdou i do postřehů', asked[bylo].user.includes('Dovolená'), true);
+
+  /*
+   * Postřeh, který zrovna dorazil z jiného zařízení a je dnešní, stačí —
+   * platit totéž podruhé nemá smysl. Tady se jen ověří, že samotné otevření
+   * okna model neosloví ani po přijetí cizího postřehu.
+   */
+  const pred = asked.length;
+  await dg.digestReport();
+  check('otevření okna se po přijetí cizího postřehu neptá', asked.length, pred);
 
   console.log(failed ? `\n✗ ${failed} zkoušek selhalo\n` : '\n✓ přehled dne sedí\n');
   process.exit(failed ? 1 : 0);

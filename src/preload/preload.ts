@@ -150,7 +150,9 @@ const ALLOWED_EVENTS = [
   'tool:windows', 'tool:look', 'app:goto',
   'orderfeed:changed', 'vouchers:clash', 'vouchers:changed', 'cleanup:progress',
   'stockin:changed', 'stockin:progress', 'invoices:progress', 'invoices:ready', 'scan:code', 'scan:qty', 'scan:closed',
-  'live:state', 'live:offers', 'live:work', 'packing:changed'
+  'live:state', 'live:offers', 'live:work', 'packing:changed',
+  // Události zapsané na jiném zařízení — přehled se překreslí sám
+  'events:changed'
 ];
 
 contextBridge.exposeInMainWorld('api', {

@@ -11,6 +11,7 @@ import { storeParsedMessage } from './imap';
 import { deviceId, deviceLabel } from './device';
 import { claimAll } from './vouchers';
 import { digestShare, applyDigestShare } from './digest';
+import { eventsExport, eventsImport } from './events';
 import * as live from './live';
 
 /**
@@ -621,6 +622,41 @@ function syncDigest(dir: string): void {
   if (mine && mine.at > remoteAt) writeJson(file, mine);
 }
 
+/* ---------- Události (akce, dovolená, inventura) ---------- */
+
+/**
+ * Události zapsané kdekoli platí všude.
+ *
+ * Zapisuje je člověk na tom zařízení, které má zrovna po ruce — dovolenou
+ * klidně z telefonu — a vysvětlují čísla v přehledu na všech ostatních.
+ * Dokud se nesdílely, znal je jen ten jeden počítač a na telefonu byl
+ * přehled bez vysvětlení.
+ *
+ * Slučuje se po řádcích a **novější zápis vyhrává**; smazané jedou s sebou
+ * jako škrtnuté, jinak by se vrátily odtud, kde o smazání nikdo neví.
+ * Živý posel je zkratka pro zapnutá zařízení, tohle je pojistka pro to,
+ * které bylo zrovna vypnuté.
+ */
+function syncEvents(dir: string): void {
+  const file = path.join(dir, 'events.json');
+  let remote: any = null;
+  try { remote = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* první běh */ }
+  const changed = eventsImport(remote);
+  if (changed) emit('events:changed', {});
+
+  const mine = eventsExport();
+  /*
+   * Zapisuje se, jen když je co přidat. Soubor v iCloudu přepsaný při každé
+   * synchronizaci znamená přenos a konflikt i tam, kde se nic nezměnilo.
+   */
+  const remoteCount = Array.isArray(remote) ? remote.length : -1;
+  const remoteStamp = Array.isArray(remote)
+    ? remote.reduce((max: string, one: any) => (String(one?.updatedAt ?? '') > max ? String(one.updatedAt) : max), '')
+    : '';
+  const myStamp = mine.reduce((max, one) => (one.updatedAt > max ? one.updatedAt : max), '');
+  if (mine.length && (mine.length !== remoteCount || myStamp > remoteStamp)) writeJson(file, mine);
+}
+
 /* ---------- Kontakty (sjednocení) ---------- */
 
 function syncContacts(dir: string): void {
@@ -731,6 +767,26 @@ async function syncArchive(dir: string): Promise<{ exported: number; imported: n
 
 /* ---------- Hlavní běh ---------- */
 
+/**
+ * Sáhnout pro cizí postřeh dřív, než se začne počítat vlastní.
+ *
+ * Postřehy dne stojí volání modelu a jsou pro všechna zařízení stejné.
+ * Živý posel je pošle hned, ale zařízení, které bylo zrovna vypnuté, o nich
+ * neví — a kdyby se na něm ráno zmáčklo „Sestavit", zaplatilo by se totéž
+ * podruhé. Tohle je krátké nahlédnutí do sdílené složky; celá synchronizace
+ * se kvůli tomu nespouští.
+ */
+export function pullDigest(): boolean {
+  const cfg = getSyncConfig();
+  if (!cfg.enabled || !cfg.folder) return false;
+  try {
+    const remote = JSON.parse(fs.readFileSync(path.join(cfg.folder, 'digest.json'), 'utf8'));
+    return applyDigestShare(remote);
+  } catch {
+    return false;
+  }
+}
+
 let running = false;
 
 export async function runSync(): Promise<string> {
@@ -764,6 +820,13 @@ export async function runSync(): Promise<string> {
       syncDigest(dir);
     } catch (e: any) {
       parts.push(`přehled: ${e?.message ?? e}`);
+    }
+
+    // 2c) Události — zapsané kdekoli, platí všude
+    try {
+      syncEvents(dir);
+    } catch (e: any) {
+      parts.push(`události: ${e?.message ?? e}`);
     }
 
     // 3) Poukazy — šablony i vydané kódy, po řádcích a přes deníky zařízení

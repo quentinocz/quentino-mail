@@ -180,6 +180,12 @@ for (const okno of OKNA) {
       sezony,
       krive: cisla.filter(one => one.ruznych > 1),
       novyden: !!document.querySelector('.dg-newday'),
+      rady: {
+        sloupce: document.querySelectorAll('.dg-advice-col').length,
+        body: document.querySelectorAll('.dg-advice-item').length,
+        kroky: document.querySelectorAll('.dg-advice-todo').length
+      },
+      verdikty: document.querySelectorAll('.dg-verdict').length,
       udalosti: document.querySelectorAll('.dg-ev').length,
       // Prázdné místo pod kartou v mřížce: rozdíl výšky mřížky a nejvyšší karty
       vyska: [...document.querySelectorAll('.dg-grid')].map(one => {
@@ -192,6 +198,14 @@ for (const okno of OKNA) {
     stav.tiles.map(one => `${one.label}: ${one.value}`).join(' | '));
   say('  a upřesnění mají v bublině', stav.tiles.every(one => one.tip.length > 10));
   say('karta událostí je v přehledu', stav.udalosti >= 2, `${stav.udalosti} řádků`);
+  /*
+   * Co z toho plyne. Kvůli téhle kartě se přehled otevírá: musí mít všechny
+   * tři sloupce a u každého bodu krok, co udělat. Bez kroku je to jen hezky
+   * napsané konstatování.
+   */
+  say('přehled radí, co s tím', stav.rady.sloupce === 3 && stav.rady.body >= 3 && stav.rady.kroky >= 3,
+    `${stav.rady.sloupce} sloupce, ${stav.rady.body} bodů, ${stav.rady.kroky} kroků`);
+  say('  a u čísel je slovo místo přemýšlení', stav.verdikty >= 3, `${stav.verdikty} verdiktů`);
   /*
    * Karty v řádku mají srovnatelnou výšku. Rozvržení díry neřeší — řeší je
    * obsah: každá karta ukazuje nejvýš šest řádků a zbytek shrne do věty.

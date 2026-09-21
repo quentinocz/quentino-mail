@@ -321,6 +321,16 @@ for (const device of DEVICES) {
    */
   await click('.sheet-action', { hasText: 'AI Přehled' });
   await check('přehled dne'); await snap('13c-prehled-dne');
+  /*
+   * Zboží uprostřed přehledu. Je to nejširší tabulka v aplikaci — název,
+   * varianty, proužek, kusy a tržba — a právě na telefonu se vysypala
+   * z karty ven: z názvu nezbylo nic a částka se usekla o okraj displeje.
+   */
+  await page.evaluate(() => {
+    document.querySelector('.dg-bar-row.dg-clickable')?.scrollIntoView({ block: 'center' });
+  });
+  await page.waitForTimeout(250);
+  await check('přehled — zboží'); await snap('13c2-prehled-zbozi');
   await page.evaluate(() => {
     const body = document.querySelector('.dg-body');
     if (body) body.scrollTop = body.scrollHeight;
