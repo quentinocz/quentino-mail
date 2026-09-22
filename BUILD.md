@@ -217,6 +217,32 @@ projít tudy (pravý klik → Otevřít už Apple zrušil):
 
 Na macOS 14 a starším stačí pravý klik na aplikaci → **Otevřít** → **Otevřít**.
 
+### Aktualizace z aplikace — a proč se u nich nic nepotvrzuje
+
+Tohle všechno platí pro **první** instalaci. Další verze si aplikace umí nasadit
+sama: v Nastavení → Sync je *Aktualizace aplikace*, hlídá poslední vydání
+v repozitáři `quentinocz/quentino-mail` a novou verzi nabídne proužkem v okně.
+Jedno klepnutí stáhne archiv, vymění balíček a spustí aplikaci znovu.
+
+**A Gatekeeper mlčí.** Není to tím, že by aktualizace byla podepsaná — pořád není.
+Je to tím, že značku `com.apple.quarantine`, kvůli které se systém ptá, pověsí na
+soubor **ten, kdo ho stáhl**: Safari, Chrome, Mail. Když si archiv stáhne sama
+aplikace (Node přes `https`) a rozbalí ho přes `ditto`, žádná značka nevznikne
+a není co hlásit. Pro jistotu se značka po rozbalení ještě explicitně sundává.
+
+Výměnu dělá krátký skript (`swapScript()` v `src/main/update.ts`), který počká,
+až aplikace skončí, odsune starý balíček stranou, přesune nový na jeho místo
+a aplikaci otevře. Starý se maže až po úspěšném přesunu — když výměna selže
+uprostřed, je co vrátit. Na Windows se místo toho spustí instalátor s `/S`.
+
+Dvě věci, na které pozor:
+
+- Aplikace musí být **ve složce Aplikace**, ne spuštěná z DMG nebo z Ke stažení.
+  Z karantény ji macOS pouští z dočasné kopie (App Translocation) a vyměnit se
+  v ní nedá; aktualizace to pozná a řekne to.
+- Vydání musí mít **`.zip` pro macOS** (electron-builder ho dělá vedle `.dmg`).
+  Z DMG by se muselo připojovat zařízení; zip stačí rozbalit.
+
 ### Podpis a notarizace
 
 Bez certifikátu se aplikace nepodepíše. Funguje, ale na cizím Macu ji jde poprvé

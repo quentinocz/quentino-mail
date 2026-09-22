@@ -6,6 +6,7 @@ import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import UpdateCard from './UpdateCard';
 import { buildBrandSignature, DEFAULT_SIG_CONFIG } from '../signature';
 
 type Tab = 'accounts' | 'persons' | 'ai' | 'knowledge' | 'rules' | 'sync' | 'phone';
@@ -921,7 +922,14 @@ export default function SettingsModal(p: Props) {
           )}
 
           {/* ===================== SYNC ===================== */}
-          {tab === 'sync' && syncCfg && (
+          {/*
+            * Aktualizace se kreslí i bez načteného nastavení synchronizace.
+            * Dřív byla celá záložka schovaná za `syncCfg` a u někoho, kdo
+            * sdílenou složku nepoužívá, by se k aktualizacím vůbec nedostal.
+            */}
+          {tab === 'sync' && (
+            <>
+              {syncCfg && (
             <>
               <div className="desc" style={{ fontSize: 12.5, color: 'var(--text-2)' }}>
                 Synchronizace mezi zařízeními (např. Mac + Windows) přes sdílenou složku — vyber složku,
@@ -964,6 +972,17 @@ export default function SettingsModal(p: Props) {
                   </span>
                 )}
               </div>
+
+            </>
+              )}
+
+              {/*
+                * Aktualizace aplikace. Je to sousední téma — taky „co přijde
+                * odjinud a co se s tím udělá" — a vlastní záložka kvůli třem
+                * tlačítkům by v nastavení jen přibyla.
+                */}
+              <h4 style={{ margin: '18px 0 6px' }}>Aktualizace aplikace</h4>
+              <UpdateCard />
             </>
           )}
 

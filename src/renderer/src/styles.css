@@ -3537,6 +3537,36 @@ button, kbd, label,
 .ig-switch .ws-caret { display: none; }
 
 /* Pruh s průběhem překladu na pozadí — drží se dole, přes celou šířku okna */
+/*
+ * Proužky nad sebou, ne přes sebe.
+ *
+ * Každý proužek byl sám o sobě přilepený na stejné místo dole uprostřed,
+ * takže jakmile byly dva (běžící překlad a nabídka nové verze), ležel
+ * jeden na druhém a spodní se nedal ani přečíst, ani zmáčknout. Tohle je
+ * jejich společné místo; řadí se odspoda, aby ten poslední příchozí byl
+ * nejblíž oku.
+ */
+.pt-bars {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 8px;
+  /* Prázdný obal nesmí brát klepnutí obsahu pod sebou */
+  pointer-events: none;
+}
+.pt-bars > * { pointer-events: auto; }
+.pt-bars > .pt-statusbar {
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
+}
+
 .pt-statusbar {
   position: fixed;
   left: 50%;

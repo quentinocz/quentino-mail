@@ -1825,6 +1825,24 @@
   answers['shoot:auto'] = shootState;
   answers['shoot:shoots'] = shootState.shoots;
   answers['shoot:shoot'] = shootOne;
+  /*
+   * Aktualizace z GitHubu. Výchozí stav je „máš poslední" — proužek s novou
+   * verzí by jinak trčel přes všechny ostatní snímky. Náhled si novinku
+   * pošle sám událostí `update:changed`.
+   */
+  var updateState = {
+    current: '5.1.0', latest: 'v5.1.0', notes: '', url: 'https://github.com/quentinocz/quentino-mail/releases/latest',
+    asset: '', size: 0, newer: false, checking: false, downloading: false, progress: 0,
+    ready: '', error: '', checkedAt: new Date().toISOString(), auto: true,
+    repo: 'quentinocz/quentino-mail', canInstall: true
+  };
+  answers['update:state'] = updateState;
+  // Sdílená složka mezi zařízeními — bez ní by záložka Sync zůstala prázdná
+  answers['appsync:get'] = {
+    enabled: true, folder: '/Users/p/Library/CloudStorage/iCloud/QuentinoMail-sync',
+    lastRun: new Date(Date.now() - 4 * 60000).toISOString(), lastResult: 'vše aktuální'
+  };
+
   answers['shoot:photos'] = shootPhotos;
   // Náhled si do nich sahá, aby poznal, že převod na WebP doopravdy proběhl
   window.__shootPhotosRaw = shootPhotos;
@@ -1992,6 +2010,41 @@
        * k už nafocené fotce místo do řady jako další snímek; bez toho by
        * se nedalo vyzkoušet dodatečné převedení série na WebP.
        */
+      /*
+       * Aktualizace. Kontrola najde novější vydání, stahování skočí rovnou
+       * na sto procent a nasazení se jen zaznamená — restartovat aplikaci
+       * v náhledu nejde a ani není proč.
+       */
+      if (channel === 'update:check') {
+        Object.assign(updateState, {
+          latest: 'v5.1.2', newer: true, asset: 'quentino-app-5.1.2-arm64.zip',
+          size: 118000000, checking: false, error: '', checkedAt: new Date().toISOString()
+        });
+        window.__emit('update:changed', Object.assign({}, updateState));
+        return Promise.resolve({ ok: true, data: Object.assign({}, updateState) });
+      }
+      if (channel === 'update:download') {
+        Object.assign(updateState, { downloading: false, progress: 100, ready: '/tmp/quentino.zip' });
+        window.__emit('update:changed', Object.assign({}, updateState));
+        return Promise.resolve({ ok: true, data: Object.assign({}, updateState) });
+      }
+      if (channel === 'update:install') {
+        return Promise.resolve({ ok: true, data: Object.assign({}, updateState) });
+      }
+      if (channel === 'update:skip') {
+        Object.assign(updateState, { newer: false });
+        window.__emit('update:changed', Object.assign({}, updateState));
+        return Promise.resolve({ ok: true, data: Object.assign({}, updateState) });
+      }
+      if (channel === 'update:auto' || channel === 'update:repo') {
+        if (channel === 'update:auto') updateState.auto = !!arguments[1];
+        else updateState.repo = String(arguments[1] || '');
+        window.__emit('update:changed', Object.assign({}, updateState));
+        return Promise.resolve({ ok: true, data: Object.assign({}, updateState) });
+      }
+      if (channel === 'update:state') {
+        return Promise.resolve({ ok: true, data: Object.assign({}, updateState) });
+      }
       if (channel === 'shoot:bytes') {
         var beside = arguments[4] || '';
         if (beside) {

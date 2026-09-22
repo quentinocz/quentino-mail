@@ -418,6 +418,62 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(250);
 await overflow('nastavení — doprava a doklady'); await snap('22c2-nastaveni-doprava');
+/*
+ * Aktualizace aplikace. Je to jediná obrazovka, kterou člověk uvidí právě
+ * jednou za vydání — o to důležitější je, aby z ní bylo na první pohled
+ * jasné, co běží, co je venku a že se po aktualizaci nemusí nic potvrzovat.
+ */
+await click('.tabs .tab', { hasText: 'Sync' });
+await page.waitForTimeout(250);
+await page.evaluate(() => {
+  const head = [...document.querySelectorAll('.modal-body h4')]
+    .find(el => el.textContent.includes('Aktualizace'));
+  head?.scrollIntoView({ block: 'center' });
+});
+await page.waitForTimeout(250);
+{
+  const rekni = (label, ok, note = '') =>
+    console.log(`${label.padEnd(28)} ${ok ? '✓' : '✗'}${note ? ` (${note})` : ''}`);
+  const text = await page.locator('.modal-body').innerText();
+  rekni('nastavení umí aktualizace', /Aktualizace aplikace/.test(text));
+  rekni('  a slibuje klid od Gatekeepru', /nemusíš nic\s+potvrzovat/i.test(text));
+  await page.locator('.modal-body .btn', { hasText: 'Zkontrolovat teď' }).click();
+  await page.waitForTimeout(600);
+  const po = await page.locator('.modal-body').innerText();
+  rekni('kontrola najde novou verzi', /5\.1\.2/.test(po));
+  /*
+   * A pak to podstatné: jedno klepnutí má stáhnout **i** nasadit. Rozdělit
+   * to na dvě tlačítka by znamenalo dvě rozhodnutí o téže věci.
+   */
+  await page.evaluate(() => { window.__calls = []; });
+  await page.locator('.modal-body .btn.primary', { hasText: 'Nasadit' }).click();
+  await page.waitForTimeout(700);
+  const volani = await page.evaluate(() => (window.__calls || []).map(one => one[0]));
+  rekni('a nasazení je jedno klepnutí',
+    volani.includes('update:download') && volani.includes('update:install'),
+    volani.filter(one => one.startsWith('update:')).join(' → '));
+}
+await overflow('nastavení — aktualizace'); await snap('22d-nastaveni-aktualizace');
+/*
+ * Proužek s novou verzí v okně. Kontrola výš ho vyvolala, takže se rovnou
+ * vyzkouší i to, že se dá odložit — a hlavně že po odložení zmizí a
+ * nepřekáží dalším zkouškám.
+ */
+{
+  const rekni = (label, ok, note = '') =>
+    console.log(`${label.padEnd(28)} ${ok ? '✓' : '✗'}${note ? ` (${note})` : ''}`);
+  await page.locator('.modal-head .icon-btn').last().click();
+  await page.waitForTimeout(400);
+  rekni('nová verze se nabídne proužkem', await page.locator('.update-offer').count() === 1);
+  await page.screenshot({ path: path.join(SHOTS, 'mac-22e-prouzek-aktualizace.png') });
+  await page.locator('.update-offer .btn.ghost', { hasText: 'Později' }).click();
+  await page.waitForTimeout(400);
+  rekni('  a dá se odložit', await page.locator('.update-offer').count() === 0);
+  // Nastavení se kvůli proužku zavřela — další kroky v nich pokračují
+  await click('.side-item', { hasText: 'Nastavení' });
+  await page.waitForTimeout(400);
+}
+
 // Zpátky na Telefon — další kroky pokračují tam
 await click('.tabs .tab', { hasText: 'Telefon' });
 await page.waitForTimeout(200);
@@ -474,7 +530,7 @@ const otevrelo = async (nastroj, popis) => {
 };
 
 await overflow('proužek: práce z telefonu'); await snap('07c-zivy-prouzek');
-await click('.live-offer .btn.primary');
+await click('.live-offer:not(.update-offer) .btn.primary');
 await otevrelo('packing', 'proužek otevře objednávku');
 
 // Totéž u naskladnění: proužek má otevřít tu relaci, na které se pracuje
@@ -483,7 +539,7 @@ await page.evaluate(() => window.__emit('live:offers', [{
   title: 'Naskladnění 30. 8. 2026', detail: '3 položky · 11 ks', at: '2026-09-01T08:05:00.000Z'
 }]));
 await page.waitForTimeout(200);
-await click('.live-offer .btn.primary');
+await click('.live-offer:not(.update-offer) .btn.primary');
 await otevrelo('catalog', 'proužek otevře naskladnění');
 
 /*

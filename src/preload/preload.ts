@@ -135,7 +135,10 @@ const ALLOWED_INVOKE = [
   'logins:list', 'logins:save',
   'scan:available', 'scan:start', 'scan:stop', 'scan:feedback', 'scan:count',
   // Verze aplikace do hlavičky nastavení
-  'app:version'
+  'app:version',
+  // Aktualizace aplikace z vydání na GitHubu
+  'update:state', 'update:check', 'update:download', 'update:install',
+  'update:skip', 'update:auto', 'update:repo'
 ];
 
 const ALLOWED_EVENTS = [
@@ -152,7 +155,9 @@ const ALLOWED_EVENTS = [
   'stockin:changed', 'stockin:progress', 'invoices:progress', 'invoices:ready', 'scan:code', 'scan:qty', 'scan:closed',
   'live:state', 'live:offers', 'live:work', 'packing:changed',
   // Události zapsané na jiném zařízení — přehled se překreslí sám
-  'events:changed'
+  'events:changed',
+  // Nová verze na GitHubu: nález, průběh stahování, chyba
+  'update:changed'
 ];
 
 contextBridge.exposeInMainWorld('api', {

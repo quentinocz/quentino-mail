@@ -29,7 +29,8 @@ import type {
   PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin, OrderNote, OrderNotes, ApprovedNote,
   WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState,
   MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow,
-  MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload
+  MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload,
+  UpdateState
 } from '@shared/types';
 import type { ToolWindowId } from '@shared/windows';
 import type { ShopEvent, ShopEventImpact } from '@shared/types';
@@ -117,6 +118,22 @@ export const api = {
   /** Verze běžící aplikace */
   app: {
     version: () => call<{ version: string; platform: string; electron: string }>('app:version')
+  },
+
+  /**
+   * Aktualizace aplikace — jen na počítači.
+   *
+   * Telefon se aktualizuje přes TestFlight a App Store, tam by tlačítko
+   * nemělo co dělat.
+   */
+  update: {
+    state: () => call<UpdateState>('update:state'),
+    check: () => call<UpdateState>('update:check'),
+    download: () => call<UpdateState>('update:download'),
+    install: () => call<UpdateState>('update:install'),
+    skip: (version: string) => call<UpdateState>('update:skip', version),
+    auto: (on: boolean) => call<UpdateState>('update:auto', on),
+    repo: (value: string, token?: string) => call<UpdateState>('update:repo', value, token)
   },
 
   /** Překlady produktů — jen na počítači */

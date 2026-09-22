@@ -7,6 +7,7 @@ import { refreshDueFeeds } from './orderfeed';
 import { runSync, syncVouchersNow, watchShared } from './appsync';
 import { start as startLive } from './live';
 import { startLiveWork } from './livework';
+import { startUpdateWatch } from './update';
 import { refreshStatesIfNeeded } from './ptrans/store';
 import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncSource as syncIgSource } from './instagram/publish';
 import { getSetting } from './db';
@@ -112,6 +113,14 @@ export function startScheduler() {
   // Chat: odznak s nepřečtenými. Vlastní obrazovka si data načítá sama a častěji.
   setInterval(() => pollChatUnread().catch(() => {}), CHAT_UNREAD_INTERVAL);
   setTimeout(() => pollChatUnread().catch(() => {}), 6_000);
+
+  /*
+   * Nová verze na GitHubu. Hlídá se na pozadí a nic sama nestahuje —
+   * jen se v okně objeví, že je co nasadit. První kontrola je až za půl
+   * minuty od startu: při spuštění se navazují účty a stahuje pošta
+   * a síť navíc je přesně to, co v té chvíli nikdo nepotřebuje.
+   */
+  startUpdateWatch();
 
   // první běh krátce po startu
   setTimeout(processOutbox, 5_000);

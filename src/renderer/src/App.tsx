@@ -21,6 +21,7 @@ import { handleIncoming } from './media';
 import CatalogModal from './components/CatalogModal';
 import PtransStatusBar from './components/PtransStatusBar';
 import LiveOfferBar from './components/LiveOfferBar';
+import UpdateBar from './components/UpdateBar';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
 import type { Workspace, AiTool } from './components/WorkspaceSwitch';
@@ -413,13 +414,24 @@ function AppInner() {
         />
       )}
       {!phone && (
-        <>
+        /*
+         * Proužky mají jedno místo dole uprostřed a řadí se nad sebe.
+         * Každý si dřív to místo bral sám, takže dva naráz ležely přes
+         * sebe a spodní se nedal ani přečíst, ani zmáčknout.
+         */
+        <div className="pt-bars">
           {/* Nabízet otevření toho, co už je otevřené v jiném okně, nemá smysl */}
           <PtransStatusBar hidden={openTools} onOpen={tool => { api.tool.open(tool).catch(() => {}); }} />
           {/*
             * Rozdělaná práce z telefonu. Nabízí se, nevnucuje — a když je
             * příslušné okno stejně otevřené, není co nabízet.
             */}
+          {/*
+            * Nová verze na GitHubu. Nabídka, ne příkaz — stejně jako
+            * rozdělaná práce: aktualizace znamená restart aplikace a
+            * uprostřed rozepsané odpovědi by to bylo horší než počkat.
+            */}
+          <UpdateBar />
           <LiveOfferBar
             hidden={openTools.includes('catalog') || openTools.includes('packing')}
             onOpen={one => {
@@ -427,7 +439,7 @@ function AppInner() {
               api.tool.open(one.kind === 'stockin' ? 'catalog' : 'packing', one.id).catch(() => {});
             }}
           />
-        </>
+        </div>
       )}
     </>
   );

@@ -84,6 +84,9 @@ import {
   invoicesLastDetail, jobsSince, openAdminLogin, prefetchInvoices, invoicesReady, forgetInvoices
 } from './invoices';
 import { callerWindow, withCaller } from './caller';
+import {
+  updateState, checkUpdate, downloadUpdate, installUpdate, skipUpdate, setAuto, setRepo
+} from './update';
 
 /** Zpráva do všech oken — po stažení feedu se musí překreslit, co je otevřené. */
 function emit(channel: string, payload: unknown) {
@@ -798,6 +801,22 @@ export function registerIpc() {
     for (const r of rows) out[r.category ?? 'none'] = { cnt: r.cnt, unseen: r.unseen };
     return out;
   });
+
+  /*
+   * Aktualizace z GitHubu.
+   *
+   * Stahuje a rozbaluje si to aplikace sama — karanténní značku, kvůli
+   * které se pak otevření potvrzuje v Nastavení → Soukromí a zabezpečení,
+   * věší na soubor ten, kdo ho stáhl. Prohlížeč ano, Node ne.
+   */
+  handle('update:state', () => updateState());
+  handle('update:check', () => checkUpdate());
+  handle('update:download', () => downloadUpdate());
+  handle('update:install', () => installUpdate());
+  handle('update:skip', (version: string) => skipUpdate(String(version ?? '')));
+  handle('update:auto', (on: boolean) => setAuto(!!on));
+  handle('update:repo', (value: string, token?: string) =>
+    setRepo(String(value ?? ''), token === undefined ? undefined : String(token)));
 
   // Verze aplikace — do hlavičky nastavení, ať je po vydání vidět, co běží
   handle('app:version', () => ({

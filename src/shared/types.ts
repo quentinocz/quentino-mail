@@ -3539,3 +3539,44 @@ export interface ShootState {
   setup: ShootSettings;
   shoots: Shoot[];
 }
+
+
+/**
+ * Stav aktualizace aplikace.
+ *
+ * Hlídá se vydání na GitHubu. Stahuje a rozbaluje si to **aplikace sama**,
+ * protože karanténní značku (kvůli které se pak otevření potvrzuje
+ * v Nastavení → Soukromí a zabezpečení) věší na soubor ten, kdo ho stáhl —
+ * prohlížeč ano, Node ne.
+ */
+export interface UpdateState {
+  /** Verze, která zrovna běží */
+  current: string;
+  /** Značka posledního vydání na GitHubu (`v5.1.2`), prázdné = zatím nezjištěno */
+  latest: string;
+  /** Popis vydání, zkrácený */
+  notes: string;
+  /** Odkaz na vydání — kdyby se automatická cesta nepovedla */
+  url: string;
+  /** Jméno souboru pro tenhle systém; prázdné = vydání ho nemá */
+  asset: string;
+  size: number;
+  newer: boolean;
+  checking: boolean;
+  downloading: boolean;
+  /** Kolik procent je staženo */
+  progress: number;
+  /** Cesta ke staženému souboru, když je připravený k nasazení */
+  ready: string;
+  error: string;
+  checkedAt: string;
+  /** Hlídat samo na pozadí */
+  auto: boolean;
+  /** `vlastnik/repozitar` na GitHubu */
+  repo: string;
+  /**
+   * Dá se aktualizace vůbec nasadit? Ve vývojovém běhu ne — není co
+   * vyměnit, `npm start` pouští zdrojáky.
+   */
+  canInstall: boolean;
+}
