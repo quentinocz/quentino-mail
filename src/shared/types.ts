@@ -3490,7 +3490,23 @@ export interface ShootScreen {
 export interface ShootSecond {
   open: boolean;
   displayId: number;
-  mode: 'live' | 'grid';
+  /**
+   * Co je na velké obrazovce.
+   *
+   * `live` živý náhled, `grid` mřížka nafoceného, `photo` jedna fotka přes
+   * celou plochu. Poslední přibyla proto, že mřížka odpoví na otázku „mají
+   * všechny kusy stejný výřez", ale ne na „je tahle ostrá" — na to je
+   * potřeba jedna fotka velká, a u stolu se na ni kouká jinak než v okně.
+   */
+  mode: 'live' | 'grid' | 'photo';
+  /**
+   * Která fotka je velká. Prázdné = ta poslední vyfocená.
+   *
+   * Drží se jen za běhu (jako `webcam`): po restartu už fotka toho focení
+   * nemusí existovat a velká obrazovka by čekala na obrázek, který nikdo
+   * nepošle.
+   */
+  photoId: string;
   /** Velikost dlaždice v mřížce, v bodech. */
   tile: number;
   /**

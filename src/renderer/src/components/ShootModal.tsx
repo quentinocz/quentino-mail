@@ -15,6 +15,7 @@ import ShootView, { Tool } from './ShootView';
 import ShootGallery, { forgetThumb } from './ShootGallery';
 import ShootSettings from './ShootSettings';
 import ShootGrid from './ShootGrid';
+import ShootFinish from './ShootFinish';
 
 /**
  * Focení produktů.
@@ -95,8 +96,10 @@ export default function ShootModal({ onClose, standalone = false }: {
    * druhý monitor je dobrovolný, ne podmínka.
    */
   const [second, setSecond] = useState<ShootSecond>(
-    { open: false, displayId: 0, mode: 'live', tile: 220, webcam: '', webcamLabel: '' });
+    { open: false, displayId: 0, mode: 'live', photoId: '', tile: 220, webcam: '', webcamLabel: '' });
   const [screens, setScreens] = useState<ShootScreen[]>([]);
+  /** Karta „hotovo" — kde to je, kolik toho je a převod na WebP */
+  const [finish, setFinish] = useState(false);
   const video = useRef<HTMLVideoElement | null>(null);
   const lastFrame = useRef('');
 
@@ -481,6 +484,62 @@ export default function ShootModal({ onClose, standalone = false }: {
     }
   }, [shoot, toCanvas, inspect, slot]);
 
+  /**
+   * Dodatečný převod nafocených snímků na WebP.
+   *
+   * Dosud se kopie dala zapnout jen předem a platila od té chvíle dál —
+   * kdo na to zapomněl, měl po focení dvacet JPEGů a žádnou cestu zpátky.
+   * Jede se jedna fotka po druhé schválně: plátno s plnou fotkou má
+   * i osmdesát megabajtů a dvacet plátem naráz okno položí.
+   *
+   * Originál se nepřepisuje, kopie vzniká vedle něj — stejnou cestou jako
+   * při focení, takže je v ní i ořez a korekce barev.
+   */
+  const convertToWebp = useCallback(async (
+    quality: number, step: (done: number, total: number) => void
+  ): Promise<number> => {
+    if (!shoot) return 0;
+    const rawOnly = (one: ShootPhoto) =>
+      !one.file || /\.(cr2|cr3|nef|arw|dng|raf|orf|rw2|pef)$/i.test(one.file);
+    /*
+     * Sloupec `webp` drží jakoukoli kopii vedle originálu — při zapnutém
+     * ořezu i oříznutý JPEG. Převádí se proto podle přípony: jinak by
+     * série s ořezem vypadala jako hotová a WebP by nevznikl. Starý
+     * jpg vedle originálu na disku zůstane, na disku nepřekáží.
+     */
+    const list = photos.filter(one => !/\.webp$/i.test(one.webp || '') && !rawOnly(one));
+    let made = 0;
+    for (const [index, photo] of list.entries()) {
+      step(index, list.length);
+      const bytes = await api.shoot.view(photo.file);
+      if (!bytes) continue;
+      try {
+        const bitmap = await createImageBitmap(bytesToBlob(bytes));
+        const canvas = toCanvas(bitmap, bitmap.width, bitmap.height, shoot.crop, shoot.fix);
+        bitmap.close();
+        if (!canvas) continue;
+        const blob = await new Promise<Blob | null>(done =>
+          canvas.canvas.toBlob(done, 'image/webp', Math.max(1, Math.min(100, quality)) / 100));
+        canvas.canvas.width = 0;
+        canvas.canvas.height = 0;
+        if (!blob) continue;
+        const out = await api.shoot.bytes(
+          shoot.id, 'webp', new Uint8Array(await blob.arrayBuffer()), photo.file);
+        if (out.photo) {
+          const saved = out.photo;
+          forgetThumb(saved.id);
+          setPhotos(had => had.map(one => (one.id === saved.id ? saved : one)));
+          made++;
+        }
+      } catch {
+        // Co prohlížeč neotevře, se prostě přeskočí — zbytek série tím netrpí
+      }
+    }
+    step(list.length, list.length);
+    if (made) note(`Převedeno na WebP: ${made}`);
+    return made;
+  }, [shoot, photos, toCanvas, note]);
+
   /** Po snímku se přeskočí na další nenafocený záběr v seznamu. */
   const nextSlot = useCallback((taken: ShootPhoto[]) => {
     if (!shoot?.plan.length) return;
@@ -638,6 +697,14 @@ export default function ShootModal({ onClose, standalone = false }: {
 
         <span className="sh-top-space" />
 
+        {/*
+          * „Hotovo" je jediné místo, kde se dá přečíst, že se focení ukládá
+          * samo, kam se ukládá a jak z něj udělat WebP. Bez něj se hledalo
+          * tlačítko „Uložit", které nikde není a být nemusí.
+          */}
+        <button className="sh-go sh-top-go" onClick={() => setFinish(true)}>
+          <Icon name="check" size={12} /> Hotovo
+        </button>
         <button className="sh-mini" onClick={newShoot}><Icon name="plus" size={12} /> Nové focení</button>
         <select
           className="sh-pick"
@@ -657,6 +724,16 @@ export default function ShootModal({ onClose, standalone = false }: {
         )}
         <button className="sh-mini" onClick={onClose} title="Zavřít"><Icon name="x" size={13} /></button>
       </header>
+
+      {finish && (
+        <ShootFinish
+          shoot={shoot}
+          photos={photos}
+          onClose={() => setFinish(false)}
+          onConvert={convertToWebp}
+          onPatch={patch}
+        />
+      )}
 
       <div className="sh-body">
         <main className="sh-main">
@@ -871,6 +948,15 @@ export default function ShootModal({ onClose, standalone = false }: {
               if (next) setPhotos(list => list.map(one => (one.id === next.id ? next : one)));
             }}
             onGhost={photo => patch({ ghost: { ...shoot.ghost, file: photo.webp || photo.file } })}
+            /*
+              * Poslat na velkou obrazovku. Nabízí se jen tehdy, když je na
+              * ní jedna fotka — v mřížce ani v náhledu by to nemělo kam jít.
+              */
+            onBigScreen={second.open && second.mode === 'photo'
+              ? photo => {
+                  api.shoot.setSecond({ photoId: photo.id }).then(setSecond);
+                }
+              : undefined}
           />
           )}
         </main>
@@ -982,6 +1068,19 @@ export default function ShootModal({ onClose, standalone = false }: {
                     >
                       Mřížka na velké
                     </button>
+                    {/*
+                      * Jedna fotka velká. Mřížka řekne, jestli mají kusy
+                      * stejný výřez; jestli je konkrétní fotka ostrá, se
+                      * pozná jedině na ní samotné přes celou obrazovku.
+                      */}
+                    <button
+                      className={second.open && second.mode === 'photo' ? 'on' : ''}
+                      onClick={() => api.shoot.openSecond(
+                        second.displayId || (screens.find(one => !one.primary)?.id ?? 0), 'photo')
+                        .then(setSecond)}
+                    >
+                      Velká fotka
+                    </button>
                     {second.open && (
                       <button onClick={() => api.shoot.closeSecond().then(setSecond)}>
                         Zavřít
@@ -996,6 +1095,12 @@ export default function ShootModal({ onClose, standalone = false }: {
                         api.shoot.setSecond({ tile: value });
                       }}
                     />
+                  )}
+                  {second.open && second.mode === 'photo' && (
+                    <div className="sh-panel-note">
+                      Ukazuje se poslední vyfocená. Jinou tam pošleš tlačítkem
+                      <Icon name="expand" size={11} /> u fotky v pásu pod náhledem.
+                    </div>
                   )}
                 </>
               )}
@@ -1272,7 +1377,8 @@ export default function ShootModal({ onClose, standalone = false }: {
               )}
               <div className="sh-panel-note">
                 Kopie vzniká vedle originálu a je v ní i korekce barev. Původní
-                soubor se nepřepisuje.
+                soubor se nepřepisuje. Platí od téhle chvíle dál — už nafocené
+                snímky převedeš tlačítkem <b>Hotovo</b> nahoře.
               </div>
 
               <div className="sh-panel-head" style={{ marginTop: 14 }}><b>Poznámka k focení</b></div>

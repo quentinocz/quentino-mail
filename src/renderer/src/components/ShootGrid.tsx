@@ -62,8 +62,10 @@ export default function ShootGrid({ photos, tile, onTile, onDrop, big = false }:
 }) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   /*
-   * Otevřená fotka. Na velké obrazovce se neotevírá — u stolu se do ní
-   * neklika a zakrytá mřížka by tam jen překážela.
+   * Otevřená fotka. Otevírá se i na velké obrazovce: mřížka odpoví na
+   * otázku „mají všechny kusy stejný výřez a světlo", ale na „je tahle
+   * ostrá" ne — na to je potřeba jedna fotka velká, a u stolu se na ni
+   * kouká líp než v okně. Zavírá se klepnutím nebo Esc.
    */
   const [open, setOpen] = useState<ShootPhoto | null>(null);
   const ids = photos.map(one => one.id).join(',');
@@ -135,8 +137,8 @@ export default function ShootGrid({ photos, tile, onTile, onDrop, big = false }:
           return (
             <button
               key={photo.id}
-              className={`sh-cell ${photo.pick ? 'pick' : ''} ${big ? 'still' : ''}`}
-              onClick={() => { if (!big) setOpen(photo); }}
+              className={`sh-cell ${photo.pick ? 'pick' : ''}`}
+              onClick={() => setOpen(photo)}
               title={soft
                 ? `Ostrost ${share} % nejostřejší fotky v této sérii.\n\n${SHARP_HELP}`
                 : fileName(photo)}

@@ -18,6 +18,14 @@ import ShootGrid from './ShootGrid';
  */
 export default function ShootBig() {
   const [mode, setMode] = useState<ShootSecond['mode']>('live');
+  /**
+   * Která fotka je velká. Prázdné = ta poslední vyfocená.
+   *
+   * Po každém snímku se vrací na prázdno: u stolu se fotí a kouká se na
+   * to, co právě cvaklo. Konkrétní fotku pošle okno aplikace, když si ji
+   * člověk vybere v pásu — a ta platí, dokud nepřijde další snímek.
+   */
+  const [photoId, setPhotoId] = useState('');
   const [tile, setTile] = useState(220);
   const [frame, setFrame] = useState('');
   const [photos, setPhotos] = useState<ShootPhoto[]>([]);
@@ -41,6 +49,7 @@ export default function ShootBig() {
     api.shoot.secondState().then(one => {
       setMode(one.mode);
       setTile(one.tile);
+      setPhotoId(one.photoId || '');
       setWebcam(one.webcam || '');
       setWebcamLabel(one.webcamLabel || '');
     });
@@ -49,6 +58,7 @@ export default function ShootBig() {
   useEffect(() => api.on('shoot:second', (one: ShootSecond) => {
     setMode(one.mode);
     setTile(one.tile);
+    setPhotoId(one.photoId || '');
     setWebcam(one.webcam || '');
     setWebcamLabel(one.webcamLabel || '');
   }), []);
@@ -126,9 +136,30 @@ export default function ShootBig() {
   useEffect(() => api.on('shoot:current', (id: string) => { load(id); }), []);
   useEffect(() => api.on('shoot:photo', (photo: ShootPhoto) => {
     setPhotos(list => (list.some(one => one.id === photo.id) ? list : [...list, photo]));
+    // Nový snímek přebíjí vybranou fotku — u stolu se kouká na to, co cvaklo
+    setPhotoId('');
   }), []);
 
   const filter = shoot ? cssFilter(shoot.fix) : '';
+
+  /*
+   * Jedna fotka přes celou plochu.
+   *
+   * Mřížka odpoví na otázku „mají všechny kusy stejný výřez a světlo",
+   * ale na „je tahle ostrá" ne — na to je potřeba fotka velká. U stolu
+   * se přitom po každém snímku kouká právě na tohle, takže se ukazuje
+   * poslední vyfocená sama; jinou pošle okno aplikace z pásu pod náhledem.
+   */
+  if (mode === 'photo') {
+    const chosen = photos.find(one => one.id === photoId) ?? photos[photos.length - 1] ?? null;
+    return (
+      <div className="sh-big-screen photo">
+        {chosen
+          ? <BigPhoto photo={chosen} index={photos.indexOf(chosen) + 1} count={photos.length} />
+          : <div className="sh-blank">Zatím nic nafoceného</div>}
+      </div>
+    );
+  }
 
   if (mode === 'grid') {
     return (
@@ -157,5 +188,39 @@ export default function ShootBig() {
           ? <img src={frame} alt="" style={filter ? { filter } : undefined} />
           : <div className="sh-blank">Náhled neběží</div>}
     </div>
+  );
+}
+
+/**
+ * Jedna fotka na velké obrazovce.
+ *
+ * Kreslí se z celého souboru, ne ze zmenšeniny: kvůli téhle obrazovce se
+ * kouká na ostrost a ta je na zmenšenině vždycky v pořádku. Adresa se
+ * uvolňuje při každé změně — při sérii dvaceti kusů by jinak v paměti
+ * zůstalo dvacet plnohodnotných fotek.
+ */
+function BigPhoto({ photo, index, count }: { photo: ShootPhoto; index: number; count: number }) {
+  const [url, setUrl] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    let made = '';
+    (async () => {
+      // `view`, ne `read`: u RAW vrátí JPEG, který do souboru uložil fotoaparát
+      const bytes = await api.shoot.view(photo.webp || photo.file);
+      if (!alive || !bytes) return;
+      made = URL.createObjectURL(bytesToBlob(bytes));
+      setUrl(made);
+    })();
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); setUrl(''); };
+  }, [photo.id, photo.webp, photo.file]);
+
+  const name = (photo.file || photo.raw).split(/[\\/]/).pop() || '';
+  return (
+    <>
+      {url ? <img src={url} alt="" /> : <div className="sh-blank">Načítám…</div>}
+      {/* Kolikátá to je a jak se jmenuje — jinak se u stolu nepozná, na co se kouká */}
+      <span className="sh-big-tag">{index} / {count} · {name}</span>
+    </>
   );
 }

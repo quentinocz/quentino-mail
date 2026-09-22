@@ -1826,6 +1826,8 @@
   answers['shoot:shoots'] = shootState.shoots;
   answers['shoot:shoot'] = shootOne;
   answers['shoot:photos'] = shootPhotos;
+  // Náhled si do nich sahá, aby poznal, že převod na WebP doopravdy proběhl
+  window.__shootPhotosRaw = shootPhotos;
   answers['shoot:settings'] = {
     handy: [
       { path: '/main/imgsettings/iso', name: 'iso', label: 'ISO', type: 'RADIO',
@@ -1853,7 +1855,7 @@
    * `window.__shootScreens` — s jedním monitorem se volba vůbec nenabízí
    * a okno musí vypadat jako vždycky.
    */
-  var shootSecond = { open: false, displayId: 2, mode: 'live', tile: 220, webcam: '', webcamLabel: '' };
+  var shootSecond = { open: false, displayId: 2, mode: 'live', photoId: '', tile: 220, webcam: '', webcamLabel: '' };
   /*
    * Náhled si zařízení kamery podstrčí přes `window.__bigWebcam` — velká
    * obrazovka si obraz otevírá sama a bez zařízení by neměla co otevřít.
@@ -1983,6 +1985,32 @@
           if (one.id === pid) { Object.assign(one, zmena); nalez = one; }
         });
         return Promise.resolve({ ok: true, data: nalez });
+      }
+      /*
+       * Snímek, který vznikl v okně — z webkamery, nebo jako kopie ve WebP
+       * vedle originálu. Kopie se v náhledu pozná právě tím, že se zapíše
+       * k už nafocené fotce místo do řady jako další snímek; bez toho by
+       * se nedalo vyzkoušet dodatečné převedení série na WebP.
+       */
+      if (channel === 'shoot:bytes') {
+        var beside = arguments[4] || '';
+        if (beside) {
+          var k = null;
+          shootPhotos.forEach(function (one) {
+            if (one.file === beside) { one.webp = beside.replace(/\.[^.]+$/, '.webp'); k = one; }
+          });
+          return Promise.resolve({ ok: true, data: { ok: true, error: '', photo: k, file: k ? k.webp : '' } });
+        }
+        var poradi = shootPhotos.length + 1;
+        var novy = {
+          id: 'p' + poradi, shootId: 's1',
+          file: '/Users/p/Obrázky/Kravaty/kravaty-hedvabi-' + String(poradi).padStart(3, '0') + '.jpg',
+          raw: '', webp: '', width: 3840, height: 2160, bytes: 2400000,
+          sort: poradi, pick: false, slot: '', sharp: 0, clipped: 0,
+          createdAt: new Date().toISOString()
+        };
+        shootPhotos.push(novy);
+        return Promise.resolve({ ok: true, data: { ok: true, error: '', photo: novy, file: novy.file } });
       }
       if (channel === 'shoot:dropPhoto') {
         var id = arguments[1];

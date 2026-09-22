@@ -533,6 +533,22 @@ await page.waitForTimeout(400);
   say('a dlaždice se dají zvětšit',
     await page.locator('.sh-panel input[type=range]').count() > 0);
 
+  /*
+   * Jedna fotka velká. Mřížka řekne, jestli mají kusy stejný výřez;
+   * jestli je konkrétní fotka ostrá, se pozná jedině na ní samotné —
+   * a u stolu se na to kouká jinak než v okně.
+   */
+  await page.locator('.sh-presets button', { hasText: 'Velká fotka' }).click();
+  await page.waitForTimeout(600);
+  say('velká fotka se dá zapnout',
+    await page.locator('.sh-presets button.on', { hasText: 'Velká fotka' }).count() === 1);
+  say('a fotka se tam pošle z pásu',
+    await page.locator('.sh-tile-acts button[title="Ukázat na velké obrazovce"]').count() > 0);
+  await page.locator('.sh-tile-acts button[title="Ukázat na velké obrazovce"]').first().click();
+  await page.waitForTimeout(400);
+  say('výběr dojde až do stavu velké obrazovky',
+    !!(await page.evaluate(() => window.__calls.some(c => c[0] === 'shoot:setSecond' && c[1] && c[1].photoId))));
+
   await page.locator('.sh-presets button', { hasText: 'Zavřít' }).click();
   await page.waitForTimeout(600);
   say('po zavření je v okně zase všechno',
@@ -610,7 +626,96 @@ await page.waitForTimeout(500);
   say('a nehlásí, že náhled neběží',
     !(await okno.locator('.sh-big-screen .sh-blank').count()));
   await okno.screenshot({ path: path.join(SHOTS, 'foceni-15-velka-webkamera.png') });
+
+  /*
+   * Mřížka na velké obrazovce. Dřív se do dlaždic nedalo klepnout („u stolu
+   * se do obrazovky neklika"), jenže právě tam se řeší, jestli je konkrétní
+   * kus ostrý — a na to je potřeba fotka velká.
+   */
+  await okno.evaluate(bytes => {
+    window.__shootFile = new Uint8Array(bytes);
+    /*
+     * Fotky do druhé stránky. Má vlastní stub, takže o tom, co se nafotilo
+     * v okně aplikace, neví nic — a bez snímků by mřížka byla prázdná.
+     */
+    window.__emit('shoot:photo', {
+      id: 'b1', shootId: 's1', file: '/Users/p/Obrázky/Kravaty/kravaty-001.jpg',
+      raw: '', webp: '', width: 6000, height: 4000, bytes: 5200000,
+      sort: 1, pick: false, slot: '', sharp: 0, clipped: 0, createdAt: new Date().toISOString()
+    });
+    window.__emit('shoot:photo', {
+      id: 'b2', shootId: 's1', file: '/Users/p/Obrázky/Kravaty/kravaty-002.jpg',
+      raw: '', webp: '', width: 6000, height: 4000, bytes: 5100000,
+      sort: 2, pick: false, slot: '', sharp: 0, clipped: 0, createdAt: new Date().toISOString()
+    });
+    window.__emit('shoot:second', { open: true, displayId: 2, mode: 'grid', photoId: '', tile: 220, webcam: '' });
+  }, [...FRAME]);
+  await okno.waitForTimeout(1200);
+  say('velká obrazovka umí mřížku', await okno.locator('.sh-big-screen .sh-cell').count() > 0);
+  await okno.locator('.sh-big-screen .sh-cell').first().click();
+  await okno.waitForTimeout(600);
+  say('a klepnutí do dlaždice fotku zvětší', await okno.locator('.sh-big .sh-big-pan img').count() === 1);
+  await okno.screenshot({ path: path.join(SHOTS, 'foceni-16-velka-mrizka-zvetseno.png') });
+  await okno.locator('.sh-big-bar button', { hasText: 'Zavřít' }).click();
+  await okno.waitForTimeout(300);
+
+  /* Jedna fotka přes celou plochu — poslední vyfocená, nebo vybraná z pásu */
+  await okno.evaluate(() => {
+    window.__emit('shoot:second', { open: true, displayId: 2, mode: 'photo', photoId: '', tile: 220, webcam: '' });
+  });
+  await okno.waitForTimeout(900);
+  const velka = await okno.evaluate(() => {
+    const img = document.querySelector('.sh-big-screen.photo img');
+    const tag = document.querySelector('.sh-big-tag');
+    return { ma: !!img, sirka: img ? img.clientWidth : 0, popis: tag ? tag.textContent.trim() : '' };
+  });
+  say('velká fotka vyplní obrazovku', velka.ma && velka.sirka > 600, `${velka.sirka} px · ${velka.popis}`);
+  say('a je poznat, kolikátá to je', /\d+ \/ \d+/.test(velka.popis), velka.popis);
+  await okno.screenshot({ path: path.join(SHOTS, 'foceni-17-velka-fotka.png') });
   await okno.close();
+}
+
+/* ---------- hotovo: kam se uložilo a převod na WebP ---------- */
+
+/*
+ * Focení se ukládá samo, jenže to na obrazovce nikde nestálo — a kopii ve
+ * WebP šlo zapnout jen předem. Kdo na to zapomněl, měl po focení dvacet
+ * JPEGů a žádnou cestu zpátky.
+ */
+{
+  /*
+   * Napřed se vypne kopie při focení a pak se vyfotí. Focení ve zkoušce
+   * má kopii zapnutou, takže by snímek WebP měl rovnou — a dodatečný
+   * převod, kvůli kterému karta vznikla, by se neměl na čem předvést.
+   * (Stránka se mezitím načetla znovu kvůli zkoušce s jedním monitorem,
+   * takže je focení prázdné.)
+   */
+  await page.locator('.sh-tabs button', { hasText: 'Soubor' }).click();
+  await page.waitForTimeout(300);
+  const kopie = page.locator('.sh-field-toggle', { hasText: 'Udělat i kopii ve WebP' }).locator('input');
+  if (await kopie.isChecked()) await kopie.uncheck();
+  await page.waitForTimeout(300);
+  await page.locator('.sh-shutter').click();
+  await page.waitForTimeout(1200);
+  await page.locator('.sh-top .sh-go', { hasText: 'Hotovo' }).click();
+  await page.waitForTimeout(500);
+  say('karta „hotovo" se otevře', await page.locator('.sh-finish').count() === 1);
+  const text = await page.locator('.sh-finish').innerText();
+  say('a řekne, že se ukládá samo', /ukládá se průběžně/i.test(text));
+  say('i kam se ukládá', /Obrázky|\//.test(text));
+  say('i kolik fotek už má WebP', /Kopie ve WebP/.test(text));
+  await page.screenshot({ path: path.join(SHOTS, 'foceni-18-hotovo.png') });
+
+  const pred = await page.evaluate(() => (window.__shootPhotosRaw || []).filter(one => /\.webp$/i.test(one.webp || '')).length);
+  await page.locator('.sh-finish .sh-go').click();
+  await page.waitForTimeout(2500);
+  const po = await page.evaluate(() => (window.__shootPhotosRaw || []).filter(one => /\.webp$/i.test(one.webp || '')).length);
+  say('převod na WebP fotky opravdu převede', po > pred, `${pred} → ${po}`);
+  say('a řekne, jak to dopadlo',
+    /Hotovo —|Nebylo co převádět/.test(await page.locator('.sh-finish').innerText()));
+  await page.screenshot({ path: path.join(SHOTS, 'foceni-19-hotovo-webp.png') });
+  await page.locator('.sh-finish-foot button', { hasText: 'Zavřít' }).click();
+  await page.waitForTimeout(300);
 }
 
 /* ---------- nic nepřetéká ---------- */

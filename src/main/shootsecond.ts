@@ -27,12 +27,19 @@ let secondWindow: BrowserWindow | null = null;
 let watching = false;
 
 const DEFAULTS: ShootSecond = {
-  open: false, displayId: 0, mode: 'live', tile: 220, webcam: '', webcamLabel: ''
+  open: false, displayId: 0, mode: 'live', photoId: '', tile: 220, webcam: '', webcamLabel: ''
 };
 
 /** Které zařízení webkamery zrovna běží. Drží se jen za běhu, viz `save`. */
 let webcam = '';
 let webcamLabel = '';
+/**
+ * Která fotka je zrovna velká. Taky jen za běhu.
+ *
+ * Uložená by po restartu ukazovala na fotku z jiného focení — a velká
+ * obrazovka by zůstala prázdná u focení, ve kterém je dvacet snímků.
+ */
+let photoId = '';
 
 export function secondSetup(): ShootSecond {
   try {
@@ -42,10 +49,11 @@ export function secondSetup(): ShootSecond {
       ...saved,
       webcam,
       webcamLabel,
+      photoId,
       open: !!secondWindow && !secondWindow.isDestroyed()
     };
   } catch {
-    return { ...DEFAULTS, webcam, webcamLabel };
+    return { ...DEFAULTS, webcam, webcamLabel, photoId };
   }
 }
 
@@ -188,8 +196,9 @@ export function closeSecond(): ShootSecond {
 export function setSecond(patch: Partial<ShootSecond>): ShootSecond {
   if (patch.webcam !== undefined) webcam = patch.webcam;
   if (patch.webcamLabel !== undefined) webcamLabel = patch.webcamLabel;
+  if (patch.photoId !== undefined) photoId = patch.photoId;
   const next = {
-    ...save(patch), webcam, webcamLabel,
+    ...save(patch), webcam, webcamLabel, photoId,
     open: !!secondWindow && !secondWindow.isDestroyed()
   };
   emit(next);

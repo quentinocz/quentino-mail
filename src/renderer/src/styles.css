@@ -8710,6 +8710,59 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   font-weight: 600;
   cursor: pointer;
 }
+/*
+ * Tlačítko, které se v tmavém okně focení nemá přehlédnout — „Hotovo"
+ * v hlavičce a převod na WebP. Je jich schválně málo: kdyby svítilo
+ * všechno, nesvítilo by nic.
+ */
+.sh-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sh-go:hover { background: var(--accent-dark); }
+.sh-go:disabled { background: #33333f; color: #7a768a; cursor: default; }
+
+/* Karta „hotovo" — co se stalo, kde to je a co s tím dál */
+.sh-finish {
+  width: min(560px, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+  background: #1a1a22;
+  border: 1px solid #33333f;
+  border-radius: 14px;
+  padding: 18px 20px;
+  color: #e8e6ef;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow-lg);
+}
+.sh-finish-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.sh-finish-head > svg { color: var(--accent); flex-shrink: 0; }
+.sh-finish-note { font-size: 12px; color: #9a96a8; line-height: 1.5; }
+.sh-finish-rows { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
+.sh-finish-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12.5px;
+  color: #9a96a8;
+  padding: 4px 0;
+  border-bottom: 1px solid #262632;
+}
+.sh-finish-row b { color: #e8e6ef; font-weight: 600; text-align: right; }
+.sh-finish-foot { display: flex; justify-content: flex-end; margin-top: 6px; }
+
 .sh-shutter:hover { background: var(--accent-dark); }
 .sh-shutter:disabled { background: #33333f; color: #7a768a; cursor: default; }
 .sh-shoot small { color: #8b8799; }
@@ -8838,7 +8891,6 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 .sh-cell.pick { border-color: var(--warn); }
 /* Na velké obrazovce se do dlaždic neklika — u stolu se drží fotoaparát */
-.sh-cell.still { cursor: default; }
 .sh-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sh-cell-name { color: #8b8799; font-size: 10px; padding: 8px; display: block; word-break: break-all; }
 .sh-cell-no {
@@ -8865,6 +8917,22 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .sh-big-screen.live { padding: 0; align-items: center; justify-content: center; }
 .sh-big-screen.live img,
 .sh-big-screen.live video { max-width: 100%; max-height: 100%; object-fit: contain; }
+/*
+ * Jedna fotka přes celou plochu. Popisek dole je malý schválně — ukazuje,
+ * kolikátá fotka to je, ale na obrazovce se kouká na fotku, ne na něj.
+ */
+.sh-big-screen.photo { padding: 0; align-items: center; justify-content: center; }
+.sh-big-screen.photo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.sh-big-tag {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  font-size: 13px;
+  color: #9a96a8;
+  background: rgba(0, 0, 0, .55);
+  border-radius: 8px;
+  padding: 4px 10px;
+}
 .sh-grid-wrap.big { width: 100%; }
 .sh-grid-wrap.big .sh-cell { background: #0c0c10; border-color: #1a1a20; }
 

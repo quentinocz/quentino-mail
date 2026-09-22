@@ -116,7 +116,7 @@ export const SHARP_HELP = 'Ostrost se porovnává uvnitř jednoho focení: 100 %
   + 'závisí na tom, co je na fotce — ale v sérii, kde se fotí pořád totéž, '
   + 'označuje nejnižší hodnota nejhůř zaostřený kus.';
 
-export default function ShootGallery({ photos, working, onDrop, onPick, onGhost }: {
+export default function ShootGallery({ photos, working, onDrop, onPick, onGhost, onBigScreen }: {
   photos: ShootPhoto[];
   /**
    * Snímek se právě fotí nebo zpracovává.
@@ -131,6 +131,13 @@ export default function ShootGallery({ photos, working, onDrop, onPick, onGhost 
   onPick: (photo: ShootPhoto) => void;
   /** Použít fotku jako průsvitku pro další snímky */
   onGhost: (photo: ShootPhoto) => void;
+  /**
+   * Poslat fotku na velkou obrazovku.
+   *
+   * Chybí, když na ní není režim „velká fotka" — tlačítko, které nikam
+   * nevede, je horší než žádné.
+   */
+  onBigScreen?: (photo: ShootPhoto) => void;
 }) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [big, setBig] = useState<ShootPhoto | null>(null);
@@ -217,6 +224,11 @@ export default function ShootGallery({ photos, working, onDrop, onPick, onGhost 
               <button onClick={() => onGhost(photo)} title="Použít jako průsvitku">
                 <Icon name="copy" size={13} />
               </button>
+              {onBigScreen && (
+                <button onClick={() => onBigScreen(photo)} title="Ukázat na velké obrazovce">
+                  <Icon name="expand" size={13} />
+                </button>
+              )}
               <button onClick={() => api.shoot.reveal(photo.file)} title="Ukázat ve složce">
                 <Icon name="folder" size={13} />
               </button>
