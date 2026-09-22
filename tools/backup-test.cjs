@@ -298,6 +298,14 @@ set('webTextsKey', 'ŠIFRA(' + Buffer.from('service-role-klic').toString('base64
 set('webTextsPublishedAt', '2026-07-01T10:00:00Z');
 set('webTextsDirty', '1');
 set('webTextsError', 'zrovna nebyla síť');
+// Bannery: sady i volba záložní sady patří do zálohy, razítko vystavení ne
+set('bannerSets', '[{"id":"b1","name":"Vánoce","layout":"quad","banners":[{"id":"x",'
+  + '"copy":{"title":{"cz":"🎄 Pod stromeček","sk":"","en":""}}}]}]');
+set('bannerFallback', 'b1');
+set('bannersPath', 'quentino-bannery.json');
+set('bannersPublishedAt', '2026-09-20T10:00:00Z');
+set('bannersDirty', '1');
+set('bannersError', 'zrovna nebyla síť');
 // Uložený rozbor z Analytics je stažená kopie cizích dat, ne nastavení
 set('ga4Deep2:365', '{"months":[]}');
 
@@ -490,6 +498,25 @@ console.log('\ntexty na webu:');
   sedi('razítko posledního vystavení v záloze není', !text.includes('webTextsPublishedAt'));
   sedi('ani rozdělaná změna', !text.includes('webTextsDirty'));
   sedi('ani poslední chyba', !text.includes('webTextsError'));
+}
+
+/* ---------- bannery ---------- */
+
+console.log('\nbannery:');
+{
+  const text = JSON.stringify(zaloha);
+  sedi('sady bannerů se přenesou', text.includes('bannerSets'));
+  /*
+   * Volba záložní sady musí jet s sebou. Bez ní by se na druhém počítači
+   * vypsal skript s jinou zálohou, člověk by ho zkopíroval do šablony
+   * a na e-shopu by při výpadku úložiště naskočila cizí kampaň.
+   */
+  sedi('volba záložní sady se přenese', text.includes('bannerFallback'));
+  sedi('cesta k souboru s bannery se přenese', text.includes('bannersPath'));
+  sedi('nadpis banneru dojede i s emoji', text.includes('🎄 Pod stromeček'));
+  sedi('razítko vystavení bannerů v záloze není', !text.includes('bannersPublishedAt'));
+  sedi('ani rozdělaná sada', !text.includes('bannersDirty'));
+  sedi('ani poslední chyba u bannerů', !text.includes('bannersError'));
 }
 
 console.log(bad ? `\n${bad} věcí nesedí` : '\nzáloha přenese všechno, co má, a nic, co nemá');

@@ -16,7 +16,7 @@ export type Workspace = 'mail' | 'chat' | 'instagram';
  * místa pro tutéž věc a v poště přebývala tlačítka, která s poštou nesouvisí.
  */
 export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles'
-  | 'webtexts' | 'media' | 'shoot' | 'reviews';
+  | 'webtexts' | 'banners' | 'media' | 'shoot' | 'reviews';
 
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
@@ -70,6 +70,13 @@ export const AI_TOOLS: {
     hint: 'Fotky a recenze na e-shopu', desktopOnly: true },
   { id: 'webtexts', icon: 'pen', label: 'Texty na webu', group: 'obsah', color: '#7a5fc2',
     hint: 'Naplánované náhrady textů o doručení', desktopOnly: true },
+  /*
+   * Mřížka jako ikona, protože přesně to banner na úvodní stránce je —
+   * čtyři dlaždice vedle sebe. Barva je jediná sytě červená v nabídce:
+   * bannery jsou skoro vždycky akce.
+   */
+  { id: 'banners', icon: 'drawGrid', label: 'Bannery', group: 'obsah', color: '#c23a3a',
+    hint: 'Úvodní stránka, plánování dopředu a odpočty', desktopOnly: true },
 
   { id: 'digest', icon: 'sunrise', label: 'AI Přehled', group: 'prehled', color: '#c29a3a',
     hint: 'Prodeje v číslech a postřehy k nim' }

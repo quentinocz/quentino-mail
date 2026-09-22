@@ -2925,6 +2925,187 @@ export interface WebTextsState {
   script: string;
 }
 
+/* ==================== Bannery na hlavní stránce ==================== */
+
+/**
+ * Bannery na úvodní stránce e-shopu.
+ *
+ * ## Proč si je kreslíme sami
+ *
+ * Šablona Upgates umí karusel s obrázky a popisky. Znamená to ale, že každá
+ * změna je práce v administraci, pro každý trh zvlášť (quentino.cz,
+ * quentino.sk, wearquentino.com jsou tři samostatné e-shopy), bez možnosti
+ * cokoli naplánovat dopředu a bez odpočtů. Vánoční akce, která má začít
+ * v pátek v osm, se tak dá udělat jedině tak, že u toho někdo v pátek v osm
+ * sedí — třikrát.
+ *
+ * Blok si proto kreslíme sami, ze stejného plánu ve veřejném úložišti, jaký
+ * už používají texty o doručení. Původní karusel skript schová a na jeho
+ * místo vloží vlastní mřížku.
+ *
+ * ## Proč sada, a ne jednotlivé bannery
+ *
+ * Bannery na úvodní stránce spolu vždycky souvisí: jsou to čtyři dlaždice
+ * jedné kampaně. Plánovat je po jednom by znamenalo hlídat, aby se čtyři
+ * časy potkaly — a první den akce by na stránce byly dva nové bannery
+ * a dva staré. Plánuje se proto celá sada najednou.
+ */
+
+/** Rozvržení bannerů na velké obrazovce. */
+export type BannerLayout =
+  /** Čtyři sloupce vedle sebe */
+  | 'quad'
+  /** Jeden přes celou šířku */
+  | 'wide';
+
+/** Rozvržení na telefonu. */
+export type BannerPhone =
+  /** Dva sloupce, dlaždice pod sebou */
+  | 'grid'
+  /** Jeden přes celou šířku */
+  | 'wide';
+
+/**
+ * Chytrý banner — co k němu skript sám dopočítá.
+ *
+ * `none` je obyčejný banner s fotkou a textem. Ostatní přidají něco, co se
+ * mění s časem a co by se v administraci muselo přepisovat každý den.
+ */
+export type BannerSmartKind =
+  /** Odpočet do konce akce */
+  | 'none'
+  | 'countdown'
+  /** Slevový kód k zkopírování */
+  | 'code'
+  /** Garance doručení do Vánoc — odpočet dnů do poslední objednávky */
+  | 'delivery';
+
+/** Pohyb uvnitř banneru. Vždy jen uvnitř jeho obdélníku, nikdy přes stránku. */
+export type BannerEffect = 'none' | 'snow' | 'shine' | 'pulse' | 'float';
+
+export interface BannerSmart {
+  kind: BannerSmartKind;
+  /**
+   * Do kdy, pražský čas na hodinách („2026-12-18T12:00").
+   *
+   * U odpočtu je to jeho cíl, u garance doručení poslední okamžik, kdy se
+   * dá objednat. Po vypršení banner odpočet schová a zbyde z něj obyčejná
+   * dlaždice — mizet celý nesmí, jinak by v mřížce zůstala díra.
+   */
+  until: string;
+  untilMs: number;
+  /** Slevový kód, stejný ve všech jazycích — je to řetězec znaků, ne text */
+  code: string;
+  /** Emoji do rohu a zároveň to, co padá při efektu „sněžení" */
+  emoji: string;
+  effect: BannerEffect;
+}
+
+/** Vzhled jednoho banneru. */
+export interface BannerLook {
+  /** Adresa fotky na pozadí; prázdné = jen barva */
+  image: string;
+  /** Barva pozadí pod fotkou i místo ní */
+  bg: string;
+  /** Barva textu */
+  fg: string;
+  /**
+   * Ztmavení fotky pod textem, 0–100.
+   *
+   * Není to ozdoba: text na fotce je čitelný jen díky němu. Nula je proto
+   * povolená jen u banneru bez fotky.
+   */
+  overlay: number;
+  align: 'left' | 'center' | 'right';
+  /** Svisle: nahoře, na střed, dole */
+  pos: 'top' | 'middle' | 'bottom';
+  /**
+   * Který kus fotky zůstane vidět při ořezu („50% 50%").
+   *
+   * Dlaždice má pevný poměr stran, aby se stránka nehýbala, takže se fotka
+   * vždycky ořízne. U fotky s obličejem nebo produktem nahoře by střed byl
+   * špatně.
+   */
+  focus: string;
+}
+
+/** Texty jednoho banneru — každý ve třech jazycích. */
+export interface BannerCopy {
+  title: WebText;
+  text: WebText;
+  /** Popisek tlačítka; prázdné = celá dlaždice je odkaz bez tlačítka */
+  button: WebText;
+  /**
+   * Cíl odkazu.
+   *
+   * Vyplňuje se česká verze a slovenská i anglická se dopočítají z mapy
+   * adres — tentýž překlad odkazů, jaký se používá u článků. Ručně přepsat
+   * je jde, kdyby se produkt v jiném trhu jmenoval jinak.
+   */
+  href: WebText;
+}
+
+export interface Banner {
+  id: string;
+  /** Jméno v seznamu; na web se neposílá */
+  name: string;
+  off: boolean;
+  copy: BannerCopy;
+  look: BannerLook;
+  smart: BannerSmart;
+}
+
+export interface BannerSet {
+  id: string;
+  name: string;
+  /** Platnost od–do, pražský čas na hodinách; prázdné = platí pořád */
+  from: string;
+  to: string;
+  fromMs: number;
+  toMs: number;
+  off: boolean;
+  layout: BannerLayout;
+  phone: BannerPhone;
+  /**
+   * Po kolika vteřinách se přetočí na další stránku bannerů; 0 = nerotovat.
+   *
+   * Rotuje se prolnutím, ne posunem: posun mění výšku obsahu a stránka pod
+   * bannerem poskakuje.
+   */
+  rotate: number;
+  banners: Banner[];
+}
+
+/** Sada, která se s plánovanou pere o tentýž čas. */
+export interface BannerClash {
+  id: string;
+  name: string;
+  from: string;
+  to: string;
+  shortenTo: string;
+}
+
+export interface BannersState {
+  /** Úložiště je stejné jako u textů na webu — jeden klíč, jeden kbelík */
+  config: WebTextsConfig;
+  sets: BannerSet[];
+  /**
+   * Sada, která se zapeče přímo do skriptu v hlavičce e-shopu.
+   *
+   * Je to poslední záchrana: kdyby úložiště nebylo dostupné nebo se plán
+   * nestihl načíst, vykreslí se tahle. Bez ní by na úvodní stránce zůstalo
+   * prázdné místo, což je horší než starý banner.
+   */
+  fallbackId: string;
+  publishedAt: string;
+  dirty: boolean;
+  error: string;
+  /** Skript k vložení do hlavičky e-shopu, už se záložní sadou uvnitř */
+  script: string;
+  /** Kde se dá obrázek banneru nahrát — prázdné, když chybí klíč */
+  uploadReady: boolean;
+}
+
 /* ==================== Konvertor médií ==================== */
 
 /**

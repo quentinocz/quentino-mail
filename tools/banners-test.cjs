@@ -1,0 +1,262 @@
+/**
+ * Zkouška bannerů na úvodní stránce.
+ *
+ * Zkouší se dvě strany téže věci a hlavně to, že si rozumí:
+ *
+ *  1. **aplikace** — co se pošle na web, co se z toho vyhodí, jak se hlídá
+ *     čitelnost a co se nepustí do stylu stránky e-shopu,
+ *  2. **skript na webu** — že se dá přeložit, že v něm je zapečená záložní
+ *     sada a že čte přesně ta pole, která aplikace vystavuje.
+ *
+ * Druhá část je tu proto, že tudy vede cesta k tiché chybě: aplikace by
+ * vystavila jinak pojmenované pole, než jaké skript čte, obojí by prošlo
+ * překladem a na úvodní stránce by zůstalo prázdné místo.
+ */
+const path = require('path');
+const { db, DIST } = require('./ptrans/harness.cjs');
+
+let failed = 0;
+function check(label, got, want) {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  if (!ok) failed++;
+  console.log(`  ${ok ? '✓' : '✗'} ${label}`);
+  if (!ok) { console.log('      čekáno:', JSON.stringify(want)); console.log('      dostal:', JSON.stringify(got)); }
+}
+function ok(label, value, note = '') {
+  check(label + (value ? '' : note ? ` (${note})` : ''), !!value, true);
+}
+
+// Trezor mimo Electron není; zkouší se plánování, ne šifrování
+const secPath = require.resolve(path.join(DIST, 'secure.js'));
+require.cache[secPath] = { id: secPath, filename: secPath, loaded: true, exports: {
+  encrypt: v => v, decrypt: v => v
+} };
+const aiPath = require.resolve(path.join(DIST, 'ai.js'));
+require.cache[aiPath] = { id: aiPath, filename: aiPath, loaded: true, exports: {
+  ask: async () => '[]'
+} };
+const setPath = require.resolve(path.join(DIST, 'settings.js'));
+require.cache[setPath] = { id: setPath, filename: setPath, loaded: true, exports: {
+  getSettings: () => ({ draftModel: 'zkousky-model', fastModel: 'zkousky-model' })
+} };
+
+const banners = require(path.join(DIST, 'banners.js'));
+const { bannerScript } = require(path.join(DIST, 'bannerscript.js'));
+const T = banners.__test;
+
+void db;
+
+console.log('\nbannery:\n');
+
+const banner = (extra = {}) => ({
+  id: 'b1',
+  name: 'Kšandy',
+  copy: {
+    title: { cz: 'Kšandy k obleku', sk: '', en: '' },
+    text: { cz: 'Ručně šité', sk: '', en: '' },
+    button: { cz: 'Prohlédnout', sk: '', en: '' },
+    href: { cz: '/ksandy', sk: '', en: '' }
+  },
+  look: { image: '', bg: '#123456', fg: '#ffffff', overlay: 40, align: 'left', pos: 'bottom', focus: '50% 50%' },
+  ...extra
+});
+
+const sada = (extra = {}) => T.normalizeSet({
+  id: 's1', name: 'Podzim', layout: 'quad', phone: 'grid', rotate: 6,
+  banners: [banner()],
+  ...extra
+});
+
+/* ---------- platnost ---------- */
+
+console.log('platnost sady:\n');
+
+const porad = sada();
+check('bez data platí sada pořád', [porad.fromMs, porad.toMs > Date.now() + 1e12], [0, true]);
+
+const okno = sada({ from: '2026-12-01T08:00', to: '2026-12-24T12:00' });
+check('konec je včetně své minuty', new Date(okno.toMs).toISOString(), '2026-12-24T11:00:59.999Z');
+check('sada s koncem před začátkem neprojde',
+  T.validateSet(sada({ from: '2026-12-10T08:00', to: '2026-12-01T08:00' })),
+  'Konec platnosti musí být po jejím začátku.');
+check('sada bez jména neprojde', T.validateSet(sada({ name: '' })),
+  'Sada nemá jméno — bez něj se v seznamu nepozná.');
+check('sada bez bannerů neprojde', T.validateSet(sada({ banners: [] })),
+  'Sada nemá ani jeden banner s textem nebo fotkou.');
+check('hotová sada projde', T.validateSet(okno), '');
+
+/*
+ * Odpočet bez data by na webu tikal do roku 1970 a banner by hlásil, že
+ * akce skončila před půl stoletím. Pozná se to tady, ne na e-shopu.
+ */
+check('odpočet bez data neprojde',
+  T.validateSet(sada({ banners: [banner({ smart: { kind: 'countdown', until: '' } })] })),
+  'Banner „Kšandy" má odpočet bez data, do kdy běží.');
+
+/* ---------- čitelnost ---------- */
+
+console.log('\nčitelnost:\n');
+
+/*
+ * Tohle je to nejdůležitější pravidlo celého modulu: bílý nadpis na světlé
+ * fotce látky je na telefonu ve slunci nečitelný a nikdo to nenahlásí —
+ * jen se z banneru nekline. Ztmavení se proto dorovná i proti nastavení.
+ */
+const svetly = T.normalizeBanner(banner({
+  look: { image: 'https://cdn.quentino.cz/a.webp', bg: '#fff', fg: '#fff', overlay: 0 }
+}));
+check('fotka s textem dostane ztmavení, i když se posuvník stáhne na nulu',
+  svetly.look.overlay, 18);
+const holy = T.normalizeBanner({
+  ...banner(), copy: { title: {}, text: {}, button: {}, href: {} },
+  look: { image: 'https://cdn.quentino.cz/a.webp', overlay: 0 }
+});
+check('samotná fotka bez textu ztmavení nepotřebuje', holy.look.overlay, 0);
+
+/* ---------- co se nepustí do stránky e-shopu ---------- */
+
+console.log('\nbezpečnost:\n');
+
+/*
+ * Adresa fotky jde do stylu jako url(...) a odkaz do atributu href. Plán je
+ * veřejný soubor — tohle je to místo, kudy by se dal na e-shop dostat cizí
+ * kód, takže se pravidlo hlídá tady i podruhé ve skriptu.
+ */
+check('javascript: se jako odkaz nebere', T.safeHref('javascript:alert(1)'), '');
+check('relativní cesta ano', T.safeHref('/kravatove-sety'), '/kravatove-sety');
+check('celá adresa taky', T.safeHref('https://quentino.sk/kravaty'), 'https://quentino.sk/kravaty');
+check('uvozovka v adrese fotky ji zahodí',
+  T.safeImage('https://cdn.quentino.cz/a.webp") ; background: url(zlo'), '');
+check('závorka taky', T.safeImage('https://cdn.quentino.cz/a(1).webp'), '');
+check('obyčejná adresa fotky projde',
+  T.safeImage('https://cdn.quentino.cz/bannery/a-1234.webp'),
+  'https://cdn.quentino.cz/bannery/a-1234.webp');
+check('kód se zbaví všeho, co se nedá přepsat do košíku',
+  T.normalizeBanner(banner({ smart: { kind: 'code', code: ' sleva 10%! ' } })).smart.code, 'SLEVA10');
+
+/* ---------- co jde na web ---------- */
+
+console.log('\nco jde na web:\n');
+
+const vystaveno = JSON.parse(T.payload([
+  sada({ id: 'a', name: 'Běžná' }),
+  sada({ id: 'b', name: 'Vypnutá', off: true }),
+  sada({ id: 'c', name: 'Prázdná', banners: [] })
+]));
+check('vypnutá ani prázdná sada se nevystavuje', vystaveno.sets.map(one => one.id), ['a']);
+
+const rada = T.setRow(sada({
+  banners: [
+    banner({ name: 'pracovní poznámka' }),
+    banner({ id: 'b2', off: true }),
+    banner({ id: 'b3', copy: { title: {}, text: {}, button: {}, href: {} }, look: { image: '' } })
+  ]
+}));
+check('vypnutý i prázdný banner ze sady vypadnou', rada.banners.map(one => one.id), ['b1']);
+/* Jméno banneru je pracovní poznámka, ne obsah — na veřejný web nepatří */
+ok('jméno banneru se na web neposílá', !JSON.stringify(rada).includes('pracovní poznámka'));
+
+const chytry = T.setRow(sada({
+  banners: [banner({
+    smart: { kind: 'countdown', until: '2026-12-24T12:00', code: '', emoji: '⏳', effect: 'snow' }
+  })]
+})).banners[0];
+ok('odpočet jde na web v milisekundách', Number.isFinite(chytry.smart.untilMs) && chytry.smart.untilMs > 0);
+check('a emoji i efekt s ním', [chytry.smart.emoji, chytry.smart.effect], ['⏳', 'snow']);
+ok('obyčejný banner chytrou část vůbec nemá', T.setRow(sada()).banners[0].smart === undefined);
+
+/* ---------- překryvy ---------- */
+
+console.log('\npřekryvy:\n');
+
+const seznam = [
+  sada({ id: 'x', name: 'Dřívější', from: '2026-12-01T00:00', to: '2026-12-10T00:00' }),
+  sada({ id: 'y', name: 'Pozdější', from: '2026-12-20T00:00', to: '2026-12-25T00:00' })
+];
+const nova = sada({ id: 'z', name: 'Nová', from: '2026-12-05T09:30', to: '2026-12-22T12:00' });
+const kolize = T.setClashes(nova, seznam);
+check('najdou se obě kolize', kolize.map(one => one.id), ['x', 'y']);
+check('dřívější se dá zkrátit na minutu před novou', kolize[0].shortenTo, '2026-12-05T09:29');
+check('pozdější zkrátit nejde', kolize[1].shortenTo, '');
+check('sada, co platí pořád, se pere s každou',
+  T.setClashes(sada({ id: 'w', name: 'Stálá' }), seznam).map(one => one.id), ['x', 'y']);
+
+/* ---------- skript pro e-shop ---------- */
+
+console.log('\nskript na e-shopu:\n');
+
+const zaloha = T.setRow(sada({ id: 'zaloha', name: 'Záložní' }));
+const script = bannerScript({
+  url: 'https://xyz.supabase.co/storage/v1/object/public/web/b.json',
+  ttl: 300,
+  fallback: zaloha
+});
+const body = script.slice(script.indexOf('<script>') + 8, script.lastIndexOf('</script>'));
+
+let compiled = null;
+try {
+  // eslint-disable-next-line no-new-func
+  compiled = new Function(
+    'window', 'document', 'location', 'fetch', 'setInterval', 'setTimeout',
+    'localStorage', 'navigator', 'MutationObserver', body
+  );
+  ok('skript se dá přeložit', true);
+} catch (e) {
+  ok(`skript se dá přeložit — ${e.message}`, false);
+}
+void compiled;
+
+ok('adresa plánu je v něm doplněná',
+  script.includes('https://xyz.supabase.co/storage/v1/object/public/web/b.json'));
+ok('a platnost uložené kopie taky', body.includes('300 * 1000'));
+/*
+ * Záložní sada musí ve skriptu opravdu být, a to jako JSON, ne jako text
+ * v uvozovkách. Bez ní by při nedostupném úložišti zůstalo na úvodní
+ * stránce prázdné místo — původní karusel je v tu chvíli už schovaný.
+ */
+ok('záložní sada je ve skriptu zapečená', body.includes('"id":"zaloha"'));
+ok('a nadpis banneru v ní taky', body.includes('Kšandy k obleku'));
+ok('žádná značka nezůstala nenahrazená', !script.includes('__QUENTINO_BANNERS'));
+
+const bezZalohy = bannerScript({ url: '', ttl: 300, fallback: null });
+ok('bez vybrané sady je záloha prázdná', bezZalohy.includes('var FALLBACK = "";'));
+
+/*
+ * Aplikace vystavuje jedno pojmenování, skript čte druhé — a kdyby se
+ * rozešly, přeložilo by se obojí a na webu by se prostě nic neukázalo.
+ * Proto se hlídá, že skript sahá na každé pole, které do plánu píšeme.
+ */
+const kod = body.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+for (const field of ['fromMs', 'toMs', 'layout', 'phone', 'rotate', 'banners',
+  'title', 'text', 'button', 'href', 'look', 'smart', 'overlay', 'focus',
+  'untilMs', 'code', 'emoji', 'effect']) {
+  ok(`skript čte pole ${field}`, kod.includes(field));
+}
+for (const kind of ['countdown', 'code', 'delivery']) {
+  ok(`skript umí chytrý banner ${kind}`, kod.includes('"' + kind + '"'));
+}
+for (const effect of ['snow', 'shine', 'pulse', 'float']) {
+  ok(`skript umí efekt ${effect}`, kod.includes('"' + effect + '"'));
+}
+
+/*
+ * Text z plánu se do stránky vkládá jedině přes textContent. innerHTML by
+ * z veřejného souboru udělal cestu, jak na e-shopu spustit cizí kód.
+ */
+ok('text se do stránky vkládá jen jako text, ne jako HTML', !kod.includes('innerHTML'));
+/* Poměr stran je to, co drží stránku v klidu, než dotečou fotky */
+ok('dlaždice má pevný poměr stran', script.includes('aspect-ratio'));
+/* Rotace prolíná, neposouvá — posun mění výšku a stránka pod ním poskakuje */
+ok('stránky bannerů leží přes sebe v téže buňce', script.includes('grid-area: 1 / 1'));
+ok('a přepínají se průhledností', script.includes('.qbn-page.qbn-now'));
+/* Komu systém hlásí, že nechce pohyb, se nesmí nic hýbat */
+ok('pohyb se dá vypnout systémem', script.includes('prefers-reduced-motion'));
+/* Původní karusel se schová až ve chvíli, kdy je čím ho nahradit */
+ok('původní karusel se schovává až třídou', script.includes('.qbn-on #banner1'));
+ok('a třídu přidá až kreslení', kod.includes('classList.add("qbn-on")'));
+
+if (failed) {
+  console.log(`\n✗ ${failed} zkoušek selhalo`);
+  process.exit(1);
+}
+console.log('\n✓ bannery sedí');

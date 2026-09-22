@@ -678,6 +678,80 @@
         script: '<script>\n/* Quentino — texty o doručení */\n(function () {\n  var SOURCE = "https://xyzabc.supabase.co/storage/v1/object/public/web/quentino-texty.json";\n  /* … */\n})();\n<\/script>'
       };
     })(),
+    /*
+     * Bannery — sada, která je zrovna na webu, a jedna chystaná. Jsou v ní
+     * schválně všechny tři chytré druhy i efekt, protože přesně na nich se
+     * v náhledu pozná, jestli skript na e-shopu ještě dělá, co má.
+     */
+    'banners:state': (function () {
+      var den = 86400000;
+      var ted = Date.now();
+      var mistni = function (ms) {
+        var d = new Date(ms);
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+          + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      };
+      var text = function (cz) { return { cz: cz || '', sk: '', en: '' }; };
+      var banner = function (id, nadpis, smart, look) {
+        return {
+          id: id, name: '', off: false,
+          copy: {
+            title: text(nadpis), text: text('Ručně šité, skladem'),
+            button: text('Prohlédnout'), href: { cz: '/ksandy', sk: '', en: '' }
+          },
+          look: Object.assign({ image: '', bg: '#1c1c22', fg: '#ffffff', overlay: 40,
+            align: 'left', pos: 'bottom', focus: '50% 50%' }, look || {}),
+          smart: Object.assign({ kind: 'none', until: '', untilMs: 0, code: '', emoji: '', effect: 'none' },
+            smart || {})
+        };
+      };
+      return {
+        config: { url: 'https://xyzabc.supabase.co', hasKey: true, bucket: 'web',
+          path: 'quentino-bannery.json', ttl: 300, ready: true,
+          publicUrl: 'https://xyzabc.supabase.co/storage/v1/object/public/web/quentino-bannery.json' },
+        sets: [
+          { id: 's1', name: 'Podzimní sada', from: '', to: '', fromMs: 0,
+            toMs: Number.MAX_SAFE_INTEGER, off: false,
+            layout: 'quad', phone: 'grid', rotate: 6,
+            banners: [
+              banner('b1', 'Kšandy k obleku', null, { bg: '#2b2f45' }),
+              /*
+               * Odpočet do večera schválně: pod jeden den skript ukazuje
+               * i vteřiny, takže je v náhledu vidět, že tiká. U víc dnů
+               * se vteřiny neukazují — bylo by to blikání bez významu.
+               */
+              banner('b2', 'Motýlky ze sametu',
+                { kind: 'countdown', until: mistni(ted + 3 * 3600000), untilMs: ted + 3 * 3600000,
+                  emoji: '⏳', effect: 'pulse' }, { bg: '#7a1d1d', align: 'center' }),
+              banner('b3', 'Sleva na kravaty',
+                { kind: 'code', code: 'SLEVA10', emoji: '🏷️', effect: 'shine' }, { bg: '#1d3a7a' }),
+              banner('b4', 'Stihneme to pod stromeček',
+                { kind: 'delivery', until: mistni(ted + 20 * den), untilMs: ted + 20 * den,
+                  emoji: '❄️', effect: 'snow' }, { bg: '#123a52', pos: 'middle', align: 'center' })
+            ] },
+          { id: 's2', name: 'Black Friday', from: mistni(ted + 20 * den), to: mistni(ted + 24 * den),
+            fromMs: ted + 20 * den, toMs: ted + 24 * den, off: false,
+            layout: 'wide', phone: 'wide', rotate: 0,
+            banners: [banner('b5', 'Sleva 25 % na vše',
+              { kind: 'countdown', until: mistni(ted + 24 * den), untilMs: ted + 24 * den,
+                emoji: '🔥', effect: 'shine' }, { bg: '#111111', align: 'center', pos: 'middle' })] }
+        ],
+        fallbackId: 's1',
+        publishedAt: new Date(ted - 3600000).toISOString(),
+        dirty: false,
+        error: '',
+        /*
+         * Skript sem dosadí zkouška náhledu — je to ten skutečný, vypsaný
+         * hlavním procesem. Kdyby se v náhledu spouštěla vlastní zjednodušená
+         * kopie, neověřilo by se nic z toho, proč náhled existuje.
+         */
+        script: (typeof window !== 'undefined' && window.__bannerScript)
+          || '<script>/* skript pro e-shop */<\/script>'
+      };
+    })(),
+    'banners:clashes': [],
+    'banners:href': { sk: '/ksandy', en: '/suspenders', skVia: 'map', enVia: 'domain' },
     // Překryv počítá náhled sám z plánů výše — jinak by se varování nedalo ukázat
     'webtexts:clashes': [],
     // Překlad v náhledu nic nevolá — vrací se prázdno, aby šlo tlačítko zmáčknout
@@ -2267,6 +2341,36 @@
       // Načtení i uložení vrací tentýž stav — náhled nic doopravdy nemění
       if (channel === 'webtexts:load' || channel === 'webtexts:publish') {
         return Promise.resolve({ ok: true, data: answers['webtexts:state'] });
+      }
+      if (channel === 'banners:load' || channel === 'banners:publish'
+        || channel === 'banners:save' || channel === 'banners:fallback') {
+        return Promise.resolve({ ok: true, data: answers['banners:state'] });
+      }
+      /*
+       * Náhled sady. Na e-shopu ho skládá hlavní proces z vystavené sady;
+       * tady se rozepsaná sada podstrčí témuž skutečnému skriptu, který
+       * zkouška náhledu vloží do okna. Tím se ověří přesně to, kvůli čemu
+       * náhled je — že v něm běží totéž, co poběží na webu.
+       */
+      if (channel === 'banners:preview') {
+        var sada = arg || {};
+        var script = (typeof window !== 'undefined' && window.__bannerScript) || '';
+        if (!script) return Promise.resolve({ ok: true, data: '' });
+        var radky = (sada.banners || []).filter(function (one) {
+          return !one.off && (one.copy && (one.copy.title.cz || one.copy.text.cz) || one.look.image);
+        }).map(function (one) {
+          return {
+            id: one.id, title: one.copy.title, text: one.copy.text,
+            button: one.copy.button, href: one.copy.href, look: one.look,
+            smart: one.smart && one.smart.kind !== 'none' ? one.smart : undefined
+          };
+        });
+        var zaloha = JSON.stringify({
+          id: sada.id || 'nahled', fromMs: 0, toMs: Number.MAX_SAFE_INTEGER,
+          layout: sada.layout || 'quad', phone: sada.phone || 'grid',
+          rotate: sada.rotate || 0, banners: radky
+        });
+        return Promise.resolve({ ok: true, data: script.replace('var FALLBACK = "";', 'var FALLBACK = ' + zaloha + ';') });
       }
       return Promise.resolve({ ok: true, data: channel in answers ? answers[channel] : null });
     },

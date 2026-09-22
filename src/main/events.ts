@@ -319,7 +319,7 @@ function hashOf(text: string): string {
   return crypto.createHash('md5').update(text).digest('hex').slice(0, 12);
 }
 
-const PLAN_SYSTEM = `Z naplánované změny textů na e-shopu urči, co to je za událost.
+const PLAN_SYSTEM = `Z naplánované změny na e-shopu urči, co to je za událost.
 
 Vrať POUZE JSON: {"kind":"akce|dovolena|inventura|jine","title":"název do 40 znaků","note":"co se tou změnou zákazníkovi říká, jedna věta"}
 
@@ -348,21 +348,49 @@ Vrať POUZE JSON: {"kind":"akce|dovolena|inventura|jine","title":"název do 40 z
  * by každé uložení rozepsané změny stálo volání modelu.
  */
 export async function eventFromPlan(plan: WebPlan): Promise<void> {
+  return eventFromWeb({
+    source: 'webtext',
+    id: plan.id,
+    name: plan.name,
+    from: plan.from,
+    to: plan.to,
+    summary: planSummary(plan),
+    fallbackTitle: 'Změna textů na webu'
+  });
+}
+
+/**
+ * Totéž pro cokoli jiného, co se na webu plánuje.
+ *
+ * Sada bannerů je stejná věc jako naplánovaný text: ohlašuje akci, má datum
+ * od–do a je z ní poznat, co se zákazníkovi říká. Rozlišuje se jen `source`,
+ * aby si každý modul uklidil po sobě a aby se dvě různé změny na tentýž den
+ * navzájem nepřepsaly.
+ */
+export async function eventFromWeb(input: {
+  source: string;
+  id: string;
+  name: string;
+  from: string;
+  to: string;
+  summary: string;
+  fallbackTitle?: string;
+}): Promise<void> {
   ensureTable();
-  const summary = planSummary(plan);
-  const from = day(plan.from);
-  const to = day(plan.to) || from;
+  const summary = String(input.summary ?? '').trim();
+  const from = day(input.from);
+  const to = day(input.to) || from;
   if (!from || !summary) return;
 
   const stamp = hashOf(`${from}|${to}|${summary}`);
   const db = getDb();
   const found = db.prepare(
-    "SELECT * FROM shop_events WHERE source = 'webtext' AND source_id = ?"
-  ).get(plan.id) as any;
+    'SELECT * FROM shop_events WHERE source = ? AND source_id = ?'
+  ).get(input.source, input.id) as any;
   if (found && found.source_hash === stamp) return;
 
   let kind: string = 'jine';
-  let title = String(plan.name ?? '').trim();
+  let title = String(input.name ?? '').trim();
   let note = summary.split('\n')[0] ?? '';
   try {
     const s = getSettings();
@@ -386,7 +414,7 @@ export async function eventFromPlan(plan: WebPlan): Promise<void> {
      * dělo, jsou samy o sobě víc než nic — a název se dá přepsat.
      */
   }
-  if (!title) title = 'Změna textů na webu';
+  if (!title) title = input.fallbackTitle || 'Naplánovaná změna na webu';
 
   const now = new Date().toISOString();
   if (found) {
@@ -397,19 +425,23 @@ export async function eventFromPlan(plan: WebPlan): Promise<void> {
   } else {
     db.prepare(
       `INSERT INTO shop_events (kind, title, from_day, to_day, note, created_at, source, source_id, source_hash, uid, updated_at)
-       VALUES (?,?,?,?,?,?, 'webtext', ?, ?, ?, ?)`
-    ).run(kind, title, from, to, note, now, plan.id, stamp, crypto.randomUUID(), now);
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(kind, title, from, to, note, now, input.source, input.id, stamp, crypto.randomUUID(), now);
   }
   shareEvents();
 }
 
 /** Zrušená změna textů si odnese i svoji událost — jinak by zůstala viset. */
 export function dropEventOfPlan(planId: string): void {
+  dropEventOfSource('webtext', planId);
+}
+
+export function dropEventOfSource(source: string, id: string): void {
   ensureTable();
   // Taky jen škrtnutí — jinak by se událost vrátila z druhého zařízení
   getDb().prepare(
-    "UPDATE shop_events SET deleted = 1, updated_at = ? WHERE source = 'webtext' AND source_id = ?"
-  ).run(new Date().toISOString(), String(planId));
+    'UPDATE shop_events SET deleted = 1, updated_at = ? WHERE source = ? AND source_id = ?'
+  ).run(new Date().toISOString(), String(source), String(id));
   shareEvents();
 }
 

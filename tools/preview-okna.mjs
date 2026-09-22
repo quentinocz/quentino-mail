@@ -15,8 +15,24 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 
 const ROOT = new URL('../dist/renderer/', import.meta.url).pathname;
+
+/*
+ * Skript, který na e-shopu kreslí bannery. Do náhledu se vkládá **ten
+ * skutečný**, vypsaný hlavním procesem — kdyby si okno v náhledu kreslilo
+ * vlastní zjednodušenou podobu, neověřilo by se nic z toho, proč živý
+ * náhled vůbec je.
+ */
+let BANNER_SCRIPT = '';
+try {
+  const require = createRequire(import.meta.url);
+  BANNER_SCRIPT = require('../dist/ptdist/main/bannerscript.js')
+    .bannerScript({ url: '', ttl: 300, fallback: null });
+} catch {
+  console.log('bannerscript není přeložený — náhled bannerů bude prázdný');
+}
 const SHOTS = new URL('./shots/', import.meta.url).pathname;
 
 /*
@@ -75,6 +91,7 @@ const open = async hash => {
   await page.addInitScript(() => {
     document.addEventListener('DOMContentLoaded', () => { document.documentElement.dataset.form = 'desktop'; });
   });
+  await page.addInitScript(script => { window.__bannerScript = script; }, BANNER_SCRIPT);
   await page.goto(`http://localhost:4324/index.html#${hash}`, { waitUntil: 'load' });
   await page.waitForTimeout(1100);
   return page;
@@ -93,6 +110,7 @@ const OKNA = [
   { hash: 'prehled', nadpis: 'Přehled' },
   { hash: 'recenze', nadpis: 'Recenze' },
   { hash: 'texty', nadpis: 'Texty' },
+  { hash: 'bannery', nadpis: 'Bannery' },
   { hash: 'media', nadpis: 'Konvertor' },
   { hash: 'clanky', nadpis: 'Články' },
   { hash: 'produkty', nadpis: 'Produkty' }
@@ -363,6 +381,20 @@ for (const okno of OKNA) {
     await page.locator('#root > .overlay').count() === 0);
 
   /*
+   * Bannery jsou v nabídce nové — a nový nástroj je přesně to, u čeho se
+   * zapomene doplnit jedno ze tří míst (seznam oken, nabídka, obsah okna).
+   * Chybět může kterékoli a projeví se to tím, že klepnutí neudělá nic.
+   */
+  await page.locator('.ig-switch button', { hasText: 'Funkce' }).first().click();
+  await page.waitForTimeout(400);
+  await page.locator('.ws-menu-item', { hasText: 'Bannery' }).first().click();
+  await page.waitForTimeout(600);
+  const doBanneru = await page.evaluate(() =>
+    (window.__calls || []).filter(one => one[0] === 'tool:open').map(one => one[1]));
+  say('a Bannery se z nabídky otevřou vlastním oknem',
+    doBanneru.includes('banners'), doBanneru.join(', '));
+
+  /*
    * Zvýraznění otevřeného okna v nabídce. Seznam posílá hlavní proces
    * událostí — tady se pošle ručně, jako by okno právě vzniklo, a to až
    * nad otevřenou nabídkou: kdyby se poslal před ní, přepsal by ho dotaz,
@@ -376,6 +408,154 @@ for (const okno of OKNA) {
   const zvyrazneno = await page.locator('.ws-menu-item.on', { hasText: 'Katalog a naskladnění' }).count();
   say('otevřený nástroj je v nabídce zvýrazněný', zvyrazneno === 1, String(zvyrazneno));
   await page.screenshot({ path: path.join(SHOTS, 'okna-nabidka.png') });
+  await page.close();
+}
+
+/* ---------- Bannery: živý náhled běží na skriptu z e-shopu ---------- */
+
+/*
+ * Tohle je to jediné, co se o bannerech z kódu nepozná: jestli se v okně
+ * doopravdy vykreslí čtyři dlaždice vedle sebe, jestli mají stejnou výšku
+ * (aby stránka nepodskakovala), jestli odpočet tiká a jestli se na telefonu
+ * přerovnají na dvě vedle sebe. Náhled uvnitř běží na tomtéž skriptu, který
+ * poběží na e-shopu, takže se tu zkouší rovnou on.
+ */
+{
+  const page = await open('bannery');
+  /*
+   * Bez vybrané sady se náhled nekreslí — a je to tak správně: prázdné
+   * okno by ukazovalo bannery, které nikdo nevybral. Zkouška proto začíná
+   * klepnutím, jako by začínal člověk.
+   */
+  say('bez vybrané sady se náhled nekreslí',
+    await page.locator('.bn-frame').count() === 0);
+  await page.locator('.wt-row', { hasText: 'Podzimní sada' }).click();
+  await page.waitForTimeout(900);
+
+  const tvar = async () => page.frameLocator('.bn-frame').locator('.qbn-page.qbn-now').evaluate(node => {
+    const cards = [...node.querySelectorAll('.qbn-card')];
+    const rect = one => one.getBoundingClientRect();
+    return {
+      pocet: cards.length,
+      sloupce: new Set(cards.map(one => Math.round(rect(one).left))).size,
+      radky: new Set(cards.map(one => Math.round(rect(one).top))).size,
+      vysky: cards.map(one => Math.round(rect(one).height)),
+      siroka: Math.round(rect(cards[0]).width),
+      okno: node.ownerDocument.documentElement.clientWidth,
+      stary: node.ownerDocument.querySelector('#banner1')
+        ? getComputedStyle(node.ownerDocument.querySelector('#banner1')).display
+        : 'chybí',
+      odpocet: node.querySelector('.qbn-smart')?.textContent?.trim() ?? '',
+      kod: node.querySelector('.qbn-code b')?.textContent?.trim() ?? '',
+      vlocky: node.querySelectorAll('.qbn-flake').length,
+      // Na kolika řádcích leží políčka odpočtu — na telefonu musí na jednom
+      odpoctoveRadky: new Set([...node.querySelectorAll('.qbn-unit')]
+        .map(one => Math.round(rect(one).top))).size,
+      /*
+       * Vyteklo něco z dlaždice? Zalomený odpočet vytlačí tlačítko pod
+       * okraj a z banneru se pak nedá kliknout tam, kam má.
+       */
+      vyteklo: cards.filter(card => [...card.querySelectorAll(
+        '.qbn-title, .qbn-text, .qbn-btn, .qbn-smart, .qbn-code, .qbn-chip')]
+        .some(one => rect(one).bottom > rect(card).bottom + 1
+          || rect(one).top < rect(card).top - 1
+          || rect(one).right > rect(card).right + 1)).length,
+      // Text musí ležet nad ztmavením, jinak ho fotka přebije
+      poradi: [...node.querySelectorAll('.qbn-card > *')].map(one => one.className)
+    };
+  });
+
+  const pc = await tvar();
+  say('náhled kreslí čtyři dlaždice vedle sebe',
+    pc.pocet === 4 && pc.sloupce === 4 && pc.radky === 1,
+    `${pc.pocet} dlaždic, ${pc.sloupce} sloupců, ${pc.radky} řádek`);
+  /*
+   * Stejná výška je to, co drží stránku v klidu. Rozdíl by znamenal, že
+   * poměr stran neplatí a že se obsah pod bannerem hne, jakmile dotečou
+   * fotky — přesně to, co bylo zadané, že se dít nesmí.
+   */
+  say('  a mají stejnou výšku, takže stránka nepodskakuje',
+    new Set(pc.vysky).size === 1, pc.vysky.join(' / '));
+  say('  původní karusel je schovaný', pc.stary === 'none', pc.stary);
+  say('  odpočet je vidět', /\d/.test(pc.odpocet), pc.odpocet.replace(/\s+/g, ' ').slice(0, 40));
+  say('  slevový kód taky', pc.kod === 'SLEVA10', pc.kod);
+  say('  a emoji uvnitř banneru padají', pc.vlocky > 4, `${pc.vlocky} kusů`);
+  say('  text leží nad ztmavením fotky',
+    pc.poradi.join(',').endsWith('qbn-body'), pc.poradi.join(' → '));
+
+  // Odpočet počítá prohlížeč, ne aplikace — musí se hýbat i bez zásahu
+  const predtim = pc.odpocet;
+  await page.waitForTimeout(1400);
+  const potom = (await tvar()).odpocet;
+  say('  a tiká sám', potom !== predtim && /\d/.test(potom), `${predtim.replace(/\s+/g, ' ').slice(0, 24)} → ${potom.replace(/\s+/g, ' ').slice(0, 24)}`);
+
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-pc.png') });
+
+  await page.locator('.bn-devices .tab', { hasText: 'Telefon' }).click();
+  await page.waitForTimeout(900);
+  const mobil = await tvar();
+  say('na telefonu se přerovnají na dvě vedle sebe',
+    mobil.sloupce === 2 && mobil.radky === 2,
+    `${mobil.sloupce} sloupce, ${mobil.radky} řádky`);
+  say('  a dlaždice jsou pořád stejně vysoké',
+    new Set(mobil.vysky).size === 1, mobil.vysky.join(' / '));
+  /*
+   * Na půlce telefonu je dlaždice úzká a je to jediné místo, kde se obsah
+   * banneru doopravdy pere o místo. Zalomený odpočet by vytlačil tlačítko
+   * pod okraj a z banneru by se nedalo kliknout tam, kam má.
+   */
+  say('  odpočet se vejde na jeden řádek', mobil.odpoctoveRadky === 1,
+    `${mobil.odpoctoveRadky} řádků`);
+  say('  a nic z dlaždice nevyteklo', mobil.vyteklo === 0, `${mobil.vyteklo} dlaždic`);
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-mobil.png') });
+
+  /*
+   * Druhá sada je „jeden přes celou šířku". Kdyby se rozvržení nepřeneslo
+   * do náhledu, ukázaly by se čtyři sloupce a nikdo by nepoznal, že si
+   * vybral něco jiného.
+   */
+  await page.locator('.bn-devices .tab', { hasText: 'Počítač' }).click();
+  await page.locator('.wt-row', { hasText: 'Black Friday' }).click();
+  await page.waitForTimeout(900);
+  const siroky = await tvar();
+  say('široká sada je jeden banner přes celou šířku',
+    siroky.pocet === 1 && siroky.siroka > siroky.okno * 0.8,
+    `${siroky.pocet} dlaždice, ${siroky.siroka} z ${siroky.okno} px`);
+  /*
+   * Víc než den odpočtu ukazuje dny a vteřiny schovává. „2 dní" je přesně
+   * ta drobnost, kvůli které banner vypadá, že ho dělal někdo cizí — proto
+   * se skloňování čte ze skutečně vykresleného textu.
+   */
+  say('  a odpočet ve dnech se skloňuje',
+    /\d+\s*(den|dny|dní)/.test(siroky.odpocet) && !/vteřin/.test(siroky.odpocet),
+    siroky.odpocet.replace(/\s+/g, ' ').slice(0, 40));
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-siroky.png') });
+
+  /*
+   * Náhled přes celé okno. Zmenšený na necelou polovinu se dá posoudit
+   * rozvržení, ale ne text — a texty na bannerech jsou to, kvůli čemu se
+   * na náhled kouká.
+   */
+  await page.locator('.bn-devices .icon-btn').click();
+  await page.waitForTimeout(700);
+  const velky = await page.evaluate(() => {
+    const frame = document.querySelector('.bn-frame');
+    const t = getComputedStyle(frame).transform;
+    const m = /matrix\(([\d.]+)/.exec(t);
+    return { merítko: m ? Number(m[1]) : 1, editor: document.querySelectorAll('.bn-edit').length };
+  });
+  say('náhled se dá rozložit přes celé okno',
+    velky.merítko > 0.85, `měřítko ${Math.round(velky.merítko * 100)} %`);
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-velky.png') });
+  await page.locator('.bn-devices .icon-btn').click();
+  await page.waitForTimeout(400);
+
+  // Skript pro šablonu e-shopu se dá zkopírovat, i když je vidět jen v záložce
+  await page.locator('.wt-head-right .tab', { hasText: 'Kód do e-shopu' }).click();
+  await page.waitForTimeout(400);
+  const kod = await page.locator('.bn-script').inputValue();
+  say('záložka nabízí skript do šablony', kod.includes('qbn') && kod.includes('<script>'),
+    `${kod.length} znaků`);
   await page.close();
 }
 

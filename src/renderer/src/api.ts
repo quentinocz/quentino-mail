@@ -28,6 +28,7 @@ import type {
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
   PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin, OrderNote, OrderNotes, ApprovedNote,
   WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState,
+  BannerSet, BannerClash, BannersState,
   MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow,
   MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload,
   UpdateState
@@ -919,6 +920,35 @@ export const api = {
     publish: () => call<WebTextsState>('webtexts:publish'),
     config: (next: Partial<WebTextsConfig> & { key?: string }) =>
       call<WebTextsConfig>('webtexts:config', next)
+  },
+
+  /**
+   * Bannery na úvodní stránce.
+   *
+   * Stejné uspořádání jako u textů na webu a ze stejného důvodu: každý
+   * zásah sadu rovnou vystaví, aby v aplikaci nezůstalo něco, o čem si
+   * člověk myslí, že na e-shopu visí.
+   */
+  banners: {
+    state: () => call<BannersState>('banners:state'),
+    load: () => call<BannersState>('banners:load'),
+    save: (set: Partial<BannerSet>) => call<BannersState>('banners:save', set),
+    remove: (id: string) => call<BannersState>('banners:delete', id),
+    toggle: (id: string, off: boolean) => call<BannersState>('banners:toggle', id, off),
+    clashes: (set: Partial<BannerSet>) => call<BannerClash[]>('banners:clashes', set),
+    shorten: (id: string, ids: string[]) => call<BannersState>('banners:shorten', id, ids),
+    /** Doplní slovenštinu a angličtinu do celé sady naráz, texty i odkazy */
+    translate: (set: Partial<BannerSet>) => call<BannerSet>('banners:translate', set),
+    /** Kam povede český odkaz v ostatních trzích — hned při psaní */
+    href: (cz: string) =>
+      call<{ sk: string; en: string; skVia: string; enVia: string }>('banners:href', cz),
+    /** Která sada se zapeče do skriptu jako záloha pro výpadek úložiště */
+    fallback: (id: string) => call<BannersState>('banners:fallback', id),
+    /** Hotové WebP bajty do úložiště; vrací veřejnou adresu fotky */
+    upload: (name: string, bytes: number[]) => call<string>('banners:upload', name, bytes),
+    /** Skript pro náhled — tentýž, jaký poběží na webu, jen s touhle sadou */
+    preview: (set: Partial<BannerSet>) => call<string>('banners:preview', set),
+    publish: () => call<BannersState>('banners:publish')
   },
 
   /**

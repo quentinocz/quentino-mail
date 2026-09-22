@@ -127,6 +127,19 @@ function secrets(): Secrets {
   };
 }
 
+/**
+ * Úložiště pro zbytek webu — bannery ukládají do téhož kbelíku.
+ *
+ * Dvě samostatná nastavení by znamenala dvakrát zadat adresu projektu
+ * a dvakrát servisní klíč, a hlavně možnost mít je rozdílné: pak by se
+ * texty vystavovaly jinam než bannery a jedno z toho by na webu tiše
+ * chybělo.
+ */
+export function webStorage(): { url: string; key: string; bucket: string } {
+  const s = secrets();
+  return { url: s.url, key: s.key, bucket: s.bucket };
+}
+
 function publicUrl(s: Secrets): string {
   const own = (getSetting('webTextsPublicUrl', '')! || '').trim();
   if (own) return own;

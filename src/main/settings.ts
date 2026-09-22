@@ -270,6 +270,8 @@ const VOLATILE_SETTING_KEYS = [
    * o posledním pokusu — na druhém počítači by lhala.
    */
   'webTextsPublishedAt', 'webTextsDirty', 'webTextsError',
+  // Totéž u bannerů — sady jsou pravda na webu, tohle je zpráva o pokusu
+  'bannersPublishedAt', 'bannersDirty', 'bannersError',
   /*
    * Výpis posledních převodů v hlídaných složkách. Je to potvrzení, že
    * hlídání jede, ne nastavení — na druhém počítači by to byl cizí seznam

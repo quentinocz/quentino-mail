@@ -65,6 +65,7 @@ import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
+import * as banners from './banners';
 import * as media from './media';
 import * as mediashop from './mediashop';
 import { portalLogins, savePortalLogin } from './portallogin';
@@ -721,6 +722,26 @@ export function registerIpc() {
   handle('webtexts:season', (next: any) => webtexts.saveWebSeason(next ?? {}));
   handle('webtexts:publish', () => webtexts.publishWebTexts());
   handle('webtexts:config', (next: any) => webtexts.saveWebTextsConfig(next ?? {}));
+
+  /* ---------- bannery na úvodní stránce ---------- */
+  handle('banners:state', () => banners.bannersState());
+  // Otevření okna se ptá webu — pravda je ve vystaveném souboru, ne tady
+  handle('banners:load', () => banners.loadBanners());
+  handle('banners:save', (set: any) => banners.saveSet(set));
+  handle('banners:delete', (id: string) => banners.deleteSet(id));
+  handle('banners:toggle', (id: string, off: boolean) => banners.toggleSet(id, !!off));
+  handle('banners:clashes', (set: any) => banners.bannerClashes(set));
+  handle('banners:shorten', (id: string, ids: string[]) => banners.shortenSets(id, ids ?? []));
+  // Texty modelem, odkazy mapou adres — uhodnutý slovenský odkaz vede na 404
+  handle('banners:translate', (set: any) => banners.translateSet(set));
+  handle('banners:href', (cz: string) => banners.resolveHref(String(cz ?? '')));
+  // Která sada se zapeče do skriptu v šabloně e-shopu
+  handle('banners:fallback', (id: string) => banners.setFallback(String(id ?? '')));
+  handle('banners:upload', (name: string, bytes: number[]) =>
+    banners.uploadImage(String(name ?? ''), bytes ?? []));
+  // Náhled spouští tentýž skript jako e-shop, jen s rozepsanou sadou uvnitř
+  handle('banners:preview', (set: any) => banners.previewScript(set));
+  handle('banners:publish', () => banners.publishBanners());
 
   /* ---------- přihlášení do cizích administrací ---------- */
   handle('logins:list', () => portalLogins());

@@ -7865,6 +7865,137 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .wt-note svg { flex-shrink: 0; margin-top: 2px; color: var(--accent-dark); }
 .wt-langs .btn { margin: 4px 0 4px auto; }
 
+/* ==================== Bannery na úvodní stránce ==================== */
+
+/*
+ * Tři sloupce: seznam sad, editace, náhled. Náhled není doplněk — bannery
+ * jsou jediná věc na webu, u které se rozhoduje okem, a bez něj by se
+ * každá změna musela vystavit, aby se zjistilo, jak vypadá. Proto má
+ * vlastní sloupec a ne záložku.
+ */
+.bn-modal { width: min(1360px, 97vw); height: 90vh; }
+.bn-body {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 230px minmax(340px, 0.92fr) minmax(430px, 1.25fr);
+}
+/*
+ * Náhled přes celé okno. Zmenšený na dvě pětiny se z něj dá posoudit
+ * rozvržení, ale ne text — a texty na bannerech jsou přesně to, kvůli čemu
+ * se na náhled kouká. Proto se dá rozložit přes celou plochu, kde je
+ * počítačová verze skoro ve skutečné velikosti.
+ */
+.bn-body.solo { grid-template-columns: 1fr; }
+.bn-body.solo > .wt-list, .bn-body.solo > .bn-edit { display: none; }
+.bn-edit {
+  padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 11px;
+  border-right: 1px solid var(--border);
+}
+.bn-edit > * { flex-shrink: 0; }
+.bn-right { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.bn-h { margin: 6px 0 0; font-size: 13px; color: var(--text-2); }
+/*
+ * Řádky nad editorem se zalamují, nezužují. Když se „Přetáčet po vteřinách"
+ * vtěsnalo do sloupce mřížky, uřízl se mu popisek uprostřed slova a nebylo
+ * poznat, co se do políčka píše.
+ */
+.bn-when, .bn-layout { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.bn-when > .field:first-child { flex: 1 1 200px; }
+.bn-layout > .field { flex: 0 1 auto; }
+.bn-layout .tabs .tab { white-space: nowrap; }
+.bn-layout input[type="number"] { width: 90px; }
+/* Tlačítko překladu se v užším sloupci zalomí pod záložky, ne za okraj */
+.bn-edit .wt-langs { flex-wrap: wrap; }
+.bn-edit .wt-langs .btn { margin-left: auto; }
+.bn-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+.bn-look { display: grid; grid-template-columns: 80px 80px 1fr; gap: 10px 12px; align-items: end; }
+.bn-look .tabs { flex-wrap: wrap; }
+.bn-look .field:nth-child(4), .bn-look .field:nth-child(5) { grid-column: span 3; }
+.bn-slider input[type="range"] { width: 100%; accent-color: var(--accent); }
+.bn-save { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
+
+/*
+ * Pás dlaždic sady. Je to jediné místo, kde je vidět pořadí — a pořadí
+ * je u bannerů obsah, ne detail: první dlaždice je ta, na kterou se
+ * kliká nejčastěji.
+ */
+.bn-strip { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; }
+.bn-tile {
+  position: relative; width: 108px; height: 76px; border-radius: 10px; overflow: hidden;
+  border: 2px solid var(--border); background-size: cover; background-position: center;
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 6px;
+  text-align: left; cursor: pointer;
+}
+.bn-tile.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.bn-tile.off { opacity: .45; }
+.bn-tile-n {
+  position: absolute; top: 4px; left: 5px;
+  font-size: 10.5px; font-weight: 700; padding: 0 5px; border-radius: 999px;
+  background: rgba(0, 0, 0, .55); color: #fff;
+}
+/* Nadpis banneru na vlastní fotce — bez stínu by na světlé fotce zmizel */
+.bn-tile-name {
+  font-size: 11px; line-height: 1.2; font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .7);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.bn-add { display: flex; flex-direction: column; gap: 4px; }
+.bn-add .btn { font-size: 11.5px; padding: 4px 8px; justify-content: flex-start; }
+.bn-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.bn-file { display: flex; align-items: center; gap: 8px; }
+.bn-file input[type="file"] { font-size: 12px; max-width: 210px; }
+
+/* Devět bodů = devět výřezů. Rychlejší než dvě čísla a je z toho vidět, kam to ukazuje. */
+.bn-focus { display: inline-flex; flex-direction: column; gap: 4px; }
+.bn-focus-row { display: flex; gap: 4px; }
+.bn-dot {
+  width: 18px; height: 18px; border-radius: 5px;
+  border: 1px solid var(--border); background: var(--bg); cursor: pointer;
+}
+.bn-dot.sel { background: var(--accent); border-color: var(--accent); }
+
+.bn-emoji { display: flex; flex-wrap: wrap; gap: 4px; }
+.bn-em {
+  min-width: 30px; height: 28px; border-radius: 8px; font-size: 15px;
+  border: 1px solid var(--border); background: var(--panel); cursor: pointer;
+}
+.bn-em.sel { border-color: var(--accent); background: var(--accent-soft); }
+
+/*
+ * Náhled. Rámeček uvnitř má skutečnou šířku zařízení a zmenšuje se až
+ * obrazem — jinak by se mediální dotazy ptaly na šířku okna aplikace
+ * a ukazovala by se pořád verze pro počítač.
+ */
+.bn-preview { display: flex; flex-direction: column; gap: 6px; }
+.bn-devices { padding: 0; align-items: center; }
+.bn-stage {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 12px; background: #fff;
+}
+.bn-stage.empty {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 220px; background: var(--bg);
+}
+.bn-frame { border: 0; display: block; background: #fff; }
+.bn-scale { margin: 0; }
+
+.bn-code { padding: 18px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.bn-script {
+  flex: 1; min-height: 260px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre;
+}
+
+/*
+ * V užším okně se náhled přesune pod editaci. Zúžit ho by znamenalo
+ * zmenšit obraz natolik, že by se v něm nedal přečíst text — a pak by
+ * neplnil to jediné, proč tam je.
+ */
+@media (max-width: 1180px) {
+  .bn-body { grid-template-columns: 220px 1fr; grid-template-rows: 1fr auto; }
+  .bn-right { grid-column: 1 / -1; border-top: 1px solid var(--border); }
+  .bn-when { grid-template-columns: 1fr auto; }
+  .bn-layout { grid-template-columns: 1fr 1fr; }
+}
+
 /*
  * Poznámka zákazníka v detailu objednávky.
  *

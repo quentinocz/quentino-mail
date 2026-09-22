@@ -8,6 +8,7 @@ import DigestModal from './DigestModal';
 import ProductsModal from './ProductsModal';
 import ArticlesModal from './ArticlesModal';
 import WebTextsModal from './WebTextsModal';
+import BannersModal from './BannersModal';
 import MediaModal from './MediaModal';
 import ReviewsModal from './ReviewsModal';
 import InstagramWorkspace from './instagram/InstagramWorkspace';
@@ -92,6 +93,8 @@ export default function ToolWindow({ id }: { id: ToolWindowId }) {
         return <ArticlesModal onClose={close} />;
       case 'webtexts':
         return <WebTextsModal onClose={close} />;
+      case 'banners':
+        return <BannersModal onClose={close} />;
       case 'media':
         return <MediaModal onClose={close} />;
       case 'reviews':

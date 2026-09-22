@@ -607,6 +607,12 @@ function checkChannels() {
  * se stejně vystavuje na web, odkud si ho vezme kdokoli.
  */
 const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
+  /*
+   * Bannery jsou totéž o patro výš: mřížka, tři jazyky, živý náhled ve
+   * třech šířkách a nahrávání fotek. Na telefonu se to neobslouží a plán
+   * si stejně vezme web z úložiště.
+   */
+  'banners:',
   // Správa recenzí sahá do administrace e-shopu v okně — telefon okno nemá
   'reviews:',
   // Nový produkt: předloha, obrázky z disku a import v okně administrace

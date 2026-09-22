@@ -22,7 +22,7 @@
 
 export type ToolWindowId =
   | 'shoot' | 'packing' | 'catalog' | 'ptrans' | 'articles'
-  | 'webtexts' | 'media' | 'reviews' | 'digest' | 'instagram';
+  | 'webtexts' | 'banners' | 'media' | 'reviews' | 'digest' | 'instagram';
 
 export type ToolWindowDef = {
   id: ToolWindowId;
@@ -66,6 +66,13 @@ export const TOOL_WINDOWS: ToolWindowDef[] = [
     width: 1280, height: 880, minWidth: 860, minHeight: 620 },
   { id: 'webtexts', hash: 'texty', title: 'Texty na webu — Quentino App',
     width: 1100, height: 800, minWidth: 780, minHeight: 560 },
+  /*
+   * Bannery potřebují místo navíc: vedle editoru stojí živý náhled ve třech
+   * šířkách a v užším okně by se náhled zúžil natolik, že by neukazoval to,
+   * co bude na webu.
+   */
+  { id: 'banners', hash: 'bannery', title: 'Bannery — Quentino App',
+    width: 1360, height: 900, minWidth: 900, minHeight: 620 },
   { id: 'media', hash: 'media', title: 'Konvertor médií — Quentino App',
     width: 1180, height: 820, minWidth: 820, minHeight: 580 },
   { id: 'reviews', hash: 'recenze', title: 'Recenze zákazníků — Quentino App',
