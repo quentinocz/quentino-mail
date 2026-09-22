@@ -83,52 +83,92 @@ check('vydání bez souboru pro systém vrátí prázdno',
 console.log('\nvýměna aplikace:\n');
 
 /*
- * Skript se tu doopravdy spustí. Je to ta část, která se v provozu udělá
- * jednou a když je špatně, aplikace se po aktualizaci nespustí — takže
- * zkoušet ji „očima nad kódem" nestačí.
+ * Výměna balíčku je věc macOS. Tam se stahuje zip, rozbalí se stranou
+ * a skript pro `/bin/sh` přesune balíčky, zatímco aplikace končí. Na
+ * Windows se stahuje instalátor a nasadí se sám (`setup.exe /S`), takže
+ * žádný skript k vyzkoušení není — a `/bin/sh` tam ani není čím spustit.
+ *
+ * Přeskakuje se proto nahlas, ne mlčky. Když tahle část na Windows běžela,
+ * `execFileSync` spadl na chybějícím `/bin/sh`, chyba se spolkla a zkouška
+ * pak hlásila „nová aplikace není na místě té staré" — tedy něco úplně
+ * jiného, než co se doopravdy stalo, a sestavení pro Windows kvůli tomu
+ * neprošlo.
  */
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vymena-'));
-const script = path.join(dir, 'vymena.sh');
-fs.writeFileSync(script, update.swapScript(), 'utf8');
-fs.chmodSync(script, 0o755);
-
-const app = (where, text) => {
-  fs.mkdirSync(path.join(where, 'Contents', 'MacOS'), { recursive: true });
-  fs.writeFileSync(path.join(where, 'Contents', 'MacOS', 'app'), text, 'utf8');
-};
-const obsah = where => fs.readFileSync(path.join(where, 'Contents', 'MacOS', 'app'), 'utf8');
-
-{
-  const cil = path.join(dir, 'Quentino App.app');
-  const nova = path.join(dir, 'nova', 'Quentino App.app');
-  app(cil, 'stara verze');
-  app(nova, 'nova verze');
-
-  // Číslo procesu, který neběží: skript nemá na co čekat a rovnou vymění
-  try { execFileSync('/bin/sh', [script, '999999', nova, cil], { stdio: 'ignore' }); }
-  catch { /* `open` na Linuxu není — na výsledek na disku to nemá vliv */ }
-
-  check('nová aplikace je na místě té staré', obsah(cil), 'nova verze');
-  check('a stará už na disku neleží', fs.existsSync(`${cil}.stara`), false);
-  check('rozbalená kopie se přesunula, ne zkopírovala', fs.existsSync(nova), false);
-}
-
-{
+if (process.platform === 'win32') {
+  console.log('  – přeskočeno: výměnu balíčku dělá skript pro /bin/sh, a ten je jen pro macOS.');
+  console.log('    Na Windows nasazuje aktualizaci instalátor NSIS a ten se tu nezkouší.');
+} else {
   /*
-   * Nezdar uprostřed. Když se nová aplikace nedá přesunout (tady prostě
-   * není), musí zůstat na disku ta stará — jinak by po nepovedené
-   * aktualizaci nezbylo nic a nebylo by co spustit.
+   * Skript se tu doopravdy spustí. Je to ta část, která se v provozu udělá
+   * jednou a když je špatně, aplikace se po aktualizaci nespustí — takže
+   * zkoušet ji „očima nad kódem" nestačí.
    */
-  const cil = path.join(dir, 'Druha.app');
-  app(cil, 'stara verze');
-  let code = 0;
-  try { execFileSync('/bin/sh', [script, '999999', path.join(dir, 'chybi.app'), cil], { stdio: 'ignore' }); }
-  catch (e) { code = e.status ?? 1; }
-  check('nezdar se pozná podle návratového kódu', code !== 0, true);
-  check('a stará aplikace zůstala na svém místě', obsah(cil), 'stara verze');
-}
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vymena-'));
+  const script = path.join(dir, 'vymena.sh');
+  fs.writeFileSync(script, update.swapScript(), 'utf8');
+  fs.chmodSync(script, 0o755);
 
-fs.rmSync(dir, { recursive: true, force: true });
+  const app = (where, text) => {
+    fs.mkdirSync(path.join(where, 'Contents', 'MacOS'), { recursive: true });
+    fs.writeFileSync(path.join(where, 'Contents', 'MacOS', 'app'), text, 'utf8');
+  };
+  const obsah = where => fs.readFileSync(path.join(where, 'Contents', 'MacOS', 'app'), 'utf8');
+
+  /**
+   * Spustí skript a vrátí jeho návratový kód, nebo `null`, když se vůbec
+   * nespustil.
+   *
+   * Ten rozdíl je celý důvod, proč tahle funkce existuje. `open` mimo macOS
+   * není, takže poslední řádek skriptu skončí nenulovým kódem — na to, co
+   * skript udělal s balíčky na disku, to vliv nemá a dá se to přejít.
+   * Chybějící `/bin/sh` je ale něco jiného: skript se nespustil vůbec
+   * a všechno, co se po něm kontroluje, pak hlásí nesmysly.
+   */
+  const spust = (...args) => {
+    try {
+      execFileSync('/bin/sh', [script, ...args], { stdio: 'ignore' });
+      return 0;
+    } catch (e) {
+      if (e.code === 'ENOENT') {
+        failed++;
+        console.log('  ✗ /bin/sh se nepodařilo spustit — výměna se vůbec nezkusila');
+        return null;
+      }
+      return e.status ?? 1;
+    }
+  };
+
+  {
+    const cil = path.join(dir, 'Quentino App.app');
+    const nova = path.join(dir, 'nova', 'Quentino App.app');
+    app(cil, 'stara verze');
+    app(nova, 'nova verze');
+
+    // Číslo procesu, který neběží: skript nemá na co čekat a rovnou vymění
+    if (spust('999999', nova, cil) !== null) {
+      check('nová aplikace je na místě té staré', obsah(cil), 'nova verze');
+      check('a stará už na disku neleží', fs.existsSync(`${cil}.stara`), false);
+      check('rozbalená kopie se přesunula, ne zkopírovala', fs.existsSync(nova), false);
+    }
+  }
+
+  {
+    /*
+     * Nezdar uprostřed. Když se nová aplikace nedá přesunout (tady prostě
+     * není), musí zůstat na disku ta stará — jinak by po nepovedené
+     * aktualizaci nezbylo nic a nebylo by co spustit.
+     */
+    const cil = path.join(dir, 'Druha.app');
+    app(cil, 'stara verze');
+    const code = spust('999999', path.join(dir, 'chybi.app'), cil);
+    if (code !== null) {
+      check('nezdar se pozná podle návratového kódu', code !== 0, true);
+      check('a stará aplikace zůstala na svém místě', obsah(cil), 'stara verze');
+    }
+  }
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 
 if (failed) {
   console.log(`\n✗ ${failed} zkoušek selhalo`);
