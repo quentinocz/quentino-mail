@@ -269,6 +269,24 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
     spot = await waitForDropSpot(win, 60_000, true);
   }
   /*
+   * Stránka mlčí? Přenačíst a zkusit znovu.
+   *
+   * Okno správce souborů může zůstat viset po předchozím nepovedeném
+   * pokusu — a pak na dotazy neodpovídá vůbec nic, ani ta nejjednodušší
+   * otázka. Přenačtení je levné a spraví právě tenhle stav; bez něj
+   * skončila celá cesta hláškou „stránka neodpověděla".
+   */
+  if (!spot && !win.isDestroyed()) {
+    await openUrl(win, filesAdminUrl());
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    spot = await waitForDropSpot(win, 20_000, true);
+    if (!spot && !win.isDestroyed()) {
+      await odemkniNahravani(win);
+      spot = await waitForDropSpot(win, 40_000, true);
+    }
+  }
+
+  /*
    * Poslední pokus: samotný výpis souborů. Upustit soubor na výpis
    * v administraci funguje, jen se to nedá ověřit jinak než tím, že se
    * soubor ve výpisu objeví — a to se stejně kontroluje níž.

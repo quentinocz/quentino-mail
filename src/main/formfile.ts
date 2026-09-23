@@ -238,21 +238,54 @@ export function framesOf(win: BrowserWindow): WebFrameMain[] {
  * najednou neuměla to, co uměla předtím.
  */
 export async function eachFrame<T>(win: BrowserWindow, script: string): Promise<{ frame: WebFrameMain | null; value: T }[]> {
+  const { out } = await eachFrameDetail<T>(win, script);
+  return out;
+}
+
+/** Zahozené chyby jsou to nejdražší, co v téhle cestě je — tady se schovávají. */
+export const lastScriptErrors: string[] = [];
+
+/**
+ * Totéž, ale i s tím, co se nepovedlo.
+ *
+ * **Pořadí je tu podstatné.** Roky fungovalo spuštění skriptu na celém
+ * okně (`webContents`) a rámy jsou až přídavek kvůli vnořenému správci
+ * souborů. Když se pořadí obrátilo, přestalo fungovat i to, co předtím
+ * šlo — proto se okno zkouší **první** a chyby se už nezahazují: bez
+ * nich zní „stránka neodpověděla" stejně u chyby ve skriptu jako
+ * u zavřeného okna.
+ */
+export async function eachFrameDetail<T>(
+  win: BrowserWindow, script: string
+): Promise<{ out: { frame: WebFrameMain | null; value: T }[]; errors: string[] }> {
   const out: { frame: WebFrameMain | null; value: T }[] = [];
-  if (win.isDestroyed()) return out;
+  const errors: string[] = [];
+  if (win.isDestroyed()) {
+    errors.push('okno už je zavřené');
+    return { out, errors };
+  }
+
+  try {
+    out.push({ frame: null, value: await win.webContents.executeJavaScript(script, true) as T });
+  } catch (e: any) {
+    errors.push(`okno: ${String(e?.message ?? e).slice(0, 120)}`);
+  }
+
+  const main = framesOf(win)[0];
   for (const frame of framesOf(win)) {
+    // Hlavní rám je totéž co okno — ten už odpověděl výš
+    if (frame === main) continue;
     try {
       if (frame.detached) continue;
-      const value = await frame.executeJavaScript(script, true) as T;
-      out.push({ frame, value });
-    } catch { /* rám se mezitím přenačetl nebo je z cizí domény */ }
+      out.push({ frame, value: await frame.executeJavaScript(script, true) as T });
+    } catch (e: any) {
+      errors.push(`rám ${frame.url?.slice(0, 60) ?? '?'}: ${String(e?.message ?? e).slice(0, 120)}`);
+    }
   }
-  if (out.length === 0 && !win.isDestroyed()) {
-    try {
-      out.push({ frame: null, value: await win.webContents.executeJavaScript(script, true) as T });
-    } catch { /* ani okno neodpovídá — volající to pozná z prázdného seznamu */ }
-  }
-  return out;
+
+  lastScriptErrors.length = 0;
+  lastScriptErrors.push(...errors);
+  return { out, errors };
 }
 
 /** Spustí skript tam, kde se našlo nahrávání; `null` znamená celé okno. */
@@ -271,6 +304,7 @@ async function runIn<T>(win: BrowserWindow, frame: WebFrameMain | null, script: 
  */
 const PROBE = `
   (function () {
+   try {
     var dz = 0;
     try {
       dz = ((window.Dropzone && window.Dropzone.instances) || []).filter(function (one) {
@@ -298,15 +332,34 @@ const PROBE = `
     return {
       dz: dz, drop: plocha, input: document.querySelectorAll('input[type=file]').length,
       tiles: vypis, buttons: tlacitka, names: nazvy,
-      url: String(location.href).slice(0, 120), title: String(document.title).slice(0, 60)
+      url: String(location.href).slice(0, 120), title: String(document.title).slice(0, 60),
+      chyba: ''
     };
+   } catch (e) {
+    /*
+     * Skript, který spadne, vrátí Electron jako odmítnuté volání — a to
+     * se pak nedá odlišit od zavřeného okna. Chyba se proto vrací jako
+     * hodnota a je z ní aspoň vidět, co se nepovedlo.
+     */
+    return {
+      dz: 0, drop: 0, input: 0, tiles: 0, buttons: 0, names: [],
+      url: String(location.href).slice(0, 120), title: String(document.title).slice(0, 60),
+      chyba: String((e && e.message) || e).slice(0, 120)
+    };
+   }
   })()
 `;
 
 export interface DropSpot {
   dz: number; drop: number; input: number;
-  tiles: number; buttons: number; names: string[]; url: string; title: string;
+  tiles: number; buttons: number; names: string[]; url: string; title: string; chyba: string;
 }
+
+/** Nejjednodušší možná otázka: odpovídá stránka vůbec? */
+const CANARY = `
+  (function () { return { t: String(document.title).slice(0, 60),
+    h: String(location.href).slice(0, 120), prvku: document.getElementsByTagName('*').length }; })()
+`;
 
 /**
  * Jistá cesta: Dropzone, jeho plocha nebo políčko na soubor. Tam se dá
@@ -341,8 +394,21 @@ export async function findDropSpot(win: BrowserWindow, jenJiste = false): Promis
  * jako u přejmenovaného tlačítka.
  */
 export async function describeDropSpots(win: BrowserWindow): Promise<string> {
-  const all = await eachFrame<DropSpot>(win, PROBE);
-  if (all.length === 0) return 'stránka neodpověděla vůbec';
+  const { out: all, errors } = await eachFrameDetail<DropSpot>(win, PROBE);
+  if (all.length === 0) {
+    /*
+     * Nic neodpovědělo. Tady se teprve ukáže, jestli je hluchá stránka,
+     * nebo jen tenhle skript: kanárek se ptá na to nejjednodušší, co
+     * v prohlížeči je.
+     */
+    const zivot = await eachFrameDetail<{ t: string; h: string; prvku: number }>(win, CANARY);
+    const kanarek = zivot.out[0]?.value;
+    const stav = kanarek
+      ? `stránka žije (${kanarek.t || kanarek.h}, ${kanarek.prvku} prvků), ale hledání na ní spadlo`
+      : 'stránka neodpověděla ani na nejjednodušší dotaz';
+    const proc = [...errors, ...zivot.errors].slice(0, 3).join(' / ');
+    return proc ? `${stav} — ${proc}` : stav;
+  }
   return all
     .map((one, i) => {
       const v = one.value;
@@ -350,7 +416,8 @@ export async function describeDropSpots(win: BrowserWindow): Promise<string> {
       if (!v) return `${kde}: bez odpovědi`;
       return `${kde} (${v.title || v.url}): dropzone ${v.dz}, plocha ${v.drop},`
         + ` políček ${v.input}, souborů ve výpisu ${v.tiles},`
-        + ` tlačítek k nahrání ${v.buttons}${v.names.length ? ` [${v.names.join(' | ')}]` : ''}`;
+        + ` tlačítek k nahrání ${v.buttons}${v.names.length ? ` [${v.names.join(' | ')}]` : ''}`
+        + (v.chyba ? ` — hledání spadlo na: ${v.chyba}` : '');
     })
     .join('; ');
 }

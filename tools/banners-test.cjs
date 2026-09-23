@@ -665,6 +665,34 @@ ok('hledá se i v místech, kde Dropzone teprve bude', F.PROBE.includes('input[t
 ok('hláška umí říct, co na stránce bylo',
   F.PROBE.includes('tiles') && F.PROBE.includes('buttons') && F.PROBE.includes('location.href'));
 
+/*
+ * Hledání se nesmí rozbít o stránku.
+ *
+ * Když skript v okně spadne, vrátí Electron odmítnuté volání — a to
+ * vypadá úplně stejně jako zavřené okno. Přesně takhle vzniklo
+ * „stránka neodpověděla vůbec": nebylo poznat, jestli je hluchá
+ * administrace, nebo tenhle kus kódu. Chyba proto musí přijít jako
+ * hodnota, ne jako výjimka.
+ */
+{
+  // eslint-disable-next-line no-new-func
+  const spust = doc => new Function('document', 'window', 'location',
+    'return (' + F.PROBE + ')')(doc, {}, { href: 'https://admin/x' });
+  const zdravy = spust({
+    title: 'Soubory', querySelector: () => null,
+    querySelectorAll: sel => (sel === '.manager-file' ? [{}, {}, {}] : [])
+  });
+  check('na obyčejné stránce spočítá, co na ní je',
+    [zdravy.tiles, zdravy.chyba], [3, '']);
+  const zlobivy = spust({
+    title: 'Soubory',
+    querySelector: () => { throw new Error('Permission denied'); },
+    querySelectorAll: () => { throw new Error('Permission denied'); }
+  });
+  ok('a když se stránka brání, vrátí chybu místo výjimky',
+    !!zlobivy && zlobivy.chyba.includes('Permission denied'), JSON.stringify(zlobivy));
+}
+
 /* ---------- co se opravilo ---------- */
 
 console.log('\nopravené drobnosti:\n');
