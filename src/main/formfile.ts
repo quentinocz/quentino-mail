@@ -214,17 +214,32 @@ export async function fillFileInput(
  */
 export function framesOf(win: BrowserWindow): WebFrameMain[] {
   if (win.isDestroyed()) return [];
+  const out: WebFrameMain[] = [];
+  /*
+   * Hlavní rám a strom pod ním se berou **zvlášť**. Když se totiž
+   * `framesInSubtree` nepovede (Electron umí na rám, který se zrovna
+   * přenačítá, vyhodit „Render frame was disposed"), nesmí tím zmizet
+   * i hlavní rám — přesně to se stalo a aplikace pak hlásila, že stránka
+   * nevrátila ani jeden rám, ačkoli na obrazovce byl správce souborů.
+   */
+  try { if (win.webContents.mainFrame) out.push(win.webContents.mainFrame); }
+  catch { /* zkusí se ještě celé okno níž */ }
   try {
-    const root = win.webContents.mainFrame;
-    return [root, ...root.framesInSubtree].filter((one, i, all) => all.indexOf(one) === i);
-  } catch {
-    return [];
-  }
+    for (const one of out[0]?.framesInSubtree ?? []) if (!out.includes(one)) out.push(one);
+  } catch { /* vnořené rámy nejsou dostupné — zůstane hlavní */ }
+  return out;
 }
 
-/** Spustí skript ve všech rámech; vrátí dvojice rám + výsledek. */
-export async function eachFrame<T>(win: BrowserWindow, script: string): Promise<{ frame: WebFrameMain; value: T }[]> {
-  const out: { frame: WebFrameMain; value: T }[] = [];
+/**
+ * Spustí skript ve všech rámech; vrátí dvojice rám + výsledek.
+ *
+ * Rám `null` znamená „celé okno" — záchrana pro případ, že se k rámům
+ * nedá dostat. Bez ní stačilo, aby výčet rámů selhal, a aplikace
+ * najednou neuměla to, co uměla předtím.
+ */
+export async function eachFrame<T>(win: BrowserWindow, script: string): Promise<{ frame: WebFrameMain | null; value: T }[]> {
+  const out: { frame: WebFrameMain | null; value: T }[] = [];
+  if (win.isDestroyed()) return out;
   for (const frame of framesOf(win)) {
     try {
       if (frame.detached) continue;
@@ -232,10 +247,28 @@ export async function eachFrame<T>(win: BrowserWindow, script: string): Promise<
       out.push({ frame, value });
     } catch { /* rám se mezitím přenačetl nebo je z cizí domény */ }
   }
+  if (out.length === 0 && !win.isDestroyed()) {
+    try {
+      out.push({ frame: null, value: await win.webContents.executeJavaScript(script, true) as T });
+    } catch { /* ani okno neodpovídá — volající to pozná z prázdného seznamu */ }
+  }
   return out;
 }
 
-/** Co v tom kterém rámu je, aby se soubory vkládaly tam, kde je nahrávání. */
+/** Spustí skript tam, kde se našlo nahrávání; `null` znamená celé okno. */
+async function runIn<T>(win: BrowserWindow, frame: WebFrameMain | null, script: string): Promise<T> {
+  if (frame && !frame.detached) return await frame.executeJavaScript(script, true) as T;
+  return await win.webContents.executeJavaScript(script, true) as T;
+}
+
+/**
+ * Co v tom kterém rámu je, aby se soubory vkládaly tam, kde je nahrávání.
+ *
+ * Hlídá se i **výpis souborů** (`.manager-file`): správce souborů Upgates
+ * přijímá přetažení rovnou na výpis, i když na něm žádná třída
+ * s „dropzone" není. Událost `drop` poslaná na výpis probublá k tomu,
+ * kdo ji poslouchá, ať visí na kterémkoli rodiči.
+ */
 const PROBE = `
   (function () {
     var dz = 0;
@@ -244,23 +277,60 @@ const PROBE = `
         return one && one.element && one.element.isConnected;
       }).length;
     } catch (e) { dz = 0; }
-    var plocha = document.querySelector('.dropzone, .dz-clickable, [class*="dropzone"]') ? 1 : 0;
-    return { dz: dz, drop: plocha, input: document.querySelectorAll('input[type=file]').length };
+    var plocha = document.querySelector('.dropzone, .dz-clickable, [class*="dropzone"], [class*="Dropzone"]')
+      ? 1 : 0;
+    var vypis = document.querySelectorAll('.manager-file').length;
+    /* Tlačítka, která by nahrávání mohla otevřít — podle textu i podle obsluhy */
+    var hledej = /nahr[aá]t|vlo[žz]it|p[řr]idat soubor|upload|add ?file|new file/i;
+    var tlacitka = 0;
+    var nazvy = [];
+    var vse = document.querySelectorAll('a, button, [role=button], .btn, .smi, [onclick]');
+    for (var i = 0; i < vse.length; i++) {
+      var one = vse[i];
+      var popis = (one.textContent || '') + ' ' + (one.getAttribute('title') || '')
+        + ' ' + (one.getAttribute('data-tip') || '') + ' ' + (one.getAttribute('onclick') || '')
+        + ' ' + (one.className || '') + ' ' + ((one.querySelector('i') || {}).className || '');
+      if (!hledej.test(popis)) continue;
+      tlacitka++;
+      if (nazvy.length < 4) nazvy.push((one.textContent || one.getAttribute('title') || '')
+        .replace(/\\s+/g, ' ').trim().slice(0, 30) || (one.className || '').slice(0, 30));
+    }
+    return {
+      dz: dz, drop: plocha, input: document.querySelectorAll('input[type=file]').length,
+      tiles: vypis, buttons: tlacitka, names: nazvy,
+      url: String(location.href).slice(0, 120), title: String(document.title).slice(0, 60)
+    };
   })()
 `;
 
-export interface DropSpot { dz: number; drop: number; input: number }
+export interface DropSpot {
+  dz: number; drop: number; input: number;
+  tiles: number; buttons: number; names: string[]; url: string; title: string;
+}
 
-const usable = (one: DropSpot | null | undefined) =>
+/**
+ * Jistá cesta: Dropzone, jeho plocha nebo políčko na soubor. Tam se dá
+ * soubor vložit tak, že o tom stránka **ví**.
+ */
+const jiste = (one: DropSpot | null | undefined) =>
   !!one && (one.dz > 0 || one.drop > 0 || one.input > 0);
 
-/** Je kam soubory vložit? Vrací rám, kde to je. */
-export async function findDropSpot(win: BrowserWindow): Promise<WebFrameMain | null> {
+/**
+ * Nejistá cesta: jen výpis souborů. Upustit soubor na výpis může
+ * fungovat, ale nedá se to ověřit jinak než tím, že se objeví ve výpisu.
+ */
+const mozna = (one: DropSpot | null | undefined) => !!one && one.tiles > 0;
+
+export interface Spot { frame: WebFrameMain | null; value: DropSpot; jiste: boolean }
+
+/** Je kam soubory vložit? Vrací rám, kde to je (`null` = celé okno). */
+export async function findDropSpot(win: BrowserWindow, jenJiste = false): Promise<Spot | null> {
   const all = await eachFrame<DropSpot>(win, PROBE);
+  const hodi = all.filter(one => (jenJiste ? jiste(one.value) : jiste(one.value) || mozna(one.value)));
   // Dropzone má přednost před holým políčkem — ten soubor rovnou odešle
-  const best = all.filter(one => usable(one.value))
-    .sort((a, b) => (b.value.dz - a.value.dz) || (b.value.drop - a.value.drop))[0];
-  return best?.frame ?? null;
+  const best = hodi.sort((a, b) => (b.value.dz - a.value.dz) || (b.value.drop - a.value.drop)
+    || (b.value.input - a.value.input) || (b.value.tiles - a.value.tiles))[0];
+  return best ? { frame: best.frame, value: best.value, jiste: jiste(best.value) } : null;
 }
 
 /**
@@ -272,19 +342,27 @@ export async function findDropSpot(win: BrowserWindow): Promise<WebFrameMain | n
  */
 export async function describeDropSpots(win: BrowserWindow): Promise<string> {
   const all = await eachFrame<DropSpot>(win, PROBE);
-  if (all.length === 0) return 'stránka nevrátila ani jeden rám';
+  if (all.length === 0) return 'stránka neodpověděla vůbec';
   return all
-    .map((one, i) => `rám ${i + 1}: dropzone ${one.value?.dz ?? 0},`
-      + ` plocha ${one.value?.drop ?? 0}, políček ${one.value?.input ?? 0}`)
+    .map((one, i) => {
+      const v = one.value;
+      const kde = one.frame ? `rám ${i + 1}` : 'okno';
+      if (!v) return `${kde}: bez odpovědi`;
+      return `${kde} (${v.title || v.url}): dropzone ${v.dz}, plocha ${v.drop},`
+        + ` políček ${v.input}, souborů ve výpisu ${v.tiles},`
+        + ` tlačítek k nahrání ${v.buttons}${v.names.length ? ` [${v.names.join(' | ')}]` : ''}`;
+    })
     .join('; ');
 }
 
 /** Počká, až se objeví místo, kam jde soubor vložit. */
-export async function waitForDropSpot(win: BrowserWindow, timeoutMs = 12_000): Promise<WebFrameMain | null> {
+export async function waitForDropSpot(
+  win: BrowserWindow, timeoutMs = 12_000, jenJiste = false
+): Promise<Spot | null> {
   const until = Date.now() + timeoutMs;
   for (;;) {
     if (win.isDestroyed()) return null;
-    const spot = await findDropSpot(win);
+    const spot = await findDropSpot(win, jenJiste);
     if (spot) return spot;
     if (Date.now() >= until) return null;
     await new Promise(resolve => setTimeout(resolve, 700));
@@ -336,7 +414,28 @@ function dropScript(payload: { name: string; type: string; b64: string }[]): str
       var prenos = new DataTransfer();
       soubory.forEach(function (one) { prenos.items.add(one); });
 
-      var plocha = document.querySelector('.dropzone, .dz-clickable, [class*="dropzone"]');
+      /*
+       * Políčko dřív než přetažení: je to jistota. Přetažení se poznat
+       * nedá — událost se pošle, stránka si ji nemusí vzít a nikdo se to
+       * nedozví. Proto se nejdřív zkusí to, co má výsledek.
+       */
+      var policko = document.querySelector('input[type=file]');
+      if (policko) {
+        policko.files = prenos.files;
+        policko.dispatchEvent(new Event('input', { bubbles: true }));
+        policko.dispatchEvent(new Event('change', { bubbles: true }));
+        return 'policko';
+      }
+
+      /*
+       * Přetažení. Cílem je plocha Dropzonu, a když žádná není, tak
+       * **výpis souborů** — správce souborů Upgates přijímá soubory
+       * upuštěné na výpis a událost od něj probublá k tomu, kdo ji
+       * poslouchá, ať visí na kterémkoli rodiči.
+       */
+      var vypis = document.querySelector('.manager-file');
+      var plocha = document.querySelector('.dropzone, .dz-clickable, [class*="dropzone"], [class*="Dropzone"]')
+        || (vypis && vypis.parentNode) || document.body;
       if (plocha) {
         ['dragenter', 'dragover', 'drop'].forEach(function (jmeno) {
           plocha.dispatchEvent(new DragEvent(jmeno, {
@@ -344,14 +443,6 @@ function dropScript(payload: { name: string; type: string; b64: string }[]): str
           }));
         });
         return 'pretazeni';
-      }
-
-      var policko = document.querySelector('input[type=file]');
-      if (policko) {
-        policko.files = prenos.files;
-        policko.dispatchEvent(new Event('input', { bubbles: true }));
-        policko.dispatchEvent(new Event('change', { bubbles: true }));
-        return 'policko';
       }
       return '';
     })()
@@ -364,7 +455,9 @@ function dropScript(payload: { name: string; type: string; b64: string }[]): str
  * Vrací, kterou cestou to prošlo (`dropzone`, `pretazeni`, `policko`),
  * nebo prázdný řetězec, když nebylo kam.
  */
-export async function dropFiles(win: BrowserWindow, files: string[], frame?: WebFrameMain | null): Promise<string> {
+export async function dropFiles(
+  win: BrowserWindow, files: string[], spot?: Spot | null
+): Promise<string> {
   const list = (files ?? []).filter(one => fs.existsSync(one));
   if (list.length === 0) throw new Error('soubor neexistuje');
   if (win.isDestroyed()) throw new Error('okno se zavřelo');
@@ -376,10 +469,10 @@ export async function dropFiles(win: BrowserWindow, files: string[], frame?: Web
   }));
   const script = dropScript(payload);
 
-  const target = frame && !frame.detached ? frame : await findDropSpot(win);
+  const target = spot ?? await findDropSpot(win);
   if (!target) return '';
   try {
-    return String(await target.executeJavaScript(script, true) ?? '');
+    return String(await runIn<string>(win, target.frame, script) ?? '');
   } catch {
     return '';
   }

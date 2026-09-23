@@ -429,9 +429,11 @@ console.log('\nnahrávání fotek:\n');
  */
 {
   const files = require(path.join(DIST, 'articles/files.js'));
-  const prvek = (text, cls, vidi = true) => ({
+  const prvek = (text, cls, vidi = true, atr = {}, ikona = '') => ({
     textContent: text, className: cls || '',
-    getAttribute: () => null,
+    getAttribute: name => atr[name] ?? null,
+    /* Tlačítka v administraci bývají jen ikona — popisek je v title nebo v obsluze */
+    querySelector: () => (ikona ? { className: ikona } : null),
     getBoundingClientRect: () => (vidi ? { width: 120, height: 32 } : { width: 0, height: 0 }),
     click() { this.kliknuto = true; },
     kliknuto: false
@@ -457,6 +459,33 @@ console.log('\nnahrávání fotek:\n');
     [c.prvky[0].kliknuto, c.prvky[1].kliknuto], [false, true]);
   const d = spust([prvek('Zpět'), prvek('Smazat')]);
   ok('a když tam nic takového není, nic se neklikne', d.vysledek === false);
+
+  /*
+   * Tlačítko bez textu. Ve správci souborů Upgates je popisek v "title"
+   * nebo "data-tip" a obsluha v "onclick" — podle samotného textu se
+   * nenašlo nic a nahrávání hlásilo, že se políčko neobjevilo.
+   */
+  const e = spust([prvek('', 'smi', true, { onclick: 'dialogUploadFiles(1021);' })]);
+  ok('pozná se i tlačítko, které má jen obsluhu v onclick', e.vysledek === true);
+  const f = spust([prvek('', 'btn', true, { title: 'Nahrát soubory' }, 'fa fa-upload')]);
+  ok('a tlačítko, které je jen ikona s popiskem', f.vysledek === true);
+
+  /*
+   * A hlavně: ve stromu složek se **nesmí** kliknout na nic. Jsou tam
+   * vedle sebe „Přidat podkategorii", „Upravit" a „Smazat" — a klik na to
+   * poslední maže složku i s podsložkami.
+   */
+  const strom = spust([
+    prvek('', 'smi menu-add', true, { onclick: 'dialogAddFolder(1019);', title: 'Přidat podkategorii' }, 'fa fa-plus'),
+    prvek('', 'smi menu-edit', true, { href: '/manager/files/?category_id=1019&do=editFolder' }, 'fa fa-pencil'),
+    prvek('', 'smi menu-delete', true, {
+      'data-href': '/manager/files/?category_id=1019&do=deleteFolder',
+      'data-confirmation': 'Opravdu chcete smazat tuto položku?'
+    }, 'fa fa-trash-can'),
+    prvek('Vše', '', true, { href: '/manager/files/default/default/all/?filesPaginator-page=1' })
+  ]);
+  check('ve stromu složek se neklikne na nic',
+    [strom.vysledek, strom.prvky.filter(one => one.kliknuto).length], [false, 0]);
 }
 
 /* ---------- ikonky v pruhu odkazů ---------- */
@@ -621,11 +650,20 @@ const vkladani = F.dropScript([{ name: 'a.webp', type: 'image/webp', b64: 'AAAA'
  * Soubory se proto předávají rovnou Dropzonu.
  */
 ok('soubor se předává Dropzonu', vkladani.includes('kam.addFile(one)'));
-ok('a když není, upustí se do stránky', vkladani.includes('new DragEvent'));
-ok('a jako poslední se zkusí políčko', vkladani.includes('policko.files = prenos.files'));
+ok('a když není, zkusí se políčko na soubor', vkladani.includes('policko.files = prenos.files'));
+ok('a jako poslední se soubor do stránky upustí', vkladani.includes('new DragEvent'));
 ok('obsah souboru cestuje s sebou, disk stránka nevidí',
   vkladani.includes('atob(one.b64)') && vkladani.includes('new File('));
+ok('a když není kam, upustí se rovnou na výpis souborů',
+  vkladani.includes('.manager-file'));
 ok('hledá se i v místech, kde Dropzone teprve bude', F.PROBE.includes('input[type=file]'));
+/*
+ * Diagnostika. Nahrávání se ladí na cizím počítači přes zprávu v chatu —
+ * bez toho, co přesně na stránce bylo, zní „nešlo to" stejně u iframu
+ * z cizí domény jako u přejmenovaného tlačítka.
+ */
+ok('hláška umí říct, co na stránce bylo',
+  F.PROBE.includes('tiles') && F.PROBE.includes('buttons') && F.PROBE.includes('location.href'));
 
 /* ---------- co se opravilo ---------- */
 

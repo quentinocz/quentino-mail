@@ -4,7 +4,8 @@ import path from 'path';
 import { getSetting, setSetting } from '../db';
 import { getUpgatesConfig } from '../upgates';
 import {
-  openUrl, waitForFileInput, insertFiles, eachFrame, waitForDropSpot, dropFiles, describeDropSpots
+  openUrl, waitForFileInput, insertFiles, eachFrame,
+  findDropSpot, waitForDropSpot, dropFiles, describeDropSpots
 } from '../formfile';
 import { keepSignedIn, signIn, signInNote } from '../portallogin';
 import type { ArticleFolder, ArticleUpload } from '../../shared/types';
@@ -262,11 +263,17 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    * Když se nenajde nic, zkusí se kliknout na tlačítko nahrávání a čeká se
    * znovu — teprve pak je to opravdu slepá ulička.
    */
-  let spot = await waitForDropSpot(win, 12_000);
+  let spot = await waitForDropSpot(win, 12_000, true);
   if (!spot && !win.isDestroyed()) {
     await odemkniNahravani(win);
-    spot = await waitForDropSpot(win, 60_000);
+    spot = await waitForDropSpot(win, 60_000, true);
   }
+  /*
+   * Poslední pokus: samotný výpis souborů. Upustit soubor na výpis
+   * v administraci funguje, jen se to nedá ověřit jinak než tím, že se
+   * soubor ve výpisu objeví — a to se stejně kontroluje níž.
+   */
+  if (!spot && !win.isDestroyed()) spot = await findDropSpot(win);
   const ready = !!spot;
 
   // Strom složek je na stránce stejně — nastavení z něj pak nabídne výběr
@@ -279,39 +286,11 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    */
   const before = new Set((await read<Tile[]>(win, TILES, [])).map(one => one.id));
 
-  /*
-   * Ruční cesta, když se políčko nenašlo. Nevyhazuje se chyba: soubory
-   * jsou hotové, okno je otevřené a jediné, co schází, je přetažení —
-   * tak se soubory ukážou ve složce a **adresy se přečtou stejně**, jen
-   * se počká déle. Slepá hláška „políčko se neobjevilo" po třech
-   * minutách čekání byla to nejhorší z obou světů.
-   */
   if (!ready) {
-    const kam = rucniSlozka();
-    // Čím dál od počítače, tím cennější: co přesně na té stránce bylo vidět
     const nalez = await describeDropSpots(win).catch(() => '');
-    const kopie = list.map(one => {
-      const cil = path.join(kam, path.basename(one));
-      try { fs.copyFileSync(one, cil); } catch { /* originál zůstává */ }
-      return cil;
-    });
-    try { shell.showItemInFolder(kopie[0] ?? kam); } catch { /* složka se otevře ručně */ }
-
-    const naleze = await collectUrls(win, names, before, 300);
-    return list.map((one, i) => {
-      const url = naleze.get(names[i]) ?? '';
-      return {
-        name: names[i], url, file: kopie[i] ?? one,
-        note: url
-          ? 'Nahráno ručně, adresu jsem přečetl z výpisu.'
-          : 'Ve správci souborů se neotevřelo nahrávání (nenašel jsem Dropzone ani políčko '
-            + 'na soubor v žádném rámu stránky), takže soubor nešlo vložit za tebe. '
-            + `Leží v ${kam} — přetáhni ho do okna správce souborů a adresu pak vlož sem. `
-            + `Otevřeno bylo ${filesAdminUrl()}; kdyby to byla špatná stránka, dojdi ve `
-            + 'stejném okně do správce souborů a použij „Naučit adresu".'
-            + (nalez ? ` (Co jsem na stránce našel — ${nalez}.)` : '')
-      };
-    });
+    return rucniCesta(win, list, names, before,
+      'Ve správci souborů se neotevřelo nahrávání (nenašel jsem Dropzone, políčko na soubor '
+      + 'ani výpis souborů).', nalez);
   }
 
   /*
@@ -331,22 +310,70 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
 
   const found = zpusob ? await collectUrls(win, names, before) : new Map<string, string>();
 
+  /*
+   * Přetažení se ověřit nedá.
+   *
+   * Událost se pošle a tím to končí — jestli si ji stránka vzala, se
+   * pozná jedině tak, že se soubor objeví ve výpisu. Když se neobjeví,
+   * nemá smysl tvrdit „nahrálo se, jen neznám adresu"; to byla ta hláška,
+   * po které nebylo jasné, co vlastně dělat. Místo toho se jde ruční
+   * cestou, která soubor připraví k přetažení a dál čeká.
+   */
+  if (found.size === 0) {
+    const nalez = await describeDropSpots(win).catch(() => '');
+    return rucniCesta(win, list, names, before,
+      `Soubor jsem do stránky vložil (${zpusob || 'žádnou cestou'}), ale ve výpisu se neobjevil.`,
+      nalez);
+  }
+
   const out: ArticleUpload[] = [];
   for (let i = 0; i < list.length; i++) {
     const url = found.get(names[i]) ?? '';
     out.push({
       name: names[i], url, file: list[i],
-      note: url ? ''
-        : zpusob
-          ? 'Soubor se nahrál, ale adresu se nepodařilo přečíst — otevři ho '
-            + 've správci souborů tlačítkem oka a adresu sem vlož.'
-          : 'Soubor se do správce souborů nepodařilo vložit. Okno je otevřené — '
-            + 'přetáhni ho do něj a adresu pak vlož sem.'
+      note: url ? '' : 'Soubor se nahrál, ale adresu se nepodařilo přečíst — otevři ho '
+        + 've správci souborů tlačítkem oka a adresu sem vlož.'
     });
   }
 
   closeIfDone(win, out);
   return out;
+}
+
+/**
+ * Ruční cesta: soubor se připraví a čeká se, až ho člověk přetáhne.
+ *
+ * Nevyhazuje se chyba. Soubory jsou hotové, okno správce souborů je
+ * otevřené a jediné, co schází, je přetažení — pak se **adresy přečtou
+ * úplně stejně**, jen se počká déle. Slepá hláška po třech minutách
+ * čekání byla to nejhorší z obou světů.
+ */
+async function rucniCesta(
+  win: BrowserWindow, list: string[], names: string[], before: Set<string>,
+  proc: string, nalez: string
+): Promise<ArticleUpload[]> {
+  const kam = rucniSlozka();
+  const kopie = list.map(one => {
+    const cil = path.join(kam, path.basename(one));
+    try { fs.copyFileSync(one, cil); } catch { /* originál zůstává */ }
+    return cil;
+  });
+  try { shell.showItemInFolder(kopie[0] ?? kam); } catch { /* složka se otevře ručně */ }
+
+  const naleze = await collectUrls(win, names, before, 300);
+  return list.map((one, i) => {
+    const url = naleze.get(names[i]) ?? '';
+    return {
+      name: names[i], url, file: kopie[i] ?? one,
+      note: url
+        ? 'Nahráno ručně, adresu jsem přečetl z výpisu.'
+        : `${proc} Soubor leží v ${kam} — přetáhni ho do okna správce souborů `
+          + 'a adresu pak vlož sem. '
+          + `Otevřeno bylo ${filesAdminUrl()}; kdyby to byla špatná stránka, dojdi ve `
+          + 'stejném okně do správce souborů a použij „Naučit adresu".'
+          + (nalez ? ` (Co jsem na stránce našel — ${nalez}.)` : '')
+    };
+  });
 }
 
 /** Kam se odloží soubory, když je nejde vložit za člověka. */
@@ -371,20 +398,41 @@ async function odemkniNahravani(win: BrowserWindow): Promise<boolean> {
 /** Vlastní skript je zvlášť, aby se dal vyzkoušet bez administrace. */
 const REVEAL = `
     (function () {
-      var hledej = /nahr[aá]t|vlo[žz]it|p[řr]idat soubor|upload|add file|new file/i;
-      var kandidati = Array.prototype.slice.call(
-        document.querySelectorAll('a, button, [role=button], .btn, .dz-clickable'));
+      var hledej = /nahr[aá]t|vlo[žz]it|p[řr]idat soubor|upload|add ?file|new file/i;
+      /*
+       * Hledá se široce schválně. Tlačítko v administraci Upgates nemusí
+       * mít žádný text — bývá to ikona s popiskem v "title" nebo
+       * "data-tip" a s obsluhou v "onclick" (dialogAddFile, upload…).
+       * Podle samotného textu se proto nenašlo nic a nahrávání skončilo
+       * hláškou, že se políčko neobjevilo.
+       */
+      var popisOf = function (one) {
+        var ikona = one.querySelector ? one.querySelector('i') : null;
+        return (one.textContent || '') + ' ' + (one.getAttribute('title') || '')
+          + ' ' + (one.getAttribute('data-tip') || '')
+          + ' ' + (one.getAttribute('data-original-title') || '')
+          + ' ' + (one.getAttribute('onclick') || '')
+          + ' ' + (one.className || '') + ' ' + ((ikona && ikona.className) || '');
+      };
+      var kandidati = Array.prototype.slice.call(document.querySelectorAll(
+        'a, button, [role=button], .btn, .smi, .dz-clickable, [onclick]'));
+      var videt = [];
+      var schovane = [];
       for (var i = 0; i < kandidati.length; i++) {
         var one = kandidati[i];
-        var popis = (one.textContent || '') + ' ' + (one.getAttribute('title') || '')
-          + ' ' + (one.getAttribute('data-original-title') || '') + ' ' + (one.className || '');
-        if (!hledej.test(popis)) continue;
+        if (!hledej.test(popisOf(one))) continue;
         var box = one.getBoundingClientRect();
-        if (box.width === 0 && box.height === 0) continue;
-        one.click();
-        return true;
+        if (box.width > 0 || box.height > 0) videt.push(one); else schovane.push(one);
       }
-      return false;
+      /*
+       * Nejdřív to, na co by člověk klikl. Schované tlačítko se zkusí až
+       * potom: v administraci bývá schovaná ta část lišty, která se
+       * rozbaluje pod „více", a klik na ni funguje stejně.
+       */
+      var kam = videt.concat(schovane)[0];
+      if (!kam) return false;
+      kam.click();
+      return true;
     })()
   `;
 
