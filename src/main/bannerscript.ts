@@ -91,6 +91,17 @@ const TEMPLATE = String.raw`
   /* Písmo se dědí ze stránky e-shopu, dokud si banner neřekne o vlastní */
   font-family: var(--qbn-font, inherit);
   text-decoration: none;
+  /*
+   * Zarovnání se naopak dědit **nesmí**. Blok leží v kontejneru šablony,
+   * který má "text-align: center" (na e-shopu je to
+   * ".container d-flex flex-col ai-c"), takže banner nastavený doleva se
+   * na webu kreslil na střed, i když v aplikaci vypadal správně. Karta
+   * proto zarovnání vždycky nastaví a odchylky si vynutí sama níž.
+   */
+  text-align: left;
+  /* Ze stejného důvodu: verzálky a kurzíva patří banneru, ne stránce */
+  text-transform: none;
+  font-style: normal;
   /* Poměr stran drží výšku dřív, než dotečou fotky — bez toho stránka poskakuje */
   aspect-ratio: 3 / 4;
   isolation: isolate;
@@ -171,6 +182,7 @@ a.qbn-card:focus-visible {
 .qbn-card[data-pos="top"] .qbn-body { justify-content: flex-start; }
 .qbn-card[data-pos="middle"] .qbn-body { justify-content: center; }
 .qbn-card[data-pos="bottom"] .qbn-body { justify-content: flex-end; }
+.qbn-card[data-align="left"] .qbn-body { align-items: flex-start; text-align: left; }
 .qbn-card[data-align="center"] .qbn-body { align-items: center; text-align: center; }
 .qbn-card[data-align="right"] .qbn-body { align-items: flex-end; text-align: right; }
 

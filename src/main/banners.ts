@@ -832,7 +832,13 @@ export function previewUrl(value: any, lang = 'cz'): string {
     'Rajdhani%3A300%2C400%2C700&display=swap&subset=latin%2Clatin-ext">',
     '<style>',
     'html,body{margin:0;background:#fff;color:#000;font-family:Rajdhani,sans-serif}',
-    '.qbn-ukazka{padding:0 16px}',
+    /*
+     * Na střed schválně. Kontejner šablony e-shopu má „text-align: center"
+     * a banner nastavený doleva se kvůli tomu na webu kreslil na střed,
+     * zatímco v náhledu byl vlevo — náhled tu dědičnost neměl čím
+     * napodobit, a tak se o chybě nedozvěděl.
+     */
+    '.qbn-ukazka{padding:0 16px;text-align:center}',
     '.qbn-jako{height:64px;display:flex;align-items:center;justify-content:center;',
     'border-bottom:1px solid #e6e6e9;color:#9b9ba3;font-size:12px;letter-spacing:.08em;',
     'text-transform:uppercase}',

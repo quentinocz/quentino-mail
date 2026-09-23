@@ -2406,7 +2406,7 @@
          */
         var html = '<!doctype html><meta charset="utf-8">'
           + '<style>html,body{margin:0;background:#fff;color:#000;font-family:Rajdhani,sans-serif}'
-          + '.qbn-ukazka{padding:0 16px}'
+          + '.qbn-ukazka{padding:0 16px;text-align:center}'
           + '.qbn-jako{height:64px;display:flex;align-items:center;justify-content:center;'
           + 'border-bottom:1px solid #e6e6e9;color:#9b9ba3;font-size:12px}'
           + '#banner1{margin:18px 0;padding:26px;border:1px dashed #d4d4d8;color:#9b9ba3;font-size:13px}'

@@ -519,6 +519,16 @@ for (const okno of OKNA) {
           vyska: Math.round(karta.getBoundingClientRect().height)
         };
       })(),
+      /*
+       * Zarovnání textu. Kontejner šablony e-shopu má „text-align: center"
+       * a dědí se — banner nastavený doleva se proto na webu kreslil na
+       * střed, zatímco v aplikaci vypadal správně. Čte se tedy skutečné
+       * zarovnání z vykreslené stránky, ne nastavení.
+       */
+      zarovnani: [...node.querySelectorAll('.qbn-card')].map(one => ({
+        chtene: one.getAttribute('data-align'),
+        skutecne: getComputedStyle(one.querySelector('.qbn-title') ?? one).textAlign
+      })),
       // Pruh odkazů na kategorie pod bannerem
       odkazy: (() => {
         const pruh = node.ownerDocument.querySelector('.qbn-links');
@@ -593,6 +603,14 @@ for (const okno of OKNA) {
     !!pc.padani && pc.padani.rozsah > pc.padani.vyska * 0.55,
     pc.padani ? `${pc.padani.rozsah} z ${pc.padani.vyska} px` : 'nezměřeno');
   // Pruh odkazů na kategorie — pod bannerem, ne v něm
+  /*
+   * Zarovnání se nesmí dědit ze stránky. Tahle kontrola je tu proto, že
+   * chyba prošla vším ostatním: v aplikaci banner stál vlevo, na webu na
+   * střed, a poznalo se to až na e-shopu.
+   */
+  say('  zarovnání textu odpovídá nastavení',
+    pc.zarovnani.every(one => one.chtene === one.skutecne),
+    pc.zarovnani.map(one => `${one.chtene}→${one.skutecne}`).join(' '));
   say('  pruh odkazů je pod bannerem',
     pc.odkazy?.pocet === 4 && pc.odkazy?.podBannerem === true && pc.odkazy?.sTextem === 4,
     pc.odkazy ? `${pc.odkazy.pocet} odkazů, pod blokem ${pc.odkazy.podBannerem}` : 'není');
