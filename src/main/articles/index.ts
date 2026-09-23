@@ -167,7 +167,13 @@ export async function openArticleImport(file: string): Promise<{ filled: boolean
   win.focus();
   const login = signInNote('upgates', await signIn(win, 'upgates'));
 
-  const out = await fillFileInput(win, file);
+  /*
+   * Vodítko změřené přímo v administraci (23. 9. 2026): políčko na
+   * stránce „Nový import — Texty" má id `frmguideForm-file`, je schované
+   * (`class="none"`) a bere .xml a .zip. Bez vodítka by rozhodlo pořadí,
+   * a to se s každou úpravou stránky může otočit.
+   */
+  const out = await fillFileInput(win, file, ['#frmguideForm-file', 'input[type=file]']);
   const note = out.filled
     ? 'Soubor je vložený. Zkontroluj nastavení importu a spusť ho.'
     : out.note;

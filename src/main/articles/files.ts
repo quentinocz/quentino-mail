@@ -323,7 +323,7 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   if (!ready) {
     // Čerstvější pohled má přednost, ale jen když je se koho ptát
     if (!win.isDestroyed()) nalez = await describeDropSpots(win).catch(() => nalez) || nalez;
-    return rucniCesta(win, list, names, before,
+    return rucniCesta(win, list, names, before, login,
       'Ve správci souborů se neotevřelo nahrávání (nenašel jsem Dropzone, políčko na soubor '
       + 'ani výpis souborů).', nalez);
   }
@@ -358,7 +358,7 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    */
   if (found.size === 0) {
     if (!win.isDestroyed()) nalez = await describeDropSpots(win).catch(() => nalez) || nalez;
-    return rucniCesta(win, list, names, before,
+    return rucniCesta(win, list, names, before, login,
       `Soubor jsem do stránky vložil (${zpusob || 'žádnou cestou'}), ale ve výpisu se neobjevil.`,
       nalez);
   }
@@ -368,8 +368,8 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
     const url = found.get(names[i]) ?? '';
     out.push({
       name: names[i], url, file: list[i],
-      note: url ? '' : 'Soubor se nahrál, ale adresu se nepodařilo přečíst — otevři ho '
-        + 've správci souborů tlačítkem oka a adresu sem vlož.'
+      note: [login, url ? '' : 'Soubor se nahrál, ale adresu se nepodařilo přečíst — otevři ho '
+        + 've správci souborů tlačítkem oka a adresu sem vlož.'].filter(Boolean).join(' ')
     });
   }
 
@@ -387,7 +387,7 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
  */
 async function rucniCesta(
   win: BrowserWindow, list: string[], names: string[], before: Set<string>,
-  proc: string, nalez: string
+  login: string, proc: string, nalez: string
 ): Promise<ArticleUpload[]> {
   const kam = rucniSlozka();
   const kopie = list.map(one => {
@@ -402,13 +402,19 @@ async function rucniCesta(
     const url = naleze.get(names[i]) ?? '';
     return {
       name: names[i], url, file: kopie[i] ?? one,
-      note: url
+      /*
+       * Hláška o přihlášení se **nesmí zahodit**. Byla tu spočítaná
+       * a zahozená: když aplikace do administrace nedostane, vypadá to
+       * úplně stejně jako „na stránce nic není" — a přesně to je nejčastější
+       * příčina, na kterou se přitom přijde jedinou větou.
+       */
+      note: [login, url
         ? 'Nahráno ručně, adresu jsem přečetl z výpisu.'
         : `${proc} Soubor leží v ${kam} — přetáhni ho do okna správce souborů `
           + 'a adresu pak vlož sem. '
           + `Otevřeno bylo ${filesAdminUrl()}; kdyby to byla špatná stránka, dojdi ve `
           + 'stejném okně do správce souborů a použij „Naučit adresu".'
-          + (nalez ? ` (Co jsem na stránce našel — ${nalez}.)` : '')
+          + (nalez ? ` (Co jsem na stránce našel — ${nalez}.)` : '')].filter(Boolean).join(' ')
     };
   });
 }
@@ -444,12 +450,21 @@ const REVEAL = `
     (function () {
       var hledej = /nahr[aá]t|vlo[žz]it|p[řr]idat soubor|upload|add ?file|new file/i;
       /*
-       * Hledá se široce schválně. Tlačítko v administraci Upgates nemusí
-       * mít žádný text — bývá to ikona s popiskem v "title" nebo
-       * "data-tip" a s obsluhou v "onclick" (dialogAddFile, upload…).
-       * Podle samotného textu se proto nenašlo nic a nahrávání skončilo
-       * hláškou, že se políčko neobjevilo.
+       * **Co se nesmí kliknout.**
+       *
+       * Tlačítko „Nový" ve správci souborů Upgates volá
+       * "upUploader.browse();" a to otevře **systémový dialog pro výběr
+       * souboru**. Ten zastaví celé okno: aplikace pak nedostane odpověď
+       * na žádný další dotaz a volání skončí hláškou „reply was never
+       * sent". Totéž dělá plocha Dropzonu (.dz-clickable) a popisek
+       * svázaný s políčkem na soubor — proto se vyhazují ze seznamu,
+       * i když se jinak trefí do hledaného textu.
+       *
+       * Otevřít nahrávání je tu k tomu, aby na stránce vzniklo políčko na
+       * soubor. Když se místo toho otevře dialog, je to horší než nedělat
+       * nic.
        */
+      var zakaz = /browse[ ]*[(]|upUploader|AddFileButton|CallAddFileToFileManager|dz-clickable|fileinput|file-input/i;
       var popisOf = function (one) {
         var ikona = one.querySelector ? one.querySelector('i') : null;
         return (one.textContent || '') + ' ' + (one.getAttribute('title') || '')
@@ -459,12 +474,16 @@ const REVEAL = `
           + ' ' + (one.className || '') + ' ' + ((ikona && ikona.className) || '');
       };
       var kandidati = Array.prototype.slice.call(document.querySelectorAll(
-        'a, button, [role=button], .btn, .smi, .dz-clickable, [onclick]'));
+        'a, button, [role=button], .btn, .smi, [onclick]'));
       var videt = [];
       var schovane = [];
       for (var i = 0; i < kandidati.length; i++) {
         var one = kandidati[i];
-        if (!hledej.test(popisOf(one))) continue;
+        var popis = popisOf(one);
+        if (!hledej.test(popis)) continue;
+        if (zakaz.test(popis)) continue;
+        /* Popisek svázaný s políčkem na soubor otevře dialog stejně jako klik do něj */
+        if (one.tagName === 'LABEL' && one.getAttribute('for')) continue;
         var box = one.getBoundingClientRect();
         if (box.width > 0 || box.height > 0) videt.push(one); else schovane.push(one);
       }

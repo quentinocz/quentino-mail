@@ -486,6 +486,34 @@ console.log('\nnahrávání fotek:\n');
   ]);
   check('ve stromu složek se neklikne na nic',
     [strom.vysledek, strom.prvky.filter(one => one.kliknuto).length], [false, 0]);
+
+  /*
+   * A hlavně: **nikdy neotevřít systémový dialog pro výběr souboru.**
+   *
+   * Tlačítko „Nový" ve správci souborů Upgates volá "upUploader.browse();"
+   * (změřeno přímo v administraci 23. 9. 2026). Ten dialog zastaví celé
+   * okno, aplikace nedostane odpověď na nic dalšího a volání skončí
+   * hláškou „reply was never sent" — přesně tohle se stalo.
+   */
+  const novy = spust([
+    prvek('Nový', 'btn btn-primary  AddFileButton', true, { onclick: 'upUploader.browse();' }),
+    prvek('', 'AddFileButton btns-add btnsAdd', false, { onclick: 'upUploader.browse();' })
+  ]);
+  check('na „Nový" s upUploader.browse() se neklikne',
+    [novy.vysledek, novy.prvky.filter(one => one.kliknuto).length], [false, 0]);
+  const plocha = spust([prvek('Nahrát soubory', 'dz-clickable', true)]);
+  ok('plocha Dropzonu se taky nechá být — klik do ní otevře dialog',
+    plocha.vysledek === false && !plocha.prvky[0].kliknuto);
+  const popisek = spust([
+    Object.assign(prvek('Nahrát soubory', '', true, { for: 'frmfile' }), { tagName: 'LABEL' })
+  ]);
+  ok('a popisek svázaný s políčkem na soubor taky ne', popisek.vysledek === false);
+  const poctivy = spust([
+    prvek('Nový', 'btn AddFileButton', true, { onclick: 'upUploader.browse();' }),
+    prvek('Nahrát soubory', 'btn btn-primary', true, { onclick: 'dialogUpload();' })
+  ]);
+  check('zato na tlačítko, které jen otevře nahrávání, ano',
+    [poctivy.vysledek, poctivy.prvky[1].kliknuto], [true, true]);
 }
 
 /* ---------- ikonky v pruhu odkazů ---------- */
