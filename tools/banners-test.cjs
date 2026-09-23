@@ -657,6 +657,29 @@ ok('obsah souboru cestuje s sebou, disk stránka nevidí',
 ok('a když není kam, upustí se rovnou na výpis souborů',
   vkladani.includes('.manager-file'));
 ok('hledá se i v místech, kde Dropzone teprve bude', F.PROBE.includes('input[type=file]'));
+
+/*
+ * Nic se nesmí zeptat stránky „navždy".
+ *
+ * `executeJavaScript` žádný vlastní strop nemá: když se vykreslovací proces
+ * zasekne (typicky nativním `confirm` po kliknutí), příslib se nevyřeší
+ * a v aplikaci z toho je „reply was never sent". Zkouší se to proti
+ * stránce, která prostě neodpoví — a běží to až nakonec, protože jediné
+ * v téhle zkoušce potřebuje počkat.
+ */
+const dobehne = (async () => {
+  const nikdy = { executeJavaScript: () => new Promise(() => {}) };
+  const zacatek = Date.now();
+  let hlaska = '';
+  await formfile.runJs(nikdy, '1', 250).catch(e => { hlaska = String(e.message || e); });
+  ok('dotaz na zaseklou stránku sám skončí',
+    hlaska.includes('neodpověděla') && Date.now() - zacatek < 3000,
+    `${hlaska} za ${Date.now() - zacatek} ms`);
+  const rychly = { executeJavaScript: async () => 'hotovo' };
+  check('a obyčejná odpověď projde beze změny', await formfile.runJs(rychly, '1', 500), 'hotovo');
+  ok('dialogy se před klikáním umlčí',
+    formfile.NO_DIALOGS.includes('window.confirm') && formfile.NO_DIALOGS.includes('window.alert'));
+})();
 /*
  * Diagnostika. Nahrávání se ladí na cizím počítači přes zprávu v chatu —
  * bez toho, co přesně na stránce bylo, zní „nešlo to" stejně u iframu
@@ -736,8 +759,10 @@ ok('a nepřetahuje si kotvu rolování', script.includes('overflow-anchor: none'
 ok('původní karusel se ze stránky odstraní, ne jen schová', kod.includes('removeChild'));
 ok('a jeho obrázkům se nejdřív sebere adresa', kod.includes('removeAttribute("srcset")'));
 
-if (failed) {
-  console.log(`\n✗ ${failed} zkoušek selhalo`);
-  process.exit(1);
-}
-console.log('\n✓ bannery sedí');
+dobehne.then(() => {
+  if (failed) {
+    console.log(`\n✗ ${failed} zkoušek selhalo`);
+    process.exit(1);
+  }
+  console.log('\n✓ bannery sedí');
+});

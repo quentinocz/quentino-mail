@@ -36,9 +36,19 @@ import * as path from 'path';
  * volání a okno pak jen viselo. Chyby přesměrování se tedy přeskakují,
  * ostatní se hlásí dál.
  */
-export async function openUrl(win: BrowserWindow, url: string): Promise<void> {
+export async function openUrl(win: BrowserWindow, url: string, timeoutMs = 45_000): Promise<void> {
   try {
-    await win.webContents.loadURL(url);
+    /*
+     * I načtení má strop. Stránka, která se nikdy nedonačte (viselý
+     * požadavek v administraci), by jinak držela celé volání navždy —
+     * a v aplikaci z toho je „reply was never sent". Po vypršení se jede
+     * dál: co se stihlo vykreslit, se stejně dá prohledat.
+     */
+    let hlidac: NodeJS.Timeout | null = null;
+    await Promise.race([
+      win.webContents.loadURL(url),
+      new Promise<void>(resolve => { hlidac = setTimeout(resolve, timeoutMs); })
+    ]).finally(() => { if (hlidac) clearTimeout(hlidac); });
   } catch (e: any) {
     const code = Number(e?.errno ?? e?.code ?? 0);
     const text = String(e?.message ?? e);
@@ -146,7 +156,7 @@ export async function waitForFileInput(
      * takže se k oknu vůbec nedošlo. Vnořené rámy jsou proto až přídavek
      * pro správce souborů a sahá se na ně, teprve když okno nic nenajde.
      */
-    const found = await win.webContents.executeJavaScript(script, true).catch(() => false);
+    const found = await runJs<boolean>(win.webContents, script, 6_000).catch(() => false);
     if (found === true) return true;
     const vnorene = await subFrames<boolean>(win, script);
     if (vnorene.some(one => one.value === true)) return true;
@@ -254,6 +264,61 @@ export async function fillFileInput(
 /* ==================== vložení souboru bez políčka ==================== */
 
 /**
+ * Spuštění skriptu, které **vždycky skončí**.
+ *
+ * `executeJavaScript` nemá žádný vlastní časový strop: když se vykreslovací
+ * proces zasekne (nejčastěji nativním `confirm` po kliknutí), příslib se
+ * nikdy nevyřeší. Celé volání pak visí donekonečna a v aplikaci z toho je
+ * „reply was never sent" — hláška, ze které nikdo nepozná, co se stalo.
+ * Strop je proto tady, u každého jednoho dotazu na stránku.
+ */
+export async function runJs<T>(
+  target: { executeJavaScript(code: string, gesture?: boolean): Promise<any> },
+  script: string, timeoutMs = 6_000
+): Promise<T> {
+  let hlidac: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      target.executeJavaScript(script, true) as Promise<T>,
+      new Promise<T>((_, reject) => {
+        hlidac = setTimeout(() => reject(new Error('stránka neodpověděla včas')), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (hlidac) clearTimeout(hlidac);
+  }
+}
+
+/**
+ * Umlčení nativních dialogů na stránce.
+ *
+ * `alert`, `confirm` a `prompt` zastaví celý vykreslovací proces, dokud na
+ * ně někdo neklikne — a od té chvíle neodpoví na žádný dotaz. Aplikace do
+ * administrace kliká (hledá tlačítko nahrávání), takže si tohle riziko
+ * přivolává sama; proto se ty tři funkce předem nahradí za tiché.
+ */
+export const NO_DIALOGS = `
+  (function () {
+    try {
+      window.alert = function () {};
+      window.confirm = function () { return true; };
+      window.prompt = function () { return null; };
+      return true;
+    } catch (e) { return false; }
+  })()
+`;
+
+/** Umlčí dialogy ve všech rámech okna. Chyby nevadí — je to pojistka. */
+export async function silenceDialogs(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed()) return;
+  await runJs(win.webContents, NO_DIALOGS, 3_000).catch(() => false);
+  for (const frame of framesOf(win).slice(1)) {
+    if (frame.detached) continue;
+    await runJs(frame, NO_DIALOGS, 3_000).catch(() => false);
+  }
+}
+
+/**
  * Rámce stránky, hlavní i vnořené.
  *
  * Správce souborů Upgates běží ve **vnořeném rámu**, takže
@@ -310,7 +375,7 @@ export async function subFrames<T>(
   for (const frame of all.slice(1)) {
     try {
       if (frame.detached) continue;
-      const value = await frame.executeJavaScript(script, true) as T;
+      const value = await runJs<T>(frame, script, 6_000);
       if (value !== undefined && value !== null) out.push({ frame, value });
     } catch { /* rám se přenačetl nebo je z cizí domény */ }
   }
@@ -338,7 +403,7 @@ export async function eachFrameDetail<T>(
   }
 
   try {
-    out.push({ frame: null, value: await win.webContents.executeJavaScript(script, true) as T });
+    out.push({ frame: null, value: await runJs<T>(win.webContents, script, 6_000) });
   } catch (e: any) {
     errors.push(`okno: ${String(e?.message ?? e).slice(0, 120)}`);
   }
@@ -349,7 +414,7 @@ export async function eachFrameDetail<T>(
     if (frame === main) continue;
     try {
       if (frame.detached) continue;
-      out.push({ frame, value: await frame.executeJavaScript(script, true) as T });
+      out.push({ frame, value: await runJs<T>(frame, script, 6_000) });
     } catch (e: any) {
       errors.push(`rám ${frame.url?.slice(0, 60) ?? '?'}: ${String(e?.message ?? e).slice(0, 120)}`);
     }
@@ -362,8 +427,9 @@ export async function eachFrameDetail<T>(
 
 /** Spustí skript tam, kde se našlo nahrávání; `null` znamená celé okno. */
 async function runIn<T>(win: BrowserWindow, frame: WebFrameMain | null, script: string): Promise<T> {
-  if (frame && !frame.detached) return await frame.executeJavaScript(script, true) as T;
-  return await win.webContents.executeJavaScript(script, true) as T;
+  // Delší strop: tímhle skriptem cestuje i obsah souboru, takže se pár vteřin počká
+  if (frame && !frame.detached) return await runJs<T>(frame, script, 30_000);
+  return await runJs<T>(win.webContents, script, 30_000);
 }
 
 /**

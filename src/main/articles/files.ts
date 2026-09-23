@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../db';
 import { getUpgatesConfig } from '../upgates';
 import {
   openUrl, waitForFileInput, insertFiles, eachFrame,
-  findDropSpot, waitForDropSpot, dropFiles, describeDropSpots
+  findDropSpot, waitForDropSpot, dropFiles, describeDropSpots, silenceDialogs
 } from '../formfile';
 import { keepSignedIn, signIn, signInNote } from '../portallogin';
 import type { ArticleFolder, ArticleUpload } from '../../shared/types';
@@ -429,6 +429,13 @@ function rucniSlozka(): string {
  * s každou verzí, kdežto „Nahrát soubory" zůstává.
  */
 async function odemkniNahravani(win: BrowserWindow): Promise<boolean> {
+  /*
+   * Před klikáním se umlčí nativní dialogy. `confirm` zastaví celý
+   * vykreslovací proces, dokud na něj někdo neklikne — a od té chvíle
+   * stránka neodpoví na žádný dotaz. Aplikace do administrace kliká, takže
+   * si to riziko přivolává sama; odtud „reply was never sent".
+   */
+  await silenceDialogs(win);
   return read<boolean>(win, REVEAL, false);
 }
 
