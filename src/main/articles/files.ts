@@ -263,10 +263,26 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    * Když se nenajde nic, zkusí se kliknout na tlačítko nahrávání a čeká se
    * znovu — teprve pak je to opravdu slepá ulička.
    */
-  let spot = await waitForDropSpot(win, 12_000, true);
+  /*
+   * Nález se zapisuje **hned**, dokud okno žije.
+   *
+   * Hledání trvá i dvě minuty a člověk, který mezitím nic nevidí, okno
+   * zavře — pak se aplikace ptala zavřeného okna a do hlášky napsala
+   * „okno už je zavřené", což o administraci neřeklo vůbec nic. Tohle je
+   * pohled na stránku z chvíle, kdy byla ještě otevřená.
+   */
+  let nalez = await describeDropSpots(win).catch(() => '');
+
+  /*
+   * Čeká se krátce. Dřív to bylo dvanáct vteřin, minuta, přenačtení
+   * a ještě čtyřicet vteřin — dohromady přes dvě minuty, po které se
+   * v okně nic nedělo. Kdo u toho sedí, okno v půlce zavře, a aplikace
+   * se pak ptá zavřeného okna. Nahrávání se buď otevře hned, nebo ne.
+   */
+  let spot = await waitForDropSpot(win, 6_000, true);
   if (!spot && !win.isDestroyed()) {
     await odemkniNahravani(win);
-    spot = await waitForDropSpot(win, 60_000, true);
+    spot = await waitForDropSpot(win, 20_000, true);
   }
   /*
    * Stránka mlčí? Přenačíst a zkusit znovu.
@@ -279,10 +295,10 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   if (!spot && !win.isDestroyed()) {
     await openUrl(win, filesAdminUrl());
     await new Promise(resolve => setTimeout(resolve, 1500));
-    spot = await waitForDropSpot(win, 20_000, true);
+    spot = await waitForDropSpot(win, 10_000, true);
     if (!spot && !win.isDestroyed()) {
       await odemkniNahravani(win);
-      spot = await waitForDropSpot(win, 40_000, true);
+      spot = await waitForDropSpot(win, 15_000, true);
     }
   }
 
@@ -305,7 +321,8 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   const before = new Set((await read<Tile[]>(win, TILES, [])).map(one => one.id));
 
   if (!ready) {
-    const nalez = await describeDropSpots(win).catch(() => '');
+    // Čerstvější pohled má přednost, ale jen když je se koho ptát
+    if (!win.isDestroyed()) nalez = await describeDropSpots(win).catch(() => nalez) || nalez;
     return rucniCesta(win, list, names, before,
       'Ve správci souborů se neotevřelo nahrávání (nenašel jsem Dropzone, políčko na soubor '
       + 'ani výpis souborů).', nalez);
@@ -340,7 +357,7 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    * cestou, která soubor připraví k přetažení a dál čeká.
    */
   if (found.size === 0) {
-    const nalez = await describeDropSpots(win).catch(() => '');
+    if (!win.isDestroyed()) nalez = await describeDropSpots(win).catch(() => nalez) || nalez;
     return rucniCesta(win, list, names, before,
       `Soubor jsem do stránky vložil (${zpusob || 'žádnou cestou'}), ale ve výpisu se neobjevil.`,
       nalez);

@@ -390,14 +390,14 @@ export async function uploadProductImages(code: string, files: string[]): Promis
   win.focus();
   const login = signInNote('upgates', await signIn(win, 'upgates'));
 
+  /*
+   * Co na stránce doopravdy je. Zapisuje se **hned**, dokud okno žije:
+   * na políčko se čeká i tři minuty a kdo mezitím okno zavře, dostal by
+   * v hlášce jen „okno už je zavřené" — a to o administraci neřekne nic.
+   */
+  const nalez = await describeDropSpots(win).catch(() => '');
   const ready = await waitForFileInput(win, IMAGE_INPUT_HINTS, 3 * 60_000);
   if (!ready) {
-    /*
-     * Co na stránce doopravdy bylo. Bez toho se nedá poznat, jestli se
-     * změnila administrace e-shopu, nebo je chyba v aplikaci — a ladí se
-     * to na dálku podle jedné věty od člověka, který u toho seděl.
-     */
-    const nalez = await describeDropSpots(win).catch(() => '');
     return {
       opened: true, filled: false,
       note: [login, `Políčko pro fotky se na stránce neobjevilo. Fotky jsou v ${productFolder(code)}`

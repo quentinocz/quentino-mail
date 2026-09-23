@@ -680,17 +680,39 @@ ok('hláška umí říct, co na stránce bylo',
     'return (' + F.PROBE + ')')(doc, {}, { href: 'https://admin/x' });
   const zdravy = spust({
     title: 'Soubory', querySelector: () => null,
-    querySelectorAll: sel => (sel === '.manager-file' ? [{}, {}, {}] : [])
+    querySelectorAll: sel => (sel === '.manager-file' ? [{}, {}, {}] : []),
+    getElementsByTagName: () => ({ length: 0 })
   });
   check('na obyčejné stránce spočítá, co na ní je',
     [zdravy.tiles, zdravy.chyba], [3, '']);
   const zlobivy = spust({
     title: 'Soubory',
     querySelector: () => { throw new Error('Permission denied'); },
-    querySelectorAll: () => { throw new Error('Permission denied'); }
+    querySelectorAll: () => { throw new Error('Permission denied'); },
+    getElementsByTagName: () => { throw new Error('Permission denied'); }
   });
   ok('a když se stránka brání, vrátí chybu místo výjimky',
     !!zlobivy && zlobivy.chyba.includes('Permission denied'), JSON.stringify(zlobivy));
+
+  /*
+   * Stínový DOM. Administrace si může nahrávací prvek schovat do
+   * komponenty — a obyčejné querySelectorAll se do ní nepodívá, takže
+   * zvenčí to vypadá, že na stránce žádné políčko na soubor není.
+   * Přesně tímhle způsobem umí přestat fungovat všechno naráz.
+   */
+  const stin = {
+    querySelectorAll: sel => (sel === 'input[type=file]' ? [{ schovane: true }] : []),
+    querySelector: () => null
+  };
+  const host = { shadowRoot: stin };
+  const sestinem = spust({
+    title: 'Produkt',
+    querySelector: () => null,
+    querySelectorAll: sel => (sel === '*' ? [host] : []),
+    getElementsByTagName: () => ({ length: 12 })
+  });
+  check('políčko schované ve stínovém DOMu se najde',
+    [sestinem.input, sestinem.stinu], [1, 1]);
 }
 
 /* ---------- co se opravilo ---------- */

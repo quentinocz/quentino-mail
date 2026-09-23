@@ -52,6 +52,33 @@ export async function openUrl(win: BrowserWindow, url: string): Promise<void> {
 const MARK = 'data-quentino-file';
 
 /**
+ * Hledání, které projde i **stínový DOM**.
+ *
+ * `document.querySelectorAll` se do stínového kořene nepodívá — a co je
+ * v něm, pro stránku jako by nebylo. Administrace e-shopu si takhle může
+ * ze dne na den schovat celý nahrávací prvek a zvenčí to vypadá, že na
+ * stránce žádné políčko na soubor není. Rovnou se prochází i vnořené
+ * kořeny, protože komponenty bývají v sobě.
+ */
+const DEEP = `
+  function hluboko(sel, korenu) {
+    var out = [];
+    var videno = 0;
+    var projdi = function (root) {
+      if (!root || videno > 40) return;
+      try { out.push.apply(out, root.querySelectorAll(sel)); } catch (e) { /* jiný kořen */ }
+      var vse;
+      try { vse = root.querySelectorAll('*'); } catch (e) { return; }
+      for (var i = 0; i < vse.length; i++) {
+        if (vse[i].shadowRoot) { videno++; if (korenu) korenu.pocet++; projdi(vse[i].shadowRoot); }
+      }
+    };
+    projdi(document);
+    return out;
+  }
+`;
+
+/**
  * Skript do okna: najde políčko na soubor a označí ho.
  *
  * Vrací `true`, když nějaké našel. Skryté políčko se přeskakuje — stránky
@@ -67,7 +94,15 @@ function markScript(hint: string | string[]): string {
         var box = el.getBoundingClientRect();
         return box.width > 0 || box.height > 0 || el.offsetParent !== null;
       }
+      ${DEEP}
+      /*
+       * Nejdřív obyčejné hledání — tak to funguje u dopravců i u importu
+       * a nemá smysl na tom nic měnit. Stínový DOM se prochází, jen když
+       * obyčejné hledání nenajde nic: je to dražší a potřeba to je jen
+       * tam, kde si stránka prvek schovala do komponenty.
+       */
       var all = Array.prototype.slice.call(document.querySelectorAll('input[type=file]'));
+      if (all.length === 0) all = hluboko('input[type=file]');
       var hints = ${JSON.stringify(hints)};
       var found = null;
       /*
@@ -192,10 +227,10 @@ export async function insertFiles(win: BrowserWindow, files: string[]): Promise<
 export async function fillFileInput(
   win: BrowserWindow, file: string, hint: string | string[] = '', timeoutMs = 3 * 60_000
 ): Promise<{ filled: boolean; url: string; note: string }> {
+  // Co na stránce bylo — zapsat hned, dokud okno žije (čeká se i tři minuty)
+  const nalez = await describeDropSpots(win).catch(() => '');
   const ready = await waitForFileInput(win, hint, timeoutMs);
   if (!ready) {
-    // Co na stránce bylo — jinak je „neobjevilo se" hláška bez stopy
-    const nalez = await describeDropSpots(win).catch(() => '');
     return {
       filled: false,
       url: '',
@@ -342,15 +377,25 @@ async function runIn<T>(win: BrowserWindow, frame: WebFrameMain | null, script: 
 const PROBE = `
   (function () {
    try {
+    ${DEEP}
+    /* Kolik má stránka stínových kořenů — počítá se jednou, ne při každém hledání */
+    var stinu = 0;
+    try {
+      var vseNaStrance = document.querySelectorAll('*');
+      for (var k = 0; k < vseNaStrance.length; k++) if (vseNaStrance[k].shadowRoot) stinu++;
+    } catch (e) { stinu = 0; }
     var dz = 0;
     try {
       dz = ((window.Dropzone && window.Dropzone.instances) || []).filter(function (one) {
         return one && one.element && one.element.isConnected;
       }).length;
     } catch (e) { dz = 0; }
-    var plocha = document.querySelector('.dropzone, .dz-clickable, [class*="dropzone"], [class*="Dropzone"]')
-      ? 1 : 0;
-    var vypis = document.querySelectorAll('.manager-file').length;
+    var PLOCHA = '.dropzone, .dz-clickable, [class*="dropzone"], [class*="Dropzone"]';
+    var plocha = document.querySelector(PLOCHA) ? 1 : (hluboko(PLOCHA).length ? 1 : 0);
+    var vypis = document.querySelectorAll('.manager-file').length
+      || hluboko('.manager-file').length;
+    var policka = document.querySelectorAll('input[type=file]').length
+      || hluboko('input[type=file]').length;
     /* Tlačítka, která by nahrávání mohla otevřít — podle textu i podle obsluhy */
     var hledej = /nahr[aá]t|vlo[žz]it|p[řr]idat soubor|upload|add ?file|new file/i;
     var tlacitka = 0;
@@ -367,8 +412,12 @@ const PROBE = `
         .replace(/\\s+/g, ' ').trim().slice(0, 30) || (one.className || '').slice(0, 30));
     }
     return {
-      dz: dz, drop: plocha, input: document.querySelectorAll('input[type=file]').length,
+      dz: dz, drop: plocha, input: policka,
       tiles: vypis, buttons: tlacitka, names: nazvy,
+      /* Kolik toho na stránce vůbec je — podle toho se pozná prázdná stránka */
+      prvku: document.getElementsByTagName('*').length,
+      ramu: document.getElementsByTagName('iframe').length,
+      stinu: stinu,
       url: String(location.href).slice(0, 120), title: String(document.title).slice(0, 60),
       chyba: ''
     };
@@ -380,6 +429,7 @@ const PROBE = `
      */
     return {
       dz: 0, drop: 0, input: 0, tiles: 0, buttons: 0, names: [],
+      prvku: 0, ramu: 0, stinu: 0,
       url: String(location.href).slice(0, 120), title: String(document.title).slice(0, 60),
       chyba: String((e && e.message) || e).slice(0, 120)
     };
@@ -389,7 +439,9 @@ const PROBE = `
 
 export interface DropSpot {
   dz: number; drop: number; input: number;
-  tiles: number; buttons: number; names: string[]; url: string; title: string; chyba: string;
+  tiles: number; buttons: number; names: string[];
+  prvku: number; ramu: number; stinu: number;
+  url: string; title: string; chyba: string;
 }
 
 /** Nejjednodušší možná otázka: odpovídá stránka vůbec? */
@@ -451,7 +503,8 @@ export async function describeDropSpots(win: BrowserWindow): Promise<string> {
       const v = one.value;
       const kde = one.frame ? `rám ${i + 1}` : 'okno';
       if (!v) return `${kde}: bez odpovědi`;
-      return `${kde} (${v.title || v.url}): dropzone ${v.dz}, plocha ${v.drop},`
+      return `${kde} (${v.title || v.url}): ${v.prvku} prvků, ${v.ramu} rámů,`
+        + ` ${v.stinu} stínových kořenů, dropzone ${v.dz}, plocha ${v.drop},`
         + ` políček ${v.input}, souborů ve výpisu ${v.tiles},`
         + ` tlačítek k nahrání ${v.buttons}${v.names.length ? ` [${v.names.join(' | ')}]` : ''}`
         + (v.chyba ? ` — hledání spadlo na: ${v.chyba}` : '');
