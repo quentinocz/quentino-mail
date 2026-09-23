@@ -418,6 +418,47 @@ console.log('\nnahrávání fotek:\n');
   ok('bez adresy administrace se ale nahrávat nedá', !files.filesReady());
 }
 
+/*
+ * Otevření nahrávání ve správci souborů.
+ *
+ * Výpis souborů žádné políčko na soubor nemá — Dropzone si ho vyrobí
+ * teprve po kliknutí na „Nahrát soubory". Dřív se na něj čekalo tři
+ * minuty a pak vypadlo „políčko se neobjevilo", tedy hláška, ze které
+ * nebylo poznat, co dělat. Hledá se **podle textu**, protože třídy se
+ * v šabloně mění s každou verzí, kdežto „Nahrát soubory" zůstává.
+ */
+{
+  const files = require(path.join(DIST, 'articles/files.js'));
+  const prvek = (text, cls, vidi = true) => ({
+    textContent: text, className: cls || '',
+    getAttribute: () => null,
+    getBoundingClientRect: () => (vidi ? { width: 120, height: 32 } : { width: 0, height: 0 }),
+    click() { this.kliknuto = true; },
+    kliknuto: false
+  });
+  const spust = prvky => {
+    const doc = { querySelectorAll: () => prvky };
+    /*
+     * Závorky kolem schválně: skript začíná novým řádkem a „return" by se
+     * jinak ukončil středníkem sám od sebe — vrátilo by se `undefined`
+     * a zkouška by měřila vlastní chybu místo skriptu.
+     */
+    // eslint-disable-next-line no-new-func
+    return { vysledek: new Function('document', 'return (' + files.__test.REVEAL + ')')(doc), prvky };
+  };
+
+  const a = spust([prvek('Zpět'), prvek('Nahrát soubory'), prvek('Smazat')]);
+  check('nahrávání se otevře klepnutím na „Nahrát soubory"',
+    [a.vysledek, a.prvky[1].kliknuto], [true, true]);
+  const b = spust([prvek('Upload files', 'btn')]);
+  ok('anglická šablona taky', b.vysledek === true);
+  const c = spust([prvek('Nahrát soubory', '', false), prvek('Vložit soubor')]);
+  check('schované tlačítko se přeskočí — klikat na neviditelné nemá smysl',
+    [c.prvky[0].kliknuto, c.prvky[1].kliknuto], [false, true]);
+  const d = spust([prvek('Zpět'), prvek('Smazat')]);
+  ok('a když tam nic takového není, nic se neklikne', d.vysledek === false);
+}
+
 /* ---------- náhled v aplikaci ---------- */
 
 console.log('\nnáhled v aplikaci:\n');

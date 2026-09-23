@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app, shell } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { getSetting, setSetting } from '../db';
@@ -241,12 +241,18 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    * takže „to viditelné" by na stránce nenašlo nic. Hledá se proto přímo
    * podle jeho třídy.
    */
-  const ready = await waitForFileInput(win, [
-    'input.dz-hidden-input',
-    'input[type=file]'
-  ], 3 * 60_000);
-  if (!ready) {
-    throw new Error(`Políčko pro soubor se ve správci souborů neobjevilo.${login ? ` ${login}` : ''}`);
+  /*
+   * Políčko na soubor na výpisu souborů **není** — Dropzone si ho vyrobí
+   * teprve tehdy, když se otevře nahrávání. Čeká se proto krátce, pak se
+   * nahrávání zkusí otevřít kliknutím a čeká se znovu. Dřív se čekalo
+   * tři minuty na něco, co samo od sebe nikdy nepřijde, a skončilo to
+   * hláškou „políčko se neobjevilo".
+   */
+  const HINTS = ['input.dz-hidden-input', 'input[type=file]'];
+  let ready = await waitForFileInput(win, HINTS, 12_000);
+  if (!ready && !win.isDestroyed()) {
+    await odemkniNahravani(win);
+    ready = await waitForFileInput(win, HINTS, 60_000);
   }
 
   // Strom složek je na stránce stejně — nastavení z něj pak nabídne výběr
@@ -255,9 +261,40 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   /*
    * Co ve výpisu bylo před nahráním. Bez toho by se u druhého souboru
    * téhož jména vrátila adresa toho staršího — a v článku by byla cizí
-   * fotka.
+   * fotka. Platí to pro obě cesty, tu vlastní i ruční.
    */
   const before = new Set((await read<Tile[]>(win, TILES, [])).map(one => one.id));
+
+  /*
+   * Ruční cesta, když se políčko nenašlo. Nevyhazuje se chyba: soubory
+   * jsou hotové, okno je otevřené a jediné, co schází, je přetažení —
+   * tak se soubory ukážou ve složce a **adresy se přečtou stejně**, jen
+   * se počká déle. Slepá hláška „políčko se neobjevilo" po třech
+   * minutách čekání byla to nejhorší z obou světů.
+   */
+  if (!ready) {
+    const kam = rucniSlozka();
+    const kopie = list.map(one => {
+      const cil = path.join(kam, path.basename(one));
+      try { fs.copyFileSync(one, cil); } catch { /* originál zůstává */ }
+      return cil;
+    });
+    try { shell.showItemInFolder(kopie[0] ?? kam); } catch { /* složka se otevře ručně */ }
+
+    const naleze = await collectUrls(win, names, before, 300);
+    return list.map((one, i) => {
+      const url = naleze.get(names[i]) ?? '';
+      return {
+        name: names[i], url, file: kopie[i] ?? one,
+        note: url
+          ? 'Nahráno ručně, adresu jsem přečetl z výpisu.'
+          : 'Ve správci souborů se neotevřelo nahrávání, takže soubor nešlo vložit za tebe. '
+            + `Leží v ${kam} — přetáhni ho do okna správce souborů a adresu pak vlož sem. `
+            + `Otevřeno bylo ${filesAdminUrl()}; kdyby to byla špatná stránka, dojdi ve `
+            + 'stejném okně do správce souborů a použij „Naučit adresu".'
+      };
+    });
+  }
 
   await insertFiles(win, list);
 
@@ -276,6 +313,45 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   closeIfDone(win, out);
   return out;
 }
+
+/** Kam se odloží soubory, když je nejde vložit za člověka. */
+function rucniSlozka(): string {
+  const dir = path.join(app.getPath('downloads'), 'quentino-web', 'nahrat');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * Otevře ve správci souborů nahrávání.
+ *
+ * Výpis souborů žádné políčko na soubor nemá — Dropzone si ho vyrobí
+ * teprve tehdy, když se nahrávání otevře. Hledá se proto tlačítko, které
+ * to udělá, a to podle **textu**, ne podle třídy: třídy se v šabloně mění
+ * s každou verzí, kdežto „Nahrát soubory" zůstává.
+ */
+async function odemkniNahravani(win: BrowserWindow): Promise<boolean> {
+  return read<boolean>(win, REVEAL, false);
+}
+
+/** Vlastní skript je zvlášť, aby se dal vyzkoušet bez administrace. */
+const REVEAL = `
+    (function () {
+      var hledej = /nahr[aá]t|vlo[žz]it|p[řr]idat soubor|upload|add file|new file/i;
+      var kandidati = Array.prototype.slice.call(
+        document.querySelectorAll('a, button, [role=button], .btn, .dz-clickable'));
+      for (var i = 0; i < kandidati.length; i++) {
+        var one = kandidati[i];
+        var popis = (one.textContent || '') + ' ' + (one.getAttribute('title') || '')
+          + ' ' + (one.getAttribute('data-original-title') || '') + ' ' + (one.className || '');
+        if (!hledej.test(popis)) continue;
+        var box = one.getBoundingClientRect();
+        if (box.width === 0 && box.height === 0) continue;
+        one.click();
+        return true;
+      }
+      return false;
+    })()
+  `;
 
 /**
  * Zavře okno správce souborů, když už v něm není co dělat.
@@ -404,4 +480,4 @@ export async function noteFileUrl(_name: string, url: string): Promise<{ ok: boo
   return { ok: true, note: 'Adresa sedí.' };
 }
 
-export const __test = { filesAdminUrl, TILES, FOLDERS };
+export const __test = { filesAdminUrl, TILES, FOLDERS, REVEAL };
