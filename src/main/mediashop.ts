@@ -4,7 +4,7 @@ import path from 'path';
 import { getDb, getSetting, setSetting } from './db';
 import { getUpgatesConfig } from './upgates';
 import { listProducts } from './products';
-import { openUrl, waitForFileInput, insertFiles } from './formfile';
+import { openUrl, waitForFileInput, insertFiles, describeDropSpots } from './formfile';
 import { keepSignedIn, signIn, signInNote } from './portallogin';
 import { mediaSetup } from './media';
 import type { MediaFile, MediaProduct, MediaProductPage, MediaProductQuery, MediaProductSetup,
@@ -392,10 +392,17 @@ export async function uploadProductImages(code: string, files: string[]): Promis
 
   const ready = await waitForFileInput(win, IMAGE_INPUT_HINTS, 3 * 60_000);
   if (!ready) {
+    /*
+     * Co na stránce doopravdy bylo. Bez toho se nedá poznat, jestli se
+     * změnila administrace e-shopu, nebo je chyba v aplikaci — a ladí se
+     * to na dálku podle jedné věty od člověka, který u toho seděl.
+     */
+    const nalez = await describeDropSpots(win).catch(() => '');
     return {
       opened: true, filled: false,
       note: [login, `Políčko pro fotky se na stránce neobjevilo. Fotky jsou v ${productFolder(code)}`
-        + ' — přetáhni je do sekce s obrázky ručně.'].filter(Boolean).join(' ')
+        + ' — přetáhni je do sekce s obrázky ručně.'
+        + (nalez ? ` (Co jsem na stránce našel — ${nalez}.)` : '')].filter(Boolean).join(' ')
     };
   }
   try {

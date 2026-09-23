@@ -102,9 +102,19 @@ export async function waitForFileInput(
   const script = markScript(hint);
   while (Date.now() < until) {
     if (win.isDestroyed()) return false;
-    // Ve všech rámech: správce souborů Upgates je ve vnořeném rámu
-    const all = await eachFrame<boolean>(win, script);
-    if (all.some(one => one.value === true)) return true;
+    /*
+     * **Okno první, a přesně tak jako dřív.**
+     *
+     * Tudy se roky vkládaly štítky dopravců, fotky produktů i importní
+     * XML. Když jsem hledání přesměroval do jednotlivých rámů, přestalo
+     * fungovat všechno naráz — rám odpověděl, ale ne tím, co se čekalo,
+     * takže se k oknu vůbec nedošlo. Vnořené rámy jsou proto až přídavek
+     * pro správce souborů a sahá se na ně, teprve když okno nic nenajde.
+     */
+    const found = await win.webContents.executeJavaScript(script, true).catch(() => false);
+    if (found === true) return true;
+    const vnorene = await subFrames<boolean>(win, script);
+    if (vnorene.some(one => one.value === true)) return true;
     await new Promise(resolve => setTimeout(resolve, 700));
   }
   return false;
@@ -138,7 +148,9 @@ export async function insertFiles(win: BrowserWindow, files: string[]): Promise<
   try {
     if (!dbg.isAttached()) { dbg.attach('1.3'); attached = true; }
     await dbg.sendCommand('DOM.enable');
-    const doc: any = await dbg.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
+    // Přesně jako dřív. „pierce" vrací i obsah vnořených rámů, jenže je to
+    // zároveň jiný strom uzlů — a tahle cesta funguje roky, tak se nesahá.
+    const doc: any = await dbg.sendCommand('DOM.getDocument', { depth: -1 });
     const found: any = await dbg.sendCommand('DOM.querySelector', {
       nodeId: doc.root.nodeId,
       selector: `[${MARK}]`
@@ -182,10 +194,13 @@ export async function fillFileInput(
 ): Promise<{ filled: boolean; url: string; note: string }> {
   const ready = await waitForFileInput(win, hint, timeoutMs);
   if (!ready) {
+    // Co na stránce bylo — jinak je „neobjevilo se" hláška bez stopy
+    const nalez = await describeDropSpots(win).catch(() => '');
     return {
       filled: false,
       url: '',
       note: `Políčko pro soubor se neobjevilo. Soubor je uložený v ${file} — vyber ho v okně ručně.`
+        + (nalez ? ` (Co jsem na stránce našel — ${nalez}.)` : '')
     };
   }
   const url = win.isDestroyed() ? '' : win.webContents.getURL();
@@ -244,6 +259,28 @@ export async function eachFrame<T>(win: BrowserWindow, script: string): Promise<
 
 /** Zahozené chyby jsou to nejdražší, co v téhle cestě je — tady se schovávají. */
 export const lastScriptErrors: string[] = [];
+
+/**
+ * Jen **vnořené** rámy, bez hlavního.
+ *
+ * Hlavní rám je totéž co okno a to se ptá zvlášť. Oddělené je to schválně:
+ * kdo se ptá okna, nesmí kvůli rámu přijít o odpověď, kterou okno dá —
+ * přesně tak se rozbilo vkládání souborů úplně všude.
+ */
+export async function subFrames<T>(
+  win: BrowserWindow, script: string
+): Promise<{ frame: WebFrameMain; value: T }[]> {
+  const out: { frame: WebFrameMain; value: T }[] = [];
+  const all = framesOf(win);
+  for (const frame of all.slice(1)) {
+    try {
+      if (frame.detached) continue;
+      const value = await frame.executeJavaScript(script, true) as T;
+      if (value !== undefined && value !== null) out.push({ frame, value });
+    } catch { /* rám se přenačetl nebo je z cizí domény */ }
+  }
+  return out;
+}
 
 /**
  * Totéž, ale i s tím, co se nepovedlo.

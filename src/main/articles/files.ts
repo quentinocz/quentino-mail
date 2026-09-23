@@ -312,19 +312,21 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   }
 
   /*
-   * Vlastní vložení. `dropFiles` pošle soubory Dropzonu (nebo je do
-   * stránky upustí, nebo je vloží do políčka) — a teprve když ani jedna
-   * cesta neprojde, sáhne se po ladicím rozhraní. To umí jen políčko,
-   * zato pošle událost, kterou stránka nerozezná od výběru myší.
+   * Vlastní vložení, **prověřenou cestou první**.
+   *
+   * Ladicí rozhraní (`DOM.setFileInputFiles`) je táž cesta, jakou se
+   * vkládají štítky dopravců a fotky produktů, a stránka ji nerozezná od
+   * výběru myší. Dropzone a upuštění jsou přídavek pro případ, že na
+   * stránce žádné políčko není — ne náhrada za něco, co funguje.
    */
-  let zpusob = await dropFiles(win, list, spot).catch(() => '');
-  if (!zpusob) {
-    const marked = await waitForFileInput(win, ['input.dz-hidden-input', 'input[type=file]'], 5_000);
-    if (marked) {
+  let zpusob = '';
+  if (await waitForFileInput(win, ['input.dz-hidden-input', 'input[type=file]'], 4_000)) {
+    try {
       await insertFiles(win, list);
-      zpusob = 'ladici';
-    }
+      zpusob = 'policko';
+    } catch { /* zkusí se Dropzone níž */ }
   }
+  if (!zpusob) zpusob = await dropFiles(win, list, spot).catch(() => '');
 
   const found = zpusob ? await collectUrls(win, names, before) : new Map<string, string>();
 
