@@ -16,6 +16,7 @@ import { refreshTokens as refreshIgTokens } from './instagram/publish';
 import { closeCamera } from './shoot';
 import { closeSecondQuietly } from './shootsecond';
 import { mainWindowMaker } from './toolwindow';
+import { registerPreviewScheme, servePreview } from './bannerpreview';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -276,8 +277,16 @@ app.on('open-url', (e, url) => {
   handleDeepLink(url);
 });
 
+/*
+ * Musí se stát ještě před `whenReady`. Adresa náhledu bannerů by jinak
+ * neměla vlastní původ a platila by pro ni pravidla okna aplikace — tedy
+ * zákaz vloženého kódu, kvůli kterému zůstával náhled prázdný.
+ */
+registerPreviewScheme();
+
 app.whenReady().then(() => {
   installCrashGuards();
+  servePreview();
   installSystemCa(); // kořeny z Keychainu ještě před prvním síťovým voláním
 
   /*

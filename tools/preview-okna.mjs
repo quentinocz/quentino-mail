@@ -84,7 +84,13 @@ const open = async hash => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
   page.on('pageerror', e => problems.push(`${hash}: chyba stránky: ${e.message}`));
   page.on('console', m => {
-    if (m.type() === 'error' && !/favicon/.test(m.text() + m.location().url)) {
+    /*
+     * Písma z Google se v sandboxu nestáhnou — ven se odtud nedá. Není to
+     * chyba kódu a v provozu se to nestane; že se o ně skript **opravdu
+     * říká**, se místo toho kontroluje přímo u bannerů.
+     */
+    const kde = m.text() + m.location().url;
+    if (m.type() === 'error' && !/favicon|fonts\.(googleapis|gstatic)\.com/.test(kde)) {
       problems.push(`${hash}: konzole: ${m.text()}`);
     }
   });
@@ -442,9 +448,9 @@ for (const okno of OKNA) {
       vysky: cards.map(one => Math.round(rect(one).height)),
       siroka: Math.round(rect(cards[0]).width),
       okno: node.ownerDocument.documentElement.clientWidth,
-      stary: node.ownerDocument.querySelector('#banner1')
-        ? getComputedStyle(node.ownerDocument.querySelector('#banner1')).display
-        : 'chybí',
+      stary: node.ownerDocument.querySelector('#banner1') ? 'pořád tam je' : 'pryč',
+      // Zůstal po původním karuselu obrázek, který se zbytečně stahuje?
+      staryObrazek: node.ownerDocument.querySelectorAll('img[src*="stary-banner"]').length,
       odpocet: node.querySelector('.qbn-smart')?.textContent?.trim() ?? '',
       kod: node.querySelector('.qbn-code b')?.textContent?.trim() ?? '',
       vlocky: node.querySelectorAll('.qbn-flake').length,
@@ -461,7 +467,69 @@ for (const okno of OKNA) {
           || rect(one).top < rect(card).top - 1
           || rect(one).right > rect(card).right + 1)).length,
       // Text musí ležet nad ztmavením, jinak ho fotka přebije
-      poradi: [...node.querySelectorAll('.qbn-card > *')].map(one => one.className)
+      poradi: [...node.querySelectorAll('.qbn-card > *')].map(one => one.className),
+      /*
+       * Typografie. Z kódu se nepozná, jestli se volby vůbec projeví —
+       * proto se čtou z vykreslené stránky: váha a prostrkání nadpisu,
+       * verzálky a to, že si banner s vlastním písmem o ně opravdu řekl.
+       */
+      nadpis: (() => {
+        const t = node.querySelector('.qbn-title');
+        if (!t) return null;
+        const s = getComputedStyle(t);
+        return {
+          vaha: s.fontWeight, pismo: s.fontFamily.split(',')[0].replace(/["']/g, ''),
+          prostrkani: s.letterSpacing, verzalky: s.textTransform
+        };
+      })(),
+      // Tlačítko „jako na e-shopu" má nést třídy šablony, ne naši vlastní
+      tlacitka: [...node.querySelectorAll('.qbn-body > span:last-child')]
+        .map(one => one.className),
+      tucne: node.querySelectorAll('.qbn-text b').length,
+      kickery: node.querySelectorAll('.qbn-kicker').length,
+      fontLink: node.ownerDocument.querySelectorAll('link[href*="fonts.googleapis"]').length,
+      radiusy: [...node.querySelectorAll('.qbn-card')]
+        .map(one => getComputedStyle(one).borderTopLeftRadius),
+      /*
+       * Kolik místa má blok nad sebou a pod sebou. Bez odsazení se banner
+       * lepil na hlavičku i na obsah pod ním a stránka vypadala nedodělaně.
+       */
+      mezery: (() => {
+        const blok = node.closest('.qbn');
+        if (!blok) return null;
+        const s = getComputedStyle(blok);
+        return { nad: parseFloat(s.marginTop), pod: parseFloat(s.marginBottom),
+          kotva: s.overflowAnchor };
+      })(),
+      /*
+       * Rozsah padajících emoji. Padají se zápornými zpožděními, takže
+       * v každém okamžiku jsou rozeseté po celé dráze — vzdálenost mezi
+       * nejvyšším a nejnižším tedy měří, jak daleko dolet dosáhne. Dřív
+       * se posouvalo v procentech velikosti samotného znaku a sníh padal
+       * jen v horním proužku dlaždice.
+       */
+      padani: (() => {
+        const karta = [...node.querySelectorAll('.qbn-card')]
+          .find(one => one.querySelector('.qbn-flake'));
+        if (!karta) return null;
+        const kraje = [...karta.querySelectorAll('.qbn-flake')]
+          .map(one => one.getBoundingClientRect().top - karta.getBoundingClientRect().top);
+        return {
+          rozsah: Math.round(Math.max(...kraje) - Math.min(...kraje)),
+          vyska: Math.round(karta.getBoundingClientRect().height)
+        };
+      })(),
+      // Pruh odkazů na kategorie pod bannerem
+      odkazy: (() => {
+        const pruh = node.ownerDocument.querySelector('.qbn-links');
+        const blok = node.closest('.qbn');
+        if (!pruh || !blok) return null;
+        return {
+          pocet: pruh.querySelectorAll('.qbn-link').length,
+          podBannerem: pruh.getBoundingClientRect().top >= blok.getBoundingClientRect().bottom - 2,
+          sTextem: pruh.querySelectorAll('.qbn-link-text').length
+        };
+      })()
     };
   });
 
@@ -476,12 +544,58 @@ for (const okno of OKNA) {
    */
   say('  a mají stejnou výšku, takže stránka nepodskakuje',
     new Set(pc.vysky).size === 1, pc.vysky.join(' / '));
-  say('  původní karusel je schovaný', pc.stary === 'none', pc.stary);
+  /*
+   * Schovat nestačilo. Karusel si i neviditelný dál stahoval své fotky
+   * a sám sahal na rolování stránky — na telefonu kvůli tomu při rolování
+   * nahoru přeskakovalo na banner a hlavička e-shopu se nedala uvidět.
+   */
+  say('  původní karusel je ze stránky pryč', pc.stary === 'pryč', pc.stary);
+  say('  a jeho fotky se nestahují', pc.staryObrazek === 0, `${pc.staryObrazek} obrázků`);
   say('  odpočet je vidět', /\d/.test(pc.odpocet), pc.odpocet.replace(/\s+/g, ' ').slice(0, 40));
   say('  slevový kód taky', pc.kod === 'SLEVA10', pc.kod);
   say('  a emoji uvnitř banneru padají', pc.vlocky > 4, `${pc.vlocky} kusů`);
   say('  text leží nad ztmavením fotky',
     pc.poradi.join(',').endsWith('qbn-body'), pc.poradi.join(' → '));
+
+  /*
+   * Design se má držet e-shopu, a to znamená konkrétní čísla: nadpisy tam
+   * jedou ve váze 400 se staženým prostrkáním a rohy jsou hranaté. Kdyby
+   * se volby v okně nikam nepropsaly, vypadalo by to v aplikaci správně
+   * a na webu jinak — proto se čtou z vykreslené stránky.
+   */
+  say('  nadpis si bere zvolenou tloušťku i písmo',
+    pc.nadpis?.vaha === '700' && pc.nadpis?.pismo === 'Jost',
+    `${pc.nadpis?.vaha} · ${pc.nadpis?.pismo} · ${pc.nadpis?.prostrkani}`);
+  say('  vlastní písmo se opravdu stahuje', pc.fontLink > 0, `${pc.fontLink} odkazů`);
+  say('  hranaté rohy podle e-shopu, zaoblené jen kde se řeklo',
+    pc.radiusy.filter(one => one === '0px').length === 3
+      && pc.radiusy.some(one => one === '14px'), pc.radiusy.join(' / '));
+  say('  tlačítko „jako na e-shopu" nese třídy šablony',
+    pc.tlacitka.some(one => one.includes('bg-pr')), pc.tlacitka.join(' | '));
+  say('  a hvězdičky v textu udělaly tučné slovo', pc.tucne >= 4, `${pc.tucne} slov`);
+  say('  řádek nad nadpisem je vidět', pc.kickery >= 3, `${pc.kickery} banneru`);
+  /*
+   * Vzduch kolem bloku a to, že blok nedělá „kotvu" rolování — na telefonu
+   * kvůli ní při rolování nahoru přeskakovalo rovnou na banner a hlavička
+   * e-shopu se nedala uvidět.
+   */
+  say('  blok má nad sebou i pod sebou vzduch',
+    !!pc.mezery && pc.mezery.nad >= 18 && pc.mezery.pod >= 18,
+    pc.mezery ? `${pc.mezery.nad} / ${pc.mezery.pod} px` : 'nezměřeno');
+  say('  a nepřetahuje si rolování stránky',
+    pc.mezery?.kotva === 'none', pc.mezery?.kotva ?? '');
+  /*
+   * Emoji musí padat přes celou dlaždici. Dřív se posouvalo v procentech
+   * velikosti znaku, takže z patnácti pixelů vyšlo pár desítek bodů a
+   * sníh se sypal jen v horním proužku.
+   */
+  say('  padající emoji projdou celou dlaždicí',
+    !!pc.padani && pc.padani.rozsah > pc.padani.vyska * 0.55,
+    pc.padani ? `${pc.padani.rozsah} z ${pc.padani.vyska} px` : 'nezměřeno');
+  // Pruh odkazů na kategorie — pod bannerem, ne v něm
+  say('  pruh odkazů je pod bannerem',
+    pc.odkazy?.pocet === 4 && pc.odkazy?.podBannerem === true && pc.odkazy?.sTextem === 4,
+    pc.odkazy ? `${pc.odkazy.pocet} odkazů, pod blokem ${pc.odkazy.podBannerem}` : 'není');
 
   // Odpočet počítá prohlížeč, ne aplikace — musí se hýbat i bez zásahu
   const predtim = pc.odpocet;

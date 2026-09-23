@@ -7887,7 +7887,12 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .bn-body.solo { grid-template-columns: 1fr; }
 .bn-body.solo > .wt-list, .bn-body.solo > .bn-edit { display: none; }
 .bn-edit {
-  padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 11px;
+  /*
+   * Dole je místa víc: pruh s tlačítky akcí na něm leží nastálo a bez
+   * rezervy by se pod něj schoval poslední řádek formuláře natrvalo.
+   */
+  padding: 16px 18px 12px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 11px;
   border-right: 1px solid var(--border);
 }
 .bn-edit > * { flex-shrink: 0; }
@@ -7907,6 +7912,10 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .bn-edit .wt-langs { flex-wrap: wrap; }
 .bn-edit .wt-langs .btn { margin-left: auto; }
 .bn-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+/* Písmo, tloušťky a tlačítko patří k sobě — čtou se jako jedno rozhodnutí */
+.bn-type { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.bn-type > .field { flex: 1 1 130px; min-width: 120px; }
+.bn-type > .check-row { margin: 0 0 7px; }
 .bn-look { display: grid; grid-template-columns: 80px 80px 1fr; gap: 10px 12px; align-items: end; }
 .bn-look .tabs { flex-wrap: wrap; }
 .bn-look .field:nth-child(4), .bn-look .field:nth-child(5) { grid-column: span 3; }
@@ -7977,6 +7986,43 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 .bn-frame { border: 0; display: block; background: #fff; }
 .bn-scale { margin: 0; }
+
+/*
+ * Dvě úrovně záložek. Horní je „co edituju", spodní „čím se u banneru
+ * zabývám" — vypadají proto jinak: horní nese počty a je výraznější,
+ * spodní je jen přepínač uvnitř otevřeného oddílu.
+ */
+.bn-sections { padding: 0 0 2px; border-bottom: 1px solid var(--border); }
+.bn-sections .tab { font-size: 13.5px; }
+.bn-sections .tab em {
+  font-style: normal; font-size: 11px; font-weight: 700; margin-left: 5px;
+  padding: 0 5px; border-radius: 999px; background: var(--bg); color: var(--text-2);
+}
+.bn-sections .tab.active em { background: var(--accent-soft); color: var(--accent-dark); }
+.bn-parts { padding: 0; }
+.bn-parts .tab { font-size: 12.5px; }
+
+/* Akce zůstávají vidět i při rolování — rozdělaná sada se nesmí ztratit */
+.bn-save {
+  position: sticky; bottom: -12px; z-index: 2; margin-top: auto;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 0 14px; background: var(--panel);
+  box-shadow: 0 -10px 14px -10px rgba(0, 0, 0, .25);
+}
+
+/* Jeden odkaz v pruhu: náhled ikonky vlevo, políčka vpravo */
+.bn-link-row {
+  display: flex; gap: 12px; align-items: flex-start;
+  border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px;
+}
+.bn-link-row .bn-link-ico {
+  flex: 0 0 auto; width: 52px; height: 52px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg);
+  background-size: cover; background-position: center;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; color: var(--text-3);
+}
+.bn-link-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 
 .bn-code { padding: 18px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .bn-script {

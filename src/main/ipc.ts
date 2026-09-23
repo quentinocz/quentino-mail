@@ -740,7 +740,7 @@ export function registerIpc() {
   handle('banners:upload', (name: string, bytes: number[]) =>
     banners.uploadImage(String(name ?? ''), bytes ?? []));
   // Náhled spouští tentýž skript jako e-shop, jen s rozepsanou sadou uvnitř
-  handle('banners:preview', (set: any) => banners.previewScript(set));
+  handle('banners:preview', (set: any, lang: string) => banners.previewUrl(set, lang));
   handle('banners:publish', () => banners.publishBanners());
 
   /* ---------- přihlášení do cizích administrací ---------- */

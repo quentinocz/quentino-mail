@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Banner, BannerClash, BannerSet, BannersState, WebText } from '@shared/types';
+import type {
+  Banner, BannerClash, BannerLink, BannerLinks, BannerSet, BannersState, WebText
+} from '@shared/types';
 import { api } from '../api';
 import { toWebp } from '../media';
 import { useToast } from '../toast';
@@ -57,6 +59,38 @@ const EFFECTS: { id: Banner['smart']['effect']; label: string; hint: string }[] 
   { id: 'float', label: 'Plavání emoji', hint: 'Emoji se zlehka houpe' }
 ];
 
+/**
+ * Písma.
+ *
+ * „Jako e-shop" je první a výchozí schválně: nenastavuje `font-family`,
+ * takže banner zdědí písmo stránky (Rajdhani) a nestáhne se nic navíc.
+ * Každé další písmo je soubor ke stažení na úvodní stránce — a ta se
+ * načítá nejčastěji ze všech.
+ */
+const FONTS: { id: Banner['look']['font']; label: string; hint: string }[] = [
+  { id: 'shop', label: 'Jako e-shop', hint: 'Zdědí Rajdhani ze stránky, nic se nestahuje' },
+  { id: 'inter', label: 'Inter', hint: 'Neutrální, výborně čitelný i drobně' },
+  { id: 'jost', label: 'Jost', hint: 'Geometrický, blízko Futuře' },
+  { id: 'playfair', label: 'Playfair Display', hint: 'Patkový, na slavnostní sdělení' },
+  { id: 'bebas', label: 'Bebas Neue', hint: 'Úzké verzálky, na krátká hesla' }
+];
+
+const WEIGHTS: { id: number; label: string }[] = [
+  { id: 300, label: 'Lehké' },
+  { id: 400, label: 'Normální' },
+  { id: 600, label: 'Polotučné' },
+  { id: 700, label: 'Tučné' },
+  { id: 800, label: 'Velmi tučné' }
+];
+
+const BUTTONS: { id: Banner['look']['button']; label: string; hint: string }[] = [
+  { id: 'shop', label: 'Jako na e-shopu', hint: 'Černé hranaté tlačítko ze šablony' },
+  { id: 'fill', label: 'Plné', hint: 'Barvou písma — nejvíc vidět na tmavé fotce' },
+  { id: 'outline', label: 'Obrys', hint: 'Jen rámeček, při najetí se vybarví' },
+  { id: 'soft', label: 'Prosklené', hint: 'Průsvitné s rozostřením pozadí' },
+  { id: 'link', label: 'Podtržený odkaz', hint: 'Když má mluvit fotka, ne tlačítko' }
+];
+
 const KINDS: { id: Banner['smart']['kind']; label: string; hint: string }[] = [
   { id: 'none', label: 'Obyčejný', hint: 'Fotka, nadpis, tlačítko' },
   { id: 'countdown', label: 'Odpočet', hint: 'Do konce akce, tiká i v noci' },
@@ -72,17 +106,34 @@ function localNow(offsetMinutes = 0): string {
     + `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Výchozí podrobnosti efektu. Na jednom místě, ať se předlohy neliší. */
+const blankSmart = (): Banner['smart'] => ({
+  kind: 'none', until: '', untilMs: 0, code: '', emoji: '', effect: 'none',
+  fxCount: 14, fxSize: 15, fxSpeed: 8
+});
+
 function blankBanner(): Banner {
   return {
     id: '',
     name: '',
     off: false,
-    copy: { title: emptyText(), text: emptyText(), button: emptyText(), href: emptyText() },
-    look: {
-      image: '', bg: '#1c1c22', fg: '#ffffff', overlay: 40,
-      align: 'left', pos: 'bottom', focus: '50% 50%'
+    copy: {
+      kicker: emptyText(), title: emptyText(), text: emptyText(),
+      button: emptyText(), href: emptyText()
     },
-    smart: { kind: 'none', until: '', untilMs: 0, code: '', emoji: '', effect: 'none' }
+    /*
+     * Výchozí vzhled je opsaný z e-shopu (quentino.cz, změřeno 22. 9. 2026):
+     * černá jako primární barva, hranaté rohy, nadpis ve váze 400 a text
+     * i tlačítko po webu. Tučný nadpis v zakulacené dlaždici by vedle
+     * zbytku stránky byl cizí prvek.
+     */
+    look: {
+      image: '', bg: '#000000', fg: '#ffffff', overlay: 40,
+      align: 'center', pos: 'middle', focus: '50% 50%',
+      font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
+      textWeight: 400, button: 'shop', radius: 0
+    },
+    smart: { ...blankSmart(), kind: 'none', effect: 'none' }
   };
 }
 
@@ -95,19 +146,27 @@ function blankBanner(): Banner {
  */
 const PRESETS: { id: string; label: string; emoji: string; make: () => Banner }[] = [
   {
-    id: 'foto', label: 'Fotka s nadpisem', emoji: '🖼️',
-    make: () => blankBanner()
+    id: 'dlazdice', label: 'Dlaždice kategorie', emoji: '🖼️',
+    make: () => {
+      const one = blankBanner();
+      one.name = 'Dlaždice kategorie';
+      /*
+       * Dolů a doleva, na rozdíl od zbytku. Čtyři úzké dlaždice vedle sebe
+       * se čtou jako sloupec pod sebou a text zarovnaný ke stejné svislici
+       * je v nich klidnější než čtyři osy na střed.
+       */
+      one.look = { ...one.look, align: 'left', pos: 'bottom' };
+      return one;
+    }
   },
   {
     id: 'odpocet', label: 'Akce s odpočtem', emoji: '⏳',
     make: () => {
       const one = blankBanner();
       one.name = 'Akce s odpočtem';
-      one.smart = {
-        kind: 'countdown', until: localNow(3 * 24 * 60), untilMs: 0,
-        code: '', emoji: '⏳', effect: 'pulse'
-      };
-      one.look = { ...one.look, bg: '#7a1d1d', overlay: 45, pos: 'bottom' };
+      one.copy.kicker.cz = 'Končí brzy';
+      one.smart = { ...blankSmart(), kind: 'countdown', until: localNow(3 * 24 * 60), effect: 'shine' };
+      one.look = { ...one.look, overlay: 48, titleWeight: 700, caps: true };
       return one;
     }
   },
@@ -116,8 +175,9 @@ const PRESETS: { id: string; label: string; emoji: string; make: () => Banner }[
     make: () => {
       const one = blankBanner();
       one.name = 'Sleva s kódem';
-      one.smart = { kind: 'code', until: '', untilMs: 0, code: 'SLEVA10', emoji: '🏷️', effect: 'shine' };
-      one.look = { ...one.look, bg: '#1d3a7a', overlay: 45 };
+      one.copy.kicker.cz = 'Slevový kód';
+      one.smart = { ...blankSmart(), kind: 'code', code: 'SLEVA10', effect: 'shine' };
+      one.look = { ...one.look, bg: '#111111', overlay: 46, titleWeight: 700, button: 'outline' };
       return one;
     }
   },
@@ -127,12 +187,13 @@ const PRESETS: { id: string; label: string; emoji: string; make: () => Banner }[
       const one = blankBanner();
       one.name = 'Doručení do Vánoc';
       const year = new Date().getFullYear();
+      one.copy.kicker.cz = 'Garance';
       one.copy.title.cz = 'Stihneme to pod stromeček';
       one.smart = {
-        kind: 'delivery', until: `${year}-12-18T12:00`, untilMs: 0,
-        code: '', emoji: '❄️', effect: 'snow'
+        ...blankSmart(), kind: 'delivery', until: `${year}-12-18T12:00`,
+        emoji: '❄️', effect: 'snow', fxCount: 12, fxSize: 14, fxSpeed: 9
       };
-      one.look = { ...one.look, bg: '#123a52', overlay: 42, align: 'center', pos: 'middle' };
+      one.look = { ...one.look, bg: '#0b1a24', overlay: 44, button: 'soft' };
       return one;
     }
   }
@@ -153,7 +214,8 @@ function blankSet(): BannerSet {
   return {
     id: newId(), name: '', from: '', to: '', fromMs: 0, toMs: 0, off: false,
     layout: 'quad', phone: 'grid', rotate: 0,
-    banners: [{ ...blankBanner(), id: newId() }]
+    banners: [{ ...blankBanner(), id: newId() }],
+    links: { on: false, shape: 'circle', items: [] }
   };
 }
 
@@ -193,6 +255,14 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<'sady' | 'kod'>('sady');
   /** Náhled přes celé okno — zmenšený na dvě pětiny se texty nepřečtou */
   const [solo, setSolo] = useState(false);
+  /*
+   * Editace má dvě úrovně: co se edituje (sada / bannery / odkazy) a u
+   * banneru ještě čím se zabývám (text / vzhled / efekty). Jeden dlouhý
+   * sloupec se vším dohromady znamenal rolovat přes nastavení sady pokaždé,
+   * když se šlo přepsat nadpis.
+   */
+  const [section, setSection] = useState<'sada' | 'bannery' | 'odkazy'>('bannery');
+  const [part, setPart] = useState<'text' | 'vzhled' | 'efekty'>('text');
   const [clashes, setClashes] = useState<BannerClash[]>([]);
   const [busy, setBusy] = useState('');
   const [hrefHint, setHrefHint] = useState('');
@@ -313,7 +383,8 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
 
   const uploadImage = async (file: File) => {
     if (!state?.uploadReady) {
-      toast('Chybí napojení na úložiště — nastav ho v Textech na webu.', 'error');
+      toast('Není naučená adresa správce souborů e-shopu — otevři Články → Přílohy '
+        + 'a nech ji jednou najít.', 'error');
       return;
     }
     setBusy('Převádím a nahrávám');
@@ -331,7 +402,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
       const url = await api.banners.upload(file.name, Array.from(done.bytes));
       setLook({ image: url });
       const saved = Math.max(0, Math.round((1 - done.bytes.length / Math.max(1, raw.length)) * 100));
-      toast(`Fotka nahrána · ${Math.round(done.bytes.length / 1024)} kB (o ${saved} % míň)`);
+      toast(`Fotka je na e-shopu · ${Math.round(done.bytes.length / 1024)} kB (o ${saved} % míň)`);
     } catch (e: any) {
       toast(String(e?.message ?? e), 'error');
     } finally {
@@ -388,6 +459,66 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
 
   // Vysvětlivka u odkazu platí pro jeden banner; u dalšího by lhala
   useEffect(() => setHrefHint(''), [pick, draft?.id]);
+
+  /* ---------- odkazy na kategorie pod bannerem ---------- */
+
+  const linksOf = (): BannerLinks => draft?.links ?? { on: false, shape: 'circle', items: [] };
+  const setLinks = (patch: Partial<BannerLinks>) => setSet({ links: { ...linksOf(), ...patch } });
+  const setLink = (i: number, patch: Partial<BannerLink>) => setLinks({
+    items: linksOf().items.map((one, at) => (at === i ? { ...one, ...patch } : one))
+  });
+  const addLink = () => setLinks({
+    on: true,
+    items: [...linksOf().items,
+      { id: newId(), image: '', emoji: '', text: emptyText(), href: emptyText() }]
+  });
+  const dropLink = (i: number) => setLinks({ items: linksOf().items.filter((_, at) => at !== i) });
+  const moveLink = (i: number, by: number) => {
+    const items = [...linksOf().items];
+    const to = i + by;
+    if (to < 0 || to >= items.length) return;
+    [items[i], items[to]] = [items[to], items[i]];
+    setLinks({ items });
+  };
+
+  /** Dohledání odkazu do ostatních trhů pro jednu položku pruhu. */
+  const resolveLink = async (i: number) => {
+    const cz = linksOf().items[i]?.href.cz;
+    if (!cz) return;
+    try {
+      const found = await api.banners.href(cz);
+      setLink(i, { href: { cz, sk: found.sk, en: found.en } });
+      if (!found.sk && !found.en) {
+        toast('Protějšek se na e-shopu nenašel — doplň adresu ručně.', 'error');
+      }
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+    }
+  };
+
+  /** Ikonka odkazu. Jde stejnou cestou jako fotka banneru — do e-shopu. */
+  const uploadLinkImage = async (i: number, file: File) => {
+    if (!state?.uploadReady) {
+      toast('Není naučená adresa správce souborů e-shopu — otevři Články → Přílohy '
+        + 'a nech ji jednou najít.', 'error');
+      return;
+    }
+    setBusy('Převádím a nahrávám');
+    try {
+      const raw = new Uint8Array(await file.arrayBuffer());
+      // Ikonka je malá; víc než 400 px z ní nikdo neuvidí
+      const done = await toWebp(raw, {
+        quality: 82, resize: 'max', maxWidth: 400, maxHeight: 400,
+        exactWidth: 0, exactHeight: 0, percent: 100, keepSmaller: true
+      });
+      setLink(i, { image: await api.banners.upload(file.name, Array.from(done.bytes)) });
+      toast('Ikonka je na e-shopu.');
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+    } finally {
+      setBusy('');
+    }
+  };
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -494,345 +625,599 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                 </div>
               ) : (
                 <>
-                  <div className="bn-when">
-                    <div className="field">
-                      <label>Název sady</label>
-                      <input value={draft.name} placeholder="Vánoční kampaň, výprodej…"
-                        onChange={e => setSet({ name: e.target.value })} />
-                    </div>
-                    <label className="check-row">
-                      <input type="checkbox" checked={!draft.from && !draft.to}
-                        onChange={e => setSet(e.target.checked
-                          ? { from: '', to: '' }
-                          : { from: localNow(), to: localNow(7 * 24 * 60) })} />
-                      Platí pořád
-                    </label>
-                    {(draft.from || draft.to) && (
-                      <>
+                  {/*
+                    * Tři oddíly místo jednoho dlouhého sloupce. Dřív se
+                    * muselo rolovat přes celé nastavení sady, aby se došlo
+                    * k textu banneru — a při psaní se pak nebylo čeho chytit.
+                    * Takhle má každý oddíl tolik, kolik se vejde bez rolování.
+                    */}
+                  <div className="tabs bn-sections">
+                    <button className={`tab ${section === 'sada' ? 'active' : ''}`}
+                      onClick={() => setSection('sada')}>Sada</button>
+                    <button className={`tab ${section === 'bannery' ? 'active' : ''}`}
+                      onClick={() => setSection('bannery')}>
+                      Bannery <em>{draft.banners.length}</em>
+                    </button>
+                    <button className={`tab ${section === 'odkazy' ? 'active' : ''}`}
+                      onClick={() => setSection('odkazy')}>
+                      Odkazy pod bannerem <em>{linksOf().items.length}</em>
+                    </button>
+                  </div>
+
+                  {section === 'sada' && (
+                    <>
+                      <div className="bn-when">
                         <div className="field">
-                          <label>Od</label>
-                          <input type="datetime-local" value={draft.from}
-                            onChange={e => setSet({ from: e.target.value })} />
+                          <label>Název sady</label>
+                          <input value={draft.name} placeholder="Vánoční kampaň, výprodej…"
+                            onChange={e => setSet({ name: e.target.value })} />
                         </div>
-                        <div className="field">
-                          <label>Do</label>
-                          <input type="datetime-local" value={draft.to}
-                            onChange={e => setSet({ to: e.target.value })} />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <p className="desc">
-                    Časy jsou pražské. Sada se na webu objeví i zmizí sama — aplikace u toho být nemusí.
-                    Při překryvu vyhraje ta, která začala později.
-                  </p>
-
-                  {clashes.length > 0 && (
-                    <div className="wt-clash">
-                      <b><Icon name="alert" size={13} /> Překrývá se s jinou sadou</b>
-                      <ul>
-                        {clashes.map(one => (
-                          <li key={one.id}>
-                            {one.name} — {whenLabel({ ...blankSet(), from: one.from, to: one.to })}
-                            {one.shortenTo ? '' : ' (začíná později, zkrátit ji nejde)'}
-                          </li>
-                        ))}
-                      </ul>
-                      {shortenable.length > 0 && (
-                        <button className="btn ghost" onClick={saveAndShorten} disabled={!!busy}>
-                          <Icon name="clock" size={14} /> Uložit a zkrátit předchozí
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="bn-layout">
-                    <div className="field">
-                      <label>Na počítači</label>
-                      <div className="tabs">
-                        <button className={`tab ${draft.layout === 'quad' ? 'active' : ''}`}
-                          onClick={() => setSet({ layout: 'quad' })}>4 sloupce</button>
-                        <button className={`tab ${draft.layout === 'wide' ? 'active' : ''}`}
-                          onClick={() => setSet({ layout: 'wide' })}>Přes šířku</button>
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label>Na telefonu</label>
-                      <div className="tabs">
-                        <button className={`tab ${draft.phone === 'grid' ? 'active' : ''}`}
-                          onClick={() => setSet({ phone: 'grid' })}>2 vedle sebe</button>
-                        <button className={`tab ${draft.phone === 'wide' ? 'active' : ''}`}
-                          onClick={() => setSet({ phone: 'wide' })}>Přes šířku</button>
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label>Přetáčet po vteřinách</label>
-                      <input type="number" min={0} max={60} value={draft.rotate}
-                        onChange={e => setSet({ rotate: Number(e.target.value) || 0 })} />
-                    </div>
-                  </div>
-                  <p className="desc">
-                    {pages > 1
-                      ? `${draft.banners.length} bannerů = ${pages} otočky po ${perPage}. `
-                        + (draft.rotate > 0
-                          ? 'Přetáčí se prolnutím, takže se stránka pod bannerem nehne.'
-                          : 'Bez přetáčení bude vidět jen první otočka — nastav vteřiny.')
-                      : 'Všechno se vejde na jednu obrazovku, přetáčet není co.'}
-                  </p>
-
-                  <div className="bn-strip">
-                    {draft.banners.map((one, i) => (
-                      <button key={one.id || i}
-                        className={`bn-tile ${i === pick ? 'sel' : ''} ${one.off ? 'off' : ''}`}
-                        onClick={() => setPick(i)}
-                        style={{
-                          backgroundColor: one.look.bg,
-                          backgroundImage: one.look.image ? `url("${one.look.image}")` : undefined,
-                          color: one.look.fg
-                        }}
-                      >
-                        <span className="bn-tile-n">{i + 1}</span>
-                        <span className="bn-tile-name">
-                          {one.copy.title.cz || one.name || 'bez nadpisu'}
-                        </span>
-                      </button>
-                    ))}
-                    {draft.banners.length < 12 && (
-                      <div className="bn-add">
-                        {PRESETS.map(one => (
-                          <button key={one.id} className="btn ghost" title={one.label}
-                            onClick={() => addBanner(one.make)}>
-                            {one.emoji} {one.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bn-tools">
-                    <button className="btn ghost" onClick={() => moveBanner(-1)} disabled={pick === 0}>
-                      <Icon name="chevLeft" size={13} /> Dřív
-                    </button>
-                    <button className="btn ghost" onClick={() => moveBanner(1)}
-                      disabled={pick >= draft.banners.length - 1}>
-                      Později <Icon name="chevRight" size={13} />
-                    </button>
-                    <button className="btn ghost" onClick={copyBanner}>
-                      <Icon name="copy" size={13} /> Duplikovat
-                    </button>
-                    <label className="check-row" style={{ margin: 0 }}>
-                      <input type="checkbox" checked={banner.off}
-                        onChange={e => setBanner({ off: e.target.checked })} />
-                      Vypnout tenhle banner
-                    </label>
-                    <span className="wt-spacer" />
-                    <button className="btn ghost danger" onClick={dropBanner}
-                      disabled={draft.banners.length <= 1}>
-                      <Icon name="trash" size={13} /> Smazat banner
-                    </button>
-                  </div>
-
-                  <div className="tabs wt-langs">
-                    {LANGS.map(l => (
-                      <button key={l.id} className={`tab ${lang === l.id ? 'active' : ''}`}
-                        onClick={() => setLang(l.id)}>
-                        {l.label} <small>{l.hint}</small>
-                      </button>
-                    ))}
-                    <span className="wt-spacer" />
-                    <button className="btn ghost" onClick={translate} disabled={!!busy}>
-                      <Icon name="globe" size={14} /> Přeložit celou sadu
-                    </button>
-                  </div>
-
-                  <div className="field">
-                    <label>Nadpis</label>
-                    <input value={banner.copy.title[lang]} maxLength={70}
-                      placeholder={lang === 'cz' ? 'Kšandy k obleku' : banner.copy.title.cz}
-                      onChange={e => setCopy('title', e.target.value)} />
-                  </div>
-                  <div className="field">
-                    <label>Text pod nadpisem</label>
-                    <textarea rows={2} value={banner.copy.text[lang]} maxLength={180}
-                      placeholder={lang === 'cz' ? 'Ručně šité, skladem' : banner.copy.text.cz}
-                      onChange={e => setCopy('text', e.target.value)} />
-                  </div>
-                  <div className="bn-two">
-                    <div className="field">
-                      <label>Tlačítko</label>
-                      <input value={banner.copy.button[lang]} maxLength={28}
-                        placeholder={lang === 'cz' ? 'Prohlédnout' : banner.copy.button.cz}
-                        onChange={e => setCopy('button', e.target.value)} />
-                    </div>
-                    <div className="field">
-                      <label>Odkaz {lang !== 'cz' && <small>(dopočítaný z české verze)</small>}</label>
-                      <input value={banner.copy.href[lang]} placeholder="/kravatove-sety"
-                        onChange={e => setCopy('href', e.target.value)}
-                        onBlur={() => { if (lang === 'cz') void resolveHref(); }} />
-                    </div>
-                  </div>
-                  {lang === 'cz' && (
-                    <p className="desc">
-                      Stačí cesta od lomítka; slovenskou a anglickou adresu dopočítá mapa adres z článků.
-                      {hrefHint && <> — {hrefHint}</>}
-                    </p>
-                  )}
-                  <p className="desc">
-                    Prázdné tlačítko nevadí: odkaz má celá dlaždice, takže se dá kliknout kamkoli.
-                  </p>
-
-                  <h4 className="bn-h">Vzhled</h4>
-                  <div className="bn-two">
-                    <div className="field">
-                      <label>Fotka na pozadí</label>
-                      <div className="bn-file">
-                        <input type="file" accept="image/*" disabled={!!busy}
-                          onChange={e => {
-                            const file = e.target.files?.[0];
-                            e.target.value = '';
-                            if (file) void uploadImage(file);
-                          }} />
-                        {banner.look.image && (
-                          <button className="btn ghost" onClick={() => setLook({ image: '' })}>
-                            <Icon name="x" size={12} /> Odebrat
-                          </button>
+                        <label className="check-row">
+                          <input type="checkbox" checked={!draft.from && !draft.to}
+                            onChange={e => setSet(e.target.checked
+                              ? { from: '', to: '' }
+                              : { from: localNow(), to: localNow(7 * 24 * 60) })} />
+                          Platí pořád
+                        </label>
+                        {(draft.from || draft.to) && (
+                          <>
+                            <div className="field">
+                              <label>Od</label>
+                              <input type="datetime-local" value={draft.from}
+                                onChange={e => setSet({ from: e.target.value })} />
+                            </div>
+                            <div className="field">
+                              <label>Do</label>
+                              <input type="datetime-local" value={draft.to}
+                                onChange={e => setSet({ to: e.target.value })} />
+                            </div>
+                          </>
                         )}
                       </div>
                       <p className="desc">
-                        Převede se na WebP a nahraje do úložiště sama. Fotka z foťáku je v pohodě —
-                        zmenší se na 1800 px.
+                        Časy jsou pražské. Sada se na webu objeví i zmizí sama — aplikace u toho
+                        být nemusí. Při překryvu vyhraje ta, která začala později.
                       </p>
-                    </div>
-                    <div className="field">
-                      <label>Výřez fotky</label>
-                      <div className="bn-focus">
-                        {['0%', '50%', '100%'].map(x => (
-                          <div key={x} className="bn-focus-row">
-                            {['0%', '50%', '100%'].map(y => {
-                              const value = `${y} ${x}`;
-                              return (
-                                <button key={value}
-                                  className={`bn-dot ${banner.look.focus === value ? 'sel' : ''}`}
-                                  title={`Nechat vidět ${value}`}
-                                  onClick={() => setLook({ focus: value })} />
-                              );
-                            })}
+
+                      {clashes.length > 0 && (
+                        <div className="wt-clash">
+                          <b><Icon name="alert" size={13} /> Překrývá se s jinou sadou</b>
+                          <ul>
+                            {clashes.map(one => (
+                              <li key={one.id}>
+                                {one.name} — {whenLabel({ ...blankSet(), from: one.from, to: one.to })}
+                                {one.shortenTo ? '' : ' (začíná později, zkrátit ji nejde)'}
+                              </li>
+                            ))}
+                          </ul>
+                          {shortenable.length > 0 && (
+                            <button className="btn ghost" onClick={saveAndShorten} disabled={!!busy}>
+                              <Icon name="clock" size={14} /> Uložit a zkrátit předchozí
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      <h4 className="bn-h">Rozvržení</h4>
+                      <div className="bn-layout">
+                        <div className="field">
+                          <label>Na počítači</label>
+                          <div className="tabs">
+                            <button className={`tab ${draft.layout === 'quad' ? 'active' : ''}`}
+                              onClick={() => setSet({ layout: 'quad' })}>4 sloupce</button>
+                            <button className={`tab ${draft.layout === 'wide' ? 'active' : ''}`}
+                              onClick={() => setSet({ layout: 'wide' })}>Přes šířku</button>
                           </div>
-                        ))}
+                        </div>
+                        <div className="field">
+                          <label>Na telefonu</label>
+                          <div className="tabs">
+                            <button className={`tab ${draft.phone === 'grid' ? 'active' : ''}`}
+                              onClick={() => setSet({ phone: 'grid' })}>2 vedle sebe</button>
+                            <button className={`tab ${draft.phone === 'wide' ? 'active' : ''}`}
+                              onClick={() => setSet({ phone: 'wide' })}>Přes šířku</button>
+                          </div>
+                        </div>
+                        <div className="field">
+                          <label>Přetáčet po vteřinách</label>
+                          <input type="number" min={0} max={60} value={draft.rotate}
+                            onChange={e => setSet({ rotate: Number(e.target.value) || 0 })} />
+                        </div>
                       </div>
                       <p className="desc">
-                        Dlaždice má pevný poměr stran, aby stránka nepodskakovala — fotka se proto
-                        ořízne. Tady se vybere, co zůstane vidět.
+                        {pages > 1
+                          ? `${draft.banners.length} bannerů = ${pages} otočky po ${perPage}. `
+                            + (draft.rotate > 0
+                              ? 'Přetáčí se prolnutím, takže se stránka pod bannerem nehne.'
+                              : 'Bez přetáčení bude vidět jen první otočka — nastav vteřiny.')
+                          : 'Všechno se vejde na jednu obrazovku, přetáčet není co.'}
                       </p>
-                    </div>
-                  </div>
+                    </>
+                  )}
 
-                  <div className="bn-look">
-                    <div className="field">
-                      <label>Pozadí</label>
-                      <input type="color" value={banner.look.bg}
-                        onChange={e => setLook({ bg: e.target.value })} />
-                    </div>
-                    <div className="field">
-                      <label>Písmo</label>
-                      <input type="color" value={banner.look.fg}
-                        onChange={e => setLook({ fg: e.target.value })} />
-                    </div>
-                    <div className="field bn-slider">
-                      <label>Ztmavení fotky {banner.look.overlay} %</label>
-                      <input type="range" min={banner.look.image && hasText(banner.copy.title) ? 18 : 0}
-                        max={90} value={banner.look.overlay}
-                        onChange={e => setLook({ overlay: Number(e.target.value) })} />
-                    </div>
-                    <div className="field">
-                      <label>Zarovnání</label>
-                      <div className="tabs">
-                        {(['left', 'center', 'right'] as const).map(one => (
-                          <button key={one} className={`tab ${banner.look.align === one ? 'active' : ''}`}
-                            onClick={() => setLook({ align: one })}>
-                            {one === 'left' ? 'Vlevo' : one === 'center' ? 'Na střed' : 'Vpravo'}
+                  {section === 'bannery' && (
+                    <>
+                      <div className="bn-strip">
+                        {draft.banners.map((one, i) => (
+                          <button key={one.id || i}
+                            className={`bn-tile ${i === pick ? 'sel' : ''} ${one.off ? 'off' : ''}`}
+                            onClick={() => setPick(i)}
+                            style={{
+                              backgroundColor: one.look.bg,
+                              backgroundImage: one.look.image ? `url("${one.look.image}")` : undefined,
+                              color: one.look.fg
+                            }}
+                          >
+                            <span className="bn-tile-n">{i + 1}</span>
+                            <span className="bn-tile-name">
+                              {one.copy.title.cz || one.name || 'bez nadpisu'}
+                            </span>
                           </button>
                         ))}
+                        {draft.banners.length < 12 && (
+                          <div className="bn-add">
+                            {PRESETS.map(one => (
+                              <button key={one.id} className="btn ghost" title={one.label}
+                                onClick={() => addBanner(one.make)}>
+                                {one.emoji} {one.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    <div className="field">
-                      <label>Text v dlaždici</label>
-                      <div className="tabs">
-                        {(['top', 'middle', 'bottom'] as const).map(one => (
-                          <button key={one} className={`tab ${banner.look.pos === one ? 'active' : ''}`}
-                            onClick={() => setLook({ pos: one })}>
-                            {one === 'top' ? 'Nahoře' : one === 'middle' ? 'Uprostřed' : 'Dole'}
-                          </button>
-                        ))}
+
+                      <div className="bn-tools">
+                        <button className="btn ghost" onClick={() => moveBanner(-1)} disabled={pick === 0}>
+                          <Icon name="chevLeft" size={13} /> Dřív
+                        </button>
+                        <button className="btn ghost" onClick={() => moveBanner(1)}
+                          disabled={pick >= draft.banners.length - 1}>
+                          Později <Icon name="chevRight" size={13} />
+                        </button>
+                        <button className="btn ghost" onClick={copyBanner}>
+                          <Icon name="copy" size={13} /> Duplikovat
+                        </button>
+                        <label className="check-row" style={{ margin: 0 }}>
+                          <input type="checkbox" checked={banner.off}
+                            onChange={e => setBanner({ off: e.target.checked })} />
+                          Vypnout
+                        </label>
+                        <span className="wt-spacer" />
+                        <button className="btn ghost danger" onClick={dropBanner}
+                          disabled={draft.banners.length <= 1}>
+                          <Icon name="trash" size={13} /> Smazat
+                        </button>
                       </div>
-                    </div>
-                  </div>
-                  {banner.look.image && (
-                    <p className="desc">
-                      Ztmavení pod textem se nedá stáhnout pod 18 % — bílý nadpis na světlé látce
-                      na telefonu ve slunci nepřečte nikdo.
-                    </p>
+
+                      <div className="tabs bn-parts">
+                        <button className={`tab ${part === 'text' ? 'active' : ''}`}
+                          onClick={() => setPart('text')}>Text a odkaz</button>
+                        <button className={`tab ${part === 'vzhled' ? 'active' : ''}`}
+                          onClick={() => setPart('vzhled')}>Vzhled</button>
+                        <button className={`tab ${part === 'efekty' ? 'active' : ''}`}
+                          onClick={() => setPart('efekty')}>Chytré a efekty</button>
+                      </div>
+
+                      {part === 'text' && (
+                        <>
+                          <div className="tabs wt-langs">
+                            {LANGS.map(l => (
+                              <button key={l.id} className={`tab ${lang === l.id ? 'active' : ''}`}
+                                onClick={() => setLang(l.id)}>
+                                {l.label} <small>{l.hint}</small>
+                              </button>
+                            ))}
+                            <span className="wt-spacer" />
+                            <button className="btn ghost" onClick={translate} disabled={!!busy}>
+                              <Icon name="globe" size={14} /> Přeložit celou sadu
+                            </button>
+                          </div>
+
+                          <div className="field">
+                            <label>Řádek nad nadpisem <small>(drobně a verzálkami, nepovinné)</small></label>
+                            <input value={banner.copy.kicker[lang]} maxLength={28}
+                              placeholder={lang === 'cz' ? 'Novinka, Jen do neděle…' : banner.copy.kicker.cz}
+                              onChange={e => setCopy('kicker', e.target.value)} />
+                          </div>
+                          <div className="field">
+                            <label>Nadpis</label>
+                            <input value={banner.copy.title[lang]} maxLength={70}
+                              placeholder={lang === 'cz' ? 'Kšandy k obleku' : banner.copy.title.cz}
+                              onChange={e => setCopy('title', e.target.value)} />
+                          </div>
+                          <div className="field">
+                            <label>Text pod nadpisem</label>
+                            <textarea rows={2} value={banner.copy.text[lang]} maxLength={180}
+                              placeholder={lang === 'cz' ? 'Ručně šité, **skladem**' : banner.copy.text.cz}
+                              onChange={e => setCopy('text', e.target.value)} />
+                          </div>
+                          <div className="bn-two">
+                            <div className="field">
+                              <label>Tlačítko</label>
+                              <input value={banner.copy.button[lang]} maxLength={28}
+                                placeholder={lang === 'cz' ? 'Prohlédnout' : banner.copy.button.cz}
+                                onChange={e => setCopy('button', e.target.value)} />
+                            </div>
+                            <div className="field">
+                              <label>Odkaz {lang !== 'cz' && <small>(dohledaný z české verze)</small>}</label>
+                              <input value={banner.copy.href[lang]} placeholder="/kravatove-sety"
+                                onChange={e => setCopy('href', e.target.value)}
+                                onBlur={() => { if (lang === 'cz') void resolveHref(); }} />
+                            </div>
+                          </div>
+                          {lang === 'cz' && (
+                            <p className="desc">
+                              Stačí cesta od lomítka. Slovenskou a anglickou adresu si aplikace
+                              <b> přečte z přepínače jazyků</b> na té stránce — trhy mají vlastní
+                              slugy, takže složit je výměnou domény by vedlo na 404.
+                              {hrefHint && <> — {hrefHint}</>}
+                            </p>
+                          )}
+                          <p className="desc">
+                            Prázdné tlačítko nevadí: odkaz má celá dlaždice, takže se dá kliknout
+                            kamkoli. Slovo mezi dvěma hvězdičkami — <code>**takhle**</code> — bude
+                            tučně, stejně jako v naplánovaných textech.
+                          </p>
+                        </>
+                      )}
+
+                      {part === 'vzhled' && (
+                        <>
+                          <div className="bn-type">
+                            <div className="field">
+                              <label>Písmo</label>
+                              <select value={banner.look.font}
+                                onChange={e => setLook({ font: e.target.value as Banner['look']['font'] })}>
+                                {FONTS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
+                              </select>
+                            </div>
+                            <div className="field">
+                              <label>Nadpis</label>
+                              <select value={banner.look.titleWeight}
+                                onChange={e => setLook({ titleWeight: Number(e.target.value) })}>
+                                {WEIGHTS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
+                              </select>
+                            </div>
+                            <div className="field">
+                              <label>Text</label>
+                              <select value={banner.look.textWeight}
+                                onChange={e => setLook({ textWeight: Number(e.target.value) })}>
+                                {WEIGHTS.slice(0, 3).map(one =>
+                                  <option key={one.id} value={one.id}>{one.label}</option>)}
+                              </select>
+                            </div>
+                            <div className="field">
+                              <label>Tlačítko</label>
+                              <select value={banner.look.button}
+                                onChange={e => setLook({ button: e.target.value as Banner['look']['button'] })}>
+                                {BUTTONS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                          <p className="desc">
+                            {FONTS.find(one => one.id === banner.look.font)?.hint}
+                            {' · '}
+                            {BUTTONS.find(one => one.id === banner.look.button)?.hint}
+                            {banner.look.font === 'shop'
+                              && (banner.look.titleWeight === 600 || banner.look.titleWeight === 800)
+                              ? ' — pozor: e-shop má z Rajdhani jen lehké, normální a tučné, '
+                                + 'ostatní tloušťky si prohlížeč dopočítá.'
+                              : ''}
+                          </p>
+
+                          <div className="bn-type">
+                            <div className="field bn-slider">
+                              <label>Velikost nadpisu {banner.look.titleSize} %</label>
+                              <input type="range" min={70} max={150} step={5} value={banner.look.titleSize}
+                                onChange={e => setLook({ titleSize: Number(e.target.value) })} />
+                            </div>
+                            <div className="field bn-slider">
+                              <label>Zaoblení rohů {banner.look.radius} px</label>
+                              <input type="range" min={0} max={28} value={banner.look.radius}
+                                onChange={e => setLook({ radius: Number(e.target.value) })} />
+                            </div>
+                            <label className="check-row">
+                              <input type="checkbox" checked={banner.look.caps}
+                                onChange={e => setLook({ caps: e.target.checked })} />
+                              Nadpis verzálkami
+                            </label>
+                          </div>
+                          <p className="desc">
+                            E-shop má rohy hranaté (0 px) a tlačítka černá — nastavené nuly jsou po
+                            něm. Zaoblení platí pro dlaždici i pro tlačítko naráz, aby si neodporovaly.
+                          </p>
+
+                          <h4 className="bn-h">Fotka a barvy</h4>
+                          <div className="bn-two">
+                            <div className="field">
+                              <label>Fotka na pozadí</label>
+                              <div className="bn-file">
+                                <input type="file" accept="image/*" disabled={!!busy}
+                                  onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = '';
+                                    if (file) void uploadImage(file);
+                                  }} />
+                                {banner.look.image && (
+                                  <button className="btn ghost" onClick={() => setLook({ image: '' })}>
+                                    <Icon name="x" size={12} /> Odebrat
+                                  </button>
+                                )}
+                              </div>
+                              <p className="desc">
+                                Převede se na WebP a nahraje se <b>do správce souborů e-shopu</b> —
+                                použije se adresa z jeho CDN, stejná jako u ostatních fotek na webu.
+                                Otevře se k tomu okno administrace. Fotka z foťáku je v pohodě,
+                                zmenší se na 1800 px.
+                              </p>
+                            </div>
+                            <div className="field">
+                              <label>Výřez fotky</label>
+                              <div className="bn-focus">
+                                {['0%', '50%', '100%'].map(x => (
+                                  <div key={x} className="bn-focus-row">
+                                    {['0%', '50%', '100%'].map(y => {
+                                      const value = `${y} ${x}`;
+                                      return (
+                                        <button key={value}
+                                          className={`bn-dot ${banner.look.focus === value ? 'sel' : ''}`}
+                                          title={`Nechat vidět ${value}`}
+                                          onClick={() => setLook({ focus: value })} />
+                                      );
+                                    })}
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="desc">
+                                Dlaždice má pevný poměr stran, aby stránka nepodskakovala — fotka se
+                                proto ořízne. Tady se vybere, co zůstane vidět.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="bn-look">
+                            <div className="field">
+                              <label>Pozadí</label>
+                              <input type="color" value={banner.look.bg}
+                                onChange={e => setLook({ bg: e.target.value })} />
+                            </div>
+                            <div className="field">
+                              <label>Písmo</label>
+                              <input type="color" value={banner.look.fg}
+                                onChange={e => setLook({ fg: e.target.value })} />
+                            </div>
+                            <div className="field bn-slider">
+                              <label>Ztmavení fotky {banner.look.overlay} %</label>
+                              <input type="range" min={banner.look.image && hasText(banner.copy.title) ? 18 : 0}
+                                max={90} value={banner.look.overlay}
+                                onChange={e => setLook({ overlay: Number(e.target.value) })} />
+                            </div>
+                            <div className="field">
+                              <label>Zarovnání</label>
+                              <div className="tabs">
+                                {(['left', 'center', 'right'] as const).map(one => (
+                                  <button key={one} className={`tab ${banner.look.align === one ? 'active' : ''}`}
+                                    onClick={() => setLook({ align: one })}>
+                                    {one === 'left' ? 'Vlevo' : one === 'center' ? 'Na střed' : 'Vpravo'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="field">
+                              <label>Text v dlaždici</label>
+                              <div className="tabs">
+                                {(['top', 'middle', 'bottom'] as const).map(one => (
+                                  <button key={one} className={`tab ${banner.look.pos === one ? 'active' : ''}`}
+                                    onClick={() => setLook({ pos: one })}>
+                                    {one === 'top' ? 'Nahoře' : one === 'middle' ? 'Uprostřed' : 'Dole'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          {banner.look.image && (
+                            <p className="desc">
+                              Ztmavení pod textem se nedá stáhnout pod 18 % — bílý nadpis na světlé
+                              látce na telefonu ve slunci nepřečte nikdo.
+                            </p>
+                          )}
+                        </>
+                      )}
+
+                      {part === 'efekty' && (
+                        <>
+                          <div className="tabs">
+                            {KINDS.map(one => (
+                              <button key={one.id} className={`tab ${banner.smart.kind === one.id ? 'active' : ''}`}
+                                title={one.hint} onClick={() => setSmart({ kind: one.id })}>
+                                {one.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="desc">{KINDS.find(one => one.id === banner.smart.kind)?.hint}</p>
+
+                          {(banner.smart.kind === 'countdown' || banner.smart.kind === 'delivery') && (
+                            <div className="field">
+                              <label>
+                                {banner.smart.kind === 'delivery' ? 'Poslední objednávka do' : 'Odpočet do'}
+                              </label>
+                              <input type="datetime-local" value={banner.smart.until}
+                                onChange={e => setSmart({ until: e.target.value })} />
+                              <p className="desc">
+                                Počítá prohlížeč, ne aplikace — tiká i v noci a po vypršení odpočet
+                                sám zmizí. Dlaždice zůstane, aby v mřížce nevznikla díra.
+                              </p>
+                            </div>
+                          )}
+                          {banner.smart.kind === 'code' && (
+                            <div className="field">
+                              <label>Slevový kód</label>
+                              <input value={banner.smart.code} placeholder="SLEVA10"
+                                onChange={e => setSmart({ code: e.target.value.toUpperCase() })} />
+                              <p className="desc">
+                                Klepnutím na kód se zkopíruje a dlaždice přitom nikam neodejde.
+                              </p>
+                            </div>
+                          )}
+
+                          <h4 className="bn-h">Emoji a pohyb</h4>
+                          <div className="bn-two">
+                            <div className="field">
+                              <label>Emoji</label>
+                              <div className="bn-emoji">
+                                <button className={`bn-em ${!banner.smart.emoji ? 'sel' : ''}`}
+                                  onClick={() => setSmart({ emoji: '' })}>bez</button>
+                                {EMOJI.map(one => (
+                                  <button key={one} className={`bn-em ${banner.smart.emoji === one ? 'sel' : ''}`}
+                                    onClick={() => setSmart({ emoji: one })}>{one}</button>
+                                ))}
+                              </div>
+                              {/*
+                                * Vlastní emoji políčkem: nabídka je na to, co se
+                                * používá pořád, ne na všechno, co existuje.
+                                */}
+                              <input value={banner.smart.emoji} maxLength={6}
+                                placeholder="nebo si vlož vlastní"
+                                onChange={e => setSmart({ emoji: e.target.value })} />
+                            </div>
+                            <div className="field">
+                              <label>Pohyb</label>
+                              <select value={banner.smart.effect}
+                                onChange={e => setSmart({ effect: e.target.value as Banner['smart']['effect'] })}>
+                                {EFFECTS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
+                              </select>
+                              <p className="desc">
+                                {EFFECTS.find(one => one.id === banner.smart.effect)?.hint}
+                                {' '}Komu systém hlásí, že nechce pohyb, se nic nehýbe.
+                              </p>
+                            </div>
+                          </div>
+
+                          {banner.smart.effect === 'snow' && (
+                            <>
+                              <div className="bn-type">
+                                <div className="field bn-slider">
+                                  <label>Kolik jich padá · {banner.smart.fxCount}</label>
+                                  <input type="range" min={3} max={40} value={banner.smart.fxCount}
+                                    onChange={e => setSmart({ fxCount: Number(e.target.value) })} />
+                                </div>
+                                <div className="field bn-slider">
+                                  <label>Velikost · {banner.smart.fxSize} px</label>
+                                  <input type="range" min={8} max={44} value={banner.smart.fxSize}
+                                    onChange={e => setSmart({ fxSize: Number(e.target.value) })} />
+                                </div>
+                                <div className="field bn-slider">
+                                  <label>Propadne za · {banner.smart.fxSpeed} s</label>
+                                  <input type="range" min={2} max={24} value={banner.smart.fxSpeed}
+                                    onChange={e => setSmart({ fxSpeed: Number(e.target.value) })} />
+                                </div>
+                              </div>
+                              <p className="desc">
+                                Padá to přes <b>celou</b> dlaždici, ne jen v horním proužku.
+                                Na telefonu se počet sám zkrátí na dvě třetiny — dlaždice je tam
+                                poloviční a stejná hustota by z ní udělala clonu přes text.
+                                {!banner.smart.emoji && ' Vyber emoji, jinak nemá co padat.'}
+                              </p>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </>
                   )}
 
-                  <h4 className="bn-h">Chytrý banner</h4>
-                  <div className="tabs">
-                    {KINDS.map(one => (
-                      <button key={one.id} className={`tab ${banner.smart.kind === one.id ? 'active' : ''}`}
-                        title={one.hint} onClick={() => setSmart({ kind: one.id })}>
-                        {one.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="desc">{KINDS.find(one => one.id === banner.smart.kind)?.hint}</p>
-
-                  {(banner.smart.kind === 'countdown' || banner.smart.kind === 'delivery') && (
-                    <div className="field">
-                      <label>{banner.smart.kind === 'delivery' ? 'Poslední objednávka do' : 'Odpočet do'}</label>
-                      <input type="datetime-local" value={banner.smart.until}
-                        onChange={e => setSmart({ until: e.target.value })} />
+                  {section === 'odkazy' && (
+                    <>
                       <p className="desc">
-                        Počítá prohlížeč, ne aplikace — tiká i v noci a po vypršení odpočet sám zmizí.
-                        Dlaždice zůstane, aby v mřížce nevznikla díra.
+                        Pruh pod bannerem. Banner prodává jednu věc, tohle říká, co všechno tu je —
+                        je to nejkratší cesta z úvodní stránky do kategorie. Na telefonu se pruh
+                        posouvá prstem, aby osm kategorií nezakrylo celou obrazovku.
                       </p>
-                    </div>
-                  )}
-                  {banner.smart.kind === 'code' && (
-                    <div className="field">
-                      <label>Slevový kód</label>
-                      <input value={banner.smart.code} placeholder="SLEVA10"
-                        onChange={e => setSmart({ code: e.target.value.toUpperCase() })} />
-                      <p className="desc">Klepnutím na kód se zkopíruje a dlaždice přitom nikam neodejde.</p>
-                    </div>
-                  )}
-
-                  <div className="bn-two">
-                    <div className="field">
-                      <label>Emoji</label>
-                      <div className="bn-emoji">
-                        <button className={`bn-em ${!banner.smart.emoji ? 'sel' : ''}`}
-                          onClick={() => setSmart({ emoji: '' })}>bez</button>
-                        {EMOJI.map(one => (
-                          <button key={one} className={`bn-em ${banner.smart.emoji === one ? 'sel' : ''}`}
-                            onClick={() => setSmart({ emoji: one })}>{one}</button>
-                        ))}
+                      <div className="bn-layout">
+                        <label className="check-row">
+                          <input type="checkbox" checked={linksOf().on}
+                            onChange={e => setLinks({ on: e.target.checked })} />
+                          Ukazovat pruh odkazů
+                        </label>
+                        <div className="field">
+                          <label>Podoba</label>
+                          <div className="tabs">
+                            {([['circle', 'Kolečka'], ['square', 'Dlaždičky'], ['text', 'Jen text']] as const)
+                              .map(([id, label]) => (
+                                <button key={id} className={`tab ${linksOf().shape === id ? 'active' : ''}`}
+                                  onClick={() => setLinks({ shape: id })}>{label}</button>
+                              ))}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="field">
-                      <label>Pohyb</label>
-                      <select value={banner.smart.effect}
-                        onChange={e => setSmart({ effect: e.target.value as Banner['smart']['effect'] })}>
-                        {EFFECTS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
-                      </select>
-                      <p className="desc">
-                        {EFFECTS.find(one => one.id === banner.smart.effect)?.hint}
-                        {banner.smart.effect === 'snow' && !banner.smart.emoji
-                          ? ' — vyber emoji, jinak nemá co padat.'
-                          : ''}
-                        {' '}Komu systém hlásí, že nechce pohyb, se nic nehýbe.
-                      </p>
-                    </div>
-                  </div>
 
+                      {linksOf().items.length === 0 && (
+                        <p className="desc">Zatím žádný odkaz. Přidej první tlačítkem dole.</p>
+                      )}
+                      {linksOf().items.map((one, i) => (
+                        <div className="bn-link-row" key={one.id}>
+                          <div className="bn-link-ico" style={one.image
+                            ? { backgroundImage: `url("${one.image}")` } : undefined}>
+                            {!one.image && (one.emoji || '—')}
+                          </div>
+                          <div className="bn-link-fields">
+                            <div className="bn-two">
+                              <div className="field">
+                                <label>Název {lang !== 'cz' && <small>({lang.toUpperCase()})</small>}</label>
+                                <input value={one.text[lang]} maxLength={26}
+                                  placeholder={lang === 'cz' ? 'Kravaty' : one.text.cz}
+                                  onChange={e => setLink(i, { text: { ...one.text, [lang]: e.target.value } })} />
+                              </div>
+                              <div className="field">
+                                <label>Odkaz {lang !== 'cz' && <small>(dohledaný)</small>}</label>
+                                <input value={one.href[lang]} placeholder="/kravaty"
+                                  onChange={e => setLink(i, { href: { ...one.href, [lang]: e.target.value } })}
+                                  onBlur={() => { if (lang === 'cz') void resolveLink(i); }} />
+                              </div>
+                            </div>
+                            <div className="bn-tools">
+                              <input value={one.emoji} maxLength={6} placeholder="emoji"
+                                style={{ width: 90 }}
+                                onChange={e => setLink(i, { emoji: e.target.value })} />
+                              <input type="file" accept="image/*" disabled={!!busy}
+                                style={{ fontSize: 11, maxWidth: 150 }}
+                                onChange={e => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = '';
+                                  if (file) void uploadLinkImage(i, file);
+                                }} />
+                              {one.image && (
+                                <button className="btn ghost" onClick={() => setLink(i, { image: '' })}>
+                                  <Icon name="x" size={12} /> Obrázek pryč
+                                </button>
+                              )}
+                              <span className="wt-spacer" />
+                              <button className="btn ghost" onClick={() => moveLink(i, -1)} disabled={i === 0}>
+                                <Icon name="chevLeft" size={12} />
+                              </button>
+                              <button className="btn ghost" onClick={() => moveLink(i, 1)}
+                                disabled={i >= linksOf().items.length - 1}>
+                                <Icon name="chevRight" size={12} />
+                              </button>
+                              <button className="btn ghost danger" onClick={() => dropLink(i)}>
+                                <Icon name="trash" size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {linksOf().items.length < 8 && (
+                        <button className="btn" onClick={addLink} style={{ alignSelf: 'flex-start' }}>
+                          <Icon name="plus" size={14} /> Přidat odkaz
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  {/*
+                    * Tlačítka akcí zůstávají dole vidět, ať je člověk v kterémkoli
+                    * oddílu. Rozdělaná sada, ke které se musí rolovat pro uložení,
+                    * je nejčastější způsob, jak o práci přijít.
+                    */}
                   <div className="bn-save">
                     <button className="btn primary" onClick={save} disabled={!!busy || !draft.name}>
                       <Icon name="save" size={14} /> Uložit a vystavit
@@ -864,7 +1249,6 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                 </>
               )}
             </div>
-
             <div className="bn-right">
               <div className="tabs bn-devices">
                 {([['pc', 'Počítač'], ['tablet', 'Tablet'], ['phone', 'Telefon']] as const).map(([id, label]) => (

@@ -1,11 +1,17 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { app } from 'electron';
 import { getSetting, setSetting } from './db';
 import { czMs, czLocal, shiftMinutes, translateWeb, webStorage, webTextsConfig } from './webtexts';
-import { translateUrl } from './articles/urlmap';
+import { translateUrl, alternatesOf, shopOrigins } from './articles/urlmap';
+import { uploadArticleFiles, filesUrlLearned } from './articles/files';
 import { bannerScript } from './bannerscript';
+import { stashPreview } from './bannerpreview';
 import { eventFromWeb, dropEventOfSource } from './events';
 import type {
-  Banner, BannerSet, BannerCopy, BannerLook, BannerSmart, BannerClash, BannersState, WebText
+  Banner, BannerSet, BannerCopy, BannerLook, BannerSmart, BannerClash, BannerLink,
+  BannerLinks, BannersState, WebText
 } from '../shared/types';
 
 /**
@@ -135,17 +141,47 @@ export function safeHref(value: any): string {
   return '';
 }
 
+/** Tučnost po stovkách — cokoli jiného prohlížeč stejně zaokrouhlí. */
+const weight = (value: any, fallback: number) => {
+  const n = Math.round(Number(value) / 100) * 100;
+  return Number.isFinite(n) && n >= 300 && n <= 900 ? n : fallback;
+};
+
 function look(value: any): BannerLook {
   const image = safeImage(value?.image);
   const overlay = clamp(value?.overlay, 0, 90, 40);
   return {
     image,
-    bg: color(value?.bg, '#1c1c22'),
+    // Primární barva e-shopu je černá (`--pr: #000`), tak z ní vychází i dlaždice
+    bg: color(value?.bg, '#000000'),
     fg: color(value?.fg, '#ffffff'),
     overlay,
-    align: oneOf(value?.align, ['left', 'center', 'right'] as const, 'left'),
-    pos: oneOf(value?.pos, ['top', 'middle', 'bottom'] as const, 'bottom'),
-    focus: focus(value?.focus)
+    /*
+     * Na střed a doprostřed, protože přesně tak stojí banner na e-shopu
+     * (`jc-c ai-c` v jeho šabloně). Dlaždice v mřížce se často hodí spíš
+     * dolů a doleva — od toho jsou předlohy, které si to přepíšou.
+     */
+    align: oneOf(value?.align, ['left', 'center', 'right'] as const, 'center'),
+    pos: oneOf(value?.pos, ['top', 'middle', 'bottom'] as const, 'middle'),
+    focus: focus(value?.focus),
+    /*
+     * Výchozí je pokaždé to, co se nejvíc drží e-shopu: jeho písmo a jeho
+     * tlačítko. Kdo chce banner odlišit, udělá to vědomě — opačné pořadí
+     * by znamenalo, že se od webu odlišují i bannery, u kterých to nikdo
+     * nechtěl.
+     *
+     * Čísla níž nejsou vymyšlená: jsou změřená na quentino.cz (22. 9. 2026).
+     * Web je psaný Rajdhani ve váze 300/400/700, nadpisy má ve **400**
+     * (ne tučné), prostrkání −0,06 em, tlačítka **hranatá** a černá.
+     * Tučný nadpis se zakulacenými rohy by vedle toho byl cizí prvek.
+     */
+    font: oneOf(value?.font, ['shop', 'inter', 'jost', 'playfair', 'bebas'] as const, 'shop'),
+    titleWeight: weight(value?.titleWeight, 400),
+    titleSize: clamp(value?.titleSize, 70, 150, 100),
+    caps: !!value?.caps,
+    textWeight: weight(value?.textWeight, 400),
+    button: oneOf(value?.button, ['shop', 'fill', 'outline', 'soft', 'link'] as const, 'shop'),
+    radius: clamp(value?.radius, 0, 28, 0)
   };
 }
 
@@ -159,12 +195,21 @@ function smart(value: any): BannerSmart {
     code: String(value?.code ?? '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24),
     // Jen pár znaků — emoji je jedno, ne věta
     emoji: Array.from(String(value?.emoji ?? '').trim()).slice(0, 3).join(''),
-    effect: oneOf(value?.effect, ['none', 'snow', 'shine', 'pulse', 'float'] as const, 'none')
+    effect: oneOf(value?.effect, ['none', 'snow', 'shine', 'pulse', 'float'] as const, 'none'),
+    /*
+     * Meze jsou tam kvůli stránce, ne kvůli vkusu: dvě stě padajících emoji
+     * na čtyřech dlaždicích je dvě stě animovaných prvků na úvodní stránce
+     * a na starším telefonu se to pozná na plynulosti rolování.
+     */
+    fxCount: clamp(value?.fxCount, 3, 40, 14),
+    fxSize: clamp(value?.fxSize, 8, 44, 15),
+    fxSpeed: clamp(value?.fxSpeed, 2, 24, 8)
   };
 }
 
 function copy(value: any): BannerCopy {
   return {
+    kicker: text(value?.kicker),
     title: text(value?.title),
     text: text(value?.text),
     button: text(value?.button),
@@ -190,9 +235,41 @@ export function normalizeBanner(value: any): Banner {
    * počítače nebo z ručně upraveného souboru a nečitelný nadpis na fotce
    * je chyba, kterou nikdo nenahlásí — jen se z banneru neklikne.
    */
-  const hasText = filled(one.copy.title) || filled(one.copy.text);
+  const hasText = filled(one.copy.title) || filled(one.copy.text) || filled(one.copy.kicker);
   if (one.look.image && hasText && one.look.overlay < MIN_OVERLAY) one.look.overlay = MIN_OVERLAY;
   return one;
+}
+
+/** Nejvíc odkazů v pruhu. Víc než osm se na počítači nevejde do řádku. */
+const MAX_LINKS = 8;
+
+function link(value: any): BannerLink {
+  return {
+    id: String(value?.id ?? '') || crypto.randomUUID(),
+    image: safeImage(value?.image),
+    emoji: Array.from(String(value?.emoji ?? '').trim()).slice(0, 2).join(''),
+    text: text(value?.text),
+    href: {
+      cz: safeHref(value?.href?.cz),
+      sk: safeHref(value?.href?.sk),
+      en: safeHref(value?.href?.en)
+    }
+  };
+}
+
+function links(value: any): BannerLinks {
+  return {
+    on: !!value?.on,
+    shape: oneOf(value?.shape, ['circle', 'square', 'text'] as const, 'circle'),
+    items: (Array.isArray(value?.items) ? value.items : []).slice(0, MAX_LINKS).map(link)
+  };
+}
+
+/** Odkaz bez textu i bez cíle je jen mezera — na web nemá co posílat. */
+export function liveLinks(set: BannerSet): BannerLink[] {
+  return set.links.on
+    ? set.links.items.filter(one => filled(one.text) && (one.href.cz || one.href.sk || one.href.en))
+    : [];
 }
 
 export function normalizeSet(value: any): BannerSet {
@@ -216,7 +293,8 @@ export function normalizeSet(value: any): BannerSet {
     layout: oneOf(value?.layout, ['quad', 'wide'] as const, 'quad'),
     phone: oneOf(value?.phone, ['grid', 'wide'] as const, 'grid'),
     rotate: clamp(value?.rotate, 0, 60, 0),
-    banners
+    banners,
+    links: links(value?.links)
   };
 }
 
@@ -224,7 +302,8 @@ export function normalizeSet(value: any): BannerSet {
 
 export function liveBanners(set: BannerSet): Banner[] {
   return set.banners.filter(one => !one.off
-    && (filled(one.copy.title) || filled(one.copy.text) || !!one.look.image));
+    && (filled(one.copy.title) || filled(one.copy.text) || filled(one.copy.kicker)
+      || !!one.look.image));
 }
 
 export function validateSet(set: BannerSet): string {
@@ -235,7 +314,9 @@ export function validateSet(set: BannerSet): string {
     return 'Konec platnosti musí být po jejím začátku.';
   }
   const live = liveBanners(set);
-  if (live.length === 0) return 'Sada nemá ani jeden banner s textem nebo fotkou.';
+  if (live.length === 0 && liveLinks(set).length === 0) {
+    return 'Sada nemá ani jeden banner s textem nebo fotkou.';
+  }
   /*
    * Odpočet a garance doručení stojí na datu. Bez něj by skript nevykreslil
    * nic — odpočet by prostě chyběl a banner by vypadal jako obyčejná
@@ -305,6 +386,7 @@ function prune(sets: BannerSet[]): BannerSet[] {
 export function bannerRow(one: Banner): any {
   const row: any = {
     id: one.id,
+    kicker: one.copy.kicker,
     title: one.copy.title,
     text: one.copy.text,
     button: one.copy.button,
@@ -317,14 +399,17 @@ export function bannerRow(one: Banner): any {
       untilMs: Number.isFinite(one.smart.untilMs) ? one.smart.untilMs : 0,
       code: one.smart.code,
       emoji: one.smart.emoji,
-      effect: one.smart.effect
+      effect: one.smart.effect,
+      fxCount: one.smart.fxCount,
+      fxSize: one.smart.fxSize,
+      fxSpeed: one.smart.fxSpeed
     };
   }
   return row;
 }
 
 export function setRow(set: BannerSet): any {
-  return {
+  const row: any = {
     id: set.id,
     fromMs: set.fromMs,
     toMs: set.toMs,
@@ -333,11 +418,21 @@ export function setRow(set: BannerSet): any {
     rotate: set.rotate,
     banners: liveBanners(set).map(bannerRow)
   };
+  const odkazy = liveLinks(set);
+  if (odkazy.length > 0) {
+    row.links = {
+      shape: set.links.shape,
+      items: odkazy.map(one => ({
+        id: one.id, image: one.image, emoji: one.emoji, text: one.text, href: one.href
+      }))
+    };
+  }
+  return row;
 }
 
 export function payload(sets: BannerSet[] = listSets()): string {
   const out = sets
-    .filter(one => !one.off && liveBanners(one).length > 0)
+    .filter(one => !one.off && (liveBanners(one).length > 0 || liveLinks(one).length > 0))
     .map(setRow);
   return JSON.stringify({ v: 1, updatedAt: new Date().toISOString(), sets: out });
 }
@@ -398,26 +493,58 @@ export async function publish(): Promise<string> {
 }
 
 /**
- * Nahrání fotky banneru.
+ * Nahrání fotky banneru — do e-shopu, ne k nám.
+ *
+ * ## Proč do Upgates a ne do našeho úložiště
+ *
+ * Fotka banneru je obsah e-shopu. Když leží v jeho správci souborů, je
+ * vidět tam, kde ji člověk hledá, jde vyměnit i bez aplikace a jede
+ * z téže CDN jako zbytek fotek na stránce — tedy z domény, kterou
+ * prohlížeč zákazníka už má navázanou. Naše úložiště by znamenalo druhé
+ * místo, kam se musí chodit, a spojení navíc při načítání úvodní stránky.
  *
  * Fotka se převádí do WebP už v okně (tamtéž, kde se převádějí fotky
- * produktů), sem přijdou hotové bajty. Název se skládá z otisku obsahu:
- * dvakrát nahraná táž fotka skončí na téže adrese a zabere místo jednou,
- * kdežto **upravená fotka dostane novou adresu**, takže se nemusí čekat,
- * až vyprší CDN. Bez toho by se po výměně fotky na webu ještě hodinu
- * ukazovala ta stará a vypadalo by to, že nahrání nefunguje.
+ * produktů), sem přijdou hotové bajty. Uloží se do dočasného souboru,
+ * protože nahrávání do administrace jede přes soubory na disku — je to
+ * tatáž cesta, jakou se do e-shopu dostávají přílohy článků.
+ *
+ * Vrací se **adresa z administrace**, tedy to, co e-shop sám o souboru
+ * říká. Složit ji odhadem by znamenalo odkaz, který vypadá správně a
+ * nevede nikam.
  */
 export async function uploadImage(name: string, bytes: number[] | Uint8Array): Promise<string> {
   const data = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes ?? []);
   if (data.length === 0) throw new Error('Fotka je prázdná.');
-  const stamp = crypto.createHash('sha1').update(Buffer.from(data)).digest('hex').slice(0, 10);
+
   const base = String(name ?? 'banner')
     .replace(/\.[^.]+$/, '')
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'banner';
-  // Rok na věčnost: adresa se mění s obsahem, takže starou verzi nikdo nedostane
-  return put(`bannery/${base}-${stamp}.webp`, Buffer.from(data), 'image/webp', 'max-age=31536000, immutable');
+  /*
+   * Otisk obsahu v názvu. Dvakrát nahraná táž fotka skončí pod týmž
+   * jménem, kdežto **upravená fotka dostane nové** — a tím i novou adresu,
+   * takže se nečeká, až vyprší CDN. Bez toho by se po výměně fotky na
+   * webu ještě hodinu ukazovala ta stará a vypadalo by to, že nahrání
+   * nefunguje.
+   */
+  const stamp = crypto.createHash('sha1').update(Buffer.from(data)).digest('hex').slice(0, 10);
+  const dir = path.join(app.getPath('temp'), 'quentino-bannery');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `banner-${base}-${stamp}.webp`);
+  fs.writeFileSync(file, Buffer.from(data));
+
+  const [done] = await uploadArticleFiles([file]);
+  // Dočasný soubor už není k čemu; adresa je na e-shopu
+  try { fs.rmSync(file, { force: true }); } catch { /* uklidí ho systém */ }
+
+  if (!done?.url) {
+    throw new Error(done?.note
+      || 'Fotka se nahrála, ale adresu se ve správci souborů nepodařilo přečíst.');
+  }
+  const url = safeImage(done.url);
+  if (!url) throw new Error(`Adresa z administrace se nedá použít: ${done.url}`);
+  return url;
 }
 
 /**
@@ -453,7 +580,7 @@ export async function pull(): Promise<string> {
       banners: (row.banners ?? []).map((b: any) => ({
         ...b,
         name: names.get(String(b.id)) ?? '',
-        copy: { title: b.title, text: b.text, button: b.button, href: b.href }
+        copy: { kicker: b.kicker, title: b.title, text: b.text, button: b.button, href: b.href }
       }))
     });
   });
@@ -479,10 +606,10 @@ export async function pull(): Promise<string> {
 export async function translateSet(value: any): Promise<BannerSet> {
   const set = normalizeSet(value);
   const source: string[] = [];
-  const slots: { banner: Banner; field: 'title' | 'text' | 'button' }[] = [];
+  const slots: { banner: Banner; field: 'kicker' | 'title' | 'text' | 'button' }[] = [];
 
   for (const one of set.banners) {
-    for (const field of ['title', 'text', 'button'] as const) {
+    for (const field of ['kicker', 'title', 'text', 'button'] as const) {
       if (one.copy[field].cz) { source.push(one.copy[field].cz); slots.push({ banner: one, field }); }
     }
   }
@@ -494,17 +621,118 @@ export async function translateSet(value: any): Promise<BannerSet> {
     });
   }
 
+  /* Texty odkazů pod bannerem jdou stejným dotazem — je to jedna stránka */
+  if (set.links.items.length > 0) {
+    const zdroj = set.links.items.map(one => one.text.cz);
+    if (zdroj.some(Boolean)) {
+      const hotovo = await translateWeb(zdroj);
+      set.links.items.forEach((one, i) => {
+        if (!one.text.cz) return;
+        one.text.sk = hotovo[i]?.sk ?? '';
+        one.text.en = hotovo[i]?.en ?? '';
+      });
+    }
+    for (const one of set.links.items) {
+      if (!one.href.cz) continue;
+      try {
+        const [sk, en] = await Promise.all([findHref(one.href.cz, 'sk'), findHref(one.href.cz, 'en')]);
+        if (sk.url) one.href.sk = sk.url;
+        if (en.url) one.href.en = en.url;
+      } catch { /* odkaz bez překladu zůstane český */ }
+    }
+  }
+
   for (const one of set.banners) {
     const cz = one.copy.href.cz;
     if (!cz) continue;
     try {
-      one.copy.href.sk = safeHref(translateUrl(cz, 'cz', 'sk').url) || one.copy.href.sk;
-      one.copy.href.en = safeHref(translateUrl(cz, 'cz', 'en').url) || one.copy.href.en;
+      const [sk, en] = await Promise.all([findHref(cz, 'sk'), findHref(cz, 'en')]);
+      // Nenalezený odkaz nepřepisuje ten, co už tam je — ručně zadaný je víc
+      if (sk.url) one.copy.href.sk = sk.url;
+      if (en.url) one.copy.href.en = en.url;
     } catch {
       /* Odkaz bez překladu zůstane český — banner pořád někam vede */
     }
   }
   return set;
+}
+
+/** Z „/kravaty" celá česká adresa — bez ní není co se ptát. */
+function czAbsolute(href: string): string {
+  const clean = safeHref(href);
+  if (!clean) return '';
+  if (/^https?:\/\//i.test(clean)) return clean;
+  const home = shopOrigins().find(one => one.lang === 'cz')?.origin ?? '';
+  return home ? home + clean : '';
+}
+
+/**
+ * Existuje ta stránka vůbec?
+ *
+ * Používá se jen na **dohad** — na adresu složenou výměnou domény. Bez
+ * tohohle se do banneru dostal odkaz, který vypadal správně a vedl na
+ * stránku 404: „/kravaty" se prostě přilepilo na wearquentino.com, kde se
+ * ta stránka jmenuje jinak. Raději žádný odkaz než odkaz do prázdna.
+ */
+async function stranka(url: string, timeoutMs = 9000): Promise<boolean> {
+  if (!/^https?:\/\//i.test(url)) return false;
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: 'GET', redirect: 'follow', signal: stop.signal });
+    return res.ok;
+  } catch {
+    /*
+     * Bez sítě se dohad nezahazuje. Nefunkční síť není důkaz, že stránka
+     * neexistuje, a smazat kvůli výpadku rozepsaný odkaz by bylo horší
+     * než ho nechat a označit jako dohad.
+     */
+    return true;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface FoundHref { url: string; via: string }
+
+/**
+ * Kam český odkaz vede v jiném trhu.
+ *
+ * ## Proč se to chodí zeptat webu
+ *
+ * Trhy jsou tři samostatné e-shopy a **slug se v nich liší**: z „/kravaty"
+ * je na anglickém webu „/neckties". Dřív se adresa skládala výměnou domény,
+ * takže z toho vylezlo „wearquentino.com/kravaty" — odkaz, který vypadá
+ * správně, tváří se jako dohledaný a vede na stránku 404. Přesně to bylo
+ * na bannerech vidět.
+ *
+ * Pořadí je proto takové, aby se **nejdřív hledalo a až pak hádalo**:
+ *
+ *  1. **přepínač jazyků na té stránce** — e-shop sám říká, co je jeho
+ *     protějšek; jistější zdroj neexistuje a rovnou se to zapamatuje,
+ *  2. naučená mapa adres (z článků a z dřívějších dotazů),
+ *  3. dohad výměnou domény — a ten se **ověří stažením**. Když stránka
+ *     není, vrátí se prázdno, ne rozbitý odkaz.
+ */
+export async function findHref(cz: string, toLang: string): Promise<FoundHref> {
+  const absolute = czAbsolute(cz);
+  if (!absolute) return { url: '', via: 'none' };
+
+  // 1) Zeptat se stránky. Naplní to i mapu, takže podruhé se nikam nechodí.
+  try {
+    const found = await alternatesOf(absolute);
+    const target = safeHref(found[toLang] ?? '');
+    if (target) return { url: target, via: 'page' };
+  } catch {
+    /* Bez sítě se pokračuje mapou a dohadem */
+  }
+
+  // 2) a 3) mapa, nebo dohad — a dohad se ověří
+  const guess = translateUrl(absolute, 'cz', toLang);
+  const url = safeHref(guess.url);
+  if (!url) return { url: '', via: 'none' };
+  if (guess.via === 'domain' && !(await stranka(url))) return { url: '', via: 'none' };
+  return { url, via: guess.via };
 }
 
 /**
@@ -515,12 +743,12 @@ export async function translateSet(value: any): Promise<BannerSet> {
  * „z přepínače jazyků na té stránce" je jiná jistota než „ze stejné cesty na
  * jiné doméně" a u druhého se vyplatí se podívat.
  */
-export function resolveHref(cz: string): { sk: string; en: string; skVia: string; enVia: string } {
+export async function resolveHref(cz: string):
+  Promise<{ sk: string; en: string; skVia: string; enVia: string }> {
   const clean = safeHref(cz);
   if (!clean) return { sk: '', en: '', skVia: 'none', enVia: 'none' };
-  const sk = translateUrl(clean, 'cz', 'sk');
-  const en = translateUrl(clean, 'cz', 'en');
-  return { sk: safeHref(sk.url), en: safeHref(en.url), skVia: sk.via, enVia: en.via };
+  const [sk, en] = await Promise.all([findHref(clean, 'sk'), findHref(clean, 'en')]);
+  return { sk: sk.url, en: en.url, skVia: sk.via, enVia: en.via };
 }
 
 /* ---------- stav pro okno ---------- */
@@ -550,7 +778,11 @@ function state(error = ''): BannersState {
       ttl: ttl(),
       fallback: fallback ? setRow(fallback) : null
     }),
-    uploadReady: !!(config.url && config.hasKey)
+    /*
+     * Fotky jdou do správce souborů e-shopu, ne do našeho úložiště —
+     * připravenost se proto ptá na administraci, ne na klíč k Supabase.
+     */
+    uploadReady: filesUrlLearned()
   };
 }
 
@@ -571,6 +803,72 @@ export function bannersState(): BannersState {
  */
 export function previewScript(value: any): string {
   return bannerScript({ url: '', ttl: DEFAULT_TTL, fallback: setRow(normalizeSet(value)) });
+}
+
+/**
+ * Celá stránka náhledu, i s tím, co kolem bannerů má e-shop.
+ *
+ * Je v ní schválně i prázdný `#banner1`: skript hledá místo původního
+ * karuselu a schovává ho, takže kdyby v náhledu nebylo, zkoušelo by se
+ * něco jiného než na webu a nepoznalo by se, že vodítko přestalo platit.
+ *
+ * Písmo a tlačítko „jako e-shop" si banner nenastavuje a dědí je ze
+ * stránky — rámeček náhledu ale stránku e-shopu nemá, takže se tu doplní
+ * to, co e-shop doopravdy má: Rajdhani a třídy `btn fg bg-pr` (změřeno na
+ * quentino.cz 22. 9. 2026: nadpisy ve váze 400, tlačítka černá a hranatá,
+ * odsazení 16/32).
+ *
+ * Vrací **adresu**, ne HTML: kód vložený přímo ve stránce okno aplikace
+ * spustit nesmí (`script-src 'self'` platí i pro rámeček přes `srcdoc`)
+ * a náhled by zůstal prázdný. Viz `bannerpreview.ts`.
+ */
+export function previewUrl(value: any, lang = 'cz'): string {
+  const script = previewScript(value);
+  const safeLang = ['cz', 'sk', 'en'].includes(String(lang)) ? String(lang) : 'cz';
+  const html = [
+    '<!doctype html><html lang="cs"><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=',
+    'Rajdhani%3A300%2C400%2C700&display=swap&subset=latin%2Clatin-ext">',
+    '<style>',
+    'html,body{margin:0;background:#fff;color:#000;font-family:Rajdhani,sans-serif}',
+    '.qbn-ukazka{padding:0 16px}',
+    '.qbn-jako{height:64px;display:flex;align-items:center;justify-content:center;',
+    'border-bottom:1px solid #e6e6e9;color:#9b9ba3;font-size:12px;letter-spacing:.08em;',
+    'text-transform:uppercase}',
+    '#banner1{margin:18px 0;padding:26px;border:1px dashed #d4d4d8;',
+    'color:#9b9ba3;font-size:13px;text-align:center}',
+    '.btn{display:inline-flex;align-items:center;padding:12px 21px;border:0;border-radius:0;',
+    'font-size:16px;font-weight:400;letter-spacing:-.02em;line-height:1.2;color:#000}',
+    '.btn.bg-pr{background:#000}.btn.fg{color:#fff}',
+    '.btn.pt-3{padding-top:16px}.btn.pb-3{padding-bottom:16px}',
+    '.btn.pr-5{padding-right:32px}.btn.pl-5{padding-left:32px}',
+    '.btn.fs-4{font-size:18px}',
+    '</style>',
+    `<script>window.__quentinoLang=${JSON.stringify(safeLang)}</script>`,
+    script,
+    '</head><body>',
+    '<div class="qbn-jako">hlavička e-shopu</div>',
+        /*
+     * Fotka uvnitř původního karuselu je tu schválně: na ní se pozná, že
+     * skript zahodil i to, co se k banneru stahovalo. Adresa nikam nevede.
+     */
+    '<div class="qbn-ukazka"><div id="banner1">původní karusel Upgates',
+    '<img alt="" src="https://cdn.invalid/stary-banner.jpg" width="1" height="1"></div>',
+    '<div class="qbn-jako" style="border:0;border-top:1px solid #e6e6e9">další obsah stránky</div>',
+    '</div>',
+    /*
+     * Výšku hlásí stránka sama. Hádat ji zvenčí nejde: mění se s počtem
+     * bannerů, se zalomením textu i s tím, jestli se odpočet vejde na
+     * jeden řádek — a špatný odhad by udělal v okně pruh prázdna.
+     */
+    '<script>(function(){function s(){try{parent.postMessage(',
+    '{qbn:document.documentElement.scrollHeight},"*")}catch(e){}}',
+    'if(window.ResizeObserver)new ResizeObserver(s).observe(document.documentElement);',
+    'setTimeout(s,60);setTimeout(s,450);setTimeout(s,1200);})()</script>',
+    '</body></html>'
+  ].join('');
+  return stashPreview(html);
 }
 
 export async function loadBanners(): Promise<BannersState> {
@@ -635,7 +933,8 @@ export async function saveSet(value: any): Promise<BannersState> {
 export function setSummary(set: BannerSet): string {
   const parts: string[] = [];
   for (const one of liveBanners(set)) {
-    const line = [one.copy.title.cz, one.copy.text.cz].filter(Boolean).join(' — ');
+    const line = [one.copy.kicker.cz, one.copy.title.cz, one.copy.text.cz]
+      .filter(Boolean).join(' — ');
     if (line) parts.push(line);
     if (one.smart.kind === 'code' && one.smart.code) parts.push(`slevový kód ${one.smart.code}`);
     if (one.smart.kind === 'delivery') parts.push('garance doručení do Vánoc');
@@ -698,5 +997,5 @@ export async function publishBanners(): Promise<BannersState> {
 
 export const __test = {
   normalizeSet, normalizeBanner, validateSet, payload, setRow, liveBanners,
-  setClashes, safeHref, safeImage, prune, fallbackSet, setSummary
+  setClashes, safeHref, safeImage, prune, fallbackSet, setSummary, liveLinks
 };

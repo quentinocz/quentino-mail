@@ -693,15 +693,18 @@
           + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
       };
       var text = function (cz) { return { cz: cz || '', sk: '', en: '' }; };
-      var banner = function (id, nadpis, smart, look) {
+      var banner = function (id, nadpis, smart, look, kicker) {
         return {
           id: id, name: '', off: false,
           copy: {
-            title: text(nadpis), text: text('Ručně šité, skladem'),
+            kicker: text(kicker), title: text(nadpis),
+            text: text('Ručně šité, **skladem**'),
             button: text('Prohlédnout'), href: { cz: '/ksandy', sk: '', en: '' }
           },
-          look: Object.assign({ image: '', bg: '#1c1c22', fg: '#ffffff', overlay: 40,
-            align: 'left', pos: 'bottom', focus: '50% 50%' }, look || {}),
+          look: Object.assign({ image: '', bg: '#000000', fg: '#ffffff', overlay: 40,
+            align: 'left', pos: 'bottom', focus: '50% 50%',
+            font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
+            textWeight: 400, button: 'shop', radius: 0 }, look || {}),
           smart: Object.assign({ kind: 'none', until: '', untilMs: 0, code: '', emoji: '', effect: 'none' },
             smart || {})
         };
@@ -715,7 +718,10 @@
             toMs: Number.MAX_SAFE_INTEGER, off: false,
             layout: 'quad', phone: 'grid', rotate: 6,
             banners: [
-              banner('b1', 'Kšandy k obleku', null, { bg: '#2b2f45' }),
+              /* Jeden banner schválně vlastním písmem a obrysovým tlačítkem —
+                 jinak by se v náhledu neověřilo, že se to vůbec projeví */
+              banner('b1', 'Kšandy k obleku', null,
+                { bg: '#111111', font: 'jost', titleWeight: 700, button: 'outline' }, 'Novinka'),
               /*
                * Odpočet do večera schválně: pod jeden den skript ukazuje
                * i vteřiny, takže je v náhledu vidět, že tiká. U víc dnů
@@ -723,19 +729,36 @@
                */
               banner('b2', 'Motýlky ze sametu',
                 { kind: 'countdown', until: mistni(ted + 3 * 3600000), untilMs: ted + 3 * 3600000,
-                  emoji: '⏳', effect: 'pulse' }, { bg: '#7a1d1d', align: 'center' }),
+                  emoji: '⏳', effect: 'pulse' },
+                { bg: '#000000', align: 'center', caps: true, radius: 14 }, 'Končí brzy'),
               banner('b3', 'Sleva na kravaty',
-                { kind: 'code', code: 'SLEVA10', emoji: '🏷️', effect: 'shine' }, { bg: '#1d3a7a' }),
+                { kind: 'code', code: 'SLEVA10', emoji: '🏷️', effect: 'shine' },
+                { bg: '#111111', button: 'fill' }, 'Slevový kód'),
               banner('b4', 'Stihneme to pod stromeček',
                 { kind: 'delivery', until: mistni(ted + 20 * den), untilMs: ted + 20 * den,
-                  emoji: '❄️', effect: 'snow' }, { bg: '#123a52', pos: 'middle', align: 'center' })
-            ] },
+                  emoji: '❄️', effect: 'snow' },
+                { bg: '#0b1a24', pos: 'middle', align: 'center', button: 'soft' }, 'Garance')
+            ],
+            /* Pruh kategorií pod bannerem — kvůli němu se ověřuje i on */
+            links: { on: true, shape: 'circle', items: [
+              { id: 'l1', image: '', emoji: '👔', text: text('Kravaty'),
+                href: { cz: '/kravaty', sk: 'https://quentino.sk/kravaty', en: '' } },
+              { id: 'l2', image: '', emoji: '🎀', text: text('Motýlky'),
+                href: { cz: '/motylky', sk: '', en: '' } },
+              { id: 'l3', image: '', emoji: '🧵', text: text('Kšandy'),
+                href: { cz: '/ksandy', sk: '', en: '' } },
+              { id: 'l4', image: '', emoji: '🧦', text: text('Ponožky'),
+                href: { cz: '/ponozky', sk: '', en: '' } }
+            ] } },
           { id: 's2', name: 'Black Friday', from: mistni(ted + 20 * den), to: mistni(ted + 24 * den),
             fromMs: ted + 20 * den, toMs: ted + 24 * den, off: false,
             layout: 'wide', phone: 'wide', rotate: 0,
             banners: [banner('b5', 'Sleva 25 % na vše',
               { kind: 'countdown', until: mistni(ted + 24 * den), untilMs: ted + 24 * den,
-                emoji: '🔥', effect: 'shine' }, { bg: '#111111', align: 'center', pos: 'middle' })] }
+                emoji: '🔥', effect: 'shine' },
+              { bg: '#000000', align: 'center', pos: 'middle', titleSize: 130, titleWeight: 700 },
+              'Black Friday')],
+            links: { on: false, shape: 'circle', items: [] } }
         ],
         fallbackId: 's1',
         publishedAt: new Date(ted - 3600000).toISOString(),
@@ -1965,6 +1988,7 @@
 
   window.api = {
     invoke: function (channel, arg) {
+      var args = [].slice.call(arguments, 1);
       // Náhledy si na volání sahají: co se kam poslalo (okna nástrojů)
       (window.__calls = window.__calls || []).push([channel].concat([].slice.call(arguments, 1)));
       /*
@@ -2357,10 +2381,12 @@
         var script = (typeof window !== 'undefined' && window.__bannerScript) || '';
         if (!script) return Promise.resolve({ ok: true, data: '' });
         var radky = (sada.banners || []).filter(function (one) {
-          return !one.off && (one.copy && (one.copy.title.cz || one.copy.text.cz) || one.look.image);
+          return !one.off && (one.copy
+            && (one.copy.title.cz || one.copy.text.cz || (one.copy.kicker || {}).cz)
+            || one.look.image);
         }).map(function (one) {
           return {
-            id: one.id, title: one.copy.title, text: one.copy.text,
+            id: one.id, kicker: one.copy.kicker, title: one.copy.title, text: one.copy.text,
             button: one.copy.button, href: one.copy.href, look: one.look,
             smart: one.smart && one.smart.kind !== 'none' ? one.smart : undefined
           };
@@ -2368,9 +2394,40 @@
         var zaloha = JSON.stringify({
           id: sada.id || 'nahled', fromMs: 0, toMs: Number.MAX_SAFE_INTEGER,
           layout: sada.layout || 'quad', phone: sada.phone || 'grid',
-          rotate: sada.rotate || 0, banners: radky
+          rotate: sada.rotate || 0, banners: radky,
+          links: sada.links && sada.links.on ? sada.links : undefined
         });
-        return Promise.resolve({ ok: true, data: script.replace('var FALLBACK = "";', 'var FALLBACK = ' + zaloha + ';') });
+        var telo = script.replace('var FALLBACK = "";', 'var FALLBACK = ' + zaloha + ';');
+        /*
+         * V aplikaci vydává stránku hlavní proces na vlastní adrese, protože
+         * vložený kód by okno neposlechlo. V náhledu je CSP odstraněná, takže
+         * stačí blob — podstatné je, že rámeček dostane **adresu** a běží
+         * v něm tentýž skript jako na e-shopu.
+         */
+        var html = '<!doctype html><meta charset="utf-8">'
+          + '<style>html,body{margin:0;background:#fff;color:#000;font-family:Rajdhani,sans-serif}'
+          + '.qbn-ukazka{padding:0 16px}'
+          + '.qbn-jako{height:64px;display:flex;align-items:center;justify-content:center;'
+          + 'border-bottom:1px solid #e6e6e9;color:#9b9ba3;font-size:12px}'
+          + '#banner1{margin:18px 0;padding:26px;border:1px dashed #d4d4d8;color:#9b9ba3;font-size:13px}'
+          + '.btn{display:inline-flex;padding:12px 21px;border:0;border-radius:0;font-size:16px;color:#000}'
+          + '.btn.bg-pr{background:#000}.btn.fg{color:#fff}'
+          + '.btn.pt-3{padding-top:16px}.btn.pb-3{padding-bottom:16px}'
+          + '.btn.pr-5{padding-right:32px}.btn.pl-5{padding-left:32px}.btn.fs-4{font-size:18px}</style>'
+          + '<script>window.__quentinoLang=' + JSON.stringify(args[1] || 'cz') + '<\/script>'
+          + telo
+          + '<div class="qbn-jako">hlavi\u010dka e-shopu</div>'
+          + '<div class="qbn-ukazka"><div id="banner1">p\u016fvodn\u00ed karusel'
+          + '<img alt="" src="https://cdn.invalid/stary-banner.jpg" width="1" height="1"></div>'
+          + '<div class="qbn-jako" style="border:0;border-top:1px solid #e6e6e9">dal\u0161\u00ed obsah</div></div>'
+          + '<script>(function(){function s(){try{parent.postMessage('
+          + '{qbn:document.documentElement.scrollHeight},"*")}catch(e){}}'
+          + 'if(window.ResizeObserver)new ResizeObserver(s).observe(document.documentElement);'
+          + 'setTimeout(s,60);setTimeout(s,450);setTimeout(s,1200);})()<\/script>';
+        return Promise.resolve({
+          ok: true,
+          data: URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+        });
       }
       return Promise.resolve({ ok: true, data: channel in answers ? answers[channel] : null });
     },

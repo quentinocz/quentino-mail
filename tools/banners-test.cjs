@@ -12,6 +12,7 @@
  * vystavila jinak pojmenované pole, než jaké skript čte, obojí by prošlo
  * překladem a na úvodní stránce by zůstalo prázdné místo.
  */
+const fs = require('fs');
 const path = require('path');
 const { db, DIST } = require('./ptrans/harness.cjs');
 
@@ -52,6 +53,7 @@ const banner = (extra = {}) => ({
   id: 'b1',
   name: 'Kšandy',
   copy: {
+    kicker: { cz: 'Novinka', sk: '', en: '' },
     title: { cz: 'Kšandy k obleku', sk: '', en: '' },
     text: { cz: 'Ručně šité', sk: '', en: '' },
     button: { cz: 'Prohlédnout', sk: '', en: '' },
@@ -60,6 +62,35 @@ const banner = (extra = {}) => ({
   look: { image: '', bg: '#123456', fg: '#ffffff', overlay: 40, align: 'left', pos: 'bottom', focus: '50% 50%' },
   ...extra
 });
+
+/* ---------- designový jazyk e-shopu ---------- */
+
+console.log('design podle e-shopu:\n');
+
+/*
+ * Výchozí hodnoty nejsou vkus, ale opis z quentino.cz (změřeno 22. 9. 2026):
+ * web je psaný Rajdhani, nadpisy má ve váze **400** (ne tučné), primární
+ * barva je černá a rohy i tlačítka jsou **hranaté**. Tučný nadpis
+ * v zakulacené dlaždici by vedle zbytku stránky byl cizí prvek — a je to
+ * přesně ten druh nesouladu, kterého si nikdo nevšimne v kódu, jen na webu.
+ */
+const vychozi = T.normalizeBanner({}).look;
+check('nadpis má výchozí váhu jako nadpisy e-shopu', vychozi.titleWeight, 400);
+check('rohy jsou hranaté jako na e-shopu', vychozi.radius, 0);
+check('primární barva e-shopu je černá', vychozi.bg, '#000000');
+check('písmo se dědí ze stránky, žádné se nestahuje', vychozi.font, 'shop');
+check('tlačítko je to ze šablony e-shopu', vychozi.button, 'shop');
+check('text stojí na střed jako banner e-shopu', [vychozi.align, vychozi.pos], ['center', 'middle']);
+check('tloušťka se zaokrouhlí po stovkách',
+  T.normalizeBanner({ titleWeight: 651 }).look.titleWeight, 700);
+check('nesmyslná tloušťka spadne na výchozí',
+  T.normalizeBanner({ titleWeight: 1400 }).look.titleWeight, 400);
+check('neznámé písmo spadne na písmo e-shopu',
+  T.normalizeBanner({ font: 'comic-sans' }).look.font, 'shop');
+check('velikost nadpisu se drží v mezích',
+  [T.normalizeBanner({ titleSize: 500 }).look.titleSize,
+    T.normalizeBanner({ titleSize: 5 }).look.titleSize], [150, 70]);
+
 
 const sada = (extra = {}) => T.normalizeSet({
   id: 's1', name: 'Podzim', layout: 'quad', phone: 'grid', rotate: 6,
@@ -228,10 +259,33 @@ ok('bez vybrané sady je záloha prázdná', bezZalohy.includes('var FALLBACK = 
  */
 const kod = body.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
 for (const field of ['fromMs', 'toMs', 'layout', 'phone', 'rotate', 'banners',
-  'title', 'text', 'button', 'href', 'look', 'smart', 'overlay', 'focus',
-  'untilMs', 'code', 'emoji', 'effect']) {
+  'kicker', 'title', 'text', 'button', 'href', 'look', 'smart', 'overlay', 'focus',
+  'untilMs', 'code', 'emoji', 'effect',
+  // Typografie a tlačítko — ta část, o kterou šlo, aby banner ladil s webem
+  'font', 'titleWeight', 'titleSize', 'textWeight', 'caps', 'radius']) {
   ok(`skript čte pole ${field}`, kod.includes(field));
 }
+for (const font of ['inter', 'jost', 'playfair', 'bebas']) {
+  ok(`skript umí písmo ${font}`, kod.includes(font + ':'));
+}
+for (const style of ['fill', 'outline', 'soft', 'link']) {
+  ok(`skript umí tlačítko ${style}`, script.includes('data-style="' + style + '"'));
+}
+/*
+ * Tlačítko „jako na e-shopu" musí nést přesně ty třídy, kterými je psané
+ * tlačítko v původním banneru. Holá třída `btn` je na quentino.cz
+ * průhledná s černým písmem — na tmavé fotce by z ní nezbylo nic.
+ */
+ok('tlačítko e-shopu nese jeho vlastní třídy', kod.includes('btn fg bg-pr pt-3 pr-5 pb-3 pl-5 fs-4'));
+ok('a je pojištěné pro případ, že šablona třídu ztratí', kod.includes('getComputedStyle'));
+/* Písmo e-shopu se dědí — kdyby se nastavovalo, stahoval by se font navíc */
+ok('výchozí písmo se nenastavuje, ale dědí', script.includes('font-family: var(--qbn-font, inherit)'));
+ok('vlastní písmo se stahuje s display=swap', kod.includes('display=swap'));
+/* Tučná slova dvěma hvězdičkami — stejně jako v naplánovaných textech */
+ok('tučné slovo se skládá z uzlů, ne z HTML', kod.includes('createTextNode'));
+/* Jedno zaoblení pro dlaždici i tlačítko, ať si neodporují */
+ok('tlačítko má stejné zaoblení jako dlaždice',
+  script.includes('border-radius: var(--qbn-radius, 0)'));
 for (const kind of ['countdown', 'code', 'delivery']) {
   ok(`skript umí chytrý banner ${kind}`, kod.includes('"' + kind + '"'));
 }
@@ -254,6 +308,71 @@ ok('pohyb se dá vypnout systémem', script.includes('prefers-reduced-motion'));
 /* Původní karusel se schová až ve chvíli, kdy je čím ho nahradit */
 ok('původní karusel se schovává až třídou', script.includes('.qbn-on #banner1'));
 ok('a třídu přidá až kreslení', kod.includes('classList.add("qbn-on")'));
+
+/* ---------- náhled v aplikaci ---------- */
+
+console.log('\nnáhled v aplikaci:\n');
+
+/*
+ * Živý náhled spouští skript vložený přímo do stránky. Okno aplikace má
+ * ale `script-src 'self'`, a to platí i pro rámeček vložený přes `srcdoc`,
+ * protože ten dědí pravidla rodiče — náhled proto zůstával prázdný,
+ * zatímco na webu bannery běžely. Stránku teď vydává hlavní proces na
+ * vlastní adrese, a ta musí být v pravidlech povolená. Kdyby jedno
+ * z toho vypadlo, pozná se to tady, ne až v aplikaci.
+ */
+const indexHtml = fs.readFileSync(path.join(__dirname, '../src/renderer/index.html'), 'utf8');
+const preview = require(path.join(DIST, 'bannerpreview.js'));
+const frameSrc = /frame-src ([^;"]*)/.exec(indexHtml)?.[1] ?? '';
+ok(`adresa náhledu je v pravidlech okna povolená (${frameSrc.trim()})`,
+  frameSrc.includes(preview.PREVIEW_SCHEME + ':'));
+ok('a nepovoluje se kvůli ní vkládaný kód v celé aplikaci',
+  !/script-src[^;]*unsafe-inline/.test(indexHtml));
+const adresa = preview.stashPreview('<!doctype html><p>zkouška</p>');
+ok('stránka náhledu se vydává adresou, ne textem',
+  adresa.indexOf(preview.PREVIEW_SCHEME + '://') === 0, adresa);
+
+/* ---------- pruh odkazů pod bannerem ---------- */
+
+console.log('\nodkazy pod bannerem:\n');
+
+const sOdkazy = sada({
+  links: { on: true, shape: 'circle', items: [
+    { id: 'l1', emoji: '👔', text: { cz: 'Kravaty' }, href: { cz: '/kravaty' } },
+    { id: 'l2', emoji: '🎀', text: { cz: '' }, href: { cz: '/motylky' } },
+    { id: 'l3', emoji: '🧵', text: { cz: 'Kšandy' }, href: { cz: '' } }
+  ] }
+});
+check('odkaz bez textu ani bez cíle se nevystavuje',
+  T.liveLinks(sOdkazy).map(one => one.id), ['l1']);
+check('vypnutý pruh se nevystavuje vůbec',
+  T.liveLinks(sada({ links: { on: false, items: [{ id: 'x', text: { cz: 'A' }, href: { cz: '/a' } }] } })).length, 0);
+ok('pruh jde na web i s podobou', T.setRow(sOdkazy).links.shape === 'circle');
+ok('sada, ve které je jen pruh odkazů, taky projde',
+  T.validateSet(sada({ banners: [], links: sOdkazy.links })) === '');
+ok('skript pruh odkazů kreslí', kod.includes('qbn-link'));
+ok('a na telefonu se posouvá prstem', script.includes('scroll-snap-type'));
+
+/* ---------- co se opravilo ---------- */
+
+console.log('\nopravené drobnosti:\n');
+
+/*
+ * Emoji padala jen v horním proužku: posouvala se transformací v procentech,
+ * a ta se počítá z velikosti samotného znaku, ne z dlaždice. Procenta
+ * u "top" se počítají z výšky rodiče — tedy z dlaždice.
+ */
+ok('padání jde přes celou dlaždici, ne podle velikosti znaku',
+  script.includes('top: 115%') && !/translate3d\([^)]*5\d\d%/.test(script));
+ok('a dá se u něj nastavit hustota, velikost i rychlost',
+  kod.includes('fxCount') && kod.includes('fxSize') && kod.includes('fxSpeed'));
+/* Blok se lepil na hlavičku i na obsah pod sebou */
+ok('blok má kolem sebe vzduch', /\.qbn \{[^}]*margin:/.test(script));
+/* Na telefonu přeskakovalo rolování rovnou na banner */
+ok('a nepřetahuje si kotvu rolování', script.includes('overflow-anchor: none'));
+/* Schovaný karusel si dál stahoval své fotky */
+ok('původní karusel se ze stránky odstraní, ne jen schová', kod.includes('removeChild'));
+ok('a jeho obrázkům se nejdřív sebere adresa', kod.includes('removeAttribute("srcset")'));
 
 if (failed) {
   console.log(`\n✗ ${failed} zkoušek selhalo`);

@@ -2999,7 +2999,38 @@ export interface BannerSmart {
   /** Emoji do rohu a zároveň to, co padá při efektu „sněžení" */
   emoji: string;
   effect: BannerEffect;
+  /**
+   * Podrobnosti efektu: kolik kusů padá, jak jsou velké a jak dlouho trvá
+   * cesta shora dolů.
+   *
+   * Jedno nastavení pro všechny bannery nestačí: co je na širokém banneru
+   * přes celou obrazovku sotva znát, je na čtvrtinové dlaždici chumelenice.
+   */
+  fxCount: number;
+  fxSize: number;
+  /** Vteřiny, za které emoji propadne dlaždicí; víc = pomaleji */
+  fxSpeed: number;
 }
+
+/**
+ * Písmo banneru.
+ *
+ * `shop` je výchozí a **žádné písmo nenastavuje**. Blok se kreslí uvnitř
+ * stránky e-shopu, takže bez vlastního `font-family` zdědí to, čím je psaný
+ * zbytek webu — a to je nejspolehlivější způsob, jak s ním ladit. Zároveň
+ * se tím nic nestahuje navíc; každý další font je soubor k načtení na
+ * úvodní stránce.
+ */
+export type BannerFont = 'shop' | 'inter' | 'jost' | 'playfair' | 'bebas';
+
+/**
+ * Podoba tlačítka.
+ *
+ * `shop` znamená „třída `.btn` ze šablony", tedy přesně to tlačítko, jaké
+ * je na e-shopu všude jinde. Ostatní podoby jsou naše a hodí se, když má
+ * banner ležet na tmavé fotce, kde by tlačítko webu zaniklo.
+ */
+export type BannerButton = 'shop' | 'fill' | 'outline' | 'soft' | 'link';
 
 /** Vzhled jednoho banneru. */
 export interface BannerLook {
@@ -3027,10 +3058,35 @@ export interface BannerLook {
    * špatně.
    */
   focus: string;
+  font: BannerFont;
+  /**
+   * Tučnost nadpisu, 300–900.
+   *
+   * Vlastní hodnota má smysl i u písma z e-shopu: nadpis banneru nese jinou
+   * váhu než nadpis v katalogu a jedna tučnost pro obojí je vždycky
+   * kompromis.
+   */
+  titleWeight: number;
+  /** Velikost nadpisu v procentech proti výchozí, 70–150 */
+  titleSize: number;
+  /** Nadpis verzálkami a s prostrkáním — na krátká hesla, ne na věty */
+  caps: boolean;
+  textWeight: number;
+  button: BannerButton;
+  /** Zaoblení rohů dlaždice v bodech, 0–28 */
+  radius: number;
 }
 
 /** Texty jednoho banneru — každý ve třech jazycích. */
 export interface BannerCopy {
+  /**
+   * Řádek nad nadpisem, drobně a verzálkami („NOVINKA", „JEN DO NEDĚLE").
+   *
+   * Vypadá jako ozdoba, ale nese tu část sdělení, kterou nadpis nemá kam
+   * dát — proč se na banner dívat zrovna teď. Bez něj musí naléhavost do
+   * nadpisu a ten se prodlouží tak, že se v dlaždici zalomí na tři řádky.
+   */
+  kicker: WebText;
   title: WebText;
   text: WebText;
   /** Popisek tlačítka; prázdné = celá dlaždice je odkaz bez tlačítka */
@@ -3074,6 +3130,39 @@ export interface BannerSet {
    */
   rotate: number;
   banners: Banner[];
+  /** Odkazy na oblíbené kategorie pod bannerem */
+  links: BannerLinks;
+}
+
+/**
+ * Jeden odkaz v pruhu pod bannerem.
+ *
+ * Banner prodává jednu věc; pruh pod ním říká, co všechno tu je. Je to
+ * nejkratší cesta z úvodní stránky do kategorie a bez něj se zákazník
+ * musí prokousat nabídkou v hlavičce.
+ */
+export interface BannerLink {
+  id: string;
+  /** Vlastní obrázek nebo ikonka; prázdné = vystačí emoji nebo samotný text */
+  image: string;
+  emoji: string;
+  text: WebText;
+  /** Jako u banneru: vyplní se česká adresa, zbytek se dohledá */
+  href: WebText;
+}
+
+/** Pruh odkazů pod bannerem. */
+export interface BannerLinks {
+  on: boolean;
+  /**
+   * Podoba: kolečko s obrázkem, čtvercová dlaždička, nebo jen text.
+   *
+   * Kolečka jsou zvyk z mobilních aplikací a fungují u fotek produktu;
+   * u kategorií bez fotky je čitelnější holý text, protože ten se
+   * nemusí luštit.
+   */
+  shape: 'circle' | 'square' | 'text';
+  items: BannerLink[];
 }
 
 /** Sada, která se s plánovanou pere o tentýž čas. */

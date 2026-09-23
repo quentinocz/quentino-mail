@@ -946,8 +946,14 @@ export const api = {
     fallback: (id: string) => call<BannersState>('banners:fallback', id),
     /** Hotové WebP bajty do úložiště; vrací veřejnou adresu fotky */
     upload: (name: string, bytes: number[]) => call<string>('banners:upload', name, bytes),
-    /** Skript pro náhled — tentýž, jaký poběží na webu, jen s touhle sadou */
-    preview: (set: Partial<BannerSet>) => call<string>('banners:preview', set),
+    /**
+     * Adresa stránky s náhledem — tentýž skript, jaký poběží na webu.
+     *
+     * Vrací se adresa, ne HTML: kód vložený přímo ve stránce okno aplikace
+     * spustit nesmí a náhled by zůstal prázdný.
+     */
+    preview: (set: Partial<BannerSet>, lang: string) =>
+      call<string>('banners:preview', set, lang),
     publish: () => call<BannersState>('banners:publish')
   },
 
