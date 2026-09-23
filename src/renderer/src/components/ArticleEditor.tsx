@@ -56,8 +56,15 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
   const [working, setWorking] = useState('');
   /** Co se právě děje při nahrávání fotek a videí na e-shop */
   const [upload, setUpload] = useState('');
-  /** Soubory, u kterých se nepodařilo přečíst adresu — ať je co doplnit ručně */
-  const [unresolved, setUnresolved] = useState<string[]>([]);
+  /**
+   * Soubory, u kterých se nepodařilo přečíst adresu — ať je co doplnit ručně.
+   *
+   * Drží se i **vysvětlení od aplikace**. Hlavní proces ke každému souboru
+   * píše, co se stalo a co s tím (kam se soubor odložil, co na stránce
+   * našel), a tohle okno to zahazovalo — zbyla věta „u 1 se nepodařilo
+   * přečíst adresu", ze které se nedalo poznat vůbec nic.
+   */
+  const [unresolved, setUnresolved] = useState<{ name: string; note: string }[]>([]);
 
   useEffect(() => {
     setTopic(article.topic);
@@ -121,7 +128,7 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
         });
       }
       const missing = done.filter(one => !one.url);
-      setUnresolved(missing.map(one => one.name));
+      setUnresolved(missing.map(one => ({ name: one.name, note: one.note ?? '' })));
       toast(missing.length === 0
         ? `Nahráno ${done.length} souborů a adresy jsou v zadání.`
         : `Nahráno ${done.length}, ale u ${missing.length} se nepodařilo přečíst adresu.`,
@@ -355,11 +362,18 @@ export function ArticleBriefPanel({ article, langs, lengths, busy, onChanged, on
                 První označený jako listingový se do těla článku nedá — je to náhled v seznamu.
               </p>
               {unresolved.length > 0 && (
-                <p className="md-warn">
-                  <Icon name="alert" size={13} /> U těchhle souborů se nepodařilo přečíst adresu:
-                  {' '}{unresolved.join(', ')}. Jsou nahrané ve správci souborů — otevři je tam
-                  tlačítkem oka a adresu vlož do prázdného řádku.
-                </p>
+                <div className="md-warn">
+                  <p>
+                    <Icon name="alert" size={13} /> U těchhle souborů se nepodařilo přečíst adresu:
+                    {' '}{unresolved.map(one => one.name).join(', ')}.
+                  </p>
+                  {/* Vysvětlení od aplikace — bez něj se nedá poznat, co se stalo */}
+                  {unresolved.filter(one => one.note).map(one => (
+                    <p key={one.name} className="ig-muted" style={{ marginTop: 4 }}>
+                      <b>{one.name}:</b> {one.note}
+                    </p>
+                  ))}
+                </div>
               )}
               {brief.images.map((img, index) => (
                 <div key={index} className="ar-img">

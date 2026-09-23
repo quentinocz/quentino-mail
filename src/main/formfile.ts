@@ -226,7 +226,35 @@ export async function insertFiles(win: BrowserWindow, files: string[]): Promise<
   } finally {
     if (attached && dbg.isAttached()) { try { dbg.detach(); } catch { /* okno se mohlo zavřít */ } }
   }
+
+  /*
+   * A teď to říct stránce.
+   *
+   * `DOM.setFileInputFiles` soubor do políčka vloží, ale **událost
+   * neposílá spolehlivě** — a bez ní se o něm stránka nedozví. Přesně
+   * tohle se stalo ve správci souborů Upgates: soubor v políčku byl,
+   * Dropzone visící na `<body>` o něm nevěděl a nenahrálo se nic.
+   * Stejně to dělá i Puppeteer: vložit a pak poslat `input` a `change`.
+   */
+  await runJs(win.webContents, OZNAM, 6_000).catch(() => false);
+  for (const frame of framesOf(win).slice(1)) {
+    if (frame.detached) continue;
+    await runJs(frame, OZNAM, 6_000).catch(() => false);
+  }
 }
+
+/** Oznámí stránce, že se v označeném políčku objevil soubor. */
+const OZNAM = `
+  (function () {
+    var one = document.querySelector('[${MARK}]');
+    if (!one) return false;
+    try {
+      one.dispatchEvent(new Event('input', { bubbles: true }));
+      one.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    } catch (e) { return false; }
+  })()
+`;
 
 /**
  * Celá cesta: počkat na políčko a vložit do něj soubor.
@@ -712,4 +740,4 @@ function mimeOf(file: string): string {
   return known[ext] ?? 'application/octet-stream';
 }
 
-export const __test = { markScript, MARK, dropScript, PROBE };
+export const __test = { markScript, MARK, dropScript, PROBE, OZNAM };

@@ -682,6 +682,16 @@ ok('a když není, zkusí se políčko na soubor', vkladani.includes('policko.fi
 ok('a jako poslední se soubor do stránky upustí', vkladani.includes('new DragEvent'));
 ok('obsah souboru cestuje s sebou, disk stránka nevidí',
   vkladani.includes('atob(one.b64)') && vkladani.includes('new File('));
+/*
+ * Vložit soubor nestačí — stránka se o něm musí dozvědět.
+ *
+ * `DOM.setFileInputFiles` událost neposílá spolehlivě, a bez ní Dropzone
+ * (ve správci souborů Upgates visí rovnou na <body>) o souboru neví.
+ * Přesně tak vypadalo „vloženo, ale nenahrálo se nic".
+ */
+ok('po vložení se stránce pošle input i change',
+  formfile.__test.OZNAM.includes("new Event('input'")
+  && formfile.__test.OZNAM.includes("new Event('change'"));
 ok('a když není kam, upustí se rovnou na výpis souborů',
   vkladani.includes('.manager-file'));
 ok('hledá se i v místech, kde Dropzone teprve bude', F.PROBE.includes('input[type=file]'));

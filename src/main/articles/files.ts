@@ -345,7 +345,23 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   }
   if (!zpusob) zpusob = await dropFiles(win, list, spot).catch(() => '');
 
-  const found = zpusob ? await collectUrls(win, names, before) : new Map<string, string>();
+  let found = zpusob ? await collectUrls(win, names, before, 20) : new Map<string, string>();
+
+  /*
+   * Nezabralo to? Zkusit druhou cestu, ne rovnou vzdát.
+   *
+   * Ve správci souborů visí Dropzone na `<body>` a nahrává sám
+   * (`autoProcessQueue`), takže `addFile` je přesně to, co dělá jeho
+   * vlastní dialog — změřeno v administraci 23. 9. 2026. Když tedy vložení
+   * do políčka nic nezpůsobilo, má smysl sáhnout rovnou po něm.
+   */
+  if (found.size === 0 && zpusob !== 'dropzone' && !win.isDestroyed()) {
+    const druhy = await dropFiles(win, list, spot).catch(() => '');
+    if (druhy) {
+      zpusob = `${zpusob || 'nic'} → ${druhy}`;
+      found = await collectUrls(win, names, before, 40);
+    }
+  }
 
   /*
    * Přetažení se ověřit nedá.
