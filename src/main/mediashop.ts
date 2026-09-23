@@ -4,7 +4,7 @@ import path from 'path';
 import { getDb, getSetting, setSetting } from './db';
 import { getUpgatesConfig } from './upgates';
 import { listProducts } from './products';
-import { openUrl, waitForFileInput, insertFiles, describeDropSpots } from './formfile';
+import { openUrl, waitForFileInput, insertFiles, describeDropSpots, protectWindow } from './formfile';
 import { keepSignedIn, signIn, signInNote } from './portallogin';
 import { mediaSetup } from './media';
 import type { MediaFile, MediaProduct, MediaProductPage, MediaProductQuery, MediaProductSetup,
@@ -384,6 +384,8 @@ export async function uploadProductImages(code: string, files: string[]): Promis
   uploadWin = win;
   win.on('closed', () => { uploadWin = null; });
 
+  // Administrace umí zavřít okno sama — to se jí musí vzít
+  protectWindow(win);
   keepSignedIn(win, 'upgates');
   await openUrl(win, productAdminUrl(productId));
   win.show();

@@ -692,6 +692,22 @@ ok('obsah souboru cestuje s sebou, disk stránka nevidí',
 ok('po vložení se stránce pošle input i change',
   formfile.__test.OZNAM.includes("new Event('input'")
   && formfile.__test.OZNAM.includes("new Event('change'"));
+
+/*
+ * Stránka nesmí zavřít okno aplikace.
+ *
+ * V prohlížeči je `window.close()` na běžné stránce tiše ignorované,
+ * v okně aplikace zavře celé okno — a to i uprostřed nahrávání. Správce
+ * souborů Upgates to dělá, takže okno mizelo dřív, než se aplikace
+ * stihla na cokoli zeptat.
+ */
+{
+  const stranka = { close: () => { stranka.zavreno = true; }, self: 1, top: 1, zavreno: false };
+  // eslint-disable-next-line no-new-func
+  new Function('window', 'return (' + formfile.__test.NO_CLOSE + ')')(stranka);
+  stranka.close();
+  ok('window.close() ze stránky okno nezavře', stranka.zavreno === false);
+}
 ok('a když není kam, upustí se rovnou na výpis souborů',
   vkladani.includes('.manager-file'));
 ok('hledá se i v místech, kde Dropzone teprve bude', F.PROBE.includes('input[type=file]'));

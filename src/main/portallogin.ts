@@ -211,11 +211,28 @@ export async function signIn(
   if (!saved?.pass) return 'nenastaveno';
 
   const until = Date.now() + timeoutMs;
+  /*
+   * Přihlášený člověk nesmí čekat na formulář, který nepřijde.
+   *
+   * Čekalo se plných třicet vteřin i tehdy, když už byl člověk dávno
+   * přihlášený — tedy skoro pokaždé. Okno mezitím jen stálo a nic se
+   * v něm nedělo, takže ho člověk zavřel dřív, než se vůbec začalo
+   * nahrávat, a aplikace pak hlásila „okno už je zavřené". Dlouhé čekání
+   * má smysl jen dokud se stránka ještě načítá nebo někam odskakuje
+   * (přihlášení přes SSO); na hotové stránce bez políčka na heslo je
+   * odpověď jasná po pár pokusech.
+   */
+  let prazdno = 0;
   while (Date.now() < until) {
     if (win.isDestroyed()) return 'bez formuláře';
     const out = await everyFrame(win, fillScript(saved.user, decrypt(saved.pass), saved.auto !== false));
     if (out === 'vyplněno') return out;
     if (out === 'odesláno') return await landed(win) ? 'odesláno' : 'neprošlo';
+
+    prazdno++;
+    const nacita = !win.isDestroyed() && win.webContents.isLoading();
+    if (!nacita && prazdno >= 4) return 'bez formuláře';
+
     await new Promise(resolve => setTimeout(resolve, 800));
   }
   return 'bez formuláře';

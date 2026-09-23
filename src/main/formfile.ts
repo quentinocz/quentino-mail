@@ -336,6 +336,57 @@ export const NO_DIALOGS = `
   })()
 `;
 
+/**
+ * Stránka nesmí zavřít naše okno.
+ *
+ * V prohlížeči je `window.close()` ze stránky, kterou nikdo neotevřel
+ * skriptem, **tiše ignorované** — proto to v Chromu nikdo nikdy nezažil.
+ * V okně aplikace ale zavře celé okno, a to i uprostřed práce. Správce
+ * souborů Upgates to dělá: okno se otevřelo, načetlo a po pár vteřinách
+ * zmizelo, takže aplikace neměla koho se zeptat a hlásila „okno už je
+ * zavřené", zatímco člověk koukal na jiné, právě otevřené okno.
+ *
+ * Zavřít okno smí dál člověk (křížkem i klávesou) — přepisuje se jen ta
+ * funkce ve stránce.
+ */
+const NO_CLOSE = `
+  (function () {
+    try {
+      if (!window.__quentinoNoClose) {
+        window.__quentinoNoClose = true;
+        window.close = function () { /* okno zavírá jen člověk */ };
+        if (window.self !== window.top) { try { window.top.close = function () {}; } catch (e) { /* cizí rám */ } }
+      }
+      return true;
+    } catch (e) { return false; }
+  })()
+`;
+
+/**
+ * Ochrana okna: stránka nezavře okno ani nezablokuje práci dialogem.
+ *
+ * Zapíná se hned při otevírání, ne až když je zle — obojí se totiž stane
+ * dřív, než se aplikace stihne na cokoli zeptat.
+ */
+export function protectWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  const chran = () => { void runJs(win.webContents, NO_CLOSE + NO_DIALOGS, 3_000).catch(() => false); };
+  win.webContents.on('dom-ready', chran);
+  win.webContents.on('did-finish-load', chran);
+  /* Vnořené rámy mají vlastní okno — a vlastní close() */
+  win.webContents.on('did-frame-finish-load', (_e, isMain, pid, frameId) => {
+    if (isMain) return;
+    void (async () => {
+      for (const frame of framesOf(win).slice(1)) {
+        if (frame.detached || frame.frameTreeNodeId !== frameId) continue;
+        await runJs(frame, NO_CLOSE + NO_DIALOGS, 3_000).catch(() => false);
+      }
+      void pid;
+    })();
+  });
+  chran();
+}
+
 /** Umlčí dialogy ve všech rámech okna. Chyby nevadí — je to pojistka. */
 export async function silenceDialogs(win: BrowserWindow): Promise<void> {
   if (win.isDestroyed()) return;
@@ -740,4 +791,4 @@ function mimeOf(file: string): string {
   return known[ext] ?? 'application/octet-stream';
 }
 
-export const __test = { markScript, MARK, dropScript, PROBE, OZNAM };
+export const __test = { markScript, MARK, dropScript, PROBE, OZNAM, NO_CLOSE };

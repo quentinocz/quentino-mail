@@ -5,7 +5,7 @@ import { getSetting, setSetting } from '../db';
 import { getUpgatesConfig } from '../upgates';
 import {
   openUrl, waitForFileInput, insertFiles, eachFrame,
-  findDropSpot, waitForDropSpot, dropFiles, describeDropSpots, silenceDialogs
+  findDropSpot, waitForDropSpot, dropFiles, describeDropSpots, silenceDialogs, protectWindow
 } from '../formfile';
 import { keepSignedIn, signIn, signInNote } from '../portallogin';
 import type { ArticleFolder, ArticleUpload } from '../../shared/types';
@@ -261,12 +261,23 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    */
   const zacatek = Date.now();
   const stopa: string[] = [];
+  /*
+   * Zápis jde zároveň do **titulku okna**.
+   *
+   * Okno, ve kterém se zdánlivě nic neděje, člověk zavře — a má pravdu,
+   * protože nemá jak poznat rozdíl mezi „pracuje se" a „zaseklo se".
+   * Přesně tak skončilo několik pokusů o nahrání: aplikace čekala, okno
+   * zmizelo a v hlášce zbylo „okno už je zavřené".
+   */
   const zapis = (co: string) => {
     const kdy = Math.round((Date.now() - zacatek) / 100) / 10;
     if (stopa.length < 16) stopa.push(`${kdy}s ${co}`);
+    try {
+      if (!win.isDestroyed()) win.setTitle(`Nahrávám na e-shop — ${co}`);
+    } catch { /* okno se mohlo zavřít */ }
   };
   zapis(ziveOkno ? 'okno bylo už otevřené' : 'okno otevřeno');
-  win.once('close', () => zapis('okno zavírá člověk'));
+  win.once('close', () => zapis('okno se zavírá'));
   win.once('closed', () => zapis('okno zavřeno'));
   win.webContents.once('destroyed', () => zapis('obsah okna zrušen'));
   win.webContents.on('render-process-gone', (_e, detail) =>
@@ -278,6 +289,14 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   // Kam se stránka sama poslala — přihlášení i odhlášení je přesměrování
   win.webContents.on('did-navigate', (_e, url) => zapis(`odskok na ${String(url).slice(0, 70)}`));
 
+  /*
+   * Ochrana okna dřív než cokoli jiného: správce souborů Upgates po pár
+   * vteřinách volá `window.close()`. V prohlížeči je to na běžné stránce
+   * bez účinku, v okně aplikace to okno zavře — a přesně tak mizelo.
+   */
+  protectWindow(win);
+  win.on('close', () => zapis('žádost o zavření okna'));
+
   keepSignedIn(win, 'upgates');
   let login = '';
   try {
@@ -286,7 +305,8 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
     win.show();
     win.focus();
     zapis('přihlašuji');
-    login = signInNote('upgates', await signIn(win, 'upgates'));
+    // Deset vteřin stačí: tohle není odskok na SSO, je to stránka administrace
+    login = signInNote('upgates', await signIn(win, 'upgates', 10_000));
     zapis(`přihlášení: ${login || 'v pořádku'}`);
   } catch (e: any) {
     /*
@@ -329,8 +349,10 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    * v okně nic nedělo. Kdo u toho sedí, okno v půlce zavře, a aplikace
    * se pak ptá zavřeného okna. Nahrávání se buď otevře hned, nebo ne.
    */
+  zapis('hledám, kam soubor vložit');
   let spot = await waitForDropSpot(win, 6_000, true);
   if (!spot && !win.isDestroyed()) {
+    zapis('otevírám nahrávání');
     await odemkniNahravani(win);
     spot = await waitForDropSpot(win, 20_000, true);
   }
@@ -387,6 +409,7 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    * výběru myší. Dropzone a upuštění jsou přídavek pro případ, že na
    * stránce žádné políčko není — ne náhrada za něco, co funguje.
    */
+  zapis('vkládám soubor');
   let zpusob = '';
   if (await waitForFileInput(win, ['input.dz-hidden-input', 'input[type=file]'], 4_000)) {
     try {
@@ -396,6 +419,7 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   }
   if (!zpusob) zpusob = await dropFiles(win, list, spot).catch(() => '');
 
+  zapis(`vloženo (${zpusob || 'nic'}), čekám na adresu`);
   let found = zpusob ? await collectUrls(win, names, before, 20) : new Map<string, string>();
 
   /*
@@ -644,6 +668,7 @@ export async function learnFilesUrl(): Promise<{ url: string; note: string }> {
   win.webContents.on('did-navigate-in-page', note);
   const zavreno = new Promise<void>(resolve => win.once('closed', () => resolve()));
 
+  protectWindow(win);
   keepSignedIn(win, 'upgates');
   try {
     await openUrl(win, home);

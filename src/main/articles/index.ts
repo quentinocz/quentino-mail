@@ -2,7 +2,7 @@ import { BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
 import { getDb, getSetting } from '../db';
 import { getUpgatesConfig } from '../upgates';
-import { fillFileInput, openUrl } from '../formfile';
+import { fillFileInput, openUrl, protectWindow } from '../formfile';
 import { signIn, signInNote, keepSignedIn } from '../portallogin';
 import { getArticleSettings, saveArticleSettings, defaultArticlePrompt, articleLangs,
   listArticles, getArticle, saveArticle, saveVersion, deleteArticle, rawXml, articleSummary,
@@ -161,6 +161,8 @@ export async function openArticleImport(file: string): Promise<{ filled: boolean
   importWin = win;
   win.on('closed', () => { importWin = null; });
 
+  // Administrace umí zavřít okno sama — to se jí musí vzít
+  protectWindow(win);
   keepSignedIn(win, 'upgates');
   await openUrl(win, articleImportUrl());
   win.show();
