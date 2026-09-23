@@ -44,9 +44,16 @@ const TEMPLATE = String.raw`
  * na <html> přidá skript. Kdyby se schovával rovnou, znamenala by chyba
  * v načtení plánu prázdné místo na hlavní stránce.
  */
+/*
+ * Šablona má bannerů víc než jeden blok: pod hlavním karuselem je ještě
+ * „skupina bannerů" (".bnr-group") — velké fotky bez textu, které nikam
+ * nevedou (všechny odkazy jsou "#"). Zůstávaly pod naším blokem a
+ * vypadaly jako by se banner vykreslil dvakrát, proto jdou pryč taky.
+ */
 .qbn-on #banner1,
 .qbn-on .bnr-main .carousel,
-.qbn-on .bnr-main .cover-bnr { display: none !important; }
+.qbn-on .bnr-main .cover-bnr,
+.qbn-on .bnr-group { display: none !important; }
 
 .qbn {
   display: grid;
@@ -374,10 +381,20 @@ a.qbn-card:hover .qbn-btn[data-style="link"] { transform: translateX(2px); }
   display: flex;
   justify-content: center;
   gap: clamp(12px, 2vw, 30px);
-  margin: clamp(14px, 2vw, 26px) auto 0;
+  /*
+   * Nahoře míň než dole. Pruh patří k banneru nad sebou, ale od toho, co
+   * jde pod ním, potřebuje stejný odstup jako celý blok — bez něj se
+   * lepil rovnou na další sekci stránky.
+   */
+  margin: clamp(12px, 1.6vw, 24px) auto clamp(20px, 2.6vw, 44px);
   padding: 0 2px 2px;
   overflow-anchor: none;
 }
+/*
+ * Mezi bannerem a jeho pruhem odkazů stačí menší mezera než kolem celého
+ * bloku — jinak se z nich stanou dvě nesouvisející věci pod sebou.
+ */
+.qbn:has(+ .qbn-links) { margin-bottom: 0; }
 .qbn-link {
   display: flex;
   flex-direction: column;
@@ -1037,14 +1054,19 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       var node = el(href ? "a" : "div", "qbn-link");
       if (href) node.setAttribute("href", href);
 
-      var ico = el("span", "qbn-link-ico");
+      /*
+       * Rámeček se kreslí jen tehdy, když je do něj co dát. Prázdný šedý
+       * čtverec vypadá jako nenačtený obrázek, a to je horší než samotný
+       * text — ten je čitelný vždycky.
+       */
       var image = String(one.image || "");
-      if (image && !/["'()\\\s]/.test(image) && image.indexOf("http") === 0) {
-        ico.style.setProperty("--qbn-link-img", "url(" + image + ")");
-      } else if (one.emoji) {
-        ico.textContent = one.emoji;
+      var maObrazek = image && !/["'()\\\s]/.test(image) && image.indexOf("http") === 0;
+      if (maObrazek || one.emoji) {
+        var ico = el("span", "qbn-link-ico");
+        if (maObrazek) ico.style.setProperty("--qbn-link-img", "url(" + image + ")");
+        else ico.textContent = one.emoji;
+        node.appendChild(ico);
       }
-      node.appendChild(ico);
       put(node, "span", "qbn-link-text", pick(one.text));
       wrap.appendChild(node);
     }
@@ -1104,6 +1126,12 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       spot.parentNode.insertBefore(box, spot);
       document.documentElement.classList.add("qbn-on");
       odstranPuvodni(spot);
+      /*
+       * Druhý blok bannerů ze šablony. Schovat nestačí — stejně jako
+       * u karuselu by si dál stahoval své fotky.
+       */
+      var skupina = document.querySelectorAll(".bnr-group");
+      for (var g = 0; g < skupina.length; g++) odstranPuvodni(skupina[g]);
     }
     box.setAttribute("data-layout", set.layout === "wide" ? "wide" : "quad");
     box.setAttribute("data-phone", set.phone === "wide" ? "wide" : "grid");

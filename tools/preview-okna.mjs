@@ -497,9 +497,25 @@ for (const okno of OKNA) {
       mezery: (() => {
         const blok = node.closest('.qbn');
         if (!blok) return null;
-        const s = getComputedStyle(blok);
-        return { nad: parseFloat(s.marginTop), pod: parseFloat(s.marginBottom),
-          kotva: s.overflowAnchor };
+        /*
+         * Měří se vzduch kolem **celého celku**, ne kolem mřížky: pruh
+         * odkazů patří k banneru, takže mezi nimi je mezera menší a ta
+         * velká je až pod pruhem. Kdyby se četla jen mřížka, vyšlo by
+         * u sady s odkazy nula — a to je správně.
+         */
+        const doc = blok.ownerDocument;
+        const pruh = doc.querySelector('.qbn-links');
+        const konec = (pruh || blok).getBoundingClientRect().bottom;
+        let pod = blok.nextElementSibling;
+        while (pod && (pod === pruh || pod.getBoundingClientRect().height === 0)) {
+          pod = pod.nextElementSibling;
+        }
+        const nad = blok.previousElementSibling;
+        return {
+          nad: nad ? Math.round(blok.getBoundingClientRect().top - nad.getBoundingClientRect().bottom) : 999,
+          pod: pod ? Math.round(pod.getBoundingClientRect().top - konec) : 999,
+          kotva: getComputedStyle(blok).overflowAnchor
+        };
       })(),
       /*
        * Rozsah padajících emoji. Padají se zápornými zpožděními, takže

@@ -459,6 +459,43 @@ console.log('\nnahrávání fotek:\n');
   ok('a když tam nic takového není, nic se neklikne', d.vysledek === false);
 }
 
+/* ---------- ikonky v pruhu odkazů ---------- */
+
+console.log('\nikonky odkazů:\n');
+
+/*
+ * Do políčka na emoji se dá napsat cokoli — a písmeno v šedém čtverci
+ * na webu vypadá jako nenačtený obrázek, ne jako ikonka. Přesně tak
+ * skončil pruh odkazů na e-shopu: svítilo v něm „N B S B".
+ */
+check('písmeno není emoji a na web se nedostane', T.onlyEmoji('N'), '');
+check('ani celé slovo', T.onlyEmoji('Necktie'), '');
+check('obyčejné emoji projde', T.onlyEmoji('👔'), '👔');
+check('složené emoji se nerozpadne', T.onlyEmoji('👨‍👩‍👦', 5), '👨‍👩‍👦');
+check('a z textu s emoji zbude emoji', T.onlyEmoji('Kravaty 👔'), '👔');
+check('v odkazu pod bannerem platí totéž',
+  T.normalizeSet({ links: { on: true, items: [
+    { id: 'l1', emoji: 'B', text: { cz: 'Motýlky' }, href: { cz: '/motylky' } }
+  ] } }).links.items[0].emoji, '');
+/*
+ * Prázdný rámeček se vůbec nekreslí. Šedý čtverec bez obsahu vypadá
+ * jako chyba vykreslování a samotný text je čitelný i bez něj.
+ */
+ok('bez obrázku i emoji se rámeček ikonky nekreslí', kod.includes('maObrazek || one.emoji'));
+
+/* ---------- druhý blok bannerů ze šablony ---------- */
+
+/*
+ * Šablona má bannerů víc než jeden blok: pod hlavním karuselem je ještě
+ * skupina bannerů — velké fotky bez textu, které nikam nevedou. Zůstávaly
+ * pod naším blokem a vypadalo to, jako by se banner vykreslil dvakrát.
+ */
+ok('skupina bannerů ze šablony se schová taky', script.includes('.qbn-on .bnr-group'));
+ok('a zahodí se i s obrázky', kod.includes('.bnr-group'));
+/* Pruh odkazů se lepil rovnou na další sekci stránky */
+ok('pruh odkazů má pod sebou vzduch',
+  /\.qbn-links \{[^}]*margin:[^;]*clamp\(20px/.test(script));
+
 /* ---------- náhled v aplikaci ---------- */
 
 console.log('\nnáhled v aplikaci:\n');

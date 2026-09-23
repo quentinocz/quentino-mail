@@ -141,6 +141,23 @@ export function safeHref(value: any): string {
   return '';
 }
 
+/**
+ * Z napsaného nechá jen to, co je opravdu emoji.
+ *
+ * Do políčka se dá napsat cokoli — a písmeno v šedém čtverci na webu
+ * vypadá jako chyba vykreslování, ne jako ikonka. Přesně to se stalo:
+ * v pruhu odkazů svítilo „N B S B". Zůstávají proto jen obrázkové znaky;
+ * spojovník, variantní selektor a odstíny pleti se nechávají, aby se
+ * složená emoji nerozpadla.
+ */
+export function onlyEmoji(value: any, max = 3): string {
+  const chars = Array.from(String(value ?? '').trim());
+  const keep = chars.filter(one =>
+    /\p{Extended_Pictographic}/u.test(one)
+    || /[\u200D\uFE0F\u{1F3FB}-\u{1F3FF}]/u.test(one));
+  return keep.slice(0, max).join('');
+}
+
 /** Tučnost po stovkách — cokoli jiného prohlížeč stejně zaokrouhlí. */
 const weight = (value: any, fallback: number) => {
   const n = Math.round(Number(value) / 100) * 100;
@@ -226,8 +243,8 @@ function smart(value: any): BannerSmart {
     untilMs: until ? czMs(until, true) : 0,
     // Kód se čte nahlas a přepisuje do košíku: velká písmena a nic exotického
     code: String(value?.code ?? '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24),
-    // Jen pár znaků — emoji je jedno, ne věta
-    emoji: Array.from(String(value?.emoji ?? '').trim()).slice(0, 3).join(''),
+    // Jen pár znaků, a jen skutečná emoji — písmeno v rohu vypadá jako chyba
+    emoji: onlyEmoji(value?.emoji, 3),
     effect: oneOf(value?.effect, ['none', 'snow', 'shine', 'pulse', 'float'] as const, 'none'),
     /*
      * Meze jsou tam kvůli stránce, ne kvůli vkusu: dvě stě padajících emoji
@@ -285,7 +302,7 @@ function link(value: any): BannerLink {
   return {
     id: String(value?.id ?? '') || crypto.randomUUID(),
     image: safeImage(value?.image),
-    emoji: Array.from(String(value?.emoji ?? '').trim()).slice(0, 2).join(''),
+    emoji: onlyEmoji(value?.emoji, 2),
     text: text(value?.text),
     href: {
       cz: safeHref(value?.href?.cz),
@@ -1081,5 +1098,5 @@ export async function publishBanners(): Promise<BannersState> {
 export const __test = {
   normalizeSet, normalizeBanner, validateSet, payload, setRow, liveBanners,
   setClashes, safeHref, safeImage, prune, fallbackSet, setSummary, liveLinks,
-  sharedLook, resolveLook
+  sharedLook, resolveLook, onlyEmoji
 };

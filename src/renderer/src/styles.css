@@ -8037,6 +8037,8 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   font-size: 22px; color: var(--text-3);
 }
 .bn-link-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+/* Písmeno místo emoji se na webu vykreslí jako nenačtený obrázek */
+.bn-link-fields input.bad { border-color: var(--danger); }
 
 .bn-code { padding: 18px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .bn-script {

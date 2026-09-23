@@ -47,6 +47,14 @@ const LANGS: { id: Lang; label: string; hint: string }[] = [
 ];
 
 const emptyText = (): WebText => ({ cz: '', sk: '', en: '' });
+
+/*
+ * Je v tom aspoň jedno emoji? Na web se totiž nic jiného nedostane —
+ * rozhoduje o tom `onlyEmoji` v hlavním procesu. Tady se to jen říká
+ * nahlas, aby se písmeno nevytratilo tiše: v pruhu odkazů takhle na
+ * e-shopu skončilo „N B S B" místo ikonek.
+ */
+const jeEmoji = (value: string) => /\p{Extended_Pictographic}/u.test(value || '');
 const hasText = (t?: WebText) => !!(t && (t.cz || t.sk || t.en));
 
 /** Emoji, která se u bannerů používají nejčastěji — ať se nehledá v systému. */
@@ -1173,6 +1181,12 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               <input value={banner.smart.emoji} maxLength={6}
                                 placeholder="nebo si vlož vlastní"
                                 onChange={e => setSmart({ emoji: e.target.value })} />
+                              {banner.smart.emoji && !jeEmoji(banner.smart.emoji) && (
+                                <p className="desc wt-bad">
+                                  To není emoji — písmeno by na webu vypadalo jako nenačtený
+                                  obrázek, takže se při uložení zahodí.
+                                </p>
+                              )}
                             </div>
                             <div className="field">
                               <label>Pohyb</label>
@@ -1271,6 +1285,10 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             <div className="bn-tools">
                               <input value={one.emoji} maxLength={6} placeholder="emoji"
                                 style={{ width: 90 }}
+                                title={one.emoji && !jeEmoji(one.emoji)
+                                  ? 'To není emoji — při uložení se to zahodí.'
+                                  : 'Emoji do kolečka; místo něj jde nahrát obrázek'}
+                                className={one.emoji && !jeEmoji(one.emoji) ? 'bad' : ''}
                                 onChange={e => setLink(i, { emoji: e.target.value })} />
                               <input type="file" accept="image/*" disabled={!!busy}
                                 style={{ fontSize: 11, maxWidth: 150 }}

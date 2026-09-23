@@ -2429,8 +2429,8 @@
           + '.btn.pr-5{padding-right:32px}.btn.pl-5{padding-left:32px}.btn.fs-4{font-size:18px}</style>'
           + '<script>window.__quentinoLang=' + JSON.stringify(args[1] || 'cz') + '<\/script>'
           + telo
-          + '<div class="qbn-jako">hlavi\u010dka e-shopu</div>'
-          + '<div class="qbn-ukazka"><div id="banner1">p\u016fvodn\u00ed karusel'
+          + '<div class="qbn-ukazka"><div class="qbn-jako">hlavi\u010dka e-shopu</div>'
+          + '<div id="banner1">p\u016fvodn\u00ed karusel'
           + '<img alt="" src="https://cdn.invalid/stary-banner.jpg" width="1" height="1"></div>'
           + '<div class="qbn-jako" style="border:0;border-top:1px solid #e6e6e9">dal\u0161\u00ed obsah</div></div>'
           + '<script>(function(){function s(){try{parent.postMessage('
