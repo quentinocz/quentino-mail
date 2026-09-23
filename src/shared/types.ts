@@ -3076,6 +3076,15 @@ export interface BannerSharedLook {
 export interface BannerLook {
   /** Adresa fotky na pozadí; prázdné = jen barva */
   image: string;
+  /**
+   * Video na pozadí (webm nebo mp4); prázdné = jen fotka.
+   *
+   * Hraje bez zvuku, ve smyčce a samo od sebe — jinak by ho prohlížeč na
+   * telefonu vůbec nespustil. Fotka zůstává i s videem: slouží jako první
+   * snímek, než se video stáhne, a jako náhrada tam, kde se přehrávat
+   * nemá (úsporný režim, vypnuté animace v systému).
+   */
+  video: string;
   /** Barva pozadí pod fotkou i místo ní */
   bg: string;
   /** Barva textu */

@@ -88,9 +88,14 @@ const open = async hash => {
      * Písma z Google se v sandboxu nestáhnou — ven se odtud nedá. Není to
      * chyba kódu a v provozu se to nestane; že se o ně skript **opravdu
      * říká**, se místo toho kontroluje přímo u bannerů.
+     *
+     * Totéž platí pro video na pozadí: v ukázkové sadě je vymyšlená adresa
+     * (cdn.example.test), která nikam nevede. Je to schválně — právě tak se
+     * ověří, že se nestažené video na dlaždici nijak neprojeví.
      */
     const kde = m.text() + m.location().url;
-    if (m.type() === 'error' && !/favicon|fonts\.(googleapis|gstatic)\.com/.test(kde)) {
+    if (m.type() === 'error'
+      && !/favicon|fonts\.(googleapis|gstatic)\.com|cdn\.example\.test/.test(kde)) {
       problems.push(`${hash}: konzole: ${m.text()}`);
     }
   });
@@ -545,15 +550,46 @@ for (const okno of OKNA) {
         chtene: one.getAttribute('data-align'),
         skutecne: getComputedStyle(one.querySelector('.qbn-title') ?? one).textAlign
       })),
+      /*
+       * Video na pozadí. Do stažení musí být průhledné, aby prosvítala
+       * fotka — jinak by na úvodní stránce blikl černý obdélník. A musí
+       * být němé a ve smyčce, jinak ho prohlížeč na telefonu nepustí.
+       */
+      video: (() => {
+        const vid = node.querySelector('.qbn-video');
+        if (!vid) return null;
+        const karta = vid.closest('.qbn-card');
+        const styl = getComputedStyle(vid);
+        return {
+          nemy: vid.muted === true,
+          smycka: vid.loop === true,
+          vRamci: vid.hasAttribute('playsinline'),
+          podTextem: [...karta.children].indexOf(vid)
+            < [...karta.children].findIndex(one => one.classList.contains('qbn-body')),
+          kryje: Math.round(vid.getBoundingClientRect().width)
+            === Math.round(karta.getBoundingClientRect().width),
+          // Nehraje (adresa v náhledu nikam nevede) — tak nesmí být vidět
+          skryte: Number(styl.opacity) === 0,
+          orez: styl.objectFit
+        };
+      })(),
       // Pruh odkazů na kategorie pod bannerem
       odkazy: (() => {
         const pruh = node.ownerDocument.querySelector('.qbn-links');
         const blok = node.closest('.qbn');
         if (!pruh || !blok) return null;
+        const kresba = pruh.querySelector('.qbn-link-ico[data-kresba]');
         return {
           pocet: pruh.querySelectorAll('.qbn-link').length,
           podBannerem: pruh.getBoundingClientRect().top >= blok.getBoundingClientRect().bottom - 2,
-          sTextem: pruh.querySelectorAll('.qbn-link-text').length
+          sTextem: pruh.querySelectorAll('.qbn-link-text').length,
+          /*
+           * Nakreslená ikonka se nesmí roztáhnout přes celé kolečko jako
+           * fotka — obrys kravaty od kraje ke kraji vypadá jako chyba.
+           */
+          kresbaMaVzduch: kresba
+            ? getComputedStyle(kresba).backgroundSize.replace(/\s+/g, ' ')
+            : 'není'
         };
       })()
     };
@@ -627,6 +663,21 @@ for (const okno of OKNA) {
   say('  zarovnání textu odpovídá nastavení',
     pc.zarovnani.every(one => one.chtene === one.skutecne),
     pc.zarovnani.map(one => `${one.chtene}→${one.skutecne}`).join(' '));
+  say('  video na pozadí je němé, ve smyčce a v rámci stránky',
+    !!pc.video && pc.video.nemy && pc.video.smycka && pc.video.vRamci,
+    pc.video ? JSON.stringify(pc.video) : 'vrstva videa se nevykreslila');
+  say('  kryje celou dlaždici a leží pod textem',
+    !!pc.video && pc.video.kryje && pc.video.podTextem && pc.video.orez === 'cover',
+    pc.video ? `${pc.video.orez}, pod textem ${pc.video.podTextem}` : 'nezměřeno');
+  /*
+   * Dokud video nehraje, musí prosvítat fotka. Tady se nestáhne nikdy
+   * (adresa v náhledu nikam nevede), takže se rovnou ověří i ten případ,
+   * na kterém záleží nejvíc: když se video nepovede stáhnout ani na webu.
+   */
+  say('  a než naběhne, není po něm na dlaždici stopa',
+    !!pc.video && pc.video.skryte, pc.video ? `průhlednost ${pc.video.skryte}` : 'nezměřeno');
+  say('  nakreslená ikonka v pruhu má kolem sebe vzduch',
+    pc.odkazy?.kresbaMaVzduch === '52%', pc.odkazy?.kresbaMaVzduch);
   say('  pruh odkazů je pod bannerem',
     pc.odkazy?.pocet === 4 && pc.odkazy?.podBannerem === true && pc.odkazy?.sTextem === 4,
     pc.odkazy ? `${pc.odkazy.pocet} odkazů, pod blokem ${pc.odkazy.podBannerem}` : 'není');
@@ -721,6 +772,49 @@ for (const okno of OKNA) {
   await page.screenshot({ path: path.join(SHOTS, 'bannery-velky.png') });
   await page.locator('.bn-devices .icon-btn').click();
   await page.waitForTimeout(400);
+
+  /*
+   * Odkazy pod bannerem. Dvě věci, které se jinak nedají ověřit než
+   * proklikáním: že se jazyk přepíná **přímo u odkazů** (dřív se muselo
+   * překlikávat jazyk náhledu vpravo, aby vůbec bylo vidět, co je pro SK
+   * vyplněné) a že nakreslená ikonka od AI se dá vybrat a opravdu se
+   * nastaví.
+   */
+  await page.locator('.wt-row', { hasText: 'Podzimní sada' }).click();
+  await page.waitForTimeout(600);
+  await page.locator('.bn-edit .tabs .tab', { hasText: 'Odkazy pod bannerem' }).click();
+  await page.waitForTimeout(400);
+  const jazyky = await page.evaluate(() => {
+    const chips = [...document.querySelectorAll('.bn-link-row')][0]
+      ?.querySelectorAll('.bn-chip') ?? [];
+    return [...chips].map(one => `${one.textContent.trim()}:${one.className.replace('bn-chip ', '')}`);
+  });
+  say('u každého odkazu je vidět stav jazyků',
+    jazyky.length === 3 && jazyky[0].includes('ok') && jazyky[2].includes('miss'),
+    jazyky.join(' '));
+
+  await page.locator('.bn-link-row').first().locator('button', { hasText: 'Ikonka od AI' }).click();
+  await page.waitForTimeout(700);
+  const navrhy = await page.locator('.bn-icon-pick').count();
+  say('  a ikonku nakreslí AI ve víc variantách', navrhy >= 2, `${navrhy} návrhy`);
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-odkazy.png') });
+
+  await page.locator('.bn-icon-pick').nth(1).click();
+  await page.waitForTimeout(500);
+  const vybrana = await page.evaluate(() => {
+    const ico = document.querySelector('.bn-link-row .bn-link-ico');
+    const styl = ico ? getComputedStyle(ico) : null;
+    return {
+      obrazek: styl?.backgroundImage.slice(0, 30) ?? '',
+      // Kresba se nesmí roztáhnout přes celé kolečko jako fotka
+      velikost: styl?.backgroundSize ?? '',
+      nabidkaZavrena: document.querySelectorAll('.bn-icon-pick').length === 0
+    };
+  });
+  say('  vybraná ikonka se nastaví do odkazu',
+    vybrana.obrazek.includes('data:image/svg') && vybrana.velikost === '58%'
+    && vybrana.nabidkaZavrena,
+    `${vybrana.velikost} · nabídka zavřená ${vybrana.nabidkaZavrena}`);
 
   // Skript pro šablonu e-shopu se dá zkopírovat, i když je vidět jen v záložce
   await page.locator('.wt-head-right .tab', { hasText: 'Kód do e-shopu' }).click();

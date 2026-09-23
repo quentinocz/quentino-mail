@@ -137,6 +137,24 @@ const TEMPLATE = String.raw`
   transition: transform .7s cubic-bezier(.2, .7, .3, 1);
   will-change: transform;
 }
+/*
+ * Video leží na fotce a naběhne, teprve až hraje. Fotka pod ním je první
+ * snímek i záchrana pro případ, že se video nestáhne — černý obdélník na
+ * úvodní stránce vypadá jako rozbitá stránka.
+ */
+.qbn-video {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--qbn-focus, 50% 50%);
+  opacity: 0;
+  transition: opacity .5s ease;
+  pointer-events: none;
+}
+.qbn-video[data-hraje] { opacity: 1; }
 a.qbn-card { cursor: pointer; }
 a.qbn-card:hover .qbn-photo { transform: scale(1.045); }
 a.qbn-card:hover .qbn-btn { transform: translateY(-1px); }
@@ -420,6 +438,8 @@ a.qbn-card:hover .qbn-btn[data-style="link"] { transform: translateX(2px); }
   line-height: 1;
   transition: transform .2s ease;
 }
+/* Kreslená ikonka sedí uprostřed s okrajem; fotka vyplňuje celé kolečko */
+.qbn-link-ico[data-kresba] { background-size: 52%; background-repeat: no-repeat; }
 .qbn-links[data-shape="circle"] .qbn-link-ico { border-radius: 50%; }
 .qbn-links[data-shape="square"] .qbn-link-ico { border-radius: var(--qbn-radius, 0); }
 .qbn-links[data-shape="text"] .qbn-link-ico { display: none; }
@@ -943,10 +963,12 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
      */
     var photo = el("div", "qbn-photo");
     var image = String(look.image || "");
-    if (image && !/["'()\\\s]/.test(image) && image.indexOf("http") === 0) {
+    if (image && !/["'()\\\s]/.test(image)
+      && (image.indexOf("http") === 0 || image.indexOf("data:image/") === 0)) {
       node.style.setProperty("--qbn-img", "url(" + image + ")");
     }
     node.appendChild(photo);
+    video(node, look, image);
     node.appendChild(el("div", "qbn-shade"));
 
     var smart = one.smart || {};
@@ -972,6 +994,51 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     button(body, pick(one.button), look.button || "shop");
     node.appendChild(body);
     return { node: node, tick: tick };
+  }
+
+  /**
+   * Video na pozadí dlaždice.
+   *
+   * Pravidla, bez kterých by to na telefonu nehrálo vůbec: **bez zvuku**
+   * (se zvukem prohlížeč přehrávání nespustí), playsinline (jinak iPhone
+   * otevře video přes celou obrazovku) a loop, protože banner nemá konec.
+   * Fotka zůstává jako poster - je vidět hned, kdežto video se ještě
+   * stahuje, a bez ní by dlaždice na okamžik zčernala.
+   *
+   * Kdo má v systému vypnuté animace, dostane jen fotku. Není to detail
+   * přístupnosti pro pár lidí: na tom nastavení bývá i úsporný režim.
+   */
+  function video(node, look, image) {
+    var src = String(look.video || "");
+    if (!src || /["'()\\\s<>]/.test(src) || src.indexOf("http") !== 0) return;
+    if (!/\.(webm|mp4)(\?|#|$)/i.test(src)) return;
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    } catch (e) { /* stará prohlížečka to nezná — video se pustí */ }
+
+    var vid = document.createElement("video");
+    vid.className = "qbn-video";
+    vid.muted = true;
+    vid.defaultMuted = true;
+    vid.autoplay = true;
+    vid.loop = true;
+    vid.playsInline = true;
+    vid.setAttribute("muted", "");
+    vid.setAttribute("playsinline", "");
+    vid.setAttribute("preload", "metadata");
+    vid.setAttribute("aria-hidden", "true");
+    vid.setAttribute("tabindex", "-1");
+    if (image && image.indexOf("http") === 0) vid.setAttribute("poster", image);
+    vid.src = src;
+    /*
+     * Dokud video nehraje, je průhledné a je vidět fotka pod ním. Bez toho
+     * problikne černý obdélník mezi prvním vykreslením a prvním snímkem —
+     * a když se video nestáhne vůbec, zůstal by černý natrvalo.
+     */
+    vid.addEventListener("playing", function () { vid.setAttribute("data-hraje", "1"); });
+    var slib = vid.play();
+    if (slib && slib.catch) slib.catch(function () { /* nepustilo se: zůstane fotka */ });
+    node.appendChild(vid);
   }
 
   /**
@@ -1060,11 +1127,19 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
        * text — ten je čitelný vždycky.
        */
       var image = String(one.image || "");
-      var maObrazek = image && !/["'()\\\s]/.test(image) && image.indexOf("http") === 0;
+      var maObrazek = image && !/["'()\\\s]/.test(image)
+        && (image.indexOf("http") === 0 || image.indexOf("data:image/") === 0);
       if (maObrazek || one.emoji) {
         var ico = el("span", "qbn-link-ico");
-        if (maObrazek) ico.style.setProperty("--qbn-link-img", "url(" + image + ")");
-        else ico.textContent = one.emoji;
+        if (maObrazek) {
+          ico.style.setProperty("--qbn-link-img", "url(" + image + ")");
+          /*
+           * Nakreslená ikonka není fotka. Fotka se roztáhne přes celé
+           * kolečko, kdežto obrys kravaty přes celou plochu vypadá jako
+           * chyba — sedí doprostřed a kolem něj má být vzduch.
+           */
+          if (image.indexOf("data:image/svg") === 0) ico.setAttribute("data-kresba", "1");
+        } else ico.textContent = one.emoji;
         node.appendChild(ico);
       }
       put(node, "span", "qbn-link-text", pick(one.text));

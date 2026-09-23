@@ -129,8 +129,34 @@ function focus(value: any): string {
 export function safeImage(value: any): string {
   const one = String(value ?? '').trim();
   if (/["'()\\\s]/.test(one)) return '';
-  return /^https?:\/\//i.test(one) ? one : '';
+  if (/^https?:\/\//i.test(one)) return one;
+  /*
+   * Ikonka navržená AI jde do plánu rovnou jako `data:` adresa — má pár
+   * set bajtů a nemá smysl kvůli ní chodit do správce souborů. Bezpečná
+   * je proto, že SVG **skládá aplikace** z ověřených tvarů (bannericon.ts),
+   * ne model; base64 navíc nemůže obsahovat uvozovku ani mezeru, takže se
+   * z `url(...)` nedá utéct. Strop délky drží plán pro web malý.
+   */
+  if (/^data:image\/(svg\+xml|png|webp|jpeg|gif);base64,[A-Za-z0-9+/=]{16,8000}$/.test(one)) return one;
+  return '';
 }
+
+/**
+ * Adresa videa na pozadí.
+ *
+ * Jen http(s) a jen webm/mp4 — do stránky se z toho dělá `<video src>`
+ * a cokoli jiného by buď nehrálo, nebo to nebyla adresa videa. Parametry
+ * za otazníkem se povolují, e-shop si do adresy přidává svoje.
+ */
+export function safeVideo(value: any): string {
+  const one = String(value ?? '').trim();
+  if (/["'()\\\s<>]/.test(one)) return '';
+  if (!/^https?:\/\//i.test(one)) return '';
+  return /\.(webm|mp4)(\?|#|$)/i.test(one) ? one : '';
+}
+
+/** Ikonka z AI, ne fotka — kreslí se doprostřed, ne přes celé kolečko. */
+export const jeIkonka = (value: string) => /^data:image\/svg\+xml;/.test(String(value ?? ''));
 
 /** Odkaz. Relativní cesta i celá adresa; nic, co by se dalo spustit. */
 export function safeHref(value: any): string {
@@ -169,6 +195,7 @@ function look(value: any): BannerLook {
   const overlay = clamp(value?.overlay, 0, 90, 40);
   return {
     image,
+    video: safeVideo(value?.video),
     // Primární barva e-shopu je černá (`--pr: #000`), tak z ní vychází i dlaždice
     bg: color(value?.bg, '#000000'),
     fg: color(value?.fg, '#ffffff'),
@@ -224,14 +251,16 @@ export function resolveLook(one: Banner, set: BannerSet): BannerLook {
   if (one.ownLook) return one.look;
   const merged: BannerLook = {
     ...one.look, ...set.look,
-    image: one.look.image, bg: one.look.bg, focus: one.look.focus
+    image: one.look.image, video: one.look.video, bg: one.look.bg, focus: one.look.focus
   };
   /*
    * Čitelnost se dorovnává až po sloučení: ztmavení může přijít ze sady,
    * kde o téhle fotce nikdo neví.
    */
   const hasText = filled(one.copy.title) || filled(one.copy.text) || filled(one.copy.kicker);
-  if (merged.image && hasText && merged.overlay < MIN_OVERLAY) merged.overlay = MIN_OVERLAY;
+  if ((merged.image || merged.video) && hasText && merged.overlay < MIN_OVERLAY) {
+    merged.overlay = MIN_OVERLAY;
+  }
   return merged;
 }
 
@@ -287,7 +316,9 @@ export function normalizeBanner(value: any): Banner {
    * je chyba, kterou nikdo nenahlásí — jen se z banneru neklikne.
    */
   const hasText = filled(one.copy.title) || filled(one.copy.text) || filled(one.copy.kicker);
-  if (one.look.image && hasText && one.look.overlay < MIN_OVERLAY) one.look.overlay = MIN_OVERLAY;
+  // Video ztmavení potřebuje stejně jako fotka — pod pohyblivým obrazem je text čitelný ještě hůř
+  const podklad = !!one.look.image || !!one.look.video;
+  if (podklad && hasText && one.look.overlay < MIN_OVERLAY) one.look.overlay = MIN_OVERLAY;
   return one;
 }
 
@@ -361,7 +392,7 @@ export function normalizeSet(value: any): BannerSet {
 export function liveBanners(set: BannerSet): Banner[] {
   return set.banners.filter(one => !one.off
     && (filled(one.copy.title) || filled(one.copy.text) || filled(one.copy.kicker)
-      || !!one.look.image));
+      || !!one.look.image || !!one.look.video));
 }
 
 export function validateSet(set: BannerSet): string {
@@ -604,6 +635,55 @@ export async function uploadImage(name: string, bytes: number[] | Uint8Array): P
       || 'Fotka se nahrála, ale adresu se ve správci souborů nepodařilo přečíst.');
   }
   const url = safeImage(done.url);
+  if (!url) throw new Error(`Adresa z administrace se nedá použít: ${done.url}`);
+  return url;
+}
+
+/** Nejvíc, co má smysl pouštět na úvodní stránce jako pozadí banneru. */
+const MAX_VIDEO_MB = 12;
+
+/**
+ * Video na pozadí banneru.
+ *
+ * Nahrává se **tak, jak je** — na rozdíl od fotky se nepřevádí. WebP na
+ * video nestačí a překódovat webm v aplikaci by znamenalo tahat s sebou
+ * ffmpeg kvůli jedné funkci; převod patří do Konvertoru médií, kde už je.
+ *
+ * Strop velikosti není opatrnost: video na pozadí se stahuje každému
+ * návštěvníkovi úvodní stránky, takže deset megabajtů znamená deset
+ * megabajtů na každého — a na telefonu v mobilní síti prázdnou dlaždici,
+ * než se to stáhne.
+ */
+export async function uploadVideo(name: string, bytes: number[] | Uint8Array): Promise<string> {
+  const data = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes ?? []);
+  if (data.length === 0) throw new Error('Video je prázdné.');
+  if (data.length > MAX_VIDEO_MB * 1024 * 1024) {
+    throw new Error(`Video má ${(data.length / 1024 / 1024).toFixed(1)} MB. `
+      + `Na pozadí banneru se vejde do ${MAX_VIDEO_MB} MB — zmenši ho v Konvertoru médií.`);
+  }
+
+  const ext = /\.(webm|mp4)$/i.exec(String(name ?? ''))?.[1]?.toLowerCase() ?? '';
+  if (!ext) throw new Error('Na pozadí banneru jde webm nebo mp4.');
+
+  const base = String(name ?? 'video')
+    .replace(/\.[^.]+$/, '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'video';
+  const stamp = crypto.createHash('sha1').update(Buffer.from(data)).digest('hex').slice(0, 10);
+  const dir = path.join(app.getPath('temp'), 'quentino-bannery');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `banner-${base}-${stamp}.${ext}`);
+  fs.writeFileSync(file, Buffer.from(data));
+
+  const [done] = await uploadArticleFiles([file]);
+  try { fs.rmSync(file, { force: true }); } catch { /* uklidí ho systém */ }
+
+  if (!done?.url) {
+    throw new Error(done?.note
+      || 'Video se nahrálo, ale adresu se ve správci souborů nepodařilo přečíst.');
+  }
+  const url = safeVideo(done.url);
   if (!url) throw new Error(`Adresa z administrace se nedá použít: ${done.url}`);
   return url;
 }

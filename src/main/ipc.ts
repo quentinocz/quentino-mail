@@ -66,6 +66,7 @@ import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
 import * as banners from './banners';
+import { iconIdeas } from './bannericon';
 import * as media from './media';
 import * as mediashop from './mediashop';
 import { portalLogins, savePortalLogin } from './portallogin';
@@ -741,6 +742,10 @@ export function registerIpc() {
   handle('banners:fallback', (id: string) => banners.setFallback(String(id ?? '')));
   handle('banners:upload', (name: string, bytes: number[]) =>
     banners.uploadImage(String(name ?? ''), bytes ?? []));
+  handle('banners:video', (name: string, bytes: number[]) =>
+    banners.uploadVideo(String(name ?? ''), bytes ?? []));
+  handle('banners:icon', (label: string, hint: string) =>
+    iconIdeas(String(label ?? ''), String(hint ?? '')));
   // Náhled spouští tentýž skript jako e-shop, jen s rozepsanou sadou uvnitř
   handle('banners:preview', (set: any, lang: string) => banners.previewUrl(set, lang));
   handle('banners:publish', () => banners.publishBanners());

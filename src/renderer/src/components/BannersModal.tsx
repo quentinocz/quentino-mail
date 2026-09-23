@@ -156,7 +156,7 @@ function blankBanner(): Banner {
      * zbytku stránky byl cizí prvek.
      */
     look: {
-      image: '', bg: '#000000', fg: '#ffffff', overlay: 40,
+      image: '', video: '', bg: '#000000', fg: '#ffffff', overlay: 40,
       align: 'center', pos: 'middle', focus: '50% 50%',
       font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
       textWeight: 400, button: 'shop', radius: 0
@@ -169,8 +169,8 @@ function blankBanner(): Banner {
 
 /** Společný vzhled nové sady — tytéž hodnoty, co má prázdný banner. */
 const blankShared = (): BannerSharedLook => {
-  const { image, bg, focus, ...shared } = blankBanner().look;
-  void image; void bg; void focus;
+  const { image, video, bg, focus, ...shared } = blankBanner().look;
+  void image; void video; void bg; void focus;
   return shared;
 };
 
@@ -304,6 +304,15 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
   const [clashes, setClashes] = useState<BannerClash[]>([]);
   const [busy, setBusy] = useState('');
   const [hrefHint, setHrefHint] = useState('');
+  /**
+   * Návrhy ikonky k jednomu odkazu.
+   *
+   * Drží se u konkrétního řádku (`at`), ne globálně: člověk si vybírá
+   * ikonku ke „kravatám", a kdyby mezitím klikl na jiný odkaz, nabízely
+   * by se mu tam nesmyslné tvary.
+   */
+  const [icons, setIcons] = useState<{ at: number; list: { url: string; note: string }[] }>(
+    { at: -1, list: [] });
 
   const apply = useCallback((next: BannersState, message?: string) => {
     setState(next);
@@ -467,6 +476,37 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /**
+   * Video na pozadí dlaždice.
+   *
+   * Nepřevádí se: webm už komprimovaný je a překódovat ho v aplikaci
+   * nejde. Hlídá se proto aspoň velikost, protože video na úvodní stránce
+   * stahuje každý návštěvník — a na telefonu v mobilní síti to znamená
+   * prázdnou dlaždici, dokud se to nestáhne.
+   */
+  const uploadVideo = async (file: File) => {
+    if (!state?.uploadReady) {
+      toast('Aplikace nezná adresu administrace e-shopu — doplň ji v Nastavení → AI → Upgates.',
+        'error');
+      return;
+    }
+    if (!/\.(webm|mp4)$/i.test(file.name)) {
+      toast('Na pozadí banneru jde webm nebo mp4. Převod má Konvertor médií.', 'error');
+      return;
+    }
+    setBusy('Nahrávám video');
+    try {
+      const raw = new Uint8Array(await file.arrayBuffer());
+      const url = await api.banners.uploadVideo(file.name, Array.from(raw));
+      setLook({ video: url });
+      toast(`Video je na e-shopu · ${Math.round(raw.length / 1024)} kB`);
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const copyScript = async () => {
     if (!state?.script) return;
     try {
@@ -553,8 +593,92 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  /** Ikonka odkazu. Jde stejnou cestou jako fotka banneru — do e-shopu. */
+  /**
+   * Dohledání odkazů do SK a EN pro celý pruh naráz.
+   *
+   * Po jednom to znamenalo proklikat každé políčko a ještě u toho
+   * přepínat jazyk, aby bylo vidět, co se doplnilo. Tohle je ta práce
+   * jedním tlačítkem a nakonec se řekne, u kolika odkazů se to nepovedlo.
+   */
+  const resolveAllLinks = async () => {
+    const items = linksOf().items;
+    const kam = items.map(one => one.href.cz).filter(Boolean);
+    if (kam.length === 0) {
+      toast('Nejdřív vyplň české odkazy — podle nich se hledají ostatní trhy.', 'error');
+      return;
+    }
+    setBusy('Dohledávám odkazy');
+    try {
+      const hotovo = await Promise.all(items.map(async one => {
+        if (!one.href.cz) return one;
+        try {
+          const found = await api.banners.href(one.href.cz);
+          return {
+            ...one,
+            href: { cz: one.href.cz, sk: found.sk || one.href.sk, en: found.en || one.href.en }
+          };
+        } catch {
+          return one;
+        }
+      }));
+      setLinks({ items: hotovo });
+      const chybi = hotovo.filter(one => one.href.cz && (!one.href.sk || !one.href.en)).length;
+      toast(chybi === 0
+        ? 'Odkazy pro SK a EN jsou doplněné.'
+        : `Hotovo, ale u ${chybi} odkazů se protějšek nenašel — doplň je ručně.`,
+      chybi === 0 ? 'info' : 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  /**
+   * Návrh ikonky od AI.
+   *
+   * Kreslí se podle názvu odkazu, tedy podle toho, co už je napsané —
+   * nic dalšího se nevyplňuje. Nabídnou se čtyři varianty, protože první
+   * nápad modelu bývá ta nejobecnější krabička.
+   */
+  const askIcons = async (i: number) => {
+    const one = linksOf().items[i];
+    const name = one?.text.cz || one?.text[lang] || '';
+    if (!name.trim()) {
+      toast('Napiš nejdřív název odkazu — podle čeho jinak kreslit?', 'error');
+      return;
+    }
+    setBusy('Kreslím ikonky');
+    try {
+      const list = await api.banners.icons(name, '');
+      setIcons({ at: i, list });
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  /**
+   * Ikonka odkazu z vlastního souboru.
+   *
+   * PNG a WebP jdou stejnou cestou jako fotka banneru, tedy do správce
+   * souborů e-shopu. **SVG se ale nepřevádí ani nenahrává**: převodem na
+   * WebP by se z ostré kresby stal rozmazaný obrázek a nahrávat pár set
+   * bajtů do správce souborů nemá smysl — vloží se rovnou do plánu.
+   * Kreslí se jako pozadí v CSS, a tam prohlížeč v SVG nic nespouští.
+   */
   const uploadLinkImage = async (i: number, file: File) => {
+    if (/\.svg$/i.test(file.name) || file.type === 'image/svg+xml') {
+      const text = await file.text();
+      const url = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(text)))}`;
+      if (url.length > 8000) {
+        toast('Tohle SVG je na ikonku moc velké (nad ~6 kB). Zjednoduš ho, nebo nahraj PNG.',
+          'error');
+        return;
+      }
+      setLink(i, { image: url, emoji: '' });
+      toast('SVG je vložené rovnou do plánu — nikam se nenahrává.');
+      return;
+    }
     if (!state?.uploadReady) {
       toast('Aplikace nezná adresu administrace e-shopu — doplň ji v Nastavení → AI → Upgates.',
         'error');
@@ -1077,6 +1201,34 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             </div>
                           </div>
 
+                          <div className="field">
+                            <label>Video na pozadí <small>(webm nebo mp4, nepovinné)</small></label>
+                            <div className="bn-file">
+                              <input type="file" accept="video/webm,video/mp4" disabled={!!busy}
+                                onChange={e => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = '';
+                                  if (file) void uploadVideo(file);
+                                }} />
+                              {banner.look.video && (
+                                <button className="btn ghost" onClick={() => setLook({ video: '' })}>
+                                  <Icon name="x" size={12} /> Video pryč
+                                </button>
+                              )}
+                            </div>
+                            <p className="desc">
+                              Hraje samo, <b>bez zvuku</b> a ve smyčce — jinak by ho prohlížeč na
+                              telefonu nepustil. Fotka výš zůstává jako první snímek, než se video
+                              stáhne, a zobrazí se i tomu, kdo má v systému vypnuté animace.
+                              Do 12 MB, jinak se úvodní stránka stahuje dýl, než ji kdo přečte;
+                              zmenšit jde v Konvertoru médií.
+                              {banner.look.video && !banner.look.image && (
+                                <> <b>Doplň ještě fotku</b> — bez ní je dlaždice do stažení videa
+                                  černá.</>
+                              )}
+                            </p>
+                          </div>
+
                           <div className="bn-look">
                             <div className="field">
                               <label>Pozadí</label>
@@ -1090,7 +1242,9 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             </div>
                             <div className="field bn-slider">
                               <label>Ztmavení fotky {vzhled().overlay} %</label>
-                              <input type="range" min={banner.look.image && hasText(banner.copy.title) ? 18 : 0}
+                              <input type="range"
+                                min={(banner.look.image || banner.look.video)
+                                  && hasText(banner.copy.title) ? 18 : 0}
                                 max={90} value={vzhled().overlay}
                                 onChange={e => setVzhled({ overlay: Number(e.target.value) })} />
                             </div>
@@ -1240,6 +1394,28 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                         je to nejkratší cesta z úvodní stránky do kategorie. Na telefonu se pruh
                         posouvá prstem, aby osm kategorií nezakrylo celou obrazovku.
                       </p>
+                      {/*
+                        * Jazyk se přepíná **tady**, ne jen u náhledu.
+                        * Dřív se muselo překlikávat vpravo nad náhledem, aby
+                        * bylo vidět, co je vyplněné pro SK a EN — a člověk,
+                        * který upravuje odkazy, se na náhled vůbec nedívá.
+                        * Náhled se přepne s tím zároveň, ať sedí, co je vidět.
+                        */}
+                      <div className="bn-lang-row">
+                        <div className="tabs">
+                          {LANGS.map(one => (
+                            <button key={one.id} className={`tab ${lang === one.id ? 'active' : ''}`}
+                              title={one.hint}
+                              onClick={() => setLang(one.id)}>{one.label}</button>
+                          ))}
+                        </div>
+                        <span className="wt-spacer" />
+                        <button className="btn ghost" disabled={!!busy || linksOf().items.length === 0}
+                          onClick={() => void resolveAllLinks()}>
+                          <Icon name="globe" size={13} /> Dohledat SK a EN
+                        </button>
+                      </div>
+
                       <div className="bn-layout">
                         <label className="check-row">
                           <input type="checkbox" checked={linksOf().on}
@@ -1263,8 +1439,16 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                       )}
                       {linksOf().items.map((one, i) => (
                         <div className="bn-link-row" key={one.id}>
+                          {/* Kreslená ikonka se nesmí roztáhnout přes celé kolečko jako fotka */}
                           <div className="bn-link-ico" style={one.image
-                            ? { backgroundImage: `url("${one.image}")` } : undefined}>
+                            ? {
+                              backgroundImage: `url("${one.image}")`,
+                              backgroundSize: one.image.startsWith('data:image/svg') ? '58%' : 'cover',
+                              backgroundRepeat: 'no-repeat',
+                              // Černá kresba by na tmavém motivu aplikace nebyla vidět
+                              backgroundColor: one.image.startsWith('data:image/svg') ? '#fff' : undefined
+                            }
+                            : undefined}>
                             {!one.image && (one.emoji || '—')}
                           </div>
                           <div className="bn-link-fields">
@@ -1282,6 +1466,29 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                   onBlur={() => { if (lang === 'cz') void resolveLink(i); }} />
                               </div>
                             </div>
+                            {/*
+                              * Co je v ostatních trzích, se říká rovnou tady.
+                              * Bez toho nebylo poznat, že odkaz pro SK chybí,
+                              * dokud se nepřepnul jazyk — a kliknutím se na
+                              * to políčko rovnou přepne.
+                              */}
+                            <div className="bn-lang-chips">
+                              {LANGS.map(one2 => {
+                                const href = one.href[one2.id];
+                                const text = one.text[one2.id];
+                                const stav = href && text ? 'ok' : (href || text ? 'half' : 'miss');
+                                return (
+                                  <button key={one2.id}
+                                    className={`bn-chip ${stav} ${lang === one2.id ? 'sel' : ''}`}
+                                    title={stav === 'ok' ? `${one2.label}: ${text} → ${href}`
+                                      : stav === 'half' ? `${one2.label}: chybí ${href ? 'název' : 'odkaz'}`
+                                        : `${one2.label}: zatím nic`}
+                                    onClick={() => setLang(one2.id)}>
+                                    {one2.id.toUpperCase()}
+                                  </button>
+                                );
+                              })}
+                            </div>
                             <div className="bn-tools">
                               <input value={one.emoji} maxLength={6} placeholder="emoji"
                                 style={{ width: 90 }}
@@ -1290,7 +1497,14 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                   : 'Emoji do kolečka; místo něj jde nahrát obrázek'}
                                 className={one.emoji && !jeEmoji(one.emoji) ? 'bad' : ''}
                                 onChange={e => setLink(i, { emoji: e.target.value })} />
-                              <input type="file" accept="image/*" disabled={!!busy}
+                              <button className="btn ghost" disabled={!!busy}
+                                title="Nakreslí jednoduchou černou ikonku podle názvu odkazu"
+                                onClick={() => void askIcons(i)}>
+                                <Icon name="sparkles" size={12} /> Ikonka od AI
+                              </button>
+                              <input type="file" accept="image/svg+xml,image/png,image/webp,image/*"
+                                disabled={!!busy}
+                                title="Vlastní ikonka: SVG se vloží rovnou, PNG a WebP se nahrají na e-shop"
                                 style={{ fontSize: 11, maxWidth: 150 }}
                                 onChange={e => {
                                   const file = e.target.files?.[0];
@@ -1314,6 +1528,27 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                 <Icon name="trash" size={12} />
                               </button>
                             </div>
+                            {icons.at === i && icons.list.length > 0 && (
+                              <div className="bn-icons">
+                                <span className="desc">Vyber variantu:</span>
+                                {icons.list.map(navrh => (
+                                  <button key={navrh.url} className="bn-icon-pick" title={navrh.note}
+                                    style={{ backgroundImage: `url("${navrh.url}")` }}
+                                    onClick={() => {
+                                      setLink(i, { image: navrh.url, emoji: '' });
+                                      setIcons({ at: -1, list: [] });
+                                      toast('Ikonka je nastavená. Nikam se nenahrává, jde rovnou do plánu.');
+                                    }} />
+                                ))}
+                                <button className="btn ghost" disabled={!!busy}
+                                  onClick={() => void askIcons(i)}>
+                                  <Icon name="refresh" size={12} /> Jiné návrhy
+                                </button>
+                                <button className="btn ghost" onClick={() => setIcons({ at: -1, list: [] })}>
+                                  <Icon name="x" size={12} />
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}

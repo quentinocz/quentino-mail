@@ -693,6 +693,12 @@
           + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
       };
       var text = function (cz) { return { cz: cz || '', sk: '', en: '' }; };
+      /*
+       * Ikonka složená z ověřených tvarů — totéž, co vrací "banners:icon".
+       * Zapsaná napevno v base64: stub běží v okně prohlížeče, kde žádný
+       * "Buffer" není.
+       */
+      var IKONKA = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTAgMyBMMTQgMyBMMTMgOSBMMTYgMTggTDEyIDIxIEw4IDE4IEwxMSA5IFoiLz48L3N2Zz4=';
       var banner = function (id, nadpis, smart, look, kicker) {
         return {
           id: id, name: '', off: false, ownLook: !!(look && look.ownLook),
@@ -701,7 +707,7 @@
             text: text('Ručně šité, **skladem**'),
             button: text('Prohlédnout'), href: { cz: '/ksandy', sk: '', en: '' }
           },
-          look: Object.assign({ image: '', bg: '#000000', fg: '#ffffff', overlay: 40,
+          look: Object.assign({ image: '', video: '', bg: '#000000', fg: '#ffffff', overlay: 40,
             align: 'left', pos: 'bottom', focus: '50% 50%',
             font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
             textWeight: 400, button: 'shop', radius: 0 }, look || {}),
@@ -736,9 +742,13 @@
                 { kind: 'countdown', until: mistni(ted + 3 * 3600000), untilMs: ted + 3 * 3600000,
                   emoji: '⏳', effect: 'pulse' },
                 { bg: '#000000', align: 'center', caps: true, radius: 14, ownLook: true }, 'Končí brzy'),
+              /* Jeden banner s videem na pozadí — jinak by se v náhledu
+                 neověřilo, že se vrstva videa vůbec vykreslí a že do jeho
+                 stažení zůstane vidět fotka pod ním */
               banner('b3', 'Sleva na kravaty',
                 { kind: 'code', code: 'SLEVA10', emoji: '🏷️', effect: 'shine' },
-                { bg: '#111111', button: 'fill' }, 'Slevový kód'),
+                { bg: '#111111', button: 'fill',
+                  video: 'https://cdn.example.test/quentino/ukazka.webm' }, 'Slevový kód'),
               banner('b4', 'Stihneme to pod stromeček',
                 { kind: 'delivery', until: mistni(ted + 20 * den), untilMs: ted + 20 * den,
                   emoji: '❄️', effect: 'snow' },
@@ -746,7 +756,9 @@
             ],
             /* Pruh kategorií pod bannerem — kvůli němu se ověřuje i on */
             links: { on: true, shape: 'circle', items: [
-              { id: 'l1', image: '', emoji: '👔', text: text('Kravaty'),
+              /* Nakreslená ikonka (tak, jak ji vrací AI) — kvůli ní se měří,
+                 že se v kolečku nenatáhne přes celou plochu jako fotka */
+              { id: 'l1', image: IKONKA, emoji: '', text: text('Kravaty'),
                 href: { cz: '/kravaty', sk: 'https://quentino.sk/kravaty', en: '' } },
               { id: 'l2', image: '', emoji: '🎀', text: text('Motýlky'),
                 href: { cz: '/motylky', sk: '', en: '' } },
@@ -783,6 +795,16 @@
     })(),
     'banners:clashes': [],
     'banners:href': { sk: '/ksandy', en: '/suspenders', skVia: 'map', enVia: 'domain' },
+    /*
+     * Návrhy ikonek. V aplikaci je kreslí model a SVG skládá hlavní proces
+     * z ověřených tvarů; tady se vracejí hotové, aby šel v náhledu proklikat
+     * celý výběr včetně nastavení do odkazu.
+     */
+    'banners:icon': [
+      { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTAgMyBMMTQgMyBMMTMgOSBMMTYgMTggTDEyIDIxIEw4IDE4IEwxMSA5IFoiLz48L3N2Zz4=', note: 'kravata' },
+      { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjEuNSI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iNyIvPjxwYXRoIGQ9Ik01IDEyIEwxOSAxMiIvPjwvc3ZnPg==', note: 'kolečko' }
+    ],
+    'banners:video': 'https://cdn.example.test/quentino/nahrane.webm',
     // Překryv počítá náhled sám z plánů výše — jinak by se varování nedalo ukázat
     'webtexts:clashes': [],
     // Překlad v náhledu nic nevolá — vrací se prázdno, aby šlo tlačítko zmáčknout
@@ -2399,7 +2421,8 @@
             button: one.copy.button, href: one.copy.href,
             /* Banner bez výjimky si společnou část bere ze sady — jako v aplikaci */
             look: one.ownLook ? one.look : Object.assign({}, one.look, sada.look || {},
-              { image: one.look.image, bg: one.look.bg, focus: one.look.focus }),
+              { image: one.look.image, video: one.look.video,
+                bg: one.look.bg, focus: one.look.focus }),
             smart: one.smart && one.smart.kind !== 'none' ? one.smart : undefined
           };
         });

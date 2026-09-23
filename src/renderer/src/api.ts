@@ -948,6 +948,11 @@ export const api = {
     fallback: (id: string) => call<BannersState>('banners:fallback', id),
     /** Hotové WebP bajty do úložiště; vrací veřejnou adresu fotky */
     upload: (name: string, bytes: number[]) => call<string>('banners:upload', name, bytes),
+    /** Video k banneru (webm/mp4) na e-shop tak, jak je — nepřevádí se */
+    uploadVideo: (name: string, bytes: number[]) => call<string>('banners:video', name, bytes),
+    /** Návrhy jednoduché černé ikonky podle názvu odkazu; vybírá se z variant */
+    icons: (label: string, hint: string) =>
+      call<{ url: string; note: string }[]>('banners:icon', label, hint),
     /**
      * Adresa stránky s náhledem — tentýž skript, jaký poběží na webu.
      *

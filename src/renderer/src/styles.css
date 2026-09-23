@@ -8037,6 +8037,36 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   font-size: 22px; color: var(--text-3);
 }
 .bn-link-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+
+/* Jazyk se přepíná u odkazů, ne jen nad náhledem */
+.bn-lang-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/*
+ * Stav jazyka u jednoho odkazu. Zelená = název i odkaz, žlutá = půlka,
+ * šedá = nic. Kliknutí do toho jazyka rovnou přepne — hledat přepínač
+ * jinde je přesně ta práce navíc, kvůli které se na SK a EN zapomínalo.
+ */
+.bn-lang-chips { display: flex; gap: 6px; }
+.bn-chip {
+  font-size: 10.5px; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text-3); cursor: pointer;
+}
+.bn-chip.ok { border-color: var(--ok, #2e7d32); color: var(--ok, #2e7d32); }
+.bn-chip.half { border-color: var(--warn, #b26a00); color: var(--warn, #b26a00); }
+.bn-chip.sel { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+/* Nabídka nakreslených ikonek — vybírá se okem, ne názvem */
+.bn-icons { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bn-icon-pick {
+  width: 46px; height: 46px; border-radius: 10px; cursor: pointer;
+  /*
+   * Bílá vždycky, i v tmavém motivu: ikonka je černá kresba a na tmavém
+   * podkladu by z ní nebylo vidět nic. Na e-shopu leží ve světlém kolečku,
+   * takže je to zároveň poctivý náhled toho, jak bude vypadat.
+   */
+  border: 1px solid var(--border); background-color: #fff;
+  background-repeat: no-repeat; background-position: center; background-size: 62%;
+}
+.bn-icon-pick:hover { border-color: var(--text); }
 /* Písmeno místo emoji se na webu vykreslí jako nenačtený obrázek */
 .bn-link-fields input.bad { border-color: var(--danger); }
 

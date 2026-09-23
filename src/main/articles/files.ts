@@ -3,7 +3,9 @@ import fs from 'fs';
 import path from 'path';
 import { getSetting, setSetting } from '../db';
 import { getUpgatesConfig } from '../upgates';
-import { openUrl, waitForFileInput, insertFiles } from '../formfile';
+import {
+  openUrl, waitForFileInput, insertFiles, eachFrame, waitForDropSpot, dropFiles, describeDropSpots
+} from '../formfile';
 import { keepSignedIn, signIn, signInNote } from '../portallogin';
 import type { ArticleFolder, ArticleUpload } from '../../shared/types';
 
@@ -190,9 +192,20 @@ export async function verifyUrl(url: string): Promise<boolean> {
 
 let filesWin: BrowserWindow | null = null;
 
+/**
+ * Přečte ze stránky, ať je ta stránka v kterémkoli rámu.
+ *
+ * Výpis souborů Upgates je ve **vnořeném rámu**, takže čtení z hlavního
+ * dokumentu vracelo prázdno: žádné dlaždice, žádné složky, žádné políčko
+ * na soubor. Bere se první rám, který něco vrátil.
+ */
 async function read<T>(win: BrowserWindow, script: string, fallback: T): Promise<T> {
   if (win.isDestroyed()) return fallback;
-  return await win.webContents.executeJavaScript(script, true).catch(() => fallback) as T;
+  const all = await eachFrame<T>(win, script);
+  const plny = all.find(one => Array.isArray(one.value)
+    ? one.value.length > 0
+    : one.value !== undefined && one.value !== null && one.value !== false);
+  return (plny?.value ?? all[0]?.value ?? fallback) as T;
 }
 
 /**
@@ -237,23 +250,24 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   }
 
   /*
-   * Políčko Dropzonu je schované (`visibility: hidden`, nulové rozměry),
-   * takže „to viditelné" by na stránce nenašlo nic. Hledá se proto přímo
-   * podle jeho třídy.
+   * Kam soubory vložit.
+   *
+   * Nehledá se políčko na soubor, ale **Dropzone** — správce souborů na něm
+   * stojí a `addFile` je přesně to, co dělá jeho vlastní dialog. Políčko na
+   * výpisu totiž vůbec být nemusí (Dropzone si ho vyrobí až s otevřeným
+   * nahráváním) a když je, bývá ve vnořeném rámu, kde ho hledání v hlavním
+   * dokumentu nenašlo. Přesně proto nahrávání končilo hláškou „políčko se
+   * ve správci souborů neobjevilo", ačkoli na obrazovce bylo všechno vidět.
+   *
+   * Když se nenajde nic, zkusí se kliknout na tlačítko nahrávání a čeká se
+   * znovu — teprve pak je to opravdu slepá ulička.
    */
-  /*
-   * Políčko na soubor na výpisu souborů **není** — Dropzone si ho vyrobí
-   * teprve tehdy, když se otevře nahrávání. Čeká se proto krátce, pak se
-   * nahrávání zkusí otevřít kliknutím a čeká se znovu. Dřív se čekalo
-   * tři minuty na něco, co samo od sebe nikdy nepřijde, a skončilo to
-   * hláškou „políčko se neobjevilo".
-   */
-  const HINTS = ['input.dz-hidden-input', 'input[type=file]'];
-  let ready = await waitForFileInput(win, HINTS, 12_000);
-  if (!ready && !win.isDestroyed()) {
+  let spot = await waitForDropSpot(win, 12_000);
+  if (!spot && !win.isDestroyed()) {
     await odemkniNahravani(win);
-    ready = await waitForFileInput(win, HINTS, 60_000);
+    spot = await waitForDropSpot(win, 60_000);
   }
+  const ready = !!spot;
 
   // Strom složek je na stránce stejně — nastavení z něj pak nabídne výběr
   rememberFolders(await read<ArticleFolder[]>(win, FOLDERS, []));
@@ -274,6 +288,8 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    */
   if (!ready) {
     const kam = rucniSlozka();
+    // Čím dál od počítače, tím cennější: co přesně na té stránce bylo vidět
+    const nalez = await describeDropSpots(win).catch(() => '');
     const kopie = list.map(one => {
       const cil = path.join(kam, path.basename(one));
       try { fs.copyFileSync(one, cil); } catch { /* originál zůstává */ }
@@ -288,25 +304,44 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
         name: names[i], url, file: kopie[i] ?? one,
         note: url
           ? 'Nahráno ručně, adresu jsem přečetl z výpisu.'
-          : 'Ve správci souborů se neotevřelo nahrávání, takže soubor nešlo vložit za tebe. '
+          : 'Ve správci souborů se neotevřelo nahrávání (nenašel jsem Dropzone ani políčko '
+            + 'na soubor v žádném rámu stránky), takže soubor nešlo vložit za tebe. '
             + `Leží v ${kam} — přetáhni ho do okna správce souborů a adresu pak vlož sem. `
             + `Otevřeno bylo ${filesAdminUrl()}; kdyby to byla špatná stránka, dojdi ve `
             + 'stejném okně do správce souborů a použij „Naučit adresu".'
+            + (nalez ? ` (Co jsem na stránce našel — ${nalez}.)` : '')
       };
     });
   }
 
-  await insertFiles(win, list);
+  /*
+   * Vlastní vložení. `dropFiles` pošle soubory Dropzonu (nebo je do
+   * stránky upustí, nebo je vloží do políčka) — a teprve když ani jedna
+   * cesta neprojde, sáhne se po ladicím rozhraní. To umí jen políčko,
+   * zato pošle událost, kterou stránka nerozezná od výběru myší.
+   */
+  let zpusob = await dropFiles(win, list, spot).catch(() => '');
+  if (!zpusob) {
+    const marked = await waitForFileInput(win, ['input.dz-hidden-input', 'input[type=file]'], 5_000);
+    if (marked) {
+      await insertFiles(win, list);
+      zpusob = 'ladici';
+    }
+  }
 
-  const found = await collectUrls(win, names, before);
+  const found = zpusob ? await collectUrls(win, names, before) : new Map<string, string>();
 
   const out: ArticleUpload[] = [];
   for (let i = 0; i < list.length; i++) {
     const url = found.get(names[i]) ?? '';
     out.push({
       name: names[i], url, file: list[i],
-      note: url ? '' : 'Soubor se nahrál, ale adresu se nepodařilo přečíst — otevři ho '
-        + 've správci souborů tlačítkem oka a adresu sem vlož.'
+      note: url ? ''
+        : zpusob
+          ? 'Soubor se nahrál, ale adresu se nepodařilo přečíst — otevři ho '
+            + 've správci souborů tlačítkem oka a adresu sem vlož.'
+          : 'Soubor se do správce souborů nepodařilo vložit. Okno je otevřené — '
+            + 'přetáhni ho do něj a adresu pak vlož sem.'
     });
   }
 

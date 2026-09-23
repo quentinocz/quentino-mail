@@ -540,6 +540,93 @@ ok('sada, ve které je jen pruh odkazů, taky projde',
 ok('skript pruh odkazů kreslí', kod.includes('qbn-link'));
 ok('a na telefonu se posouvá prstem', script.includes('scroll-snap-type'));
 
+/* ---------- ikonka od AI ---------- */
+
+console.log('\nikonky od AI:\n');
+
+const ikony = require(path.join(DIST, 'bannericon.js'));
+const I = ikony.__test;
+
+/*
+ * Jádro věci: SVG skládá aplikace z ověřených tvarů, ne model. Kdyby se
+ * model mohl vyjádřit volně, byl by `<script>` v ikonce na e-shopu kus
+ * cizího kódu na cizí stránce — a nikdo by ho nečetl.
+ */
+ok('z cesty se stane tah', I.iconSvg([{ cesta: 'M4 12 L20 12' }]).includes('<path d="M4 12 L20 12"'));
+ok('kružnice, obdélník i čára projdou',
+  I.iconSvg([{ kruh: [12, 12, 5] }, { obdelnik: [4, 6, 16, 12, 2] }, { cara: [3, 3, 21, 21] }])
+    .includes('<circle') === true
+  && I.iconSvg([{ obdelnik: [4, 6, 16, 12, 2] }]).includes('rx="2"'));
+check('skript v cestě propadne sítem', I.pathData('M4 4 L20 20"/><script>x()</script>'), '');
+check('a cesta, co nezačíná příkazem, taky', I.pathData('url(https://cizi/x.svg)'), '');
+check('z tvarů, ze kterých nezbylo nic, se ikonka nedělá', I.iconSvg([{ cesta: '<img>' }]), '');
+ok('souřadnice mimo mřížku se zahodí', I.iconSvg([{ kruh: [12, 12, 9999] }]) === '');
+ok('ikonka je černá a obrysová', I.iconSvg([{ cesta: 'M4 12 L20 12' }]).includes('stroke="#000000"'));
+ok('a vyplněná varianta je opravdu vyplněná',
+  I.iconSvg([{ cesta: 'M4 12 L20 12' }], true).includes('fill="#000000"'));
+
+const ikonaUrl = I.svgUrl(I.iconSvg([{ cesta: 'M4 12 L20 12' }]));
+ok('adresa ikonky je base64 bez uvozovek a mezer',
+  /^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/.test(ikonaUrl), ikonaUrl.slice(0, 40));
+check('a projde přes kontrolu obrázků do plánu', banners.safeImage(ikonaUrl), ikonaUrl);
+check('kdežto cizí data: adresa ne', banners.safeImage('data:text/html;base64,PHNjcmlwdD4='), '');
+ok('skript na webu kreslenou ikonku pozná a nechá kolem ní vzduch',
+  kod.includes('data-kresba') && script.includes('.qbn-link-ico[data-kresba]'));
+
+/* ---------- video na pozadí ---------- */
+
+console.log('\nvideo v banneru:\n');
+
+check('webm projde', banners.safeVideo('https://cdn.upgates.com/x/video.webm'),
+  'https://cdn.upgates.com/x/video.webm');
+check('mp4 taky', banners.safeVideo('https://cdn.upgates.com/x/a.mp4?v=2'),
+  'https://cdn.upgates.com/x/a.mp4?v=2');
+check('obrázek jako video ne', banners.safeVideo('https://cdn.upgates.com/x/a.webp'), '');
+check('a uvozovka v adrese už vůbec ne',
+  banners.safeVideo('https://cdn.x/a.webm") url(javascript:alert(1)'), '');
+
+const sVideo = sada({ banners: [banner({
+  look: { ...banner().look, video: 'https://cdn.upgates.com/x/video.webm' }
+}) ] });
+ok('video se vystavuje na web', T.setRow(sVideo).banners[0].look.video.endsWith('.webm'));
+ok('banner jen s videem je platná sada', T.validateSet(sVideo) === '');
+/*
+ * Text na pohyblivém obraze je čitelný ještě hůř než na fotce, takže
+ * ztmavení platí stejně jako u fotky — i když se posuvník stáhl na nulu.
+ */
+const sVideoTma = T.normalizeSet(sada({ banners: [banner({
+  look: { ...banner().look, video: 'https://cdn.upgates.com/x/video.webm', overlay: 0 }
+}) ] }));
+ok('a pod textem se video ztmaví stejně jako fotka',
+  sVideoTma.banners[0].look.overlay >= banners.MIN_OVERLAY);
+ok('skript video pouští bez zvuku, ve smyčce a v rámci stránky',
+  kod.includes('vid.muted = true') && kod.includes('vid.loop = true')
+  && kod.includes('vid.playsInline = true'));
+ok('kdo nechce pohyb, dostane jen fotku',
+  /prefers-reduced-motion[\s\S]{0,200}return/.test(kod));
+ok('a než video naběhne, je vidět fotka pod ním',
+  script.includes('.qbn-video[data-hraje]') && kod.includes('poster'));
+
+/* ---------- vkládání souborů do správce ---------- */
+
+console.log('\nnahrávání do správce souborů:\n');
+
+const formfile = require(path.join(DIST, 'formfile.js'));
+const F = formfile.__test;
+const vkladani = F.dropScript([{ name: 'a.webp', type: 'image/webp', b64: 'AAAA' }]);
+
+/*
+ * Nahrávání končilo na „políčko se ve správci souborů neobjevilo".
+ * Důvod: políčko na výpisu vůbec není a když je, bývá ve vnořeném rámu.
+ * Soubory se proto předávají rovnou Dropzonu.
+ */
+ok('soubor se předává Dropzonu', vkladani.includes('kam.addFile(one)'));
+ok('a když není, upustí se do stránky', vkladani.includes('new DragEvent'));
+ok('a jako poslední se zkusí políčko', vkladani.includes('policko.files = prenos.files'));
+ok('obsah souboru cestuje s sebou, disk stránka nevidí',
+  vkladani.includes('atob(one.b64)') && vkladani.includes('new File('));
+ok('hledá se i v místech, kde Dropzone teprve bude', F.PROBE.includes('input[type=file]'));
+
 /* ---------- co se opravilo ---------- */
 
 console.log('\nopravené drobnosti:\n');
