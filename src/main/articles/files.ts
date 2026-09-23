@@ -225,13 +225,58 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   if (list.length === 0) throw new Error('Není co nahrávat — soubory na disku nejsou.');
   const names = list.map(one => path.basename(one));
 
-  const win = filesWin && !filesWin.isDestroyed() ? filesWin : new BrowserWindow({
+  /*
+   * Okno se bere znovu jen tehdy, když je **opravdu živé**.
+   *
+   * Samotné `isDestroyed()` nestačí: okno může zůstat, ale jeho obsah
+   * (vykreslovací proces) být pryč — a pak se na nic nedá zeptat, přestože
+   * okno na obrazovce je.
+   */
+  const ziveOkno = !!filesWin && !filesWin.isDestroyed() && !filesWin.webContents.isDestroyed()
+    /*
+     * A musí být i **tam, kde má být**. Okno, které mezitím odskočilo na
+     * přihlášení nebo jinam po administraci, vypadá živé, ale hledá se
+     * v něm marně. Takové se raději zavře a otevře nové.
+     */
+    && /\/manager\/files\//.test(filesWin.webContents.getURL());
+  if (filesWin && !ziveOkno && !filesWin.isDestroyed()) {
+    try { filesWin.close(); } catch { /* zavře se samo */ }
+    filesWin = null;
+  }
+  const win = ziveOkno ? filesWin! : new BrowserWindow({
     width: 1280, height: 900,
     title: 'Soubory na e-shopu — nahrávám přílohy článku',
     webPreferences: { partition: PARTITION, sandbox: true }
   });
   filesWin = win;
   win.on('closed', () => { filesWin = null; });
+
+  /*
+   * Zápis o tom, co se s oknem dělo.
+   *
+   * Tohle je jediný způsob, jak z dálky zjistit, proč se okno ztratilo:
+   * v hlášce pak stojí, jestli ho zavřel člověk, spadl mu obsah, nebo se
+   * stránka vůbec nenačetla. Bez něj zbyla věta „okno už je zavřené",
+   * která neřekla nic.
+   */
+  const zacatek = Date.now();
+  const stopa: string[] = [];
+  const zapis = (co: string) => {
+    const kdy = Math.round((Date.now() - zacatek) / 100) / 10;
+    if (stopa.length < 16) stopa.push(`${kdy}s ${co}`);
+  };
+  zapis(ziveOkno ? 'okno bylo už otevřené' : 'okno otevřeno');
+  win.once('close', () => zapis('okno zavírá člověk'));
+  win.once('closed', () => zapis('okno zavřeno'));
+  win.webContents.once('destroyed', () => zapis('obsah okna zrušen'));
+  win.webContents.on('render-process-gone', (_e, detail) =>
+    zapis(`obsah okna spadl (${detail?.reason ?? '?'})`));
+  win.webContents.on('did-fail-load', (_e, code, popis, url) =>
+    zapis(`stránka se nenačetla (${code} ${popis} ${String(url).slice(0, 50)})`));
+  win.webContents.on('did-finish-load', () =>
+    zapis(`načteno ${win.isDestroyed() ? '?' : win.webContents.getURL().slice(0, 70)}`));
+  // Kam se stránka sama poslala — přihlášení i odhlášení je přesměrování
+  win.webContents.on('did-navigate', (_e, url) => zapis(`odskok na ${String(url).slice(0, 70)}`));
 
   keepSignedIn(win, 'upgates');
   let login = '';
@@ -240,13 +285,18 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
     if (win.isDestroyed()) throw new Error('zavřeno');
     win.show();
     win.focus();
+    zapis('přihlašuji');
     login = signInNote('upgates', await signIn(win, 'upgates'));
+    zapis(`přihlášení: ${login || 'v pořádku'}`);
   } catch (e: any) {
     /*
      * Zavřené okno uprostřed otevírání hlásí Electron jako „Object has
      * been destroyed" — hláška, ze které nikdo nepozná, co se stalo.
      */
-    if (win.isDestroyed()) throw new Error('Okno správce souborů se zavřelo dřív, než se stihlo nahrát.');
+    if (win.isDestroyed()) {
+      throw new Error('Okno správce souborů se zavřelo dřív, než se stihlo nahrát. '
+        + `Stopa: ${stopa.join(' → ')}`);
+    }
     throw e;
   }
 
@@ -323,9 +373,10 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   if (!ready) {
     // Čerstvější pohled má přednost, ale jen když je se koho ptát
     if (!win.isDestroyed()) nalez = await describeDropSpots(win).catch(() => nalez) || nalez;
+    zapis('nahrávání se neotevřelo');
     return rucniCesta(win, list, names, before, login,
       'Ve správci souborů se neotevřelo nahrávání (nenašel jsem Dropzone, políčko na soubor '
-      + 'ani výpis souborů).', nalez);
+      + 'ani výpis souborů).', `${nalez} Stopa okna: ${stopa.join(' → ')}`);
   }
 
   /*
@@ -374,9 +425,10 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    */
   if (found.size === 0) {
     if (!win.isDestroyed()) nalez = await describeDropSpots(win).catch(() => nalez) || nalez;
+    zapis(`vloženo (${zpusob || 'nic'}), ale ve výpisu nic`);
     return rucniCesta(win, list, names, before, login,
       `Soubor jsem do stránky vložil (${zpusob || 'žádnou cestou'}), ale ve výpisu se neobjevil.`,
-      nalez);
+      `${nalez} Stopa okna: ${stopa.join(' → ')}`);
   }
 
   const out: ArticleUpload[] = [];
