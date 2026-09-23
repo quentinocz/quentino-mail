@@ -5,12 +5,12 @@ import { app } from 'electron';
 import { getSetting, setSetting } from './db';
 import { czMs, czLocal, shiftMinutes, translateWeb, webStorage, webTextsConfig } from './webtexts';
 import { translateUrl, alternatesOf, shopOrigins } from './articles/urlmap';
-import { uploadArticleFiles, filesUrlLearned } from './articles/files';
+import { uploadArticleFiles, filesReady } from './articles/files';
 import { bannerScript } from './bannerscript';
 import { stashPreview } from './bannerpreview';
 import { eventFromWeb, dropEventOfSource } from './events';
 import type {
-  Banner, BannerSet, BannerCopy, BannerLook, BannerSmart, BannerClash, BannerLink,
+  Banner, BannerSet, BannerCopy, BannerLook, BannerSmart, BannerClash, BannerLink, BannerRatio, BannerSharedLook,
   BannerLinks, BannersState, WebText
 } from '../shared/types';
 
@@ -185,6 +185,39 @@ function look(value: any): BannerLook {
   };
 }
 
+/** Ta část vzhledu, kterou nastavuje sada pro všechny bannery najednou. */
+export function sharedLook(value: any): BannerSharedLook {
+  const full = look(value);
+  return {
+    fg: full.fg, overlay: full.overlay, align: full.align, pos: full.pos,
+    font: full.font, titleWeight: full.titleWeight, titleSize: full.titleSize,
+    caps: full.caps, textWeight: full.textWeight, button: full.button, radius: full.radius
+  };
+}
+
+/**
+ * Výsledný vzhled dlaždice.
+ *
+ * Banner bez vlastního vzhledu si společnou část bere ze sady; svoje má
+ * vždycky jen fotku, barvu pozadí a výřez. Skládá se to **tady**, ne
+ * ve skriptu na webu — ten pak dostane hotové hodnoty a nemusí o sdílení
+ * vůbec vědět.
+ */
+export function resolveLook(one: Banner, set: BannerSet): BannerLook {
+  if (one.ownLook) return one.look;
+  const merged: BannerLook = {
+    ...one.look, ...set.look,
+    image: one.look.image, bg: one.look.bg, focus: one.look.focus
+  };
+  /*
+   * Čitelnost se dorovnává až po sloučení: ztmavení může přijít ze sady,
+   * kde o téhle fotce nikdo neví.
+   */
+  const hasText = filled(one.copy.title) || filled(one.copy.text) || filled(one.copy.kicker);
+  if (merged.image && hasText && merged.overlay < MIN_OVERLAY) merged.overlay = MIN_OVERLAY;
+  return merged;
+}
+
 function smart(value: any): BannerSmart {
   const until = String(value?.until ?? '').trim();
   return {
@@ -226,6 +259,7 @@ export function normalizeBanner(value: any): Banner {
     id: String(value?.id ?? '') || crypto.randomUUID(),
     name: String(value?.name ?? '').trim().slice(0, 60),
     off: !!value?.off,
+    ownLook: !!value?.ownLook,
     copy: copy(value?.copy ?? value),
     look: look(value?.look ?? value),
     smart: smart(value?.smart ?? value)
@@ -239,6 +273,10 @@ export function normalizeBanner(value: any): Banner {
   if (one.look.image && hasText && one.look.overlay < MIN_OVERLAY) one.look.overlay = MIN_OVERLAY;
   return one;
 }
+
+const RATIOS = ['auto', '1:1', '4:5', '3:4', '2:3', '4:3', '16:9', '2:1', '3:1'] as const;
+
+const ratio = (value: any): BannerRatio => oneOf(value, RATIOS, 'auto');
 
 /** Nejvíc odkazů v pruhu. Víc než osm se na počítači nevejde do řádku. */
 const MAX_LINKS = 8;
@@ -292,6 +330,9 @@ export function normalizeSet(value: any): BannerSet {
     off: !!value?.off,
     layout: oneOf(value?.layout, ['quad', 'wide'] as const, 'quad'),
     phone: oneOf(value?.phone, ['grid', 'wide'] as const, 'grid'),
+    look: sharedLook(value?.look),
+    ratio: ratio(value?.ratio),
+    phoneRatio: ratio(value?.phoneRatio),
     rotate: clamp(value?.rotate, 0, 60, 0),
     banners,
     links: links(value?.links)
@@ -383,7 +424,7 @@ function prune(sets: BannerSet[]): BannerSet[] {
 /* ---------- soubor pro web ---------- */
 
 /** Jeden banner tak, jak ho potřebuje prohlížeč — bez jména a vypnutých věcí. */
-export function bannerRow(one: Banner): any {
+export function bannerRow(one: Banner, set?: BannerSet): any {
   const row: any = {
     id: one.id,
     kicker: one.copy.kicker,
@@ -391,7 +432,8 @@ export function bannerRow(one: Banner): any {
     text: one.copy.text,
     button: one.copy.button,
     href: one.copy.href,
-    look: one.look
+    // Na web jde hotový vzhled, ne „vezmi si to ze sady" — skript o sdílení neví
+    look: set ? resolveLook(one, set) : one.look
   };
   if (one.smart.kind !== 'none' || one.smart.emoji || one.smart.effect !== 'none') {
     row.smart = {
@@ -415,8 +457,10 @@ export function setRow(set: BannerSet): any {
     toMs: set.toMs,
     layout: set.layout,
     phone: set.phone,
+    ratio: set.ratio,
+    phoneRatio: set.phoneRatio,
     rotate: set.rotate,
-    banners: liveBanners(set).map(bannerRow)
+    banners: liveBanners(set).map(one => bannerRow(one, set))
   };
   const odkazy = liveLinks(set);
   if (odkazy.length > 0) {
@@ -781,8 +825,10 @@ function state(error = ''): BannersState {
     /*
      * Fotky jdou do správce souborů e-shopu, ne do našeho úložiště —
      * připravenost se proto ptá na administraci, ne na klíč k Supabase.
+     * A **ne na naučenou adresu**: ta je jen pojistka, cesta se skládá
+     * z adresy administrace a nahrávání jde i bez ní.
      */
-    uploadReady: filesUrlLearned()
+    uploadReady: filesReady()
   };
 }
 
@@ -948,6 +994,37 @@ export function setSummary(set: BannerSet): string {
   return parts.join('\n');
 }
 
+/**
+ * Kopie celé sady.
+ *
+ * Nejčastější způsob, jak vzniká nová kampaň, je „jako ta minulá, ale
+ * jiné texty". Překlikat kvůli tomu dvanáct políček u čtyř dlaždic nikdo
+ * nebude — a kdo to zkusí, na jednu z nich zapomene.
+ *
+ * Kopie se zakládá **vypnutá**. Sada, která platí pořád, se jinak hned
+ * začne prát s originálem o tentýž čas a na webu by se objevila dřív,
+ * než se v ní stihne cokoli přepsat.
+ */
+export async function copySet(id: string): Promise<BannersState> {
+  const source = readSets().find(one => one.id === String(id));
+  if (!source) throw new Error('Sada, která se má zkopírovat, v seznamu není.');
+
+  const copy = normalizeSet({
+    ...source,
+    id: crypto.randomUUID(),
+    name: `${source.name} (kopie)`.slice(0, 80),
+    off: true,
+    // Nové identifikátory: jinak by si dvě sady nárokovaly tytéž dlaždice
+    banners: source.banners.map(one => ({ ...one, id: crypto.randomUUID() })),
+    links: { ...source.links, items: source.links.items.map(one => ({ ...one, id: crypto.randomUUID() })) }
+  });
+
+  writeSets(prune([...readSets(), copy]));
+  setSetting('bannersDirty', '1');
+  // Vypnutá sada se na web nevystavuje, ale stav se má srovnat hned
+  return publishSafely();
+}
+
 export async function deleteSet(id: string): Promise<BannersState> {
   writeSets(readSets().filter(one => one.id !== String(id)));
   if (getSetting('bannerFallback', '') === String(id)) setSetting('bannerFallback', '');
@@ -1003,5 +1080,6 @@ export async function publishBanners(): Promise<BannersState> {
 
 export const __test = {
   normalizeSet, normalizeBanner, validateSet, payload, setRow, liveBanners,
-  setClashes, safeHref, safeImage, prune, fallbackSet, setSummary, liveLinks
+  setClashes, safeHref, safeImage, prune, fallbackSet, setSummary, liveLinks,
+  sharedLook, resolveLook
 };

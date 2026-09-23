@@ -639,6 +639,30 @@ for (const okno of OKNA) {
   say('  odpočet se vejde na jeden řádek', mobil.odpoctoveRadky === 1,
     `${mobil.odpoctoveRadky} řádků`);
   say('  a nic z dlaždice nevyteklo', mobil.vyteklo === 0, `${mobil.vyteklo} dlaždic`);
+  /*
+   * Tvar dlaždice. Na telefonu byl natvrdo čtverec a na dva řádky nadpisu,
+   * popisek a tlačítko v něm nezbývalo místo — proto se dá přepsat. Zkouší
+   * se skutečným přepnutím v okně, ne nastavením v datech.
+   */
+  const pomer = async () => page.frameLocator('.bn-frame').locator('.qbn-card').first()
+    .evaluate(one => {
+      const r = one.getBoundingClientRect();
+      return Math.round((r.width / r.height) * 100) / 100;
+    });
+  const ctverec = await pomer();
+  await page.locator('.bn-sections .tab', { hasText: 'Sada' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('.bn-layout select').last().selectOption('2:3');
+  await page.waitForTimeout(900);
+  const navysku = await pomer();
+  say('tvar dlaždice na telefonu se dá přepnout na výšku',
+    Math.abs(ctverec - 1) < 0.06 && Math.abs(navysku - 2 / 3) < 0.06,
+    `${ctverec} → ${navysku}`);
+  await page.locator('.bn-layout select').last().selectOption('auto');
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-sada.png') });
+  await page.locator('.bn-sections .tab', { hasText: 'Bannery' }).click();
+  await page.waitForTimeout(600);
+
   await page.screenshot({ path: path.join(SHOTS, 'bannery-mobil.png') });
 
   /*

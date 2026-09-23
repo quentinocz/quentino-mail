@@ -729,6 +729,8 @@ export function registerIpc() {
   handle('banners:load', () => banners.loadBanners());
   handle('banners:save', (set: any) => banners.saveSet(set));
   handle('banners:delete', (id: string) => banners.deleteSet(id));
+  // Nová kampaň bývá „jako ta minulá, ale jiné texty" — kopie je vypnutá
+  handle('banners:copy', (id: string) => banners.copySet(id));
   handle('banners:toggle', (id: string, off: boolean) => banners.toggleSet(id, !!off));
   handle('banners:clashes', (set: any) => banners.bannerClashes(set));
   handle('banners:shorten', (id: string, ids: string[]) => banners.shortenSets(id, ids ?? []));

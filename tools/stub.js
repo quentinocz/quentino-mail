@@ -695,7 +695,7 @@
       var text = function (cz) { return { cz: cz || '', sk: '', en: '' }; };
       var banner = function (id, nadpis, smart, look, kicker) {
         return {
-          id: id, name: '', off: false,
+          id: id, name: '', off: false, ownLook: !!(look && look.ownLook),
           copy: {
             kicker: text(kicker), title: text(nadpis),
             text: text('Ručně šité, **skladem**'),
@@ -716,12 +716,17 @@
         sets: [
           { id: 's1', name: 'Podzimní sada', from: '', to: '', fromMs: 0,
             toMs: Number.MAX_SAFE_INTEGER, off: false,
-            layout: 'quad', phone: 'grid', rotate: 6,
+            layout: 'quad', phone: 'grid', rotate: 6, ratio: 'auto', phoneRatio: 'auto',
+            /* Sdílený vzhled sady — bannery bez výjimky si ho vezmou odtud */
+            look: { fg: '#ffffff', overlay: 40, align: 'left', pos: 'bottom',
+              font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
+              textWeight: 400, button: 'shop', radius: 0 },
             banners: [
               /* Jeden banner schválně vlastním písmem a obrysovým tlačítkem —
                  jinak by se v náhledu neověřilo, že se to vůbec projeví */
               banner('b1', 'Kšandy k obleku', null,
-                { bg: '#111111', font: 'jost', titleWeight: 700, button: 'outline' }, 'Novinka'),
+                { bg: '#111111', font: 'jost', titleWeight: 700, button: 'outline',
+                  align: 'left', pos: 'bottom', ownLook: true }, 'Novinka'),
               /*
                * Odpočet do večera schválně: pod jeden den skript ukazuje
                * i vteřiny, takže je v náhledu vidět, že tiká. U víc dnů
@@ -730,7 +735,7 @@
               banner('b2', 'Motýlky ze sametu',
                 { kind: 'countdown', until: mistni(ted + 3 * 3600000), untilMs: ted + 3 * 3600000,
                   emoji: '⏳', effect: 'pulse' },
-                { bg: '#000000', align: 'center', caps: true, radius: 14 }, 'Končí brzy'),
+                { bg: '#000000', align: 'center', caps: true, radius: 14, ownLook: true }, 'Končí brzy'),
               banner('b3', 'Sleva na kravaty',
                 { kind: 'code', code: 'SLEVA10', emoji: '🏷️', effect: 'shine' },
                 { bg: '#111111', button: 'fill' }, 'Slevový kód'),
@@ -752,7 +757,10 @@
             ] } },
           { id: 's2', name: 'Black Friday', from: mistni(ted + 20 * den), to: mistni(ted + 24 * den),
             fromMs: ted + 20 * den, toMs: ted + 24 * den, off: false,
-            layout: 'wide', phone: 'wide', rotate: 0,
+            layout: 'wide', phone: 'wide', rotate: 0, ratio: 'auto', phoneRatio: 'auto',
+            look: { fg: '#ffffff', overlay: 40, align: 'center', pos: 'middle',
+              font: 'shop', titleWeight: 700, titleSize: 130, caps: false,
+              textWeight: 400, button: 'shop', radius: 0 },
             banners: [banner('b5', 'Sleva 25 % na vše',
               { kind: 'countdown', until: mistni(ted + 24 * den), untilMs: ted + 24 * den,
                 emoji: '🔥', effect: 'shine' },
@@ -2367,7 +2375,8 @@
         return Promise.resolve({ ok: true, data: answers['webtexts:state'] });
       }
       if (channel === 'banners:load' || channel === 'banners:publish'
-        || channel === 'banners:save' || channel === 'banners:fallback') {
+        || channel === 'banners:save' || channel === 'banners:fallback'
+        || channel === 'banners:copy') {
         return Promise.resolve({ ok: true, data: answers['banners:state'] });
       }
       /*
@@ -2387,13 +2396,17 @@
         }).map(function (one) {
           return {
             id: one.id, kicker: one.copy.kicker, title: one.copy.title, text: one.copy.text,
-            button: one.copy.button, href: one.copy.href, look: one.look,
+            button: one.copy.button, href: one.copy.href,
+            /* Banner bez výjimky si společnou část bere ze sady — jako v aplikaci */
+            look: one.ownLook ? one.look : Object.assign({}, one.look, sada.look || {},
+              { image: one.look.image, bg: one.look.bg, focus: one.look.focus }),
             smart: one.smart && one.smart.kind !== 'none' ? one.smart : undefined
           };
         });
         var zaloha = JSON.stringify({
           id: sada.id || 'nahled', fromMs: 0, toMs: Number.MAX_SAFE_INTEGER,
           layout: sada.layout || 'quad', phone: sada.phone || 'grid',
+          ratio: sada.ratio || 'auto', phoneRatio: sada.phoneRatio || 'auto',
           rotate: sada.rotate || 0, banners: radky,
           links: sada.links && sada.links.on ? sada.links : undefined
         });

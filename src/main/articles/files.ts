@@ -65,6 +65,18 @@ export function filesUrlLearned(): boolean {
   return !!(getSetting(URL_KEY, '') ?? '').trim();
 }
 
+/**
+ * Dá se vůbec někam nahrávat?
+ *
+ * **Naučená adresa není podmínka** — cesta do správce souborů se skládá
+ * z adresy administrace a naučení je jen pojistka pro případ, že by ji
+ * Upgates změnily. Ptát se na naučení znamenalo hlásit „není naučené"
+ * i tam, kde nahrávání roky fungovalo.
+ */
+export function filesReady(): boolean {
+  return /^https?:\/\//i.test(filesAdminUrl());
+}
+
 export function saveFilesUrl(url: string): string {
   setSetting(URL_KEY, (url ?? '').trim());
   return filesAdminUrl();
@@ -208,10 +220,21 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   win.on('closed', () => { filesWin = null; });
 
   keepSignedIn(win, 'upgates');
-  await openUrl(win, filesAdminUrl());
-  win.show();
-  win.focus();
-  const login = signInNote('upgates', await signIn(win, 'upgates'));
+  let login = '';
+  try {
+    await openUrl(win, filesAdminUrl());
+    if (win.isDestroyed()) throw new Error('zavřeno');
+    win.show();
+    win.focus();
+    login = signInNote('upgates', await signIn(win, 'upgates'));
+  } catch (e: any) {
+    /*
+     * Zavřené okno uprostřed otevírání hlásí Electron jako „Object has
+     * been destroyed" — hláška, ze které nikdo nepozná, co se stalo.
+     */
+    if (win.isDestroyed()) throw new Error('Okno správce souborů se zavřelo dřív, než se stihlo nahrát.');
+    throw e;
+  }
 
   /*
    * Políčko Dropzonu je schované (`visibility: hidden`, nulové rozměry),
@@ -317,33 +340,51 @@ export async function learnFilesUrl(): Promise<{ url: string; note: string }> {
     title: 'Otevři správce souborů a okno zavři — adresu si zapamatuju',
     webPreferences: { partition: PARTITION, sandbox: true }
   });
-  keepSignedIn(win, 'upgates');
-  await openUrl(win, home);
-  win.show();
-  win.focus();
-  await signIn(win, 'upgates');
 
-  return await new Promise(resolve => {
-    let last = '';
-    const note = (_e: unknown, url: string) => { if (url) last = url; };
-    win.webContents.on('did-navigate', note);
-    win.webContents.on('did-navigate-in-page', note);
-    win.once('closed', () => {
-      /*
-       * Adresa se bere jen tehdy, když je to opravdu správce souborů.
-       * Zapsat kteroukoli stránku administrace by vypadalo jako naučeno
-       * a nahrávání by pak končilo na „políčko se neobjevilo".
-       */
-      if (!/\/manager\/files\//.test(last)) {
-        return resolve({
-          url: filesAdminUrl(),
-          note: 'Okno se zavřelo jinde než ve správci souborů — nic se neuložilo.'
-        });
-      }
-      saveFilesUrl(last);
-      resolve({ url: last, note: 'Adresa správce souborů je zapamatovaná.' });
-    });
-  });
+  /*
+   * Sledování adres i čekání na zavření se zapíná **dřív než cokoli, co
+   * se dá čekat**. Okno se totiž dá zavřít hned — a když se to stalo
+   * během přihlašování, sáhlo přihlášení na zavřené okno a z učení
+   * vypadlo „Object has been destroyed" místo výsledku. Zavření okna je
+   * tady normální konec, ne chyba.
+   */
+  let last = '';
+  const note = (_e: unknown, url: string) => { if (url) last = url; };
+  win.webContents.on('did-navigate', note);
+  win.webContents.on('did-navigate-in-page', note);
+  const zavreno = new Promise<void>(resolve => win.once('closed', () => resolve()));
+
+  keepSignedIn(win, 'upgates');
+  try {
+    await openUrl(win, home);
+    if (!win.isDestroyed()) {
+      win.show();
+      win.focus();
+      await signIn(win, 'upgates');
+    }
+  } catch {
+    /* Zavřené okno uprostřed přihlašování — vyhodnotí se to, kam se došlo */
+  }
+
+  await zavreno;
+
+  /*
+   * Adresa se bere jen tehdy, když je to opravdu správce souborů.
+   * Zapsat kteroukoli stránku administrace by vypadalo jako naučeno
+   * a nahrávání by pak končilo na „políčko se neobjevilo".
+   */
+  if (!/\/manager\/files\//.test(last)) {
+    return {
+      url: filesAdminUrl(),
+      note: filesReady()
+        ? 'Okno se zavřelo jinde než ve správci souborů — nic se neuložilo. '
+          + 'Nevadí: nahrávat jde i bez toho, adresa se skládá z adresy administrace.'
+        : 'Okno se zavřelo jinde než ve správci souborů a adresu administrace '
+          + 'aplikace nezná — doplň ji v Nastavení → AI → Upgates.'
+    };
+  }
+  saveFilesUrl(last);
+  return { url: last, note: 'Adresa správce souborů je zapamatovaná.' };
 }
 
 /**

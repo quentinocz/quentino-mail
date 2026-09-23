@@ -309,6 +309,115 @@ ok('pohyb se dá vypnout systémem', script.includes('prefers-reduced-motion'));
 ok('původní karusel se schovává až třídou', script.includes('.qbn-on #banner1'));
 ok('a třídu přidá až kreslení', kod.includes('classList.add("qbn-on")'));
 
+/* ---------- společný vzhled sady ---------- */
+
+console.log('\nspolečný vzhled sady:\n');
+
+/*
+ * Zaoblení, písmo nebo podoba tlačítka jsou vlastnosti celé řady dlaždic.
+ * Čtyři vedle sebe, každá s jiným zaoblením, vypadají jako čtyři cizí
+ * bannery slepené k sobě — a nastavovat je čtyřikrát je navíc práce, při
+ * které se na jednu zapomene. Skládá se to v aplikaci, takže skript na
+ * webu o sdílení vůbec neví a dostane hotové hodnoty.
+ */
+const spolecna = { radius: 18, font: 'jost', titleWeight: 700, align: 'right', fg: '#ffcc00' };
+const sSdilenym = sada({ look: spolecna, banners: [
+  banner({ id: 'bez', look: { image: '', bg: '#101010', focus: '0% 0%' } }),
+  banner({ id: 'vlastni', ownLook: true,
+    look: { image: '', bg: '#202020', radius: 0, font: 'shop', align: 'left' } })
+] });
+const bez = T.resolveLook(sSdilenym.banners[0], sSdilenym);
+const vlastni = T.resolveLook(sSdilenym.banners[1], sSdilenym);
+check('banner bez výjimky si vezme zaoblení ze sady', bez.radius, 18);
+check('i písmo a zarovnání', [bez.font, bez.align, bez.fg], ['jost', 'right', '#ffcc00']);
+check('barva pozadí a výřez zůstanou vždycky jeho', [bez.bg, bez.focus], ['#101010', '0% 0%']);
+check('banner s výjimkou se sadou neřídí',
+  [vlastni.radius, vlastni.font, vlastni.align], [0, 'shop', 'left']);
+/*
+ * Ztmavení může přijít ze sady, kde o téhle fotce nikdo neví — čitelnost
+ * se proto dorovnává až po sloučení, ne před ním.
+ */
+const sFotkou = sada({
+  look: { ...spolecna, overlay: 0 },
+  banners: [banner({ look: { image: 'https://cdn.quentino.cz/a.webp' } })]
+});
+check('čitelnost se hlídá až nad sloučeným vzhledem',
+  T.resolveLook(sFotkou.banners[0], sFotkou).overlay, 18);
+ok('na web jde hotový vzhled, ne odkaz na sadu',
+  T.setRow(sSdilenym).banners[0].look.radius === 18);
+
+/* ---------- tvar dlaždice ---------- */
+
+console.log('\ntvar dlaždice:\n');
+
+check('bez volby se tvar nechává na rozvržení', sada().ratio, 'auto');
+check('nesmyslný tvar spadne na „podle rozvržení"', sada({ ratio: '7:13' }).ratio, 'auto');
+check('vybraný tvar jde na web', T.setRow(sada({ ratio: '3:4', phoneRatio: '2:3' })).ratio, '3:4');
+ok('a telefon má svůj vlastní', T.setRow(sada({ phoneRatio: '2:3' })).phoneRatio === '2:3');
+/*
+ * Nevybraný tvar nesmí ve skriptu nic nastavit — teprve pak se uplatní
+ * náhradní hodnota, která je jiná pro každé rozvržení i šířku obrazovky.
+ * A telefon bez vlastní volby dědí ten z počítače: kdo chce dlaždice na
+ * výšku, chce je na výšku i na telefonu.
+ */
+ok('tvar se do stránky vkládá proměnnou', script.includes('aspect-ratio: var(--qbn-ar'));
+ok('a telefon dědí tvar z počítače',
+  script.includes('var(--qbn-ar-phone, var(--qbn-ar, 1 / 1))'));
+
+/* ---------- kopie sady ---------- */
+
+console.log('\nkopie sady:\n');
+
+/*
+ * Nová kampaň bývá „jako ta minulá, ale jiné texty". Kopie musí dostat
+ * **nové identifikátory** — se stejnými by si dvě sady nárokovaly tytéž
+ * dlaždice a slučování se stavem z webu by jednu z nich přepsalo.
+ */
+const puvodni = sada({
+  id: 'orig', banners: [banner({ id: 'b1' }), banner({ id: 'b2' })],
+  links: { on: true, shape: 'circle',
+    items: [{ id: 'l1', text: { cz: 'Kravaty' }, href: { cz: '/kravaty' } }] }
+});
+const kopie = T.normalizeSet({
+  ...puvodni, id: 'kopie', name: puvodni.name + ' (kopie)', off: true,
+  banners: puvodni.banners.map((one, i) => ({ ...one, id: 'nova' + i })),
+  links: { ...puvodni.links, items: puvodni.links.items.map(one => ({ ...one, id: 'novyodkaz' })) }
+});
+ok('kopie má vlastní identifikátor', kopie.id !== puvodni.id);
+ok('a dlaždice v ní taky',
+  kopie.banners.every(one => !puvodni.banners.some(orig => orig.id === one.id)));
+ok('i odkazy pod bannerem',
+  kopie.links.items.every(one => !puvodni.links.items.some(orig => orig.id === one.id)));
+/*
+ * Kopie se zakládá vypnutá. Sada platná pořád by se jinak hned začala
+ * prát s originálem o tentýž čas a na webu by se objevila dřív, než se
+ * v ní stihne cokoli přepsat.
+ */
+check('a je vypnutá, takže se na web nedostane', JSON.parse(T.payload([kopie])).sets.length, 0);
+
+/* ---------- kam se nahrávají fotky ---------- */
+
+console.log('\nnahrávání fotek:\n');
+
+/*
+ * Fotky bannerů jdou do správce souborů e-shopu. **Naučená adresa není
+ * podmínka** — cesta se skládá z adresy administrace a naučení je jen
+ * pojistka pro případ, že by ji Upgates změnily. Ptát se na naučení
+ * znamenalo hlásit „není naučené" i tam, kde nahrávání roky fungovalo,
+ * a přesně to se stalo.
+ */
+{
+  const dbm = require(path.join(DIST, 'db.js'));
+  const files = require(path.join(DIST, 'articles/files.js'));
+  dbm.setSetting('articleFilesUrl', '');
+  dbm.setSetting('invoiceAdminHome', 'https://quentino.s19.upgates.com/manager/');
+  ok('nahrávat jde i bez naučené adresy správce souborů',
+    files.filesReady() && !files.filesUrlLearned());
+  dbm.setSetting('invoiceAdminHome', '');
+  dbm.setSetting('upgatesUrl', '');
+  ok('bez adresy administrace se ale nahrávat nedá', !files.filesReady());
+}
+
 /* ---------- náhled v aplikaci ---------- */
 
 console.log('\nnáhled v aplikaci:\n');

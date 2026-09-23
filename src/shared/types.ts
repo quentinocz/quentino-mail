@@ -2958,6 +2958,20 @@ export type BannerLayout =
   /** Jeden přes celou šířku */
   | 'wide';
 
+/**
+ * Tvar dlaždice.
+ *
+ * `auto` nechá rozhodnout rozvržení — čtyři sloupce na počítači jsou na
+ * výšku, na telefonu čtverec. Čtverec je ale těsný: na dva řádky nadpisu,
+ * popisek a tlačítko v něm nezbývá místo, a právě proto se tvar dá
+ * přepsat.
+ *
+ * Platí pro celou sadu, ne pro jednu dlaždici: různě vysoké dlaždice
+ * vedle sebe v jednom řádku vypadají jako chyba sazby.
+ */
+export type BannerRatio =
+  | 'auto' | '1:1' | '4:5' | '3:4' | '2:3' | '4:3' | '16:9' | '2:1' | '3:1';
+
 /** Rozvržení na telefonu. */
 export type BannerPhone =
   /** Dva sloupce, dlaždice pod sebou */
@@ -3031,6 +3045,32 @@ export type BannerFont = 'shop' | 'inter' | 'jost' | 'playfair' | 'bebas';
  * banner ležet na tmavé fotce, kde by tlačítko webu zaniklo.
  */
 export type BannerButton = 'shop' | 'fill' | 'outline' | 'soft' | 'link';
+
+/**
+ * Vzhled, který se nastavuje **pro celou sadu naráz**.
+ *
+ * Zaoblení rohů, písmo nebo podoba tlačítka jsou vlastnosti řady dlaždic,
+ * ne jedné: čtyři dlaždice vedle sebe, z nichž každá má jiné zaoblení,
+ * vypadají jako čtyři cizí bannery slepené k sobě. Nastavovat je čtyřikrát
+ * je navíc práce, při které se na jednu z nich zapomene.
+ *
+ * Výjimka se dělá zaškrtnutím u konkrétního banneru (`ownLook`) — teprve
+ * pak si nese vlastní hodnoty. Fotka, barva pozadí a výřez jsou vždycky
+ * jeho, ty se nesdílejí nikdy.
+ */
+export interface BannerSharedLook {
+  fg: string;
+  overlay: number;
+  align: 'left' | 'center' | 'right';
+  pos: 'top' | 'middle' | 'bottom';
+  font: BannerFont;
+  titleWeight: number;
+  titleSize: number;
+  caps: boolean;
+  textWeight: number;
+  button: BannerButton;
+  radius: number;
+}
 
 /** Vzhled jednoho banneru. */
 export interface BannerLook {
@@ -3106,6 +3146,14 @@ export interface Banner {
   /** Jméno v seznamu; na web se neposílá */
   name: string;
   off: boolean;
+  /**
+   * Tenhle banner se řídí sám, ne sadou.
+   *
+   * Nezaškrtnuto (a tak je to skoro vždycky) znamená, že se písmo,
+   * tlačítko, zaoblení a zbytek berou ze sady — nastaví se jednou pro
+   * všechny. Zaškrtnutí je vědomá výjimka pro jednu dlaždici.
+   */
+  ownLook: boolean;
   copy: BannerCopy;
   look: BannerLook;
   smart: BannerSmart;
@@ -3122,6 +3170,18 @@ export interface BannerSet {
   off: boolean;
   layout: BannerLayout;
   phone: BannerPhone;
+  /** Vzhled společný všem bannerům v sadě */
+  look: BannerSharedLook;
+  /** Tvar dlaždice na počítači a tabletu */
+  ratio: BannerRatio;
+  /**
+   * Tvar na telefonu.
+   *
+   * `auto` znamená „jako na počítači, a když ani tam nic nevybral, tak
+   * podle rozvržení" — kdo si zvolí dlaždice na výšku, chce je skoro
+   * vždycky na výšku i na telefonu.
+   */
+  phoneRatio: BannerRatio;
   /**
    * Po kolika vteřinách se přetočí na další stránku bannerů; 0 = nerotovat.
    *

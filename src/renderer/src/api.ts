@@ -934,6 +934,8 @@ export const api = {
     load: () => call<BannersState>('banners:load'),
     save: (set: Partial<BannerSet>) => call<BannersState>('banners:save', set),
     remove: (id: string) => call<BannersState>('banners:delete', id),
+    /** Kopie celé sady i s dlaždicemi a odkazy; zakládá se vypnutá */
+    copy: (id: string) => call<BannersState>('banners:copy', id),
     toggle: (id: string, off: boolean) => call<BannersState>('banners:toggle', id, off),
     clashes: (set: Partial<BannerSet>) => call<BannerClash[]>('banners:clashes', set),
     shorten: (id: string, ids: string[]) => call<BannersState>('banners:shorten', id, ids),

@@ -71,11 +71,11 @@ export const AI_TOOLS: {
   { id: 'webtexts', icon: 'pen', label: 'Texty na webu', group: 'obsah', color: '#7a5fc2',
     hint: 'Naplánované náhrady textů o doručení', desktopOnly: true },
   /*
-   * Mřížka jako ikona, protože přesně to banner na úvodní stránce je —
-   * čtyři dlaždice vedle sebe. Barva je jediná sytě červená v nabídce:
-   * bannery jsou skoro vždycky akce.
+   * Dlaždice s nadpisem a tlačítkem — přesně to, co banner je. Mřížka se
+   * pletla s katalogem a holý obdélník neznamenal nic. Barva je jediná
+   * sytě červená v nabídce: bannery jsou skoro vždycky akce.
    */
-  { id: 'banners', icon: 'drawGrid', label: 'Bannery', group: 'obsah', color: '#c23a3a',
+  { id: 'banners', icon: 'banner', label: 'Bannery', group: 'obsah', color: '#c23a3a',
     hint: 'Úvodní stránka, plánování dopředu a odpočty', desktopOnly: true },
 
   { id: 'digest', icon: 'sunrise', label: 'AI Přehled', group: 'prehled', color: '#c29a3a',

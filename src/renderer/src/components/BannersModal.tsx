@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type {
-  Banner, BannerClash, BannerLink, BannerLinks, BannerSet, BannersState, WebText
+  Banner, BannerClash, BannerLink, BannerLinks, BannerSet, BannerSharedLook,
+  BannersState, WebText
 } from '@shared/types';
 import { api } from '../api';
 import { toWebp } from '../media';
@@ -91,6 +92,25 @@ const BUTTONS: { id: Banner['look']['button']; label: string; hint: string }[] =
   { id: 'link', label: 'Podtržený odkaz', hint: 'Když má mluvit fotka, ne tlačítko' }
 ];
 
+/**
+ * Tvary dlaždice.
+ *
+ * „Podle rozvržení" je výchozí a drží dnešní chování: na počítači čtyři
+ * sloupce na výšku, na telefonu čtverec. Čtverec je ale těsný — na dva
+ * řádky nadpisu, popisek a tlačítko v něm nezbývá místo.
+ */
+const RATIOS: { id: BannerSet['ratio']; label: string }[] = [
+  { id: 'auto', label: 'Podle rozvržení' },
+  { id: '2:3', label: 'Hodně na výšku 2:3' },
+  { id: '3:4', label: 'Na výšku 3:4' },
+  { id: '4:5', label: 'Mírně na výšku 4:5' },
+  { id: '1:1', label: 'Čtverec 1:1' },
+  { id: '4:3', label: 'Na šířku 4:3' },
+  { id: '16:9', label: 'Široký 16:9' },
+  { id: '2:1', label: 'Pruh 2:1' },
+  { id: '3:1', label: 'Pruh 3:1' }
+];
+
 const KINDS: { id: Banner['smart']['kind']; label: string; hint: string }[] = [
   { id: 'none', label: 'Obyčejný', hint: 'Fotka, nadpis, tlačítko' },
   { id: 'countdown', label: 'Odpočet', hint: 'Do konce akce, tiká i v noci' },
@@ -133,9 +153,18 @@ function blankBanner(): Banner {
       font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
       textWeight: 400, button: 'shop', radius: 0
     },
-    smart: { ...blankSmart(), kind: 'none', effect: 'none' }
+    smart: { ...blankSmart(), kind: 'none', effect: 'none' },
+    // Skoro vždycky se banner řídí sadou; výjimka je vědomé zaškrtnutí
+    ownLook: false
   };
 }
+
+/** Společný vzhled nové sady — tytéž hodnoty, co má prázdný banner. */
+const blankShared = (): BannerSharedLook => {
+  const { image, bg, focus, ...shared } = blankBanner().look;
+  void image; void bg; void focus;
+  return shared;
+};
 
 /**
  * Předlohy.
@@ -214,6 +243,7 @@ function blankSet(): BannerSet {
   return {
     id: newId(), name: '', from: '', to: '', fromMs: 0, toMs: 0, off: false,
     layout: 'quad', phone: 'grid', rotate: 0,
+    look: blankShared(), ratio: 'auto', phoneRatio: 'auto',
     banners: [{ ...blankBanner(), id: newId() }],
     links: { on: false, shape: 'circle', items: [] }
   };
@@ -315,6 +345,25 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
   const setLook = (patch: Partial<Banner['look']>) =>
     setBanner(banner ? { look: { ...banner.look, ...patch } } : {});
 
+  /** Společný vzhled sady — to, co se nastavuje pro všechny bannery naráz. */
+  const shared = (): BannerSharedLook => draft?.look ?? blankShared();
+  const setShared = (patch: Partial<BannerSharedLook>) => setSet({ look: { ...shared(), ...patch } });
+
+  /*
+   * Co se zrovna edituje: u banneru s vlastním vzhledem jeho hodnoty,
+   * jinak hodnoty sady. Jedna dvojice funkcí místo dvou sad políček —
+   * kdyby se formulář zdvojil, rozešly by se dřív nebo později.
+   */
+  const vlastni = !!banner?.ownLook;
+  const vzhled = (): BannerSharedLook => (vlastni && banner ? banner.look : shared());
+  const setVzhled = (patch: Partial<BannerSharedLook>) =>
+    (vlastni ? setLook(patch) : setShared(patch));
+
+  /** Zapnutí výjimky: banner si odnese to, co mu dosud dávala sada. */
+  const setOwnLook = (on: boolean) => setBanner(banner
+    ? { ownLook: on, look: on ? { ...banner.look, ...shared() } : banner.look }
+    : {});
+
   const setSmart = (patch: Partial<Banner['smart']>) =>
     setBanner(banner ? { smart: { ...banner.smart, ...patch } } : {});
 
@@ -383,8 +432,8 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
 
   const uploadImage = async (file: File) => {
     if (!state?.uploadReady) {
-      toast('Není naučená adresa správce souborů e-shopu — otevři Články → Přílohy '
-        + 'a nech ji jednou najít.', 'error');
+      toast('Aplikace nezná adresu administrace e-shopu — doplň ji v Nastavení → AI → Upgates.',
+        'error');
       return;
     }
     setBusy('Převádím a nahrávám');
@@ -499,8 +548,8 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
   /** Ikonka odkazu. Jde stejnou cestou jako fotka banneru — do e-shopu. */
   const uploadLinkImage = async (i: number, file: File) => {
     if (!state?.uploadReady) {
-      toast('Není naučená adresa správce souborů e-shopu — otevři Články → Přílohy '
-        + 'a nech ji jednou najít.', 'error');
+      toast('Aplikace nezná adresu administrace e-shopu — doplň ji v Nastavení → AI → Upgates.',
+        'error');
       return;
     }
     setBusy('Převádím a nahrávám');
@@ -524,7 +573,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div className="modal bn-modal">
         <div className="modal-head">
-          <span className="modal-title"><Icon name="drawGrid" size={15} /> Bannery</span>
+          <span className="modal-title"><Icon name="banner" size={15} /> Bannery</span>
           <div className="wt-head-right">
             <button className={`tab ${tab === 'sady' ? 'active' : ''}`} onClick={() => setTab('sady')}>Sady</button>
             <button className={`tab ${tab === 'kod' ? 'active' : ''}`} onClick={() => setTab('kod')}>Kód do e-shopu</button>
@@ -723,7 +772,32 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                           <input type="number" min={0} max={60} value={draft.rotate}
                             onChange={e => setSet({ rotate: Number(e.target.value) || 0 })} />
                         </div>
+                        <div className="field">
+                          <label>Tvar dlaždice</label>
+                          <select value={draft.ratio}
+                            onChange={e => setSet({ ratio: e.target.value as BannerSet['ratio'] })}>
+                            {RATIOS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
+                          </select>
+                        </div>
+                        <div className="field">
+                          <label>Tvar na telefonu</label>
+                          <select value={draft.phoneRatio}
+                            onChange={e => setSet({ phoneRatio: e.target.value as BannerSet['ratio'] })}>
+                            {RATIOS.map(one => (
+                              <option key={one.id} value={one.id}>
+                                {one.id === 'auto' ? 'Jako na počítači' : one.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
+                      <p className="desc">
+                        Tvar platí pro celou sadu — různě vysoké dlaždice vedle sebe v jednom
+                        řádku vypadají jako chyba sazby. Na telefonu se bez vlastní volby použije
+                        ten z počítače; „podle rozvržení" nechá čtverec u mřížky a širokou plochu
+                        u banneru přes celou šířku. <b>Ve čtverci je na dva řádky nadpisu,
+                        popisek a tlačítko málo místa</b> — když se texty tísní, sáhni po 3:4.
+                      </p>
                       <p className="desc">
                         {pages > 1
                           ? `${draft.banners.length} bannerů = ${pages} otočky po ${perPage}. `
@@ -863,43 +937,63 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
 
                       {part === 'vzhled' && (
                         <>
+                          {/*
+                            * Výjimka, ne pravidlo. Písmo, tlačítko a zaoblení
+                            * jsou vlastnosti celé řady dlaždic — čtyři vedle
+                            * sebe, každá s jiným zaoblením, vypadají jako čtyři
+                            * cizí bannery slepené k sobě.
+                            */}
+                          <div className={`bn-scope ${vlastni ? 'own' : ''}`}>
+                            <label className="check-row">
+                              <input type="checkbox" checked={vlastni}
+                                onChange={e => setOwnLook(e.target.checked)} />
+                              Tenhle banner má vlastní vzhled
+                            </label>
+                            <span className="desc">
+                              {vlastni
+                                ? 'Změny níž platí jen pro tuhle dlaždici. Odškrtnutím se vrátí k sadě.'
+                                : 'Písmo, tlačítko, zaoblení i zarovnání se berou ze sady — '
+                                  + 'nastavují se jednou pro všechny bannery.'}
+                            </span>
+                          </div>
+
                           <div className="bn-type">
                             <div className="field">
                               <label>Písmo</label>
-                              <select value={banner.look.font}
-                                onChange={e => setLook({ font: e.target.value as Banner['look']['font'] })}>
+                              <select value={vzhled().font}
+                                onChange={e => setVzhled({ font: e.target.value as Banner['look']['font'] })}>
                                 {FONTS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
                               </select>
                             </div>
                             <div className="field">
                               <label>Nadpis</label>
-                              <select value={banner.look.titleWeight}
-                                onChange={e => setLook({ titleWeight: Number(e.target.value) })}>
+                              <select value={vzhled().titleWeight}
+                                onChange={e => setVzhled({ titleWeight: Number(e.target.value) })}>
                                 {WEIGHTS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
                               </select>
                             </div>
                             <div className="field">
                               <label>Text</label>
-                              <select value={banner.look.textWeight}
-                                onChange={e => setLook({ textWeight: Number(e.target.value) })}>
+                              <select value={vzhled().textWeight}
+                                onChange={e => setVzhled({ textWeight: Number(e.target.value) })}>
                                 {WEIGHTS.slice(0, 3).map(one =>
                                   <option key={one.id} value={one.id}>{one.label}</option>)}
                               </select>
                             </div>
                             <div className="field">
                               <label>Tlačítko</label>
-                              <select value={banner.look.button}
-                                onChange={e => setLook({ button: e.target.value as Banner['look']['button'] })}>
+                              <select value={vzhled().button}
+                                onChange={e => setVzhled({ button: e.target.value as Banner['look']['button'] })}>
                                 {BUTTONS.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
                               </select>
                             </div>
                           </div>
                           <p className="desc">
-                            {FONTS.find(one => one.id === banner.look.font)?.hint}
+                            {FONTS.find(one => one.id === vzhled().font)?.hint}
                             {' · '}
-                            {BUTTONS.find(one => one.id === banner.look.button)?.hint}
-                            {banner.look.font === 'shop'
-                              && (banner.look.titleWeight === 600 || banner.look.titleWeight === 800)
+                            {BUTTONS.find(one => one.id === vzhled().button)?.hint}
+                            {vzhled().font === 'shop'
+                              && (vzhled().titleWeight === 600 || vzhled().titleWeight === 800)
                               ? ' — pozor: e-shop má z Rajdhani jen lehké, normální a tučné, '
                                 + 'ostatní tloušťky si prohlížeč dopočítá.'
                               : ''}
@@ -907,18 +1001,18 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
 
                           <div className="bn-type">
                             <div className="field bn-slider">
-                              <label>Velikost nadpisu {banner.look.titleSize} %</label>
-                              <input type="range" min={70} max={150} step={5} value={banner.look.titleSize}
-                                onChange={e => setLook({ titleSize: Number(e.target.value) })} />
+                              <label>Velikost nadpisu {vzhled().titleSize} %</label>
+                              <input type="range" min={70} max={150} step={5} value={vzhled().titleSize}
+                                onChange={e => setVzhled({ titleSize: Number(e.target.value) })} />
                             </div>
                             <div className="field bn-slider">
-                              <label>Zaoblení rohů {banner.look.radius} px</label>
-                              <input type="range" min={0} max={28} value={banner.look.radius}
-                                onChange={e => setLook({ radius: Number(e.target.value) })} />
+                              <label>Zaoblení rohů {vzhled().radius} px</label>
+                              <input type="range" min={0} max={28} value={vzhled().radius}
+                                onChange={e => setVzhled({ radius: Number(e.target.value) })} />
                             </div>
                             <label className="check-row">
-                              <input type="checkbox" checked={banner.look.caps}
-                                onChange={e => setLook({ caps: e.target.checked })} />
+                              <input type="checkbox" checked={vzhled().caps}
+                                onChange={e => setVzhled({ caps: e.target.checked })} />
                               Nadpis verzálkami
                             </label>
                           </div>
@@ -927,7 +1021,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             něm. Zaoblení platí pro dlaždici i pro tlačítko naráz, aby si neodporovaly.
                           </p>
 
-                          <h4 className="bn-h">Fotka a barvy</h4>
+                          <h4 className="bn-h">Fotka a barva pozadí <small>(vždy jen této dlaždice)</small></h4>
                           <div className="bn-two">
                             <div className="field">
                               <label>Fotka na pozadí</label>
@@ -983,21 +1077,21 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             </div>
                             <div className="field">
                               <label>Písmo</label>
-                              <input type="color" value={banner.look.fg}
-                                onChange={e => setLook({ fg: e.target.value })} />
+                              <input type="color" value={vzhled().fg}
+                                onChange={e => setVzhled({ fg: e.target.value })} />
                             </div>
                             <div className="field bn-slider">
-                              <label>Ztmavení fotky {banner.look.overlay} %</label>
+                              <label>Ztmavení fotky {vzhled().overlay} %</label>
                               <input type="range" min={banner.look.image && hasText(banner.copy.title) ? 18 : 0}
-                                max={90} value={banner.look.overlay}
-                                onChange={e => setLook({ overlay: Number(e.target.value) })} />
+                                max={90} value={vzhled().overlay}
+                                onChange={e => setVzhled({ overlay: Number(e.target.value) })} />
                             </div>
                             <div className="field">
                               <label>Zarovnání</label>
                               <div className="tabs">
                                 {(['left', 'center', 'right'] as const).map(one => (
-                                  <button key={one} className={`tab ${banner.look.align === one ? 'active' : ''}`}
-                                    onClick={() => setLook({ align: one })}>
+                                  <button key={one} className={`tab ${vzhled().align === one ? 'active' : ''}`}
+                                    onClick={() => setVzhled({ align: one })}>
                                     {one === 'left' ? 'Vlevo' : one === 'center' ? 'Na střed' : 'Vpravo'}
                                   </button>
                                 ))}
@@ -1007,8 +1101,8 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               <label>Text v dlaždici</label>
                               <div className="tabs">
                                 {(['top', 'middle', 'bottom'] as const).map(one => (
-                                  <button key={one} className={`tab ${banner.look.pos === one ? 'active' : ''}`}
-                                    onClick={() => setLook({ pos: one })}>
+                                  <button key={one} className={`tab ${vzhled().pos === one ? 'active' : ''}`}
+                                    onClick={() => setVzhled({ pos: one })}>
                                     {one === 'top' ? 'Nahoře' : one === 'middle' ? 'Uprostřed' : 'Dole'}
                                   </button>
                                 ))}
@@ -1238,6 +1332,15 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                           })}>
                           <Icon name="download" size={14} />
                           {state?.fallbackId === draft.id ? ' Je v kódu' : ' Dát do kódu'}
+                        </button>
+                        <button className="btn ghost" disabled={!!busy}
+                          onClick={() => run('Kopíruji', async () => {
+                            const next = await api.banners.copy(draft.id);
+                            const kopie = next.sets.find(one => one.name === `${draft.name} (kopie)`);
+                            if (kopie) { setDraft(kopie); setPick(0); }
+                            return next;
+                          }, 'Kopie je hotová — je vypnutá, ať se nepere s originálem.')}>
+                          <Icon name="copy" size={14} /> Duplikovat sadu
                         </button>
                         <span className="wt-spacer" />
                         <button className="btn ghost danger" onClick={() => remove(draft.id)} disabled={!!busy}>

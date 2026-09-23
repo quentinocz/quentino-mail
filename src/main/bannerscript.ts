@@ -102,11 +102,15 @@ const TEMPLATE = String.raw`
   /* Ze stejného důvodu: verzálky a kurzíva patří banneru, ne stránce */
   text-transform: none;
   font-style: normal;
-  /* Poměr stran drží výšku dřív, než dotečou fotky — bez toho stránka poskakuje */
-  aspect-ratio: 3 / 4;
+  /*
+   * Poměr stran drží výšku dřív, než dotečou fotky — bez toho stránka
+   * poskakuje. Hodnota v proměnné je volba ze sady; když se nevybere nic,
+   * platí to, co dává smysl pro dané rozvržení a šířku obrazovky.
+   */
+  aspect-ratio: var(--qbn-ar, 3 / 4);
   isolation: isolate;
 }
-.qbn[data-layout="wide"] .qbn-card { aspect-ratio: 32 / 11; }
+.qbn[data-layout="wide"] .qbn-card { aspect-ratio: var(--qbn-ar, 32 / 11); }
 
 /*
  * Fotka má vlastní vrstvu, ne pozadí dlaždice.
@@ -498,16 +502,21 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
 
 @media (max-width: 1000px) {
   .qbn[data-layout="quad"] .qbn-page { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .qbn[data-layout="quad"] .qbn-card { aspect-ratio: 1 / 1; }
-  .qbn[data-layout="wide"] .qbn-card { aspect-ratio: 2 / 1; }
+  .qbn[data-layout="quad"] .qbn-card { aspect-ratio: var(--qbn-ar, 1 / 1); }
+  .qbn[data-layout="wide"] .qbn-card { aspect-ratio: var(--qbn-ar, 2 / 1); }
 }
 @media (max-width: 620px) {
   .qbn { gap: 10px; }
   .qbn-page { gap: 10px; }
   .qbn[data-phone="grid"] .qbn-page { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .qbn[data-phone="grid"] .qbn-card { aspect-ratio: 1 / 1; }
+  /*
+   * Na telefonu rozhoduje vlastní volba; když žádná není, zdědí se ta
+   * z počítače — kdo chce dlaždice na výšku, chce je skoro vždycky na
+   * výšku i na telefonu. Teprve potom padá na čtverec.
+   */
+  .qbn[data-phone="grid"] .qbn-card { aspect-ratio: var(--qbn-ar-phone, var(--qbn-ar, 1 / 1)); }
   .qbn[data-phone="wide"] .qbn-page { grid-template-columns: minmax(0, 1fr); }
-  .qbn[data-phone="wide"] .qbn-card { aspect-ratio: 5 / 3; }
+  .qbn[data-phone="wide"] .qbn-card { aspect-ratio: var(--qbn-ar-phone, var(--qbn-ar, 5 / 3)); }
   .qbn-body { padding: 12px; gap: 5px; }
   .qbn-kicker { font-size: 9px; letter-spacing: .11em; }
   /* Na telefonu rozhoduje šířka dlaždice, ne volba velikosti — */
@@ -990,6 +999,21 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     }, 0);
   }
 
+  /*
+   * Tvary dlaždic. Nevybraný tvar proměnnou **nenastaví** — teprve pak se
+   * v CSS uplatní náhradní hodnota, která je jiná pro každé rozvržení
+   * i pro každou šířku obrazovky.
+   */
+  var RATIOS = {
+    "1:1": "1 / 1", "4:5": "4 / 5", "3:4": "3 / 4", "2:3": "2 / 3",
+    "4:3": "4 / 3", "16:9": "16 / 9", "2:1": "2 / 1", "3:1": "3 / 1"
+  };
+
+  function tvar(node, name, value) {
+    if (RATIOS[value]) node.style.setProperty(name, RATIOS[value]);
+    else node.style.removeProperty(name);
+  }
+
   var linkBox = null;
 
   /*
@@ -1083,6 +1107,8 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     }
     box.setAttribute("data-layout", set.layout === "wide" ? "wide" : "quad");
     box.setAttribute("data-phone", set.phone === "wide" ? "wide" : "grid");
+    tvar(box, "--qbn-ar", set.ratio);
+    tvar(box, "--qbn-ar-phone", set.phoneRatio);
     box.textContent = "";
 
     /*
@@ -1150,7 +1176,8 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
      * každou minutu a rotace i odpočet by se pokaždé vrátily na začátek.
      */
     var stamp = String(set.id) + "|" + String(set.rotate) + "|" + String(set.layout)
-      + "|" + String(set.phone) + "|" + (set.banners || []).length
+      + "|" + String(set.phone) + "|" + String(set.ratio) + "|" + String(set.phoneRatio)
+      + "|" + (set.banners || []).length
       + "|" + ((set.links && set.links.items) ? set.links.items.length : 0)
       + "|" + ((set.links && set.links.shape) || "");
     if (stamp === shownId && box) return;

@@ -110,7 +110,7 @@ const ALLOWED_INVOKE = [
   'balikovna:export', 'balikovna:open', 'balikovna:import',
   'webtexts:state', 'webtexts:load', 'webtexts:save', 'webtexts:delete', 'webtexts:toggle',
   'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate',
-  'banners:state', 'banners:load', 'banners:save', 'banners:delete', 'banners:toggle',
+  'banners:state', 'banners:load', 'banners:save', 'banners:delete', 'banners:copy', 'banners:toggle',
   'banners:clashes', 'banners:shorten', 'banners:translate', 'banners:href',
   'banners:fallback', 'banners:upload', 'banners:preview', 'banners:publish',
   'media:setup', 'media:saveSetup', 'media:pick', 'media:add', 'media:read', 'media:write',
