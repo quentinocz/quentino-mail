@@ -597,6 +597,83 @@ ok('sada, ve které je jen pruh odkazů, taky projde',
 ok('skript pruh odkazů kreslí', kod.includes('qbn-link'));
 ok('a na telefonu se posouvá prstem', script.includes('scroll-snap-type'));
 
+/* ---------- bloky pod bannerem ---------- */
+
+console.log('\nbloky pod bannerem:\n');
+
+/*
+ * Čtyři velké bloky, které má e-shop pod bannerem — a **také na
+ * kategoriích a v článcích**, kde žádný banner není. Jsou to tytéž
+ * dlaždice jako banner (texty ve třech jazycích, vzhled, efekty), jen
+ * jiné rozvržení; kdyby to byl vlastní tvar, musely by se překlady
+ * i efekty psát podruhé.
+ */
+{
+  const sBloky = sada({
+    highlights: {
+      on: true, where: 'all', layout: 'mozaika', phone: 'carousel',
+      look: { ...T.sharedLook({}), style: 'under', pos: 'bottom' },
+      banners: [
+        banner({ id: 'h1', copy: { ...banner().copy, title: { cz: 'Ženich a jeho parta' } } }),
+        banner({ id: 'h2', off: true })
+      ]
+    }
+  });
+  check('vypnutý blok se nevystavuje', T.liveHighlights(sBloky).map(one => one.id), ['h1']);
+  const radek = T.setRow(sBloky);
+  check('bloky jdou na web i s rozvržením a podobou',
+    [radek.highlights.layout, radek.highlights.phone, radek.highlights.banners[0].look.style],
+    ['mozaika', 'carousel', 'under']);
+  check('a nesou s sebou, kde se mají ukázat', radek.highlights.where, 'all');
+  ok('sada, ve které jsou jen bloky, je platná',
+    T.validateSet(sada({ banners: [], highlights: sBloky.highlights })) === '');
+  ok('skript bloky kreslí a hledá pro ně sekci šablony',
+    kod.includes('drawHighlights') && kod.includes('bic-hdln'));
+  ok('a kreslí je i tam, kde banner není',
+    /drawHighlights\(set\)/.test(kod) && kod.includes('hlShown'));
+  ok('posuvník je bez knihovny, jen přichycením při rolování',
+    script.includes('scroll-snap-type: x mandatory') && kod.includes('qbn-dot'));
+  ok('podoby dlaždice mění sazbu, ne jen barvu',
+    script.includes('[data-style="under"] .qbn-body') && script.includes('[data-style="side"]'));
+  ok('nové efekty jsou ve skriptu i ve stylu',
+    kod.includes('qbn-rise') && kod.includes('qbn-confetti')
+    && script.includes('qbn-ken') && script.includes('qbn-shimmer') && script.includes('qbn-glow'));
+}
+
+/* ---------- odložené sady ---------- */
+
+console.log('\nodložené sady:\n');
+
+/*
+ * Sada se vystavením přepíše a stará verze je pryč. Odložená sada je
+ * šablona i záloha v jednom: leží jen v aplikaci, na web nejde a po
+ * vytažení má **nové identifikátory** — jinak by si dvě sady nárokovaly
+ * tytéž dlaždice a při vystavení by se přepsaly.
+ */
+{
+  const dbm = require(path.join(DIST, 'db.js'));
+  dbm.setSetting('bannerTemplates', '[]');
+  const zdroj = sada({ name: 'Vánoce 2026', from: '2026-12-01T08:00', to: '2026-12-24T12:00' });
+  const seznam = banners.saveTemplate(zdroj, 'Vánoce 2026');
+  check('odložená sada je v seznamu', [seznam.length, seznam[0].name], [1, 'Vánoce 2026']);
+  ok('a nese s sebou, co v ní je', seznam[0].note.includes('banner'), seznam[0].note);
+  /*
+   * Platnost se zahazuje schválně: šablona z loňských Vánoc by se jinak
+   * po vytažení tvářila, že měla skončit předloni.
+   */
+  check('platnost se neodkládá', [seznam[0].set.from, seznam[0].set.off], ['', true]);
+
+  const zaloha = banners.exportTemplates();
+  dbm.setSetting('bannerTemplates', '[]');
+  check('po vyčištění je prázdno', banners.listTemplates().length, 0);
+  check('a záloha ze souboru se načte zpátky', banners.importTemplates(zaloha).length, 1);
+  let chyba = '';
+  try { banners.importTemplates(zaloha); } catch (e) { chyba = String(e.message); }
+  ok('totéž podruhé nic nezdvojí', chyba.includes('už v aplikaci je'), chyba);
+  try { banners.importTemplates('{}'); } catch (e) { chyba = String(e.message); }
+  ok('a cizí soubor se pozná', chyba.includes('žádné odložené sady'), chyba);
+}
+
 /* ---------- sdílení mezi zařízeními ---------- */
 
 console.log('\nsdílení mezi počítači:\n');

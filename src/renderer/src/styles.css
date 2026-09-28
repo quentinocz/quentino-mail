@@ -8024,6 +8024,14 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .bn-scope .check-row { margin: 0; font-weight: 600; }
 .bn-scope .desc { margin: 0; }
 
+/* Odložené sady v postranním sloupci — šablony a zálohy */
+.bn-templates { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.bn-template {
+  display: flex; flex-direction: column; gap: 6px;
+  border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-top: 6px;
+}
+.bn-template .desc { display: block; font-size: 11.5px; }
+
 /* Jeden odkaz v pruhu: náhled ikonky vlevo, políčka vpravo */
 .bn-link-row {
   display: flex; gap: 12px; align-items: flex-start;

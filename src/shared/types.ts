@@ -2987,7 +2987,33 @@ export type BannerPhone =
   /** Dva sloupce, dlaždice pod sebou */
   | 'grid'
   /** Jeden přes celou šířku */
-  | 'wide';
+  | 'wide'
+  /**
+   * Posuvník přes celou šířku, prstem do strany.
+   *
+   * Tohle je na telefonu nejlepší způsob, jak ukázat víc bannerů, aniž by
+   * úvodní obrazovka měla dva metry: vidět je jeden, druhý vykukuje
+   * a tečky pod ním říkají, kolik jich je. Jinak se čtyři dlaždice pod
+   * sebou prorolují dřív, než si je kdo přečte.
+   */
+  | 'carousel';
+
+/**
+ * Podoba dlaždice — kde leží text vůči fotce.
+ *
+ * Není to ozdoba, ale rozhodnutí o čitelnosti: text **na** fotce potřebuje
+ * ztmavení a snese jen pár slov, text **pod** fotkou unese odstavec a
+ * vypadá klidněji. Proto jsou to varianty, ne jedna „správná" podoba.
+ */
+export type BannerCardStyle =
+  /** Text na fotce, přes ztmavení (dosavadní podoba) */
+  | 'overlay'
+  /** Fotka nahoře, text pod ní na barvě */
+  | 'under'
+  /** Fotka a text vedle sebe; u širokého banneru a u highlights */
+  | 'side'
+  /** Text v rámečku uvnitř fotky — fotka zůstane vidět celá */
+  | 'frame';
 
 /**
  * Chytrý banner — co k němu skript sám dopočítá.
@@ -3004,8 +3030,32 @@ export type BannerSmartKind =
   /** Garance doručení do Vánoc — odpočet dnů do poslední objednávky */
   | 'delivery';
 
-/** Pohyb uvnitř banneru. Vždy jen uvnitř jeho obdélníku, nikdy přes stránku. */
-export type BannerEffect = 'none' | 'snow' | 'shine' | 'pulse' | 'float';
+/**
+ * Pohyb uvnitř banneru. Vždy jen uvnitř jeho obdélníku, nikdy přes stránku.
+ *
+ * Všechno se vypíná systémovým „nechci pohyb" — na tom nastavení bývá
+ * i úsporný režim, takže to není jen otázka přístupnosti.
+ */
+export type BannerEffect =
+  | 'none'
+  /** Emoji padají dolů */
+  | 'snow'
+  /** Emoji stoupají vzhůru jako bublinky */
+  | 'rise'
+  /** Konfety: padají a přitom se točí */
+  | 'confetti'
+  /** Přeleštění: světlo přejede jednou za čas přes dlaždici */
+  | 'shine'
+  /** Přeliv přes nadpis — jemnější než přeleštění celé dlaždice */
+  | 'shimmer'
+  /** Emoji v rohu se nadechne */
+  | 'pulse'
+  /** Emoji se zlehka houpe */
+  | 'float'
+  /** Fotka se pomalu přibližuje (Ken Burns) */
+  | 'ken'
+  /** Tlačítko zlehka září — tam, kde má člověk kliknout */
+  | 'glow';
 
 export interface BannerSmart {
   kind: BannerSmartKind;
@@ -3069,6 +3119,8 @@ export type BannerButton = 'shop' | 'fill' | 'outline' | 'soft' | 'link';
  * jeho, ty se nesdílejí nikdy.
  */
 export interface BannerSharedLook {
+  /** Podoba dlaždice: text na fotce, pod fotkou, vedle ní, nebo v rámečku */
+  style: BannerCardStyle;
   fg: string;
   overlay: number;
   align: 'left' | 'center' | 'right';
@@ -3084,6 +3136,8 @@ export interface BannerSharedLook {
 
 /** Vzhled jednoho banneru. */
 export interface BannerLook {
+  /** Podoba dlaždice: text na fotce, pod fotkou, vedle ní, nebo v rámečku */
+  style: BannerCardStyle;
   /** Adresa fotky na pozadí; prázdné = jen barva */
   image: string;
   /**
@@ -3211,6 +3265,55 @@ export interface BannerSet {
   banners: Banner[];
   /** Odkazy na oblíbené kategorie pod bannerem */
   links: BannerLinks;
+  /** Bloky pod bannerem — na e-shopu „highlights" */
+  highlights: BannerHighlights;
+}
+
+/**
+ * Rozvržení bloků highlights.
+ *
+ * Jsou to čtyři velké dlaždice pod bannerem, které na e-shopu nesou
+ * kampaně („Ženich & jeho parta", „Pro tátu a syna"). V šabloně se mění
+ * jen přes administraci a jsou **na víc stránkách než na úvodní**, takže
+ * se vyplatí je řídit odtud stejně jako bannery.
+ */
+export type HighlightLayout =
+  /** Dva sloupce, dva řádky — jak to má e-shop dnes */
+  | 'mozaika'
+  /** Vedle sebe v jednom pruhu */
+  | 'pruh'
+  /** Přes celou šířku pod sebou, fotka a text střídavě vlevo a vpravo */
+  | 'stridave'
+  /** Posuvník prstem s tečkami */
+  | 'carousel';
+
+/**
+ * Bloky pod bannerem.
+ *
+ * Model je schválně **týž jako u banneru**: dlaždice má texty ve třech
+ * jazycích, vlastní nebo sdílený vzhled a smí mít i odpočet nebo efekt.
+ * Kdyby to byl vlastní tvar, musely by se překlady, dohledávání odkazů
+ * i efekty psát podruhé — a druhá kopie se vždycky rozejde s první.
+ */
+export interface BannerHighlights {
+  on: boolean;
+  /**
+   * Kde se bloky ukážou.
+   *
+   * `home` jen na úvodní stránce, `all` všude, kde e-shop svou sekci
+   * highlights má (kategorie, články). Na podstránkách je to jediný
+   * způsob, jak tam dostat kampaň — banner tam vůbec není.
+   */
+  where: 'home' | 'all';
+  layout: HighlightLayout;
+  phone: HighlightLayout;
+  ratio: BannerRatio;
+  phoneRatio: BannerRatio;
+  /** Vzhled společný všem blokům */
+  look: BannerSharedLook;
+  /** Po kolika vteřinách se posuvník přetočí; 0 = nerotovat */
+  rotate: number;
+  banners: Banner[];
 }
 
 /**
@@ -3252,6 +3355,25 @@ export interface BannerClash {
   to: string;
   shortenTo: string;
 }
+
+/**
+ * Odložené sady — šablony a zálohy v jednom.
+ *
+ * Sada se vystavením přepíše a starou verzi už nikdo nedá dohromady;
+ * loňskou vánoční kampaň přitom stojí za to mít po ruce. Odložená sada
+ * leží **jen v aplikaci**, na web se nevystavuje a do plánu se nepočítá.
+ * Vytáhnout ji zpátky znamená udělat z ní novou sadu — s novými
+ * identifikátory, aby se nepohádala s tou, ze které vznikla.
+ */
+export interface BannerTemplate {
+  id: string;
+  name: string;
+  savedAt: string;
+  /** Krátké shrnutí do seznamu: kolik bannerů, bloků a odkazů */
+  note: string;
+  set: BannerSet;
+}
+
 
 export interface BannersState {
   /** Úložiště je stejné jako u textů na webu — jeden klíč, jeden kbelík */

@@ -749,6 +749,14 @@ export function registerIpc() {
   // Náhled spouští tentýž skript jako e-shop, jen s rozepsanou sadou uvnitř
   handle('banners:preview', (set: any, lang: string) => banners.previewUrl(set, lang));
   handle('banners:publish', () => banners.publishBanners());
+  /* Odložené sady: šablona pro příští rok i záloha, která přežije počítač */
+  handle('banners:templates', () => banners.listTemplates());
+  handle('banners:template-save', (set: any, name: string) =>
+    banners.saveTemplate(set, String(name ?? '')));
+  handle('banners:template-drop', (id: string) => banners.dropTemplate(String(id ?? '')));
+  handle('banners:template-use', (id: string) => banners.useTemplate(String(id ?? '')));
+  handle('banners:template-export', () => banners.exportTemplates());
+  handle('banners:template-import', (text: string) => banners.importTemplates(String(text ?? '')));
 
   /* ---------- přihlášení do cizích administrací ---------- */
   handle('logins:list', () => portalLogins());

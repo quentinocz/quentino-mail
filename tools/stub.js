@@ -707,7 +707,7 @@
             text: text('Ručně šité, **skladem**'),
             button: text('Prohlédnout'), href: { cz: '/ksandy', sk: '', en: '' }
           },
-          look: Object.assign({ image: '', video: '', bg: '#000000', fg: '#ffffff', overlay: 40,
+          look: Object.assign({ style: 'overlay', image: '', video: '', bg: '#000000', fg: '#ffffff', overlay: 40,
             align: 'left', pos: 'bottom', focus: '50% 50%',
             font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
             textWeight: 400, button: 'shop', radius: 0 }, look || {}),
@@ -755,6 +755,22 @@
                 { bg: '#0b1a24', pos: 'middle', align: 'center', button: 'soft' }, 'Garance')
             ],
             /* Pruh kategorií pod bannerem — kvůli němu se ověřuje i on */
+            /* Bloky pod bannerem — čtyři velké, jako je má e-shop dnes */
+            highlights: {
+              on: true, where: 'all', layout: 'mozaika', phone: 'carousel',
+              ratio: 'auto', phoneRatio: 'auto', rotate: 0,
+              look: { style: 'overlay', fg: '#ffffff', overlay: 45, align: 'left', pos: 'bottom',
+                font: 'shop', titleWeight: 700, titleSize: 110, caps: true,
+                textWeight: 400, button: 'shop', radius: 0 },
+              banners: [
+                banner('h1', 'Ženich & jeho parta', null, { bg: '#111111' }, 'Svatba'),
+                banner('h2', 'Svatební stránky zdarma', null, { bg: '#1d2b33' }, 'Novinka'),
+                /* Jeden blok schválně v jiné podobě — na něm se pozná, že volba podoby platí */
+                banner('h3', 'Pro tátu a syna', null,
+                  { bg: '#000000', style: 'under', ownLook: true }, 'Sety'),
+                banner('h4', 'Tip na dárek', null, { bg: '#2a1e1e' }, 'Dárky')
+              ]
+            },
             links: { on: true, shape: 'circle', items: [
               /* Nakreslená ikonka (tak, jak ji vrací AI) — kvůli ní se měří,
                  že se v kolečku nenatáhne přes celou plochu jako fotka */
@@ -778,7 +794,13 @@
                 emoji: '🔥', effect: 'shine' },
               { bg: '#000000', align: 'center', pos: 'middle', titleSize: 130, titleWeight: 700 },
               'Black Friday')],
-            links: { on: false, shape: 'circle', items: [] } }
+            links: { on: false, shape: 'circle', items: [] },
+            highlights: { on: false, where: 'all', layout: 'mozaika', phone: 'carousel',
+              ratio: 'auto', phoneRatio: 'auto', rotate: 0,
+              look: { style: 'overlay', fg: '#ffffff', overlay: 40, align: 'center', pos: 'middle',
+                font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
+                textWeight: 400, button: 'shop', radius: 0 },
+              banners: [] } }
         ],
         fallbackId: 's1',
         publishedAt: new Date(ted - 3600000).toISOString(),
@@ -794,6 +816,12 @@
       };
     })(),
     'banners:clashes': [],
+    /* Odložené sady — v náhledu prázdné, ať se pozná i ten stav */
+    'banners:templates': [],
+    'banners:template-save': [],
+    'banners:template-drop': [],
+    'banners:template-export': '{"v":1,"templates":[]}',
+    'banners:template-import': [],
     'banners:href': { sk: '/ksandy', en: '/suspenders', skVia: 'map', enVia: 'domain' },
     /*
      * Návrhy ikonek. V aplikaci je kreslí model a SVG skládá hlavní proces
@@ -2426,12 +2454,34 @@
             smart: one.smart && one.smart.kind !== 'none' ? one.smart : undefined
           };
         });
+        /* Bloky pod bannerem se v náhledu kreslí stejně jako na webu */
+        var bloky = sada.highlights && sada.highlights.on
+          ? (sada.highlights.banners || []).filter(function (one) {
+            return !one.off && (one.copy.title.cz || one.copy.text.cz || one.look.image);
+          }).map(function (one) {
+            return {
+              id: one.id, kicker: one.copy.kicker, title: one.copy.title, text: one.copy.text,
+              button: one.copy.button, href: one.copy.href,
+              look: one.ownLook ? one.look
+                : Object.assign({}, one.look, sada.highlights.look || {},
+                  { image: one.look.image, video: one.look.video,
+                    bg: one.look.bg, focus: one.look.focus }),
+              smart: one.smart && one.smart.kind !== 'none' ? one.smart : undefined
+            };
+          })
+          : [];
         var zaloha = JSON.stringify({
           id: sada.id || 'nahled', fromMs: 0, toMs: Number.MAX_SAFE_INTEGER,
           layout: sada.layout || 'quad', phone: sada.phone || 'grid',
           ratio: sada.ratio || 'auto', phoneRatio: sada.phoneRatio || 'auto',
           rotate: sada.rotate || 0, banners: radky,
-          links: sada.links && sada.links.on ? sada.links : undefined
+          links: sada.links && sada.links.on ? sada.links : undefined,
+          highlights: bloky.length > 0 ? {
+            where: sada.highlights.where, layout: sada.highlights.layout,
+            phone: sada.highlights.phone, ratio: sada.highlights.ratio,
+            phoneRatio: sada.highlights.phoneRatio, rotate: sada.highlights.rotate,
+            banners: bloky
+          } : undefined
         });
         var telo = script.replace('var FALLBACK = "";', 'var FALLBACK = ' + zaloha + ';');
         /*
@@ -2455,6 +2505,9 @@
           + '<div class="qbn-ukazka"><div class="qbn-jako">hlavi\u010dka e-shopu</div>'
           + '<div id="banner1">p\u016fvodn\u00ed karusel'
           + '<img alt="" src="https://cdn.invalid/stary-banner.jpg" width="1" height="1"></div>'
+          /* Sekce ze šablony, kam patří bloky pod bannerem — i v náhledu */
+          + '<div class="section bic-hdln">p\u016fvodn\u00ed bloky'
+          + '<img alt="" src="https://cdn.invalid/stary-blok.jpg" width="1" height="1"></div>'
           + '<div class="qbn-jako" style="border:0;border-top:1px solid #e6e6e9">dal\u0161\u00ed obsah</div></div>'
           + '<script>(function(){function s(){try{parent.postMessage('
           + '{qbn:document.documentElement.scrollHeight},"*")}catch(e){}}'

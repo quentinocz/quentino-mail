@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type {
   Banner, BannerClash, BannerLink, BannerLinks, BannerSet, BannerSharedLook,
-  BannersState, WebText
+  BannerHighlights, BannerTemplate, BannersState, WebText
 } from '@shared/types';
 import { api } from '../api';
 import { toWebp } from '../media';
@@ -60,12 +60,44 @@ const hasText = (t?: WebText) => !!(t && (t.cz || t.sk || t.en));
 /** Emoji, která se u bannerů používají nejčastěji — ať se nehledá v systému. */
 const EMOJI = ['🎁', '❄️', '🎄', '⏳', '🔥', '✨', '💙', '🚚', '🏷️', '👔', '🎀', '⭐'];
 
+/*
+ * Efekty jsou tři druhy: létající emoji (padání, stoupání, konfety),
+ * pohyb obrazu (přiblížení fotky) a upozornění na jedno místo (přeliv
+ * přes nadpis, záře tlačítka). Víc než jeden naráz se nenabízí schválně —
+ * dvě animace v jedné dlaždici se perou o pozornost a ani jedna nevyhraje.
+ */
 const EFFECTS: { id: Banner['smart']['effect']; label: string; hint: string }[] = [
   { id: 'none', label: 'Bez pohybu', hint: 'Klidná dlaždice' },
   { id: 'snow', label: 'Padající emoji', hint: 'Sype se uvnitř dlaždice' },
+  { id: 'rise', label: 'Stoupající emoji', hint: 'Jdou vzhůru jako bublinky — na léto' },
+  { id: 'confetti', label: 'Konfety', hint: 'Padají a přitom se točí — na oslavu' },
   { id: 'shine', label: 'Přejezd lesku', hint: 'Světlo přejede jednou za pár vteřin' },
+  { id: 'shimmer', label: 'Přeliv v nadpisu', hint: 'Jemnější než přejezd přes celou dlaždici' },
+  { id: 'ken', label: 'Přibližování fotky', hint: 'Pomalý pohyb, nic nepřelétá přes text' },
+  { id: 'glow', label: 'Záře tlačítka', hint: 'Upozorní tam, kde se má kliknout' },
   { id: 'pulse', label: 'Tep emoji', hint: 'Emoji v rohu se nadechne' },
   { id: 'float', label: 'Plavání emoji', hint: 'Emoji se zlehka houpe' }
+];
+
+/**
+ * Podoby dlaždice.
+ *
+ * Text na fotce je dnešní podoba a pro krátké heslo je nejlepší. Delší
+ * text na fotce ale nikdo nepřečte — od toho jsou ostatní tři.
+ */
+const STYLES: { id: BannerSharedLook['style']; label: string; hint: string }[] = [
+  { id: 'overlay', label: 'Text na fotce', hint: 'Dnešní podoba; krátké heslo a tlačítko' },
+  { id: 'under', label: 'Text pod fotkou', hint: 'Unese odstavec, nic se neztrácí ve fotce' },
+  { id: 'side', label: 'Fotka a text vedle sebe', hint: 'Na široké bloky a na bloky pod bannerem' },
+  { id: 'frame', label: 'Text v rámečku', hint: 'Fotka zůstane vidět celá' }
+];
+
+/** Rozvržení bloků pod bannerem. */
+const HL_LAYOUTS: { id: BannerHighlights['layout']; label: string; hint: string }[] = [
+  { id: 'mozaika', label: 'Mozaika 2×2', hint: 'Jak to má e-shop dnes' },
+  { id: 'pruh', label: 'Pruh vedle sebe', hint: 'Všechny v jedné řadě' },
+  { id: 'stridave', label: 'Střídavě', hint: 'Přes celou šířku, fotka jednou vlevo, jednou vpravo' },
+  { id: 'carousel', label: 'Posuvník', hint: 'Prstem do strany, s tečkami' }
 ];
 
 /**
@@ -156,6 +188,7 @@ function blankBanner(): Banner {
      * zbytku stránky byl cizí prvek.
      */
     look: {
+      style: 'overlay',
       image: '', video: '', bg: '#000000', fg: '#ffffff', overlay: 40,
       align: 'center', pos: 'middle', focus: '50% 50%',
       font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
@@ -253,7 +286,16 @@ function blankSet(): BannerSet {
     layout: 'quad', phone: 'grid', rotate: 0,
     look: blankShared(), ratio: 'auto', phoneRatio: 'auto',
     banners: [{ ...blankBanner(), id: newId() }],
-    links: { on: false, shape: 'circle', items: [] }
+    links: { on: false, shape: 'circle', items: [] },
+    /*
+     * Bloky pod bannerem se zakládají vypnuté a prázdné. Zapnout je
+     * znamená přepsat tu část e-shopu, kterou dnes drží šablona — a to
+     * má být vědomé rozhodnutí, ne vedlejší účinek nové sady.
+     */
+    highlights: {
+      on: false, where: 'all', layout: 'mozaika', phone: 'carousel',
+      ratio: 'auto', phoneRatio: 'auto', look: blankShared(), rotate: 0, banners: []
+    }
   };
 }
 
@@ -299,7 +341,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
    * sloupec se vším dohromady znamenal rolovat přes nastavení sady pokaždé,
    * když se šlo přepsat nadpis.
    */
-  const [section, setSection] = useState<'sada' | 'bannery' | 'odkazy'>('bannery');
+  const [section, setSection] = useState<'sada' | 'bannery' | 'bloky' | 'odkazy'>('bannery');
   const [part, setPart] = useState<'text' | 'vzhled' | 'efekty'>('text');
   const [clashes, setClashes] = useState<BannerClash[]>([]);
   const [busy, setBusy] = useState('');
@@ -313,6 +355,14 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
    */
   const [icons, setIcons] = useState<{ at: number; list: { url: string; note: string }[] }>(
     { at: -1, list: [] });
+  /**
+   * Odložené sady — šablony a zálohy.
+   *
+   * Sada se vystavením přepíše a stará verze je nenávratně pryč; loňská
+   * vánoční kampaň se přitom příští rok hodí celá, i s texty a efekty.
+   */
+  const [templates, setTemplates] = useState<BannerTemplate[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const apply = useCallback((next: BannersState, message?: string) => {
     setState(next);
@@ -345,15 +395,26 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
 
   const shortenable = clashes.filter(one => one.shortenTo);
 
-  const banner: Banner | null = draft?.banners[pick] ?? null;
-
   const setSet = (patch: Partial<BannerSet>) => setDraft(d => (d ? { ...d, ...patch } : d));
 
-  const setBanner = (patch: Partial<Banner>) => setDraft(d => {
-    if (!d) return d;
-    const banners = d.banners.map((one, i) => (i === pick ? { ...one, ...patch } : one));
-    return { ...d, banners };
-  });
+  /*
+   * Sada má dva bloky dlaždic: bannery nahoře a „bloky pod bannerem"
+   * (v šabloně e-shopu highlights). Upravují se **týmž formulářem** —
+   * jsou to tytéž dlaždice s týmiž texty, vzhledem i efekty. Rozdíl je
+   * jen v tom, do kterého seznamu se zapisuje; dvě kopie formuláře by se
+   * dřív nebo později rozešly.
+   */
+  const hl = (): BannerHighlights => draft?.highlights ?? blankSet().highlights;
+  const setHl = (patch: Partial<BannerHighlights>) => setSet({ highlights: { ...hl(), ...patch } });
+  const vBlocich = section === 'bloky';
+  const seznam = (): Banner[] => (vBlocich ? hl().banners : (draft?.banners ?? []));
+  const setSeznam = (banners: Banner[]) =>
+    (vBlocich ? setHl({ banners }) : setSet({ banners }));
+
+  const banner: Banner | null = seznam()[pick] ?? null;
+
+  const setBanner = (patch: Partial<Banner>) =>
+    setSeznam(seznam().map((one, i) => (i === pick ? { ...one, ...patch } : one)));
 
   const setCopy = (field: keyof Banner['copy'], value: string) => setBanner(banner ? {
     copy: { ...banner.copy, [field]: { ...banner.copy[field], [lang]: value } }
@@ -362,9 +423,17 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
   const setLook = (patch: Partial<Banner['look']>) =>
     setBanner(banner ? { look: { ...banner.look, ...patch } } : {});
 
-  /** Společný vzhled sady — to, co se nastavuje pro všechny bannery naráz. */
-  const shared = (): BannerSharedLook => draft?.look ?? blankShared();
-  const setShared = (patch: Partial<BannerSharedLook>) => setSet({ look: { ...shared(), ...patch } });
+  /**
+   * Společný vzhled — to, co se nastavuje pro všechny dlaždice naráz.
+   *
+   * Bannery a bloky pod bannerem ho mají každý svůj: blok přes celou
+   * šířku snese jiné písmo i jiné zaoblení než čtyři úzké dlaždice
+   * vedle sebe.
+   */
+  const shared = (): BannerSharedLook => (vBlocich ? hl().look : draft?.look) ?? blankShared();
+  const setShared = (patch: Partial<BannerSharedLook>) => (vBlocich
+    ? setHl({ look: { ...hl().look, ...patch } })
+    : setSet({ look: { ...shared(), ...patch } }));
 
   /*
    * Co se zrovna edituje: u banneru s vlastním vzhledem jeho hodnoty,
@@ -507,6 +576,58 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const loadTemplates = async () => {
+    try {
+      setTemplates(await api.banners.templates());
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+    }
+  };
+
+  /** Odložit rozdělanou sadu stranou — bez vystavení a bez platnosti. */
+  const stashSet = async () => {
+    if (!draft) return;
+    setBusy('Odkládám');
+    try {
+      setTemplates(await api.banners.saveTemplate(draft, draft.name));
+      setShowTemplates(true);
+      toast('Sada je odložená. Platnost se nezachovala — nastavíš ji, až ji vytáhneš.');
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  /** Záloha všeho odloženého do souboru — přežije i výměnu počítače. */
+  const exportTemplates = async () => {
+    try {
+      const text = await api.banners.exportTemplates();
+      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `quentino-bannery-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      toast('Záloha se stahuje.');
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+    }
+  };
+
+  const importTemplates = async (file: File) => {
+    setBusy('Načítám zálohu');
+    try {
+      setTemplates(await api.banners.importTemplates(await file.text()));
+      setShowTemplates(true);
+      toast('Záloha je načtená — nic se nepřepsalo, jen přibylo.');
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const copyScript = async () => {
     if (!state?.script) return;
     try {
@@ -519,36 +640,35 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
 
   /* ---------- práce s bannery v sadě ---------- */
 
-  const addBanner = (make: () => Banner) => setDraft(d => {
-    if (!d) return d;
-    const one = { ...make(), id: newId() };
-    setPick(d.banners.length);
-    return { ...d, banners: [...d.banners, one] };
-  });
+  const addBanner = (make: () => Banner) => {
+    const list = seznam();
+    setSeznam([...list, { ...make(), id: newId() }]);
+    setPick(list.length);
+  };
 
-  const moveBanner = (by: number) => setDraft(d => {
-    if (!d) return d;
+  const moveBanner = (by: number) => {
+    const list = [...seznam()];
     const to = pick + by;
-    if (to < 0 || to >= d.banners.length) return d;
-    const banners = [...d.banners];
-    [banners[pick], banners[to]] = [banners[to], banners[pick]];
+    if (to < 0 || to >= list.length) return;
+    [list[pick], list[to]] = [list[to], list[pick]];
+    setSeznam(list);
     setPick(to);
-    return { ...d, banners };
-  });
+  };
 
-  const dropBanner = () => setDraft(d => {
-    if (!d || d.banners.length <= 1) return d;
-    const banners = d.banners.filter((_, i) => i !== pick);
+  const dropBanner = () => {
+    const list = seznam();
+    // Bannery musí zůstat aspoň jedny; bloky jsou dobrovolné, ty smí zmizet všechny
+    if (list.length <= (vBlocich ? 0 : 1)) return;
+    setSeznam(list.filter((_, i) => i !== pick));
     setPick(Math.max(0, pick - 1));
-    return { ...d, banners };
-  });
+  };
 
-  const copyBanner = () => setDraft(d => {
-    if (!d) return d;
-    const one = { ...d.banners[pick], id: newId() };
-    setPick(d.banners.length);
-    return { ...d, banners: [...d.banners, one] };
-  });
+  const copyBanner = () => {
+    const list = seznam();
+    if (!list[pick]) return;
+    setSeznam([...list, { ...list[pick], id: newId() }]);
+    setPick(list.length);
+  };
 
   /** Kolik dlaždic se na stránku vejde — podle toho má rotace smysl. */
   const perPage = draft?.layout === 'wide' ? 1 : 4;
@@ -792,10 +912,75 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                   </button>
                 );
               })}
+
+              {/*
+                * Odložené sady. Nejsou to sady v plánu — na web se
+                * nevystavují a o čas se s ničím neperou. Je to místo, kam
+                * se dá dát loňská vánoční kampaň, aby příští rok nebylo
+                * nutné ji psát znovu.
+                */}
+              <div className="bn-templates">
+                <button className="btn ghost" style={{ width: '100%' }}
+                  onClick={() => { setShowTemplates(one => !one); if (!showTemplates) void loadTemplates(); }}>
+                  <Icon name="archive" size={13} /> Odložené sady
+                  {templates.length > 0 ? ` (${templates.length})` : ''}
+                </button>
+                {showTemplates && (
+                  <>
+                    {templates.length === 0 && (
+                      <p className="desc" style={{ padding: '6px 2px' }}>
+                        Zatím nic odloženého. Rozdělanou sadu odložíš tlačítkem
+                        „Odložit stranou" dole pod editací.
+                      </p>
+                    )}
+                    {templates.map(one => (
+                      <div key={one.id} className="bn-template">
+                        <div>
+                          <b>{one.name}</b>
+                          <span className="desc">
+                            {one.note} · {one.savedAt.slice(0, 10).split('-').reverse().join('. ')}
+                          </span>
+                        </div>
+                        <div className="bn-tools">
+                          <button className="btn ghost" disabled={!!busy}
+                            onClick={() => run('Vytahuji', async () => {
+                              const next = await api.banners.useTemplate(one.id);
+                              const nova = next.sets.find(s2 => s2.name === one.name && s2.off);
+                              if (nova) { setDraft(nova); setPick(0); setSection('bannery'); }
+                              return next;
+                            }, 'Sada je zpátky — je vypnutá, tak jí nastav platnost a vystav ji.')}>
+                            <Icon name="download" size={12} /> Použít
+                          </button>
+                          <button className="btn ghost danger" disabled={!!busy}
+                            onClick={() => void (async () => {
+                              setTemplates(await api.banners.dropTemplate(one.id));
+                            })()}>
+                            <Icon name="trash" size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="bn-tools" style={{ marginTop: 6 }}>
+                      <button className="btn ghost" onClick={() => void exportTemplates()}>
+                        <Icon name="download" size={12} /> Záloha do souboru
+                      </button>
+                      <label className="btn ghost" style={{ cursor: 'pointer' }}>
+                        <Icon name="upload" size={12} /> Načíst zálohu
+                        <input type="file" accept="application/json,.json" style={{ display: 'none' }}
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            if (file) void importTemplates(file);
+                          }} />
+                      </label>
+                    </div>
+                  </>
+                )}
+              </div>
             </aside>
 
             <div className="bn-edit">
-              {!draft || !banner ? (
+              {!draft ? (
                 <div className="empty-state" style={{ padding: '40px 10px' }}>
                   <div className="big">🖼️</div>
                   <p>Vyber sadu vlevo, nebo založ novou.</p>
@@ -816,12 +1001,16 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                     <button className={`tab ${section === 'sada' ? 'active' : ''}`}
                       onClick={() => setSection('sada')}>Sada</button>
                     <button className={`tab ${section === 'bannery' ? 'active' : ''}`}
-                      onClick={() => setSection('bannery')}>
+                      onClick={() => { setSection('bannery'); setPick(0); }}>
                       Bannery <em>{draft.banners.length}</em>
+                    </button>
+                    <button className={`tab ${section === 'bloky' ? 'active' : ''}`}
+                      onClick={() => { setSection('bloky'); setPick(0); }}>
+                      Bloky pod bannerem <em>{hl().banners.length}</em>
                     </button>
                     <button className={`tab ${section === 'odkazy' ? 'active' : ''}`}
                       onClick={() => setSection('odkazy')}>
-                      Odkazy pod bannerem <em>{linksOf().items.length}</em>
+                      Odkazy <em>{linksOf().items.length}</em>
                     </button>
                   </div>
 
@@ -897,6 +1086,15 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               onClick={() => setSet({ phone: 'grid' })}>2 vedle sebe</button>
                             <button className={`tab ${draft.phone === 'wide' ? 'active' : ''}`}
                               onClick={() => setSet({ phone: 'wide' })}>Přes šířku</button>
+                            {/*
+                              * Posuvník je na telefonu často nejlepší volba: vidět
+                              * je jeden banner, druhý vykukuje a tečky říkají,
+                              * kolik jich je. Čtyři dlaždice pod sebou se
+                              * prorolují dřív, než si je kdo přečte.
+                              */}
+                            <button className={`tab ${draft.phone === 'carousel' ? 'active' : ''}`}
+                              title="Prstem do strany, s tečkami pod bannerem"
+                              onClick={() => setSet({ phone: 'carousel' })}>Posuvník</button>
                           </div>
                         </div>
                         <div className="field">
@@ -941,10 +1139,79 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                     </>
                   )}
 
-                  {section === 'bannery' && (
+                  {(section === 'bannery' || section === 'bloky') && (
                     <>
+                      {/*
+                        * Nastavení bloků pod bannerem. Je nahoře, protože
+                        * rozhoduje o tom, jak budou dlaždice pod ním vypadat
+                        * — a protože „kde se to ukáže" je první otázka, na
+                        * kterou člověk u bloků chce znát odpověď.
+                        */}
+                      {vBlocich && (
+                        <>
+                          <p className="desc">
+                            Čtyři velké bloky, které má e-shop pod bannerem — a také
+                            <b> na kategoriích a v článcích</b>, kde žádný banner není. Zapnutím je
+                            přebereš ze šablony: od té chvíle je řídíš odtud, včetně plánování,
+                            překladů a efektů.
+                          </p>
+                          <div className="bn-layout">
+                            <label className="check-row">
+                              <input type="checkbox" checked={hl().on}
+                                onChange={e => setHl({ on: e.target.checked })} />
+                              Řídit bloky z aplikace
+                            </label>
+                            <div className="field">
+                              <label>Kde</label>
+                              <div className="tabs">
+                                {([['all', 'Všude, kde jsou'], ['home', 'Jen na úvodní']] as const)
+                                  .map(([id, label]) => (
+                                    <button key={id} className={`tab ${hl().where === id ? 'active' : ''}`}
+                                      onClick={() => setHl({ where: id })}>{label}</button>
+                                  ))}
+                              </div>
+                            </div>
+                            <div className="field">
+                              <label>Rozvržení na počítači</label>
+                              <div className="tabs">
+                                {HL_LAYOUTS.map(one => (
+                                  <button key={one.id} title={one.hint}
+                                    className={`tab ${hl().layout === one.id ? 'active' : ''}`}
+                                    onClick={() => setHl({ layout: one.id })}>{one.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="field">
+                              <label>Na telefonu</label>
+                              <div className="tabs">
+                                {HL_LAYOUTS.map(one => (
+                                  <button key={one.id} title={one.hint}
+                                    className={`tab ${hl().phone === one.id ? 'active' : ''}`}
+                                    onClick={() => setHl({ phone: one.id })}>{one.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="field">
+                              <label>Tvar bloku</label>
+                              <div className="tabs">
+                                {RATIOS.map(one => (
+                                  <button key={one.id}
+                                    className={`tab ${hl().ratio === one.id ? 'active' : ''}`}
+                                    onClick={() => setHl({ ratio: one.id })}>{one.label}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="field bn-slider">
+                              <label>Přetáčet posuvník {hl().rotate ? `po ${hl().rotate} s` : 'ne'}</label>
+                              <input type="range" min={0} max={20} value={hl().rotate}
+                                onChange={e => setHl({ rotate: Number(e.target.value) })} />
+                            </div>
+                          </div>
+                        </>
+                      )}
+
                       <div className="bn-strip">
-                        {draft.banners.map((one, i) => (
+                        {seznam().map((one, i) => (
                           <button key={one.id || i}
                             className={`bn-tile ${i === pick ? 'sel' : ''} ${one.off ? 'off' : ''}`}
                             onClick={() => setPick(i)}
@@ -960,7 +1227,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             </span>
                           </button>
                         ))}
-                        {draft.banners.length < 12 && (
+                        {seznam().length < (vBlocich ? 6 : 12) && (
                           <div className="bn-add">
                             {PRESETS.map(one => (
                               <button key={one.id} className="btn ghost" title={one.label}
@@ -972,12 +1239,25 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                         )}
                       </div>
 
+                      {/*
+                        * Formulář dlaždice dává smysl jen tehdy, když nějaká
+                        * je. U bloků pod bannerem je prázdný seznam normální
+                        * stav — teprve se zakládají.
+                        */}
+                      {!banner ? (
+                        <p className="desc">
+                          Zatím tu žádný blok není. Založ první tlačítkem nahoře — vybírá se
+                          z týchž předloh jako u bannerů, protože je to tatáž dlaždice, jen
+                          větší a na jiném místě stránky.
+                        </p>
+                      ) : (
+                        <>
                       <div className="bn-tools">
                         <button className="btn ghost" onClick={() => moveBanner(-1)} disabled={pick === 0}>
                           <Icon name="chevLeft" size={13} /> Dřív
                         </button>
                         <button className="btn ghost" onClick={() => moveBanner(1)}
-                          disabled={pick >= draft.banners.length - 1}>
+                          disabled={pick >= seznam().length - 1}>
                           Později <Icon name="chevRight" size={13} />
                         </button>
                         <button className="btn ghost" onClick={copyBanner}>
@@ -990,7 +1270,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                         </label>
                         <span className="wt-spacer" />
                         <button className="btn ghost danger" onClick={dropBanner}
-                          disabled={draft.banners.length <= 1}>
+                          disabled={seznam().length <= (vBlocich ? 0 : 1)}>
                           <Icon name="trash" size={13} /> Smazat
                         </button>
                       </div>
@@ -1087,6 +1367,27 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                 : 'Písmo, tlačítko, zaoblení i zarovnání se berou ze sady — '
                                   + 'nastavují se jednou pro všechny bannery.'}
                             </span>
+                          </div>
+
+                          {/*
+                            * Podoba dlaždice je první rozhodnutí, ne detail:
+                            * text na fotce unese pár slov, text pod fotkou
+                            * odstavec. Na tom pak závisí, kolik se dá napsat.
+                            */}
+                          <div className="field">
+                            <label>Podoba dlaždice</label>
+                            <div className="tabs">
+                              {STYLES.map(one => (
+                                <button key={one.id} title={one.hint}
+                                  className={`tab ${vzhled().style === one.id ? 'active' : ''}`}
+                                  onClick={() => setVzhled({ style: one.id })}>{one.label}</button>
+                              ))}
+                            </div>
+                            <p className="desc">
+                              {STYLES.find(one => one.id === vzhled().style)?.hint}
+                              {vzhled().style !== 'overlay'
+                                && ' Ztmavení fotky se tu nepoužije — text leží mimo ni.'}
+                            </p>
                           </div>
 
                           <div className="bn-type">
@@ -1384,6 +1685,8 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                           )}
                         </>
                       )}
+                        </>
+                      )}
                     </>
                   )}
 
@@ -1594,6 +1897,10 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             return next;
                           }, 'Kopie je hotová — je vypnutá, ať se nepere s originálem.')}>
                           <Icon name="copy" size={14} /> Duplikovat sadu
+                        </button>
+                        <button className="btn ghost" disabled={!!busy} onClick={() => void stashSet()}
+                          title="Uloží kopii stranou — jako šablonu na příště nebo jako zálohu">
+                          <Icon name="archive" size={14} /> Odložit stranou
                         </button>
                         <span className="wt-spacer" />
                         <button className="btn ghost danger" onClick={() => remove(draft.id)} disabled={!!busy}>

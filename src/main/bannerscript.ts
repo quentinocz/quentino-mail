@@ -581,8 +581,210 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   .qbn-emoji { font-size: 18px; }
 }
 
+/* ---------- podoby dlaždice ---------- */
+
+/*
+ * Text na fotce je jen jedna z možností a zdaleka ne vždycky ta nejlepší:
+ * unese pár slov, potřebuje ztmavení a na světlé fotce látky je i tak na
+ * hraně. Proto jsou tu další tři podoby — text pod fotkou (unese odstavec
+ * a je klidný), fotka a text vedle sebe (na široké bloky) a text
+ * v rámečku, kde fotka zůstane vidět celá.
+ */
+.qbn-card[data-style="under"], .qbn-card[data-style="side"] {
+  /* Výšku dělá obsah, ne poměr stran — text pod fotkou se nesmí ořezat */
+  aspect-ratio: auto;
+  display: grid;
+  isolation: isolate;
+}
+.qbn-card[data-style="under"] { grid-template-rows: auto minmax(0, 1fr); }
+.qbn-card[data-style="side"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; }
+.qbn-card[data-style="under"] .qbn-photo,
+.qbn-card[data-style="side"] .qbn-photo {
+  position: relative;
+  inset: auto;
+  aspect-ratio: var(--qbn-ar, 3 / 4);
+  width: 100%;
+}
+/*
+ * Poměr stran se u těchhle podob přesouvá z dlaždice na fotku — a to
+ * musí platit i tam, kde poměr dlaždici vnucuje rozvržení. Jinak zůstane
+ * dlaždice svázaná výškou, fotka ji celou vyplní a text z ní vypadne
+ * ven: v náhledu z toho byl černý obdélník bez písmene.
+ */
+.qbn[data-layout="quad"] .qbn-card[data-style="under"],
+.qbn[data-layout="quad"] .qbn-card[data-style="side"],
+.qbn[data-layout="wide"] .qbn-card[data-style="under"],
+.qbn[data-layout="wide"] .qbn-card[data-style="side"],
+.qbn[data-phone="grid"] .qbn-card[data-style="under"],
+.qbn[data-phone="wide"] .qbn-card[data-style="under"],
+.qhl .qbn-card[data-style="under"],
+.qhl .qbn-card[data-style="side"] { aspect-ratio: auto; }
+.qhl .qbn-card[data-style="under"] .qbn-photo,
+.qhl .qbn-card[data-style="side"] .qbn-photo { aspect-ratio: var(--qhl-ar, 16 / 9); }
+.qbn-card[data-style="under"] .qbn-body,
+.qbn-card[data-style="side"] .qbn-body {
+  position: relative;
+  inset: auto;
+  padding: 18px;
+  justify-content: flex-start;
+  /* Bez fotky pod textem není co ztmavovat a stín pod písmem jen špiní */
+  text-shadow: none;
+}
+.qbn-card[data-style="under"] .qbn-shade,
+.qbn-card[data-style="side"] .qbn-shade,
+.qbn-card[data-style="frame"] .qbn-shade { display: none; }
+.qbn-card[data-style="under"] .qbn-fx,
+.qbn-card[data-style="side"] .qbn-fx { inset: 0; }
+/* Střídání stran: druhý blok má fotku vpravo, aby řada nebyla jednotvárná */
+.qhl[data-layout="stridave"] .qbn-card[data-style="side"]:nth-child(even) .qbn-photo { order: 2; }
+
+.qbn-card[data-style="frame"] .qbn-body { isolation: isolate; padding: 30px; }
+.qbn-card[data-style="frame"] .qbn-body::before {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  z-index: -1;
+  background: rgba(0, 0, 0, var(--qbn-shade, .4));
+  border-radius: var(--qbn-radius, 0);
+}
+
+/* ---------- posuvník ---------- */
+
+/*
+ * Na telefonu je posuvník jediný způsob, jak ukázat čtyři bannery a
+ * nemít úvodní obrazovku dlouhou dva metry. Posouvá se prstem (žádná
+ * knihovna, jen přichycení při rolování) a tečky pod ním říkají, kolik
+ * toho ještě je — bez nich vypadá první dlaždice jako jediná.
+ */
+.qbn-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 86%;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding-inline: 2px;
+  scroll-padding-inline: 2px;
+}
+.qbn-track::-webkit-scrollbar { display: none; }
+.qbn-track > * { scroll-snap-align: center; }
+.qbn-dots {
+  display: flex;
+  gap: 7px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 12px;
+}
+.qbn-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .22;
+  cursor: pointer;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.qbn-dot[data-now] { opacity: .85; transform: scale(1.25); }
+
+/* ---------- bloky pod bannerem (highlights) ---------- */
+
+/*
+ * Tytéž dlaždice jako banner, jen jiné rozvržení — a hlavně **na víc
+ * stránkách**: v šabloně e-shopu je tahle sekce i u kategorií a článků,
+ * kde žádný banner není. Proto se kreslí samostatně.
+ */
+.qhl {
+  display: grid;
+  gap: clamp(10px, 1.4vw, 18px);
+  width: 100%;
+  margin: clamp(20px, 2.6vw, 44px) auto;
+  overflow-anchor: none;
+}
+.qhl[data-layout="mozaika"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.qhl[data-layout="pruh"] { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.qhl[data-layout="stridave"] { grid-template-columns: minmax(0, 1fr); }
+.qhl[data-layout="carousel"] { grid-template-columns: minmax(0, 1fr); }
+.qhl .qbn-card { aspect-ratio: var(--qhl-ar, 16 / 9); }
+.qhl[data-layout="stridave"] .qbn-card { aspect-ratio: var(--qhl-ar, 32 / 11); }
+
+@media (max-width: 760px) {
+  .qhl[data-layout="mozaika"], .qhl[data-layout="pruh"], .qhl[data-layout="stridave"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .qhl .qbn-card { aspect-ratio: var(--qhl-ar-phone, var(--qhl-ar, 4 / 3)); }
+  /* Vedle sebe se na telefon nevejde nic — obojí pod sebe */
+  .qhl .qbn-card[data-style="side"] { grid-template-columns: minmax(0, 1fr); }
+  .qhl .qbn-card[data-style="side"] .qbn-photo { order: 0; }
+}
+
+/* ---------- další efekty ---------- */
+
+/*
+ * Ken Burns: fotka se pomalu přibližuje. Nejnenápadnější způsob, jak
+ * dostat do banneru pohyb — nic nepřelétá přes text a na malém displeji
+ * to nepůsobí jako reklama z devadesátek.
+ */
+.qbn-fx-ken ~ .qbn-photo, .qbn-card[data-fx="ken"] .qbn-photo {
+  animation: qbn-ken 18s ease-in-out infinite alternate;
+}
+@keyframes qbn-ken {
+  from { transform: scale(1); }
+  to { transform: scale(1.09); }
+}
+
+/* Přeliv přes nadpis — jemnější než přeleštění celé dlaždice */
+.qbn-card[data-fx="shimmer"] .qbn-title {
+  background: linear-gradient(100deg,
+    currentColor 0%, currentColor 38%,
+    rgba(255, 255, 255, .92) 50%,
+    currentColor 62%, currentColor 100%);
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: qbn-shimmer 4.5s ease-in-out infinite;
+}
+@keyframes qbn-shimmer {
+  0%, 62% { background-position: 180% 0; }
+  100% { background-position: -80% 0; }
+}
+
+/* Záře kolem tlačítka — tam, kde má člověk kliknout */
+.qbn-card[data-fx="glow"] .qbn-btn,
+.qbn-card[data-fx="glow"] .qbn-body .btn {
+  animation: qbn-glow 2.6s ease-in-out infinite;
+}
+@keyframes qbn-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 255, 255, .18); }
+}
+
+/* Stoupání: emoji jde vzhůru jako bublinka. Opak sněžení, sedí na léto */
+@keyframes qbn-rise {
+  0% { top: 110%; opacity: 0; transform: translateX(0) rotate(0deg); }
+  12% { opacity: .85; }
+  88% { opacity: .85; }
+  100% { top: -15%; opacity: 0; transform: translateX(14px) rotate(8deg); }
+}
+/* Konfety: padají a přitom se točí kolem své osy */
+@keyframes qbn-confetti {
+  0% { top: -15%; opacity: 0; transform: rotate(0deg) scale(1); }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 115%; opacity: 0; transform: rotate(540deg) scale(.8); }
+}
+
 /* Kdo si vypnul pohyb v systému, nemá se na co dívat ani tady */
 @media (prefers-reduced-motion: reduce) {
+  .qbn-fx-ken ~ .qbn-photo, .qbn-card[data-fx="ken"] .qbn-photo,
+  .qbn-card[data-fx="shimmer"] .qbn-title,
+  .qbn-card[data-fx="glow"] .qbn-btn,
+  .qbn-card[data-fx="glow"] .qbn-body .btn { animation: none; }
+  .qbn-card[data-fx="shimmer"] .qbn-title { color: inherit; }
   .qbn-page { transition: none; }
   .qbn-photo { transition: none; }
   a.qbn-card:hover .qbn-photo { transform: none; }
@@ -902,7 +1104,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
    * Na telefonu se počet krátí na dvě třetiny: dlaždice je tam poloviční
    * a stejný počet z ní udělá neprůhlednou clonu přes text.
    */
-  function flakes(fx, smart) {
+  function flakes(fx, smart, druh) {
     var emoji = smart.emoji || "❄️";
     var count = Math.max(2, Math.round(Number(smart.fxCount) || 14));
     if (window.innerWidth < 620) count = Math.max(2, Math.round(count * 0.66));
@@ -911,6 +1113,13 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     for (var i = 0; i < count; i++) {
       var one = el("span", "qbn-flake");
       one.textContent = emoji;
+      /*
+       * Tentýž kus, tři různé pohyby. Padání, stoupání i konfety se liší
+       * jen průběhem animace — dělat na to tři kusy kódu by znamenalo tři
+       * místa, kde se dá zapomenout na vypnutý pohyb v systému.
+       */
+      if (druh === "rise") one.style.animationName = "qbn-rise";
+      else if (druh === "confetti") one.style.animationName = "qbn-confetti";
       /*
        * Rozestup po sloupcích s malým rozhozením. Náhodné rozmístění se
        * na úzké dlaždici umí seskupit do jednoho chuchvalce a vedle něj
@@ -938,6 +1147,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       if (label) node.setAttribute("aria-label", label);
     }
     var look = one.look || {};
+    node.setAttribute("data-style", look.style || "overlay");
     node.setAttribute("data-align", look.align || "left");
     node.setAttribute("data-pos", look.pos || "bottom");
     if (look.caps) node.setAttribute("data-caps", "1");
@@ -976,7 +1186,17 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     if (smart.effect === "shine") fx.className += " qbn-fx-shine";
     if (smart.effect === "pulse") fx.className += " qbn-fx-pulse";
     if (smart.effect === "float") fx.className += " qbn-fx-float";
-    if (smart.effect === "snow") flakes(fx, smart);
+    if (smart.effect === "snow") flakes(fx, smart, "snow");
+    if (smart.effect === "rise") flakes(fx, smart, "rise");
+    if (smart.effect === "confetti") flakes(fx, smart, "confetti");
+    /*
+     * Efekty, které nejsou o létajících znacích, se řeší značkou na
+     * dlaždici a zbytek je na stylu — tím se nemusí nic dopočítávat
+     * a dá se to celé vypnout jedním pravidlem.
+     */
+    if (smart.effect === "ken" || smart.effect === "shimmer" || smart.effect === "glow") {
+      node.setAttribute("data-fx", smart.effect);
+    }
     node.appendChild(fx);
 
     var body = el("div", "qbn-body");
@@ -994,6 +1214,81 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     button(body, pick(one.button), look.button || "shop");
     node.appendChild(body);
     return { node: node, tick: tick };
+  }
+
+  /**
+   * Posuvník: dlaždice vedle sebe, posouvá se prstem, pod ním tečky.
+   *
+   * Žádná knihovna. Posouvání dělá prohlížeč sám (přichytávání při
+   * rolování), tečky jen ukazují, kde člověk je, a klepnutím se dá skočit.
+   * Knihovna by znamenala další stahovaný soubor na úvodní stránce kvůli
+   * něčemu, co CSS umí samo.
+   */
+  function karusel(kam, karty, every) {
+    var track = el("div", "qbn-track");
+    for (var i = 0; i < karty.length; i++) track.appendChild(karty[i]);
+    kam.appendChild(track);
+
+    if (karty.length < 2) return;
+
+    var dots = el("div", "qbn-dots");
+    var tecky = [];
+    for (var d = 0; d < karty.length; d++) {
+      var dot = document.createElement("button");
+      dot.className = "qbn-dot";
+      dot.setAttribute("type", "button");
+      dot.setAttribute("aria-label", "Banner " + (d + 1));
+      (function (at) {
+        dot.addEventListener("click", function () {
+          var cil = track.children[at];
+          if (cil) track.scrollTo({ left: cil.offsetLeft - track.offsetLeft, behavior: "smooth" });
+        });
+      })(d);
+      dots.appendChild(dot);
+      tecky.push(dot);
+    }
+    kam.appendChild(dots);
+
+    var ukaz = function () {
+      var stred = track.scrollLeft + track.clientWidth / 2;
+      var nej = 0;
+      var nejlepsi = Infinity;
+      for (var k = 0; k < track.children.length; k++) {
+        var one = track.children[k];
+        var mid = one.offsetLeft - track.offsetLeft + one.offsetWidth / 2;
+        var vzdal = Math.abs(mid - stred);
+        if (vzdal < nejlepsi) { nejlepsi = vzdal; nej = k; }
+      }
+      for (var t = 0; t < tecky.length; t++) {
+        if (t === nej) tecky[t].setAttribute("data-now", "1");
+        else tecky[t].removeAttribute("data-now");
+      }
+      return nej;
+    };
+    var cekam = null;
+    track.addEventListener("scroll", function () {
+      if (cekam) return;
+      cekam = setTimeout(function () { cekam = null; ukaz(); }, 120);
+    }, { passive: true });
+    ukaz();
+
+    /*
+     * Samočinné přetáčení se zastaví, jakmile se člověk dotkne. Posuvník,
+     * který uhne pod prstem, je horší než posuvník, co stojí.
+     */
+    var kazdych = Number(every) || 0;
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (kazdych > 0 && !still) {
+      var timer = setInterval(function () {
+        if (!track.isConnected) { clearInterval(timer); return; }
+        var at = (ukaz() + 1) % track.children.length;
+        var cil = track.children[at];
+        if (cil) track.scrollTo({ left: cil.offsetLeft - track.offsetLeft, behavior: "smooth" });
+      }, Math.max(2, kazdych) * 1000);
+      var stop = function () { clearInterval(timer); };
+      track.addEventListener("touchstart", stop, { passive: true });
+      track.addEventListener("mousedown", stop);
+    }
   }
 
   /**
@@ -1188,6 +1483,90 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     return null;
   }
 
+  /* ---------- bloky pod bannerem ---------- */
+
+  var hlBox = null;
+  var hlShown = "";
+
+  /*
+   * Kde v šabloně e-shopu ty bloky jsou. Sekce bic-hdln je nese na
+   * úvodní stránce **i na kategoriích a v článcích** — proto se hledá
+   * všude, ne jen pod bannerem.
+   */
+  var HL_SPOTS = [".bic-hdln", ".section.hdln"];
+
+  function hlSpot() {
+    for (var i = 0; i < HL_SPOTS.length; i++) {
+      var found = document.querySelector(HL_SPOTS[i]);
+      if (found && found.parentNode) return found;
+    }
+    /* Sekce na stránce není — u prvního bloku se vezme jeho rodičovská sekce */
+    var clanek = document.querySelector("article.hl-cover");
+    if (clanek) {
+      var sekce = clanek.closest ? clanek.closest(".section") : null;
+      if (sekce && sekce.parentNode) return sekce;
+    }
+    return null;
+  }
+
+  /** Je tohle úvodní stránka? Jazyková mutace má vlastní kořen. */
+  function jeUvodni() {
+    var cesta = String(location.pathname || "/");
+    return cesta === "/" || /^\/(cz|sk|en|de)\/?$/i.test(cesta);
+  }
+
+  /**
+   * Vykreslí bloky pod bannerem.
+   *
+   * Je to samostatná část: na kategorii ani v článku žádný banner není,
+   * zato sekce s bloky ano — a právě tam nese kampaň, kterou jinak není
+   * kam dát. Kreslí se proto nezávisle na banneru a i tehdy, když se
+   * banner na stránce vůbec neobjeví.
+   */
+  function drawHighlights(set) {
+    var data = set && set.highlights;
+    if (!data || !data.banners || data.banners.length === 0) return false;
+    if (data.where === "home" && !jeUvodni()) return false;
+
+    if (!hlBox) {
+      var spot = hlSpot();
+      if (!spot) return false;
+      hlBox = el("div", "qhl");
+      spot.parentNode.insertBefore(hlBox, spot);
+      /* Původní sekce jde pryč i s obrázky, jinak se stahují nadarmo */
+      odstranPuvodni(spot);
+    }
+
+    var rozvrzeni = data.layout || "mozaika";
+    var naTelefonu = window.innerWidth <= 760;
+    if (naTelefonu && data.phone) rozvrzeni = data.phone;
+    hlBox.setAttribute("data-layout", rozvrzeni);
+    tvar(hlBox, "--qhl-ar", data.ratio);
+    tvar(hlBox, "--qhl-ar-phone", data.phoneRatio);
+    hlBox.textContent = "";
+
+    var karty = [];
+    var ticks = [];
+    for (var i = 0; i < data.banners.length; i++) {
+      var built = card(data.banners[i]);
+      karty.push(built.node);
+      if (built.tick) ticks.push(built.tick);
+    }
+
+    if (rozvrzeni === "carousel") {
+      karusel(hlBox, karty, data.rotate);
+    } else {
+      for (var k = 0; k < karty.length; k++) hlBox.appendChild(karty[k]);
+    }
+
+    if (ticks.length > 0) {
+      var run = function () { for (var t = 0; t < ticks.length; t++) ticks[t](); };
+      run();
+      setInterval(run, 1000);
+    }
+    return true;
+  }
+
   function draw(set) {
     /*
      * Místo se hledá **jen napoprvé**. Původní karusel se totiž hned nato
@@ -1209,7 +1588,14 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       for (var g = 0; g < skupina.length; g++) odstranPuvodni(skupina[g]);
     }
     box.setAttribute("data-layout", set.layout === "wide" ? "wide" : "quad");
-    box.setAttribute("data-phone", set.phone === "wide" ? "wide" : "grid");
+    /*
+     * Posuvník je volba pro telefon, na počítači se nepoužívá: tam se
+     * čtyři dlaždice vedle sebe vejdou a posouvat je myší je otrava.
+     */
+    var naTelefonu = window.innerWidth <= 760;
+    var posuvnik = set.phone === "carousel" && naTelefonu;
+    box.setAttribute("data-phone", posuvnik ? "carousel"
+      : (set.phone === "wide" ? "wide" : "grid"));
     tvar(box, "--qbn-ar", set.ratio);
     tvar(box, "--qbn-ar-phone", set.phoneRatio);
     box.textContent = "";
@@ -1223,6 +1609,30 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     var banners = set.banners || [];
     var ticks = [];
     var pages = [];
+
+    /*
+     * Posuvník nestránkuje: dlaždice leží vedle sebe v jedné řadě a
+     * prst rozhoduje, která je vidět. Rotace se v něm dělá posunem, ne
+     * prolnutím — proto se tahle větev vyřizuje zvlášť a dřív.
+     */
+    if (posuvnik) {
+      var karty = [];
+      for (var c = 0; c < banners.length; c++) {
+        var jedna = card(banners[c]);
+        karty.push(jedna.node);
+        if (jedna.tick) ticks.push(jedna.tick);
+      }
+      karusel(box, karty, set.rotate);
+      odkazy(set);
+      if (ticker) { clearInterval(ticker); ticker = null; }
+      if (ticks.length > 0) {
+        var tik = function () { for (var t = 0; t < ticks.length; t++) ticks[t](); };
+        tik();
+        ticker = setInterval(tik, 1000);
+      }
+      if (rotor) { clearInterval(rotor); rotor = null; }
+      return true;
+    }
     for (var i = 0; i < banners.length; i += perPage) {
       var page = el("div", "qbn-page");
       for (var j = i; j < Math.min(i + perPage, banners.length); j++) {
@@ -1280,9 +1690,21 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
      */
     var stamp = String(set.id) + "|" + String(set.rotate) + "|" + String(set.layout)
       + "|" + String(set.phone) + "|" + String(set.ratio) + "|" + String(set.phoneRatio)
+      // Otočení telefonu mění rozvržení, takže se musí překreslit
+      + "|" + (window.innerWidth <= 760 ? "t" : "p")
       + "|" + (set.banners || []).length
       + "|" + ((set.links && set.links.items) ? set.links.items.length : 0)
       + "|" + ((set.links && set.links.shape) || "");
+    /*
+     * Bloky se kreslí **vždycky**, i když se banner nevykreslil: na
+     * kategorii ani v článku žádný banner není, zato sekce s bloky ano.
+     */
+    var hlStamp = String(set.id) + "|" + ((set.highlights && set.highlights.banners) || []).length
+      + "|" + ((set.highlights && set.highlights.layout) || "")
+      + "|" + ((set.highlights && set.highlights.phone) || "")
+      + "|" + (window.innerWidth <= 760 ? "t" : "p");
+    if (hlStamp !== hlShown && drawHighlights(set)) hlShown = hlStamp;
+
     if (stamp === shownId && box) return;
     if (draw(set)) shownId = stamp;
   }
@@ -1296,10 +1718,16 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   function watch() {
     if (!document.body && !document.documentElement) return;
     render();
-    if (shownId) return;
+    /*
+     * Čeká se na **obojí** — na banner i na bloky pod ním. Dřív stačilo
+     * najít banner a pozorovatel se vypnul; sekce s bloky se přitom
+     * dokresluje později a na kategorii, kde banner vůbec není, by se
+     * nečekalo na nic.
+     */
+    if (shownId && hlShown) return;
     var seen = new MutationObserver(function () {
       render();
-      if (shownId) seen.disconnect();
+      if (shownId && hlShown) seen.disconnect();
     });
     seen.observe(document.documentElement, { childList: true, subtree: true });
     /* Po deseti vteřinách je jasné, že na téhle stránce banner není */
@@ -1308,6 +1736,19 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
 
   watch();
   document.addEventListener("DOMContentLoaded", render);
+  /*
+   * Otočení telefonu mění rozvržení (posuvník proti mřížce), takže se
+   * překresluje i při změně šířky okna. Počká se, až se přestane hýbat —
+   * během otáčení chodí událostí desítky.
+   */
+  var znovu = null;
+  window.addEventListener("resize", function () {
+    if (znovu) clearTimeout(znovu);
+    znovu = setTimeout(function () {
+      znovu = null;
+      render();
+    }, 250);
+  }, { passive: true });
   fetchPlan();
   setInterval(render, TICK_MS);
 })();

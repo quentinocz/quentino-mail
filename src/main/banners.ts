@@ -11,7 +11,7 @@ import { stashPreview } from './bannerpreview';
 import { eventFromWeb, dropEventOfSource } from './events';
 import type {
   Banner, BannerSet, BannerCopy, BannerLook, BannerSmart, BannerClash, BannerLink, BannerRatio, BannerSharedLook,
-  BannerLinks, BannersState, WebText
+  BannerLinks, BannerHighlights, BannerTemplate, BannersState, WebText
 } from '../shared/types';
 
 /**
@@ -194,6 +194,12 @@ function look(value: any): BannerLook {
   const image = safeImage(value?.image);
   const overlay = clamp(value?.overlay, 0, 90, 40);
   return {
+    /*
+     * Výchozí je text na fotce — tak vypadá banner e-shopu dnes. Ostatní
+     * podoby jsou vědomá volba: text pod fotkou unese odstavec, text na
+     * fotce jen pár slov.
+     */
+    style: oneOf(value?.style, ['overlay', 'under', 'side', 'frame'] as const, 'overlay'),
     image,
     video: safeVideo(value?.video),
     // Primární barva e-shopu je černá (`--pr: #000`), tak z ní vychází i dlaždice
@@ -233,6 +239,7 @@ function look(value: any): BannerLook {
 export function sharedLook(value: any): BannerSharedLook {
   const full = look(value);
   return {
+    style: full.style,
     fg: full.fg, overlay: full.overlay, align: full.align, pos: full.pos,
     font: full.font, titleWeight: full.titleWeight, titleSize: full.titleSize,
     caps: full.caps, textWeight: full.textWeight, button: full.button, radius: full.radius
@@ -358,6 +365,42 @@ export function liveLinks(set: BannerSet): BannerLink[] {
     : [];
 }
 
+/** Nejvíc bloků highlights. Čtyři má e-shop dnes, šest je strop pro posuvník. */
+const MAX_HIGHLIGHTS = 6;
+
+/**
+ * Bloky pod bannerem.
+ *
+ * Skládají se z týchž dlaždic jako banner — mají tedy texty ve třech
+ * jazycích, vlastní nebo sdílený vzhled i efekty. Rozvržení je ale
+ * vlastní: čtyři velké bloky se na počítači kreslí jinak než mřížka
+ * banneru a na telefonu se z nich dělá posuvník.
+ */
+function highlights(value: any): BannerHighlights {
+  const HL = ['mozaika', 'pruh', 'stridave', 'carousel'] as const;
+  return {
+    on: !!value?.on,
+    // Výchozí „všude": na podstránkách je tohle jediné místo pro kampaň
+    where: oneOf(value?.where, ['home', 'all'] as const, 'all'),
+    layout: oneOf(value?.layout, HL, 'mozaika'),
+    phone: oneOf(value?.phone, HL, 'carousel'),
+    ratio: ratio(value?.ratio),
+    phoneRatio: ratio(value?.phoneRatio),
+    look: sharedLook(value?.look),
+    rotate: clamp(value?.rotate, 0, 60, 0),
+    banners: (Array.isArray(value?.banners) ? value.banners : [])
+      .slice(0, MAX_HIGHLIGHTS).map(normalizeBanner)
+  };
+}
+
+/** Bloky, které mají co ukázat — prázdný blok je díra ve stránce. */
+export function liveHighlights(set: BannerSet): Banner[] {
+  return set.highlights.on
+    ? set.highlights.banners.filter(one => !one.off
+      && (filled(one.copy.title) || filled(one.copy.text) || !!one.look.image))
+    : [];
+}
+
 export function normalizeSet(value: any): BannerSet {
   const from = String(value?.from ?? '').trim();
   const to = String(value?.to ?? '').trim();
@@ -383,7 +426,8 @@ export function normalizeSet(value: any): BannerSet {
     phoneRatio: ratio(value?.phoneRatio),
     rotate: clamp(value?.rotate, 0, 60, 0),
     banners,
-    links: links(value?.links)
+    links: links(value?.links),
+    highlights: highlights(value?.highlights)
   };
 }
 
@@ -403,7 +447,7 @@ export function validateSet(set: BannerSet): string {
     return 'Konec platnosti musí být po jejím začátku.';
   }
   const live = liveBanners(set);
-  if (live.length === 0 && liveLinks(set).length === 0) {
+  if (live.length === 0 && liveLinks(set).length === 0 && liveHighlights(set).length === 0) {
     return 'Sada nemá ani jeden banner s textem nebo fotkou.';
   }
   /*
@@ -529,6 +573,26 @@ export function setRow(set: BannerSet): any {
     rotate: set.rotate,
     banners: liveBanners(set).map(one => bannerRow(one, set))
   };
+  /*
+   * Bloky pod bannerem jdou na web jako vlastní celek: mají svoje
+   * rozvržení a **kreslí se i na stránkách, kde žádný banner není** —
+   * v šabloně e-shopu je ta sekce i u kategorií a článků.
+   */
+  const bloky = liveHighlights(set);
+  if (bloky.length > 0) {
+    row.highlights = {
+      where: set.highlights.where,
+      layout: set.highlights.layout,
+      phone: set.highlights.phone,
+      ratio: set.highlights.ratio,
+      phoneRatio: set.highlights.phoneRatio,
+      rotate: set.highlights.rotate,
+      // Pro druhou aplikaci, ne pro web — stejně jako u sady
+      look: set.highlights.look,
+      banners: bloky.map(one => bannerRow(one, { ...set, look: set.highlights.look }))
+    };
+  }
+
   const odkazy = liveLinks(set);
   if (odkazy.length > 0) {
     row.links = {
@@ -543,7 +607,8 @@ export function setRow(set: BannerSet): any {
 
 export function payload(sets: BannerSet[] = listSets()): string {
   const out = sets
-    .filter(one => !one.off && (liveBanners(one).length > 0 || liveLinks(one).length > 0))
+    .filter(one => !one.off
+      && (liveBanners(one).length > 0 || liveLinks(one).length > 0 || liveHighlights(one).length > 0))
     .map(setRow);
   return JSON.stringify({ v: 1, updatedAt: new Date().toISOString(), sets: out });
 }
@@ -1032,6 +1097,14 @@ export function previewUrl(value: any, lang = 'cz'): string {
      */
     '<div class="qbn-ukazka"><div id="banner1">původní karusel Upgates',
     '<img alt="" src="https://cdn.invalid/stary-banner.jpg" width="1" height="1"></div>',
+    /*
+     * Sekce, kam patří bloky pod bannerem. V šabloně e-shopu se jmenuje
+     * `bic-hdln` a je **i na kategoriích a v článcích** — bez ní by se
+     * v náhledu neměly kam vykreslit a člověk by o nich nevěděl, dokud
+     * by sadu nevystavil.
+     */
+    '<div class="section bic-hdln">původní bloky ze šablony',
+    '<img alt="" src="https://cdn.invalid/stary-blok.jpg" width="1" height="1"></div>',
     '<div class="qbn-jako" style="border:0;border-top:1px solid #e6e6e9">další obsah stránky</div>',
     '</div>',
     /*
@@ -1141,13 +1214,146 @@ export async function copySet(id: string): Promise<BannersState> {
     off: true,
     // Nové identifikátory: jinak by si dvě sady nárokovaly tytéž dlaždice
     banners: source.banners.map(one => ({ ...one, id: crypto.randomUUID() })),
-    links: { ...source.links, items: source.links.items.map(one => ({ ...one, id: crypto.randomUUID() })) }
+    links: { ...source.links, items: source.links.items.map(one => ({ ...one, id: crypto.randomUUID() })) },
+    highlights: {
+      ...source.highlights,
+      banners: source.highlights.banners.map(one => ({ ...one, id: crypto.randomUUID() }))
+    }
   });
 
   writeSets(prune([...readSets(), copy]));
   setSetting('bannersDirty', '1');
   // Vypnutá sada se na web nevystavuje, ale stav se má srovnat hned
   return publishSafely();
+}
+
+/* ---------- šablony a zálohy ---------- */
+
+const TEMPLATES_KEY = 'bannerTemplates';
+
+function readTemplates(): BannerTemplate[] {
+  try {
+    const saved = JSON.parse(getSetting(TEMPLATES_KEY, '[]') ?? '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeTemplates(list: BannerTemplate[]): void {
+  setSetting(TEMPLATES_KEY, JSON.stringify(list.slice(0, 60)));
+}
+
+/** Co v sadě je, jednou větou — podle toho se v seznamu pozná. */
+function templateNote(set: BannerSet): string {
+  const kusy = [
+    `${set.banners.length} ${set.banners.length === 1 ? 'banner' : 'bannerů'}`,
+    set.highlights.banners.length > 0 ? `${set.highlights.banners.length} bloků` : '',
+    set.links.items.length > 0 ? `${set.links.items.length} odkazů` : ''
+  ].filter(Boolean);
+  return kusy.join(' · ');
+}
+
+export function listTemplates(): BannerTemplate[] {
+  return readTemplates().map(one => ({ ...one, set: normalizeSet(one.set) }));
+}
+
+/**
+ * Odloží sadu stranou.
+ *
+ * Ukládá se **kopie**, ne odkaz: kdo si sadu odloží a pak ji přepíše,
+ * čeká, že odložená zůstane taková, jaká byla. Platnost se zahazuje —
+ * šablona z loňských Vánoc by se jinak po vytažení tvářila, že měla
+ * skončit předloni.
+ */
+export function saveTemplate(value: any, name = ''): BannerTemplate[] {
+  const set = normalizeSet(value);
+  const jmeno = String(name || set.name || 'Bez jména').trim().slice(0, 80);
+  const one: BannerTemplate = {
+    id: crypto.randomUUID(),
+    name: jmeno,
+    savedAt: new Date().toISOString(),
+    note: templateNote(set),
+    set: { ...set, from: '', to: '', fromMs: 0, toMs: Number.MAX_SAFE_INTEGER, off: true }
+  };
+  writeTemplates([one, ...readTemplates()]);
+  return listTemplates();
+}
+
+export function dropTemplate(id: string): BannerTemplate[] {
+  writeTemplates(readTemplates().filter(one => one.id !== String(id)));
+  return listTemplates();
+}
+
+/**
+ * Vytáhne odloženou sadu zpátky jako novou.
+ *
+ * Nová identita všeho: kdyby si dvě sady nárokovaly tytéž dlaždice,
+ * přepsaly by si je navzájem při vystavení. A zakládá se **vypnutá** —
+ * šablona se skoro vždycky ještě upravuje, než půjde na web.
+ */
+export async function useTemplate(id: string): Promise<BannersState> {
+  const one = readTemplates().find(t => t.id === String(id));
+  if (!one) throw new Error('Odložená sada už v seznamu není.');
+  const set = normalizeSet({
+    ...one.set,
+    id: crypto.randomUUID(),
+    name: one.name,
+    off: true,
+    banners: one.set.banners.map(b => ({ ...b, id: crypto.randomUUID() })),
+    links: { ...one.set.links, items: one.set.links.items.map(l => ({ ...l, id: crypto.randomUUID() })) },
+    highlights: {
+      ...one.set.highlights,
+      banners: (one.set.highlights?.banners ?? []).map(b => ({ ...b, id: crypto.randomUUID() }))
+    }
+  });
+  writeSets(prune([...readSets(), set]));
+  setSetting('bannersDirty', '1');
+  return publishSafely();
+}
+
+/** Všechno stranou uložené jako jeden soubor — záloha, která přežije počítač. */
+export function exportTemplates(): string {
+  return JSON.stringify({
+    v: 1, kind: 'quentino-bannery', savedAt: new Date().toISOString(),
+    templates: listTemplates()
+  }, null, 2);
+}
+
+/**
+ * Načte zálohu ze souboru.
+ *
+ * Co je v souboru, se **přidává**, nepřepisuje: kdo si nese zálohu
+ * z druhého počítače, nechce přijít o to, co má tady.
+ */
+export function importTemplates(text: string): BannerTemplate[] {
+  let data: any = null;
+  try {
+    data = JSON.parse(String(text ?? ''));
+  } catch {
+    throw new Error('Tohle není soubor se zálohou sad — nedá se přečíst.');
+  }
+  const list = Array.isArray(data?.templates) ? data.templates : (Array.isArray(data) ? data : null);
+  if (!list) throw new Error('V souboru žádné odložené sady nejsou.');
+
+  const mine = readTemplates();
+  const znam = new Set(mine.map(one => one.id));
+  const nove: BannerTemplate[] = [];
+  for (const one of list) {
+    const set = normalizeSet(one?.set ?? one);
+    const id = String(one?.id ?? '') || crypto.randomUUID();
+    if (znam.has(id)) continue;
+    nove.push({
+      id,
+      name: String(one?.name ?? set.name ?? 'Bez jména').slice(0, 80),
+      savedAt: String(one?.savedAt ?? new Date().toISOString()),
+      note: templateNote(set),
+      set
+    });
+  }
+  if (nove.length === 0) throw new Error('Všechno z téhle zálohy už v aplikaci je.');
+  writeTemplates([...nove, ...mine]);
+  return listTemplates();
 }
 
 export async function deleteSet(id: string): Promise<BannersState> {
@@ -1206,5 +1412,5 @@ export async function publishBanners(): Promise<BannersState> {
 export const __test = {
   normalizeSet, normalizeBanner, validateSet, payload, setRow, liveBanners,
   setClashes, safeHref, safeImage, prune, fallbackSet, setSummary, liveLinks,
-  sharedLook, resolveLook, onlyEmoji
+  sharedLook, resolveLook, onlyEmoji, liveHighlights
 };

@@ -114,6 +114,8 @@ const ALLOWED_INVOKE = [
   'banners:clashes', 'banners:shorten', 'banners:translate', 'banners:href',
   'banners:fallback', 'banners:upload', 'banners:video', 'banners:icon',
   'banners:preview', 'banners:publish',
+  'banners:templates', 'banners:template-save', 'banners:template-drop',
+  'banners:template-use', 'banners:template-export', 'banners:template-import',
   'media:setup', 'media:saveSetup', 'media:pick', 'media:add', 'media:read', 'media:write',
   'media:outDir', 'media:reveal', 'media:ffmpeg', 'media:ffmpegPath', 'media:video', 'media:stop',
   'media:watches', 'media:watchAdd', 'media:watchSave', 'media:watchRemove', 'media:watchNewest',

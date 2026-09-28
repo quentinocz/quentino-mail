@@ -28,7 +28,7 @@ import type {
   InvoiceSetup, InvoiceJob, InvoiceRun, PplSetup, PplRow, PplExport,
   PacketaSetup, PacketaPacket, PacketaResult, BalikovnaSetup, BalikovnaExport, PortalLogin, OrderNote, OrderNotes, ApprovedNote,
   WebPlan, WebClash, WebSeason, WebTextsConfig, WebTextsState,
-  BannerSet, BannerClash, BannersState,
+  BannerSet, BannerClash, BannersState, BannerTemplate,
   MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow,
   MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload,
   UpdateState
@@ -961,7 +961,21 @@ export const api = {
      */
     preview: (set: Partial<BannerSet>, lang: string) =>
       call<string>('banners:preview', set, lang),
-    publish: () => call<BannersState>('banners:publish')
+    publish: () => call<BannersState>('banners:publish'),
+    /**
+     * Odložené sady — šablona i záloha v jednom.
+     *
+     * Sada se vystavením přepíše a stará verze je pryč; loňská vánoční
+     * kampaň se přitom příští rok hodí. Odložená sada leží jen v aplikaci
+     * a na web se nevystavuje.
+     */
+    templates: () => call<BannerTemplate[]>('banners:templates'),
+    saveTemplate: (set: Partial<BannerSet>, name: string) =>
+      call<BannerTemplate[]>('banners:template-save', set, name),
+    dropTemplate: (id: string) => call<BannerTemplate[]>('banners:template-drop', id),
+    useTemplate: (id: string) => call<BannersState>('banners:template-use', id),
+    exportTemplates: () => call<string>('banners:template-export'),
+    importTemplates: (text: string) => call<BannerTemplate[]>('banners:template-import', text)
   },
 
   /**

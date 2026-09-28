@@ -95,7 +95,7 @@ const open = async hash => {
      */
     const kde = m.text() + m.location().url;
     if (m.type() === 'error'
-      && !/favicon|fonts\.(googleapis|gstatic)\.com|cdn\.example\.test/.test(kde)) {
+      && !/favicon|fonts\.(googleapis|gstatic)\.com|cdn\.example\.test|cdn\.invalid/.test(kde)) {
       problems.push(`${hash}: konzole: ${m.text()}`);
     }
   });
@@ -573,6 +573,45 @@ for (const okno of OKNA) {
           orez: styl.objectFit
         };
       })(),
+      /*
+       * Bloky pod bannerem (v šabloně e-shopu „highlights"). Kreslí se
+       * samostatně, protože na kategoriích a v článcích žádný banner
+       * není — a právě tam ty bloky nesou kampaň.
+       */
+      bloky: (() => {
+        const blok = node.ownerDocument.querySelector('.qhl');
+        if (!blok) return null;
+        const karty = [...blok.querySelectorAll('.qbn-card')];
+        return {
+          pocet: karty.length,
+          rozvrzeni: blok.getAttribute('data-layout'),
+          sloupce: new Set(karty.map(one => Math.round(one.getBoundingClientRect().left))).size,
+          // Původní sekce ze šablony musí zmizet, ne zůstat pod naší
+          puvodni: node.ownerDocument.querySelectorAll('.bic-hdln').length,
+          // Blok v jiné podobě: text leží pod fotkou, ne na ní
+          podoby: karty.map(one => one.getAttribute('data-style')),
+          /* Na telefonu se z bloků dělá posuvník — prstem do strany, s tečkami */
+          posuvnik: (() => {
+            const track = node.ownerDocument.querySelector('.qhl .qbn-track');
+            if (!track) return null;
+            const prvni = track.children[0];
+            return {
+              tecek: node.ownerDocument.querySelectorAll('.qhl .qbn-dot').length,
+              // Druhá dlaždice musí vykukovat, jinak nikdo nepozná, že se dá posunout
+              vykukuje: track.scrollWidth > track.clientWidth + 20,
+              sirkaPrvni: prvni ? Math.round(prvni.getBoundingClientRect().width) : 0,
+              sirkaPasu: Math.round(track.clientWidth)
+            };
+          })(),
+          textMimoFotku: (() => {
+            const jiny = karty.find(one => one.getAttribute('data-style') === 'under');
+            if (!jiny) return 'není';
+            const foto = jiny.querySelector('.qbn-photo').getBoundingClientRect();
+            const telo = jiny.querySelector('.qbn-body').getBoundingClientRect();
+            return telo.top >= foto.bottom - 2 ? 'pod fotkou' : 'na fotce';
+          })()
+        };
+      })(),
       // Pruh odkazů na kategorie pod bannerem
       odkazy: (() => {
         const pruh = node.ownerDocument.querySelector('.qbn-links');
@@ -678,6 +717,16 @@ for (const okno of OKNA) {
     !!pc.video && pc.video.skryte, pc.video ? `průhlednost ${pc.video.skryte}` : 'nezměřeno');
   say('  nakreslená ikonka v pruhu má kolem sebe vzduch',
     pc.odkazy?.kresbaMaVzduch === '52%', pc.odkazy?.kresbaMaVzduch);
+  say('  bloky pod bannerem se vykreslily místo těch ze šablony',
+    pc.bloky?.pocet === 4 && pc.bloky?.puvodni === 0,
+    pc.bloky ? `${pc.bloky.pocet} bloků, ${pc.bloky.rozvrzeni}, ze šablony zbylo ${pc.bloky.puvodni}` : 'nejsou');
+  say('  a mozaika je opravdu dva sloupce', pc.bloky?.sloupce === 2, `${pc.bloky?.sloupce} sloupce`);
+  /*
+   * Podoba dlaždice mění i sazbu, ne jen barvu: u „text pod fotkou" musí
+   * text ležet mimo fotku, jinak je to pořád tentýž banner s ozdobou.
+   */
+  say('  blok s textem pod fotkou ho má opravdu pod ní',
+    pc.bloky?.textMimoFotku === 'pod fotkou', String(pc.bloky?.textMimoFotku));
   say('  pruh odkazů je pod bannerem',
     pc.odkazy?.pocet === 4 && pc.odkazy?.podBannerem === true && pc.odkazy?.sTextem === 4,
     pc.odkazy ? `${pc.odkazy.pocet} odkazů, pod blokem ${pc.odkazy.podBannerem}` : 'není');
@@ -693,6 +742,12 @@ for (const okno of OKNA) {
   await page.locator('.bn-devices .tab', { hasText: 'Telefon' }).click();
   await page.waitForTimeout(900);
   const mobil = await tvar();
+  say('  bloky se na telefonu posouvají prstem',
+    mobil.bloky?.posuvnik?.tecek === 4 && mobil.bloky?.posuvnik?.vykukuje === true,
+    mobil.bloky?.posuvnik
+      ? `${mobil.bloky.posuvnik.tecek} teček, dlaždice ${mobil.bloky.posuvnik.sirkaPrvni}`
+        + ` z ${mobil.bloky.posuvnik.sirkaPasu} px`
+      : 'posuvník se nevykreslil');
   say('na telefonu se přerovnají na dvě vedle sebe',
     mobil.sloupce === 2 && mobil.radky === 2,
     `${mobil.sloupce} sloupce, ${mobil.radky} řádky`);
@@ -782,7 +837,7 @@ for (const okno of OKNA) {
    */
   await page.locator('.wt-row', { hasText: 'Podzimní sada' }).click();
   await page.waitForTimeout(600);
-  await page.locator('.bn-edit .tabs .tab', { hasText: 'Odkazy pod bannerem' }).click();
+  await page.locator('.bn-edit .tabs .tab', { hasText: 'Odkazy' }).first().click();
   await page.waitForTimeout(400);
   const jazyky = await page.evaluate(() => {
     const chips = [...document.querySelectorAll('.bn-link-row')][0]
