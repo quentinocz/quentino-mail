@@ -357,6 +357,49 @@ for (const okno of OKNA) {
   say('  a nenabízí přepnutí na poštu uvnitř',
     stav.tabs.length === 1 && stav.tabs[0].includes('Funkce'), stav.tabs.join(' | '));
   await page.screenshot({ path: path.join(SHOTS, 'okno-socialni.png') });
+
+  /*
+   * Plán na měsíc. Tohle je ta obrazovka, od které se měsíc začíná:
+   * vidět má být, co se blíží a hlavně **co k tomu chybí** — den před
+   * termínem je pozdě zjišťovat, že nejsou fotky.
+   */
+  await page.locator('.side-item', { hasText: 'Plán na měsíc' }).click();
+  await page.waitForTimeout(500);
+  const plan = await page.evaluate(() => {
+    const radky = [...document.querySelectorAll('.ig-plan-row')];
+    return {
+      radku: radky.length,
+      tydnu: document.querySelectorAll('.ig-plan-week').length,
+      // Stav musí být poznat dřív, než se text přečte — proužkem u kraje
+      stavy: radky.map(one => (one.className.match(/warn|ok|done/) ?? [''])[0]),
+      varovani: (document.querySelector('.ig-plan .md-warn')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      druhy: [...document.querySelectorAll('.ig-plan-row .ig-plan-kind')].map(one => one.textContent?.trim() ?? '')
+    };
+  });
+  say('plán na měsíc ukazuje, co je kdy a co chybí',
+    plan.radku === 4 && plan.tydnu >= 1 && plan.stavy.includes('warn') && plan.stavy.includes('ok'),
+    `${plan.radku} řádků v ${plan.tydnu} týdnech, stavy ${plan.stavy.join('/')}`);
+  say('  a nahoře stojí, u kolika příspěvků nejsou fotky',
+    /nejsou fotky/.test(plan.varovani), plan.varovani || 'bez varování');
+  /*
+   * Druhy se střídají schválně: měsíc třicetkrát o tomtéž zboží je
+   * přesně to, co plánovač má rozbít.
+   */
+  say('  a druhy příspěvků se střídají',
+    new Set(plan.druhy).size >= 3, plan.druhy.join(' · '));
+
+  await page.locator('.ig-plan-actions .btn.primary', { hasText: 'Navrhnout měsíc' }).click();
+  await page.waitForTimeout(700);
+  const navrh = await page.evaluate(() => ({
+    karet: document.querySelectorAll('.ig-plan-card').length,
+    // Návrh se ukazuje před uložením, ať se dá vyhodit, co se nehodí
+    zahodit: !!document.querySelector('.ig-plan-proposal .btn.ghost'),
+    text: (document.querySelector('.ig-plan-card .ig-plan-body p')?.textContent ?? '').slice(0, 60)
+  }));
+  say('  návrh se ukáže dřív, než se uloží',
+    navrh.karet === 2 && navrh.zahodit, `${navrh.karet} návrhů`);
+  say('  a text je hotový k vložení, ne osnova', navrh.text.length > 25, navrh.text);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-social-plan.png') });
   await page.close();
 }
 
@@ -781,6 +824,37 @@ for (const okno of OKNA) {
     Math.abs(ctverec - 1) < 0.06 && Math.abs(navysku - 2 / 3) < 0.06,
     `${ctverec} → ${navysku}`);
   await page.locator('.bn-layout select').last().selectOption('auto');
+
+  /*
+   * Posuvník pro **hlavní banner** na telefonu. Čtyři dlaždice pod sebou
+   * se na telefonu prorolují dřív, než si je kdo přečte; posuvník ukáže
+   * jednu, druhou nechá vykukovat a tečky řeknou, kolik jich je. Zkouší
+   * se to proklikáním, protože jinak se nedá poznat, že volba opravdu
+   * mění to, co je na obrazovce.
+   */
+  await page.locator('.bn-layout .tab', { hasText: 'Posuvník' }).first().click();
+  await page.waitForTimeout(900);
+  const posuv = await page.frameLocator('.bn-frame').locator('.qbn').evaluate(node => {
+    const track = node.querySelector('.qbn-track');
+    if (!track) return null;
+    const prvni = track.children[0];
+    return {
+      dlazdic: track.children.length,
+      tecek: node.querySelectorAll('.qbn-dot').length,
+      // Druhá dlaždice musí vykukovat, jinak to vypadá jako jediný banner
+      vykukuje: track.scrollWidth > track.clientWidth + 20,
+      jedenRadek: new Set([...track.children].map(one => Math.round(one.getBoundingClientRect().top))).size === 1,
+      sirka: prvni ? Math.round(prvni.getBoundingClientRect().width) : 0,
+      pas: Math.round(track.clientWidth)
+    };
+  });
+  say('hlavní banner se dá na telefonu přepnout na posuvník',
+    posuv?.dlazdic === 4 && posuv?.tecek === 4 && posuv?.vykukuje === true && posuv?.jedenRadek === true,
+    posuv ? `${posuv.dlazdic} dlaždic v řadě, ${posuv.tecek} teček, ${posuv.sirka} z ${posuv.pas} px`
+      : 'posuvník se nevykreslil');
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-posuvnik.png') });
+  await page.locator('.bn-layout .tab', { hasText: '2 vedle sebe' }).first().click();
+  await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(SHOTS, 'bannery-sada.png') });
   await page.locator('.bn-sections .tab', { hasText: 'Bannery' }).click();
   await page.waitForTimeout(600);

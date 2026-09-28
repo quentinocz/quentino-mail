@@ -1607,10 +1607,72 @@ export interface IgPost {
   brief: string;
   mediaNote: string;
   createdAt: string;
+  /**
+   * Kdy má příspěvek podle plánu vyjít.
+   *
+   * Není to naplánovaná publikace — ta vzniká, až jsou hotová média
+   * i text. Tohle je záměr, podle kterého se pozná, co je na tenhle
+   * týden rozdělané a co se nestihlo.
+   */
+  planAt: string;
+  /** Proč vznikl: nejprodávanější, opomíjené, sezóna, ze zákulisí */
+  planKind: string;
+  /** Nápad na fotku nebo video */
+  planIdea: string;
+  /** Ke kterému produktu se váže (kód z katalogu) */
+  planCode: string;
   media: IgMediaItem[];
   captions: IgCaption[];
   sourceCaption?: string;
   sourcePermalink?: string;
+}
+
+/**
+ * Nastavení plánovače příspěvků.
+ *
+ * Kolik a kdy — zbytek si plánovač domyslí z prodejů. Dny v týdnu místo
+ * „každý třetí den" schválně: lidé chodí na sítě jinak ve středu večer
+ * a jinak v neděli ráno.
+ */
+export interface IgPlanSetup {
+  /** Kolik příspěvků na měsíc */
+  count: number;
+  /** Ve které dny v týdnu (0 = neděle) */
+  days: number[];
+  /** V kolik hodin */
+  hour: number;
+  /** Kolik procent má být o tom, co se prodává; zbytek je opomíjené, sezóna, zákulisí */
+  mixBest: number;
+  /** Pro které trhy se budou psát texty */
+  langs: string[];
+  /** Co nesmí plánovač pominout — vlastní poznámka k měsíci */
+  note: string;
+}
+
+/** Jeden navržený příspěvek, než se z něj stane rozdělaný. */
+export interface IgPlanProposal {
+  day: string;
+  hour: number;
+  kind: string;
+  title: string;
+  text: string;
+  idea: string;
+  code: string;
+  tags: string[];
+}
+
+/** Příspěvek v plánu i s tím, co k němu ještě chybí. */
+export interface IgPlanned {
+  id: number;
+  at: string;
+  kind: string;
+  title: string;
+  idea: string;
+  code: string;
+  /** Kolik má médií a hotových textů — podle toho se pozná, co se nestíhá */
+  media: number;
+  texts: number;
+  state: 'waiting' | 'ready' | 'scheduled' | 'published';
 }
 
 /** Kam publikace míří: jen Instagram, jen Facebook stránka, nebo obojí. */

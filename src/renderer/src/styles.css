@@ -9460,3 +9460,69 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 
 /* Událost z textů na webu — nezaložil ji člověk, ať je to vidět */
 .dg-ev-auto { display: inline-flex; color: var(--text-3); cursor: help; }
+
+
+/* ==================== plán příspěvků na měsíc ==================== */
+
+/*
+ * Plán není seznam rozdělané práce, ale kalendář rozhodnutí. Proto se
+ * čte po týdnech a u každého řádku je vidět, **co k němu chybí** — den
+ * před termínem už je pozdě zjišťovat, že nejsou fotky.
+ */
+.ig-plan { padding: 18px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.ig-plan-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ig-plan-head h2 { margin: 0 0 4px; font-size: 19px; font-weight: 600; }
+.ig-plan-head .desc { max-width: 620px; }
+.ig-plan-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+.ig-plan-setup {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-2, var(--bg));
+}
+.ig-plan-days { display: flex; gap: 4px; flex-wrap: wrap; }
+.ig-plan-days .tab { padding: 4px 9px; }
+
+.ig-plan-proposal {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; border: 1px solid var(--accent, var(--border)); border-radius: 12px;
+}
+.ig-plan-card {
+  display: grid; grid-template-columns: 150px 1fr auto; gap: 12px; align-items: start;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+}
+.ig-plan-card p { margin: 4px 0 0; white-space: pre-wrap; }
+
+.ig-plan-week { display: flex; flex-direction: column; gap: 6px; }
+.ig-plan-week-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3);
+  padding-top: 6px; border-top: 1px solid var(--border);
+}
+.ig-plan-row {
+  display: grid; grid-template-columns: 150px 1fr 150px auto; gap: 12px; align-items: center;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
+}
+/* Barevný proužek vlevo: stav se má poznat dřív, než se text přečte */
+.ig-plan-row.warn { border-left: 3px solid var(--warn, #b26a00); }
+.ig-plan-row.ok { border-left: 3px solid var(--ok, #2e7d32); }
+.ig-plan-row.done { border-left: 3px solid var(--border); opacity: .68; }
+.ig-plan-when { display: flex; flex-direction: column; gap: 3px; }
+.ig-plan-kind {
+  font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3);
+}
+.ig-plan-title {
+  text-align: left; background: none; border: 0; padding: 0; cursor: pointer; color: inherit;
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.ig-plan-title .desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ig-plan-state { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.ig-plan-state .warn { color: var(--warn, #b26a00); }
+.ig-plan-state .ok { color: var(--ok, #2e7d32); }
+.ig-plan-move { display: flex; gap: 4px; }
+
+@media (max-width: 860px) {
+  .ig-plan { padding: 12px 14px; }
+  .ig-plan-row, .ig-plan-card { grid-template-columns: 1fr; }
+  .ig-plan-head { flex-direction: column; }
+}

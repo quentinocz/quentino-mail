@@ -627,6 +627,13 @@ const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
   'update:'];
 const DESKTOP_ONLY = [
   'app:version',
+  /*
+   * Plánovač příspěvků: měsíc dopředu se sestavuje u počítače, kde jsou
+   * po ruce prodeje, katalog i fotky. Na telefonu se příspěvky dodělávají
+   * a publikují — a to kanály, které už tam jsou.
+   */
+  'ig:planSetup', 'ig:savePlanSetup', 'ig:planPropose', 'ig:planAccept',
+  'ig:planned', 'ig:planMove',
   // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači
   'catalog:codes',
   'files:openAttachment', 'files:showInFolder',

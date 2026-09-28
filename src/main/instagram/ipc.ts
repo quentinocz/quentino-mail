@@ -89,6 +89,18 @@ export function registerIgIpc() {
     return url;
   });
 
+  /*
+   * Plánovač. Návrh se **neukládá sám**: vrátí se, dá se přečíst,
+   * přehodit a vyhodit, a teprve pak se z něj stanou příspěvky. Rovnou
+   * uložený měsíc by znamenal třicet rozdělaných, které pak někdo maže.
+   */
+  handle('ig:planSetup', () => ig.planSetup());
+  handle('ig:savePlanSetup', (value: any) => ig.savePlanSetup(value ?? {}));
+  handle('ig:planPropose', () => ig.proposeMonth());
+  handle('ig:planAccept', (items: any[]) => ig.acceptPlan(items ?? []));
+  handle('ig:planned', (from: string, to: string) => ig.plannedPosts(String(from ?? ''), String(to ?? '')));
+  handle('ig:planMove', (id: number, at: string) => ig.movePlan(Number(id), String(at ?? '')));
+
   /* Fronta */
   handle('ig:jobs', () => ig.jobs());
   handle('ig:cancelJob', (id: number) => ig.cancelJob(id));

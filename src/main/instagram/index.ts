@@ -340,6 +340,15 @@ export const retryJob = (id: number) => { store.retryJob(id); emit(); setTimeout
 
 /* ---------- Účty a trhy ---------- */
 
+/* ---------- plánovač ---------- */
+
+export { planSetup, savePlanSetup, proposeMonth, acceptPlan, plannedPosts } from './planner';
+
+/** Přesun příspěvku v plánu na jiný den — plán se v praxi mění pořád. */
+export function movePlan(id: number, at: string): void {
+  store.setPlanAt(id, at);
+}
+
 export function disconnect(id: number): void {
   store.deleteAccount(id);
   emit();

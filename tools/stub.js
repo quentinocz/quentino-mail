@@ -977,6 +977,54 @@
        by se nikdy nepoznalo, že se dlaždice roztahují. */
     'ig:thumb': THUMBS,
     'ig:drafts': [], 'ig:jobs': [], 'ig:markets': [],
+    /*
+     * Plánovač. V náhledu jsou ukázkové příspěvky v plánu i hotový návrh,
+     * aby šlo proklikat obojí: co už v plánu je a co AI nabízí.
+     */
+    'ig:planSetup': { count: 12, days: [1, 3, 5], hour: 18, mixBest: 60, langs: ['CS'], note: '' },
+    'ig:savePlanSetup': { count: 12, days: [1, 3, 5], hour: 18, mixBest: 60, langs: ['CS'], note: '' },
+    'ig:planned': (function () {
+      var den = 86400000;
+      var ted = Date.now();
+      var kdy = function (za, hodina) {
+        var d = new Date(ted + za * den);
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+          + ' ' + pad(hodina) + ':00';
+      };
+      return [
+        { id: 901, at: kdy(1, 18), kind: 'bestseller', title: 'Kravata, která se nejvíc prodává',
+          idea: 'Detail vazby na bílé košili, denní světlo', code: 'KR-120',
+          media: 0, texts: 0, state: 'waiting' },
+        { id: 902, at: kdy(3, 18), kind: 'lezak', title: 'Motýlek ze sametu, o kterém nikdo neví',
+          idea: 'Motýlek položený na tmavém dřevě, boční světlo', code: 'MO-44',
+          media: 3, texts: 1, state: 'ready' },
+        { id: 903, at: kdy(6, 18), kind: 'sezona', title: 'Svatební sezóna začíná',
+          idea: 'Série: ženich a svědci, detail kapesníčku', code: '',
+          media: 4, texts: 2, state: 'scheduled' },
+        { id: 904, at: kdy(9, 18), kind: 'zakulisi', title: 'Jak vzniká ruční šití',
+          idea: 'Krátké video: látka, nůžky, švadlena — 15 vteřin', code: '',
+          media: 0, texts: 0, state: 'waiting' }
+      ];
+    })(),
+    'ig:planPropose': (function () {
+      var den = 86400000;
+      var ted = Date.now();
+      var d = function (za) { return new Date(ted + za * den).toISOString().slice(0, 10); };
+      return [
+        { day: d(2), hour: 18, kind: 'bestseller', title: 'Nejprodávanější kravata měsíce',
+          text: 'Tahle vazba se za poslední dva měsíce prodala nejčastěji.\n\n'
+            + 'Hedvábí, ruční šití, a hlavně šířka, která sedí ke klasickému saku.',
+          idea: 'Detail uzlu na bílé košili, denní světlo od okna',
+          code: 'KR-120', tags: ['#kravaty', '#panskamoda', '#quentino'] },
+        { day: d(4), hour: 18, kind: 'lezak', title: 'Sametový motýlek',
+          text: 'Samet není jen na zimu.\n\nNa svatbu i na ples, a k tmavému obleku sedí líp než hedvábí.',
+          idea: 'Motýlek na tmavém dřevě, boční světlo',
+          code: 'MO-44', tags: ['#motylek', '#samet', '#svatba'] }
+      ];
+    })(),
+    'ig:planAccept': 2,
+    'ig:planMove': null,
     'packing:scan': null,   // doplní se níž, až bude karta objednávky sestavená
     'packing:setItem': { packed: [0], counts: { '0': 1 }, done: false, doneAt: null },
     'packing:setCount': { packed: [0], counts: { '0': 1 }, done: false, doneAt: null },

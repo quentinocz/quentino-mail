@@ -56,8 +56,22 @@ export const igSchema = `
     brief TEXT NOT NULL DEFAULT '',
     media_note TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    archived INTEGER NOT NULL DEFAULT 0
+    archived INTEGER NOT NULL DEFAULT 0,
+    -- Kdy má příspěvek vyjít podle plánu. Není to totéž co naplánovaná
+    -- publikace: ta vzniká až tehdy, když jsou hotová média i text.
+    -- Tohle je záměr („ve čtvrtek večer o kravatách"), podle kterého se
+    -- pozná, co je na tento týden rozdělané a co se nestihlo.
+    plan_at TEXT NOT NULL DEFAULT '',
+    -- Proč tenhle příspěvek vznikl: nejprodávanější, opomíjené zboží,
+    -- sezóna, ze zákulisí. Podle toho se hlídá, aby měsíc nebyl
+    -- třicetkrát totéž.
+    plan_kind TEXT NOT NULL DEFAULT '',
+    -- Nápad na fotku nebo video, tak jak ho navrhla AI
+    plan_idea TEXT NOT NULL DEFAULT '',
+    -- Ke kterému produktu se příspěvek váže (kód z katalogu)
+    plan_code TEXT NOT NULL DEFAULT ''
   );
+  CREATE INDEX IF NOT EXISTS idx_ig_posts_plan ON ig_posts(plan_at);
 
   CREATE TABLE IF NOT EXISTS ig_post_media (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,7 +155,11 @@ export const igAlters: string[] = [
   'ALTER TABLE ig_jobs ADD COLUMN fb_post_id TEXT',
   'ALTER TABLE ig_jobs ADD COLUMN fb_error TEXT',
   "ALTER TABLE ig_jobs ADD COLUMN channels TEXT NOT NULL DEFAULT 'ig'",
-  'ALTER TABLE ig_source_posts ADD COLUMN boosted INTEGER'
+  'ALTER TABLE ig_source_posts ADD COLUMN boosted INTEGER',
+  "ALTER TABLE ig_posts ADD COLUMN plan_at TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ig_posts ADD COLUMN plan_kind TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ig_posts ADD COLUMN plan_idea TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ig_posts ADD COLUMN plan_code TEXT NOT NULL DEFAULT ''"
 ];
 
 /** Trhy, se kterými se začíná. Uživatel je v rozhraní přepíše. */

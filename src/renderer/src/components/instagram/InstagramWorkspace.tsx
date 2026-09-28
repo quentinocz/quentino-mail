@@ -12,8 +12,9 @@ import IgCompose from './IgCompose';
 import IgQueue from './IgQueue';
 import IgAccounts from './IgAccounts';
 import IgBrand from './IgBrand';
+import IgPlan from './IgPlan';
 
-export type IgView = 'feed' | 'compose' | 'queue' | 'accounts' | 'brand';
+export type IgView = 'feed' | 'plan' | 'compose' | 'queue' | 'accounts' | 'brand';
 
 interface Props {
   onOpenSettings: () => void;
@@ -116,6 +117,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
         <div className="ig-topbar">
           <div className="ig-nav">
             {tab('feed', 'Feed')}
+            {tab('plan', 'Plán')}
             {tab('compose', 'Rozpracované')}
             {tab('queue', 'Fronta', (overview?.queued ?? 0) + (overview?.failed ?? 0))}
           </div>
@@ -131,6 +133,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
           {view === 'feed' && overview && (
             <IgFeed overview={overview} onOpenPost={openPost} onSyncAll={() => sync(true)} />
           )}
+          {view === 'plan' && overview && <IgPlan overview={overview} onOpenPost={openPost} />}
           {view === 'compose' && overview && (
             <IgCompose overview={overview} postId={postId} onPostId={setPostId}
               onGoQueue={() => setView('queue')} />
@@ -199,6 +202,13 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
         <div className="side-scroll">
           <div className="side-section">Obsah</div>
           {item('feed', 'layers', 'Feed', undefined, 'Příspěvky ze zdrojového účtu — odsud se přepisují pro další trhy')}
+          {/*
+            * Plán je první v řadě schválně: je to obrazovka, od které se
+            * začíná měsíc. Rozdělané příspěvky jsou až důsledek toho, co
+            * se v plánu rozhodlo.
+            */}
+          {item('plan', 'sunrise', 'Plán na měsíc', undefined,
+            'Návrh příspěvků podle toho, co se prodávalo a co leží skladem')}
           {item('compose', 'pen', 'Rozpracované')}
           {item('queue', 'clock', 'Fronta a plán', (overview?.queued ?? 0) + (overview?.failed ?? 0))}
 
@@ -230,6 +240,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
         {view === 'feed' && overview && (
           <IgFeed overview={overview} onOpenPost={openPost} onSyncAll={() => sync(true)} />
         )}
+        {view === 'plan' && overview && <IgPlan overview={overview} onOpenPost={openPost} />}
         {view === 'compose' && overview && (
           <IgCompose
             overview={overview}

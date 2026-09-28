@@ -6,6 +6,7 @@ import type {
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
+  IgPlanSetup, IgPlanProposal, IgPlanned,
   ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
   PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
   PtransFixProposal, PtransTrial, PtransStyle,
@@ -1126,6 +1127,19 @@ export const api = {
     retryFacebook: (jobId: number) => call<void>('ig:retryFacebook', jobId),
     /** Zahodí uložený přístup a otevře přihlášení znovu (kvůli novým oprávněním) */
     relogin: (lang: string) => call<string>('ig:relogin', lang),
+
+    /**
+     * Plánovač příspěvků na měsíc.
+     *
+     * Návrh se vrací, **neukládá**: dá se přečíst, přehodit a vyhodit,
+     * a teprve pak se z něj stanou rozdělané příspěvky.
+     */
+    planSetup: () => call<IgPlanSetup>('ig:planSetup'),
+    savePlanSetup: (value: IgPlanSetup) => call<IgPlanSetup>('ig:savePlanSetup', value),
+    planPropose: () => call<IgPlanProposal[]>('ig:planPropose'),
+    planAccept: (items: IgPlanProposal[]) => call<number>('ig:planAccept', items),
+    planned: (from: string, to: string) => call<IgPlanned[]>('ig:planned', from, to),
+    planMove: (id: number, at: string) => call<void>('ig:planMove', id, at),
 
     jobs: () => call<IgJob[]>('ig:jobs'),
     cancelJob: (id: number) => call<void>('ig:cancelJob', id),

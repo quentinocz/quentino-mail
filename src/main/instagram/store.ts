@@ -337,11 +337,46 @@ export function sourcePost(id: number): any {
 
 /* ---------- Příspěvky, média, popisky ---------- */
 
-export function createPost(p: { kind: 'new' | 'source'; sourcePostId?: number | null; brief?: string; mediaNote?: string }): number {
+export function createPost(p: {
+  kind: 'new' | 'source'; sourcePostId?: number | null; brief?: string; mediaNote?: string;
+  planAt?: string; planKind?: string; planIdea?: string; planCode?: string;
+}): number {
   const r = getDb().prepare(
-    'INSERT INTO ig_posts (kind, source_post_id, brief, media_note) VALUES (?,?,?,?)'
-  ).run(p.kind, p.sourcePostId ?? null, p.brief ?? '', p.mediaNote ?? '');
+    `INSERT INTO ig_posts (kind, source_post_id, brief, media_note, plan_at, plan_kind, plan_idea, plan_code)
+     VALUES (?,?,?,?,?,?,?,?)`
+  ).run(p.kind, p.sourcePostId ?? null, p.brief ?? '', p.mediaNote ?? '',
+    p.planAt ?? '', p.planKind ?? '', p.planIdea ?? '', p.planCode ?? '');
   return Number(r.lastInsertRowid);
+}
+
+/**
+ * Příspěvky, které mají v plánu datum.
+ *
+ * Od rozdělaných se liší tím, že **ještě nemusí mít nic hotového** — je to
+ * záměr („ve čtvrtek večer o kravatách"), ne rozepsaný příspěvek. Právě
+ * proto se vypisují zvlášť: v plánu je vidět, co se blíží a co se
+ * nestihlo, kdežto mezi rozdělanými by prázdný příspěvek jen překážel.
+ */
+export function listPlanned(fromDay: string, toDay: string): any[] {
+  return getDb().prepare(
+    `SELECT id, plan_at, plan_kind, plan_idea, plan_code, brief, media_note, archived
+     FROM ig_posts
+     WHERE plan_at != '' AND plan_at >= ? AND plan_at <= ? AND archived = 0
+     ORDER BY plan_at`
+  ).all(fromDay, toDay) as any[];
+}
+
+/** Přesun příspěvku na jiný den — plán se v praxi mění pořád. */
+export function setPlanAt(id: number, at: string): void {
+  getDb().prepare('UPDATE ig_posts SET plan_at = ? WHERE id = ?').run(at, id);
+}
+
+/** Co už v tom měsíci naplánováno je — ať se návrh neudělá dvakrát. */
+export function plannedCount(fromDay: string, toDay: string): number {
+  const row = getDb().prepare(
+    "SELECT COUNT(*) AS n FROM ig_posts WHERE plan_at != '' AND plan_at >= ? AND plan_at <= ? AND archived = 0"
+  ).get(fromDay, toDay) as any;
+  return Number(row?.n ?? 0);
 }
 
 export function updatePost(id: number, p: { brief?: string; mediaNote?: string }): void {
@@ -428,6 +463,8 @@ export function getPost(id: number): IgPost | null {
   return {
     id: p.id, kind: p.kind, sourcePostId: p.source_post_id, brief: p.brief, mediaNote: p.media_note,
     createdAt: p.created_at, media, captions: caps,
+    planAt: p.plan_at ?? '', planKind: p.plan_kind ?? '',
+    planIdea: p.plan_idea ?? '', planCode: p.plan_code ?? '',
     sourceCaption: src?.caption ?? '', sourcePermalink: src?.permalink ?? ''
   };
 }
