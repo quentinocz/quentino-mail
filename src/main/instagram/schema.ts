@@ -71,7 +71,10 @@ export const igSchema = `
     -- Ke kterému produktu se příspěvek váže (kód z katalogu)
     plan_code TEXT NOT NULL DEFAULT ''
   );
-  CREATE INDEX IF NOT EXISTS idx_ig_posts_plan ON ig_posts(plan_at);
+  -- Rejstřík nad plan_at tady schválně NENÍ. Tenhle blok běží i nad databází
+  -- z minulé verze, kde tabulka ig_posts sloupec plan_at ještě nemá —
+  -- „no such column: plan_at" by shodilo celé zakládání schématu a aplikace
+  -- by se neotevřela. Rejstřík proto patří až za ALTERy, do igAlters.
 
   CREATE TABLE IF NOT EXISTS ig_post_media (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,7 +162,10 @@ export const igAlters: string[] = [
   "ALTER TABLE ig_posts ADD COLUMN plan_at TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_kind TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_idea TEXT NOT NULL DEFAULT ''",
-  "ALTER TABLE ig_posts ADD COLUMN plan_code TEXT NOT NULL DEFAULT ''"
+  "ALTER TABLE ig_posts ADD COLUMN plan_code TEXT NOT NULL DEFAULT ''",
+  // Až tady, po doplnění sloupce. V bloku se schématem by rejstřík nad
+  // starou databází spadl na „no such column: plan_at".
+  'CREATE INDEX IF NOT EXISTS idx_ig_posts_plan ON ig_posts(plan_at)'
 ];
 
 /** Trhy, se kterými se začíná. Uživatel je v rozhraní přepíše. */

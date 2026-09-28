@@ -1754,6 +1754,41 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
 })();
 </script>
 `;
+/**
+ * Odstraní ze skriptu komentáře.
+ *
+ * Ve zdroji zůstávají — vysvětlují, proč je co tak, jak je, a bez nich by
+ * se v tom za půl roku nikdo nevyznal. Do e-shopu ale odchází jedno velké
+ * pole v administraci a to má svůj strop: s komentáři měl skript přes
+ * 61 000 znaků a **nešel v Upgates uložit**. Komentáře přitom tvořily
+ * skoro třetinu.
+ *
+ * Maže se jen to, co je bezpečné poznat na začátku řádku: blokový
+ * komentář a řádkový komentář dvěma lomítky. Adresy typu „https://…"
+ * uprostřed řádku se tím nedotknou — a kdyby se přesto něco ukrojilo,
+ * pozná se to hned, protože zkouška skript spouští v náhledu.
+ */
+function bezKomentaru(script: string): string {
+  const out: string[] = [];
+  let inBlock = false;
+  for (const line of script.split('\n')) {
+    const trimmed = line.trim();
+    if (inBlock) {
+      if (trimmed.includes('*/')) inBlock = false;
+      continue;
+    }
+    if (trimmed.startsWith('/*')) {
+      // Jednořádkový blok se zavírá hned, víceřádkový drží příznak
+      if (!trimmed.includes('*/')) inBlock = true;
+      continue;
+    }
+    if (trimmed.startsWith('//')) continue;
+    if (!trimmed) continue;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 export function bannerScript(input: { url: string; ttl: number; fallback: any }): string {
   const url = String(input.url ?? '').trim();
   const ttl = Math.max(5, Math.min(3600, Math.round(Number(input.ttl)) || 300));
@@ -1763,7 +1798,12 @@ export function bannerScript(input: { url: string; ttl: number; fallback: any })
    * je ve skriptu nepravdivý, takže se záloha prostě nepoužije.
    */
   const fallback = input.fallback ? JSON.stringify(input.fallback) : '""';
-  return TEMPLATE
+  /*
+   * Komentáře se zahazují až tady, po dosazení. Kdyby se čistilo dřív,
+   * musela by se zvlášť ohlídat i záložní sada — a v té jsou uživatelské
+   * texty, kde dvě lomítka na začátku řádku klidně být můžou.
+   */
+  return bezKomentaru(TEMPLATE)
       .split(FALLBACK_MARK).join(fallback)
       .split(URL_MARK).join(url)
       .split(TTL_MARK).join(String(ttl))

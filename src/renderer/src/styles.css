@@ -8085,6 +8085,12 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 
 /*
+ * Velikost skriptu vedle tlačítka. Barevně se ozve teprve tehdy, když se
+ * blíží stropu pole v administraci Upgates — jinak je to jen údaj.
+ */
+.bn-code .desc.warn { color: var(--warn); font-weight: 600; }
+
+/*
  * V užším okně se náhled přesune pod editaci. Zúžit ho by znamenalo
  * zmenšit obraz natolik, že by se v něm nedal přečíst text — a pak by
  * neplnil to jediné, proč tam je.

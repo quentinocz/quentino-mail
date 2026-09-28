@@ -253,6 +253,22 @@ const bezZalohy = bannerScript({ url: '', ttl: 300, fallback: null });
 ok('bez vybrané sady je záloha prázdná', bezZalohy.includes('var FALLBACK = "";'));
 
 /*
+ * Velikost skriptu. Pole v administraci Upgates má strop — se všemi
+ * komentáři měl skript přes 61 000 znaků a **nešel uložit**; zvenku to
+ * vypadalo, že se uložení prostě neprovedlo. Komentáře proto do e-shopu
+ * neodcházejí (ve zdroji zůstávají) a tady se hlídá, že se to nevrátí.
+ */
+ok(`samotný skript je pod 45 000 znaků (má ${bezZalohy.length})`, bezZalohy.length < 45_000);
+ok('komentáře se do e-shopu neposílají', !bezZalohy.includes('Otočení telefonu mění rozvržení'));
+/*
+ * Ořezávání se nesmí dotknout obsahu. Kdyby spolklo řádek s kódem,
+ * skript by se buď nepřeložil (to chytá zkouška výš), nebo by z něj
+ * vypadl kus vzhledu — proto se ověřuje obojí, styly i konec.
+ */
+ok('styly ve skriptu zůstaly', bezZalohy.includes('<style>') && bezZalohy.includes('.qbn-page'));
+ok('skript je celý', bezZalohy.trim().endsWith('</script>'));
+
+/*
  * Aplikace vystavuje jedno pojmenování, skript čte druhé — a kdyby se
  * rozešly, přeložilo by se obojí a na webu by se prostě nic neukázalo.
  * Proto se hlídá, že skript sahá na každé pole, které do plánu píšeme.
@@ -929,7 +945,63 @@ ok('a nepřetahuje si kotvu rolování', script.includes('overflow-anchor: none'
 ok('původní karusel se ze stránky odstraní, ne jen schová', kod.includes('removeChild'));
 ok('a jeho obrázkům se nejdřív sebere adresa', kod.includes('removeAttribute("srcset")'));
 
-dobehne.then(() => {
+/* ---------- překlad ---------- */
+
+/*
+ * Bloky pod bannerem („highlights") se překládaly jen napůl: adresa se
+ * dohledala, ale nadpis i text zůstaly na slovenském a anglickém webu
+ * česky. Překlad totiž sbíral texty jen z bannerů a z pruhu odkazů —
+ * a bloky, které přibyly později, v tom výčtu nebyly.
+ *
+ * Překladač se podstrčí: zkouší se, **co se do něj pošle a kam se to
+ * vrátí**, ne kvalita překladu.
+ */
+const preklad = (async () => {
+  console.log('\npřeklad sady:\n');
+  const webtexts = require(path.join(DIST, 'webtexts.js'));
+  const puvodni = webtexts.translateWeb;
+  const poslano = [];
+  webtexts.translateWeb = async list => {
+    poslano.push(...list);
+    return list.map(one => ({ sk: one + ' [sk]', en: one + ' [en]' }));
+  };
+  try {
+    /*
+     * Adresy se schválně nechávají prázdné: dohledání překladu adresy se
+     * ptá webu a tahle zkouška má běžet i bez sítě.
+     */
+    const bezAdresy = one => ({ ...one, copy: { ...one.copy, href: { cz: '', sk: '', en: '' } } });
+    const hotovo = await banners.translateSet(sada({
+      banners: [bezAdresy(banner())],
+      highlights: {
+        on: true,
+        banners: [bezAdresy(banner({
+          id: 'h1',
+          copy: {
+            kicker: { cz: 'Kampaň', sk: '', en: '' },
+            title: { cz: 'Ženich a jeho parta', sk: '', en: '' },
+            text: { cz: '', sk: '', en: '' },
+            button: { cz: 'Prohlédnout', sk: '', en: '' },
+            href: { cz: '', sk: '', en: '' }
+          }
+        }))]
+      }
+    }));
+    const blok = hotovo.highlights.banners[0];
+    check('nadpis bloku se přeložil do slovenštiny', blok.copy.title.sk, 'Ženich a jeho parta [sk]');
+    check('a do angličtiny taky', blok.copy.title.en, 'Ženich a jeho parta [en]');
+    check('přeložil se i nadtitulek a tlačítko',
+      [blok.copy.kicker.sk, blok.copy.button.en], ['Kampaň [sk]', 'Prohlédnout [en]']);
+    ok('český originál zůstal nedotčený', blok.copy.title.cz === 'Ženich a jeho parta');
+    ok('banner nad bloky se překládá dál', hotovo.banners[0].copy.title.sk.endsWith('[sk]'));
+    ok('texty bloků šly do překladače jedním dotazem spolu s bannerem',
+      poslano.includes('Ženich a jeho parta') && poslano.includes('Kšandy k obleku'));
+  } finally {
+    webtexts.translateWeb = puvodni;
+  }
+})();
+
+Promise.all([dobehne, preklad]).then(() => {
   if (failed) {
     console.log(`\n✗ ${failed} zkoušek selhalo`);
     process.exit(1);

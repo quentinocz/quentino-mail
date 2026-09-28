@@ -842,7 +842,14 @@ export async function translateSet(value: any): Promise<BannerSet> {
   const source: string[] = [];
   const slots: { banner: Banner; field: 'kicker' | 'title' | 'text' | 'button' }[] = [];
 
-  for (const one of set.banners) {
+  /*
+   * Bloky pod bannerem („highlights") mají stejná políčka jako banner a
+   * překládají se proto spolu s ním. Dokud tu nebyly, přeložil se u nich
+   * jen odkaz a texty zůstaly česky i na slovenském a anglickém webu.
+   */
+  const vsechny = [...set.banners, ...set.highlights.banners];
+
+  for (const one of vsechny) {
     for (const field of ['kicker', 'title', 'text', 'button'] as const) {
       if (one.copy[field].cz) { source.push(one.copy[field].cz); slots.push({ banner: one, field }); }
     }
@@ -876,7 +883,7 @@ export async function translateSet(value: any): Promise<BannerSet> {
     }
   }
 
-  for (const one of set.banners) {
+  for (const one of vsechny) {
     const cz = one.copy.href.cz;
     if (!cz) continue;
     try {

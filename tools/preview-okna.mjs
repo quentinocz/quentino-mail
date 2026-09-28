@@ -951,6 +951,16 @@ for (const okno of OKNA) {
   const kod = await page.locator('.bn-script').inputValue();
   say('záložka nabízí skript do šablony', kod.includes('qbn') && kod.includes('<script>'),
     `${kod.length} znaků`);
+  /*
+   * Komentáře do e-shopu neodcházejí — s nimi měl skript přes 61 000
+   * znaků a pole v administraci Upgates ho odmítlo uložit. Velikost je
+   * proto vidět rovnou u tlačítka, aby se to příště poznalo dřív.
+   */
+  say('  a je bez komentářů, aby se do Upgates vešel',
+    kod.length < 45_000 && !kod.includes('Otočení telefonu'), `${kod.length} znaků`);
+  const velikost = await page.locator('.bn-code .desc').last().innerText();
+  say('  velikost skriptu je u tlačítka vidět', /\d+ tisíc znaků/.test(velikost), velikost.trim());
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-kod.png') });
   await page.close();
 }
 

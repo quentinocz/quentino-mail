@@ -871,10 +871,26 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
               Ta se vykreslí hned při otevření stránky a zůstane, i kdyby úložiště nebylo dostupné.
               Když ji změníš, <b>zkopíruj skript znovu</b> — do šablony se sám nedostane.
             </p>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button className="btn primary" onClick={copyScript} disabled={!state?.script}>
                 <Icon name="copy" size={14} /> Zkopírovat skript
               </button>
+              {/*
+                * Velikost je tu proto, že pole v administraci Upgates má
+                * strop: skript přes 60 000 znaků se tam přestal ukládat a
+                * zvenku to vypadalo, že se prostě „nic neuložilo".
+                * Ze samotného skriptu se to nepozná, tak je to vidět rovnou.
+                */}
+              {!!state?.script && (() => {
+                const size = state.script.length;
+                const tight = size > 45_000;
+                return (
+                  <span className={`desc${tight ? ' warn' : ''}`} style={{ margin: 0 }}>
+                    {Math.round(size / 1000)} tisíc znaků
+                    {tight && ' — na hranici toho, co Upgates v poli uloží; zmenši záložní sadu (méně bannerů nebo kratší texty)'}
+                  </span>
+                );
+              })()}
             </div>
             <textarea className="bn-script" readOnly value={state?.script ?? ''} spellCheck={false} />
           </div>

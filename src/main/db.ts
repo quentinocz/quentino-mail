@@ -374,26 +374,43 @@ function migrate(d: Database.Database) {
       PRIMARY KEY (month, model)
     );
   `);
+  /*
+   * Modul se zakládá ve dvou krocích: schéma, pak doplňky pro databáze
+   * z minulých verzí.
+   *
+   * To druhé spuštění schématu není opatrnost navíc. Když se do bloku se
+   * schématem dostane příkaz, který se opírá o sloupec doplňovaný až
+   * ALTERem (typicky rejstřík), nad starou databází spadne na „no such
+   * column" — a s ním celé zakládání. Aplikace pak nastartuje, ale
+   * neotevře okno; zvenku to vypadá, že se nestalo nic. Přesně tohle se
+   * stalo se sloupcem plan_at u plánovače příspěvků. Po doplňcích už
+   * sloupec existuje, takže druhý pokus projde; pokud ne, chyba jde dál
+   * a je vidět.
+   */
+  const zaved = (nazev: string, schema: string, alters: string[]) => {
+    let prvni: unknown = null;
+    try { d.exec(schema); } catch (e) { prvni = e; }
+    for (const sql of alters) {
+      try { d.exec(sql); } catch { /* sloupec už existuje */ }
+    }
+    if (prvni) {
+      try {
+        d.exec(schema);
+        console.warn(`[db] schéma ${nazev} prošlo až po doplnění sloupců:`, (prvni as Error)?.message);
+      } catch {
+        throw prvni;
+      }
+    }
+  };
+
   // Překlady produktů: katalog z feedu, jednotlivá pole po jazycích a běhy
-  d.exec(ptransSchema);
-  for (const sql of ptransAlters) {
-    try { d.exec(sql); } catch { /* sloupec už existuje */ }
-  }
+  zaved('ptrans', ptransSchema, ptransAlters);
   // Články: zadání, jazykové verze, kontrola odkazů a mapa adres mezi trhy
-  d.exec(artSchema);
-  for (const sql of artAlters) {
-    try { d.exec(sql); } catch { /* sloupec už existuje */ }
-  }
+  zaved('articles', artSchema, artAlters);
   // Focení: uložené série, jejich vodítka a nafocené soubory
-  d.exec(shootSchema);
-  for (const sql of shootAlters) {
-    try { d.exec(sql); } catch { /* sloupec už existuje */ }
-  }
+  zaved('shoot', shootSchema, shootAlters);
   // Instagram: účty, trhy, příspěvky, popisky a fronta publikací
-  d.exec(igSchema);
-  for (const sql of igAlters) {
-    try { d.exec(sql); } catch { /* sloupec už existuje */ }
-  }
+  zaved('instagram', igSchema, igAlters);
 
   // Fulltextové vyhledávání (FTS5) nad zprávami
   d.exec(`
