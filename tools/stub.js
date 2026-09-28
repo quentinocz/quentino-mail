@@ -2547,15 +2547,32 @@
           + '.btn{display:inline-flex;padding:12px 21px;border:0;border-radius:0;font-size:16px;color:#000}'
           + '.btn.bg-pr{background:#000}.btn.fg{color:#fff}'
           + '.btn.pt-3{padding-top:16px}.btn.pb-3{padding-bottom:16px}'
-          + '.btn.pr-5{padding-right:32px}.btn.pl-5{padding-left:32px}.btn.fs-4{font-size:18px}</style>'
+          + '.btn.pr-5{padding-right:32px}.btn.pl-5{padding-left:32px}.btn.fs-4{font-size:18px}'
+          /*
+           * Pozadí sekcí jako na quentino.cz (změřeno): obsah stránky je
+           * bílý, sekce s bannerem i s bloky mají rgb(240,240,240). Dokud
+           * byl náhled celý bílý, nešlo v něm poznat, že bloky spadly na
+           * bílé pozadí — bílý pruh se ukázal až na e-shopu.
+           */
+          + '.section.bic-bnr,.section.bic-hdln{background:#f0f0f0;padding:8px 0}'
+          + '.anim{opacity:0}'
+          + '.section .container,.section .max{width:100%}</style>'
           + '<script>window.__quentinoLang=' + JSON.stringify(args[1] || 'cz') + '<\/script>'
           + telo
           + '<div class="qbn-ukazka"><div class="qbn-jako">hlavi\u010dka e-shopu</div>'
+          /* Obaly container a max má i šablona e-shopu — skript do toho
+             vnitřního vkládá bloky, aby si nechal pozadí sekce */
+          + '<div class="section bic-bnr"><div class="container"><div class="max">'
           + '<div id="banner1">p\u016fvodn\u00ed karusel'
           + '<img alt="" src="https://cdn.invalid/stary-banner.jpg" width="1" height="1"></div>'
+          + '</div></div></div>'
           /* Sekce ze šablony, kam patří bloky pod bannerem — i v náhledu */
-          + '<div class="section bic-hdln">p\u016fvodn\u00ed bloky'
-          + '<img alt="" src="https://cdn.invalid/stary-blok.jpg" width="1" height="1"></div>'
+          /* Třída anim je tu schválně: šablona ji na té sekci má a bez
+             našeho odkrytí by bloky zůstaly průhledné */
+          + '<div class="section bic-hdln anim"><div class="container"><div class="max">'
+          + 'p\u016fvodn\u00ed bloky'
+          + '<img alt="" src="https://cdn.invalid/stary-blok.jpg" width="1" height="1">'
+          + '</div></div></div>'
           + '<div class="qbn-jako" style="border:0;border-top:1px solid #e6e6e9">dal\u0161\u00ed obsah</div></div>'
           + '<script>(function(){function s(){try{parent.postMessage('
           + '{qbn:document.documentElement.scrollHeight},"*")}catch(e){}}'

@@ -1456,7 +1456,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
    *     Na schovaném prvku běžel dál a na telefonu kvůli tomu stránka
    *     při rolování nahoru přeskakovala.
    */
-  function odstranPuvodni(spot) {
+  function zhasniObrazky(spot) {
     var obrazky = spot.querySelectorAll ? spot.querySelectorAll("img, source") : [];
     for (var i = 0; i < obrazky.length; i++) {
       try {
@@ -1464,7 +1464,37 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
         obrazky[i].setAttribute("src", "data:image/gif;base64,R0lGODlhAQABAAAAACw=");
       } catch (e) { /* jeden obrázek navíc nic nezkazí */ }
     }
+  }
+
+  function odstranPuvodni(spot) {
+    zhasniObrazky(spot);
     if (spot.parentNode) spot.parentNode.removeChild(spot);
+  }
+
+  /*
+   * Vyprázdní obal, ale nechá ho stát. Používá se tam, kde si od šablony
+   * bereme jen obsah a pozadí s odsazením si necháváme — u bloků pod
+   * bannerem. Obrázkům se nejdřív sebere adresa, ať se nedotahují.
+   */
+  function vyprazdni(obal) {
+    zhasniObrazky(obal);
+    while (obal.firstChild) obal.removeChild(obal.firstChild);
+  }
+
+  /*
+   * Sekce si necháváme kvůli pozadí, jenže šablona na ní má třídu "anim":
+   * obsah je do příjezdu do obrazu průhledný a teprve skript šablony ho
+   * odkryje. Ten ale sleduje svoje původní děti, ne naše — a kdyby se
+   * nespustil, zůstaly by bloky neviditelné a nikdo by nevěděl proč.
+   * Odkrytí si proto uděláme sami a animaci šablony necháme být.
+   */
+  function odkryj(node) {
+    try {
+      node.className = String(node.className || "").replace(/\banim[\w-]*\b/g, " ");
+      node.style.opacity = "1";
+      node.style.visibility = "visible";
+      node.style.transform = "none";
+    } catch (e) { /* bez odkrytí to může být v pořádku — nechat být */ }
   }
 
   var box = null;
@@ -1532,9 +1562,22 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       var spot = hlSpot();
       if (!spot) return false;
       hlBox = el("div", "qhl");
-      spot.parentNode.insertBefore(hlBox, spot);
-      /* Původní sekce jde pryč i s obrázky, jinak se stahují nadarmo */
-      odstranPuvodni(spot);
+      /*
+       * Sekce zůstává na místě, vyprázdní se jen její obsah.
+       *
+       * Nese totiž pozadí a odsazení ze šablony — na úvodní stránce je
+       * lehce šedé, stejně jako u banneru. Když se odstraňovala celá,
+       * spadly bloky na bílé pozadí obsahu stránky a v místě, kde
+       * předtím nic nesvítilo, vznikl bílý pruh.
+       *
+       * Vkládá se do nejvnitřnějšího obalu, protože ten drží šířku —
+       * napřímo do sekce by se bloky roztáhly přes celou stránku.
+       */
+      var vnitrek = spot.querySelector ? (spot.querySelector(".max") || spot.querySelector(".container")) : null;
+      if (!vnitrek) vnitrek = spot;
+      vyprazdni(vnitrek);
+      odkryj(spot);
+      vnitrek.appendChild(hlBox);
     }
 
     var rozvrzeni = data.layout || "mozaika";

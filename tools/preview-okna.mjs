@@ -629,8 +629,29 @@ for (const okno of OKNA) {
           pocet: karty.length,
           rozvrzeni: blok.getAttribute('data-layout'),
           sloupce: new Set(karty.map(one => Math.round(one.getBoundingClientRect().left))).size,
-          // Původní sekce ze šablony musí zmizet, ne zůstat pod naší
-          puvodni: node.ownerDocument.querySelectorAll('.bic-hdln').length,
+          /*
+           * Ze šablony se bere obsah, ne sekce. Sekce zůstává, protože
+           * nese pozadí i odsazení — bez ní spadly bloky na bílé pozadí
+           * stránky a v místě bloků byl bílý pruh. Musí tedy zmizet
+           * původní obsah (obrázky ze šablony) a naše bloky musí být
+           * uvnitř té sekce, ne vedle ní.
+           */
+          puvodni: node.ownerDocument.querySelectorAll('.bic-hdln img').length,
+          vSekci: !!blok.closest('.bic-hdln'),
+          pozadiSekce: (() => {
+            const sekce = node.ownerDocument.querySelector('.bic-hdln');
+            return sekce ? node.ownerDocument.defaultView.getComputedStyle(sekce).backgroundColor : '';
+          })(),
+          pruhlednost: (() => {
+            const sekce = node.ownerDocument.querySelector('.bic-hdln');
+            return sekce ? node.ownerDocument.defaultView.getComputedStyle(sekce).opacity : '';
+          })(),
+          odkryto: (() => {
+            const sekce = node.ownerDocument.querySelector('.bic-hdln');
+            if (!sekce) return false;
+            const css = node.ownerDocument.defaultView.getComputedStyle(sekce);
+            return !/\banim\b/.test(sekce.className) && css.opacity === '1' && css.visibility === 'visible';
+          })(),
           // Blok v jiné podobě: text leží pod fotkou, ne na ní
           podoby: karty.map(one => one.getAttribute('data-style')),
           /* Na telefonu se z bloků dělá posuvník — prstem do strany, s tečkami */
@@ -763,6 +784,21 @@ for (const okno of OKNA) {
   say('  bloky pod bannerem se vykreslily místo těch ze šablony',
     pc.bloky?.pocet === 4 && pc.bloky?.puvodni === 0,
     pc.bloky ? `${pc.bloky.pocet} bloků, ${pc.bloky.rozvrzeni}, ze šablony zbylo ${pc.bloky.puvodni}` : 'nejsou');
+  /*
+   * Bloky si berou obsah sekce, ne sekci. Sekce nese pozadí ze šablony
+   * (na quentino.cz lehce šedé) — když se odstraňovala celá, vznikl
+   * v místě bloků bílý pruh, který na stránce nikde jinde není.
+   */
+  say('  a zůstaly v sekci šablony, i s jejím pozadím',
+    pc.bloky?.vSekci === true && pc.bloky?.pozadiSekce === 'rgb(240, 240, 240)',
+    `v sekci ${pc.bloky?.vSekci}, pozadí ${pc.bloky?.pozadiSekce}`);
+  /*
+   * Šablona má na té sekci třídu "anim" — obsah je do příjezdu do obrazu
+   * průhledný a odkrývá ho skript šablony, který o našich blocích neví.
+   * Odkrytí si proto děláme sami; bez něj by bloky byly neviditelné.
+   */
+  say('  a jsou vidět, i když je sekce animovaná',
+    pc.bloky?.odkryto === true, `průhlednost sekce ${pc.bloky?.pruhlednost}`);
   say('  a mozaika je opravdu dva sloupce', pc.bloky?.sloupce === 2, `${pc.bloky?.sloupce} sloupce`);
   /*
    * Podoba dlaždice mění i sazbu, ne jen barvu: u „text pod fotkou" musí

@@ -11,7 +11,8 @@ import { stashPreview } from './bannerpreview';
 import { eventFromWeb, dropEventOfSource } from './events';
 import type {
   Banner, BannerSet, BannerCopy, BannerLook, BannerSmart, BannerClash, BannerLink, BannerRatio, BannerSharedLook,
-  BannerLinks, BannerHighlights, BannerTemplate, BannersState, WebText
+  BannerLinks, BannerHighlights, BannerTemplate, BannersState, WebText,
+  BannerCardStyle, BannerEffect, BannerLayout, BannerPhone, HighlightLayout
 } from '../shared/types';
 
 /**
@@ -107,6 +108,36 @@ const clamp = (value: any, low: number, high: number, fallback: number) => {
 const oneOf = <T extends string>(value: any, allowed: readonly T[], fallback: T): T =>
   (allowed as readonly string[]).includes(String(value)) ? (String(value) as T) : fallback;
 
+/**
+ * Výčet, který nemůže zapomenout na novou hodnotu.
+ *
+ * Seznamy povolených hodnot se psaly ručně a **rozešly se s typem**:
+ * do rozhraní přibyl posuvník hlavního banneru na telefonu a pět nových
+ * efektů, jenže tenhle seznam o nich nevěděl — takže se při uložení tiše
+ * zahodily a nastavení „se neuložilo". Zvenčí to vypadalo jako chyba
+ * ukládání, ne jako zapomenutý řádek.
+ *
+ * Předává se **mapa klíčů**, a `Record<T, 1>` znamená, že překlad neprojde,
+ * dokud tu nejsou všechny hodnoty typu — ani o jednu míň, ani navíc.
+ */
+const vyber = <T extends string>(map: Record<T, 1>): readonly T[] =>
+  Object.keys(map) as T[];
+
+const STYLES = vyber<BannerCardStyle>({ overlay: 1, under: 1, side: 1, frame: 1 });
+const ALIGNS = vyber<BannerLook['align']>({ left: 1, center: 1, right: 1 });
+const POSITIONS = vyber<BannerLook['pos']>({ top: 1, middle: 1, bottom: 1 });
+const FONTS = vyber<BannerLook['font']>({ shop: 1, inter: 1, jost: 1, playfair: 1, bebas: 1 });
+const BUTTONS = vyber<BannerLook['button']>({ shop: 1, fill: 1, outline: 1, soft: 1, link: 1 });
+const KINDS = vyber<BannerSmart['kind']>({ none: 1, countdown: 1, code: 1, delivery: 1 });
+const EFFECTS = vyber<BannerEffect>({
+  none: 1, snow: 1, rise: 1, confetti: 1, shine: 1, shimmer: 1, pulse: 1, float: 1, ken: 1, glow: 1
+});
+const LAYOUTS = vyber<BannerLayout>({ quad: 1, wide: 1 });
+const PHONES = vyber<BannerPhone>({ grid: 1, wide: 1, carousel: 1 });
+const HL_LAYOUTS = vyber<HighlightLayout>({ mozaika: 1, pruh: 1, stridave: 1, carousel: 1 });
+const SHAPES = vyber<BannerLinks['shape']>({ circle: 1, square: 1, text: 1 });
+const WHERE = vyber<BannerHighlights['where']>({ home: 1, all: 1 });
+
 /** Barva jen jako #rrggbb nebo #rgb — do skriptu se vkládá do stylu. */
 function color(value: any, fallback: string): string {
   const one = String(value ?? '').trim();
@@ -199,7 +230,7 @@ function look(value: any): BannerLook {
      * podoby jsou vědomá volba: text pod fotkou unese odstavec, text na
      * fotce jen pár slov.
      */
-    style: oneOf(value?.style, ['overlay', 'under', 'side', 'frame'] as const, 'overlay'),
+    style: oneOf(value?.style, STYLES, 'overlay'),
     image,
     video: safeVideo(value?.video),
     // Primární barva e-shopu je černá (`--pr: #000`), tak z ní vychází i dlaždice
@@ -211,8 +242,8 @@ function look(value: any): BannerLook {
      * (`jc-c ai-c` v jeho šabloně). Dlaždice v mřížce se často hodí spíš
      * dolů a doleva — od toho jsou předlohy, které si to přepíšou.
      */
-    align: oneOf(value?.align, ['left', 'center', 'right'] as const, 'center'),
-    pos: oneOf(value?.pos, ['top', 'middle', 'bottom'] as const, 'middle'),
+    align: oneOf(value?.align, ALIGNS, 'center'),
+    pos: oneOf(value?.pos, POSITIONS, 'middle'),
     focus: focus(value?.focus),
     /*
      * Výchozí je pokaždé to, co se nejvíc drží e-shopu: jeho písmo a jeho
@@ -225,12 +256,12 @@ function look(value: any): BannerLook {
      * (ne tučné), prostrkání −0,06 em, tlačítka **hranatá** a černá.
      * Tučný nadpis se zakulacenými rohy by vedle toho byl cizí prvek.
      */
-    font: oneOf(value?.font, ['shop', 'inter', 'jost', 'playfair', 'bebas'] as const, 'shop'),
+    font: oneOf(value?.font, FONTS, 'shop'),
     titleWeight: weight(value?.titleWeight, 400),
     titleSize: clamp(value?.titleSize, 70, 150, 100),
     caps: !!value?.caps,
     textWeight: weight(value?.textWeight, 400),
-    button: oneOf(value?.button, ['shop', 'fill', 'outline', 'soft', 'link'] as const, 'shop'),
+    button: oneOf(value?.button, BUTTONS, 'shop'),
     radius: clamp(value?.radius, 0, 28, 0)
   };
 }
@@ -274,14 +305,14 @@ export function resolveLook(one: Banner, set: BannerSet): BannerLook {
 function smart(value: any): BannerSmart {
   const until = String(value?.until ?? '').trim();
   return {
-    kind: oneOf(value?.kind, ['none', 'countdown', 'code', 'delivery'] as const, 'none'),
+    kind: oneOf(value?.kind, KINDS, 'none'),
     until,
     untilMs: until ? czMs(until, true) : 0,
     // Kód se čte nahlas a přepisuje do košíku: velká písmena a nic exotického
     code: String(value?.code ?? '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24),
     // Jen pár znaků, a jen skutečná emoji — písmeno v rohu vypadá jako chyba
     emoji: onlyEmoji(value?.emoji, 3),
-    effect: oneOf(value?.effect, ['none', 'snow', 'shine', 'pulse', 'float'] as const, 'none'),
+    effect: oneOf(value?.effect, EFFECTS, 'none'),
     /*
      * Meze jsou tam kvůli stránce, ne kvůli vkusu: dvě stě padajících emoji
      * na čtyřech dlaždicích je dvě stě animovaných prvků na úvodní stránce
@@ -329,7 +360,9 @@ export function normalizeBanner(value: any): Banner {
   return one;
 }
 
-const RATIOS = ['auto', '1:1', '4:5', '3:4', '2:3', '4:3', '16:9', '2:1', '3:1'] as const;
+const RATIOS = vyber<BannerRatio>({
+  auto: 1, '1:1': 1, '4:5': 1, '3:4': 1, '2:3': 1, '4:3': 1, '16:9': 1, '2:1': 1, '3:1': 1
+});
 
 const ratio = (value: any): BannerRatio => oneOf(value, RATIOS, 'auto');
 
@@ -353,7 +386,7 @@ function link(value: any): BannerLink {
 function links(value: any): BannerLinks {
   return {
     on: !!value?.on,
-    shape: oneOf(value?.shape, ['circle', 'square', 'text'] as const, 'circle'),
+    shape: oneOf(value?.shape, SHAPES, 'circle'),
     items: (Array.isArray(value?.items) ? value.items : []).slice(0, MAX_LINKS).map(link)
   };
 }
@@ -377,13 +410,12 @@ const MAX_HIGHLIGHTS = 6;
  * banneru a na telefonu se z nich dělá posuvník.
  */
 function highlights(value: any): BannerHighlights {
-  const HL = ['mozaika', 'pruh', 'stridave', 'carousel'] as const;
   return {
     on: !!value?.on,
     // Výchozí „všude": na podstránkách je tohle jediné místo pro kampaň
-    where: oneOf(value?.where, ['home', 'all'] as const, 'all'),
-    layout: oneOf(value?.layout, HL, 'mozaika'),
-    phone: oneOf(value?.phone, HL, 'carousel'),
+    where: oneOf(value?.where, WHERE, 'all'),
+    layout: oneOf(value?.layout, HL_LAYOUTS, 'mozaika'),
+    phone: oneOf(value?.phone, HL_LAYOUTS, 'carousel'),
     ratio: ratio(value?.ratio),
     phoneRatio: ratio(value?.phoneRatio),
     look: sharedLook(value?.look),
@@ -419,8 +451,8 @@ export function normalizeSet(value: any): BannerSet {
     fromMs: from ? czMs(from) : 0,
     toMs: to ? czMs(to, true) : Number.MAX_SAFE_INTEGER,
     off: !!value?.off,
-    layout: oneOf(value?.layout, ['quad', 'wide'] as const, 'quad'),
-    phone: oneOf(value?.phone, ['grid', 'wide'] as const, 'grid'),
+    layout: oneOf(value?.layout, LAYOUTS, 'quad'),
+    phone: oneOf(value?.phone, PHONES, 'grid'),
     look: sharedLook(value?.look),
     ratio: ratio(value?.ratio),
     phoneRatio: ratio(value?.phoneRatio),
@@ -773,13 +805,113 @@ export async function uploadVideo(name: string, bytes: number[] | Uint8Array): P
 }
 
 /**
- * Stažení vystaveného plánu.
+ * Jeden banner z plánu zpátky do podoby, jakou zná aplikace.
+ *
+ * Do plánu jdou texty naplocho (`title`, `text`, …), v aplikaci sedí
+ * v `copy`. Jméno banneru v plánu vůbec není — je jen pro orientaci
+ * v seznamu, takže se bere to místní.
+ */
+function bannerFromRow(row: any, names: Map<string, string>): any {
+  const smartRow = row?.smart;
+  return {
+    ...row,
+    name: names.get(String(row?.id)) ?? '',
+    copy: { kicker: row?.kicker, title: row?.title, text: row?.text, button: row?.button, href: row?.href },
+    /*
+     * Datum odpočtu jde do plánu jen jako číslo (`untilMs`) — na webu se
+     * s ním jinak nepočítá. V aplikaci se ale zadává do políčka, a to
+     * čte `until`. Dokud se nedopočítávalo zpátky, zmizelo po otevření
+     * okna datum z odpočtu a sada se pak ani nedala uložit: stěžovala
+     * si, že má odpočet bez data.
+     */
+    smart: smartRow
+      ? {
+        ...smartRow,
+        until: Number(smartRow.untilMs) > 0 ? czLocal(Number(smartRow.untilMs)) : ''
+      }
+      : undefined
+  };
+}
+
+/**
+ * Sloučí seznam z plánu s tím, co je jen v téhle aplikaci.
+ *
+ * Vypnutý nebo rozdělaný banner se nevystavuje, a proto ho plán
+ * neobsahuje. Kdyby se po stažení prostě zahodil, zmizela by práce, o
+ * které nikdo neví, že chybí — a všimne si toho až ten, kdo ji dělal.
+ */
+function mergeBanners(rows: any[], mine: Banner[]): any[] {
+  const names = new Map(mine.map(one => [one.id, one.name]));
+  const zWebu = new Set((rows ?? []).map((one: any) => String(one?.id)));
+  return (rows ?? []).map(one => bannerFromRow(one, names))
+    .concat(mine.filter(one => !zWebu.has(one.id)));
+}
+
+/** Totéž pro odkazy v pruhu — ty mají texty rovnou ve správném tvaru. */
+function mergeLinks(rows: any[], mine: BannerLink[]): any[] {
+  const zWebu = new Set((rows ?? []).map((one: any) => String(one?.id)));
+  return (rows ?? []).concat(mine.filter(one => !zWebu.has(one.id)));
+}
+
+/**
+ * Sloučení vystaveného plánu s tím, co je v téhle aplikaci.
  *
  * Pravda je ve vystaveném souboru, ne v tomhle počítači — na dvou počítačích
  * by se jinak rozešly dvě různé sady a ten, kdo vystavil později, by práci
  * toho druhého smazal. Jména sad a vypnuté bannery jsou ale jen v aplikaci,
  * takže se slučuje podle identifikátoru.
+ *
+ * **Co plán neobsahuje, se nesmí ztratit.** Slučuje se při každém otevření
+ * okna, takže každá díra vypadá jako „zavřel jsem to a nastavení bylo
+ * pryč": bloky pod bannerem se vypínaly samy a jejich texty mizely,
+ * protože se z plánu nepřepisovaly zpátky do `copy`.
  */
+export function mergePlan(rows: any[], known: BannerSet[]): BannerSet[] {
+  const mapa = new Map(known.map(one => [one.id, one]));
+  const merged: BannerSet[] = rows.map((row: any) => {
+    const mine = mapa.get(String(row.id));
+    return normalizeSet({
+      ...row,
+      // Místní jméno má přednost; z plánu se bere, jen když tu sada ještě nebyla
+      name: mine?.name || String(row.name ?? ''),
+      look: row.look ?? mine?.look,
+      from: Number(row.fromMs) > 0 ? czLocal(Number(row.fromMs)) : '',
+      to: Number(row.toMs) < Number.MAX_SAFE_INTEGER ? czLocal(Number(row.toMs)) : '',
+      banners: mergeBanners(row.banners, mine?.banners ?? []),
+      /*
+       * Bloky pod bannerem. Když je plán má, je zapnuté i to řízení
+       * z aplikace — bez toho vypnutí se přepínač po každém otevření
+       * okna sám vracel do vypnuté polohy. Když je plán nemá (nejsou
+       * zapnuté, nebo je v nich rozdělaná práce), zůstává místní stav;
+       * přepsat ho výchozími hodnotami by smazalo celé nastavení.
+       */
+      highlights: row.highlights
+        ? {
+          ...row.highlights,
+          on: true,
+          banners: mergeBanners(row.highlights.banners, mine?.highlights.banners ?? [])
+        }
+        : mine?.highlights,
+      links: row.links
+        ? {
+          ...row.links,
+          on: true,
+          items: mergeLinks(row.links.items, mine?.links.items ?? [])
+        }
+        : mine?.links
+    });
+  });
+  /*
+   * Vypnuté sady se nevystavují, ale v aplikaci mají zůstat. Jen ty, které
+   * v plánu opravdu nejsou — jinak by se sada, která se vypnula a vystavit
+   * se nestihla, objevila v seznamu dvakrát.
+   */
+  const vPlanu = new Set(merged.map(one => one.id));
+  for (const one of known) if (one.off && !vPlanu.has(one.id)) merged.push(one);
+  return merged;
+}
+
+/** Stažení vystaveného plánu a sloučení s tím, co je tady. */
 export async function pull(): Promise<string> {
   const url = publicUrlOf(bannersPath());
   if (!url) return 'Chybí adresa úložiště — nastav ji v Textech na webu.';
@@ -793,34 +925,7 @@ export async function pull(): Promise<string> {
   const data = await res.json() as any;
   if (!data || !Array.isArray(data.sets)) return '';
 
-  const known = new Map(readSets().map(one => [one.id, one]));
-  const merged: BannerSet[] = data.sets.map((row: any) => {
-    const mine = known.get(String(row.id));
-    const names = new Map((mine?.banners ?? []).map(one => [one.id, one.name]));
-    const zWebu = new Set((row.banners ?? []).map((b: any) => String(b.id)));
-    /*
-     * Vypnutý banner se nevystavuje — a proto ho plán neobsahuje. Kdyby se
-     * po stažení prostě zahodil, zmizela by na druhém počítači práce, o
-     * které nikdo neví, že chybí. Zůstávají proto ty, které jsou jen tady.
-     */
-    const jenTady = (mine?.banners ?? []).filter(one => !zWebu.has(one.id));
-    return normalizeSet({
-      ...row,
-      // Místní jméno má přednost; z plánu se bere, jen když tu sada ještě nebyla
-      name: mine?.name || String(row.name ?? ''),
-      look: row.look ?? mine?.look,
-      from: Number(row.fromMs) > 0 ? czLocal(Number(row.fromMs)) : '',
-      to: Number(row.toMs) < Number.MAX_SAFE_INTEGER ? czLocal(Number(row.toMs)) : '',
-      banners: (row.banners ?? []).map((b: any) => ({
-        ...b,
-        name: names.get(String(b.id)) ?? '',
-        copy: { kicker: b.kicker, title: b.title, text: b.text, button: b.button, href: b.href }
-      })).concat(jenTady.map(one => ({ ...one, copy: one.copy })))
-    });
-  });
-  // Vypnuté sady se nevystavují, ale v aplikaci mají zůstat
-  for (const one of known.values()) if (one.off) merged.push(one);
-  writeSets(prune(merged));
+  writeSets(prune(mergePlan(data.sets, readSets())));
   return '';
 }
 
@@ -1076,6 +1181,14 @@ export function previewUrl(value: any, lang = 'cz'): string {
     '<style>',
     'html,body{margin:0;background:#fff;color:#000;font-family:Rajdhani,sans-serif}',
     /*
+     * Pozadí sekcí. Změřeno na quentino.cz: obsah stránky je bílý, ale
+     * sekce s bannerem i sekce s bloky mají rgb(240,240,240). Dokud byl
+     * náhled celý bílý, vypadaly bannery v aplikaci jinak než na webu —
+     * a bílý pruh pod bannerem se odhalil až na e-shopu.
+     */
+    '.section.bic-bnr,.section.bic-hdln{background:#f0f0f0;padding:8px 0}',
+    '.section .container,.section .max{width:100%}',
+    /*
      * Na střed schválně. Kontejner šablony e-shopu má „text-align: center"
      * a banner nastavený doleva se kvůli tomu na webu kreslil na střed,
      * zatímco v náhledu byl vlevo — náhled tu dědičnost neměl čím
@@ -1102,16 +1215,27 @@ export function previewUrl(value: any, lang = 'cz'): string {
      * Fotka uvnitř původního karuselu je tu schválně: na ní se pozná, že
      * skript zahodil i to, co se k banneru stahovalo. Adresa nikam nevede.
      */
-    '<div class="qbn-ukazka"><div id="banner1">původní karusel Upgates',
+    /*
+     * Obaly `container` a `max` jsou tu proto, že je má i šablona
+     * e-shopu — skript do toho vnitřního vkládá bloky, aby si nechal
+     * pozadí sekce. Bez nich by se v náhledu zkoušela jiná cesta kódu,
+     * než jaká poběží na webu.
+     */
+    '<div class="qbn-ukazka">',
+    '<div class="section bic-bnr"><div class="container"><div class="max">',
+    '<div id="banner1">původní karusel Upgates',
     '<img alt="" src="https://cdn.invalid/stary-banner.jpg" width="1" height="1"></div>',
+    '</div></div></div>',
     /*
      * Sekce, kam patří bloky pod bannerem. V šabloně e-shopu se jmenuje
      * `bic-hdln` a je **i na kategoriích a v článcích** — bez ní by se
      * v náhledu neměly kam vykreslit a člověk by o nich nevěděl, dokud
      * by sadu nevystavil.
      */
-    '<div class="section bic-hdln">původní bloky ze šablony',
-    '<img alt="" src="https://cdn.invalid/stary-blok.jpg" width="1" height="1"></div>',
+    '<div class="section bic-hdln"><div class="container"><div class="max">',
+    'původní bloky ze šablony',
+    '<img alt="" src="https://cdn.invalid/stary-blok.jpg" width="1" height="1">',
+    '</div></div></div>',
     '<div class="qbn-jako" style="border:0;border-top:1px solid #e6e6e9">další obsah stránky</div>',
     '</div>',
     /*
@@ -1419,5 +1543,5 @@ export async function publishBanners(): Promise<BannersState> {
 export const __test = {
   normalizeSet, normalizeBanner, validateSet, payload, setRow, liveBanners,
   setClashes, safeHref, safeImage, prune, fallbackSet, setSummary, liveLinks,
-  sharedLook, resolveLook, onlyEmoji, liveHighlights
+  sharedLook, resolveLook, onlyEmoji, liveHighlights, mergePlan
 };

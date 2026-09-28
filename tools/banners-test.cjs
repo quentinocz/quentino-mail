@@ -945,6 +945,150 @@ ok('a nepřetahuje si kotvu rolování', script.includes('overflow-anchor: none'
 ok('původní karusel se ze stránky odstraní, ne jen schová', kod.includes('removeChild'));
 ok('a jeho obrázkům se nejdřív sebere adresa', kod.includes('removeAttribute("srcset")'));
 
+/* ---------- co se dá vůbec uložit ---------- */
+
+/*
+ * Seznam povolených hodnot se rozešel s typem: do rozhraní přibyl
+ * posuvník hlavního banneru na telefonu a pět nových efektů, ale
+ * ukládání o nich nevědělo a tiše je zahodilo zpátky na výchozí.
+ * Zvenčí to vypadalo jako „nastavení se neuložilo".
+ *
+ * Nové hodnoty teď hlídá překlad (chybějící hodnota je chyba typu), tady
+ * se kontroluje ta druhá strana — že projdou uložením.
+ */
+console.log('\nkaždá volba z rozhraní se uloží:\n');
+
+for (const phone of ['grid', 'wide', 'carousel']) {
+  check(`telefon: ${phone}`, T.normalizeSet({ phone }).phone, phone);
+}
+for (const effect of ['none', 'snow', 'rise', 'confetti', 'shine', 'shimmer', 'pulse', 'float', 'ken', 'glow']) {
+  check(`efekt: ${effect}`, T.normalizeBanner({ smart: { effect } }).smart.effect, effect);
+}
+for (const style of ['overlay', 'under', 'side', 'frame']) {
+  check(`podoba dlaždice: ${style}`, T.normalizeBanner({ look: { style } }).look.style, style);
+}
+for (const layout of ['mozaika', 'pruh', 'stridave', 'carousel']) {
+  check(`rozvržení bloků: ${layout}`,
+    T.normalizeSet({ highlights: { layout, phone: layout } }).highlights.layout, layout);
+}
+
+/* ---------- cesta tam a zpátky ---------- */
+
+/*
+ * Okno bannerů si při každém otevření stáhne vystavený plán a sloučí ho
+ * s tím, co je v aplikaci. Co se v tom slučování ztratí, vypadá zvenčí
+ * takhle: „zavřel jsem to, otevřel a nastavení bylo pryč."
+ *
+ * Proto se tu jede celá cesta tam a zpátky — sada → plán → sloučení —
+ * a porovnává se, co z ní vyšlo. Dřív tudy mizely bloky pod bannerem:
+ * přepínač „řídit z aplikace" se vypnul sám a texty bloků se vyprázdnily,
+ * protože se z plánu nepřepisovaly zpátky do copy.
+ */
+console.log('\nsada přežije zavření a otevření okna:\n');
+
+{
+  const blok = one => ({
+    ...banner(one),
+    id: one.id,
+    name: one.name,
+    copy: {
+      kicker: { cz: '', sk: '', en: '' },
+      title: { cz: one.title, sk: '', en: '' },
+      text: { cz: '', sk: '', en: '' },
+      button: { cz: '', sk: '', en: '' },
+      href: { cz: '/kampan', sk: '', en: '' }
+    }
+  });
+  const puvodni = sada({
+    id: 'plna',
+    name: 'Podzim',
+    layout: 'wide', phone: 'wide', rotate: 9,
+    ratio: '4:5', phoneRatio: '3:4',
+    highlights: {
+      on: true, where: 'all', layout: 'pruh', phone: 'carousel',
+      ratio: '1:1', phoneRatio: '4:5', rotate: 7,
+      banners: [
+        blok({ id: 'h1', name: 'Ženich', title: 'Ženich a jeho parta' }),
+        // Rozdělaný blok: nemá co ukázat, do plánu nejde — a přesto má zůstat
+        { ...blok({ id: 'h2', name: 'Rozdělané', title: '' }) }
+      ]
+    },
+    links: {
+      on: true, shape: 'square',
+      items: [
+        { id: 'l1', emoji: '👔', text: { cz: 'Kravaty', sk: '', en: '' }, href: { cz: '/kravaty', sk: '', en: '' } },
+        // Odkaz bez cíle se taky nevystavuje
+        { id: 'l2', emoji: '🎩', text: { cz: 'Klobouky', sk: '', en: '' }, href: { cz: '', sk: '', en: '' } }
+      ]
+    }
+  });
+
+  const zpet = T.mergePlan([T.setRow(puvodni)], [puvodni])[0];
+
+  ok('sada se po stažení najde', !!zpet);
+  check('rozvržení zůstalo', [zpet.layout, zpet.phone, zpet.rotate], ['wide', 'wide', 9]);
+  check('tvar dlaždic zůstal', [zpet.ratio, zpet.phoneRatio], ['4:5', '3:4']);
+
+  /* Tohle je ta hlášená chyba: přepínač se sám vypnul */
+  ok('řízení bloků z aplikace zůstalo zapnuté', zpet.highlights.on);
+  check('rozvržení bloků zůstalo',
+    [zpet.highlights.layout, zpet.highlights.phone, zpet.highlights.where, zpet.highlights.rotate],
+    ['pruh', 'carousel', 'all', 7]);
+  check('tvar bloků zůstal',
+    [zpet.highlights.ratio, zpet.highlights.phoneRatio], ['1:1', '4:5']);
+  const h1 = zpet.highlights.banners.find(one => one.id === 'h1');
+  check('text bloku zůstal', h1?.copy.title.cz, 'Ženich a jeho parta');
+  check('a jeho jméno v seznamu taky', h1?.name, 'Ženich');
+  ok('rozdělaný blok se cestou neztratil',
+    zpet.highlights.banners.some(one => one.id === 'h2'));
+
+  ok('pruh odkazů zůstal zapnutý', zpet.links.on);
+  check('podoba odkazů zůstala', zpet.links.shape, 'square');
+  check('odkaz zůstal', zpet.links.items.find(one => one.id === 'l1')?.text.cz, 'Kravaty');
+  ok('rozdělaný odkaz se cestou neztratil', zpet.links.items.some(one => one.id === 'l2'));
+
+  check('banner si nechal text', zpet.banners[0]?.copy.title.cz, 'Kšandy k obleku');
+  check('a jméno v seznamu', zpet.banners[0]?.name, 'Kšandy');
+
+  /*
+   * Datum odpočtu jde do plánu jen jako číslo. Dokud se nedopočítávalo
+   * zpátky do políčka, zmizelo po otevření okna z formuláře — a sada
+   * se pak ani nedala uložit, protože si stěžovala na odpočet bez data.
+   */
+  const sOdpoctem = sada({
+    id: 'odpocet',
+    banners: [banner({ smart: { kind: 'countdown', until: '2026-12-24T12:00' } })]
+  });
+  const poOdpoctu = T.mergePlan([T.setRow(sOdpoctem)], [sOdpoctem])[0];
+  check('datum odpočtu se vrátilo do políčka',
+    poOdpoctu.banners[0]?.smart.until, '2026-12-24T12:00');
+  check('a sada se dá po otevření okna zase uložit', T.validateSet(poOdpoctu), '');
+
+  /*
+   * Vypnutá sada v plánu není. Zůstat ale musí — a jen jednou: dřív se
+   * přidávala i tehdy, když už v plánu byla, a v seznamu se pak
+   * objevila dvakrát.
+   */
+  const vypnuta = sada({ id: 'vyp', name: 'Vypnutá', off: true });
+  const sVypnutou = T.mergePlan([T.setRow(puvodni)], [puvodni, vypnuta]);
+  check('vypnutá sada zůstane v seznamu', sVypnutou.filter(one => one.id === 'vyp').length, 1);
+  const dvakrat = T.mergePlan([T.setRow(vypnuta)], [vypnuta]);
+  check('a neobjeví se dvakrát', dvakrat.filter(one => one.id === 'vyp').length, 1);
+
+  /*
+   * Když bloky nejsou zapnuté, plán je nenese — a místní nastavení
+   * (rozvržení, rozdělané bloky) se nesmí přepsat výchozími hodnotami.
+   */
+  const vypnuteBloky = T.normalizeSet({
+    ...puvodni,
+    highlights: { ...puvodni.highlights, on: false, layout: 'stridave' }
+  });
+  const poSlouceni = T.mergePlan([T.setRow(vypnuteBloky)], [vypnuteBloky])[0];
+  check('vypnuté bloky si nechají své nastavení',
+    [poSlouceni.highlights.on, poSlouceni.highlights.layout, poSlouceni.highlights.banners.length],
+    [false, 'stridave', 2]);
+}
+
 /* ---------- překlad ---------- */
 
 /*
