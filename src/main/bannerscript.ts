@@ -676,6 +676,16 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   justify-content: center;
   align-items: center;
   margin-top: 12px;
+  /*
+   * Šalvějová zelená e-shopu. Bere se z jeho vlastní proměnné (--gr,
+   * ta samá, co má odznak s počtem kusů v košíku), takže když si ji web
+   * někdy přebarví, přebarví se i tečky. Náhradní hodnota je změřená
+   * na quentino.cz: rgb(172, 194, 171).
+   *
+   * Dřív tu bylo "currentColor" — tedy barva textu šablony, což je
+   * modrá odkazů. Tečky pak byly jediný modrý prvek na stránce.
+   */
+  --qbn-dot: var(--gr, #acc2ab);
 }
 .qbn-dot {
   width: 7px;
@@ -683,12 +693,17 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: currentColor;
-  opacity: .22;
+  background: var(--qbn-dot);
+  /*
+   * Zelená je světlá a leží na světle šedém pruhu. Při dřívějších .22
+   * by nečinná tečka splynula s pozadím — proto se rozdíl mezi činnou
+   * a nečinnou nese hlavně velikostí a až potom průhledností.
+   */
+  opacity: .4;
   cursor: pointer;
   transition: opacity .2s ease, transform .2s ease;
 }
-.qbn-dot[data-now] { opacity: .85; transform: scale(1.25); }
+.qbn-dot[data-now] { opacity: 1; transform: scale(1.35); }
 
 /* ---------- bloky pod bannerem (highlights) ---------- */
 

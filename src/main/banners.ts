@@ -1179,6 +1179,13 @@ export function previewUrl(value: any, lang = 'cz'): string {
     '<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=',
     'Rajdhani%3A300%2C400%2C700&display=swap&subset=latin%2Clatin-ext">',
     '<style>',
+    /*
+     * Proměnné e-shopu, které skript čte. `--gr` je jeho šalvějová zelená
+     * (změřeno na quentino.cz: rgb(172,194,171)) — berou si z ní barvu
+     * tečky posuvníku. V náhledu musí být taky, jinak by se tu zkoušela
+     * jiná barva než na webu.
+     */
+    ':root{--gr:#acc2ab}',
     'html,body{margin:0;background:#fff;color:#000;font-family:Rajdhani,sans-serif}',
     /*
      * Pozadí sekcí. Změřeno na quentino.cz: obsah stránky je bílý, ale

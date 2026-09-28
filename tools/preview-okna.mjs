@@ -881,13 +881,35 @@ for (const okno of OKNA) {
       vykukuje: track.scrollWidth > track.clientWidth + 20,
       jedenRadek: new Set([...track.children].map(one => Math.round(one.getBoundingClientRect().top))).size === 1,
       sirka: prvni ? Math.round(prvni.getBoundingClientRect().width) : 0,
-      pas: Math.round(track.clientWidth)
+      pas: Math.round(track.clientWidth),
+      /*
+       * Barva teček. Dřív se braly z barvy textu šablony, což je modrá
+       * odkazů — tečky pak byly jediný modrý prvek na stránce. Mají mít
+       * šalvějovou zelenou e-shopu, a to z **jeho** proměnné, ať se
+       * přebarví s ním.
+       */
+      barvaTecky: (() => {
+        const tecka = node.querySelector('.qbn-dot');
+        return tecka ? getComputedStyle(tecka).backgroundColor : '';
+      })(),
+      cinnaJinak: (() => {
+        const vsechny = [...node.querySelectorAll('.qbn-dot')];
+        const cinna = vsechny.find(one => one.hasAttribute('data-now'));
+        const jina = vsechny.find(one => !one.hasAttribute('data-now'));
+        if (!cinna || !jina) return false;
+        return Number(getComputedStyle(cinna).opacity) > Number(getComputedStyle(jina).opacity)
+          && cinna.getBoundingClientRect().width > jina.getBoundingClientRect().width;
+      })()
     };
   });
   say('hlavní banner se dá na telefonu přepnout na posuvník',
     posuv?.dlazdic === 4 && posuv?.tecek === 4 && posuv?.vykukuje === true && posuv?.jedenRadek === true,
     posuv ? `${posuv.dlazdic} dlaždic v řadě, ${posuv.tecek} teček, ${posuv.sirka} z ${posuv.pas} px`
       : 'posuvník se nevykreslil');
+  say('  tečky mají šalvějovou zelenou e-shopu, ne modrou od textu',
+    posuv?.barvaTecky === 'rgb(172, 194, 171)', posuv?.barvaTecky);
+  say('  a na té činné je poznat, která to je',
+    posuv?.cinnaJinak === true, 'rozdíl v sytosti i velikosti');
   await page.screenshot({ path: path.join(SHOTS, 'bannery-posuvnik.png') });
   await page.locator('.bn-layout .tab', { hasText: '2 vedle sebe' }).first().click();
   await page.waitForTimeout(600);
