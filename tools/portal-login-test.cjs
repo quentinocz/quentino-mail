@@ -98,6 +98,50 @@ const FORM = `
     hledani: document.querySelector('#hledani').value
   })), { mail: 'patrik@quentino.cz', hledani: '' });
 
+  /*
+   * PPL: tři políčka, a to prostřední je identifikace firmy.
+   *
+   * Přesné HTML z klientské administrace PPL (2608.0026). Dokud se jméno
+   * hledalo jako „nejbližší textové políčko nad heslem", psalo se do
+   * identifikace firmy — a přihlášení samozřejmě neprošlo.
+   */
+  await page.setContent(`
+    <!doctype html><meta charset="utf-8">
+    <form><table class="frm"><tbody>
+      <tr><td><label for="u" id="ul">Uživatelské jméno:</label></td>
+        <td><input name="ctl00$contentPH$EtiketyLogin1$UserName" type="text" id="u" class="UserName"></td></tr>
+      <tr><td><label for="f" id="fl">Identifikace firmy:</label></td>
+        <td><input name="ctl00$contentPH$EtiketyLogin1$FirId" type="text" id="f" class="FirId"></td></tr>
+      <tr><td><label for="p" id="pl">Heslo:</label></td>
+        <td><input name="ctl00$contentPH$EtiketyLogin1$Password" type="password" id="p" class="Password"></td></tr>
+      <tr><td colspan="2"><a onclick="window.__odeslano = true;" id="log" class="button"
+        href="javascript:void(0)">Přihlásit</a></td></tr>
+    </tbody></table></form>`);
+  await page.evaluate(() => { window.__odeslano = false; });
+  const pplOut = await page.evaluate(__test.fillScript('patrik', 'tajne', true, '12345'));
+  check('PPL: jméno, firma i heslo jdou každé do svého', [
+    pplOut,
+    await page.evaluate(() => document.querySelector('#u').value),
+    await page.evaluate(() => document.querySelector('#f').value),
+    await page.evaluate(() => document.querySelector('#p').value),
+    await page.evaluate(() => window.__odeslano)
+  ], ['odesláno', 'patrik', '12345', 'tajne', true]);
+
+  /*
+   * Bez identifikace firmy se formulář **neodesílá**. Poloprázdné
+   * přihlášení u PPL stejně neprojde a jen by na obrazovce svítila chyba;
+   * takhle zbývá jen doplnit jedno políčko.
+   */
+  await page.evaluate(() => {
+    window.__odeslano = false;
+    document.querySelector('#u').value = '';
+    document.querySelector('#f').value = '';
+  });
+  const bezFirmy = await page.evaluate(__test.fillScript('patrik', 'tajne', true, ''));
+  check('PPL bez identifikace firmy se jen vyplní', [
+    bezFirmy, await page.evaluate(() => window.__odeslano)
+  ], ['vyplněno', false]);
+
   // Bez formuláře se nemá co dělat — a hlavně se to má poznat
   await page.setContent('<!doctype html><meta charset="utf-8"><p>už přihlášen</p>');
   check('na stránce bez hesla se nic neděje',

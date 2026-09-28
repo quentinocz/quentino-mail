@@ -160,7 +160,7 @@ export async function waitForFileInput(
     if (found === true) return true;
     const vnorene = await subFrames<boolean>(win, script);
     if (vnorene.some(one => one.value === true)) return true;
-    await new Promise(resolve => setTimeout(resolve, 700));
+    await new Promise(resolve => setTimeout(resolve, 400));
   }
   return false;
 }
@@ -667,7 +667,7 @@ export async function waitForDropSpot(
     const spot = await findDropSpot(win, jenJiste);
     if (spot) return spot;
     if (Date.now() >= until) return null;
-    await new Promise(resolve => setTimeout(resolve, 700));
+    await new Promise(resolve => setTimeout(resolve, 400));
   }
 }
 

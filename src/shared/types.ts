@@ -2757,6 +2757,16 @@ export interface PortalLogin {
   hasPassword: boolean;
   /** Vyplnit a rovnou odeslat, nebo jen předvyplnit */
   auto: boolean;
+  /**
+   * Třetí údaj, který některé administrace chtějí navíc.
+   *
+   * PPL se ptá na **identifikaci firmy** mezi jménem a heslem. Bez ní se
+   * přihlásit nedá a aplikace do toho políčka dřív omylem psala jméno —
+   * prostě proto, že hledala „nejbližší textové políčko nad heslem".
+   * Prázdný popisek znamená, že portál nic takového nechce.
+   */
+  extra: string;
+  extraLabel: string;
 }
 
 /** Co se povedlo naučit z jedné otevřené faktury. */

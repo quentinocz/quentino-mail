@@ -39,7 +39,19 @@ const LABELS: Record<PortalId, string> = {
   cposta: 'Podání Online České pošty'
 };
 
-interface Stored { user: string; pass: string; auto: boolean }
+interface Stored { user: string; pass: string; auto: boolean; extra?: string }
+
+/**
+ * Co která administrace chce navíc ke jménu a heslu.
+ *
+ * PPL má v přihlášení tři políčka: uživatelské jméno, **identifikaci
+ * firmy** a heslo. Prázdno znamená, že portál nic dalšího nechce.
+ */
+const EXTRA: Record<PortalId, string> = {
+  upgates: '',
+  ppl: 'Identifikace firmy',
+  cposta: ''
+};
 
 function all(): Record<string, Stored> {
   const raw = getSetting(KEY, '')!;
@@ -64,17 +76,20 @@ export function portalLogins(): PortalLogin[] {
     label: LABELS[id],
     user: saved[id]?.user ?? '',
     hasPassword: !!saved[id]?.pass,
-    auto: saved[id]?.auto !== false
+    auto: saved[id]?.auto !== false,
+    extra: saved[id]?.extra ?? '',
+    extraLabel: EXTRA[id]
   }));
 }
 
 export function savePortalLogin(
-  id: PortalId, next: { user?: string; password?: string; auto?: boolean }
+  id: PortalId, next: { user?: string; password?: string; auto?: boolean; extra?: string }
 ): PortalLogin[] {
   const saved = all();
-  const current = saved[id] ?? { user: '', pass: '', auto: true };
+  const current = saved[id] ?? { user: '', pass: '', auto: true, extra: '' };
   saved[id] = {
     user: next.user !== undefined ? next.user.trim() : current.user,
+    extra: next.extra !== undefined ? next.extra.trim() : (current.extra ?? ''),
     // Prázdné heslo neznamená „smaž ho" — políčko se nechává prázdné, když
     // se mění jen jméno. Smazat jde tlačítkem, které pošle prázdný řetězec
     // schválně jako `null`.
@@ -99,7 +114,7 @@ export function savePortalLogin(
  * `input`. Bez toho by React ani Angular o vyplnění nevěděly: čtou si
  * hodnotu ze svého stavu, ne z políčka, a odeslaly by prázdný formulář.
  */
-function fillScript(user: string, pass: string, submit: boolean): string {
+function fillScript(user: string, pass: string, submit: boolean, extra = ''): string {
   return `
     (function () {
       function setValue(el, value) {
@@ -115,29 +130,80 @@ function fillScript(user: string, pass: string, submit: boolean): string {
         var box = el.getBoundingClientRect();
         return box.width > 0 && box.height > 0;
       }
+      /*
+       * Jak se políčku říká — podle popisku, názvu, id i zástupného textu.
+       *
+       * Pořadí v dokumentu samo nestačí: PPL má mezi jménem a heslem ještě
+       * **identifikaci firmy**, takže „nejbližší textové políčko nad heslem"
+       * bylo právě ono a jméno se psalo do něj. Popisek je to, co čte i
+       * člověk, a proto se na něj dá spolehnout.
+       */
+      function popis(el) {
+        var text = (el.name || '') + ' ' + (el.id || '') + ' ' + (el.className || '')
+          + ' ' + (el.getAttribute('placeholder') || '')
+          + ' ' + (el.getAttribute('aria-label') || '')
+          + ' ' + (el.getAttribute('autocomplete') || '');
+        try {
+          if (el.id) {
+            var lab = document.querySelector('label[for="' + el.id + '"]');
+            if (lab) text += ' ' + (lab.textContent || '');
+          }
+          var blizko = el.closest('td, div, p, li');
+          if (blizko) {
+            var lab2 = blizko.parentElement && blizko.parentElement.querySelector('label');
+            if (lab2) text += ' ' + (lab2.textContent || '');
+          }
+        } catch (e) { /* popisek se nenašel, zbytek stačí */ }
+        return text.toLowerCase();
+      }
 
       var pass = Array.prototype.slice.call(document.querySelectorAll('input[type=password]'))
         .filter(visible)[0];
       if (!pass) return 'bez formuláře';
 
-      /* Jméno: nejbližší textové políčko před heslem, ne podle názvu */
       var fields = Array.prototype.slice.call(
         document.querySelectorAll('input[type=text], input[type=email], input:not([type])')
       ).filter(visible);
-      var before = fields.filter(function (el) {
-        return el.compareDocumentPosition(pass) & Node.DOCUMENT_POSITION_FOLLOWING;
-      });
-      var user = before[before.length - 1] || fields[0] || null;
+      /* Jen políčka z téhož formuláře, když nějaký je — hledání v celé stránce
+         by sáhlo i do vyhledávacího řádku nad ním */
+      var formular = pass.form;
+      if (formular) {
+        var vlastni = fields.filter(function (el) { return el.form === formular; });
+        if (vlastni.length > 0) fields = vlastni;
+      }
 
-      if (user && ${JSON.stringify(user)}) setValue(user, ${JSON.stringify(user)});
+      var JMENO = /u[žz]ivatel|jm[eé]no|user|login|email|e-mail|p[řr]ihla/;
+      var FIRMA = /firm|firid|z[aá]kazn[ií]k|customer|company|i[čc]o|klient|account/;
+
+      var jmeno = null;
+      var firma = null;
+      for (var i = 0; i < fields.length; i++) {
+        var text = popis(fields[i]);
+        /* Firma má přednost u svého políčka: „identifikace firmy" obsahuje
+           obojí, ale to podstatné je firma */
+        if (!firma && FIRMA.test(text)) { firma = fields[i]; continue; }
+        if (!jmeno && JMENO.test(text)) jmeno = fields[i];
+      }
+
+      /* Když popisky nic neřeknou, platí staré pravidlo: nejbližší nad heslem */
+      if (!jmeno) {
+        var before = fields.filter(function (el) {
+          return el.compareDocumentPosition(pass) & Node.DOCUMENT_POSITION_FOLLOWING;
+        }).filter(function (el) { return el !== firma; });
+        jmeno = before[before.length - 1] || fields[0] || null;
+      }
+
+      if (jmeno && ${JSON.stringify(user)}) setValue(jmeno, ${JSON.stringify(user)});
+      if (firma && ${JSON.stringify(extra)}) setValue(firma, ${JSON.stringify(extra)});
       setValue(pass, ${JSON.stringify(pass)});
+      /*
+       * Chybějící třetí údaj se **nevymýšlí**. Přihlášení bez identifikace
+       * firmy u PPL neprojde a odeslat poloprázdný formulář znamená jen
+       * chybovou hlášku na obrazovce; nechá se vyplněné a zbytek na člověku.
+       */
+      if (firma && !${JSON.stringify(extra)}) return 'vyplněno';
       if (!${submit ? 'true' : 'false'}) return 'vyplněno';
 
-      /*
-       * Odeslání: kliknutím na tlačítko, ne voláním submit() na formuláři.
-       * To obchází posluchače, které si aplikace na odeslání pověsila,
-       * takže by se u moderních portálů neodeslalo nic.
-       */
       var form = pass.form;
       if (!form) return 'vyplněno';
 
@@ -149,9 +215,12 @@ function fillScript(user: string, pass: string, submit: boolean): string {
        * bez atributu type (oko u hesla, přepínač jazyka), kliklo se na ně — heslo
        * zůstalo vyplněné, nic se neodeslalo a aplikace přesto hlásila
        * „odesláno". Vypadalo to, že uložené přihlášení nefunguje.
+       *
+       * Poslední skupina je odkaz, který dělá odeslání sám: PPL má místo
+       * tlačítka odkaz <a class="button">Přihlásit</a> s postbackem.
        */
       var groups = ['button[type=submit]', 'input[type=submit]', 'input[type=image]',
-        'button:not([type])'];
+        'button:not([type])', 'a.button, a[onclick*="ogin"], a[href*="DoPostBack"]'];
       var button = null;
       for (var g = 0; g < groups.length && !button; g++) {
         var found = Array.prototype.slice.call(form.querySelectorAll(groups[g])).filter(visible);
@@ -225,15 +294,17 @@ export async function signIn(
   let prazdno = 0;
   while (Date.now() < until) {
     if (win.isDestroyed()) return 'bez formuláře';
-    const out = await everyFrame(win, fillScript(saved.user, decrypt(saved.pass), saved.auto !== false));
+    const out = await everyFrame(win,
+      fillScript(saved.user, decrypt(saved.pass), saved.auto !== false, saved.extra ?? ''));
     if (out === 'vyplněno') return out;
     if (out === 'odesláno') return await landed(win) ? 'odesláno' : 'neprošlo';
 
     prazdno++;
     const nacita = !win.isDestroyed() && win.webContents.isLoading();
-    if (!nacita && prazdno >= 4) return 'bez formuláře';
+    // Dvakrát se zeptat stačí: co se má vykreslit, je na hotové stránce hned
+    if (!nacita && prazdno >= 2) return 'bez formuláře';
 
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise(resolve => setTimeout(resolve, 400));
   }
   return 'bez formuláře';
 }

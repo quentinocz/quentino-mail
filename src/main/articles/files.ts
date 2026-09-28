@@ -306,7 +306,7 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
     win.focus();
     zapis('přihlašuji');
     // Deset vteřin stačí: tohle není odskok na SSO, je to stránka administrace
-    login = signInNote('upgates', await signIn(win, 'upgates', 10_000));
+    login = signInNote('upgates', await signIn(win, 'upgates', 6_000));
     zapis(`přihlášení: ${login || 'v pořádku'}`);
   } catch (e: any) {
     /*
@@ -350,11 +350,11 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    * se pak ptá zavřeného okna. Nahrávání se buď otevře hned, nebo ne.
    */
   zapis('hledám, kam soubor vložit');
-  let spot = await waitForDropSpot(win, 6_000, true);
+  let spot = await waitForDropSpot(win, 3_000, true);
   if (!spot && !win.isDestroyed()) {
     zapis('otevírám nahrávání');
     await odemkniNahravani(win);
-    spot = await waitForDropSpot(win, 20_000, true);
+    spot = await waitForDropSpot(win, 10_000, true);
   }
   /*
    * Stránka mlčí? Přenačíst a zkusit znovu.
@@ -367,10 +367,10 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
   if (!spot && !win.isDestroyed()) {
     await openUrl(win, filesAdminUrl());
     await new Promise(resolve => setTimeout(resolve, 1500));
-    spot = await waitForDropSpot(win, 10_000, true);
+    spot = await waitForDropSpot(win, 6_000, true);
     if (!spot && !win.isDestroyed()) {
       await odemkniNahravani(win);
-      spot = await waitForDropSpot(win, 15_000, true);
+      spot = await waitForDropSpot(win, 8_000, true);
     }
   }
 
@@ -411,7 +411,7 @@ export async function uploadArticleFiles(files: string[]): Promise<ArticleUpload
    */
   zapis('vkládám soubor');
   let zpusob = '';
-  if (await waitForFileInput(win, ['input.dz-hidden-input', 'input[type=file]'], 4_000)) {
+  if (await waitForFileInput(win, ['input.dz-hidden-input', 'input[type=file]'], 2_500)) {
     try {
       await insertFiles(win, list);
       zpusob = 'policko';

@@ -972,7 +972,8 @@ export const api = {
    */
   logins: {
     list: () => call<PortalLogin[]>('logins:list'),
-    save: (id: string, next: { user?: string; password?: string; auto?: boolean }) =>
+    /** `extra` je třetí údaj, který chce jen některá administrace (PPL: identifikace firmy) */
+    save: (id: string, next: { user?: string; password?: string; auto?: boolean; extra?: string }) =>
       call<PortalLogin[]>('logins:save', id, next)
   },
 

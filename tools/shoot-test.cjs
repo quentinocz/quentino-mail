@@ -140,6 +140,21 @@ console.log('\nfocení:\n');
   check('ISO je ve skupině expozice', handy[0].group, 'expozice');
   const rest = config.__test.restPaths(paths);
   ok('spoušť ani ostření se nenabízí', !rest.includes('/main/actions/autofocusdrive'), rest.join(' '));
+
+/*
+ * Ostření musí jít zmáčknout opakovaně.
+ *
+ * `autofocusdrive` je přepínač, ne příkaz: jednička ostření spustí a
+ * zůstane. Druhé klepnutí pak neudělá nic, protože se hodnota nemění —
+ * a přesně tak se to chovalo. Po zaostření se proto posílá i nula.
+ */
+{
+  const zdroj = fs.readFileSync(path.join(__dirname, '../src/main/shoot/index.ts'), 'utf8');
+  const usek = zdroj.slice(zdroj.indexOf('export async function autofocus'),
+    zdroj.indexOf('/* ---------- focení ---------- */'));
+  ok('ostření se po zaostření uvolní, jinak by šlo zmáčknout jen jednou',
+    usek.includes('autofocusdrive=1') && usek.includes('autofocusdrive=0'));
+}
   ok('zbytek stromu zůstal', rest.includes('/main/other/d402') && rest.includes('/main/status/batterylevel'));
   check('jen na čtení se nedá nastavit',
     config.__test.settable({ readonly: true, type: 'RADIO', choices: [{ index: 0, value: 'a' }] }), false);

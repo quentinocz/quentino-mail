@@ -304,11 +304,32 @@ export async function setCameraSetting(settingPath: string, value: string):
   return { ok: true, error: '', setting };
 }
 
-/** Zaostřit bez vyfocení — u produktu se ostří jednou a pak se s tím nehýbe. */
+/**
+ * Zaostřit bez vyfocení — u produktu se ostří jednou a pak se s tím nehýbe.
+ *
+ * ## Proč se hned nato posílá nula
+ *
+ * `autofocusdrive` není příkaz, ale **přepínač**: jednička ostření spustí
+ * a v tom stavu zůstane. Poslat jedničku podruhé pak neudělá nic — hodnota
+ * se nemění, takže fotoaparát nemá na co reagovat. Přesně tak to vypadalo
+ * v provozu: první klepnutí na ostření zabralo, každé další bylo k ničemu.
+ * Po zaostření se proto přepínač vrátí na nulu; teprve tím je připravený
+ * na další stisk.
+ */
 export async function autofocus(): Promise<{ ok: boolean; error: string }> {
   if (!session.alive) return { ok: false, error: 'fotoaparát není připojený' };
-  const reply = await live.hold(() =>
-    session.send('set-config /main/actions/autofocusdrive=1', { urgent: true, timeout: 15000 }));
+  const reply = await live.hold(async () => {
+    const out = await session.send('set-config /main/actions/autofocusdrive=1',
+      { urgent: true, timeout: 15000 });
+    /*
+     * Uvolnění se posílá i tehdy, když ostření skončilo chybou — zaseknutý
+     * přepínač by zablokoval i pokusy příští. Případný nezdar uvolnění se
+     * nehlásí: výsledek ostření je to, co člověka zajímá.
+     */
+    await session.send('set-config /main/actions/autofocusdrive=0',
+      { urgent: true, timeout: 8000 }).catch(() => null);
+    return out;
+  });
   return { ok: reply.ok, error: reply.error };
 }
 

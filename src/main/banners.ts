@@ -481,7 +481,15 @@ export function bannerRow(one: Banner, set?: BannerSet): any {
     button: one.copy.button,
     href: one.copy.href,
     // Na web jde hotový vzhled, ne „vezmi si to ze sady" — skript o sdílení neví
-    look: set ? resolveLook(one, set) : one.look
+    look: set ? resolveLook(one, set) : one.look,
+    /*
+     * Jestli si banner vzhled řídí sám, potřebuje vědět **druhá aplikace**,
+     * ne web. Bez toho se po stažení plánu na jiném počítači tvářily
+     * všechny bannery jako „řídí se sadou" a vzali si výchozí hodnoty:
+     * text nastavený dolů se přepnul na střed. Skript na webu tohle pole
+     * nečte, je to čistě pro sdílení mezi zařízeními.
+     */
+    ownLook: one.ownLook
   };
   if (one.smart.kind !== 'none' || one.smart.emoji || one.smart.effect !== 'none') {
     row.smart = {
@@ -501,6 +509,17 @@ export function bannerRow(one: Banner, set?: BannerSet): any {
 export function setRow(set: BannerSet): any {
   const row: any = {
     id: set.id,
+    /*
+     * Jméno a společný vzhled sady jde do plánu taky.
+     *
+     * Web je nečte — jsou tam kvůli druhému počítači. Dokud chyběly, stáhla
+     * si druhá aplikace sadu bez společného vzhledu, dosadila výchozí
+     * hodnoty a rozházela tím nastavení, které nikdo neměnil (nejnápadněji
+     * polohu textu: „dole" se změnilo na „uprostřed"). Nic tajného v nich
+     * není — co je v nich vidět, je stejně vidět na webu.
+     */
+    name: set.name,
+    look: set.look,
     fromMs: set.fromMs,
     toMs: set.toMs,
     layout: set.layout,
@@ -713,16 +732,25 @@ export async function pull(): Promise<string> {
   const merged: BannerSet[] = data.sets.map((row: any) => {
     const mine = known.get(String(row.id));
     const names = new Map((mine?.banners ?? []).map(one => [one.id, one.name]));
+    const zWebu = new Set((row.banners ?? []).map((b: any) => String(b.id)));
+    /*
+     * Vypnutý banner se nevystavuje — a proto ho plán neobsahuje. Kdyby se
+     * po stažení prostě zahodil, zmizela by na druhém počítači práce, o
+     * které nikdo neví, že chybí. Zůstávají proto ty, které jsou jen tady.
+     */
+    const jenTady = (mine?.banners ?? []).filter(one => !zWebu.has(one.id));
     return normalizeSet({
       ...row,
-      name: mine?.name ?? '',
+      // Místní jméno má přednost; z plánu se bere, jen když tu sada ještě nebyla
+      name: mine?.name || String(row.name ?? ''),
+      look: row.look ?? mine?.look,
       from: Number(row.fromMs) > 0 ? czLocal(Number(row.fromMs)) : '',
       to: Number(row.toMs) < Number.MAX_SAFE_INTEGER ? czLocal(Number(row.toMs)) : '',
       banners: (row.banners ?? []).map((b: any) => ({
         ...b,
         name: names.get(String(b.id)) ?? '',
         copy: { kicker: b.kicker, title: b.title, text: b.text, button: b.button, href: b.href }
-      }))
+      })).concat(jenTady.map(one => ({ ...one, copy: one.copy })))
     });
   });
   // Vypnuté sady se nevystavují, ale v aplikaci mají zůstat

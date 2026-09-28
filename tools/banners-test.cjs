@@ -597,6 +597,45 @@ ok('sada, ve které je jen pruh odkazů, taky projde',
 ok('skript pruh odkazů kreslí', kod.includes('qbn-link'));
 ok('a na telefonu se posouvá prstem', script.includes('scroll-snap-type'));
 
+/* ---------- sdílení mezi zařízeními ---------- */
+
+console.log('\nsdílení mezi počítači:\n');
+
+/*
+ * Nastavení se nesmí „samo" měnit.
+ *
+ * Na druhém počítači se sada stáhne z vystaveného plánu — a dokud v něm
+ * nebyl společný vzhled sady, dosadily se výchozí hodnoty. Nejnápadněji
+ * na poloze textu: banner nastavený **dolů** se ukázal **uprostřed**,
+ * aniž by to kdokoli změnil.
+ */
+{
+  const dole = sada({
+    look: { ...T.sharedLook({}), pos: 'bottom', align: 'left', radius: 12, titleWeight: 700 },
+    banners: [banner(), banner({ id: 'b2', ownLook: true, look: { ...banner().look, pos: 'top' } })]
+  });
+  const vystavena = T.setRow(dole);
+  check('společný vzhled sady jde do plánu',
+    [vystavena.look.pos, vystavena.look.align, vystavena.look.radius], ['bottom', 'left', 12]);
+  check('a u banneru se pozná, jestli si vzhled řídí sám',
+    vystavena.banners.map(one => one.ownLook), [false, true]);
+
+  // Co se vystavilo, to se musí stáhnout stejné
+  const zpatky = T.normalizeSet({
+    ...vystavena,
+    name: 'Podzim',
+    banners: vystavena.banners.map(one => ({
+      ...one,
+      copy: { kicker: one.kicker, title: one.title, text: one.text, button: one.button, href: one.href }
+    }))
+  });
+  check('po stažení zůstává poloha textu dole',
+    [zpatky.look.pos, T.resolveLook(zpatky.banners[0], zpatky).pos], ['bottom', 'bottom']);
+  check('a banner s vlastním vzhledem si svoje nechá',
+    T.resolveLook(zpatky.banners[1], zpatky).pos, 'top');
+  ok('jméno sady se veze s sebou', vystavena.name === 'Podzim');
+}
+
 /* ---------- ikonka od AI ---------- */
 
 console.log('\nikonky od AI:\n');

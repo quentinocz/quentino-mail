@@ -1420,7 +1420,22 @@ function ShippingField() {
               <div className="field"><label>{one.label} — jméno</label>
                 <input value={one.user}
                   onChange={e => setLogins(list => list.map(x =>
-                    x.id === one.id ? { ...x, user: e.target.value } : x))} /></div>
+                    x.id === one.id ? { ...x, user: e.target.value } : x))} />
+                {/*
+                  * Třetí údaj se ukazuje jen tam, kde ho portál chce. PPL se
+                  * ptá na identifikaci firmy mezi jménem a heslem — bez ní se
+                  * přihlásit nedá a aplikace do toho políčka dřív psala jméno.
+                  */}
+                {one.extraLabel && (
+                  <>
+                    <label style={{ marginTop: 6 }}>{one.extraLabel}</label>
+                    <input value={one.extra}
+                      placeholder="bez něj se PPL nepřihlásí"
+                      onChange={e => setLogins(list => list.map(x =>
+                        x.id === one.id ? { ...x, extra: e.target.value } : x))} />
+                  </>
+                )}
+              </div>
               <div className="field"><label>Heslo {one.hasPassword ? '· uložené ✓' : ''}</label>
                 <input type="password" value={pass[one.id] ?? ''}
                   placeholder={one.hasPassword ? '••••••••  (vyplň jen pro změnu)' : 'nenastaveno'}
@@ -1436,7 +1451,7 @@ function ShippingField() {
                   <button className="btn ghost" disabled={busy === `log${one.id}`}
                     onClick={() => run(`log${one.id}`, async () => {
                       setLogins(await api.logins.save(one.id, {
-                        user: one.user, auto: one.auto,
+                        user: one.user, auto: one.auto, extra: one.extra,
                         ...(pass[one.id] ? { password: pass[one.id] } : {})
                       }));
                       setPass(p => ({ ...p, [one.id]: '' }));
