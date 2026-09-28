@@ -301,6 +301,44 @@ a.qbn-card:hover .qbn-btn[data-style="outline"] {
   background: var(--qbn-fg, #fff);
   color: var(--qbn-bg, #1c1c22);
 }
+/*
+ * Tlačítka v barvách e-shopu.
+ *
+ * Plné a obrysové tlačítko se dosud barvily podle dlaždice (bílá písmem),
+ * takže banner nikdy nesáhl po tom, co má e-shop jako kontrastní barvu.
+ * Zelená se bere z jeho vlastní proměnné (--gr, ta samá jako u odznaku
+ * s počtem kusů v košíku) a text na ní je černý — přesně jak to má ten
+ * odznak. Když si web zelenou přebarví, přebarví se i tlačítka.
+ */
+.qbn-btn[data-style="green"],
+.qbn-btn[data-style="greenline"] { --qbn-zel: var(--gr, #acc2ab); }
+.qbn-btn[data-style="green"] {
+  background: var(--qbn-zel);
+  color: var(--pr, #14150f);
+  border: 0;
+}
+a.qbn-card:hover .qbn-btn[data-style="green"] { filter: brightness(1.07); }
+.qbn-btn[data-style="greenline"] {
+  background: transparent;
+  border: 1.5px solid var(--qbn-zel);
+  color: var(--qbn-zel);
+  padding: 8.5px 18.5px;
+}
+a.qbn-card:hover .qbn-btn[data-style="greenline"] {
+  background: var(--qbn-zel);
+  color: var(--pr, #14150f);
+}
+/*
+ * Plné tmavé. Na světlé fotce je bílé plné tlačítko skoro neviditelné —
+ * tohle je pro ten případ, a drží se primární barvy e-shopu (černá).
+ */
+.qbn-btn[data-style="dark"] {
+  background: var(--pr, #14150f);
+  color: #ffffff;
+  border: 0;
+}
+a.qbn-card:hover .qbn-btn[data-style="dark"] { filter: brightness(1.35); }
+
 /* Prosklené: drží se fotky, ale text na něm zůstane čitelný */
 .qbn-btn[data-style="soft"] {
   background: rgba(255, 255, 255, .18);

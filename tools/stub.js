@@ -2540,7 +2540,7 @@
          */
         var html = '<!doctype html><meta charset="utf-8">'
           /* --gr je šalvějová zelená e-shopu, berou si z ní barvu tečky posuvníku */
-          + '<style>:root{--gr:#acc2ab}'
+          + '<style>:root{--gr:#acc2ab;--pr:#000}'
           + 'html,body{margin:0;background:#fff;color:#000;font-family:Rajdhani,sans-serif}'
           + '.qbn-ukazka{padding:0 16px;text-align:center}'
           + '.qbn-jako{height:64px;display:flex;align-items:center;justify-content:center;'

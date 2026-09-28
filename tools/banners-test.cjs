@@ -284,8 +284,21 @@ for (const field of ['fromMs', 'toMs', 'layout', 'phone', 'rotate', 'banners',
 for (const font of ['inter', 'jost', 'playfair', 'bebas']) {
   ok(`skript umí písmo ${font}`, kod.includes(font + ':'));
 }
-for (const style of ['fill', 'outline', 'soft', 'link']) {
+for (const style of ['fill', 'outline', 'green', 'greenline', 'dark', 'soft', 'link']) {
   ok(`skript umí tlačítko ${style}`, script.includes('data-style="' + style + '"'));
+}
+/*
+ * Zelená tlačítka si barvu berou z proměnné e-shopu, ne natvrdo — když
+ * si web zelenou přebarví, přebarví se i tlačítka. Natvrdo je jen
+ * náhradní hodnota, změřená na quentino.cz.
+ */
+ok('zelená tlačítka berou barvu z proměnné e-shopu', script.includes('var(--gr, #acc2ab)'));
+ok('a text na nich je v primární barvě e-shopu, jako odznak v košíku',
+  script.includes('color: var(--pr,'));
+/* A uložit se musí dát všechna, jinak je v rozhraní volba, co nic nedělá */
+for (const style of ['shop', 'fill', 'outline', 'green', 'greenline', 'dark', 'soft', 'link']) {
+  check(`tlačítko ${style} projde uložením`,
+    T.normalizeBanner({ look: { button: style } }).look.button, style);
 }
 /*
  * Tlačítko „jako na e-shopu" musí nést přesně ty třídy, kterými je psané

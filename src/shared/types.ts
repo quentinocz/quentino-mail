@@ -3166,7 +3166,23 @@ export type BannerFont = 'shop' | 'inter' | 'jost' | 'playfair' | 'bebas';
  * je na e-shopu všude jinde. Ostatní podoby jsou naše a hodí se, když má
  * banner ležet na tmavé fotce, kde by tlačítko webu zaniklo.
  */
-export type BannerButton = 'shop' | 'fill' | 'outline' | 'soft' | 'link';
+export type BannerButton =
+  /** Tlačítko ze šablony e-shopu — vypadá jako každé jiné na webu */
+  | 'shop'
+  /** Plné barvou písma dlaždice; na tmavé fotce nejvíc vidět */
+  | 'fill'
+  /** Jen rámeček, při najetí se vybarví */
+  | 'outline'
+  /** Plné v šalvějové zelené e-shopu, s černým písmem jako odznak v košíku */
+  | 'green'
+  /** Obrys v téže zelené; při najetí se vybarví */
+  | 'greenline'
+  /** Plné černé — na světlé fotce, kde bílé plné tlačítko zaniká */
+  | 'dark'
+  /** Průsvitné s rozostřením pozadí */
+  | 'soft'
+  /** Podtržený odkaz — když má mluvit fotka, ne tlačítko */
+  | 'link';
 
 /**
  * Vzhled, který se nastavuje **pro celou sadu naráz**.

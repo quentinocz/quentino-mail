@@ -718,6 +718,40 @@ for (const okno of OKNA) {
   say('  a jeho fotky se nestahují', pc.staryObrazek === 0, `${pc.staryObrazek} obrázků`);
   say('  odpočet je vidět', /\d/.test(pc.odpocet), pc.odpocet.replace(/\s+/g, ' ').slice(0, 40));
   say('  slevový kód taky', pc.kod === 'SLEVA10', pc.kod);
+
+  /*
+   * Tlačítka v barvách e-shopu. Měří se **vykreslená** barva, ne
+   * nastavení: zelená se bere z proměnné e-shopu (--gr) a překlep
+   * v názvu proměnné by se v kódu nepoznal — tlačítko by prostě
+   * zůstalo průhledné a nikdo by nevěděl proč.
+   */
+  await page.locator('.bn-parts .tab', { hasText: 'Vzhled' }).first().click();
+  const tlacitko = page.locator('.field', { hasText: 'Tlačítko' }).locator('select').first();
+  const ZELENA = 'rgb(172, 194, 171)';
+  const zmer = async volba => {
+    await tlacitko.selectOption(volba);
+    await page.waitForTimeout(700);
+    return page.frameLocator('.bn-frame').locator('.qbn-btn').first().evaluate(node => {
+      const css = getComputedStyle(node);
+      return { pozadi: css.backgroundColor, pismo: css.color, ramecek: css.borderTopColor };
+    });
+  };
+  const plne = await zmer('green');
+  say('  plné zelené tlačítko má zelenou e-shopu',
+    plne.pozadi === ZELENA, `pozadí ${plne.pozadi}, písmo ${plne.pismo}`);
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-tlacitka.png') });
+  const obrys = await zmer('greenline');
+  say('  zelený obrys má zelený rámeček i písmo, ale průhledné pozadí',
+    obrys.ramecek === ZELENA && obrys.pismo === ZELENA
+      && obrys.pozadi === 'rgba(0, 0, 0, 0)',
+    `rámeček ${obrys.ramecek}, písmo ${obrys.pismo}, pozadí ${obrys.pozadi}`);
+  const tmave = await zmer('dark');
+  say('  plné černé je černé s bílým písmem',
+    tmave.pismo === 'rgb(255, 255, 255)' && /rgb\(0, 0, 0\)|rgb\(20, 21, 15\)/.test(tmave.pozadi),
+    `pozadí ${tmave.pozadi}, písmo ${tmave.pismo}`);
+  await tlacitko.selectOption('shop');
+  await page.waitForTimeout(500);
+  await page.locator('.bn-parts .tab', { hasText: 'Text a odkaz' }).first().click();
   say('  a emoji uvnitř banneru padají', pc.vlocky > 4, `${pc.vlocky} kusů`);
   say('  text leží nad ztmavením fotky',
     pc.poradi.join(',').endsWith('qbn-body'), pc.poradi.join(' → '));

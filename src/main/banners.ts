@@ -127,7 +127,9 @@ const STYLES = vyber<BannerCardStyle>({ overlay: 1, under: 1, side: 1, frame: 1 
 const ALIGNS = vyber<BannerLook['align']>({ left: 1, center: 1, right: 1 });
 const POSITIONS = vyber<BannerLook['pos']>({ top: 1, middle: 1, bottom: 1 });
 const FONTS = vyber<BannerLook['font']>({ shop: 1, inter: 1, jost: 1, playfair: 1, bebas: 1 });
-const BUTTONS = vyber<BannerLook['button']>({ shop: 1, fill: 1, outline: 1, soft: 1, link: 1 });
+const BUTTONS = vyber<BannerLook['button']>({
+  shop: 1, fill: 1, outline: 1, green: 1, greenline: 1, dark: 1, soft: 1, link: 1
+});
 const KINDS = vyber<BannerSmart['kind']>({ none: 1, countdown: 1, code: 1, delivery: 1 });
 const EFFECTS = vyber<BannerEffect>({
   none: 1, snow: 1, rise: 1, confetti: 1, shine: 1, shimmer: 1, pulse: 1, float: 1, ken: 1, glow: 1
@@ -1185,7 +1187,7 @@ export function previewUrl(value: any, lang = 'cz'): string {
      * tečky posuvníku. V náhledu musí být taky, jinak by se tu zkoušela
      * jiná barva než na webu.
      */
-    ':root{--gr:#acc2ab}',
+    ':root{--gr:#acc2ab;--pr:#000}',
     'html,body{margin:0;background:#fff;color:#000;font-family:Rajdhani,sans-serif}',
     /*
      * Pozadí sekcí. Změřeno na quentino.cz: obsah stránky je bílý, ale

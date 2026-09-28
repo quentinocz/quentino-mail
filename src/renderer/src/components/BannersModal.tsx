@@ -128,6 +128,9 @@ const BUTTONS: { id: Banner['look']['button']; label: string; hint: string }[] =
   { id: 'shop', label: 'Jako na e-shopu', hint: 'Černé hranaté tlačítko ze šablony' },
   { id: 'fill', label: 'Plné', hint: 'Barvou písma — nejvíc vidět na tmavé fotce' },
   { id: 'outline', label: 'Obrys', hint: 'Jen rámeček, při najetí se vybarví' },
+  { id: 'green', label: 'Plné zelené', hint: 'Šalvějová zelená e-shopu, černé písmo' },
+  { id: 'greenline', label: 'Zelený obrys', hint: 'Rámeček v téže zelené, při najetí se vybarví' },
+  { id: 'dark', label: 'Plné černé', hint: 'Na světlou fotku, kde bílé tlačítko zaniká' },
   { id: 'soft', label: 'Prosklené', hint: 'Průsvitné s rozostřením pozadí' },
   { id: 'link', label: 'Podtržený odkaz', hint: 'Když má mluvit fotka, ne tlačítko' }
 ];
