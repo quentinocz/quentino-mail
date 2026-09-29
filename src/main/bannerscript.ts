@@ -1346,16 +1346,49 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
    * Knihovna by znamenala další stahovaný soubor na úvodní stránce kvůli
    * něčemu, co CSS umí samo.
    */
-  function karusel(kam, karty, every) {
+  function karusel(kam, karty, every, dokola) {
     var track = el("div", "qbn-track");
     for (var i = 0; i < karty.length; i++) track.appendChild(karty[i]);
     kam.appendChild(track);
 
     if (karty.length < 2) return;
 
+    /*
+     * Nekonečné otáčení.
+     *
+     * Bez něj se posuvník na poslední dlaždici **přetočil zpátky na
+     * začátek** — celá sada mu proletěla pod rukama zpátky a vypadalo to
+     * jako chyba, ne jako přechod. Tady se za originály pověsí jejich
+     * kopie a jakmile se na ně doroluje, scrollLeft se potichu vrátí
+     * o šířku jedné sady zpátky. Obraz je přitom totožný, takže se skok
+     * nedá poznat.
+     *
+     * Kopie jsou jen na dívání: čtečkám se schovají, z tabulátoru
+     * vypadnou a videa ani padající emoji se v nich nespouštějí —
+     * jinak by se totéž video stahovalo dvakrát.
+     */
+    var pocet = karty.length;
+    if (dokola) {
+      for (var c = 0; c < pocet; c++) {
+        var kopie = karty[c].cloneNode(true);
+        kopie.setAttribute("aria-hidden", "true");
+        kopie.setAttribute("tabindex", "-1");
+        var videa = kopie.querySelectorAll ? kopie.querySelectorAll("video") : [];
+        for (var v = 0; v < videa.length; v++) {
+          if (videa[v].parentNode) videa[v].parentNode.removeChild(videa[v]);
+        }
+        var efekty = kopie.querySelectorAll ? kopie.querySelectorAll(".qbn-fx") : [];
+        for (var e2 = 0; e2 < efekty.length; e2++) {
+          if (efekty[e2].parentNode) efekty[e2].parentNode.removeChild(efekty[e2]);
+        }
+        track.appendChild(kopie);
+      }
+    }
+
+    /* Teček je tolik, kolik je opravdových dlaždic — kopie se nepočítají */
     var dots = el("div", "qbn-dots");
     var tecky = [];
-    for (var d = 0; d < karty.length; d++) {
+    for (var d = 0; d < pocet; d++) {
       var dot = document.createElement("button");
       dot.className = "qbn-dot";
       dot.setAttribute("type", "button");
@@ -1371,7 +1404,8 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     }
     kam.appendChild(dots);
 
-    var ukaz = function () {
+    /** Která dlaždice je zrovna uprostřed — podle ní se řídí tečky i srovnání */
+    var nejblizsi = function () {
       var stred = track.scrollLeft + track.clientWidth / 2;
       var nej = 0;
       var nejlepsi = Infinity;
@@ -1381,16 +1415,46 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
         var vzdal = Math.abs(mid - stred);
         if (vzdal < nejlepsi) { nejlepsi = vzdal; nej = k; }
       }
+      return nej;
+    };
+
+    var ukaz = function () {
+      var nej = nejblizsi();
+      var ktera = nej % pocet;
       for (var t = 0; t < tecky.length; t++) {
-        if (t === nej) tecky[t].setAttribute("data-now", "1");
+        if (t === ktera) tecky[t].setAttribute("data-now", "1");
         else tecky[t].removeAttribute("data-now");
       }
       return nej;
     };
+
+    /* O kolik se posouvá jedna celá sada — podle toho se vrací zpátky */
+    var sirkaSady = function () {
+      var prvniKopie = track.children[pocet];
+      return prvniKopie ? prvniKopie.offsetLeft - track.children[0].offsetLeft : 0;
+    };
+    /*
+     * Srovnání se dělá až po dorolování, ne během něj: uprostřed tahu
+     * prstem by posunutí scrollLeft ucuklo pod rukou.
+     */
+    var srovnej = function () {
+      if (!dokola) return;
+      var sada = sirkaSady();
+      if (sada <= 0) return;
+      /*
+       * Rozhoduje **která dlaždice je uprostřed**, ne přesná hodnota
+       * scrollLeft: posuvník se přichytává (scroll-snap) a kvůli
+       * odsazení pásu dojede o pár bodů dřív, než začíná první kopie.
+       * Porovnání na čísla proto skok nikdy nespustilo.
+       */
+      if (nejblizsi() >= pocet) track.scrollLeft -= sada;
+      else if (track.scrollLeft < 1) track.scrollLeft += sada;
+    };
+
     var cekam = null;
     track.addEventListener("scroll", function () {
       if (cekam) return;
-      cekam = setTimeout(function () { cekam = null; ukaz(); }, 120);
+      cekam = setTimeout(function () { cekam = null; srovnej(); ukaz(); }, 120);
     }, { passive: true });
     ukaz();
 
@@ -1403,7 +1467,14 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     if (kazdych > 0 && !still) {
       var timer = setInterval(function () {
         if (!track.isConnected) { clearInterval(timer); return; }
-        var at = (ukaz() + 1) % track.children.length;
+        /*
+         * Při otáčení dokola se jde vždycky na další dlaždici, i když je
+         * to už kopie — právě to udělá plynulý přechod z poslední na
+         * první. Bez kopií se musí přetočit zpátky na začátek.
+         */
+        var at = dokola
+          ? Math.min(ukaz() + 1, track.children.length - 1)
+          : (ukaz() + 1) % track.children.length;
         var cil = track.children[at];
         if (cil) track.scrollTo({ left: cil.offsetLeft - track.offsetLeft, behavior: "smooth" });
       }, Math.max(2, kazdych) * 1000);
@@ -1726,7 +1797,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     }
 
     if (rozvrzeni === "carousel") {
-      karusel(hlBox, karty, data.rotate);
+      karusel(hlBox, karty, data.rotate, !!data.loop);
     } else {
       for (var k = 0; k < karty.length; k++) hlBox.appendChild(karty[k]);
     }
@@ -1794,7 +1865,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
         karty.push(jedna.node);
         if (jedna.tick) ticks.push(jedna.tick);
       }
-      karusel(box, karty, set.rotate);
+      karusel(box, karty, set.rotate, !!set.loop);
       odkazy(set);
       if (ticker) { clearInterval(ticker); ticker = null; }
       if (ticks.length > 0) {
@@ -1956,7 +2027,15 @@ function bezKomentaru(script: string): string {
     }
     if (trimmed.startsWith('//')) continue;
     if (!trimmed) continue;
-    out.push(line);
+    /*
+     * Odsazení taky pryč. Uvnitř <style> a <script> na něm nezáleží a
+     * dvě až šest mezer na začátku každého z patnácti set řádků je
+     * několik kilobajtů — a právě o kilobajty tady jde, protože pole
+     * v administraci Upgates má strop. Řetězec přes víc řádků ve
+     * skriptu není (to hlídá pravidlo o zpětných apostrofech), takže
+     * se ořezáním nic nerozbije.
+     */
+    out.push(trimmed);
   }
   return out.join('\n');
 }

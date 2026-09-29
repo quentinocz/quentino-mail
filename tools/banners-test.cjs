@@ -589,6 +589,8 @@ ok('a zahodí se i s obrázky', kod.includes('.bnr-group'));
  */
 ok('pruh odkazů má pod sebou vzduch',
   /\.qbn-links \{[^}]*margin:[^;]*--qbn-gap-half/.test(script));
+/* Odsazení se z vydávaného skriptu taky ořezává — jsou to kilobajty */
+ok('a odsazení se do e-shopu neposílá', !/\n {2,}/.test(bezZalohy));
 ok('a rozestupy se berou z jednoho čísla',
   script.includes('--qbn-gap-half:')
   && /\.qbn \{[^}]*margin: var\(--qbn-gap\) auto var\(--qbn-gap-half\)/.test(script)
@@ -1013,6 +1015,37 @@ for (const layout of ['mozaika', 'pruh', 'stridave', 'carousel']) {
   check(`rozvržení bloků: ${layout}`,
     T.normalizeSet({ highlights: { layout, phone: layout } }).highlights.layout, layout);
 }
+
+/* ---------- posuvník dokola ---------- */
+
+/*
+ * Bez otáčení dokola se posuvník na poslední dlaždici přetočí zpátky na
+ * začátek — celá sada proletí pod rukama zpátky a vypadá to jako chyba.
+ * S ním se za originály pověsí kopie a scrollLeft se potichu vrátí.
+ */
+console.log('\nposuvník dokola:\n');
+
+ok('volba se uloží', T.normalizeSet({ loop: true }).loop === true);
+ok('a u bloků pod bannerem taky',
+  T.normalizeSet({ highlights: { loop: true } }).highlights.loop === true);
+ok('nesmysl místo pravda/nepravda se srovná', T.normalizeSet({ loop: 'ano' }).loop === true
+  && T.normalizeSet({}).loop === false);
+{
+  const sada2 = sada({ phone: 'carousel', loop: true });
+  const row = T.setRow(sada2);
+  ok('na web se posílá spolu se sadou', row.loop === true);
+}
+ok('skript kopie dlaždic vůbec umí', kod.includes('cloneNode'));
+/*
+ * Kopie jsou jen na dívání: čtečkám se schovají a videa se v nich
+ * nespouštějí — jinak by se totéž video stahovalo dvakrát.
+ */
+ok('a kopie se schovají čtečkám i tabulátoru',
+  kod.includes('aria-hidden') && kod.includes('tabindex'));
+ok('videa ani efekty se v kopiích nespouštějí',
+  /kopie\.querySelectorAll\("video"\)/.test(kod) && kod.includes('".qbn-fx"'));
+/* Teček je tolik, kolik je opravdových dlaždic — kopie se nepočítají */
+ok('tečky počítají jen opravdové dlaždice', kod.includes('nej % pocet'));
 
 /* ---------- cesta tam a zpátky ---------- */
 

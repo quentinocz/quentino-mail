@@ -2596,12 +2596,13 @@
           id: sada.id || 'nahled', fromMs: 0, toMs: Number.MAX_SAFE_INTEGER,
           layout: sada.layout || 'quad', phone: sada.phone || 'grid',
           ratio: sada.ratio || 'auto', phoneRatio: sada.phoneRatio || 'auto',
-          rotate: sada.rotate || 0, banners: radky,
+          rotate: sada.rotate || 0, loop: !!sada.loop, banners: radky,
           links: sada.links && sada.links.on ? sada.links : undefined,
           highlights: bloky.length > 0 ? {
             where: sada.highlights.where, layout: sada.highlights.layout,
             phone: sada.highlights.phone, ratio: sada.highlights.ratio,
             phoneRatio: sada.highlights.phoneRatio, rotate: sada.highlights.rotate,
+            loop: !!sada.highlights.loop,
             banners: bloky
           } : undefined
         });

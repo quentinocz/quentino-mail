@@ -1074,6 +1074,48 @@ for (const okno of OKNA) {
   say('  a na té činné je poznat, která to je',
     posuv?.cinnaJinak === true, 'rozdíl v sytosti i velikosti');
   await page.screenshot({ path: path.join(SHOTS, 'bannery-posuvnik.png') });
+
+  /*
+   * Posuvník dokola. Bez něj se na poslední dlaždici přetočí zpátky na
+   * začátek — celá sada proletí pod rukama zpátky a vypadá to jako
+   * chyba. Zkouší se to, co se děje ve stránce: za originály musí
+   * přibýt kopie, teček zůstat tolik, kolik je opravdových dlaždic,
+   * a odrolování na konec se musí samo vrátit o jednu sadu zpátky.
+   */
+  await page.locator('.check-row', { hasText: 'Posuvník dokola' }).locator('input').check();
+  await page.waitForTimeout(900);
+  const dokola = await page.frameLocator('.bn-frame').locator('.qbn').evaluate(async node => {
+    const track = node.querySelector('.qbn-track');
+    if (!track) return null;
+    const tecek = node.querySelectorAll('.qbn-dot').length;
+    const dlazdic = track.children.length;
+    const kopie = [...track.children].filter(one => one.getAttribute('aria-hidden') === 'true');
+    const sada = kopie.length
+      ? kopie[0].offsetLeft - track.children[0].offsetLeft
+      : 0;
+    // Odrolovat až na první kopii a počkat, až si to posuvník srovná
+    track.scrollLeft = sada;
+    await new Promise(r => setTimeout(r, 400));
+    return {
+      dlazdic,
+      tecek,
+      kopii: kopie.length,
+      // Kopie nesmí mít vlastní video ani padající emoji
+      videaVKopii: kopie.reduce((n, one) => n + one.querySelectorAll('video,.qbn-fx').length, 0),
+      poSrovnani: Math.round(track.scrollLeft),
+      sada: Math.round(sada)
+    };
+  });
+  say('  posuvník se dá přepnout na otáčení dokola',
+    dokola?.kopii === 4 && dokola?.dlazdic === 8 && dokola?.tecek === 4,
+    `${dokola?.dlazdic} dlaždic, z toho ${dokola?.kopii} kopií, ${dokola?.tecek} teček`);
+  say('  a na konci se vrátí na začátek, aniž by to bylo vidět',
+    !!dokola && dokola.sada > 0 && dokola.poSrovnani < dokola.sada / 2,
+    `po srovnání ${dokola?.poSrovnani} z ${dokola?.sada} px`);
+  say('  kopie nestahují video ani nepouštějí efekty znovu',
+    dokola?.videaVKopii === 0, `${dokola?.videaVKopii} navíc`);
+  await page.locator('.check-row', { hasText: 'Posuvník dokola' }).locator('input').uncheck();
+  await page.waitForTimeout(500);
   await page.locator('.bn-layout .tab', { hasText: '2 vedle sebe' }).first().click();
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(SHOTS, 'bannery-sada.png') });

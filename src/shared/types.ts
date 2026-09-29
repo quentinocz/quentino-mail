@@ -3373,6 +3373,14 @@ export interface BannerSet {
    * bannerem poskakuje.
    */
   rotate: number;
+  /**
+   * Posuvník se otáčí dokola.
+   *
+   * Bez toho se na poslední dlaždici přetočí zpátky na začátek a celá
+   * sada proletí pod rukama zpátky — vypadá to jako chyba, ne jako
+   * přechod. Platí jen tam, kde je posuvník; jinde nemá co dělat.
+   */
+  loop: boolean;
   banners: Banner[];
   /** Odkazy na oblíbené kategorie pod bannerem */
   links: BannerLinks;
@@ -3424,6 +3432,8 @@ export interface BannerHighlights {
   look: BannerSharedLook;
   /** Po kolika vteřinách se posuvník přetočí; 0 = nerotovat */
   rotate: number;
+  /** Posuvník se otáčí dokola, bez přetočení zpátky na začátek */
+  loop: boolean;
   banners: Banner[];
 }
 

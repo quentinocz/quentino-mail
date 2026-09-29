@@ -286,7 +286,7 @@ const newId = () => (globalThis.crypto?.randomUUID?.()
 function blankSet(): BannerSet {
   return {
     id: newId(), name: '', from: '', to: '', fromMs: 0, toMs: 0, off: false,
-    layout: 'quad', phone: 'grid', rotate: 0,
+    layout: 'quad', phone: 'grid', rotate: 0, loop: false,
     look: blankShared(), ratio: 'auto', phoneRatio: 'auto',
     banners: [{ ...blankBanner(), id: newId() }],
     links: { on: false, shape: 'circle', items: [] },
@@ -297,7 +297,7 @@ function blankSet(): BannerSet {
      */
     highlights: {
       on: false, where: 'all', layout: 'mozaika', phone: 'carousel',
-      ratio: 'auto', phoneRatio: 'auto', look: blankShared(), rotate: 0, banners: []
+      ratio: 'auto', phoneRatio: 'auto', look: blankShared(), rotate: 0, loop: false, banners: []
     }
   };
 }
@@ -1145,6 +1145,20 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                           <input type="number" min={0} max={60} value={draft.rotate}
                             onChange={e => setSet({ rotate: Number(e.target.value) || 0 })} />
                         </div>
+                        {/*
+                          * Dokola dává smysl jen u posuvníku: v mřížce není
+                          * co přetáčet. Bez něj se na poslední dlaždici
+                          * přetočí zpátky na začátek a celá sada proletí
+                          * pod rukama zpátky — vypadá to jako chyba.
+                          */}
+                        {draft.phone === 'carousel' && (
+                          <label className="check-row" style={{ margin: 0 }}
+                            data-tip="Za poslední dlaždicí plynule pokračuje první, bez přetočení zpátky">
+                            <input type="checkbox" checked={draft.loop}
+                              onChange={e => setSet({ loop: e.target.checked })} />
+                            Posuvník dokola
+                          </label>
+                        )}
                         <div className="field">
                           <label>Tvar dlaždice</label>
                           <select value={draft.ratio}
@@ -1255,6 +1269,14 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               <input type="range" min={0} max={20} value={hl().rotate}
                                 onChange={e => setHl({ rotate: Number(e.target.value) })} />
                             </div>
+                            {(hl().layout === 'carousel' || hl().phone === 'carousel') && (
+                              <label className="check-row" style={{ margin: 0 }}
+                                data-tip="Za posledním blokem plynule pokračuje první, bez přetočení zpátky">
+                                <input type="checkbox" checked={hl().loop}
+                                  onChange={e => setHl({ loop: e.target.checked })} />
+                                Dokola
+                              </label>
+                            )}
                             </>)}
                           </div>
                         </>

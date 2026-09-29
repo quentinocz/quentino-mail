@@ -422,6 +422,7 @@ function highlights(value: any): BannerHighlights {
     phoneRatio: ratio(value?.phoneRatio),
     look: sharedLook(value?.look),
     rotate: clamp(value?.rotate, 0, 60, 0),
+    loop: !!value?.loop,
     banners: (Array.isArray(value?.banners) ? value.banners : [])
       .slice(0, MAX_HIGHLIGHTS).map(normalizeBanner)
   };
@@ -459,6 +460,7 @@ export function normalizeSet(value: any): BannerSet {
     ratio: ratio(value?.ratio),
     phoneRatio: ratio(value?.phoneRatio),
     rotate: clamp(value?.rotate, 0, 60, 0),
+    loop: !!value?.loop,
     banners,
     links: links(value?.links),
     highlights: highlights(value?.highlights)
@@ -605,6 +607,7 @@ export function setRow(set: BannerSet): any {
     ratio: set.ratio,
     phoneRatio: set.phoneRatio,
     rotate: set.rotate,
+    loop: set.loop,
     banners: liveBanners(set).map(one => bannerRow(one, set))
   };
   /*
@@ -621,6 +624,7 @@ export function setRow(set: BannerSet): any {
       ratio: set.highlights.ratio,
       phoneRatio: set.highlights.phoneRatio,
       rotate: set.highlights.rotate,
+      loop: set.highlights.loop,
       // Pro druhou aplikaci, ne pro web — stejně jako u sady
       look: set.highlights.look,
       banners: bloky.map(one => bannerRow(one, { ...set, look: set.highlights.look }))
