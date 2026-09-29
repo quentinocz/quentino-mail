@@ -3987,9 +3987,34 @@ button, kbd, label,
 .igd-wish { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .igd-wish input { width: 100%; }
 .igd-wish .desc { grid-column: 1 / -1; margin: 0; }
-.igd-langs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.igd-langs .desc { margin: 0; }
-.igd-langs .tab { text-transform: uppercase; font-size: 11.5px; }
+/*
+ * Filtr podle toho, co zbývá. „Chybí fotky" je nejčastější dotaz ze
+ * všech — fotí se dávkou a je potřeba vědět, ke kterým příspěvkům.
+ * Číslo u názvu říká, kolik jich v té skupině je, takže se nemusí
+ * proklikávat, aby se zjistilo, že je prázdná.
+ */
+.igd-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.igd-filters .desc { margin: 0; }
+.igd-filters .tab em { margin-left: 5px; font-style: normal; opacity: .6; font-size: 11px; }
+
+/* Odkud příspěvek je: návrh od aplikace se čte jinak pozorně než vlastní */
+.igd-origin {
+  margin-top: 5px;
+  align-self: flex-start;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+}
+.igd-origin.ai { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-dark); }
+
+/* Kolik trhů má text — číslem, z teček se to u pěti trhů počítalo okem */
+.igd-trhy { font-size: 11px; color: var(--text-2); }
+.igd-trhy.ok { color: var(--ok); }
 
 .igd-list { display: flex; flex-direction: column; gap: 10px; }
 .igd-card {

@@ -139,12 +139,28 @@ export function getPost(id: number): IgPost | null {
   return store.getPost(id);
 }
 
+/**
+ * Všechno, co čeká na práci — plán i rozdělané v jednom.
+ *
+ * Dřív to byly dva seznamy ve dvou položkách menu a rozdíl mezi nimi
+ * nedával smysl ani mně: „plán" byly příspěvky s termínem, ale bez textů
+ * (ty vznikají až generováním), „rozdělané" ty, co už nějaký text měly.
+ * Jenže je to jedna a tatáž práce a totéž zboží — jen v jiné fázi.
+ * Dva seznamy znamenaly dvě místa, kde hledat, a příspěvek mezi nimi
+ * beze slova přeskakoval, jakmile se vygeneroval text.
+ *
+ * Řadí se podle termínu (nejbližší nahoře), co termín nemá, jde na
+ * konec — to se dodělává, až zbude čas.
+ */
 export function listDrafts(): IgPost[] {
   const rows = getDb().prepare(
     `SELECT p.id FROM ig_posts p
      WHERE p.archived = 0
-       AND EXISTS (SELECT 1 FROM ig_captions c WHERE c.post_id = p.id AND c.status != 'published')
-     ORDER BY p.created_at DESC LIMIT 40`
+       AND NOT EXISTS (
+         SELECT 1 FROM ig_captions c WHERE c.post_id = p.id AND c.status = 'published'
+       )
+     ORDER BY CASE WHEN p.plan_at = '' THEN 1 ELSE 0 END, p.plan_at, p.created_at DESC
+     LIMIT 80`
   ).all() as any[];
   return rows.map(r => store.getPost(r.id)).filter((p): p is IgPost => !!p);
 }

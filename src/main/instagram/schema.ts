@@ -66,6 +66,11 @@ export const igSchema = `
     -- sezóna, ze zákulisí. Podle toho se hlídá, aby měsíc nebyl
     -- třicetkrát totéž.
     plan_kind TEXT NOT NULL DEFAULT '',
+    -- Odkud příspěvek pochází: 'ai' z návrhu plánovače, 'hand' od člověka,
+    -- 'repost' z přepisu vlastního příspěvku. V jednom seznamu je potřeba
+    -- poznat, co vymyslela aplikace a co člověk — u návrhu se čte jinak
+    -- pozorně než u toho, co jsem psal sám.
+    origin TEXT NOT NULL DEFAULT '',
     -- Krátký název do přehledu.
     --
     -- Dřív se bral první řádek zadání — jenže zadání začíná textem
@@ -179,6 +184,7 @@ export const igAlters: string[] = [
   "ALTER TABLE ig_posts ADD COLUMN plan_kind TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_idea TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_code TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ig_posts ADD COLUMN origin TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_title TEXT NOT NULL DEFAULT ''",
   'ALTER TABLE ig_posts ADD COLUMN approved INTEGER NOT NULL DEFAULT 0',
   "ALTER TABLE ig_posts ADD COLUMN approved_at TEXT NOT NULL DEFAULT ''",

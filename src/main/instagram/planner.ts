@@ -315,8 +315,16 @@ export async function proposeMonth(now = new Date()): Promise<IgPlanProposal[]> 
   };
 
   rozhlas('ig:planStep', { hotovo: 0, celkem: terminy.length, items: [] });
+  /*
+   * Strop musí stačit na celý měsíc. Dvanáct příspěvků s hotovým textem
+   * a hashtagy je přes čtyři tisíce tokenů, třicet příspěvků víc než
+   * deset — s osmi tisíci se odpověď usekla a celý návrh spadl na
+   * „Odpověď se nevešla do limitu". Počítá se proto z počtu termínů
+   * a askLong si navíc umí říct o pokračování.
+   */
+  const strop = Math.min(32_000, Math.max(8_000, terminy.length * 700 + 2_000));
   const raw = await askLong(getSettings().draftModel, SYSTEM, zadani, {
-    maxTokens: 8000,
+    maxTokens: strop,
     onChunk: text => krok(text)
   });
   /*
@@ -356,7 +364,18 @@ export async function proposeOne(wish = '', now = new Date()): Promise<IgPlanPro
     setup.note ? `Na co nezapomenout: ${setup.note}` : ''
   ].filter(Boolean).join('\n');
 
-  const raw = await ask(getSettings().draftModel, SYSTEM, zadani, 1600);
+  /*
+   * Useknutá odpověď se nezahazuje. Když model narazí na strop uprostřed
+   * druhého příspěvku, ten první je celý a je z čeho vyjít — spadnout na
+   * „Odpověď se nevešla do limitu" by znamenalo zahodit hotovou práci.
+   */
+  let raw = '';
+  try {
+    raw = await ask(getSettings().draftModel, SYSTEM, zadani, 3000);
+  } catch (e: any) {
+    if (!e?.truncated || !e?.partial) throw e;
+    raw = String(e.partial);
+  }
   const { kusy } = hotoveObjekty(raw, Math.max(0, raw.indexOf('[')));
   for (const kus of kusy) {
     let one: any = null;
@@ -413,7 +432,9 @@ export function zaloz(one: any, terminPovinny = false): number {
     /* Krátký název do přehledu — bez něj v plánu stála první věta textu */
     planTitle: String(one?.title ?? '').trim().slice(0, 80),
     planIdea: String(one?.idea ?? '').trim(),
-    planCode: String(one?.code ?? '').trim()
+    planCode: String(one?.code ?? '').trim(),
+    /* Z návrhu, ne od člověka — v seznamu se to má poznat */
+    origin: 'ai'
   });
 }
 

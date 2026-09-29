@@ -340,13 +340,15 @@ export function sourcePost(id: number): any {
 export function createPost(p: {
   kind: 'new' | 'source'; sourcePostId?: number | null; brief?: string; mediaNote?: string;
   planAt?: string; planKind?: string; planTitle?: string; planIdea?: string; planCode?: string;
+  origin?: string;
 }): number {
   const r = getDb().prepare(
     `INSERT INTO ig_posts (kind, source_post_id, brief, media_note, plan_at, plan_kind,
-       plan_title, plan_idea, plan_code)
-     VALUES (?,?,?,?,?,?,?,?,?)`
+       plan_title, plan_idea, plan_code, origin)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
   ).run(p.kind, p.sourcePostId ?? null, p.brief ?? '', p.mediaNote ?? '',
-    p.planAt ?? '', p.planKind ?? '', p.planTitle ?? '', p.planIdea ?? '', p.planCode ?? '');
+    p.planAt ?? '', p.planKind ?? '', p.planTitle ?? '', p.planIdea ?? '', p.planCode ?? '',
+    p.origin ?? (p.kind === 'source' ? 'repost' : 'hand'));
   return Number(r.lastInsertRowid);
 }
 
@@ -466,6 +468,7 @@ export function getPost(id: number): IgPost | null {
     createdAt: p.created_at, media, captions: caps,
     planAt: p.plan_at ?? '', planKind: p.plan_kind ?? '',
     planTitle: p.plan_title ?? '', planIdea: p.plan_idea ?? '', planCode: p.plan_code ?? '',
+    origin: String(p.origin ?? '') || (p.kind === 'source' ? 'repost' : 'hand'),
     approved: !!p.approved, approvedAt: p.approved_at ?? '',
     sourceCaption: src?.caption ?? '', sourcePermalink: src?.permalink ?? ''
   };

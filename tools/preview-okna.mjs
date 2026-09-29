@@ -364,34 +364,66 @@ for (const okno of OKNA) {
   await page.screenshot({ path: path.join(SHOTS, 'okno-socialni.png') });
 
   /*
-   * Plán na měsíc. Tohle je ta obrazovka, od které se měsíc začíná:
-   * vidět má být, co se blíží a hlavně **co k tomu chybí** — den před
-   * termínem je pozdě zjišťovat, že nejsou fotky.
+   * Příspěvky — plán i rozdělaná práce v jednom. Dřív to byly dvě
+   * obrazovky a rozdíl mezi nimi byl jen technický: v plánu příspěvky
+   * bez textů, mezi rozdělanými ty s texty. Hledalo se na dvou místech
+   * a příspěvek mezi nimi beze slova přeskakoval.
    */
-  await page.locator('.side-item', { hasText: 'Plán na měsíc' }).click();
-  await page.waitForTimeout(500);
-  const plan = await page.evaluate(() => {
-    const radky = [...document.querySelectorAll('.ig-plan-row')];
+  await page.locator('.side-item', { hasText: 'Příspěvky' }).click();
+  await page.waitForTimeout(600);
+  const prispevky = await page.evaluate(() => {
+    const karty = [...document.querySelectorAll('.igd-card')];
     return {
-      radku: radky.length,
+      karet: karty.length,
       tydnu: document.querySelectorAll('.ig-plan-week').length,
-      // Stav musí být poznat dřív, než se text přečte — proužkem u kraje
-      stavy: radky.map(one => (one.className.match(/warn|ok|done/) ?? [''])[0]),
-      varovani: (document.querySelector('.ig-plan .md-warn')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
-      druhy: [...document.querySelectorAll('.ig-plan-row .ig-plan-kind')].map(one => one.textContent?.trim() ?? '')
+      // Návrh od aplikace se čte jinak pozorně než vlastní příspěvek
+      puvody: [...document.querySelectorAll('.igd-origin')].map(one => one.textContent.trim()),
+      // Kolik trhů má text — číslem, ne počítáním barevných teček
+      trhy: [...document.querySelectorAll('.igd-trhy')].map(one => one.textContent.trim()),
+      filtry: [...document.querySelectorAll('.igd-filters .tab:not(.igd-lang-tab)')]
+        .map(one => one.textContent.trim()),
+      jazyky: document.querySelectorAll('.igd-filters .igd-lang-tab').length,
+      snimku: document.querySelectorAll('.igd-thumb').length,
+      bezFotek: document.querySelectorAll('.igd-nomedia').length,
+      varovani: [...document.querySelectorAll('.igd-warn')].map(one => one.textContent.trim()),
+      zamcene: [...document.querySelectorAll('.igd-approve input')].filter(one => one.disabled).length,
+      odsouhlasene: document.querySelectorAll('.igd-card.ok').length,
+      tazeni: karty.filter(one => one.getAttribute('draggable') === 'true').length,
+      smazat: document.querySelectorAll('.igd-btns .icon-btn.danger').length
     };
   });
-  say('plán na měsíc ukazuje, co je kdy a co chybí',
-    plan.radku === 4 && plan.tydnu >= 1 && plan.stavy.includes('warn') && plan.stavy.includes('ok'),
-    `${plan.radku} řádků v ${plan.tydnu} týdnech, stavy ${plan.stavy.join('/')}`);
-  say('  a nahoře stojí, u kolika příspěvků nejsou fotky',
-    /nejsou fotky/.test(plan.varovani), plan.varovani || 'bez varování');
-  /*
-   * Druhy se střídají schválně: měsíc třicetkrát o tomtéž zboží je
-   * přesně to, co plánovač má rozbít.
-   */
-  say('  a druhy příspěvků se střídají',
-    new Set(plan.druhy).size >= 3, plan.druhy.join(' · '));
+  say('příspěvky jsou plán i rozdělaná práce v jednom seznamu',
+    prispevky.karet === 3 && prispevky.tydnu >= 2,
+    `${prispevky.karet} karet v ${prispevky.tydnu} skupinách`);
+  say('  je poznat, co navrhla aplikace a co jsem psal sám',
+    prispevky.puvody.includes('návrh') && prispevky.puvody.includes('ruční'),
+    prispevky.puvody.join(' · '));
+  say('  a u každého, kolik trhů už má text',
+    prispevky.trhy.length === 3 && /\d+ \/ \d+ trhů/.test(prispevky.trhy[0]),
+    prispevky.trhy.join(' | '));
+  say('  filtr říká, kolik čeho zbývá',
+    prispevky.filtry.length === 5 && /Chybí fotky\s*\d/.test(prispevky.filtry[1]),
+    prispevky.filtry.join(' · '));
+  say('  a text jde přepnout na jiný trh', prispevky.jazyky >= 3, `${prispevky.jazyky} voleb`);
+  say('  karta vypadá jako budoucí příspěvek',
+    prispevky.snimku >= 3 && prispevky.bezFotek === 1,
+    `${prispevky.snimku} náhledů, ${prispevky.bezFotek}× nápad na focení`);
+  say('  a co se nestíhá, se řekne přímo na kartě',
+    prispevky.varovani.length === 2, prispevky.varovani.join(' | '));
+  say('  bez fotky nejde odsouhlasit', prispevky.zamcene === 1, `${prispevky.zamcene}×`);
+  say('  odsouhlasený je poznat bez čtení', prispevky.odsouhlasene === 1,
+    `${prispevky.odsouhlasene}×`);
+  say('  příspěvky s termínem jdou přetáhnout', prispevky.tazeni === 3, `${prispevky.tazeni}×`);
+  say('  a jde je smazat', prispevky.smazat === 3, `${prispevky.smazat}×`);
+
+  /* Filtrování podle toho, co zbývá — fotí se dávkou */
+  await page.locator('.igd-filters .tab', { hasText: 'Chybí fotky' }).click();
+  await page.waitForTimeout(300);
+  const jenBezFotek = await page.evaluate(() => document.querySelectorAll('.igd-card').length);
+  say('  filtr opravdu filtruje', jenBezFotek === 1, `${jenBezFotek} karta`);
+  await page.locator('.igd-filters .tab', { hasText: 'Vše' }).click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-social-prispevky.png') });
 
   await page.locator('.ig-plan-actions .btn.primary', { hasText: 'Navrhnout měsíc' }).click();
   await page.waitForTimeout(700);
@@ -407,49 +439,10 @@ for (const okno of OKNA) {
   await page.screenshot({ path: path.join(SHOTS, 'okno-social-plan.png') });
 
   /*
-   * Rozdělané příspěvky. Karta má vypadat jako budoucí příspěvek —
-   * fotky, text, datum — protože podle řádku textu se nepoznalo, jestli
-   * je práce hotová. A co chybí, musí být vidět bez čtení.
+   * Jeden příspěvek na vyžádání — bez plánování celého měsíce.
+   * Přání je nepovinné: bez něj si téma vybere sám.
    */
-  await page.locator('.side-item', { hasText: 'Rozpracované' }).click();
-  await page.waitForTimeout(600);
-  const rozdelane = await page.evaluate(() => {
-    const karty = [...document.querySelectorAll('.igd-card')];
-    const prvni = karty[0];
-    return {
-      karet: karty.length,
-      // Fotky na kartě: bez nich by to byl zase jen řádek textu
-      snimku: document.querySelectorAll('.igd-thumb').length,
-      bezFotek: document.querySelectorAll('.igd-nomedia').length,
-      datum: (prvni?.querySelector('.igd-when b')?.textContent ?? '').trim(),
-      schvalovatko: document.querySelectorAll('.igd-approve input').length,
-      // Bez fotky nejde odsouhlasit — zaškrtávátko je nepřístupné
-      zamcene: [...document.querySelectorAll('.igd-approve input')].filter(one => one.disabled).length,
-      odsouhlasene: document.querySelectorAll('.igd-card.ok').length,
-      varovani: [...document.querySelectorAll('.igd-warn')].map(one => one.textContent.trim()),
-      tazeni: karty.filter(one => one.getAttribute('draggable') === 'true').length,
-      jazyky: document.querySelectorAll('.igd-langs .tab').length,
-      smazat: document.querySelectorAll('.igd-btns .icon-btn.danger').length
-    };
-  });
-  say('rozdělané příspěvky vypadají jako budoucí příspěvek',
-    rozdelane.karet === 3 && rozdelane.snimku >= 4 && !!rozdelane.datum,
-    `${rozdelane.karet} karet, ${rozdelane.snimku} náhledů, první na ${rozdelane.datum}`);
-  say('  u příspěvku bez fotek je vidět nápad na focení',
-    rozdelane.bezFotek === 1, `${rozdelane.bezFotek}×`);
-  say('  bez fotky nejde odsouhlasit', rozdelane.zamcene === 1,
-    `${rozdelane.zamcene} z ${rozdelane.schvalovatko} zamčených`);
-  say('  odsouhlasený příspěvek je poznat bez čtení', rozdelane.odsouhlasene === 1,
-    `${rozdelane.odsouhlasene} označených`);
-  say('  a co se nestíhá, se řekne přímo na kartě',
-    rozdelane.varovani.length === 2, rozdelane.varovani.join(' | '));
-  say('  příspěvky s termínem jdou přetáhnout', rozdelane.tazeni === 3, `${rozdelane.tazeni}×`);
-  say('  jazyk náhledu se dá přepnout', rozdelane.jazyky >= 3, `${rozdelane.jazyky} voleb`);
-  say('  a příspěvek jde smazat', rozdelane.smazat === 3, `${rozdelane.smazat}×`);
-  await page.screenshot({ path: path.join(SHOTS, 'okno-social-rozdelane.png') });
-
-  /* Jeden příspěvek na vyžádání — bez plánování celého měsíce */
-  await page.locator('.ig-plan-actions .btn.ghost', { hasText: 'Navrhnout příspěvek' }).click();
+  await page.locator('.ig-plan-actions .btn.ghost', { hasText: 'Jeden příspěvek' }).click();
   await page.waitForTimeout(400);
   const prani = await page.evaluate(() => ({
     policko: !!document.querySelector('.igd-wish input'),

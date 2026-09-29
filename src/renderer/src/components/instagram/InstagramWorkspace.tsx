@@ -9,11 +9,10 @@ import { useIsPhone } from '../../mobile';
 import { Sheet, SheetActions } from '../Sheet';
 import IgFeed from './IgFeed';
 import IgCompose from './IgCompose';
-import IgDrafts from './IgDrafts';
+import IgPosts from './IgPosts';
 import IgQueue from './IgQueue';
 import IgAccounts from './IgAccounts';
 import IgBrand from './IgBrand';
-import IgPlan from './IgPlan';
 
 /*
  * `compose` je seznam rozdělaných, `new` je psaní nového příspěvku.
@@ -21,7 +20,14 @@ import IgPlan from './IgPlan';
  * kdo se šel podívat na rozdělanou práci, musel se k ní prorolovat přes
  * prázdný formulář, který zrovna nepotřeboval.
  */
-export type IgView = 'feed' | 'plan' | 'compose' | 'new' | 'queue' | 'accounts' | 'brand';
+/*
+ * `posts` je plán i rozdělaná práce v jednom, `new` je psaní nového
+ * příspěvku. Dřív to byly tři obrazovky — plán, rozdělané a formulář —
+ * a rozdíl mezi prvními dvěma byl jen technický: v plánu byly příspěvky
+ * bez textů, mezi rozdělanými ty s texty. Je to přitom jedna práce, jen
+ * v jiné fázi, takže se hledalo na dvou místech.
+ */
+export type IgView = 'feed' | 'posts' | 'new' | 'queue' | 'accounts' | 'brand';
 
 interface Props {
   onOpenSettings: () => void;
@@ -70,7 +76,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
     }
   }), [toast, load]);
 
-  const openPost = useCallback((id: number) => { setPostId(id); setView('compose'); }, []);
+  const openPost = useCallback((id: number) => { setPostId(id); setView('new'); }, []);
 
   const newPost = useCallback(() => { setPostId(null); setView('new'); }, []);
 
@@ -124,8 +130,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
         <div className="ig-topbar">
           <div className="ig-nav">
             {tab('feed', 'Feed')}
-            {tab('plan', 'Plán')}
-            {tab('compose', 'Rozpracované')}
+            {tab('posts', 'Příspěvky')}
             {tab('queue', 'Fronta', (overview?.queued ?? 0) + (overview?.failed ?? 0))}
           </div>
           <button
@@ -140,11 +145,10 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
           {view === 'feed' && overview && (
             <IgFeed overview={overview} onOpenPost={openPost} onSyncAll={() => sync(true)} />
           )}
-          {view === 'plan' && overview && <IgPlan overview={overview} onOpenPost={openPost} />}
-          {view === 'compose' && overview && postId == null && (
-            <IgDrafts overview={overview} onOpenPost={id => { setPostId(id); setView('new'); }} />
+          {view === 'posts' && overview && (
+            <IgPosts overview={overview} onOpenPost={id => { setPostId(id); setView('new'); }} />
           )}
-          {((view === 'compose' && postId != null) || view === 'new') && overview && (
+          {view === 'new' && overview && (
             <IgCompose overview={overview} postId={postId} onPostId={setPostId}
               onGoQueue={() => setView('queue')} />
           )}
@@ -217,9 +221,8 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
             * začíná měsíc. Rozdělané příspěvky jsou až důsledek toho, co
             * se v plánu rozhodlo.
             */}
-          {item('plan', 'sunrise', 'Plán na měsíc', undefined,
-            'Návrh příspěvků podle toho, co se prodávalo a co leží skladem')}
-          {item('compose', 'pen', 'Rozpracované')}
+          {item('posts', 'sunrise', 'Příspěvky', undefined,
+            'Plán i rozdělaná práce — co se blíží a co k tomu ještě chybí')}
           {item('queue', 'clock', 'Fronta a plán', (overview?.queued ?? 0) + (overview?.failed ?? 0))}
 
           <div className="side-section">Nastavení</div>
@@ -250,11 +253,10 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
         {view === 'feed' && overview && (
           <IgFeed overview={overview} onOpenPost={openPost} onSyncAll={() => sync(true)} />
         )}
-        {view === 'plan' && overview && <IgPlan overview={overview} onOpenPost={openPost} />}
-        {view === 'compose' && overview && postId == null && (
-          <IgDrafts overview={overview} onOpenPost={id => { setPostId(id); setView('new'); }} />
+        {view === 'posts' && overview && (
+          <IgPosts overview={overview} onOpenPost={id => { setPostId(id); setView('new'); }} />
         )}
-        {((view === 'compose' && postId != null) || view === 'new') && overview && (
+        {view === 'new' && overview && (
           <IgCompose
             overview={overview}
             postId={postId}

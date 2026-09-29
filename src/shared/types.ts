@@ -1619,6 +1619,12 @@ export interface IgPost {
   planKind: string;
   /** Krátký název do přehledu — v plánu i mezi rozdělanými */
   planTitle: string;
+  /**
+   * Odkud příspěvek pochází: `ai` z návrhu plánovače, `hand` od člověka,
+   * `repost` z přepisu vlastního příspěvku. V jednom seznamu je potřeba
+   * poznat, co vymyslela aplikace a co jsem psal sám.
+   */
+  origin: 'ai' | 'hand' | 'repost' | string;
   /** Nápad na fotku nebo video */
   planIdea: string;
   /** Ke kterému produktu se váže (kód z katalogu) */
