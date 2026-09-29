@@ -725,7 +725,7 @@ for (const okno of OKNA) {
    * v názvu proměnné by se v kódu nepoznal — tlačítko by prostě
    * zůstalo průhledné a nikdo by nevěděl proč.
    */
-  await page.locator('.bn-parts .tab', { hasText: 'Vzhled' }).first().click();
+  await page.locator('.bn-parts .tab', { hasText: 'Styl sady' }).first().click();
   const tlacitko = page.locator('.field', { hasText: 'Tlačítko' }).locator('select').first();
   const ZELENA = 'rgb(172, 194, 171)';
   const zmer = async volba => {
@@ -751,7 +751,31 @@ for (const okno of OKNA) {
     `pozadí ${tmave.pozadi}, písmo ${tmave.pismo}`);
   await tlacitko.selectOption('shop');
   await page.waitForTimeout(500);
-  await page.locator('.bn-parts .tab', { hasText: 'Text a odkaz' }).first().click();
+  await page.locator('.bn-parts .tab', { hasText: 'Obsah' }).first().click();
+  await page.waitForTimeout(300);
+  /*
+   * Fotka je první věc v editaci. Dřív se nahrávala až ve druhé záložce
+   * pod typografií — nejčastější úkon byl nejhůř dostupný a nováček
+   * banner bez fotky vzdal. Měří se pořadí na obrazovce, ne to, že plocha
+   * někde v kódu existuje.
+   */
+  const poradiEditace = await page.evaluate(() => {
+    const drop = document.querySelector('.bn-drop');
+    const nadpis = [...document.querySelectorAll('.bn-edit .field')]
+      .find(one => one.querySelector('label')?.textContent?.trim().startsWith('Nadpis'));
+    return {
+      plocha: !!drop,
+      nadFormularem: !!drop && !!nadpis
+        && drop.getBoundingClientRect().top < nadpis.getBoundingClientRect().top,
+      vysoka: drop ? Math.round(drop.getBoundingClientRect().height) : 0,
+      // Plocha musí přijímat i pusť­ení souboru, ne jen kliknutí
+      bereSoubor: !!drop && !!drop.querySelector('input[type="file"]')
+    };
+  });
+  say('  fotka se nahrává hned v první záložce, nad texty',
+    poradiEditace.plocha && poradiEditace.nadFormularem && poradiEditace.bereSoubor
+      && poradiEditace.vysoka > 60,
+    `plocha ${poradiEditace.vysoka} px, nad nadpisem ${poradiEditace.nadFormularem}`);
   say('  a emoji uvnitř banneru padají', pc.vlocky > 4, `${pc.vlocky} kusů`);
   say('  text leží nad ztmavením fotky',
     pc.poradi.join(',').endsWith('qbn-body'), pc.poradi.join(' → '));

@@ -7925,9 +7925,83 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .bn-type { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
 .bn-type > .field { flex: 1 1 130px; min-width: 120px; }
 .bn-type > .check-row { margin: 0 0 7px; }
-.bn-look { display: grid; grid-template-columns: 80px 80px 1fr; gap: 10px 12px; align-items: end; }
+.bn-look { display: grid; grid-template-columns: 80px 1fr; gap: 10px 12px; align-items: end; }
 .bn-look .tabs { flex-wrap: wrap; }
-.bn-look .field:nth-child(4), .bn-look .field:nth-child(5) { grid-column: span 3; }
+.bn-look .field:nth-child(3) { grid-column: span 2; }
+
+/*
+ * Fotka banneru.
+ *
+ * Plocha na přetažení je první věc v editaci a je **velká** schválně: je to
+ * nejčastější úkon a zároveň to jediné, co se dá dělat myší z druhého konce
+ * obrazovky. Dřív to bylo úzké systémové políčko na soubor ve druhé
+ * záložce pod typografií — kdo nevěděl, že tam je, banner bez fotky vzdal.
+ */
+.bn-media { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(190px, 1fr); gap: 12px; align-items: start; }
+.bn-drop {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  border: 2px dashed var(--border);
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.bn-drop:hover { border-color: var(--accent); }
+/* Při přetažení musí být jasné, že se soubor pustí sem, ne vedle */
+.bn-drop.over { border-color: var(--accent); border-style: solid; box-shadow: 0 0 0 4px rgba(124, 92, 255, .18); }
+.bn-drop.busy { cursor: progress; opacity: .7; }
+.bn-drop-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px;
+  text-align: center;
+  color: var(--text-2);
+  /* Text leží na barvě pozadí dlaždice, která může být tmavá */
+  background: var(--panel);
+  border-radius: 10px;
+  max-width: 88%;
+}
+.bn-drop-empty b { font-size: 13px; color: var(--text); }
+.bn-drop-empty span { font-size: 11.5px; }
+.bn-drop-tag {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .6);
+  color: #fff;
+  font-size: 11px;
+}
+.bn-media-side { display: flex; flex-direction: column; gap: 10px; }
+.bn-media-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+/*
+ * Značka „sada" u políčka, které platí pro všechny dlaždice naráz. Bez ní
+ * se dalo hodinu ladit ztmavení jedné dlaždice a divit se, proč se mění
+ * i ostatní.
+ */
+.bn-owned {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 .bn-slider input[type="range"] { width: 100%; accent-color: var(--accent); }
 .bn-save { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
 
@@ -7956,9 +8030,59 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   text-shadow: 0 1px 3px rgba(0, 0, 0, .7);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.bn-add { display: flex; flex-direction: column; gap: 4px; }
-.bn-add .btn { font-size: 11.5px; padding: 4px 8px; justify-content: flex-start; }
-.bn-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.bn-add { position: relative; }
+.bn-tile-add {
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-style: dashed;
+  background: var(--panel);
+  color: var(--text-2);
+}
+.bn-tile-add:hover { border-color: var(--accent); color: var(--accent); }
+.bn-tile-add .bn-tile-name { text-shadow: none; text-align: center; }
+/* Nabídka předloh. Překrývá pás, takže nic neposouvá dolů. */
+.bn-add-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 12px 28px rgba(20, 16, 40, .16);
+}
+.bn-add-menu .btn { font-size: 12px; padding: 5px 8px; justify-content: flex-start; }
+/*
+ * Tři kroky pro nováčka. Mizí, jakmile je fotka nebo nadpis — nápověda,
+ * která nejde odklikat, je po třetím banneru už jen překážka.
+ */
+.bn-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 8px 12px 8px 26px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.bn-steps li { margin: 0; }
+.bn-steps b { color: var(--text); }
+
+/* Výběr souboru vypadá jako tlačítko; skutečný input je schovaný uvnitř */
+.bn-pick { cursor: pointer; }
+
+.bn-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
+.bn-tools .icon-btn { width: 28px; height: 28px; }
+.bn-tools .icon-btn.danger { color: var(--danger); }
+.bn-tools-off { white-space: nowrap; }
 .bn-file { display: flex; align-items: center; gap: 8px; }
 .bn-file input[type="file"] { font-size: 12px; max-width: 210px; }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   Banner, BannerClash, BannerLink, BannerLinks, BannerSet, BannerSharedLook,
   BannerHighlights, BannerTemplate, BannersState, WebText
@@ -348,6 +348,15 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
   const [part, setPart] = useState<'text' | 'vzhled' | 'efekty'>('text');
   const [clashes, setClashes] = useState<BannerClash[]>([]);
   const [busy, setBusy] = useState('');
+  /*
+   * Plocha na přetažení fotky. Vlastní příznak proto, že prohlížeč hlásí
+   * „dragleave" i při přejetí přes vnitřní prvek — bez něj by rámeček
+   * blikal a nedalo by se poznat, jestli se soubor pustí na správné místo.
+   */
+  const [nadPlochou, setNadPlochou] = useState(false);
+  /* Nabídka předloh u plusu v pásu dlaždic */
+  const [pridat, setPridat] = useState(false);
+  const souborRef = useRef<HTMLInputElement | null>(null);
   const [hrefHint, setHrefHint] = useState('');
   /**
    * Návrhy ikonky k jednomu odkazu.
@@ -546,6 +555,21 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     } finally {
       setBusy('');
     }
+  };
+
+  /**
+   * Jedno místo pro obojí — fotku i video.
+   *
+   * Do plochy na přetažení spadne, co má člověk zrovna po ruce, a rozlišit
+   * to umí aplikace lépe než on: dvě samostatná políčka na soubor znamenala
+   * jen dvě příležitosti trefit to špatné.
+   */
+  const vlozMedium = async (file: File) => {
+    if (/\.(webm|mp4)$/i.test(file.name) || /^video\//i.test(file.type)) {
+      await uploadVideo(file);
+      return;
+    }
+    await uploadImage(file);
   };
 
   /**
@@ -1180,6 +1204,12 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                 onChange={e => setHl({ on: e.target.checked })} />
                               Řídit bloky z aplikace
                             </label>
+                            {/*
+                              * Dokud se bloky neřídí odtud, je pět nastavení
+                              * pod přepínačem jen pět neúčinných ovladačů.
+                              * Ukážou se, až když je co nastavovat.
+                              */}
+                            {hl().on && (<>
                             <div className="field">
                               <label>Kde</label>
                               <div className="tabs">
@@ -1225,6 +1255,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               <input type="range" min={0} max={20} value={hl().rotate}
                                 onChange={e => setHl({ rotate: Number(e.target.value) })} />
                             </div>
+                            </>)}
                           </div>
                         </>
                       )}
@@ -1246,14 +1277,31 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             </span>
                           </button>
                         ))}
+                        {/*
+                          * Přidání je jedna dlaždice s plusem, ne sloupec čtyř
+                          * tlačítek vedle pásu. Předlohy jsou užitečné, ale
+                          * pořád vidět zabíraly polovinu pásu a odsouvaly
+                          * editaci dolů — otevřou se, až když se přidává.
+                          */}
                         {seznam().length < (vBlocich ? 6 : 12) && (
                           <div className="bn-add">
-                            {PRESETS.map(one => (
-                              <button key={one.id} className="btn ghost" title={one.label}
-                                onClick={() => addBanner(one.make)}>
-                                {one.emoji} {one.label}
-                              </button>
-                            ))}
+                            <button className={`bn-tile bn-tile-add ${pridat ? 'sel' : ''}`}
+                              onClick={() => setPridat(!pridat)}
+                              aria-expanded={pridat}
+                              data-tip="Přidat dlaždici z předlohy">
+                              <Icon name="plus" size={18} />
+                              <span className="bn-tile-name">Přidat</span>
+                            </button>
+                            {pridat && (
+                              <div className="bn-add-menu">
+                                {PRESETS.map(one => (
+                                  <button key={one.id} className="btn ghost" title={one.label}
+                                    onClick={() => { addBanner(one.make); setPridat(false); }}>
+                                    {one.emoji} {one.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1271,40 +1319,197 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                         </p>
                       ) : (
                         <>
+                      {/*
+                        * Správa dlaždice se vejde na jeden řádek ikon.
+                        * Pět tlačítek s popisky se ve sloupci editoru lámalo
+                        * do dvou řádků a odsouvalo dolů to, kvůli čemu je
+                        * okno otevřené — fotku a nadpis.
+                        */}
                       <div className="bn-tools">
-                        <button className="btn ghost" onClick={() => moveBanner(-1)} disabled={pick === 0}>
-                          <Icon name="chevLeft" size={13} /> Dřív
+                        <button className="icon-btn" onClick={() => moveBanner(-1)} disabled={pick === 0}
+                          data-tip="Posunout dřív" aria-label="Posunout dřív">
+                          <Icon name="chevLeft" size={15} />
                         </button>
-                        <button className="btn ghost" onClick={() => moveBanner(1)}
-                          disabled={pick >= seznam().length - 1}>
-                          Později <Icon name="chevRight" size={13} />
+                        <button className="icon-btn" onClick={() => moveBanner(1)}
+                          disabled={pick >= seznam().length - 1}
+                          data-tip="Posunout později" aria-label="Posunout později">
+                          <Icon name="chevRight" size={15} />
                         </button>
-                        <button className="btn ghost" onClick={copyBanner}>
-                          <Icon name="copy" size={13} /> Duplikovat
+                        <button className="icon-btn" onClick={copyBanner}
+                          data-tip="Duplikovat dlaždici" aria-label="Duplikovat dlaždici">
+                          <Icon name="copy" size={14} />
                         </button>
-                        <label className="check-row" style={{ margin: 0 }}>
+                        <label className="check-row bn-tools-off" style={{ margin: 0 }}
+                          data-tip="Vypnutá dlaždice zůstane v aplikaci, ale na web nejde">
                           <input type="checkbox" checked={banner.off}
                             onChange={e => setBanner({ off: e.target.checked })} />
                           Vypnout
                         </label>
                         <span className="wt-spacer" />
-                        <button className="btn ghost danger" onClick={dropBanner}
-                          disabled={seznam().length <= (vBlocich ? 0 : 1)}>
-                          <Icon name="trash" size={13} /> Smazat
+                        <button className="icon-btn danger" onClick={dropBanner}
+                          disabled={seznam().length <= (vBlocich ? 0 : 1)}
+                          data-tip="Smazat dlaždici" aria-label="Smazat dlaždici">
+                          <Icon name="trash" size={14} />
                         </button>
                       </div>
 
+                      {/*
+                        * Postup pro toho, kdo banner ještě nedělal.
+                        *
+                        * Zmizí sám, jakmile je fotka nebo nadpis — nikdo
+                        * nemusí zavírat nápovědu, kterou si už přečetl. Bez
+                        * něj se nad prázdnou dlaždicí a čtyřmi záložkami dalo
+                        * jen hádat, čím začít.
+                        */}
+                      {!banner.look.image && !banner.look.video && !banner.copy.title.cz && (
+                        <ol className="bn-steps">
+                          <li><b>Fotka</b> — přetáhni ji do plochy níž</li>
+                          <li><b>Nadpis</b> a odkaz, kam dlaždice vede</li>
+                          <li><b>Uložit a vystavit</b> — na webu je to do minuty</li>
+                        </ol>
+                      )}
+
                       <div className="tabs bn-parts">
                         <button className={`tab ${part === 'text' ? 'active' : ''}`}
-                          onClick={() => setPart('text')}>Text a odkaz</button>
+                          onClick={() => setPart('text')}>Obsah</button>
                         <button className={`tab ${part === 'vzhled' ? 'active' : ''}`}
-                          onClick={() => setPart('vzhled')}>Vzhled</button>
+                          onClick={() => setPart('vzhled')}>Styl sady</button>
                         <button className={`tab ${part === 'efekty' ? 'active' : ''}`}
-                          onClick={() => setPart('efekty')}>Chytré a efekty</button>
+                          onClick={() => setPart('efekty')}>Efekty</button>
                       </div>
 
                       {part === 'text' && (
                         <>
+                          {/*
+                            * Fotka je první věc, ne až druhá záložka.
+                            *
+                            * Banner je fotka a nadpis. Dokud není vybraná fotka,
+                            * nedá se poznat, jestli na ní bude text čitelný ani
+                            * kam ho posadit — a přesto se dřív nahrávala až ve
+                            * „Vzhledu", pod osmi ovladači typografie. Nejčastější
+                            * úkon byl nejhůř dostupný.
+                            *
+                            * Fotka i video mají jednu plochu: rozlišit je umí
+                            * aplikace podle souboru, zatímco dvě políčka byla jen
+                            * dvě příležitosti trefit to špatné.
+                            */}
+                          <div className="bn-media">
+                            <div
+                              className={`bn-drop ${nadPlochou ? 'over' : ''} ${busy ? 'busy' : ''}`}
+                              onDragOver={e => { e.preventDefault(); setNadPlochou(true); }}
+                              onDragLeave={e => {
+                                // Jen když kurzor opustí celou plochu, ne její vnitřek
+                                if (!e.currentTarget.contains(e.relatedTarget as Node)) setNadPlochou(false);
+                              }}
+                              onDrop={e => {
+                                e.preventDefault();
+                                setNadPlochou(false);
+                                const file = e.dataTransfer?.files?.[0];
+                                if (file) void vlozMedium(file);
+                              }}
+                              onClick={() => { if (!busy) souborRef.current?.click(); }}
+                              style={{
+                                backgroundColor: banner.look.bg,
+                                backgroundImage: banner.look.image ? `url("${banner.look.image}")` : undefined,
+                                backgroundPosition: banner.look.focus
+                              }}>
+                              <input ref={souborRef} type="file" hidden disabled={!!busy}
+                                accept="image/*,video/webm,video/mp4"
+                                onChange={e => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = '';
+                                  if (file) void vlozMedium(file);
+                                }} />
+                              {!banner.look.image && !banner.look.video && (
+                                <div className="bn-drop-empty">
+                                  <Icon name="image" size={24} />
+                                  <b>Přetáhni sem fotku</b>
+                                  <span>nebo klikni a vyber — video webm/mp4 taky</span>
+                                </div>
+                              )}
+                              {banner.look.video && (
+                                <span className="bn-drop-tag"><Icon name="camera" size={11} /> video</span>
+                              )}
+                            </div>
+
+                            <div className="bn-media-side">
+                              <div className="bn-media-btns">
+                                <button className="btn ghost" disabled={!!busy}
+                                  onClick={() => souborRef.current?.click()}>
+                                  <Icon name="upload" size={13} />
+                                  {banner.look.image || banner.look.video ? ' Vyměnit' : ' Vybrat soubor'}
+                                </button>
+                                {banner.look.image && (
+                                  <button className="btn ghost" onClick={() => setLook({ image: '' })}>
+                                    <Icon name="x" size={12} /> Fotka pryč
+                                  </button>
+                                )}
+                                {banner.look.video && (
+                                  <button className="btn ghost" onClick={() => setLook({ video: '' })}>
+                                    <Icon name="x" size={12} /> Video pryč
+                                  </button>
+                                )}
+                              </div>
+
+                              {/*
+                                * Výřez a ztmavení patří k fotce, ne k typografii:
+                                * obojí se nastavuje s očima na fotce a bez ní
+                                * nemá co dělat.
+                                */}
+                              <div className="field">
+                                <label>Výřez fotky</label>
+                                <div className="bn-focus">
+                                  {['0%', '50%', '100%'].map(x => (
+                                    <div key={x} className="bn-focus-row">
+                                      {['0%', '50%', '100%'].map(y => {
+                                        const value = `${y} ${x}`;
+                                        return (
+                                          <button key={value}
+                                            className={`bn-dot ${banner.look.focus === value ? 'sel' : ''}`}
+                                            title={`Nechat vidět ${value}`}
+                                            onClick={() => setLook({ focus: value })} />
+                                        );
+                                      })}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="field bn-slider">
+                                <label>
+                                  Ztmavení {vzhled().overlay} %
+                                  {!vlastni && <span className="bn-owned" title="Nastavuje se pro celou sadu">sada</span>}
+                                </label>
+                                <input type="range"
+                                  min={(banner.look.image || banner.look.video)
+                                    && hasText(banner.copy.title) ? 18 : 0}
+                                  max={90} value={vzhled().overlay}
+                                  onChange={e => setVzhled({ overlay: Number(e.target.value) })} />
+                              </div>
+
+                              <div className="field">
+                                <label>Barva pozadí <small>(než se stáhne fotka)</small></label>
+                                <input type="color" value={banner.look.bg}
+                                  onChange={e => setLook({ bg: e.target.value })} />
+                              </div>
+                            </div>
+                          </div>
+                          <p className="desc">
+                            Fotka se převede na WebP a nahraje <b>do správce souborů e-shopu</b>
+                            {' '}— použije se adresa z jeho CDN, stejná jako u ostatních fotek na
+                            webu. Otevře se k tomu okno administrace. Fotka z foťáku je v pohodě,
+                            zmenší se na 1800 px. Video hraje samo, bez zvuku a ve smyčce, do 12 MB
+                            {' '}— zmenšit jde v Konvertoru médií.
+                            {banner.look.video && !banner.look.image && (
+                              <> <b>Doplň ještě fotku</b> — bez ní je dlaždice do stažení videa
+                                černá.</>
+                            )}
+                            {(banner.look.image || banner.look.video) && (
+                              <> Ztmavení pod textem nejde stáhnout pod 18 %: bílý nadpis na světlé
+                                látce na telefonu ve slunci nepřečte nikdo.</>
+                            )}
+                          </p>
+
                           <div className="tabs wt-langs">
                             {LANGS.map(l => (
                               <button key={l.id} className={`tab ${lang === l.id ? 'active' : ''}`}
@@ -1473,100 +1678,20 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             něm. Zaoblení platí pro dlaždici i pro tlačítko naráz, aby si neodporovaly.
                           </p>
 
-                          <h4 className="bn-h">Fotka a barva pozadí <small>(vždy jen této dlaždice)</small></h4>
-                          <div className="bn-two">
-                            <div className="field">
-                              <label>Fotka na pozadí</label>
-                              <div className="bn-file">
-                                <input type="file" accept="image/*" disabled={!!busy}
-                                  onChange={e => {
-                                    const file = e.target.files?.[0];
-                                    e.target.value = '';
-                                    if (file) void uploadImage(file);
-                                  }} />
-                                {banner.look.image && (
-                                  <button className="btn ghost" onClick={() => setLook({ image: '' })}>
-                                    <Icon name="x" size={12} /> Odebrat
-                                  </button>
-                                )}
-                              </div>
-                              <p className="desc">
-                                Převede se na WebP a nahraje se <b>do správce souborů e-shopu</b> —
-                                použije se adresa z jeho CDN, stejná jako u ostatních fotek na webu.
-                                Otevře se k tomu okno administrace. Fotka z foťáku je v pohodě,
-                                zmenší se na 1800 px.
-                              </p>
-                            </div>
-                            <div className="field">
-                              <label>Výřez fotky</label>
-                              <div className="bn-focus">
-                                {['0%', '50%', '100%'].map(x => (
-                                  <div key={x} className="bn-focus-row">
-                                    {['0%', '50%', '100%'].map(y => {
-                                      const value = `${y} ${x}`;
-                                      return (
-                                        <button key={value}
-                                          className={`bn-dot ${banner.look.focus === value ? 'sel' : ''}`}
-                                          title={`Nechat vidět ${value}`}
-                                          onClick={() => setLook({ focus: value })} />
-                                      );
-                                    })}
-                                  </div>
-                                ))}
-                              </div>
-                              <p className="desc">
-                                Dlaždice má pevný poměr stran, aby stránka nepodskakovala — fotka se
-                                proto ořízne. Tady se vybere, co zůstane vidět.
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="field">
-                            <label>Video na pozadí <small>(webm nebo mp4, nepovinné)</small></label>
-                            <div className="bn-file">
-                              <input type="file" accept="video/webm,video/mp4" disabled={!!busy}
-                                onChange={e => {
-                                  const file = e.target.files?.[0];
-                                  e.target.value = '';
-                                  if (file) void uploadVideo(file);
-                                }} />
-                              {banner.look.video && (
-                                <button className="btn ghost" onClick={() => setLook({ video: '' })}>
-                                  <Icon name="x" size={12} /> Video pryč
-                                </button>
-                              )}
-                            </div>
-                            <p className="desc">
-                              Hraje samo, <b>bez zvuku</b> a ve smyčce — jinak by ho prohlížeč na
-                              telefonu nepustil. Fotka výš zůstává jako první snímek, než se video
-                              stáhne, a zobrazí se i tomu, kdo má v systému vypnuté animace.
-                              Do 12 MB, jinak se úvodní stránka stahuje dýl, než ji kdo přečte;
-                              zmenšit jde v Konvertoru médií.
-                              {banner.look.video && !banner.look.image && (
-                                <> <b>Doplň ještě fotku</b> — bez ní je dlaždice do stažení videa
-                                  černá.</>
-                              )}
-                            </p>
-                          </div>
-
+                          {/*
+                            * Barva pozadí a ztmavení jsou u fotky, ne tady:
+                            * obojí se nastavuje s očima na fotce. Zůstává to,
+                            * co platí pro celou sadu a s konkrétní fotkou
+                            * nesouvisí.
+                            */}
                           <div className="bn-look">
                             <div className="field">
-                              <label>Pozadí</label>
-                              <input type="color" value={banner.look.bg}
-                                onChange={e => setLook({ bg: e.target.value })} />
-                            </div>
-                            <div className="field">
-                              <label>Písmo</label>
+                              <label>
+                                Barva písma
+                                {!vlastni && <span className="bn-owned" title="Nastavuje se pro celou sadu">sada</span>}
+                              </label>
                               <input type="color" value={vzhled().fg}
                                 onChange={e => setVzhled({ fg: e.target.value })} />
-                            </div>
-                            <div className="field bn-slider">
-                              <label>Ztmavení fotky {vzhled().overlay} %</label>
-                              <input type="range"
-                                min={(banner.look.image || banner.look.video)
-                                  && hasText(banner.copy.title) ? 18 : 0}
-                                max={90} value={vzhled().overlay}
-                                onChange={e => setVzhled({ overlay: Number(e.target.value) })} />
                             </div>
                             <div className="field">
                               <label>Zarovnání</label>
@@ -1591,12 +1716,6 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               </div>
                             </div>
                           </div>
-                          {banner.look.image && (
-                            <p className="desc">
-                              Ztmavení pod textem se nedá stáhnout pod 18 % — bílý nadpis na světlé
-                              látce na telefonu ve slunci nepřečte nikdo.
-                            </p>
-                          )}
                         </>
                       )}
 
@@ -1824,30 +1943,46 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                 onClick={() => void askIcons(i)}>
                                 <Icon name="sparkles" size={12} /> Ikonka od AI
                               </button>
-                              <input type="file" accept="image/svg+xml,image/png,image/webp,image/*"
-                                disabled={!!busy}
-                                title="Vlastní ikonka: SVG se vloží rovnou, PNG a WebP se nahrají na e-shop"
-                                style={{ fontSize: 11, maxWidth: 150 }}
-                                onChange={e => {
-                                  const file = e.target.files?.[0];
-                                  e.target.value = '';
-                                  if (file) void uploadLinkImage(i, file);
-                                }} />
+                              {/*
+                                * Vlastní ikonka přes tlačítko, ne přes holé
+                                * systémové políčko na soubor: to se v řádku
+                                * ukazovalo jako „Choose File / No file chosen"
+                                * anglicky a v úzkém sloupci se ořezávalo.
+                                */}
+                              <label className="btn ghost bn-pick"
+                                title="Vlastní ikonka: SVG se vloží rovnou, PNG a WebP se nahrají na e-shop">
+                                <Icon name="upload" size={12} /> Vlastní
+                                <input type="file" accept="image/svg+xml,image/png,image/webp,image/*"
+                                  disabled={!!busy} hidden
+                                  onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = '';
+                                    if (file) void uploadLinkImage(i, file);
+                                  }} />
+                              </label>
                               {one.image && (
-                                <button className="btn ghost" onClick={() => setLink(i, { image: '' })}>
-                                  <Icon name="x" size={12} /> Obrázek pryč
+                                <button className="icon-btn" onClick={() => setLink(i, { image: '' })}
+                                  data-tip="Odebrat obrázek" aria-label="Odebrat obrázek">
+                                  <Icon name="x" size={14} />
                                 </button>
                               )}
-                              <span className="wt-spacer" />
-                              <button className="btn ghost" onClick={() => moveLink(i, -1)} disabled={i === 0}>
-                                <Icon name="chevLeft" size={12} />
+                              {/*
+                                * Pořadí a mazání jako ikony a hned za tlačítky,
+                                * bez odstrčení doprava: v užším sloupci se jinak
+                                * koš lámal sám na třetí řádek.
+                                */}
+                              <button className="icon-btn" onClick={() => moveLink(i, -1)} disabled={i === 0}
+                                data-tip="Posunout doleva" aria-label="Posunout doleva">
+                                <Icon name="chevLeft" size={14} />
                               </button>
-                              <button className="btn ghost" onClick={() => moveLink(i, 1)}
-                                disabled={i >= linksOf().items.length - 1}>
-                                <Icon name="chevRight" size={12} />
+                              <button className="icon-btn" onClick={() => moveLink(i, 1)}
+                                disabled={i >= linksOf().items.length - 1}
+                                data-tip="Posunout doprava" aria-label="Posunout doprava">
+                                <Icon name="chevRight" size={14} />
                               </button>
-                              <button className="btn ghost danger" onClick={() => dropLink(i)}>
-                                <Icon name="trash" size={12} />
+                              <button className="icon-btn danger" onClick={() => dropLink(i)}
+                                data-tip="Smazat odkaz" aria-label="Smazat odkaz">
+                                <Icon name="trash" size={13} />
                               </button>
                             </div>
                             {icons.at === i && icons.list.length > 0 && (
