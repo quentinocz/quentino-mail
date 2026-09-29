@@ -1195,8 +1195,16 @@ export function previewUrl(value: any, lang = 'cz'): string {
      * náhled celý bílý, vypadaly bannery v aplikaci jinak než na webu —
      * a bílý pruh pod bannerem se odhalil až na e-shopu.
      */
-    '.section.bic-bnr,.section.bic-hdln{background:#f0f0f0;padding:8px 0}',
-    '.section .container,.section .max{width:100%}',
+    /* Sekce šablony mají svislé odsazení nulové (změřeno) — rozestupy dělá blok sám */
+    '.section.bic-bnr,.section.bic-hdln{background:#f0f0f0}',
+    /*
+     * Kontejner šablony je flex sloupec ("container d-flex flex-col ai-c").
+     * Není to detail: v obyčejném bloku by se svislé okraje bannerku
+     * slily s okrajem sekce a rozestup by se z pruhu vysunul ven —
+     * náhled by pak měřil něco jiného než web.
+     */
+    '.section .container{width:100%;display:flex;flex-direction:column;align-items:center}',
+    '.section .max{width:100%}',
     /*
      * Na střed schválně. Kontejner šablony e-shopu má „text-align: center"
      * a banner nastavený doleva se kvůli tomu na webu kreslil na střed,

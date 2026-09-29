@@ -1621,10 +1621,35 @@ export interface IgPost {
   planIdea: string;
   /** Ke kterému produktu se váže (kód z katalogu) */
   planCode: string;
+  /**
+   * Odsouhlasený k publikaci.
+   *
+   * Mezi „je to hotové" a „může to ven" je krok, který dělá hlava.
+   * Naplánovaná publikace bez něj neodejde — a každá změna textu nebo
+   * médií schválení shodí, aby se nedalo odsouhlasit prázdné a dopsat
+   * cokoli.
+   */
+  approved: boolean;
+  approvedAt: string;
   media: IgMediaItem[];
   captions: IgCaption[];
   sourceCaption?: string;
   sourcePermalink?: string;
+}
+
+/**
+ * Co se má pohnout, aby plán nevyšel naprázdno.
+ *
+ * `media` — chybí fotky a termín je do tří dnů (fotit se musí stihnout).
+ * `approve` — je hotovo, ale nikdo to neodsouhlasil, a termín je do dne.
+ * `late` — termín už minul a příspěvek nevyšel.
+ */
+export interface IgAlert {
+  postId: number;
+  kind: 'media' | 'approve' | 'late';
+  /** Kdy měl nebo má vyjít */
+  at: string;
+  title: string;
 }
 
 /**

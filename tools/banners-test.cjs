@@ -578,9 +578,38 @@ ok('bez obrázku i emoji se rámeček ikonky nekreslí', kod.includes('maObrazek
  */
 ok('skupina bannerů ze šablony se schová taky', script.includes('.qbn-on .bnr-group'));
 ok('a zahodí se i s obrázky', kod.includes('.bnr-group'));
-/* Pruh odkazů se lepil rovnou na další sekci stránky */
+/*
+ * Rozestupy drží jedno číslo.
+ *
+ * Každá část si dřív nesla vlastní, a sousední sekce je sčítaly: pod
+ * pruhem odkazů končila sekce banneru a hned pod ní začínala sekce bloků
+ * dalším stejným rozestupem. Nahoře byl jen jeden, takže to vypadalo
+ * „nahoře málo, dole moc". Půlka na každé straně dá dohromady celý
+ * rozestup, ať jdou bloky v jakémkoli pořadí.
+ */
 ok('pruh odkazů má pod sebou vzduch',
-  /\.qbn-links \{[^}]*margin:[^;]*clamp\(20px/.test(script));
+  /\.qbn-links \{[^}]*margin:[^;]*--qbn-gap-half/.test(script));
+ok('a rozestupy se berou z jednoho čísla',
+  script.includes('--qbn-gap-half:')
+  && /\.qbn \{[^}]*margin: var\(--qbn-gap\) auto var\(--qbn-gap-half\)/.test(script)
+  && /\.qhl \{[^}]*margin: var\(--qbn-gap-half\)/.test(script));
+/*
+ * Zlom v barvě: šablona maluje přes sekci s bannerem teplý 5% přeliv,
+ * sekce s bloky pod ním ho nemá. S holým šedým pruhem odkazů mezi nimi
+ * se na rozhraní sekcí udělala viditelná hrana.
+ */
+ok('teplý přeliv sekce se srovná se zbytkem stránky',
+  script.includes('.qbn-on .section.bic-bnr { background-image: none; }'));
+/*
+ * Pruh odkazů má stejně široké sloupce. Dokud se šířka brala z délky
+ * popisku, měly „Kravaty" a „Šle a Motýlek" jiný rozestup a při osmi
+ * kategoriích se z pruhu stal na počítači posuvník.
+ */
+ok('odkazy stojí ve stejně širokých sloupcích',
+  /\.qbn-links \{[^}]*grid-template-columns: repeat\(var\(--qbn-link-n/.test(script));
+ok('a počet sloupců dodá skript', kod.includes('--qbn-link-n'));
+ok('popisek drží místo na dva řádky, ať jsou dlaždice stejně vysoké',
+  /\.qbn-link-text \{[^}]*min-height/.test(script));
 
 /* ---------- náhled v aplikaci ---------- */
 

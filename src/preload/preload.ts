@@ -46,6 +46,7 @@ const ALLOWED_INVOKE = [
   'ig:deletePost', 'ig:warnings',
   'ig:generate', 'ig:blankCaptions', 'ig:chooseVariant', 'ig:editCaption', 'ig:publish', 'ig:publishPost', 'ig:retryFacebook', 'ig:relogin',
   'ig:planSetup', 'ig:savePlanSetup', 'ig:planPropose', 'ig:planAccept', 'ig:planned', 'ig:planMove',
+  'ig:proposeOne', 'ig:acceptOne', 'ig:planSwap', 'ig:approve', 'ig:alerts',
   'ig:jobs', 'ig:cancelJob', 'ig:retryJob', 'ig:runQueue', 'ig:refreshTokens',
   // Chat
   'chat:overview', 'chat:saveConfig', 'chat:test',
@@ -150,7 +151,7 @@ const ALLOWED_INVOKE = [
 
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
-  'packing:progress', 'ig:changed', 'ig:connected', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
+  'packing:progress', 'ig:changed', 'ig:connected', 'ig:planStep', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
   'ptrans:progress', 'ptrans:changed', 'np:step',
   'articles:progress', 'articles:changed', 'articles:check',
   'media:progress', 'media:incoming', 'media:watched',

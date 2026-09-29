@@ -137,7 +137,16 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
   const aiActive = current === 'instagram' || !!activeTool || openTools.length > 0;
 
   return (
-    <div className={`ig-switch ${compact ? 'compact' : ''}`} ref={box}>
+    /*
+     * S jedinou záložkou to není přepínač.
+     *
+     * V okně nástroje ani na telefonu se mezi poštou a chatem nepřepíná,
+     * takže zbude samotné tlačítko „Funkce". V pruhu přepínače vypadalo
+     * jako dvoupolohový přepínač, u kterého je druhá poloha prázdná —
+     * a nedalo se poznat, co by měl přepínat. Zůstává z něj obyčejné
+     * tlačítko s nabídkou.
+     */
+    <div className={`ig-switch ${compact ? 'compact' : ''} ${tabs.length < 2 ? 'solo' : ''}`} ref={box}>
       {tabs.map(t => (
         <button
           key={t.id}

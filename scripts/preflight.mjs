@@ -634,6 +634,13 @@ const DESKTOP_ONLY = [
    */
   'ig:planSetup', 'ig:savePlanSetup', 'ig:planPropose', 'ig:planAccept',
   'ig:planned', 'ig:planMove',
+  /*
+   * Návrh jednoho příspěvku, přehazování termínů tažením, schvalování
+   * a připomínky toho, co se nestíhá — všechno je to práce nad plánem,
+   * a ta se dělá u počítače. Telefon dodělává a publikuje to, co už
+   * v plánu je.
+   */
+  'ig:proposeOne', 'ig:acceptOne', 'ig:planSwap', 'ig:approve', 'ig:alerts',
   // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači
   'catalog:codes',
   'files:openAttachment', 'files:showInFolder',

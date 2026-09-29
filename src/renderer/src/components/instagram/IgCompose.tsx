@@ -19,7 +19,6 @@ interface Props {
 export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Props) {
   const toast = useToast();
   const [post, setPost] = useState<IgPost | null>(null);
-  const [drafts, setDrafts] = useState<IgPost[]>([]);
   const [files, setFiles] = useState<string[]>([]);
   const [brief, setBrief] = useState('');
   const [mediaNote, setMediaNote] = useState('');
@@ -65,7 +64,6 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
   useEffect(() => {
     if (postId == null) {
       setPost(null);
-      api.ig.drafts().then(setDrafts).catch(() => {});
       return;
     }
     loadPost(postId);
@@ -73,7 +71,6 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
 
   useEffect(() => api.on('ig:changed', () => {
     if (postId != null) loadPost(postId);
-    else api.ig.drafts().then(setDrafts).catch(() => {});
   }), [postId, loadPost]);
 
   // Výchozí cíl: když mají účty zapnuté sdílení na stránku, nabídne se obojí
@@ -351,20 +348,7 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
         )}
       </div>
 
-      {postId == null && drafts.length > 0 && (
-        <div className="ig-drafts">
-          <h3>Rozpracované</h3>
-          {drafts.map(d => (
-            <button key={d.id} className="ig-draft-row" onClick={() => onPostId(d.id)}>
-              <span className="ig-draft-title">
-                {d.kind === 'source' ? 'Přepis: ' : ''}
-                {(d.brief || d.sourceCaption || 'Bez zadání').slice(0, 90)}
-              </span>
-              <span className="ig-muted">{d.captions.length} {d.captions.length === 1 ? 'trh' : 'trhy'} · {fmtDate(d.createdAt)}</span>
-            </button>
-          ))}
-        </div>
-      )}
+
     </div>
   );
 }

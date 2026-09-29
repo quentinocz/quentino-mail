@@ -9,12 +9,19 @@ import { useIsPhone } from '../../mobile';
 import { Sheet, SheetActions } from '../Sheet';
 import IgFeed from './IgFeed';
 import IgCompose from './IgCompose';
+import IgDrafts from './IgDrafts';
 import IgQueue from './IgQueue';
 import IgAccounts from './IgAccounts';
 import IgBrand from './IgBrand';
 import IgPlan from './IgPlan';
 
-export type IgView = 'feed' | 'plan' | 'compose' | 'queue' | 'accounts' | 'brand';
+/*
+ * `compose` je seznam rozdělaných, `new` je psaní nového příspěvku.
+ * Dřív to bylo jedno: formulář na nový příspěvek stál nad seznamem a
+ * kdo se šel podívat na rozdělanou práci, musel se k ní prorolovat přes
+ * prázdný formulář, který zrovna nepotřeboval.
+ */
+export type IgView = 'feed' | 'plan' | 'compose' | 'new' | 'queue' | 'accounts' | 'brand';
 
 interface Props {
   onOpenSettings: () => void;
@@ -65,7 +72,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
 
   const openPost = useCallback((id: number) => { setPostId(id); setView('compose'); }, []);
 
-  const newPost = useCallback(() => { setPostId(null); setView('compose'); }, []);
+  const newPost = useCallback(() => { setPostId(null); setView('new'); }, []);
 
   const sync = useCallback(async (full = false) => {
     if (!overview?.hasSource) { toast('Nejdřív připoj zdrojový účet.', 'error'); setView('accounts'); return; }
@@ -134,7 +141,10 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
             <IgFeed overview={overview} onOpenPost={openPost} onSyncAll={() => sync(true)} />
           )}
           {view === 'plan' && overview && <IgPlan overview={overview} onOpenPost={openPost} />}
-          {view === 'compose' && overview && (
+          {view === 'compose' && overview && postId == null && (
+            <IgDrafts overview={overview} onOpenPost={id => { setPostId(id); setView('new'); }} />
+          )}
+          {((view === 'compose' && postId != null) || view === 'new') && overview && (
             <IgCompose overview={overview} postId={postId} onPostId={setPostId}
               onGoQueue={() => setView('queue')} />
           )}
@@ -241,7 +251,10 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
           <IgFeed overview={overview} onOpenPost={openPost} onSyncAll={() => sync(true)} />
         )}
         {view === 'plan' && overview && <IgPlan overview={overview} onOpenPost={openPost} />}
-        {view === 'compose' && overview && (
+        {view === 'compose' && overview && postId == null && (
+          <IgDrafts overview={overview} onOpenPost={id => { setPostId(id); setView('new'); }} />
+        )}
+        {((view === 'compose' && postId != null) || view === 'new') && overview && (
           <IgCompose
             overview={overview}
             postId={postId}

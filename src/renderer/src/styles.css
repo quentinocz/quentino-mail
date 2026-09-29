@@ -3078,6 +3078,8 @@ button, kbd, label,
 [data-theme="dark"] .pk-note.warn { background: #332a12; color: #f0d492; border-color: #5a4713; }
 [data-theme="dark"] .pk-old { background: #351d1d; color: #f3b5b5; border-color: #5c2b2b; }
 [data-theme="dark"] .pk-cnote { background: #332a12; color: #f0d492; border-color: #5a4713; }
+[data-theme="dark"] .igd-warn { background: #332a12; color: #f0d492; border-color: #5a4713; }
+[data-theme="dark"] .igd-warn.late { background: #351d1d; color: #f3b5b5; border-color: #5c2b2b; }
 [data-theme="dark"] .pk-check { background: #2b2738; border-color: var(--border); }
 [data-theme="dark"] .pk-photo { background: #fff; border-color: var(--border); }
 [data-theme="dark"] .pk-code, [data-theme="dark"] .pk-qty, [data-theme="dark"] .pk-hint kbd { background: #2b2738; color: var(--text-2); }
@@ -3449,6 +3451,25 @@ button, kbd, label,
 }
 /* Úzký panel: jen ikony, popisek by se stejně nevešel */
 .ig-switch.compact button { gap: 0; padding: 7px 0; }
+/*
+ * Samotné tlačítko „Funkce" (okno nástroje, telefon) není přepínač: pruh
+ * s prázdnou druhou polovinou vypadal jako rozbitý dvoupolohový přepínač.
+ */
+.ig-switch.solo {
+  display: flex;
+  justify-content: flex-start;
+  padding: 0;
+  background: none;
+}
+.ig-switch.solo button {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.ig-switch.solo button:hover { border-color: var(--accent); color: var(--accent); }
+.ig-switch.solo button.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.ig-switch.solo.compact button { padding: 7px 9px; }
 /* Odznak plave v rohu, takže se popisek kvůli němu nepřekresluje */
 .ig-switch .ws-badge {
   position: absolute;
@@ -3633,6 +3654,14 @@ button, kbd, label,
   box-shadow: 0 14px 34px rgba(124, 92, 255, 0.24);
 }
 .live-offer .pt-status-ico { background: var(--accent-soft); color: var(--accent-dark); }
+/*
+ * Připomínka k naplánovaným příspěvkům. Stejný proužek jako nabídka
+ * rozdělané práce — je to totéž sdělení. Liší se jen tím, co už hoří:
+ * příspěvek po termínu má barvu chyby, zbytek je upozornění.
+ */
+.ig-alert .pt-status-ico { background: #fdf8ec; color: #a5761a; }
+.ig-alert.late .pt-status-ico { background: #fdecec; color: #8a1c1c; }
+.ig-alert-more { color: var(--text-3); }
 /* Na telefonu překlady nejsou, ale kdyby okno zúžil na počítači, ať se nerozbije */
 @media (max-width: 620px) {
   .pt-statusbar { flex-wrap: wrap; }
@@ -3947,6 +3976,116 @@ button, kbd, label,
 .ig-when { display: flex; align-items: center; gap: 8px; }
 
 /* Rozpracované */
+/*
+ * Rozdělané příspěvky.
+ *
+ * Karta schválně vypadá jako budoucí příspěvek: fotky, text, datum. Podle
+ * řádku textu se totiž nepoznalo, jestli je práce hotová — chybějící
+ * fotka, nepřeložený trh a termín zítra vypadaly stejně jako hotovo.
+ */
+.igd { display: flex; flex-direction: column; gap: 14px; }
+.igd-wish { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.igd-wish input { width: 100%; }
+.igd-wish .desc { grid-column: 1 / -1; margin: 0; }
+.igd-langs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.igd-langs .desc { margin: 0; }
+.igd-langs .tab { text-transform: uppercase; font-size: 11.5px; }
+
+.igd-list { display: flex; flex-direction: column; gap: 10px; }
+.igd-card {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr) 210px;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+/* Odsouhlasený příspěvek se pozná bez čtení — zelený pruh u kraje */
+.igd-card.ok { border-left-color: var(--ok); }
+.igd-card.drag { opacity: .45; }
+/* Kam se pustí, to se musí poznat dřív, než se pustí */
+.igd-card.over { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.igd-card[draggable="true"] { cursor: grab; }
+
+.igd-when { display: flex; flex-direction: column; gap: 1px; }
+.igd-when b { font-size: 15px; line-height: 1.2; }
+.igd-when span { font-size: 13px; color: var(--text-2); }
+.igd-when small { font-size: 11.5px; color: var(--text-3); }
+.igd-when em { margin-top: 4px; font-size: 11px; font-style: normal; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+/* Co mělo vyjít a nevyšlo, se nemá hledat — má to křičet */
+.igd-when.late b, .igd-when.late small { color: var(--danger); }
+
+.igd-body { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.igd-media { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.igd-thumb {
+  position: relative;
+  width: 58px; height: 58px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+}
+.igd-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.igd-thumb-ph { color: var(--text-3); }
+.igd-thumb-tag {
+  position: absolute; left: 3px; bottom: 3px;
+  padding: 0 4px; border-radius: 4px;
+  background: rgba(0, 0, 0, .6); color: #fff; font-size: 9.5px;
+}
+.igd-more { font-size: 12px; color: var(--text-2); }
+/* Místo fotky nápad na fotku — je to zadání pro focení, ne prázdno */
+.igd-nomedia {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.igd-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-2);
+  white-space: pre-line;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.igd-langs-mini { display: flex; gap: 5px; flex-wrap: wrap; }
+.igd-lang {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+/* Trh bez textu je práce, která zbývá — ne detail */
+.igd-lang.empty { opacity: .45; border-style: dashed; }
+.igd-lang.out { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+.igd-side { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.igd-warn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: #fdf8ec; color: #7a5a12; border: 1px solid #e8cf94;
+}
+.igd-warn.late { background: #fdecec; color: #8a1c1c; border-color: #f2c2c2; }
+.igd-approve { display: flex; align-items: center; gap: 7px; font-size: 12.5px; cursor: pointer; }
+.igd-approve input:disabled { cursor: not-allowed; }
+.igd-btns { display: flex; align-items: center; gap: 6px; }
+.igd-btns .icon-btn.danger { color: var(--danger); }
+
+@media (max-width: 900px) {
+  /* V užším okně se datum přesune nad obsah a postranní sloupec pod něj */
+  .igd-card { grid-template-columns: minmax(0, 1fr); }
+  .igd-when { flex-direction: row; align-items: baseline; gap: 8px; }
+}
+
 .ig-drafts { margin-top: 18px; display: flex; flex-direction: column; gap: 6px; }
 .ig-draft-row {
   display: flex;
@@ -9628,6 +9767,30 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
  * před termínem už je pozdě zjišťovat, že nejsou fotky.
  */
 .ig-plan { padding: 18px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+/*
+ * Postup návrhu měsíce.
+ *
+ * Model píše příspěvky jeden po druhém a trvá to přes minutu. Samotné
+ * „Přemýšlím" v tlačítku neříkalo, jestli se něco hýbe — proužek a počet
+ * hotových ano, a rozepsané příspěvky se mezitím ukazují pod ním.
+ */
+.ig-plan-progress { display: flex; flex-direction: column; gap: 6px; }
+.ig-plan-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.ig-plan-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  /* Šířka se mění skokem po každém příspěvku — přechod z toho udělá pohyb */
+  transition: width .4s ease;
+}
+.ig-plan-live { color: var(--accent); font-weight: 500; }
+
 .ig-plan-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .ig-plan-head h2 { margin: 0 0 4px; font-size: 19px; font-weight: 600; }
 .ig-plan-head .desc { max-width: 620px; }

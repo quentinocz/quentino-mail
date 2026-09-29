@@ -55,15 +55,47 @@ const TEMPLATE = String.raw`
 .qbn-on .bnr-main .cover-bnr,
 .qbn-on .bnr-group { display: none !important; }
 
+/*
+ * Jeden rozestup pro celý blok.
+ *
+ * Dřív si každá část držela vlastní čísla a sousední části je sčítaly:
+ * pod pruhem odkazů končila sekce banneru (44 px) a hned pod ní začínala
+ * sekce bloků dalšími 44 px. Nahoře byl přitom rozestup jen jeden. Zvenku
+ * to vypadalo, že je nahoře málo a dole zbytečně moc.
+ *
+ * Proto se počítá s **polovinou**: každý blok si k okraji sekce nechá
+ * půlku, dva bloky nad sebou tak dají dohromady celý rozestup a rytmus
+ * je po celé stránce stejný.
+ */
+.qbn-on {
+  --qbn-gap: clamp(18px, 2.2vw, 34px);
+  --qbn-gap-half: clamp(9px, 1.1vw, 17px);
+  /* Uvnitř bloku (banner → jeho pruh odkazů) stačí míň, patří k sobě */
+  --qbn-gap-in: clamp(10px, 1.2vw, 18px);
+}
+
+/*
+ * Zlom v barvě pozadí.
+ *
+ * Šablona maluje přes sekci s bannerem ještě teplý 5% přeliv
+ * (".bov-ye-o-5"), kdežto sekce s bloky pod ním ho nemá. Dokud v obou
+ * sekcích byly fotky přes celou šířku, nebylo to znát; jakmile se mezi
+ * nimi objevil holý šedý pruh s odkazy, udělala se na rozhraní sekcí
+ * viditelná vodorovná hrana. Zbytek stránky je bez přelivu, tak se
+ * srovnává podle něj.
+ */
+.qbn-on .section.bic-bnr { background-image: none; }
+
 .qbn {
   display: grid;
   width: 100%;
   /*
-   * Vzduch nad i pod. Bez něj se blok lepil na hlavičku a na to, co je
-   * pod ním, a celá úvodní stránka vypadala nedodělaně — banner je
-   * samostatný celek, ne další řádek textu.
+   * Nahoře celý rozestup, dole půlka. Nad bannerem totiž žádný druhý blok
+   * není — je tam hlavička e-shopu, která si nic nepřidá. Pod ním ano, a
+   * půlka plus půlka dá dohromady tentýž rozestup. Teprve takhle je to
+   * po celé stránce stejné; dřív bylo nahoře 44 a dole 88 bodů.
    */
-  margin: clamp(20px, 2.6vw, 44px) auto;
+  margin: var(--qbn-gap) auto var(--qbn-gap-half);
   /* Stránky bannerů leží přes sebe v téže buňce — proto se při rotaci nehne výška */
   position: relative;
   /*
@@ -434,15 +466,21 @@ a.qbn-card:hover .qbn-btn[data-style="link"] { transform: translateX(2px); }
  * zeď, přes kterou se člověk nedostane k obsahu stránky.
  */
 .qbn-links {
-  display: flex;
-  justify-content: center;
-  gap: clamp(12px, 2vw, 30px);
   /*
-   * Nahoře míň než dole. Pruh patří k banneru nad sebou, ale od toho, co
-   * jde pod ním, potřebuje stejný odstup jako celý blok — bez něj se
-   * lepil rovnou na další sekci stránky.
+   * Mřížka stejně širokých sloupců, ne řádek podle délky textu.
+   *
+   * Dokud se šířka brala z popisku, měly „Kravaty" a „Šle a Motýlek"
+   * jiný rozestup, ikonky nesedly pod sebe ani proti sobě a při osmi
+   * kategoriích se z toho na počítači stal posuvník. Počet sloupců
+   * dodá skript (--qbn-link-n), takže sloupce jsou vždy stejné a pruh
+   * zůstane na střed.
    */
-  margin: clamp(12px, 1.6vw, 24px) auto clamp(20px, 2.6vw, 44px);
+  display: grid;
+  grid-template-columns: repeat(var(--qbn-link-n, 4), minmax(72px, 132px));
+  justify-content: center;
+  align-items: start;
+  gap: clamp(8px, 1.4vw, 20px);
+  margin: var(--qbn-gap-in) auto var(--qbn-gap-half);
   padding: 0 2px 2px;
   overflow-anchor: none;
 }
@@ -456,8 +494,9 @@ a.qbn-card:hover .qbn-btn[data-style="link"] { transform: translateX(2px); }
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  flex: 0 0 auto;
-  max-width: 120px;
+  /* Sloupec už šířku určuje sám — odkaz ji jen vyplní */
+  width: 100%;
+  min-width: 0;
   color: inherit;
   text-decoration: none;
   font-family: var(--qbn-font, inherit);
@@ -481,7 +520,17 @@ a.qbn-card:hover .qbn-btn[data-style="link"] { transform: translateX(2px); }
 .qbn-links[data-shape="circle"] .qbn-link-ico { border-radius: 50%; }
 .qbn-links[data-shape="square"] .qbn-link-ico { border-radius: var(--qbn-radius, 0); }
 .qbn-links[data-shape="text"] .qbn-link-ico { display: none; }
-.qbn-links[data-shape="text"] { gap: clamp(10px, 1.6vw, 22px); }
+/*
+ * Bez ikonek to není mřížka, ale řádek štítků — stejně široké sloupce by
+ * u dvouslovné kategorie nechaly kolem textu prázdný rámeček.
+ */
+.qbn-links[data-shape="text"] {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(10px, 1.6vw, 22px);
+}
+.qbn-links[data-shape="text"] .qbn-link-text { min-height: 0; }
 .qbn-links[data-shape="text"] .qbn-link {
   /* Bez obrázku je to řádek odkazů, ne mřížka — hranice mezi nimi pomůže */
   padding: 7px 14px;
@@ -497,7 +546,15 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   line-height: 1.25;
   letter-spacing: -.02em;
   text-align: center;
+  /*
+   * Místo na dva řádky se drží i u jednoslovné kategorie. Jinak by pruh
+   * s „Kravatami" a „Šlemi a Motýlkem" vedle sebe měl každou dlaždici
+   * jinak vysokou a celý řádek by vypadal nakřivo.
+   */
+  min-height: 2.5em;
 }
+/* Delší název se zalomí, nerozšíří sloupec ani nepřeteče přes okraj */
+.qbn-link-text { overflow-wrap: anywhere; hyphens: auto; }
 
 @media (max-width: 760px) {
   /*
@@ -505,7 +562,18 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
    * napůl za okrajem — právě to říká, že se dá posunout dál.
    */
   .qbn-links {
+    /* Sloupce zůstávají stejné, jen se místo zalomení posouvají prstem */
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 84px;
+    /*
+     * Když se kategorie na šířku vejdou, stojí na střed; když ne, posouvají
+     * se od levého kraje. "safe" je tu kvůli tomu, že u vystředěného
+     * posuvníku by se začátek seznamu schoval za levý okraj a nešel by
+     * urolovat zpátky. Starší prohlížeč pravidlo zahodí a nechá to vlevo.
+     */
     justify-content: flex-start;
+    justify-content: safe center;
     overflow-x: auto;
     scroll-snap-type: x proximity;
     -webkit-overflow-scrolling: touch;
@@ -513,7 +581,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     padding-inline: 2px;
   }
   .qbn-links::-webkit-scrollbar { display: none; }
-  .qbn-link { scroll-snap-align: start; max-width: 96px; }
+  .qbn-link { scroll-snap-align: start; }
   .qbn-link-ico { width: 62px; height: 62px; font-size: 24px; }
   .qbn-link-text { font-size: 11.5px; }
 }
@@ -754,7 +822,8 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   display: grid;
   gap: clamp(10px, 1.4vw, 18px);
   width: 100%;
-  margin: clamp(20px, 2.6vw, 44px) auto;
+  /* Stejná půlka jako u banneru — rytmus stránky drží jedno číslo */
+  margin: var(--qbn-gap-half) auto;
   overflow-anchor: none;
 }
 .qhl[data-layout="mozaika"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1463,6 +1532,13 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
 
     var wrap = el("div", "qbn-links");
     wrap.setAttribute("data-shape", data.shape || "circle");
+    /*
+     * Kolik je sloupců, ví jen tenhle kód — a mřížka to potřebuje, aby
+     * byly všechny stejně široké. Dokud se šířka brala z délky popisku,
+     * měla každá kategorie jiný rozestup a při osmi se z pruhu stal na
+     * počítači posuvník.
+     */
+    wrap.style.setProperty("--qbn-link-n", String(data.items.length));
     for (var i = 0; i < data.items.length; i++) {
       var one = data.items[i];
       var href = pick(one.href);

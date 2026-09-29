@@ -465,8 +465,28 @@ export function getPost(id: number): IgPost | null {
     createdAt: p.created_at, media, captions: caps,
     planAt: p.plan_at ?? '', planKind: p.plan_kind ?? '',
     planIdea: p.plan_idea ?? '', planCode: p.plan_code ?? '',
+    approved: !!p.approved, approvedAt: p.approved_at ?? '',
     sourceCaption: src?.caption ?? '', sourcePermalink: src?.permalink ?? ''
   };
+}
+
+/**
+ * Odsouhlasení příspěvku k publikaci.
+ *
+ * Schvaluje se **celý příspěvek**, ne jednotlivé trhy: text vzniká
+ * překladem z jednoho zadání a číst ho pětkrát zvlášť nikdo nebude.
+ * Každá změna média nebo textu schválení shodí — jinak by se dalo
+ * odsouhlasit prázdné a dopsat cokoli.
+ */
+export function setApproved(id: number, on: boolean): void {
+  getDb().prepare('UPDATE ig_posts SET approved = ?, approved_at = ? WHERE id = ?')
+    .run(on ? 1 : 0, on ? new Date().toISOString() : '', id);
+}
+
+/** Zruší schválení — volá se po každé změně obsahu příspěvku. */
+export function unapprove(id: number): void {
+  getDb().prepare("UPDATE ig_posts SET approved = 0, approved_at = '' WHERE id = ? AND approved = 1")
+    .run(id);
 }
 
 export function deletePost(id: number): void {

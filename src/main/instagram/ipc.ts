@@ -100,6 +100,14 @@ export function registerIgIpc() {
   handle('ig:planAccept', (items: any[]) => ig.acceptPlan(items ?? []));
   handle('ig:planned', (from: string, to: string) => ig.plannedPosts(String(from ?? ''), String(to ?? '')));
   handle('ig:planMove', (id: number, at: string) => ig.movePlan(Number(id), String(at ?? '')));
+  /* Jeden příspěvek na teď — bez termínu, na vyžádání nebo podle přání */
+  handle('ig:proposeOne', (wish: string) => ig.proposeOne(String(wish ?? '')));
+  handle('ig:acceptOne', (item: any) => ig.acceptOne(item ?? {}));
+  /* Přehození dvou termínů tažením v seznamu rozdělaných */
+  handle('ig:planSwap', (a: number, b: number) => ig.swapPlan(Number(a), Number(b)));
+  /* Odsouhlasení k publikaci a připomínky toho, co se nestíhá */
+  handle('ig:approve', (id: number, on: boolean) => ig.approvePost(Number(id), !!on));
+  handle('ig:alerts', () => ig.planAlerts());
 
   /* Fronta */
   handle('ig:jobs', () => ig.jobs());

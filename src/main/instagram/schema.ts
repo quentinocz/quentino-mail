@@ -69,7 +69,16 @@ export const igSchema = `
     -- Nápad na fotku nebo video, tak jak ho navrhla AI
     plan_idea TEXT NOT NULL DEFAULT '',
     -- Ke kterému produktu se příspěvek váže (kód z katalogu)
-    plan_code TEXT NOT NULL DEFAULT ''
+    plan_code TEXT NOT NULL DEFAULT '',
+    -- Odsouhlasený k publikaci.
+    --
+    -- Text od modelu a fotky od člověka nestačí: mezi „je to hotové" a
+    -- „může to ven" je krok, který dělá hlava, ne aplikace. Bez něj by
+    -- naplánovaná publikace odešla i s překlepem, kterého si nikdo
+    -- nevšiml, protože se na příspěvek od zařazení do plánu nikdo
+    -- nepodíval.
+    approved INTEGER NOT NULL DEFAULT 0,
+    approved_at TEXT NOT NULL DEFAULT ''
   );
   -- Rejstřík nad plan_at tady schválně NENÍ. Tenhle blok běží i nad databází
   -- z minulé verze, kde tabulka ig_posts sloupec plan_at ještě nemá —
@@ -163,6 +172,8 @@ export const igAlters: string[] = [
   "ALTER TABLE ig_posts ADD COLUMN plan_kind TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_idea TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_code TEXT NOT NULL DEFAULT ''",
+  'ALTER TABLE ig_posts ADD COLUMN approved INTEGER NOT NULL DEFAULT 0',
+  "ALTER TABLE ig_posts ADD COLUMN approved_at TEXT NOT NULL DEFAULT ''",
   // Až tady, po doplnění sloupce. V bloku se schématem by rejstřík nad
   // starou databází spadl na „no such column: plan_at".
   'CREATE INDEX IF NOT EXISTS idx_ig_posts_plan ON ig_posts(plan_at)'

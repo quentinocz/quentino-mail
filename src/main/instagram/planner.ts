@@ -1,4 +1,5 @@
-import { ask } from '../ai';
+import { BrowserWindow } from 'electron';
+import { ask, askLong } from '../ai';
 import { getSettings } from '../settings';
 import { getSetting, setSetting } from '../db';
 import { digestFacts } from '../digest';
@@ -200,6 +201,72 @@ Vrať JEN JSON bez komentářů:
  * Rovnou uložený měsíc by znamenal třicet rozdělaných příspěvků, které
  * pak někdo maže po jednom.
  */
+/**
+ * Celé objekty z rozepsaného JSONu.
+ *
+ * Model posílá návrh po kouscích a čekat na poslední znak znamená dívat se
+ * minutu na tlačítko „Přemýšlím". Příspěvky jsou přitom v odpovědi jeden
+ * po druhém — jakmile je některý dopsaný, dá se ukázat.
+ *
+ * Hledají se vyvážené složené závorky a **hlídá se, co je uvnitř řetězce**:
+ * bez toho by závorka v textu příspěvku („{"text": "sleva {akce}"}")
+ * rozhodila počítání a od té chvíle by se neukázalo nic.
+ *
+ * Vrací nalezené kusy a místo, odkud pokračovat příště.
+ */
+export function hotoveObjekty(text: string, from = 0): { kusy: string[]; dal: number } {
+  const kusy: string[] = [];
+  let dal = from;
+  let i = from;
+  let start = -1;
+  let hloubka = 0;
+  let vRetezci = false;
+  while (i < text.length) {
+    const ch = text[i];
+    if (vRetezci) {
+      if (ch === '\\') i += 1;
+      else if (ch === '"') vRetezci = false;
+    } else if (ch === '"') vRetezci = true;
+    else if (ch === '{') {
+      if (hloubka === 0) start = i;
+      hloubka += 1;
+    } else if (ch === '}') {
+      hloubka -= 1;
+      if (hloubka === 0 && start >= 0) {
+        kusy.push(text.slice(start, i + 1));
+        dal = i + 1;
+        start = -1;
+      }
+      if (hloubka < 0) hloubka = 0;
+    }
+    i += 1;
+  }
+  return { kusy, dal };
+}
+
+/** Jeden návrh z toho, co poslal model — termín si dosazujeme sami. */
+function navrhZ(one: any, den: string, hodina: number): IgPlanProposal {
+  const tags = Array.isArray(one?.tags) ? one.tags.filter((t: any) => typeof t === 'string').slice(0, 8) : [];
+  return {
+    /* Termín z naší strany, ne z modelu: ten si ho umí vymyslet mimo měsíc */
+    day: den,
+    hour: hodina,
+    kind: ['bestseller', 'lezak', 'sezona', 'zakulisi'].includes(String(one?.kind))
+      ? String(one.kind) : 'sezona',
+    title: String(one?.title ?? '').trim().slice(0, 80) || 'Příspěvek',
+    text: String(one?.text ?? '').trim().slice(0, 2200),
+    idea: String(one?.idea ?? '').trim().slice(0, 400),
+    code: String(one?.code ?? '').trim().slice(0, 40),
+    tags
+  } as IgPlanProposal;
+}
+
+function rozhlas(channel: string, payload: unknown): void {
+  try {
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload);
+  } catch { /* okno se mezitím zavřelo — návrh kvůli tomu neshodíme */ }
+}
+
 export async function proposeMonth(now = new Date()): Promise<IgPlanProposal[]> {
   const setup = planSetup();
   const terminy = planDays(setup, now);
@@ -215,34 +282,90 @@ export async function proposeMonth(now = new Date()): Promise<IgPlanProposal[]> 
     setup.note ? `Na co nezapomenout: ${setup.note}` : ''
   ].filter(Boolean).join('\n');
 
-  const raw = await ask(getSettings().draftModel, SYSTEM, zadani, 8000);
-  let data: any = null;
-  try {
-    data = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
-  } catch {
+  /*
+   * Návrh se **streamuje**. Měsíc příspěvků je dlouhá odpověď a čekat na
+   * její poslední znak znamenalo dívat se přes minutu na tlačítko
+   * „Přemýšlím" bez jediné známky toho, že se něco děje. Každý dopsaný
+   * příspěvek se proto pošle do okna hned, jak je hotový — a když se
+   * model uprostřed zadrhne, zůstane aspoň to, co už stihl.
+   */
+  const out: IgPlanProposal[] = [];
+  let dal = 0;
+  /* První složená závorka patří obalu {"posts": [...]}, ne příspěvku */
+  let obalPryc = false;
+
+  const krok = (text: string) => {
+    if (!obalPryc) {
+      const zacatek = text.indexOf('[');
+      if (zacatek < 0) return;
+      dal = Math.max(dal, zacatek);
+      obalPryc = true;
+    }
+    const { kusy, dal: konec } = hotoveObjekty(text, dal);
+    dal = konec;
+    for (const kus of kusy) {
+      if (out.length >= terminy.length) break;
+      let one: any = null;
+      try { one = JSON.parse(kus); } catch { continue; }
+      out.push(navrhZ(one, terminy[out.length], setup.hour));
+    }
+    if (kusy.length > 0) {
+      rozhlas('ig:planStep', { hotovo: out.length, celkem: terminy.length, items: out.slice() });
+    }
+  };
+
+  rozhlas('ig:planStep', { hotovo: 0, celkem: terminy.length, items: [] });
+  const raw = await askLong(getSettings().draftModel, SYSTEM, zadani, {
+    maxTokens: 8000,
+    onChunk: text => krok(text)
+  });
+  /*
+   * Doběh: poslední kus mohl dorazit až s koncem odpovědi a některé
+   * modely balí JSON do ```json bloku, takže se na závěr projde celý text.
+   */
+  krok(raw);
+
+  if (out.length === 0) {
     throw new Error('Model nevrátil použitelný návrh. Zkus to ještě jednou.');
   }
-
-  const list = Array.isArray(data?.posts) ? data.posts : [];
-  const out: IgPlanProposal[] = [];
-  for (let i = 0; i < Math.min(list.length, terminy.length); i++) {
-    const one = list[i] ?? {};
-    const tags = Array.isArray(one.tags) ? one.tags.filter((t: any) => typeof t === 'string').slice(0, 8) : [];
-    out.push({
-      /* Termín z naší strany, ne z modelu: ten si ho umí vymyslet mimo měsíc */
-      day: terminy[i],
-      hour: setup.hour,
-      kind: ['bestseller', 'lezak', 'sezona', 'zakulisi'].includes(String(one.kind))
-        ? String(one.kind) : 'sezona',
-      title: String(one.title ?? '').trim().slice(0, 80) || 'Příspěvek',
-      text: String(one.text ?? '').trim().slice(0, 2200),
-      idea: String(one.idea ?? '').trim().slice(0, 400),
-      code: String(one.code ?? '').trim().slice(0, 40),
-      tags
-    });
-  }
-  if (out.length === 0) throw new Error('Z návrhu nezbyl ani jeden příspěvek. Zkus to ještě jednou.');
+  rozhlas('ig:planStep', { hotovo: out.length, celkem: terminy.length, items: out.slice(), konec: true });
   return out;
+}
+
+/**
+ * Jeden příspěvek na vyžádání.
+ *
+ * Plán na měsíc je pro rozvahu dopředu; tohle je pro chvíli, kdy je
+ * důvod hned teď — přišly nové vzory, je hezké světlo, nebo se prostě
+ * chce něco poslat ven. Přání je nepovinné: bez něj se vybere z toho,
+ * co se prodává a co leží skladem, se stejnými čísly jako měsíční plán.
+ *
+ * Termín se **nepřiděluje**. Příspěvek na teď se dodělá a pošle, ne
+ * zařadí do rozvrhu; termín si k němu dá člověk sám, když chce.
+ */
+export async function proposeOne(wish = '', now = new Date()): Promise<IgPlanProposal> {
+  const setup = planSetup();
+  const prani = String(wish ?? '').trim().slice(0, 200);
+  const zadani = [
+    planFacts(now),
+    '',
+    prani
+      ? `Chci jeden příspěvek na tohle: ${prani}`
+      : 'Chci jeden příspěvek. Vyber téma sám — podle toho, co se prodává nebo co leží'
+        + ' skladem a zaslouží si pozornost.',
+    setup.note ? `Na co nezapomenout: ${setup.note}` : ''
+  ].filter(Boolean).join('\n');
+
+  const raw = await ask(getSettings().draftModel, SYSTEM, zadani, 1600);
+  const { kusy } = hotoveObjekty(raw, Math.max(0, raw.indexOf('[')));
+  for (const kus of kusy) {
+    let one: any = null;
+    try { one = JSON.parse(kus); } catch { continue; }
+    if (!one || (!one.title && !one.text)) continue;
+    /* Bez termínu: příspěvek na teď se dodělává, ne plánuje */
+    return navrhZ(one, '', setup.hour);
+  }
+  throw new Error('Model nevrátil použitelný návrh. Zkus to ještě jednou, případně jinými slovy.');
 }
 
 /**
@@ -256,23 +379,47 @@ export function acceptPlan(items: any[]): number {
   const list = Array.isArray(items) ? items : [];
   let kolik = 0;
   for (const one of list) {
-    const den = String(one?.day ?? '').slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(den)) continue;
-    const hodina = clamp(one?.hour, 0, 23, 18);
-    const tags = Array.isArray(one?.tags) ? one.tags.join(' ') : '';
-    const text = String(one?.text ?? '').trim();
-    store.createPost({
-      kind: 'new',
-      brief: [text, tags].filter(Boolean).join('\n\n'),
-      mediaNote: String(one?.idea ?? '').trim(),
-      planAt: `${den} ${String(hodina).padStart(2, '0')}:00`,
-      planKind: String(one?.kind ?? ''),
-      planIdea: String(one?.idea ?? '').trim(),
-      planCode: String(one?.code ?? '').trim()
-    });
-    kolik++;
+    /*
+     * V měsíčním plánu je příspěvek bez data vada, ne záměr — termín mu
+     * přidělujeme my a nesmysl místo data znamená, že se něco pokazilo.
+     * Zahodit ho je lepší než uložit na rok 1970.
+     */
+    if (zaloz(one, true) > 0) kolik++;
   }
   return kolik;
+}
+
+/**
+ * Z jednoho návrhu rozdělaný příspěvek.
+ *
+ * Termín je **nepovinný**. Příspěvek „na teď" žádný nemá: dodělá se a
+ * pošle, ne zařadí do rozvrhu. Dokud se termín vyžadoval, návrh na
+ * vyžádání se tiše zahodil a v seznamu rozdělaných se nic neobjevilo.
+ */
+export function zaloz(one: any, terminPovinny = false): number {
+  const den = String(one?.day ?? '').slice(0, 10);
+  const maTermin = /^\d{4}-\d{2}-\d{2}$/.test(den);
+  if (terminPovinny && !maTermin) return 0;
+  const hodina = clamp(one?.hour, 0, 23, 18);
+  const tags = Array.isArray(one?.tags) ? one.tags.join(' ') : '';
+  const text = String(one?.text ?? '').trim();
+  if (!text && !String(one?.idea ?? '').trim()) return 0;
+  return store.createPost({
+    kind: 'new',
+    brief: [text, tags].filter(Boolean).join('\n\n'),
+    mediaNote: String(one?.idea ?? '').trim(),
+    planAt: maTermin ? `${den} ${String(hodina).padStart(2, '0')}:00` : '',
+    planKind: String(one?.kind ?? ''),
+    planIdea: String(one?.idea ?? '').trim(),
+    planCode: String(one?.code ?? '').trim()
+  });
+}
+
+/** Návrh na teď: rovnou se z něj stane rozdělaný příspěvek a vrátí se jeho id. */
+export function acceptOne(one: any): number {
+  const id = zaloz(one);
+  if (!id) throw new Error('Návrh je prázdný — není z čeho příspěvek založit.');
+  return id;
 }
 
 /* ---------- co je v plánu ---------- */
@@ -317,4 +464,4 @@ function prvniRadek(text: string): string {
   return radek.slice(0, 90);
 }
 
-export const __test = { planDays, clamp, prvniRadek };
+export const __test = { planDays, clamp, prvniRadek, hotoveObjekty, navrhZ, zaloz };

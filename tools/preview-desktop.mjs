@@ -150,6 +150,28 @@ await overflow('pošta — odeslané'); await snap('01c-odeslane');
 await click('.side-item', { hasText: 'Vše' });
 await page.waitForTimeout(400);
 
+/*
+ * Připomínka k naplánovaným příspěvkům. Sociální sítě mají vlastní okno
+ * a člověk je nemá pořád otevřené — bez proužku v hlavním okně se na
+ * chybějící fotky přišlo až ve chvíli, kdy měl příspěvek vyjít. Nejdřív
+ * se hlásí to, co už termín minulo.
+ */
+{
+  const prouzek = await page.evaluate(() => {
+    const node = document.querySelector('.ig-alert');
+    if (!node) return null;
+    return {
+      text: (node.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      pozde: node.className.includes('late'),
+      zavrit: !!node.querySelector('.icon-btn')
+    };
+  });
+  const ok = !!prouzek && prouzek.pozde && /nevyšel/.test(prouzek.text) && prouzek.zavrit;
+  if (!ok) problems.push(`připomínka k příspěvkům se neukázala (${JSON.stringify(prouzek)})`);
+  console.log(`${'připomínka k příspěvkům'.padEnd(28)} ${ok ? '✓' : '✗'}`);
+  await snap('01d-prouzek-prispevky');
+}
+
 // Překlady se otevírají z nabídky Funkce — v panelu už samostatnou položku nemají
 await click('.ig-switch button', { hasText: 'Funkce' });
 await click('.ws-menu-item', { hasText: 'Produkty a překlady' });

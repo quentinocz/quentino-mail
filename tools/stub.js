@@ -780,8 +780,10 @@
                 href: { cz: '/motylky', sk: '', en: '' } },
               { id: 'l3', image: '', emoji: '🧵', text: text('Kšandy'),
                 href: { cz: '/ksandy', sk: '', en: '' } },
-              { id: 'l4', image: '', emoji: '🧦', text: text('Ponožky'),
-                href: { cz: '/ponozky', sk: '', en: '' } }
+              /* Schválně dlouhý název: právě na něm se pozná, jestli se pruh
+                 rozjíždí podle délky textu, nebo stojí ve stejných sloupcích */
+              { id: 'l4', image: '', emoji: '🧦', text: text('Šle a Motýlek'),
+                href: { cz: '/sle-a-motylek', sk: '', en: '' } }
             ] } },
           { id: 's2', name: 'Black Friday', from: mistni(ted + 20 * den), to: mistni(ted + 24 * den),
             fromMs: ted + 20 * den, toMs: ted + 24 * den, off: false,
@@ -976,7 +978,76 @@
        (Reels 9:16, fotky 4:5), takže náhled musí ukázat i je — na čtvercích
        by se nikdy nepoznalo, že se dlaždice roztahují. */
     'ig:thumb': THUMBS,
-    'ig:drafts': [], 'ig:jobs': [], 'ig:markets': [],
+    /*
+     * Rozdělané příspěvky. V náhledu jsou schválně různě daleko: jeden
+     * bez fotek s blížícím se termínem, jeden hotový a odsouhlasený,
+     * jeden po termínu — na nich je vidět, že karta říká, co zbývá.
+     */
+    'ig:drafts': (function () {
+      var den = 86400000;
+      var ted = Date.now();
+      var kdy = function (za, hodina) {
+        var d = new Date(ted + za * den);
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+          + ' ' + pad(hodina) + ':00';
+      };
+      var popisek = function (id, lang, text, status) {
+        return { id: id, lang: lang, variants: [text], chosen: 0, edited: null,
+          text: text, status: status || 'draft', updatedAt: new Date().toISOString() };
+      };
+      return [
+        { id: 701, kind: 'new', sourcePostId: null,
+          brief: 'Hedvábná kravata s drobným vzorem — nová série.\n\n#kravaty #quentino',
+          mediaNote: 'Detail vzoru u okna, denní světlo',
+          createdAt: new Date(ted - 2 * den).toISOString(),
+          planAt: kdy(2, 18), planKind: 'bestseller',
+          planIdea: 'Detail vzoru u okna, denní světlo', planCode: 'KR-120',
+          approved: false, approvedAt: '',
+          media: [],
+          captions: [popisek(7011, 'CS', 'Hedvábná kravata s drobným vzorem — nová série.'),
+            popisek(7012, 'EN', '')] },
+        { id: 702, kind: 'new', sourcePostId: null,
+          brief: 'Sametový motýlek na svatbu i na ples.',
+          mediaNote: '', createdAt: new Date(ted - 4 * den).toISOString(),
+          planAt: kdy(5, 18), planKind: 'lezak',
+          planIdea: 'Motýlek na tmavém dřevě', planCode: 'MO-44',
+          approved: true, approvedAt: new Date().toISOString(),
+          media: [
+            { id: 1, path: '/fotky/motylek-1.jpg', mime: 'image/jpeg', isVideo: false },
+            { id: 2, path: '/fotky/motylek-2.jpg', mime: 'image/jpeg', isVideo: false },
+            { id: 3, path: '/fotky/motylek.mp4', mime: 'video/mp4', isVideo: true }
+          ],
+          captions: [popisek(7021, 'CS', 'Samet není jen na zimu. Na svatbu i na ples.'),
+            popisek(7022, 'EN', 'Velvet is not just for winter.')] },
+        { id: 703, kind: 'new', sourcePostId: null,
+          brief: 'Šle k obleku — jak si vybrat šířku.',
+          mediaNote: '', createdAt: new Date(ted - 9 * den).toISOString(),
+          planAt: kdy(-1, 18), planKind: 'zakulisi',
+          planIdea: 'Ruce zapínající klipy', planCode: '',
+          approved: false, approvedAt: '',
+          media: [{ id: 4, path: '/fotky/sle.jpg', mime: 'image/jpeg', isVideo: false }],
+          captions: [popisek(7031, 'CS', 'Šle k obleku: šířka rozhoduje víc než barva.')] }
+      ];
+    })(),
+    'ig:alerts': (function () {
+      var den = 86400000;
+      var ted = Date.now();
+      var kdy = function (za) {
+        var d = new Date(ted + za * den);
+        var pad = function (n) { return String(n).padStart(2, '0'); };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' 18:00';
+      };
+      return [
+        { postId: 703, kind: 'late', at: kdy(-1), title: 'Šle k obleku — jak si vybrat šířku' },
+        { postId: 701, kind: 'media', at: kdy(2), title: 'Hedvábná kravata s drobným vzorem' }
+      ];
+    })(),
+    'ig:approve': null, 'ig:planSwap': null, 'ig:acceptOne': 704,
+    'ig:proposeOne': { day: '', hour: 18, kind: 'sezona', title: 'Nové vzory hedvábných',
+      text: 'Dorazily nové vzory hedvábných kravat.', idea: 'Trojice kravat vedle sebe',
+      code: '', tags: ['#kravaty'] },
+    'ig:jobs': [], 'ig:markets': [],
     /*
      * Plánovač. V náhledu jsou ukázkové příspěvky v plánu i hotový návrh,
      * aby šlo proklikat obojí: co už v plánu je a co AI nabízí.
@@ -2556,9 +2627,13 @@
            * byl náhled celý bílý, nešlo v něm poznat, že bloky spadly na
            * bílé pozadí — bílý pruh se ukázal až na e-shopu.
            */
-          + '.section.bic-bnr,.section.bic-hdln{background:#f0f0f0;padding:8px 0}'
+          /* Sekce šablony mají svislé odsazení nulové — změřeno na webu */
+          + '.section.bic-bnr,.section.bic-hdln{background:#f0f0f0}'
           + '.anim{opacity:0}'
-          + '.section .container,.section .max{width:100%}</style>'
+          /* Kontejner šablony je flex sloupec — jinak by se svislé okraje
+             slily s okrajem sekce a rozestupy by se měřily jinak než na webu */
+          + '.section .container{width:100%;display:flex;flex-direction:column;align-items:center}'
+          + '.section .max{width:100%}</style>'
           + '<script>window.__quentinoLang=' + JSON.stringify(args[1] || 'cz') + '<\/script>'
           + telo
           + '<div class="qbn-ukazka"><div class="qbn-jako">hlavi\u010dka e-shopu</div>'

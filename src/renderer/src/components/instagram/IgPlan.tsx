@@ -65,6 +65,13 @@ export default function IgPlan({ overview, onOpenPost }: Props) {
   const [navrh, setNavrh] = useState<IgPlanProposal[] | null>(null);
   const [busy, setBusy] = useState('');
   const [openSetup, setOpenSetup] = useState(false);
+  /*
+   * Jak daleko je návrh. Model posílá příspěvky jeden po druhém a čekat
+   * na poslední znamenalo dívat se přes minutu na tlačítko „Přemýšlím"
+   * bez jediné známky toho, že se něco děje — a při delším čekání se
+   * okno zavíralo s dojmem, že se to zaseklo.
+   */
+  const [krok, setKrok] = useState<{ hotovo: number; celkem: number } | null>(null);
 
   /* Okno plánu: od dneška měsíc a kousek dopředu, ať je vidět i přesah */
   const dnes = new Date();
@@ -83,6 +90,16 @@ export default function IgPlan({ overview, onOpenPost }: Props) {
 
   useEffect(() => { void load(); }, [load]);
 
+  /*
+   * Rozdělané příspěvky přicházejí z hlavního procesu, ne z návratové
+   * hodnoty — ta dorazí až s posledním. Ukazují se rovnou v seznamu
+   * návrhu, takže je vidět, co model vymyslel, ještě než dopíše zbytek.
+   */
+  useEffect(() => api.on('ig:planStep', (data: any) => {
+    setKrok({ hotovo: Number(data?.hotovo) || 0, celkem: Number(data?.celkem) || 0 });
+    if (Array.isArray(data?.items) && data.items.length > 0) setNavrh(data.items);
+  }), []);
+
   const uprav = (patch: Partial<IgPlanSetup>) => setSetup(one => (one ? { ...one, ...patch } : one));
 
   const ulozSetup = async () => {
@@ -97,6 +114,8 @@ export default function IgPlan({ overview, onOpenPost }: Props) {
 
   const navrhni = async () => {
     setBusy('navrh');
+    setNavrh(null);
+    setKrok(null);
     try {
       if (setup) await api.ig.savePlanSetup(setup);
       setNavrh(await api.ig.planPropose());
@@ -104,6 +123,7 @@ export default function IgPlan({ overview, onOpenPost }: Props) {
       toast(e.message, 'error');
     } finally {
       setBusy('');
+      setKrok(null);
     }
   };
 
@@ -165,10 +185,34 @@ export default function IgPlan({ overview, onOpenPost }: Props) {
           </button>
           <button className="btn primary" disabled={busy === 'navrh'} onClick={() => void navrhni()}>
             <Icon name="sparkles" size={14} />
-            {busy === 'navrh' ? ' Přemýšlím…' : ' Navrhnout měsíc'}
+            {busy === 'navrh'
+              ? (krok && krok.celkem
+                ? ` Píšu ${Math.min(krok.hotovo + 1, krok.celkem)}. z ${krok.celkem}…`
+                : ' Přemýšlím…')
+              : ' Navrhnout měsíc'}
           </button>
         </div>
       </div>
+
+      {/*
+        * Pruh postupu. Číslo v tlačítku se čte špatně přes celou šířku
+        * okna, a hlavně z něj není poznat, jestli se něco hýbe — proužek
+        * ano. Mizí s koncem návrhu.
+        */}
+      {busy === 'navrh' && (
+        <div className="ig-plan-progress" role="status">
+          <div className="ig-plan-bar">
+            <span style={{ width: krok && krok.celkem
+              ? `${Math.round((krok.hotovo / krok.celkem) * 100)}%`
+              : '8%' }} />
+          </div>
+          <span className="desc">
+            {krok && krok.celkem
+              ? `Hotovo ${krok.hotovo} z ${krok.celkem} — rozepsané příspěvky se ukazují níž, jak přibývají.`
+              : 'Čtu, co se prodávalo, a chystám rozvržení měsíce…'}
+          </span>
+        </div>
+      )}
 
       {openSetup && setup && (
         <div className="ig-plan-setup">
@@ -227,10 +271,15 @@ export default function IgPlan({ overview, onOpenPost }: Props) {
       {navrh && (
         <div className="ig-plan-proposal">
           <div className="ig-plan-head">
-            <b>Návrh na {navrh.length} {kusy(navrh.length)}</b>
+            <b>
+              Návrh na {navrh.length} {kusy(navrh.length)}
+              {busy === 'navrh' && <span className="ig-plan-live"> · další se dopisují</span>}
+            </b>
             <div className="ig-plan-actions">
-              <button className="btn ghost" onClick={() => setNavrh(null)}>Zahodit</button>
-              <button className="btn primary" disabled={busy === 'prijmout'} onClick={() => void prijmi()}>
+              <button className="btn ghost" disabled={busy === 'navrh'}
+                onClick={() => setNavrh(null)}>Zahodit</button>
+              <button className="btn primary" disabled={busy === 'prijmout' || busy === 'navrh'}
+                onClick={() => void prijmi()}>
                 <Icon name="check" size={14} /> Zařadit do plánu
               </button>
             </div>

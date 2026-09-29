@@ -400,6 +400,59 @@ for (const okno of OKNA) {
     navrh.karet === 2 && navrh.zahodit, `${navrh.karet} návrhů`);
   say('  a text je hotový k vložení, ne osnova', navrh.text.length > 25, navrh.text);
   await page.screenshot({ path: path.join(SHOTS, 'okno-social-plan.png') });
+
+  /*
+   * Rozdělané příspěvky. Karta má vypadat jako budoucí příspěvek —
+   * fotky, text, datum — protože podle řádku textu se nepoznalo, jestli
+   * je práce hotová. A co chybí, musí být vidět bez čtení.
+   */
+  await page.locator('.side-item', { hasText: 'Rozpracované' }).click();
+  await page.waitForTimeout(600);
+  const rozdelane = await page.evaluate(() => {
+    const karty = [...document.querySelectorAll('.igd-card')];
+    const prvni = karty[0];
+    return {
+      karet: karty.length,
+      // Fotky na kartě: bez nich by to byl zase jen řádek textu
+      snimku: document.querySelectorAll('.igd-thumb').length,
+      bezFotek: document.querySelectorAll('.igd-nomedia').length,
+      datum: (prvni?.querySelector('.igd-when b')?.textContent ?? '').trim(),
+      schvalovatko: document.querySelectorAll('.igd-approve input').length,
+      // Bez fotky nejde odsouhlasit — zaškrtávátko je nepřístupné
+      zamcene: [...document.querySelectorAll('.igd-approve input')].filter(one => one.disabled).length,
+      odsouhlasene: document.querySelectorAll('.igd-card.ok').length,
+      varovani: [...document.querySelectorAll('.igd-warn')].map(one => one.textContent.trim()),
+      tazeni: karty.filter(one => one.getAttribute('draggable') === 'true').length,
+      jazyky: document.querySelectorAll('.igd-langs .tab').length,
+      smazat: document.querySelectorAll('.igd-btns .icon-btn.danger').length
+    };
+  });
+  say('rozdělané příspěvky vypadají jako budoucí příspěvek',
+    rozdelane.karet === 3 && rozdelane.snimku >= 4 && !!rozdelane.datum,
+    `${rozdelane.karet} karet, ${rozdelane.snimku} náhledů, první na ${rozdelane.datum}`);
+  say('  u příspěvku bez fotek je vidět nápad na focení',
+    rozdelane.bezFotek === 1, `${rozdelane.bezFotek}×`);
+  say('  bez fotky nejde odsouhlasit', rozdelane.zamcene === 1,
+    `${rozdelane.zamcene} z ${rozdelane.schvalovatko} zamčených`);
+  say('  odsouhlasený příspěvek je poznat bez čtení', rozdelane.odsouhlasene === 1,
+    `${rozdelane.odsouhlasene} označených`);
+  say('  a co se nestíhá, se řekne přímo na kartě',
+    rozdelane.varovani.length === 2, rozdelane.varovani.join(' | '));
+  say('  příspěvky s termínem jdou přetáhnout', rozdelane.tazeni === 3, `${rozdelane.tazeni}×`);
+  say('  jazyk náhledu se dá přepnout', rozdelane.jazyky >= 3, `${rozdelane.jazyky} voleb`);
+  say('  a příspěvek jde smazat', rozdelane.smazat === 3, `${rozdelane.smazat}×`);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-social-rozdelane.png') });
+
+  /* Jeden příspěvek na vyžádání — bez plánování celého měsíce */
+  await page.locator('.ig-plan-actions .btn.ghost', { hasText: 'Navrhnout příspěvek' }).click();
+  await page.waitForTimeout(400);
+  const prani = await page.evaluate(() => ({
+    policko: !!document.querySelector('.igd-wish input'),
+    text: (document.querySelector('.igd-wish input')?.getAttribute('placeholder') ?? '')
+  }));
+  say('  a jde si říct o jeden příspěvek na teď',
+    prani.policko && /kravata/i.test(prani.text), prani.text.slice(0, 50));
+  await page.screenshot({ path: path.join(SHOTS, 'okno-social-navrh.png') });
   await page.close();
 }
 
@@ -692,7 +745,50 @@ for (const okno of OKNA) {
            */
           kresbaMaVzduch: kresba
             ? getComputedStyle(kresba).backgroundSize.replace(/\s+/g, ' ')
-            : 'není'
+            : 'není',
+          /*
+           * Rovnoměrnost pruhu. Dokud se šířka brala z délky popisku,
+           * měly „Kravaty" a „Šle a Motýlek" jiný rozestup, ikonky
+           * nesedly proti sobě a při víc kategoriích z toho byl na
+           * počítači posuvník. Měří se skutečné obdélníky, ne pravidla.
+           */
+          /*
+           * Rytmus rozestupů. Nad bannerem má být tolik místa jako mezi
+           * bannerem a bloky pod ním — dřív bylo nahoře 44 a dole 88 bodů,
+           * protože sousední sekce svoje rozestupy sčítaly.
+           */
+          rytmus: (() => {
+            const sekce = blok.closest('.section') || blok.parentElement;
+            const bloky = node.ownerDocument.querySelector('.qhl');
+            if (!sekce) return null;
+            const nad = Math.round(blok.getBoundingClientRect().top - sekce.getBoundingClientRect().top);
+            const mezi = bloky
+              ? Math.round(bloky.getBoundingClientRect().top - pruh.getBoundingClientRect().bottom)
+              : null;
+            return { nad, mezi, sedi: mezi === null || Math.abs(nad - mezi) <= 4 };
+          })(),
+          sloupce: (() => {
+            const polozky = [...pruh.querySelectorAll('.qbn-link')];
+            if (polozky.length < 2) return null;
+            const r = polozky.map(one => one.getBoundingClientRect());
+            const sirky = r.map(one => Math.round(one.width));
+            const mezery = r.slice(1).map((one, i) => Math.round(one.left - r[i].right));
+            const ikony = [...pruh.querySelectorAll('.qbn-link-ico')]
+              .map(one => Math.round(one.getBoundingClientRect().top));
+            return {
+              stejneSiroke: Math.max(...sirky) - Math.min(...sirky) <= 1,
+              stejneMezery: mezery.length === 0 || Math.max(...mezery) - Math.min(...mezery) <= 1,
+              ikonyVRade: ikony.length === 0 || Math.max(...ikony) - Math.min(...ikony) <= 1,
+              // Na počítači se pruh nesmí posouvat do strany
+              bezPosuvniku: pruh.scrollWidth <= pruh.clientWidth + 1,
+              naStred: Math.abs(
+                (r[0].left - pruh.getBoundingClientRect().left)
+                - (pruh.getBoundingClientRect().right - r[r.length - 1].right)
+              ) <= 2,
+              sirky: sirky.join('/'),
+              mezery: mezery.join('/')
+            };
+          })()
         };
       })()
     };
@@ -864,6 +960,17 @@ for (const okno of OKNA) {
    */
   say('  blok s textem pod fotkou ho má opravdu pod ní',
     pc.bloky?.textMimoFotku === 'pod fotkou', String(pc.bloky?.textMimoFotku));
+  say('  odkazy stojí ve stejně širokých sloupcích a rovnoměrně',
+    pc.odkazy?.sloupce?.stejneSiroke === true && pc.odkazy?.sloupce?.stejneMezery === true
+      && pc.odkazy?.sloupce?.ikonyVRade === true && pc.odkazy?.sloupce?.bezPosuvniku === true
+      && pc.odkazy?.sloupce?.naStred === true,
+    pc.odkazy?.sloupce
+      ? `šířky ${pc.odkazy.sloupce.sirky}, mezery ${pc.odkazy.sloupce.mezery}, `
+        + `bez posuvníku ${pc.odkazy.sloupce.bezPosuvniku}, na střed ${pc.odkazy.sloupce.naStred}`
+      : 'nezměřeno');
+  say('  nad bannerem je stejně místa jako pod pruhem odkazů',
+    pc.odkazy?.rytmus?.sedi === true,
+    `nad ${pc.odkazy?.rytmus?.nad} px, mezi pruhem a bloky ${pc.odkazy?.rytmus?.mezi} px`);
   say('  pruh odkazů je pod bannerem',
     pc.odkazy?.pocet === 4 && pc.odkazy?.podBannerem === true && pc.odkazy?.sTextem === 4,
     pc.odkazy ? `${pc.odkazy.pocet} odkazů, pod blokem ${pc.odkazy.podBannerem}` : 'není');

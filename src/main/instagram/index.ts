@@ -12,7 +12,7 @@ import * as media from './media';
 import * as captions from './captions';
 import * as publisher from './publish';
 import * as oauth from './oauth';
-import type { IgOverview, IgMediaItem, IgPost, IgChannels } from '../../shared/types';
+import type { IgOverview, IgMediaItem, IgPost, IgChannels, IgAlert } from '../../shared/types';
 
 export { store, media, publisher, oauth };
 export const connect = oauth.startConnect;
@@ -160,6 +160,8 @@ export function createDraft(files: string[], brief: string, mediaNote: string): 
 export function updateDraft(postId: number, p: { brief?: string; mediaNote?: string; files?: string[] }): IgPost {
   store.updatePost(postId, p);
   if (p.files) store.setPostMedia(postId, filesToMedia(p.files));
+  // Změna zadání nebo fotek znamená, že odsouhlasené už neplatí
+  store.unapprove(postId);
   return store.getPost(postId)!;
 }
 
@@ -219,6 +221,72 @@ export function createFromSource(sourcePostId: number): IgPost {
   store.setPostMedia(postId, items);
   emit();
   return store.getPost(postId)!;
+}
+
+/**
+ * Co se má pohnout, aby plán nevyšel naprázdno.
+ *
+ * Plán sám nic nepublikuje: příspěvek potřebuje fotky, text a schválení.
+ * Bez připomínky se na to přijde až ve chvíli, kdy měl vyjít — a to je
+ * pozdě, protože fotky se nenafotí za hodinu. Hlídají se proto tři věci
+ * a **každá s vlastním předstihem**: chybějící média tři dny dopředu
+ * (fotit se musí stihnout), chybějící schválení den dopředu (přečíst se
+ * to dá večer) a co už mělo vyjít a nevyšlo.
+ */
+export function planAlerts(now = new Date()): IgAlert[] {
+  const den = 86_400_000;
+  const drafts = listDrafts();
+  const out: IgAlert[] = [];
+  for (const one of drafts) {
+    if (!one.planAt) continue;
+    const kdy = new Date(one.planAt.replace(' ', 'T')).getTime();
+    if (!Number.isFinite(kdy)) continue;
+    const zbyva = kdy - now.getTime();
+    const vyslo = one.captions.some(c => c.status === 'published');
+    if (vyslo) continue;
+    const nazev = (one.brief || one.planIdea || 'Příspěvek').split('\n')[0].slice(0, 70);
+    if (zbyva < 0) {
+      out.push({ postId: one.id, kind: 'late', at: one.planAt, title: nazev });
+    } else if (one.media.length === 0 && zbyva <= 3 * den) {
+      out.push({ postId: one.id, kind: 'media', at: one.planAt, title: nazev });
+    } else if (!one.approved && zbyva <= den) {
+      out.push({ postId: one.id, kind: 'approve', at: one.planAt, title: nazev });
+    }
+  }
+  /* Nejnaléhavější napřed — to, co už mělo vyjít, a pak podle termínu */
+  const vaha = { late: 0, media: 1, approve: 2 } as Record<string, number>;
+  return out.sort((a, b) => (vaha[a.kind] - vaha[b.kind]) || a.at.localeCompare(b.at));
+}
+
+/**
+ * Přehození dvou termínů v plánu.
+ *
+ * Tažením se v seznamu mění pořadí — a pořadí v plánu je termín. Místo
+ * posouvání všech mezi tím se prohodí jen dva: kdo si přetáhne příspěvek
+ * na čtvrtek, chce ho ve čtvrtek, ne posunout celý zbytek měsíce o den.
+ */
+export function swapPlan(aId: number, bId: number): void {
+  const a = store.getPost(aId);
+  const b = store.getPost(bId);
+  if (!a || !b) throw new Error('Příspěvek nenalezen.');
+  store.setPlanAt(aId, b.planAt);
+  store.setPlanAt(bId, a.planAt);
+  emit();
+}
+
+/** Odsouhlasení k publikaci — bez média nejde odsouhlasit nic. */
+export function approvePost(id: number, on: boolean): IgPost | null {
+  const post = store.getPost(id);
+  if (!post) throw new Error('Příspěvek nenalezen.');
+  if (on && post.media.length === 0) {
+    throw new Error('Bez fotky nebo videa nejde příspěvek odsouhlasit — síť ho nepřijme.');
+  }
+  if (on && post.captions.every(c => !c.text.trim())) {
+    throw new Error('Příspěvek nemá text ani na jednom trhu.');
+  }
+  store.setApproved(id, on);
+  emit();
+  return store.getPost(id);
 }
 
 export function deletePost(id: number): void {
@@ -288,12 +356,27 @@ export function blankCaptions(postId: number, langs: string[]): IgPost {
   return store.getPost(postId)!;
 }
 
+/*
+ * Každá změna obsahu shodí schválení.
+ *
+ * Odsouhlasí se to, co je na obrazovce — ne příspěvek jako přihrádka.
+ * Kdyby schválení přežilo přepsání textu nebo výměnu fotek, dalo by se
+ * odsouhlasit prázdné a dopsat cokoli, a naplánovaná publikace by to
+ * poslala ven bez jediného pohledu.
+ */
+function zrusSchvaleni(captionId: number): void {
+  const row = store.captionRow(captionId);
+  if (row?.post_id) store.unapprove(Number(row.post_id));
+}
+
 export function chooseVariant(captionId: number, index: number): void {
   store.updateCaption(captionId, { chosen: index });
+  zrusSchvaleni(captionId);
 }
 
 export function editCaption(captionId: number, text: string): void {
   store.updateCaption(captionId, { edited: text });
+  zrusSchvaleni(captionId);
 }
 
 /* ---------- Publikace ---------- */
@@ -314,6 +397,16 @@ export function publishPost(
 ): { queued: number; skipped: string[] } {
   const post = store.getPost(postId);
   if (!post) throw new Error('Příspěvek nenalezen.');
+  /*
+   * Bez fotky se nepublikuje.
+   *
+   * Instagram příspěvek bez média nepřijme a naplánovaná publikace by
+   * v noci tiše selhala — ráno by v profilu chyběl příspěvek a ve frontě
+   * by byla chyba, kterou nikdo nečte. Lepší je nepustit to hned.
+   */
+  if (post.media.length === 0) {
+    throw new Error('Příspěvek nemá ani jednu fotku nebo video — bez média ho síť nepřijme.');
+  }
   const skipped: string[] = [];
   let queued = 0;
   const alreadyOut = post.captions.filter(c => c.status === 'published').length;
@@ -342,7 +435,8 @@ export const retryJob = (id: number) => { store.retryJob(id); emit(); setTimeout
 
 /* ---------- plánovač ---------- */
 
-export { planSetup, savePlanSetup, proposeMonth, acceptPlan, plannedPosts } from './planner';
+export { planSetup, savePlanSetup, proposeMonth, proposeOne, acceptPlan, acceptOne,
+  plannedPosts } from './planner';
 
 /** Přesun příspěvku v plánu na jiný den — plán se v praxi mění pořád. */
 export function movePlan(id: number, at: string): void {

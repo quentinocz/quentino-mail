@@ -21,6 +21,7 @@ import { handleIncoming } from './media';
 import CatalogModal from './components/CatalogModal';
 import PtransStatusBar from './components/PtransStatusBar';
 import LiveOfferBar from './components/LiveOfferBar';
+import IgAlertBar from './components/IgAlertBar';
 import UpdateBar from './components/UpdateBar';
 import InstagramWorkspace from './components/instagram/InstagramWorkspace';
 import ChatWorkspace from './components/chat/ChatWorkspace';
@@ -432,6 +433,23 @@ function AppInner() {
             * uprostřed rozepsané odpovědi by to bylo horší než počkat.
             */}
           <UpdateBar />
+          {/*
+            * Naplánovaný příspěvek, který se nestíhá. Sociální sítě mají
+            * vlastní okno a člověk je nemá pořád otevřené — bez
+            * připomínky v hlavním okně se na chybějící fotky přišlo až
+            * ve chvíli, kdy měl příspěvek vyjít.
+            */}
+          <IgAlertBar
+            /*
+             * Proužek je připomínka, ne přerušení. Nad otevřeným oknem
+             * nastavení nebo úklidu by jen zakrýval tlačítka u spodního
+             * okraje — a zakrytá tlačítka jsou horší než nepřipomenutý
+             * příspěvek, protože o nich nikdo neví.
+             */
+            hidden={openTools.includes('instagram') || settingsOpen || outboxOpen
+              || cleanupOpen || digestOpen || packingOpen}
+            onOpen={() => { api.tool.open('instagram').catch(() => {}); }}
+          />
           <LiveOfferBar
             hidden={openTools.includes('catalog') || openTools.includes('packing')}
             onOpen={one => {

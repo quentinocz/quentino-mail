@@ -6,7 +6,7 @@ import type {
   VoucherTemplate,
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
-  IgPlanSetup, IgPlanProposal, IgPlanned,
+  IgPlanSetup, IgPlanProposal, IgPlanned, IgAlert,
   ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
   PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
   PtransFixProposal, PtransTrial, PtransStyle,
@@ -1140,6 +1140,14 @@ export const api = {
     planAccept: (items: IgPlanProposal[]) => call<number>('ig:planAccept', items),
     planned: (from: string, to: string) => call<IgPlanned[]>('ig:planned', from, to),
     planMove: (id: number, at: string) => call<void>('ig:planMove', id, at),
+    /* Jeden příspěvek na teď — prázdné přání znamená „vyber téma sám" */
+    proposeOne: (wish: string) => call<IgPlanProposal>('ig:proposeOne', wish),
+    /* Návrh na teď se rovnou založí jako rozdělaný příspěvek — vrací jeho id */
+    acceptOne: (item: IgPlanProposal) => call<number>('ig:acceptOne', item),
+    /* Tažení v seznamu rozdělaných prohodí dva termíny */
+    planSwap: (a: number, b: number) => call<void>('ig:planSwap', a, b),
+    approve: (id: number, on: boolean) => call<IgPost | null>('ig:approve', id, on),
+    alerts: () => call<IgAlert[]>('ig:alerts'),
 
     jobs: () => call<IgJob[]>('ig:jobs'),
     cancelJob: (id: number) => call<void>('ig:cancelJob', id),
