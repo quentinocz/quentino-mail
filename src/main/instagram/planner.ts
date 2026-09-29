@@ -410,6 +410,8 @@ export function zaloz(one: any, terminPovinny = false): number {
     mediaNote: String(one?.idea ?? '').trim(),
     planAt: maTermin ? `${den} ${String(hodina).padStart(2, '0')}:00` : '',
     planKind: String(one?.kind ?? ''),
+    /* Krátký název do přehledu — bez něj v plánu stála první věta textu */
+    planTitle: String(one?.title ?? '').trim().slice(0, 80),
     planIdea: String(one?.idea ?? '').trim(),
     planCode: String(one?.code ?? '').trim()
   });
@@ -448,7 +450,12 @@ export function plannedPosts(fromDay: string, toDay: string): IgPlanned[] {
       id: row.id,
       at: String(row.plan_at ?? ''),
       kind: String(row.plan_kind ?? ''),
-      title: prvniRadek(String(row.brief ?? '')),
+      /*
+       * Název z návrhu, ne první řádek zadání. Zadání začíná textem
+       * příspěvku, takže v přehledu stála první věta useknutá uprostřed
+       * slova — a u příspěvku bez textu „Bez názvu".
+       */
+      title: String(row.plan_title ?? '').trim() || prvniRadek(String(row.brief ?? '')),
       idea: String(row.plan_idea ?? ''),
       code: String(row.plan_code ?? ''),
       media,
@@ -458,10 +465,20 @@ export function plannedPosts(fromDay: string, toDay: string): IgPlanned[] {
   });
 }
 
-/** První řádek zadání slouží jako název v přehledu. */
+/**
+ * Náhradní název pro příspěvky, které vznikly dřív, než se název ukládal.
+ *
+ * Nejde o celý první řádek: zadání začíná textem příspěvku, takže by
+ * v přehledu stála celá první věta useknutá uprostřed slova. Bere se
+ * proto první věta, a když je dlouhá, utne se **na mezeře**.
+ */
 function prvniRadek(text: string): string {
   const radek = text.split('\n').map(one => one.trim()).find(Boolean) ?? '';
-  return radek.slice(0, 90);
+  const veta = (radek.split(/(?<=[.!?])\s/)[0] ?? radek).trim();
+  if (veta.length <= 60) return veta.replace(/[.]$/, '');
+  const kratsi = veta.slice(0, 60);
+  const mezera = kratsi.lastIndexOf(' ');
+  return (mezera > 24 ? kratsi.slice(0, mezera) : kratsi) + '…';
 }
 
 export const __test = { planDays, clamp, prvniRadek, hotoveObjekty, navrhZ, zaloz };

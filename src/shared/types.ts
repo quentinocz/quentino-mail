@@ -1617,6 +1617,8 @@ export interface IgPost {
   planAt: string;
   /** Proč vznikl: nejprodávanější, opomíjené, sezóna, ze zákulisí */
   planKind: string;
+  /** Krátký název do přehledu — v plánu i mezi rozdělanými */
+  planTitle: string;
   /** Nápad na fotku nebo video */
   planIdea: string;
   /** Ke kterému produktu se váže (kód z katalogu) */

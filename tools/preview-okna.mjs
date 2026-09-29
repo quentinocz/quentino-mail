@@ -354,8 +354,13 @@ for (const okno of OKNA) {
   }));
   say('okno sociálních sítí se vykreslí', stav.app === 1 && stav.panel === 1,
     `app ${stav.app}, panel ${stav.panel}`);
-  say('  a nenabízí přepnutí na poštu uvnitř',
-    stav.tabs.length === 1 && stav.tabs[0].includes('Funkce'), stav.tabs.join(' | '));
+  /*
+   * V okně nástroje není přepínač vůbec: pošta ani chat v něm nejsou a
+   * celé menu nástrojů uvnitř okna jednoho nástroje nedává smysl. Kdo
+   * chce jiný nástroj, přepne okno.
+   */
+  say('  a nemá v sobě přepínač prostorů ani nabídku nástrojů',
+    stav.tabs.length === 0, stav.tabs.join(' | ') || 'žádný');
   await page.screenshot({ path: path.join(SHOTS, 'okno-socialni.png') });
 
   /*

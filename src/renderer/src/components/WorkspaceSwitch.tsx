@@ -111,11 +111,14 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
    * balení ani přehledu dne.
    */
   /*
-   * V okně nástroje se prostory nepřepínají — pošta ani chat v něm nejsou.
-   * Zůstává jen nabídka Funkcí, přes kterou se dá otevřít další okno; na
-   * poštu se dostane přepnutím okna, ne přepínačem uvnitř.
+   * V okně nástroje přepínač není vůbec.
+   *
+   * Pošta ani chat v něm nejsou, takže zbývala jen nabídka Funkcí — a
+   * celé menu nástrojů uvnitř okna jednoho nástroje nedává smysl: kdo
+   * chce jiný nástroj, přepne okno. Na telefonu naopak zůstává, tam je
+   * to jediná cesta do katalogu, balení i přehledu dne.
    */
-  const tabs = phone || inToolWindow() ? TABS.filter(t => t.id === 'ai') : TABS;
+  const tabs = inToolWindow() ? [] : phone ? TABS.filter(t => t.id === 'ai') : TABS;
   const [menu, setMenu] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -135,6 +138,9 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
   }, [menu]);
 
   const aiActive = current === 'instagram' || !!activeTool || openTools.length > 0;
+
+  // Bez jediné záložky není co kreslit — okno nástroje si vystačí samo
+  if (tabs.length === 0) return null;
 
   return (
     /*

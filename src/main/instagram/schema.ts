@@ -66,6 +66,13 @@ export const igSchema = `
     -- sezóna, ze zákulisí. Podle toho se hlídá, aby měsíc nebyl
     -- třicetkrát totéž.
     plan_kind TEXT NOT NULL DEFAULT '',
+    -- Krátký název do přehledu.
+    --
+    -- Dřív se bral první řádek zadání — jenže zadání začíná textem
+    -- příspěvku, takže v plánu stála místo názvu první věta useknutá
+    -- uprostřed slova a u příspěvku bez textu „Bez názvu". Všechny
+    -- řádky pak vypadaly stejně a nedalo se v nich nic najít.
+    plan_title TEXT NOT NULL DEFAULT '',
     -- Nápad na fotku nebo video, tak jak ho navrhla AI
     plan_idea TEXT NOT NULL DEFAULT '',
     -- Ke kterému produktu se příspěvek váže (kód z katalogu)
@@ -172,6 +179,7 @@ export const igAlters: string[] = [
   "ALTER TABLE ig_posts ADD COLUMN plan_kind TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_idea TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN plan_code TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ig_posts ADD COLUMN plan_title TEXT NOT NULL DEFAULT ''",
   'ALTER TABLE ig_posts ADD COLUMN approved INTEGER NOT NULL DEFAULT 0',
   "ALTER TABLE ig_posts ADD COLUMN approved_at TEXT NOT NULL DEFAULT ''",
   // Až tady, po doplnění sloupce. V bloku se schématem by rejstřík nad

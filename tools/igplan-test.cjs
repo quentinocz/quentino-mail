@@ -244,6 +244,35 @@ console.log('\nschválení a připomínky:\n');
     [store.getPost(bezFotek).planAt, store.getPost(sFotkami).planAt], [bPred, aPred]);
 }
 
+/* ---------- název v přehledu ---------- */
+
+/*
+ * V plánu stál místo názvu první řádek zadání — jenže zadání začíná
+ * textem příspěvku, takže tam byla první věta useknutá uprostřed slova
+ * a u příspěvku bez textu „Bez názvu". Všechny řádky vypadaly stejně
+ * a nedalo se v nich nic najít.
+ */
+{
+  const id = planner.acceptOne({
+    day: '2026-10-20', hour: 18, kind: 'bestseller', title: 'Hedvábné kravaty — nová série',
+    text: 'Za poslední dva měsíce se tahle kravata prodávala nejvíc ze všech kousků v e-shopu.',
+    idea: 'Detail vzoru', code: '', tags: []
+  });
+  check('název z návrhu se uloží', store.getPost(id).planTitle, 'Hedvábné kravaty — nová série');
+  const vplanu = planner.plannedPosts('2026-10-01', '2026-10-31 23:59')
+    .find(one => one.id === id);
+  check('a v přehledu stojí místo první věty textu',
+    vplanu.title, 'Hedvábné kravaty — nová série');
+
+  /* Příspěvky z minulé verze název nemají — náhrada se utne na mezeře */
+  const stary = store.createPost({ kind: 'new', planAt: '2026-10-21 18:00',
+    brief: 'Za poslední dva měsíce se tahle kravata prodávala nejvíc ze všech kousků. Není náhoda.' });
+  const nahrada = planner.plannedPosts('2026-10-01', '2026-10-31 23:59')
+    .find(one => one.id === stary).title;
+  ok('u staršího příspěvku se název utne na mezeře, ne uprostřed slova',
+    nahrada.length <= 62 && !/\s…$/.test(nahrada) && nahrada.endsWith('…'), nahrada);
+}
+
 /* ---------- nastavení ---------- */
 
 {

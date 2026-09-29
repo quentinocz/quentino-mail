@@ -266,6 +266,12 @@ export default function IgDrafts({ overview, onOpenPost }: {
                   {one.media.length > 4 && <span className="igd-more">+{one.media.length - 4}</span>}
                 </div>
 
+                {/*
+                  * Název nahoře, text pod ním. Podle prvních vět textu se
+                  * příspěvky od sebe nepoznaly — všechny začínaly podobně
+                  * a v seznamu vypadaly stejně.
+                  */}
+                {one.planTitle && <h4 className="igd-title">{one.planTitle}</h4>}
                 <p className="igd-text">{text ? text.slice(0, 260) : 'Zatím bez textu'}</p>
 
                 <div className="igd-langs-mini">

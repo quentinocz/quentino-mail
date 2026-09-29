@@ -1002,6 +1002,7 @@
           mediaNote: 'Detail vzoru u okna, denní světlo',
           createdAt: new Date(ted - 2 * den).toISOString(),
           planAt: kdy(2, 18), planKind: 'bestseller',
+          planTitle: 'Hedvábné kravaty — nová série vzorů',
           planIdea: 'Detail vzoru u okna, denní světlo', planCode: 'KR-120',
           approved: false, approvedAt: '',
           media: [],
@@ -1011,6 +1012,7 @@
           brief: 'Sametový motýlek na svatbu i na ples.',
           mediaNote: '', createdAt: new Date(ted - 4 * den).toISOString(),
           planAt: kdy(5, 18), planKind: 'lezak',
+          planTitle: 'Sametový motýlek, o kterém nikdo neví',
           planIdea: 'Motýlek na tmavém dřevě', planCode: 'MO-44',
           approved: true, approvedAt: new Date().toISOString(),
           media: [
@@ -1024,6 +1026,7 @@
           brief: 'Šle k obleku — jak si vybrat šířku.',
           mediaNote: '', createdAt: new Date(ted - 9 * den).toISOString(),
           planAt: kdy(-1, 18), planKind: 'zakulisi',
+          planTitle: 'Šle k obleku: jak vybrat šířku',
           planIdea: 'Ruce zapínající klipy', planCode: '',
           approved: false, approvedAt: '',
           media: [{ id: 4, path: '/fotky/sle.jpg', mime: 'image/jpeg', isVideo: false }],

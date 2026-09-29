@@ -339,13 +339,14 @@ export function sourcePost(id: number): any {
 
 export function createPost(p: {
   kind: 'new' | 'source'; sourcePostId?: number | null; brief?: string; mediaNote?: string;
-  planAt?: string; planKind?: string; planIdea?: string; planCode?: string;
+  planAt?: string; planKind?: string; planTitle?: string; planIdea?: string; planCode?: string;
 }): number {
   const r = getDb().prepare(
-    `INSERT INTO ig_posts (kind, source_post_id, brief, media_note, plan_at, plan_kind, plan_idea, plan_code)
-     VALUES (?,?,?,?,?,?,?,?)`
+    `INSERT INTO ig_posts (kind, source_post_id, brief, media_note, plan_at, plan_kind,
+       plan_title, plan_idea, plan_code)
+     VALUES (?,?,?,?,?,?,?,?,?)`
   ).run(p.kind, p.sourcePostId ?? null, p.brief ?? '', p.mediaNote ?? '',
-    p.planAt ?? '', p.planKind ?? '', p.planIdea ?? '', p.planCode ?? '');
+    p.planAt ?? '', p.planKind ?? '', p.planTitle ?? '', p.planIdea ?? '', p.planCode ?? '');
   return Number(r.lastInsertRowid);
 }
 
@@ -359,7 +360,7 @@ export function createPost(p: {
  */
 export function listPlanned(fromDay: string, toDay: string): any[] {
   return getDb().prepare(
-    `SELECT id, plan_at, plan_kind, plan_idea, plan_code, brief, media_note, archived
+    `SELECT id, plan_at, plan_kind, plan_title, plan_idea, plan_code, brief, media_note, archived
      FROM ig_posts
      WHERE plan_at != '' AND plan_at >= ? AND plan_at <= ? AND archived = 0
      ORDER BY plan_at`
@@ -464,7 +465,7 @@ export function getPost(id: number): IgPost | null {
     id: p.id, kind: p.kind, sourcePostId: p.source_post_id, brief: p.brief, mediaNote: p.media_note,
     createdAt: p.created_at, media, captions: caps,
     planAt: p.plan_at ?? '', planKind: p.plan_kind ?? '',
-    planIdea: p.plan_idea ?? '', planCode: p.plan_code ?? '',
+    planTitle: p.plan_title ?? '', planIdea: p.plan_idea ?? '', planCode: p.plan_code ?? '',
     approved: !!p.approved, approvedAt: p.approved_at ?? '',
     sourceCaption: src?.caption ?? '', sourcePermalink: src?.permalink ?? ''
   };
