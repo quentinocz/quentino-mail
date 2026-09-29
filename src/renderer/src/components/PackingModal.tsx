@@ -1515,6 +1515,28 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                   </div>
                 )}
 
+                {/*
+                  Poznámka zákazníka. Při balení je to jedna z mála věcí,
+                  kvůli které se objednávka dělá jinak („pošlete až po 20.",
+                  „přidejte dárkové balení") — a v potvrzovacím e-mailu není,
+                  takže se dotahuje z feedu.
+
+                  Stojí **nad položkami**, ne dole mezi adresou a dopravou.
+                  Tam ji na telefonu nebylo vidět vůbec: s otevřeným
+                  hledáčkem se spodní panely schovávají, aby zbylo místo na
+                  seznam, a poznámka se schovala s nimi. Přečíst se přitom
+                  musí dřív, než se začne balit.
+                */}
+                {current.card.note && (
+                  <div className="pk-cnote">
+                    <Icon name="pen" size={14} />
+                    <div>
+                      <b>Poznámka zákazníka</b>
+                      <p>{current.card.note}</p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="pk-scroll">
                   <div className="pk-items">
                     {current.card.items.map((it, i) => (
@@ -1554,20 +1576,6 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                         <Icon name={copied ? 'check' : 'copy'} size={12} /> {copied ? 'Zkopírováno' : 'Kopírovat adresu'}
                       </button>
                     </div>
-
-                    {/*
-                      * Poznámka zákazníka. Při balení je to jedna z mála věcí,
-                      * kvůli které se objednávka dělá jinak („pošlete až po
-                      * 20.", „přidejte dárkové balení") — a v potvrzovacím
-                      * e-mailu není, takže se dotahuje z feedu. Proto stojí
-                      * nad údaji o dopravě a je vidět, ne schovaná mezi nimi.
-                      */}
-                    {current.card.note && (
-                      <div className="pk-panel pk-cnote">
-                        <div className="pk-panel-head"><Icon name="pen" size={12} /> Poznámka zákazníka</div>
-                        <p>{current.card.note}</p>
-                      </div>
-                    )}
 
                     <div className="pk-panel">
                       <div className="pk-panel-head"><Icon name="truck" size={12} /> Doprava a kontakt</div>

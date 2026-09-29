@@ -342,8 +342,44 @@ for (const device of DEVICES) {
 
   await click('.sheet-action', { hasText: 'Balení objednávek' });
   await check('balení — seznam'); await snap('14-baleni-seznam');
-  await click('.pk-row');
+  /*
+   * Otevírá se schválně objednávka **s poznámkou zákazníka** — ta se má
+   * v detailu ukázat a zároveň je to nejcennější záběr pro oko.
+   */
+  await click('.pk-row', { hasText: '022605' });
   await check('balení — objednávka'); await snap('15-baleni-detail');
+  /*
+   * Poznámka zákazníka. Musí být vidět **bez rolování**: je to jedna z mála
+   * věcí, kvůli které se objednávka balí jinak. Dřív seděla dole mezi
+   * adresou a dopravou, takže se na telefonu nezobrazila vůbec — spodní
+   * panely se s otevřeným hledáčkem schovávají a poznámka se schovala s nimi.
+   */
+  const vidiPoznamku = async () => page.evaluate(() => {
+    const node = document.querySelector('.pk-cnote');
+    if (!node) {
+      return {
+        je: false,
+        otevrena: document.querySelector('.pk-head-num')?.textContent?.trim() ?? '—',
+        panely: document.querySelectorAll('.pk-panel').length
+      };
+    }
+    const r = node.getBoundingClientRect();
+    const css = getComputedStyle(node);
+    return {
+      je: true,
+      text: (node.textContent || '').trim().slice(0, 60),
+      otevrena: document.querySelector('.pk-head-num')?.textContent?.trim() ?? '—',
+      ctecka: document.querySelector('.pk-modal')?.getAttribute('data-scan') ?? '—',
+      naObrazovce: r.top >= 0 && r.bottom <= window.innerHeight && r.height > 10,
+      videt: css.display !== 'none' && css.visibility !== 'hidden' && Number(css.opacity) > 0.1
+    };
+  });
+  {
+    const p1 = await vidiPoznamku();
+    if (!(p1.je && p1.videt && p1.naObrazovce && p1.text.includes('zavolejte předem'))) {
+      problems.push(`${device.name}: poznámku zákazníka není v detailu vidět (${JSON.stringify(p1)})`);
+    }
+  }
   /*
    * Balení se čtečkou: hledáček je nativní pruh nahoře, rozhraní si pod ním
    * musí udělat místo. V náhledu tam zůstane prázdno — kontroluje se právě to,
@@ -359,11 +395,31 @@ for (const device of DEVICES) {
   await click('.m-tabs button:nth-child(3)');
   await click('.sheet-action', { hasText: 'Balení objednávek' });
   await page.waitForTimeout(600);
-  await click('.pk-row');
-  await page.locator('.pk-modal .modal-head .icon-btn').first().click();
+  await click('.pk-row', { hasText: '022605' });
+  /*
+   * Hledáček zapíná tlačítko „Scan" v hlavičce, ne ikona vedle něj. Dřív se
+   * tu klikalo na první ikonu (obnovení), takže se hledáček vůbec
+   * nespustil — a záběr „balení — čtečka" ukazoval obyčejný detail.
+   * Rozvržení s otevřeným hledáčkem se tím nikdy nezkusilo, a právě v něm
+   * se ztrácela poznámka zákazníka.
+   */
+  await click('.pk-scan');
   await page.waitForTimeout(500);
   await page.evaluate(() => window.__emit?.('scan:code', { text: 'QM-042' }));
   await page.waitForTimeout(400);
+  {
+    /*
+     * A s otevřeným hledáčkem taky — tohle je způsob, jakým se na telefonu
+     * balí. Ověřuje se i to, že hledáček **opravdu běží**: kdyby se
+     * nespustil, zkouška by procházela, aniž by cokoli zkoušela.
+     */
+    const p2 = await vidiPoznamku();
+    if (p2.ctecka !== 'on') {
+      problems.push(`${device.name}: hledáček se nespustil, poznámka se při balení nezkusila (${JSON.stringify(p2)})`);
+    } else if (!(p2.je && p2.videt && p2.naObrazovce)) {
+      problems.push(`${device.name}: s otevřenou čtečkou poznámka zmizela (${JSON.stringify(p2)})`);
+    }
+  }
   await check('balení — čtečka'); await snap('15b-baleni-ctecka');
   /*
    * Načtení faktury staré objednávky: musí ji to přidat do seznamu, otevřít

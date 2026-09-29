@@ -716,8 +716,25 @@ await click('.ws-menu-item', { hasText: 'Balení objednávek' });
 await click('.pk-row', { hasText: '999090' });
 await overflow('balení — poznámka'); await snap('26e-baleni-poznamka');
 {
-  const note = await page.locator('.pk-panel.pk-cnote').count();
-  console.log(`${'poznámka je v detailu'.padEnd(28)} ${note ? '✓' : '✗'}`);
+  /*
+   * Poznámka musí být **nad položkami**, ne dole pod nimi. Dole ji na
+   * telefonu nebylo vidět vůbec (spodní panely se s otevřeným hledáčkem
+   * schovávají) a na počítači se k ní muselo dorolovat přes celý seznam.
+   */
+  const kde = await page.evaluate(() => {
+    const note = document.querySelector('.pk-cnote');
+    if (!note) return null;
+    const items = document.querySelector('.pk-items');
+    return {
+      text: (note.textContent || '').trim().slice(0, 40),
+      nadPolozkami: !!items
+        && note.getBoundingClientRect().bottom <= items.getBoundingClientRect().top + 1,
+      videt: note.getBoundingClientRect().height > 10
+    };
+  });
+  const ok = !!kde && kde.videt && kde.nadPolozkami && /zavolejte/.test(kde.text);
+  if (!ok) problems.push(`poznámka zákazníka není nad položkami (${JSON.stringify(kde)})`);
+  console.log(`${'poznámka je nad položkami'.padEnd(28)} ${ok ? '✓' : '✗'}`);
 }
 // Přesně „PPL", ne „Štítky PPL" — obojí je ve stejné liště
 await page.locator('.pk-ship button', { hasText: /^\s*PPL\s*$/ }).first().click();

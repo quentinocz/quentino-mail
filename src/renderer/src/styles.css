@@ -3077,6 +3077,7 @@ button, kbd, label,
 [data-theme="dark"] .pk-note { background: #1c2b23; color: #a8e0c4; border-color: #2c4a3c; }
 [data-theme="dark"] .pk-note.warn { background: #332a12; color: #f0d492; border-color: #5a4713; }
 [data-theme="dark"] .pk-old { background: #351d1d; color: #f3b5b5; border-color: #5c2b2b; }
+[data-theme="dark"] .pk-cnote { background: #332a12; color: #f0d492; border-color: #5a4713; }
 [data-theme="dark"] .pk-check { background: #2b2738; border-color: var(--border); }
 [data-theme="dark"] .pk-photo { background: #fff; border-color: var(--border); }
 [data-theme="dark"] .pk-code, [data-theme="dark"] .pk-qty, [data-theme="dark"] .pk-hint kbd { background: #2b2738; color: var(--text-2); }
@@ -5418,6 +5419,14 @@ html[data-form-factor="phone"] .pk-hint { display: none; }
  */
 .pk-modal[data-scan="on"] .pk-filters,
 .pk-modal[data-scan="on"] .pk-panels { display: none; }
+/*
+ * Poznámka zákazníka se ale schovat **nesmí**. Schovávala se s panely, a
+ * protože se na telefonu balí právě s otevřeným hledáčkem, nebyla vidět
+ * nikdy. Zůstává tedy nahoře nad položkami, jen se zúží a dlouhý text
+ * se roluje uvnitř, ať nesebere celou obrazovku.
+ */
+.pk-modal[data-scan="on"] .pk-cnote { margin-top: 8px; padding: 8px 10px; }
+.pk-modal[data-scan="on"] .pk-cnote p { max-height: 4.4em; overflow: auto; }
 
 /*
  * Naskladnění s otevřeným hledáčkem. Nahoře kouká fotoaparát, dole zůstává
@@ -8108,9 +8117,28 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
  * Výrazně, ne mezi ostatními údaji: je to jedna z mála věcí, kvůli které se
  * objednávka balí jinak, a přehlédnout ji stojí reklamaci.
  */
-.pk-panel.pk-cnote { border-color: var(--warn); background: #fdf8ec; }
-.pk-panel.pk-cnote .pk-panel-head { color: var(--warn); }
-.pk-panel.pk-cnote p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; white-space: pre-line; }
+.pk-cnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  /* Stejný pruh jako upozornění na starší objednávku — sedí nad položkami */
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e8cf94;
+  background: #fdf8ec;
+  color: #7a5a12;
+}
+.pk-cnote svg { flex-shrink: 0; margin-top: 1px; color: var(--warn); }
+.pk-cnote b { font-size: 12px; letter-spacing: .02em; text-transform: uppercase; }
+.pk-cnote p {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  /* Zákazník píše na víc řádků — zalomení je součást sdělení */
+  white-space: pre-line;
+  color: var(--text);
+}
 
 /* Schvalování poznámek před vývozem dopravci */
 .pk-notes { display: flex; flex-direction: column; gap: 8px; }
