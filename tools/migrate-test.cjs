@@ -188,7 +188,14 @@ const db = new DatabaseSync(file);
 let older = 0;
 let starePotize = '';
 for (const block of blocks) {
-  for (const statement of ageBlock(block).split(/;\s*\n/)) {
+  /*
+   * Komentáře se před rozdělením vyhodí. Středník na konci věty
+   * v komentáři („vyhrává novější; bez razítka…") jinak rozsekne
+   * CREATE TABLE v půlce a SQLite hlásí „incomplete input" — chybu,
+   * která ve skutečnosti nikde není: aplikace pouští celý blok naráz.
+   */
+  const bezPoznamek = ageBlock(block).replace(/^\s*--.*$/gm, '');
+  for (const statement of bezPoznamek.split(/;\s*\n/)) {
     if (!statement.trim()) continue;
     try { db.exec(statement + ';'); older++; } catch (e) {
       /*

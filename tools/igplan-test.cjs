@@ -244,6 +244,79 @@ console.log('\nschválení a připomínky:\n');
     [store.getPost(bezFotek).planAt, store.getPost(sFotkami).planAt], [bPred, aPred]);
 }
 
+/* ---------- sdílení mezi zařízeními ---------- */
+
+/*
+ * Plán vzniká u počítače, kde jsou po ruce prodeje a katalog, ale fotí se
+ * a dodělává s telefonem v ruce. Bez sdílení o sobě ta dvě zařízení
+ * nevědí. Posílá se záměr a texty, ne média — fotky leží na disku toho
+ * počítače, kde vznikly.
+ */
+console.log('\nsdílení příspěvků mezi zařízeními:\n');
+
+{
+  const id = planner.acceptOne({
+    day: '2026-11-04', hour: 18, kind: 'sezona', title: 'Svatební sezóna',
+    text: 'Ženich a svědci.', idea: 'Detail kapesníčku', code: '', tags: ['#svatba']
+  });
+  store.saveCaptions(id, [{ lang: 'CS', variants: ['Ženich a svědci.'] }]);
+
+  const balik = store.postsForShare();
+  const muj = balik.find(one => one.planTitle === 'Svatební sezóna');
+  ok('příspěvek se do sdílení dostane', !!muj);
+  ok('a nese klíč, podle kterého se pozná na druhém zařízení',
+    !!muj && String(muj.shareId).length > 10);
+  ok('texty jedou s ním', !!muj && muj.captions.length === 1);
+  /* Média se neposílají: cesta k fotce je na druhém počítači bezcenná */
+  ok('média se neposílají', !!muj && !('media' in muj));
+
+  /*
+   * Druhé zařízení: tentýž balík se nesmí naimportovat dvakrát a novější
+   * razítko musí vyhrát.
+   */
+  check('podruhé se nic nezmění — razítko je stejné', store.applyPostsShare(balik), 0);
+
+  const zvenku = balik.map(one => (one.shareId === muj.shareId
+    ? { ...one, planTitle: 'Svatba jinak', updatedAt: new Date(Date.now() + 60000).toISOString() }
+    : one));
+  check('novější verze z druhého zařízení vyhraje', store.applyPostsShare(zvenku), 1);
+  check('a opravdu se přepsala', store.getPost(id).planTitle, 'Svatba jinak');
+
+  /* Starší verze nesmí přebít to, co je tady novější */
+  const stara = balik.map(one => (one.shareId === muj.shareId
+    ? { ...one, planTitle: 'Zastaralé', updatedAt: '2020-01-01T00:00:00.000Z' }
+    : one));
+  store.applyPostsShare(stara);
+  check('starší verze se zahodí', store.getPost(id).planTitle, 'Svatba jinak');
+
+  /*
+   * Smazání. Řádek zůstane škrtnutý, aby se nevrátil ze zařízení, které
+   * o smazání neví — a ze seznamu je pryč hned.
+   */
+  ig.deletePost(id);
+  ok('smazaný příspěvek zmizí ze seznamu',
+    !ig.listDrafts().some(one => one.id === id));
+  const poSmazani = store.postsForShare().find(one => one.shareId === muj.shareId);
+  ok('ale do sdílení jde jako škrtnutý', !!poSmazani && poSmazani.archived === 1);
+
+  /* Příspěvek, který tu nikdy nebyl a přišel rovnou škrtnutý, se nezakládá */
+  const kolik = ig.listDrafts().length;
+  store.applyPostsShare([{ shareId: 'neznamy-klic', archived: 1, updatedAt: new Date().toISOString() }]);
+  check('škrtnutý cizí příspěvek se nezakládá', ig.listDrafts().length, kolik);
+
+  /* A příspěvek z druhého zařízení, který tady ještě není, se založí */
+  store.applyPostsShare([{
+    shareId: 'z-telefonu', updatedAt: new Date().toISOString(), archived: 0,
+    kind: 'new', brief: 'Z telefonu', mediaNote: '', planAt: '2026-11-06 18:00',
+    planKind: 'zakulisi', planTitle: 'Z telefonu', planIdea: 'Ruce u šicího stroje',
+    planCode: '', origin: 'hand',
+    captions: [{ lang: 'CS', variants: '["Z telefonu"]', chosen: 0, edited: null, status: 'draft' }]
+  }]);
+  const novy = ig.listDrafts().find(one => one.planTitle === 'Z telefonu');
+  ok('příspěvek z druhého zařízení se založí i s textem',
+    !!novy && novy.captions.some(c => c.text.includes('Z telefonu')));
+}
+
 /* ---------- název v přehledu ---------- */
 
 /*

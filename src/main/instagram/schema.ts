@@ -90,7 +90,15 @@ export const igSchema = `
     -- nevšiml, protože se na příspěvek od zařazení do plánu nikdo
     -- nepodíval.
     approved INTEGER NOT NULL DEFAULT 0,
-    approved_at TEXT NOT NULL DEFAULT ''
+    approved_at TEXT NOT NULL DEFAULT '',
+    -- Klíč pro sdílení mezi zařízeními.
+    --
+    -- Číslo řádku je na každém počítači jiné, takže podle něj se plán
+    -- spárovat nedá. Tenhle se zakládá s příspěvkem a putuje s ním.
+    share_id TEXT NOT NULL DEFAULT '',
+    -- Kdy se s příspěvkem naposledy hnulo. Při slučování vyhrává novější —
+    -- bez razítka by starší zařízení přepsalo práci toho druhého.
+    updated_at TEXT NOT NULL DEFAULT ''
   );
   -- Rejstřík nad plan_at tady schválně NENÍ. Tenhle blok běží i nad databází
   -- z minulé verze, kde tabulka ig_posts sloupec plan_at ještě nemá —
@@ -190,7 +198,10 @@ export const igAlters: string[] = [
   "ALTER TABLE ig_posts ADD COLUMN approved_at TEXT NOT NULL DEFAULT ''",
   // Až tady, po doplnění sloupce. V bloku se schématem by rejstřík nad
   // starou databází spadl na „no such column: plan_at".
-  'CREATE INDEX IF NOT EXISTS idx_ig_posts_plan ON ig_posts(plan_at)'
+  "ALTER TABLE ig_posts ADD COLUMN share_id TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ig_posts ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+  'CREATE INDEX IF NOT EXISTS idx_ig_posts_plan ON ig_posts(plan_at)',
+  'CREATE INDEX IF NOT EXISTS idx_ig_posts_share ON ig_posts(share_id)'
 ];
 
 /** Trhy, se kterými se začíná. Uživatel je v rozhraní přepíše. */

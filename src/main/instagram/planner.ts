@@ -316,17 +316,32 @@ export async function proposeMonth(now = new Date()): Promise<IgPlanProposal[]> 
 
   rozhlas('ig:planStep', { hotovo: 0, celkem: terminy.length, items: [] });
   /*
-   * Strop musí stačit na celý měsíc. Dvanáct příspěvků s hotovým textem
-   * a hashtagy je přes čtyři tisíce tokenů, třicet příspěvků víc než
-   * deset — s osmi tisíci se odpověď usekla a celý návrh spadl na
-   * „Odpověď se nevešla do limitu". Počítá se proto z počtu termínů
-   * a askLong si navíc umí říct o pokračování.
+   * Strop se **nezvedá nad osm tisíc**.
+   *
+   * Vypadá to jako omezení, ale je to naopak pojistka: každý model má
+   * svůj vlastní strop na délku odpovědi a požadavek nad ním server
+   * odmítne. U dlouhého měsíce se místo toho spoléhá na to, že si
+   * askLong řekne o pokračování — useknutou odpověď pozná a nechá ji
+   * dopsat, takže se dlouhý návrh poskládá ze dvou kusů.
    */
-  const strop = Math.min(32_000, Math.max(8_000, terminy.length * 700 + 2_000));
-  const raw = await askLong(getSettings().draftModel, SYSTEM, zadani, {
-    maxTokens: strop,
-    onChunk: text => krok(text)
-  });
+  const strop = 8_000;
+  let raw = '';
+  try {
+    raw = await askLong(getSettings().draftModel, SYSTEM, zadani, {
+      maxTokens: strop,
+      onChunk: text => krok(text)
+    });
+  } catch (e: any) {
+    /*
+     * Přerušené spojení nezahazuje hotovou práci. Když model stihl
+     * napsat osm příspěvků z dvanácti, je to pořád osm příspěvků —
+     * spadnout na hlášku a začít znovu by znamenalo napsat je podruhé.
+     */
+    if (!e?.stalled && !e?.truncated) throw e;
+    raw = String(e.partial ?? '');
+    krok(raw);
+    if (out.length === 0) throw e;
+  }
   /*
    * Doběh: poslední kus mohl dorazit až s koncem odpovědi a některé
    * modely balí JSON do ```json bloku, takže se na závěr projde celý text.

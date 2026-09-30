@@ -935,7 +935,9 @@ export default function SettingsModal(p: Props) {
                 Synchronizace mezi zařízeními (např. Mac + Windows) přes sdílenou složku — vyber složku,
                 kterou ti synchronizuje Dropbox, OneDrive, Google Drive, Syncthing nebo NAS, a na druhém
                 zařízení nastav tu samou. Přenáší se: nastavení AI, brand prompt, znalosti, osoby (včetně fotek),
-                pravidla třídění, kontakty našeptávače a <b>lokální archiv včetně příloh</b>.
+                pravidla třídění, kontakty našeptávače, <b>plánované a rozdělané příspěvky</b> na
+                sociální sítě (záměr a texty, ne fotky — ty zůstávají na tom zařízení, kde vznikly)
+                a <b>lokální archiv včetně příloh</b>.
                 U nastavení vyhrává novější změna, archiv a kontakty se slučují — nikdy se nic neztratí.
                 Hesla účtů a API klíč se z bezpečnostních důvodů nesynchronizují.
               </div>

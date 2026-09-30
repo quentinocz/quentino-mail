@@ -212,23 +212,58 @@ export async function askLong(
   const once = async (messages: any[]): Promise<{ text: string; stop: string }> => {
     let text = '';
     let lastAt = Date.now();
+    /*
+     * Hlídač mrtvého spojení.
+     *
+     * Čas se počítá od **jakékoli události**, ne jen od textu: server
+     * posílá i ping a začátky bloků a u dlouhého zadání chvíli trvá,
+     * než se rozmyslí. Dokud se měřilo jen od textu, utnul se návrh
+     * měsíce hned na začátku — zvenku to vypadalo, že se nestalo nic
+     * a pak vyskočilo anglické „Request was aborted.".
+     *
+     * Na první znak se proto čeká dýl než mezi znaky: rozmýšlení je
+     * ticho, ale spojení je živé.
+     */
+    let prvni = true;
+    let utnuto = false;
     const stream = c.messages.stream({ model, max_tokens: maxTokens, system, messages },
       { signal: options.signal });
     const watchdog = setInterval(() => {
-      // Bez tokenu 45 s je spojení mrtvé; čekat na celý timeout nemá smysl
-      if (Date.now() - lastAt > 45_000) { clearInterval(watchdog); stream.abort(); }
+      const ticho = Date.now() - lastAt;
+      if (ticho > (prvni ? 180_000 : 60_000)) {
+        utnuto = true;
+        clearInterval(watchdog);
+        stream.abort();
+      }
     }, 5_000);
     // Zastavení musí zabrat hned, i uprostřed dlouhého textu
     const abortNow = () => stream.abort();
     options.signal?.addEventListener('abort', abortNow, { once: true });
     try {
       for await (const chunk of stream) {
+        // Každá událost znamená, že spojení žije — i ping mezi bloky
+        lastAt = Date.now();
         if (chunk.type === 'content_block_delta' && (chunk as any).delta?.type === 'text_delta') {
+          prvni = false;
           text += (chunk as any).delta.text;
-          lastAt = Date.now();
           options.onChunk?.(text, text.length);
         }
       }
+    } catch (e: any) {
+      /*
+       * Utnuté spojení se má přiznat česky a hlavně **s tím, co už
+       * přišlo** — u návrhu měsíce je půlka příspěvků pořád lepší než
+       * nic. Zastavení uživatelem je něco jiného a jde dál tak, jak je.
+       */
+      if (utnuto) {
+        const nic: any = new Error(text
+          ? 'Spojení s modelem se přerušilo uprostřed odpovědi — použilo se, co stihl poslat.'
+          : 'Model neodpověděl ani po třech minutách. Zkus to prosím znovu.');
+        nic.stalled = true;
+        nic.partial = text;
+        throw nic;
+      }
+      throw e;
     } finally {
       clearInterval(watchdog);
       options.signal?.removeEventListener('abort', abortNow);

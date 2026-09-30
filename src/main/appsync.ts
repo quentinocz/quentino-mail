@@ -13,6 +13,7 @@ import { claimAll } from './vouchers';
 import { digestShare, applyDigestShare } from './digest';
 import { eventsExport, eventsImport } from './events';
 import * as live from './live';
+import * as igStore from './instagram/store';
 
 /**
  * Synchronizace mezi zařízeními přes sdílenou složku (Dropbox, OneDrive, Google Drive,
@@ -579,6 +580,41 @@ function syncInstagram(dir: string): void {
   fs.renameSync(tmp, file);
 }
 
+/**
+ * Plánované a rozdělané příspěvky mezi zařízeními.
+ *
+ * Plán vzniká u počítače, kde jsou po ruce prodeje a katalog, ale fotí se
+ * a dodělává s telefonem v ruce — a bez sdílení o sobě ta dvě zařízení
+ * nevědí. Posílá se **záměr a texty**, ne média: fotky leží na disku toho
+ * počítače, kde vznikly, a cesta k nim je jinde bezcenná.
+ *
+ * Slučuje se po příspěvcích podle klíče, který příspěvek dostane při
+ * založení (číslo řádku je na každém zařízení jiné), a **novější razítko
+ * vyhrává**. Smazané jedou s sebou jako škrtnutá, jinak by se vrátila
+ * odtud, kde o smazání nikdo neví.
+ */
+function syncIgPosts(dir: string): boolean {
+  const file = path.join(dir, 'igposts.json');
+  let remote: any = null;
+  try { remote = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* první běh */ }
+  const zmen = igStore.applyPostsShare(Array.isArray(remote?.posts) ? remote.posts : []);
+
+  igStore.pruneDeleted();
+  const mine = igStore.postsForShare();
+  /*
+   * Zapisuje se, jen když je co přidat. Soubor přepsaný při každé
+   * synchronizaci znamená přenos a konflikt i tam, kde se nic nezměnilo.
+   */
+  const razitko = (list: any[]) => list.reduce(
+    (max: string, one: any) => (String(one?.updatedAt ?? '') > max ? String(one.updatedAt) : max), '');
+  const remotePosts = Array.isArray(remote?.posts) ? remote.posts : [];
+  if (mine.length && (mine.length !== remotePosts.length
+    || razitko(mine) > razitko(remotePosts))) {
+    writeJson(file, { posts: mine });
+  }
+  return zmen > 0;
+}
+
 /* ---------- Naskladnění (sloučení po řádcích) ---------- */
 
 /**
@@ -837,9 +873,10 @@ export async function runSync(): Promise<string> {
       parts.push(`poukazy: ${e?.message ?? e}`);
     }
 
-    // 4) Instagram — co už na kterém trhu vyšlo
+    // 4) Instagram — co už na kterém trhu vyšlo a co je v plánu
     try {
       syncInstagram(dir);
+      if (syncIgPosts(dir)) emit('ig:changed', {});
     } catch (e: any) {
       parts.push(`Instagram: ${e?.message ?? e}`);
     }

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { getDb, getSetting, setSetting } from '../db';
 import { encrypt, decrypt } from '../secure';
 import { DEFAULT_MARKETS } from './schema';
@@ -340,15 +341,19 @@ export function sourcePost(id: number): any {
 export function createPost(p: {
   kind: 'new' | 'source'; sourcePostId?: number | null; brief?: string; mediaNote?: string;
   planAt?: string; planKind?: string; planTitle?: string; planIdea?: string; planCode?: string;
-  origin?: string;
+  origin?: string; shareId?: string;
 }): number {
   const r = getDb().prepare(
     `INSERT INTO ig_posts (kind, source_post_id, brief, media_note, plan_at, plan_kind,
-       plan_title, plan_idea, plan_code, origin)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
+       plan_title, plan_idea, plan_code, origin
+       , share_id, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(p.kind, p.sourcePostId ?? null, p.brief ?? '', p.mediaNote ?? '',
     p.planAt ?? '', p.planKind ?? '', p.planTitle ?? '', p.planIdea ?? '', p.planCode ?? '',
-    p.origin ?? (p.kind === 'source' ? 'repost' : 'hand'));
+    p.origin ?? (p.kind === 'source' ? 'repost' : 'hand'),
+    /* Klíč pro sdílení mezi zařízeními — číslo řádku je všude jiné */
+    p.shareId || crypto.randomUUID(),
+    new Date().toISOString());
   return Number(r.lastInsertRowid);
 }
 
@@ -369,9 +374,22 @@ export function listPlanned(fromDay: string, toDay: string): any[] {
   ).all(fromDay, toDay) as any[];
 }
 
+/**
+ * Razítko poslední změny.
+ *
+ * Podle něj se při slučování mezi zařízeními pozná, čí verze je novější.
+ * Volá se ze všeho, co s příspěvkem hne — bez toho by druhé zařízení
+ * přepsalo práci tím, co mělo uložené dýl.
+ */
+export function touchPost(id: number): void {
+  getDb().prepare("UPDATE ig_posts SET updated_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), id);
+}
+
 /** Přesun příspěvku na jiný den — plán se v praxi mění pořád. */
 export function setPlanAt(id: number, at: string): void {
   getDb().prepare('UPDATE ig_posts SET plan_at = ? WHERE id = ?').run(at, id);
+  touchPost(id);
 }
 
 /** Co už v tom měsíci naplánováno je — ať se návrh neudělá dvakrát. */
@@ -385,6 +403,7 @@ export function plannedCount(fromDay: string, toDay: string): number {
 export function updatePost(id: number, p: { brief?: string; mediaNote?: string }): void {
   if (p.brief !== undefined) getDb().prepare('UPDATE ig_posts SET brief = ? WHERE id = ?').run(p.brief, id);
   if (p.mediaNote !== undefined) getDb().prepare('UPDATE ig_posts SET media_note = ? WHERE id = ?').run(p.mediaNote, id);
+  touchPost(id);
 }
 
 export function setPostMedia(postId: number, media: IgMediaItem[]): void {
@@ -485,16 +504,151 @@ export function getPost(id: number): IgPost | null {
 export function setApproved(id: number, on: boolean): void {
   getDb().prepare('UPDATE ig_posts SET approved = ?, approved_at = ? WHERE id = ?')
     .run(on ? 1 : 0, on ? new Date().toISOString() : '', id);
+  touchPost(id);
 }
 
 /** Zruší schválení — volá se po každé změně obsahu příspěvku. */
 export function unapprove(id: number): void {
-  getDb().prepare("UPDATE ig_posts SET approved = 0, approved_at = '' WHERE id = ? AND approved = 1")
+  const r = getDb().prepare("UPDATE ig_posts SET approved = 0, approved_at = '' WHERE id = ? AND approved = 1")
     .run(id);
+  if (Number(r.changes) > 0) touchPost(id);
 }
 
+/**
+ * Smazání příspěvku.
+ *
+ * Řádek zůstává jako **škrtnutý**, nemaže se. Kdyby zmizel úplně, vrátil
+ * by se při nejbližším sdílení z druhého zařízení, které o smazání neví —
+ * a člověk by mazal pořád dokola to samé. Z výpisů je pryč hned, protože
+ * ty se ptají na `archived = 0`; média se smažou, ta zabírají místo.
+ */
 export function deletePost(id: number): void {
-  getDb().prepare('DELETE FROM ig_posts WHERE id = ?').run(id);
+  const d = getDb();
+  const tx = d.transaction(() => {
+    d.prepare('DELETE FROM ig_post_media WHERE post_id = ?').run(id);
+    d.prepare("UPDATE ig_posts SET archived = 1, updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), id);
+  });
+  tx();
+}
+
+/** Úklid: škrtnuté příspěvky starší než čtvrt roku už nikdo nevzkřísí. */
+export function pruneDeleted(days = 90): void {
+  const hranice = new Date(Date.now() - days * 86_400_000).toISOString();
+  getDb().prepare('DELETE FROM ig_posts WHERE archived = 1 AND updated_at < ?').run(hranice);
+}
+
+/**
+ * Plánované a rozdělané příspěvky pro sdílení mezi zařízeními.
+ *
+ * Posílá se **záměr a texty**, ne média: fotky leží na disku toho
+ * počítače, kde se nafotily, a cesta k nim je jinde bezcenná. Škrtnuté
+ * jedou s sebou, jinak by se vrátily odtud, kde o smazání nikdo neví.
+ */
+export function postsForShare(days = 90): any[] {
+  const d = getDb();
+  const hranice = new Date(Date.now() - days * 86_400_000).toISOString();
+  const rows = d.prepare(
+    `SELECT * FROM ig_posts
+     WHERE share_id != '' AND (updated_at >= ? OR plan_at >= ?)
+     ORDER BY updated_at DESC LIMIT 400`
+  ).all(hranice, hranice.slice(0, 10)) as any[];
+  const texty = d.prepare('SELECT lang, variants_json, chosen, edited, status FROM ig_captions WHERE post_id = ?');
+  return rows.map(r => ({
+    shareId: r.share_id,
+    updatedAt: r.updated_at,
+    archived: r.archived ? 1 : 0,
+    kind: r.kind,
+    brief: r.brief,
+    mediaNote: r.media_note,
+    planAt: r.plan_at,
+    planKind: r.plan_kind,
+    planTitle: r.plan_title,
+    planIdea: r.plan_idea,
+    planCode: r.plan_code,
+    origin: r.origin,
+    approved: r.approved ? 1 : 0,
+    captions: (texty.all(r.id) as any[]).map(c => ({
+      lang: c.lang, variants: c.variants_json, chosen: c.chosen, edited: c.edited, status: c.status
+    }))
+  }));
+}
+
+/**
+ * Přijetí sdílených příspěvků. Vrací, kolik se jich změnilo.
+ *
+ * Novější razítko vyhrává. Média se nesahají vůbec — ta jsou místní
+ * a zpráva o nich nic neví; texty se přepisují jen tehdy, když ta
+ * druhá strana opravdu něco má.
+ */
+export function applyPostsShare(list: any[]): number {
+  if (!Array.isArray(list) || list.length === 0) return 0;
+  const d = getDb();
+  let zmen = 0;
+  const najdi = d.prepare('SELECT id, updated_at FROM ig_posts WHERE share_id = ?');
+  const tx = d.transaction(() => {
+    for (const one of list) {
+      const klic = String(one?.shareId ?? '');
+      if (!klic) continue;
+      const kdy = String(one?.updatedAt ?? '');
+      const mine = najdi.get(klic) as any;
+      if (mine && String(mine.updated_at ?? '') >= kdy) continue;
+      let id = mine?.id as number | undefined;
+      if (!id) {
+        // Škrtnutý příspěvek, který tady nikdy nebyl, se zakládat nemusí
+        if (one?.archived) continue;
+        id = createPost({
+          kind: one?.kind === 'source' ? 'source' : 'new',
+          brief: String(one?.brief ?? ''),
+          mediaNote: String(one?.mediaNote ?? ''),
+          planAt: String(one?.planAt ?? ''),
+          planKind: String(one?.planKind ?? ''),
+          planTitle: String(one?.planTitle ?? ''),
+          planIdea: String(one?.planIdea ?? ''),
+          planCode: String(one?.planCode ?? ''),
+          origin: String(one?.origin ?? ''),
+          shareId: klic
+        });
+      } else {
+        d.prepare(
+          `UPDATE ig_posts SET brief = ?, media_note = ?, plan_at = ?, plan_kind = ?,
+             plan_title = ?, plan_idea = ?, plan_code = ?, origin = ?, approved = ?, archived = ?
+           WHERE id = ?`
+        ).run(String(one?.brief ?? ''), String(one?.mediaNote ?? ''), String(one?.planAt ?? ''),
+          String(one?.planKind ?? ''), String(one?.planTitle ?? ''), String(one?.planIdea ?? ''),
+          String(one?.planCode ?? ''), String(one?.origin ?? ''),
+          one?.approved ? 1 : 0, one?.archived ? 1 : 0, id);
+      }
+      /*
+       * Texty se přepisují po trzích a jen neprázdné. Prázdný text
+       * z druhého zařízení by přemazal hotový překlad, který se tam
+       * ještě nestihl objevit.
+       */
+      for (const c of (Array.isArray(one?.captions) ? one.captions : [])) {
+        const lang = String(c?.lang ?? '').toUpperCase();
+        if (!lang) continue;
+        const varianty = String(c?.variants ?? '[]');
+        const edited = c?.edited == null ? null : String(c.edited);
+        const maText = edited?.trim() || varianty.replace(/[[\]"\s,]/g, '');
+        if (!maText) continue;
+        d.prepare(
+          `INSERT INTO ig_captions (post_id, lang, variants_json, chosen, edited, status, updated_at)
+           VALUES (?,?,?,?,?,?,datetime('now'))
+           ON CONFLICT(post_id, lang) DO UPDATE SET
+             variants_json = excluded.variants_json,
+             chosen = excluded.chosen,
+             edited = excluded.edited,
+             status = CASE WHEN ig_captions.status = 'published'
+                           THEN ig_captions.status ELSE excluded.status END,
+             updated_at = datetime('now')`
+        ).run(id, lang, varianty, Number(c?.chosen) || 0, edited, String(c?.status ?? 'draft'));
+      }
+      d.prepare('UPDATE ig_posts SET updated_at = ? WHERE id = ?').run(kdy, id);
+      zmen++;
+    }
+  });
+  tx();
+  return zmen;
 }
 
 export function captionRow(id: number): any {
