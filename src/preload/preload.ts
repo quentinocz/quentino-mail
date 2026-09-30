@@ -47,6 +47,7 @@ const ALLOWED_INVOKE = [
   'ig:generate', 'ig:blankCaptions', 'ig:chooseVariant', 'ig:editCaption', 'ig:publish', 'ig:publishPost', 'ig:retryFacebook', 'ig:relogin',
   'ig:planSetup', 'ig:savePlanSetup', 'ig:planPropose', 'ig:planAccept', 'ig:planned', 'ig:planMove',
   'ig:proposeOne', 'ig:acceptOne', 'ig:planSwap', 'ig:approve', 'ig:alerts',
+  'secure:mode', 'secure:setMode',
   'ig:jobs', 'ig:cancelJob', 'ig:retryJob', 'ig:runQueue', 'ig:refreshTokens',
   // Chat
   'chat:overview', 'chat:saveConfig', 'chat:test',

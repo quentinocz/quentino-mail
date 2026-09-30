@@ -1,4 +1,5 @@
-import { ipcMain, shell, dialog, BrowserWindow, app } from 'electron';
+import { ipcMain, shell, dialog, BrowserWindow, app, safeStorage } from 'electron';
+import { secureMode, setSecureMode } from './secure';
 import fs from 'fs';
 import path from 'path';
 import { listAccounts, saveAccount, deleteAccount } from './accounts';
@@ -166,6 +167,14 @@ export function registerIpc() {
   // Nastavení
   handle('settings:get', () => getSettings());
   handle('settings:save', (s) => saveSettings(s));
+  /*
+   * Kde jsou uložená hesla. Přepnutí rovnou přepíše, co je uložené —
+   * jinak by se na klíčenku ptalo dál, dokud by se všechna hesla
+   * nezměnila ručně.
+   */
+  handle('secure:mode', () => ({ mode: secureMode(), keychain: safeStorage.isEncryptionAvailable() }));
+  handle('secure:setMode', (mode: string) =>
+    setSecureMode(mode === 'local' ? 'local' : 'keychain', getDb()));
 
   // Synchronizace mezi zařízeními
   handle('appsync:get', () => getSyncConfig());

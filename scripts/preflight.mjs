@@ -641,6 +641,12 @@ const DESKTOP_ONLY = [
    * v plánu je.
    */
   'ig:proposeOne', 'ig:acceptOne', 'ig:planSwap', 'ig:approve', 'ig:alerts',
+  /*
+   * Kde jsou uložená hesla. Na telefonu se na nic takového přepínat
+   * nedá — iOS má klíčenku vázanou na aplikaci, ne na podpis sestavení,
+   * takže se po aktualizaci z App Storu na nic neptá.
+   */
+  'secure:mode', 'secure:setMode',
   // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači
   'catalog:codes',
   'files:openAttachment', 'files:showInFolder',

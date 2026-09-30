@@ -475,6 +475,27 @@ await page.waitForTimeout(250);
     volani.includes('update:download') && volani.includes('update:install'),
     volani.filter(one => one.startsWith('update:')).join(' → '));
 }
+/*
+ * Kde jsou uložená hesla. Patří to k aktualizacím, protože právě ony ten
+ * problém dělají: macOS váže přístup ke klíčence na podpis aplikace a bez
+ * certifikátu od Apple je podpis po každém sestavení jiný — systém se pak
+ * po každé aktualizaci ptá na heslo ke klíčence.
+ */
+{
+  const hesla = await page.evaluate(() => {
+    const card = document.querySelector('.sec-card');
+    if (!card) return null;
+    return {
+      volby: [...card.querySelectorAll('.tab')].map(one => one.textContent.trim()),
+      vybrano: card.querySelector('.tab.active')?.textContent?.trim() ?? '',
+      vysvetleno: /aktualizaci/.test(card.textContent ?? '')
+    };
+  });
+  const ok = !!hesla && hesla.volby.length === 2 && hesla.vybrano.includes('klíčenka')
+    && hesla.vysvetleno;
+  if (!ok) problems.push(`volba uložení hesel chybí nebo nesedí (${JSON.stringify(hesla)})`);
+  console.log(`${'volba uložení hesel'.padEnd(28)} ${ok ? '✓' : '✗'}`);
+}
 await overflow('nastavení — aktualizace'); await snap('22d-nastaveni-aktualizace');
 /*
  * Proužek s novou verzí v okně. Kontrola výš ho vyvolala, takže se rovnou

@@ -1046,6 +1046,9 @@
         { postId: 701, kind: 'media', at: kdy(2), title: 'Hedvábná kravata s drobným vzorem' }
       ];
     })(),
+    /* Kde jsou uložená hesla — v náhledu se ukazuje výchozí klíčenka */
+    'secure:mode': { mode: 'keychain', keychain: true },
+    'secure:setMode': { mode: 'local', changed: 7 },
     'ig:approve': null, 'ig:planSwap': null, 'ig:acceptOne': 704,
     'ig:proposeOne': { day: '', hour: 18, kind: 'sezona', title: 'Nové vzory hedvábných',
       text: 'Dorazily nové vzory hedvábných kravat.', idea: 'Trojice kravat vedle sebe',

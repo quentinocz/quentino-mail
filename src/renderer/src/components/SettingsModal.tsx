@@ -985,6 +985,16 @@ export default function SettingsModal(p: Props) {
                 */}
               <h4 style={{ margin: '18px 0 6px' }}>Aktualizace aplikace</h4>
               <UpdateCard />
+
+              {/*
+                * Kde jsou uložená hesla. Patří to k aktualizacím, protože
+                * právě ty ten problém dělají: macOS váže přístup ke klíčence
+                * na podpis aplikace a bez certifikátu od Apple je podpis po
+                * každém sestavení jiný — systém proto po každé aktualizaci
+                * považuje aplikaci za cizí a ptá se na heslo.
+                */}
+              <h4 style={{ margin: '18px 0 6px' }}>Uložená hesla</h4>
+              <SecureCard />
             </>
           )}
 
@@ -1973,6 +1983,73 @@ function Ga4Box() {
       {detail && (
         <pre className="dg-detail" onClick={() => setDetail('')} title="Klepnutím zavřeš">{detail}</pre>
       )}
+    </div>
+  );
+}
+
+/**
+ * Kde jsou uložená hesla — klíčenka, nebo klíč v datech aplikace.
+ *
+ * Výchozí je klíčenka: klíč drží systém a z disku se sám o sobě přečíst
+ * nedá. Má to ale provozní háček, kvůli kterému tu je volba. macOS váže
+ * přístup ke klíčence na **podpis aplikace**, a aplikace bez certifikátu
+ * od Apple se podepisuje provizorně — takový podpis je po každém sestavení
+ * jiný, takže se systém po každé aktualizaci ptá na heslo.
+ *
+ * Druhá možnost je klíč v datech aplikace. Je slabší (kdo přečte soubory
+ * v domovské složce, přečte i klíč), ale ve stejné složce už leží databáze
+ * s celou poštou — rozdíl je menší, než se zdá. Rozhodnutí patří
+ * uživateli, ne nám.
+ */
+function SecureCard() {
+  const toast = useToast();
+  const [stav, setStav] = useState<{ mode: 'keychain' | 'local'; keychain: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { api.settings.secureMode().then(setStav).catch(() => {}); }, []);
+
+  const prepni = async (mode: 'keychain' | 'local') => {
+    if (!stav || busy || mode === stav.mode) return;
+    setBusy(true);
+    try {
+      const out = await api.settings.setSecureMode(mode);
+      setStav({ mode: out.mode, keychain: stav.keychain });
+      toast(out.changed
+        ? `Hotovo — přepsáno ${out.changed} uložených hodnot.`
+        : 'Hotovo.');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!stav) return null;
+  return (
+    <div className="sec-card">
+      <div className="tabs">
+        <button className={`tab ${stav.mode === 'keychain' ? 'active' : ''}`}
+          disabled={busy || !stav.keychain}
+          onClick={() => void prepni('keychain')}>Systémová klíčenka</button>
+        <button className={`tab ${stav.mode === 'local' ? 'active' : ''}`}
+          disabled={busy}
+          onClick={() => void prepni('local')}>Klíč v datech aplikace</button>
+      </div>
+      <p className="desc">
+        {stav.mode === 'keychain'
+          ? <>Hesla a klíče drží <b>systémová klíčenka</b>. Je to bezpečnější, ale macOS váže
+            přístup na podpis aplikace — a dokud aplikace nemá certifikát od Apple, je podpis po
+            každém sestavení jiný, takže se systém <b>po každé aktualizaci zeptá na heslo</b>.</>
+          : <>Hesla a klíče šifruje <b>klíč uložený v datech aplikace</b> (AES-256-GCM, soubor
+            jen pro tvůj účet). Po aktualizaci se už na nic neptá. Je to slabší: kdo umí číst
+            soubory v tvé domovské složce, přečte i ten klíč — ve stejné složce ale leží
+            i databáze s poštou a zákazníky.</>}
+      </p>
+      <p className="desc">
+        Přepnutí <b>rovnou přepíše, co je uložené</b>, takže se hesla nemusí zadávat znovu.
+        Trvalé řešení je podepsat aplikaci certifikátem od Apple — pak podpis zůstává stejný
+        a klíčenka se po aktualizaci neozve.
+      </p>
     </div>
   );
 }

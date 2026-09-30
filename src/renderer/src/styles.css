@@ -3993,6 +3993,10 @@ button, kbd, label,
  * Číslo u názvu říká, kolik jich v té skupině je, takže se nemusí
  * proklikávat, aby se zjistilo, že je prázdná.
  */
+/* Volba, kde jsou uložená hesla — v nastavení pod aktualizacemi */
+.sec-card { display: flex; flex-direction: column; gap: 8px; }
+.sec-card .desc { margin: 0; }
+
 .igd-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .igd-filters .desc { margin: 0; }
 .igd-filters .tab em { margin-left: 5px; font-style: normal; opacity: .6; font-size: 11px; }

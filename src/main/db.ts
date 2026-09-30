@@ -6,6 +6,7 @@ import { igSchema, igAlters } from './instagram/schema';
 import { SCHEMA as ptransSchema, ALTERS as ptransAlters } from './ptrans/schema';
 import { SCHEMA as artSchema, ALTERS as artAlters } from './articles/schema';
 import { SCHEMA as shootSchema, ALTERS as shootAlters } from './shoot/store';
+import { connectSecure } from './secure';
 
 let db: Database.Database;
 
@@ -549,3 +550,10 @@ export function setSetting(key: string, value: string) {
     .prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
     .run(key, value);
 }
+
+/*
+ * Šifrování si potřebuje přečíst, jakým způsobem se má ukládat — a to je
+ * v nastavení. Přímý import by udělal kruh (secure → db → secure), proto
+ * se obě funkce předají až tady, po jejich definici.
+ */
+connectSecure(getSetting, setSetting);

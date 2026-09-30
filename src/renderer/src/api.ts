@@ -103,7 +103,11 @@ export const api = {
   },
   settings: {
     get: () => call<Settings>('settings:get'),
-    save: (s: Partial<Settings>) => call<void>('settings:save', s)
+    save: (s: Partial<Settings>) => call<void>('settings:save', s),
+    /* Kde jsou uložená hesla: systémová klíčenka, nebo klíč v datech aplikace */
+    secureMode: () => call<{ mode: 'keychain' | 'local'; keychain: boolean }>('secure:mode'),
+    setSecureMode: (mode: 'keychain' | 'local') =>
+      call<{ mode: 'keychain' | 'local'; changed: number }>('secure:setMode', mode)
   },
   contacts: {
     search: (q: string) => call<ContactHit[]>('contacts:search', q)
