@@ -19,11 +19,12 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { DatabaseSync } = require('node:sqlite');
+const { smazDb } = require('../tmpdb.cjs');
 
 const DIST = process.env.PTDIST || path.join(__dirname, '../../dist/ptdist/main');
 
 const file = path.join(os.tmpdir(), 'ptrans-nosource.db');
-fs.rmSync(file, { force: true });
+smazDb(file);
 const inner = new DatabaseSync(file);
 const norm = v => (v === undefined ? null : typeof v === 'boolean' ? (v ? 1 : 0) : v);
 const db = {

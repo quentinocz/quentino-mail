@@ -16,6 +16,7 @@ const fs = require('fs');
 // rozhraní. Aplikace samotná běží dál na better-sqlite3 — testuje se logika,
 // ne ovladač.
 const { DatabaseSync } = require('node:sqlite');
+const { smazDb } = require('../tmpdb.cjs');
 
 function open(file) {
   const inner = new DatabaseSync(file);
@@ -66,7 +67,7 @@ function normalize(value) {
 
 const DIST = process.env.PTDIST || path.join(__dirname, '../../dist/ptdist/main');
 const dbFile = process.env.PTRANS_DB || path.join(os.tmpdir(), 'ptrans-test.db');
-if (!process.env.PTRANS_KEEP) fs.rmSync(dbFile, { force: true });
+if (!process.env.PTRANS_KEEP) smazDb(dbFile);
 const db = open(dbFile);
 db.pragma('journal_mode = WAL');
 db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');

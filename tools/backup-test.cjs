@@ -16,12 +16,13 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
+const { smazDb } = require('./tmpdb.cjs');
 
 const DIST = process.env.PTDIST || path.join(__dirname, '../dist/ptdist/main');
 
 // Dvě oddělené databáze: „staré" zařízení a „nové"
 function open(file) {
-  fs.rmSync(file, { force: true });
+  smazDb(file);
   const inner = new DatabaseSync(file);
   return {
     exec: sql => inner.exec(sql),

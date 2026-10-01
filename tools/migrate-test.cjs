@@ -25,6 +25,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
+const { smazDb } = require('./tmpdb.cjs');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -179,8 +180,28 @@ function ageBlock(block) {
 
 console.log('databáze z minulé verze, spuštění současné:\n');
 
+/*
+ * Nejdřív úklid po přerušeném běhu.
+ *
+ * Zkoušky si dočasnou databázi před startem mažou, jenže SQLite k ní
+ * v režimu WAL vede ještě `-wal` a `-shm`. Po normálním konci je uklidí
+ * samo; po Ctrl+C uprostřed sady zůstanou — a další běh pak naráží na
+ * žurnál od databáze, která už neexistuje. macOS to hlásí jako
+ * „disk I/O error", tedy jako vadný disk, a pokaždé v jiné zkoušce,
+ * podle toho, která se k souboru dostane dřív. Půl hodiny se to hledalo
+ * v modulu focení, který s tím neměl nic společného.
+ */
+{
+  const zbytky = path.join(os.tmpdir(), 'quentino-zbytky.db');
+  for (const konec of ['', '-wal', '-shm']) fs.writeFileSync(zbytky + konec, 'x');
+  smazDb(zbytky);
+  check('po přerušeném běhu nezůstane ani žurnál databáze',
+    ['', '-wal', '-shm'].every(konec => !fs.existsSync(zbytky + konec)),
+    `zůstalo: ${['.db', '-wal', '-shm'].filter((_x, i) => fs.existsSync(zbytky + ['', '-wal', '-shm'][i])).join(', ')}`);
+}
+
 const file = path.join(os.tmpdir(), 'quentino-migrace.db');
-fs.rmSync(file, { force: true });
+smazDb(file);
 const db = new DatabaseSync(file);
 
 // 1) Databáze, jakou má člověk z minulé verze: tabulky bez dodatečných
