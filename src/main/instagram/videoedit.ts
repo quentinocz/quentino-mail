@@ -32,7 +32,7 @@
  * Časy titulků počítá `osa()` ze společného modulu — týž výpočet, jaký
  * v okně kreslí časovou osu.
  */
-import { BrowserWindow, dialog } from 'electron';
+import { BrowserWindow, dialog, shell, app } from 'electron';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -668,6 +668,110 @@ function vystup(postId: number, lang: string): string {
   return path.join(dir, `${lang}-${Date.now()}.mp4`);
 }
 
+/* ---------- uložení na disk ---------- */
+
+/**
+ * Hotové video k sobě na disk, bez publikování.
+ *
+ * Ne všechno, co se sestříhá, jde na Instagram. Stejné video se hodí do
+ * e-shopu, do newsletteru nebo ho chce někdo jen vidět dřív, než se
+ * zveřejní. Dostat ho z aplikace ven by jinak znamenalo hledat ho
+ * v datech aplikace — cesta, kterou nikdo nezná a znát nemá.
+ */
+function nazevSouboru(postId: number, lang: string): string {
+  let zaklad = '';
+  try {
+    const post = store.getPost(postId);
+    zaklad = String(post?.planTitle || '').trim() || String(post?.brief || '').split('\n')[0].trim();
+  } catch { /* název je jen pohodlí, bez něj se použije číslo */ }
+  /*
+   * Diakritika a mezery se ze jména vyhodí. Takový soubor se dá poslat,
+   * nahrát i zabalit bez uvozovek a nerozbije se cestou přes web ani
+   * přes příkazovou řádku — totéž pravidlo jako u balíčků aplikace.
+   */
+  const cisty = zaklad
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  return `${cisty || `prispevek-${postId}`}-${lang}.mp4`;
+}
+
+/** Uloží video jednoho trhu tam, kam uživatel ukáže. */
+export async function ulozVideo(postId: number, lang: string): Promise<string> {
+  const hotovo = projekt(postId).hotovo?.[lang];
+  if (!hotovo?.soubor || !fs.existsSync(hotovo.soubor)) {
+    throw new Error(`Pro trh ${lang} zatím žádné vykreslené video není.`);
+  }
+  const okno = BrowserWindow.getFocusedWindow();
+  const kam = await dialog.showSaveDialog(okno ?? undefined as any, {
+    title: `Uložit video pro ${lang}`,
+    defaultPath: path.join(app.getPath('downloads'), nazevSouboru(postId, lang)),
+    filters: [{ name: 'Video', extensions: ['mp4'] }]
+  });
+  if (kam.canceled || !kam.filePath) return '';
+  fs.copyFileSync(hotovo.soubor, kam.filePath);
+  return kam.filePath;
+}
+
+/**
+ * Uloží všechna vykreslená videa do jedné složky.
+ *
+ * Po jednom by to u pěti trhů znamenalo pětkrát projít dialogem a
+ * pětkrát vymyslet jméno — přitom jde pokaždé o totéž video v jiném
+ * jazyce. Jména se proto odvodí od názvu příspěvku a jazyka.
+ */
+export async function ulozVidea(postId: number, langs?: string[]): Promise<string[]> {
+  const hotovo = projekt(postId).hotovo ?? {};
+  const kandidati = (langs && langs.length ? langs : Object.keys(hotovo))
+    .filter(lang => hotovo[lang]?.soubor && fs.existsSync(hotovo[lang].soubor));
+  if (kandidati.length === 0) throw new Error('Zatím není vykreslené žádné video.');
+
+  const okno = BrowserWindow.getFocusedWindow();
+  const kam = await dialog.showOpenDialog(okno ?? undefined as any, {
+    title: 'Kam uložit videa',
+    defaultPath: app.getPath('downloads'),
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (kam.canceled || kam.filePaths.length === 0) return [];
+
+  const out: string[] = [];
+  for (const lang of kandidati) {
+    let cil = path.join(kam.filePaths[0], nazevSouboru(postId, lang));
+    // Starší soubor se nepřepíše — nikdo nečeká, že uložení něco smaže
+    for (let i = 2; fs.existsSync(cil); i++) {
+      cil = path.join(kam.filePaths[0], nazevSouboru(postId, lang).replace(/\.mp4$/, `-${i}.mp4`));
+    }
+    fs.copyFileSync(hotovo[lang].soubor, cil);
+    out.push(cil);
+  }
+  return out;
+}
+
+/** Ukáže hotové video ve správci souborů. */
+export function ukazVideo(postId: number, lang: string): boolean {
+  const hotovo = projekt(postId).hotovo?.[lang];
+  if (!hotovo?.soubor || !fs.existsSync(hotovo.soubor)) return false;
+  shell.showItemInFolder(hotovo.soubor);
+  return true;
+}
+
+/**
+ * Příspěvek založený rovnou ze střihu.
+ *
+ * Projekt se ukládá k číslu příspěvku, takže nějaký existovat musí —
+ * ale nutit člověka, aby ho nejdřív založil a teprve pak hledal tlačítko
+ * v médiích, je práce navíc za nic. Název se vyplní, aby se takový
+ * příspěvek dal v seznamu poznat; bez něj by v plánu stálo „Bez názvu".
+ */
+export function novyVideoPrispevek(): number {
+  return store.createPost({
+    kind: 'new',
+    origin: 'hand',
+    planTitle: 'Video s titulky'
+  });
+}
+
 /** Přepínač „reel jen do reelů, nebo i do mřížky profilu". */
 export function setDoMrizky(postId: number, on: boolean): VidProjekt {
   const p = projekt(postId);
@@ -676,7 +780,7 @@ export function setDoMrizky(postId: number, on: boolean): VidProjekt {
   return saveProjekt(p);
 }
 
-export const __test = { stavbaFiltru, ffmpegArgy, vytahniJson };
+export const __test = { stavbaFiltru, ffmpegArgy, vytahniJson, nazevSouboru };
 
 export type { VidProjekt, VidKlip, VidTitulek, VidZvuk, VidZnelka };
 export { delkaVidea };

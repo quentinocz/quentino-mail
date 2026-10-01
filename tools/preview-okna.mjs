@@ -601,7 +601,32 @@ for (const okno of OKNA) {
     poVykresleni.hotovo.length === 3, poVykresleni.hotovo.join(' · '));
   say('  a cesta zpátky do příspěvku říká, co tam čeká',
     poVykresleni.zpet.some(t => /přiložen/.test(t)), poVykresleni.zpet.join(' | '));
+  /*
+   * Hotové video musí jít dostat z aplikace ven i bez publikování —
+   * do e-shopu, do newsletteru, nebo jen na ukázku. Bez toho by se
+   * hledalo v datech aplikace, kam nikdo nevidí.
+   */
+  const stazeni = await page.evaluate(() => ({
+    uTrhu: [...document.querySelectorAll('.qv-hotovo-radek .btn')].map(b => b.textContent.trim()),
+    slozka: document.querySelectorAll('.qv-hotovo-radek .icon-btn').length,
+    hromadne: [...document.querySelectorAll('.qv-konec .btn')].map(b => b.textContent.trim())
+  }));
+  say('  hotové video jde uložit do počítače bez publikování',
+    stazeni.uTrhu.length === 3 && stazeni.uTrhu.every(t => /Uložit/.test(t)),
+    stazeni.uTrhu.join(' · ') || 'není');
+  say('  a všechna naráz jedním tlačítkem',
+    stazeni.hromadne.some(t => /Uložit .* do počítače/.test(t)), stazeni.hromadne.join(' | '));
+  say('  u každého jde i ukázat ve složce', stazeni.slozka === 3, `${stazeni.slozka}×`);
   await page.screenshot({ path: path.join(SHOTS, 'okno-social-video-hotovo.png') });
+
+  /*
+   * A do střihu se musí dát vejít z nabídky, ne jen přes příspěvek —
+   * hledal se právě proto, že byl schovaný za „Otevřít" a sekcí médií.
+   */
+  const vNabidce = await page.evaluate(() =>
+    [...document.querySelectorAll('.sidebar .side-item')].map(b => b.textContent.trim()));
+  say('  střih videa je i v postranní nabídce',
+    vNabidce.some(t => /Video s titulky/.test(t)), vNabidce.join(' · '));
   await page.close();
 }
 

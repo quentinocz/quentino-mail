@@ -10150,6 +10150,8 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .qv-trh b { font-size: 13px; }
 .qv-trh .desc { font-size: 11px; }
 .qv-hotovo { font-style: normal; font-size: 11px; color: var(--ok); }
+.qv-hotovo-radek { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.qv-hotovo-radek .btn { padding: 3px 8px; font-size: 11.5px; }
 .qv-pruh { height: 4px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 4px; }
 .qv-pruh i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
 

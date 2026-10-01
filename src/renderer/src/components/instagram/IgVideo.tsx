@@ -530,6 +530,35 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     toast(`Hotovo — videa pro ${proTrhy.length} trh${proTrhy.length > 1 ? 'y' : ''} jsou přiložená k příspěvku.`);
   }, [p, postId, proTrhy, rozmer, toast]);
 
+  /* ---------- uložení na disk ---------- */
+
+  /*
+   * Ne všechno, co se sestříhá, jde na Instagram. Stejné video se hodí
+   * do e-shopu, do newsletteru nebo ho chce člověk jen vidět dřív, než
+   * se zveřejní. Bez tohohle by se muselo hledat v datech aplikace.
+   */
+  const ulozNaDisk = useCallback(async (trh: string) => {
+    if (!postId) return;
+    try {
+      const kam = await api.ig.videoExport(postId, trh);
+      if (kam) toast(`Uloženo: ${kam.split('/').pop()}`);
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  }, [postId, toast]);
+
+  const ulozVse = useCallback(async () => {
+    if (!postId) return;
+    try {
+      const soubory = await api.ig.videoExportAll(postId);
+      if (soubory.length) {
+        toast(`Uloženo ${soubory.length} ${soubory.length === 1 ? 'video' : 'videa'} do vybrané složky.`);
+      }
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  }, [postId, toast]);
+
   /* ---------- vykreslení obrazovky ---------- */
 
   if (!postId) {
@@ -1008,7 +1037,23 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
                 {prubeh[t.lang] != null && prubeh[t.lang] < 100 && (
                   <div className="qv-pruh"><i style={{ width: `${prubeh[t.lang]}%` }} /></div>
                 )}
-                {hotovo && <em className="qv-hotovo">hotovo {cas(hotovo.delka)}</em>}
+                {hotovo && (
+                  <div className="qv-hotovo-radek">
+                    <em className="qv-hotovo">hotovo {cas(hotovo.delka)}</em>
+                    {/* Klepnutí na uložení nesmí přehodit zaškrtnutí trhu */}
+                    <button className="btn ghost" title="Uložit video do počítače"
+                      onClick={e => { e.preventDefault(); e.stopPropagation(); void ulozNaDisk(t.lang); }}>
+                      Uložit
+                    </button>
+                    <button className="icon-btn" title="Ukázat ve složce"
+                      onClick={e => {
+                        e.preventDefault(); e.stopPropagation();
+                        if (postId) api.ig.videoReveal(postId, t.lang);
+                      }}>
+                      <Icon name="folder" size={13} />
+                    </button>
+                  </div>
+                )}
               </label>
             );
           })}
@@ -1042,6 +1087,16 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
             {pracuje || 'Vykreslit videa'}
           </button>
           {pracuje && <button className="btn ghost" onClick={() => api.ig.videoStop()}>Zastavit</button>}
+          {/*
+            * Uložení do počítače je rovnocenná cesta ven, ne drobnost
+            * schovaná u jednoho trhu: hotová videa se často jen stahují
+            * a publikují se jindy nebo jinde.
+            */}
+          {hotovoKolik > 0 && (
+            <button className="btn ghost" onClick={ulozVse}>
+              <Icon name="download" size={14} /> Uložit {hotovoKolik === 1 ? 'video' : 'videa'} do počítače
+            </button>
+          )}
           {hotovoKolik > 0 && (
             <button className="btn ghost" onClick={onBack}>
               Zpět na příspěvek — {hotovoKolik} {hotovoKolik === 1 ? 'video je' : 'videa jsou'} přiložená

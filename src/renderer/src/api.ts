@@ -1186,6 +1186,14 @@ export const api = {
     videoStop: () => call<void>('ig:videoStop'),
     videoFeed: (postId: number, on: boolean) => call<VidProjekt>('ig:videoFeed', postId, on),
 
+    /* Hotová videa k sobě na disk — bez publikování */
+    videoExport: (postId: number, lang: string) => call<string>('ig:videoExport', postId, lang),
+    videoExportAll: (postId: number, langs?: string[]) =>
+      call<string[]>('ig:videoExportAll', postId, langs),
+    videoReveal: (postId: number, lang: string) => call<boolean>('ig:videoReveal', postId, lang),
+    /** Založí příspěvek pro střih, aby se do editoru dalo vejít rovnou. */
+    videoNew: () => call<number>('ig:videoNew'),
+
     /* Znělky — videa na začátek a na konec, nahraná jen jednou */
     stings: () => call<VidZnelka[]>('ig:stings'),
     stingAdd: (kam: 'zacatek' | 'konec' | 'kamkoli' = 'kamkoli') => call<VidZnelka[]>('ig:stingAdd', kam),

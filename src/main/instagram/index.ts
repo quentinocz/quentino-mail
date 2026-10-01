@@ -471,7 +471,8 @@ export {
   projekt as videoProjekt, saveProjekt as saveVideoProjekt, pickKlipy, pickZvuk,
   popis as videoPopis, saveNahravka, prelozTitulky, vykresli as vykresliVideo,
   stopRender as stopVideoRender, znelky, addZnelka, saveZnelka, removeZnelka,
-  setDoMrizky, povolProjekt, povol as povolSoubor
+  setDoMrizky, povolProjekt, povol as povolSoubor,
+  ulozVideo, ulozVidea, ukazVideo, novyVideoPrispevek
 } from './videoedit';
 
 /** Přesun příspěvku v plánu na jiný den — plán se v praxi mění pořád. */

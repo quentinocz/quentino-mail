@@ -86,6 +86,25 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
 
   const newPost = useCallback(() => { setPostId(null); setView('new'); }, []);
 
+  /*
+   * Střih videa z postranní nabídky.
+   *
+   * Projekt se ukládá k číslu příspěvku, takže nějaký existovat musí.
+   * Nutit ale člověka, aby ho nejdřív založil a pak hledal tlačítko
+   * v médiích, je práce navíc za nic — proto se při vstupu „z ničeho"
+   * příspěvek založí sám a pojmenuje, ať se dá v seznamu poznat.
+   * Když už je nějaký otevřený, pokračuje se v něm.
+   */
+  const openVideo = useCallback(async () => {
+    try {
+      const id = postId ?? await api.ig.videoNew();
+      setPostId(id);
+      setView('video');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  }, [postId, toast]);
+
   const sync = useCallback(async (full = false) => {
     if (!overview?.hasSource) { toast('Nejdřív připoj zdrojový účet.', 'error'); setView('accounts'); return; }
     setSyncing(true);
@@ -232,6 +251,17 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
           {item('posts', 'sunrise', 'Příspěvky', undefined,
             'Plán i rozdělaná práce — co se blíží a co k tomu ještě chybí')}
           {item('queue', 'clock', 'Fronta a plán', (overview?.queued ?? 0) + (overview?.failed ?? 0))}
+          {/*
+            * Střih videa má v nabídce vlastní položku, i když patří
+            * k příspěvku. Bez ní se hledal: je to krok uvnitř příspěvku
+            * a nikdo nečeká, že se k němu jde přes „Otevřít" a sekci
+            * médií. Odsud se do něj vejde rovnou.
+            */}
+          <button className={`side-item ${view === 'video' ? 'active' : ''}`} onClick={openVideo}
+            data-tip="Sestříhat video, přidat titulky a přeložit je pro ostatní trhy">
+            <span className="icon"><Icon name="play" /></span>
+            <span className="label">Video s titulky</span>
+          </button>
 
           <div className="side-section">Nastavení</div>
           {item('accounts', 'users', 'Účty a připojení')}

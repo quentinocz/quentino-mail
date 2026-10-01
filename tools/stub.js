@@ -1024,6 +1024,11 @@
       { id: 'z1', nazev: 'Logo na začátek', soubor: '/znelky/logo-zacatek.mp4', delka: 1.8, kam: 'zacatek' },
       { id: 'z2', nazev: 'Odkaz na e-shop', soubor: '/znelky/logo-konec.mp4', delka: 2.5, kam: 'konec' }
     ],
+    'ig:videoExport': '/Users/patrik/Downloads/sametovy-motylek-CS.mp4',
+    'ig:videoExportAll': ['/Users/patrik/Videa/sametovy-motylek-CS.mp4',
+      '/Users/patrik/Videa/sametovy-motylek-EN.mp4', '/Users/patrik/Videa/sametovy-motylek-DE.mp4'],
+    'ig:videoReveal': true,
+    'ig:videoNew': 777,
     'ig:stingAdd': [],
     'ig:stingSave': [],
     'ig:stingRemove': [],

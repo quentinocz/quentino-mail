@@ -146,6 +146,14 @@ export function registerIgIpc() {
     ig.vykresliVideo(Number(postId), String(lang ?? ''), Array.isArray(obrazky) ? obrazky : []));
   handle('ig:videoStop', () => ig.stopVideoRender());
   handle('ig:videoFeed', (postId: number, on: boolean) => ig.setDoMrizky(Number(postId), !!on));
+  /* Hotová videa k sobě na disk — bez publikování */
+  handle('ig:videoExport', (postId: number, lang: string) => ig.ulozVideo(Number(postId), String(lang ?? '')));
+  handle('ig:videoExportAll', (postId: number, langs?: string[]) =>
+    ig.ulozVidea(Number(postId), Array.isArray(langs) ? langs : undefined));
+  handle('ig:videoReveal', (postId: number, lang: string) => ig.ukazVideo(Number(postId), String(lang ?? '')));
+  /* Střih bez zakládání příspěvku — ten se založí sám */
+  handle('ig:videoNew', () => ig.novyVideoPrispevek());
+
   handle('ig:stings', () => ig.znelky());
   handle('ig:stingAdd', (kam: any) => ig.addZnelka(kam === 'zacatek' || kam === 'konec' ? kam : 'kamkoli'));
   handle('ig:stingSave', (id: string, patch: any) => ig.saveZnelka(String(id ?? ''), patch ?? {}));
