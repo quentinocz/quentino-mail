@@ -99,6 +99,9 @@ const PATHS: Record<string, ReactNode> = {
   // Zmenšit do stavového pruhu — opak `expand`
   minimize: <><path d="M9 3v6H3" /><path d="M15 21v-6h6" /><path d="m3 9 7-7" /><path d="m21 15-7 7" /></>,
   stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  // Přehrát a pauza — střih videa a náhled v příspěvku
+  play: <path d="M7 4.5v15l12-7.5-12-7.5Z" />,
+  pause: <><rect x="7" y="5" width="3.5" height="14" rx="1" /><rect x="13.5" y="5" width="3.5" height="14" rx="1" /></>,
   brain: <><path d="M9.5 3A2.5 2.5 0 0 0 7 5.5v.3A2.5 2.5 0 0 0 5.2 8.2a2.6 2.6 0 0 0 .5 1.5 2.5 2.5 0 0 0-.6 1.7c0 .8.4 1.6 1 2.1a2.5 2.5 0 0 0 2.4 3.3H10a1.5 1.5 0 0 0 1.5-1.5v-10A2.5 2.5 0 0 0 9.5 3Z" /><path d="M14.5 3A2.5 2.5 0 0 1 17 5.5v.3a2.5 2.5 0 0 1 1.8 2.4 2.6 2.6 0 0 1-.5 1.5c.4.5.6 1.1.6 1.7 0 .8-.4 1.6-1 2.1a2.5 2.5 0 0 1-2.4 3.3H14a1.5 1.5 0 0 1-1.5-1.5v-10A2.5 2.5 0 0 1 14.5 3Z" /><path d="M12 20v1.5" /></>
 };
 

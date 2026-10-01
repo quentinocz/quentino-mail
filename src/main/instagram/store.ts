@@ -406,24 +406,73 @@ export function updatePost(id: number, p: { brief?: string; mediaNote?: string }
   touchPost(id);
 }
 
-export function setPostMedia(postId: number, media: IgMediaItem[]): void {
+/**
+ * Média příspěvku. `lang` je prázdné u toho, co jde na všechny trhy,
+ * a vyplněné u videa s titulky vypálenými v jednom jazyce.
+ *
+ * Přepisuje se **jen sada daného jazyka**: vykreslení videa pro němčinu
+ * nesmí smazat fotky společné pro všechny ani hotové video pro polštinu.
+ */
+export function setPostMedia(postId: number, media: IgMediaItem[], lang = ''): void {
   const d = getDb();
   const tx = d.transaction(() => {
-    d.prepare('DELETE FROM ig_post_media WHERE post_id = ?').run(postId);
+    d.prepare('DELETE FROM ig_post_media WHERE post_id = ? AND lang = ?').run(postId, lang);
     const ins = d.prepare(
-      `INSERT INTO ig_post_media (post_id, position, path, mime, is_video, width, height, cover_offset, source_url)
-       VALUES (?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO ig_post_media (post_id, position, path, mime, is_video, width, height, cover_offset, source_url, lang)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`
     );
     media.forEach((m, i) => ins.run(
       postId, i, m.path ?? '', m.mime ?? '', m.isVideo ? 1 : 0,
-      m.width ?? null, m.height ?? null, m.coverOffset ?? null, m.sourceUrl ?? null
+      m.width ?? null, m.height ?? null, m.coverOffset ?? null, m.sourceUrl ?? null, lang
     ));
   });
   tx();
 }
 
-export function postMedia(postId: number): any[] {
-  return getDb().prepare('SELECT * FROM ig_post_media WHERE post_id = ? ORDER BY position').all(postId) as any[];
+/**
+ * Média pro publikaci na daný trh.
+ *
+ * Trh má přednost před společnými: kde je vypálené video pro němčinu,
+ * publikuje se ono, a fotky určené všem se použijí jen tam, kde vlastní
+ * video není. Bez toho by se na všech trzích zveřejnil tentýž soubor
+ * s českými titulky.
+ */
+export function postMedia(postId: number, lang = ''): any[] {
+  const d = getDb();
+  if (lang) {
+    const vlastni = d.prepare(
+      'SELECT * FROM ig_post_media WHERE post_id = ? AND lang = ? ORDER BY position'
+    ).all(postId, lang) as any[];
+    if (vlastni.length > 0) return vlastni;
+  }
+  return d.prepare(
+    "SELECT * FROM ig_post_media WHERE post_id = ? AND lang = '' ORDER BY position"
+  ).all(postId) as any[];
+}
+
+/** Všechna média příspěvku bez ohledu na trh — pro úklid a pro přehled. */
+export function allPostMedia(postId: number): any[] {
+  return getDb().prepare(
+    'SELECT * FROM ig_post_media WHERE post_id = ? ORDER BY lang, position'
+  ).all(postId) as any[];
+}
+
+/** Jazyky, pro které je vypálené vlastní video. */
+export function mediaLangs(postId: number): string[] {
+  return (getDb().prepare(
+    "SELECT DISTINCT lang FROM ig_post_media WHERE post_id = ? AND lang <> ''"
+  ).all(postId) as any[]).map(r => String(r.lang));
+}
+
+/** Má se reel objevit i v mřížce profilu? */
+export function setPostFeed(postId: number, on: boolean): void {
+  getDb().prepare('UPDATE ig_posts SET reel_feed = ? WHERE id = ?').run(on ? 1 : 0, postId);
+  touchPost(postId);
+}
+
+export function postFeed(postId: number): boolean {
+  const row = getDb().prepare('SELECT reel_feed FROM ig_posts WHERE id = ?').get(postId) as any;
+  return row ? !!row.reel_feed : true;
 }
 
 export function setMediaPublicUrl(mediaId: number, url: string | null, key: string | null): void {
@@ -489,6 +538,10 @@ export function getPost(id: number): IgPost | null {
     planTitle: p.plan_title ?? '', planIdea: p.plan_idea ?? '', planCode: p.plan_code ?? '',
     origin: String(p.origin ?? '') || (p.kind === 'source' ? 'repost' : 'hand'),
     approved: !!p.approved, approvedAt: p.approved_at ?? '',
+    // Trhy, pro které je vypálené vlastní video s titulky. V rozhraní se
+    // podle toho pozná, že příspěvek má média i tam, kde společná nejsou.
+    videoLangs: mediaLangs(id),
+    reelFeed: p.reel_feed == null ? true : !!p.reel_feed,
     sourceCaption: src?.caption ?? '', sourcePermalink: src?.permalink ?? ''
   };
 }

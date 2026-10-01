@@ -451,6 +451,157 @@ for (const okno of OKNA) {
   say('  a jde si říct o jeden příspěvek na teď',
     prani.policko && /kravata/i.test(prani.text), prani.text.slice(0, 50));
   await page.screenshot({ path: path.join(SHOTS, 'okno-social-navrh.png') });
+
+  /* ---------- střih videa s titulky ---------- */
+
+  /*
+   * Do střihu se vchází z příspěvku, od médií — je to jeden ze způsobů,
+   * jak k příspěvku přidat obraz, ne samostatný nástroj v nabídce.
+   */
+  await page.locator('.igd-btns .btn.ghost', { hasText: 'Otevřít' }).first().click();
+  await page.waitForTimeout(600);
+  const vstup = await page.evaluate(() => ({
+    tlacitko: [...document.querySelectorAll('.ig-video-vstup button')].map(b => b.textContent.trim()),
+    uMedii: !!document.querySelector('.ig-card .ig-video-vstup')
+  }));
+  say('do střihu videa se vchází od médií příspěvku',
+    vstup.tlacitko.some(t => /Video s titulky/.test(t)) && vstup.uMedii,
+    vstup.tlacitko.join(' | ') || 'není');
+
+  await page.locator('.ig-video-vstup button').first().click();
+  await page.waitForTimeout(900);
+
+  const strih = await page.evaluate(() => {
+    const cisla = [...document.querySelectorAll('.qv-krok .qv-cislo')].map(n => n.textContent.trim());
+    const nazvy = [...document.querySelectorAll('.qv-krok h3')].map(n => n.textContent.trim());
+    const klipy = [...document.querySelectorAll('.qv-klip')].map(k => ({
+      nazev: (k.querySelector('b')?.textContent ?? '').trim(),
+      delka: (k.querySelector('.desc')?.textContent ?? '').trim(),
+      znelka: k.className.includes('znelka'),
+      tazitelny: k.getAttribute('draggable') === 'true'
+    }));
+    const bloky = [...document.querySelectorAll('.qv-blok')].map(b => ({
+      left: Math.round(parseFloat(b.style.left)),
+      width: Math.round(parseFloat(b.style.width)),
+      prolnuti: !!b.querySelector('.qv-prolnuti')
+    }));
+    const pasky = [...document.querySelectorAll('.qv-tit')].map(t => ({
+      left: Math.round(parseFloat(t.style.left)),
+      text: (t.querySelector('span')?.textContent ?? '').trim(),
+      uchopy: t.querySelectorAll('.qv-uchop').length,
+      pozice: t.className.replace('qv-tit', '').trim()
+    }));
+    return {
+      cisla, nazvy, klipy, bloky, pasky,
+      prechody: [...document.querySelectorAll('.qv-prechod em')].map(e => e.textContent.trim()),
+      radky: document.querySelectorAll('.qv-tit-radek').length,
+      styly: [...document.querySelectorAll('.qv-tit-vzhled select')].length,
+      jazyky: [...document.querySelectorAll('.qv-jazyky .tab')].map(b => b.textContent.trim()),
+      pomer: (document.querySelector('.qv-obal')?.className ?? ''),
+      video: !!document.querySelector('.qv-obal video'),
+      platno: !!document.querySelector('canvas.qv-titulky'),
+      zvukVolby: [...document.querySelectorAll('.qv-volba')].map(b => b.textContent.trim()),
+      trhy: [...document.querySelectorAll('.qv-trh')].map(t => t.textContent.replace(/\s+/g, ' ').trim()),
+      celkem: (document.querySelector('.qv-top-t .desc')?.textContent ?? '').trim()
+    };
+  });
+
+  say('střih videa má čtyři kroky pod sebou, nic v druhé záložce',
+    strih.cisla.join('') === '1234', `${strih.cisla.join('')} — ${strih.nazvy.join(' · ')}`);
+  say('  záběry jsou v pásu za sebou a jde je přetáhnout',
+    strih.klipy.length === 3 && strih.klipy.every(k => k.tazitelny),
+    strih.klipy.map(k => `${k.nazev} ${k.delka}`).join(' | '));
+  say('  znělka je poznat od vlastního záběru',
+    strih.klipy.filter(k => k.znelka).length === 1,
+    `${strih.klipy.filter(k => k.znelka).length}×`);
+  say('  přechod se nastavuje na spoji, kde je',
+    strih.prechody.length === 2, strih.prechody.join(' · '));
+  /*
+   * Klíčová věc na celé obrazovce: časová osa musí ukázat, že se přechod
+   * s oběma záběry **překrývá** — jinak nikdo nepochopí, proč je video
+   * kratší než součet záběrů.
+   */
+  say('  časová osa ukazuje i prolnutí, ne jen bloky za sebou',
+    strih.bloky.length === 3 && strih.bloky.filter(b => b.prolnuti).length === 2,
+    strih.bloky.map(b => `${b.left}%+${b.width}%${b.prolnuti ? ' (prolnutí)' : ''}`).join(' '));
+  say('  a druhý záběr začíná dřív, než první skončí',
+    strih.bloky[1].left < strih.bloky[0].left + strih.bloky[0].width,
+    `${strih.bloky[1].left} % vs ${strih.bloky[0].left + strih.bloky[0].width} %`);
+  say('  titulky jsou v ose pásky, které jde táhnout i roztahovat',
+    strih.pasky.length === 3 && strih.pasky.every(t => t.uchopy === 2),
+    strih.pasky.map(t => `${t.text} @${t.left}%`).join(' | '));
+  say('  a pásky v různých výškách podle toho, kde titulek v obraze je',
+    new Set(strih.pasky.map(t => t.pozice)).size >= 2,
+    strih.pasky.map(t => t.pozice).join(' · '));
+  say('  náhled je ve poměru, který se vykreslí',
+    /pomer-9-16/.test(strih.pomer) && strih.video && strih.platno, strih.pomer);
+  say('  u každého titulku se dá vybrat styl i umístění',
+    strih.radky === 3 && strih.styly === 6, `${strih.radky} řádků, ${strih.styly} voleb`);
+  say('  jazyk titulků se přepíná a je vidět, kolik je přeloženo',
+    strih.jazyky.length === 3 && /zdroj/.test(strih.jazyky[0]) && /\d\/\d/.test(strih.jazyky[1]),
+    strih.jazyky.join(' | '));
+  say('  zvuk jde pro trh vzít z videa, z vlastního souboru, nebo vypnout',
+    strih.zvukVolby.length === 3, strih.zvukVolby.join(' · '));
+  say('  a u trhů stojí, co se s nimi stane',
+    strih.trhy.length === 3 && strih.trhy.some(t => /titulků/.test(t)), strih.trhy.join(' | '));
+  say('  v hlavičce je délka i počet záběrů',
+    /záběry/.test(strih.celkem) && /titulky|titulek/.test(strih.celkem), strih.celkem);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-social-video.png') });
+
+  /* Titulek se nakreslí i na plátno — je to totéž kreslení, které se vypaluje */
+  await page.locator('.qv-tit-btns .icon-btn').first().click();
+  await page.waitForTimeout(500);
+  const nakresleno = await page.evaluate(() => {
+    const c = document.querySelector('canvas.qv-titulky');
+    if (!c) return { ok: false };
+    const ctx = c.getContext('2d');
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    let nenulove = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 20) nenulove++;
+    return { ok: true, pixelu: nenulove, celkem: data.length / 4 };
+  });
+  /*
+   * Prázdné plátno by znamenalo, že náhled titulek nekreslí — a pak by se
+   * styl ladil naslepo a poznalo by se to až na hotovém videu.
+   */
+  say('  titulek se v náhledu opravdu nakreslí',
+    nakresleno.ok && nakresleno.pixelu > 200,
+    `${nakresleno.pixelu} z ${nakresleno.celkem} pixelů`);
+
+  /* Přechod se vybírá z nabídky na spoji, ne v nastavení záběru */
+  await page.locator('.qv-prechod').first().click();
+  await page.waitForTimeout(300);
+  const nabidka = await page.evaluate(() => ({
+    voleb: document.querySelectorAll('.qv-prechod-menu > button').length,
+    popisky: [...document.querySelectorAll('.qv-prechod-menu > button span')].map(s => s.textContent.trim()).slice(0, 2)
+  }));
+  say('  přechody se vybírají s popisem, ne podle názvu filtru',
+    nabidka.voleb === 7 && nabidka.popisky.every(p => p.length > 15),
+    `${nabidka.voleb} voleb: ${nabidka.popisky.join(' | ')}`);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-social-video-prechod.png') });
+  await page.keyboard.press('Escape');
+
+  /* Překlad doplní chybějící jazyky — a je to vidět na počtu u záložky */
+  await page.locator('.qv-krok button', { hasText: 'Přeložit do ostatních' }).click();
+  await page.waitForTimeout(700);
+  const poPrekladu = await page.evaluate(() =>
+    [...document.querySelectorAll('.qv-jazyky .tab')].map(b => b.textContent.trim()));
+  say('  po překladu mají trhy všechny titulky',
+    poPrekladu.slice(1).every(t => /(\d+)\/\1/.test(t.replace(/\s/g, ''))),
+    poPrekladu.join(' | '));
+
+  /* Vykreslení: postup se hlásí průběžně, jinak to vypadá zaseknutě */
+  await page.locator('.qv-konec button.primary').click();
+  await page.waitForTimeout(1200);
+  const poVykresleni = await page.evaluate(() => ({
+    hotovo: [...document.querySelectorAll('.qv-hotovo')].map(e => e.textContent.trim()),
+    zpet: [...document.querySelectorAll('.qv-konec button')].map(b => b.textContent.trim())
+  }));
+  say('  po vykreslení je u trhu vidět, že je hotovo',
+    poVykresleni.hotovo.length === 3, poVykresleni.hotovo.join(' · '));
+  say('  a cesta zpátky do příspěvku říká, co tam čeká',
+    poVykresleni.zpet.some(t => /přiložen/.test(t)), poVykresleni.zpet.join(' | '));
+  await page.screenshot({ path: path.join(SHOTS, 'okno-social-video-hotovo.png') });
   await page.close();
 }
 

@@ -1641,6 +1641,10 @@ export interface IgPost {
   approvedAt: string;
   media: IgMediaItem[];
   captions: IgCaption[];
+  /** Trhy, pro které je vypálené vlastní video s titulky. */
+  videoLangs?: string[];
+  /** Má se reel objevit i v mřížce profilu? */
+  reelFeed?: boolean;
   sourceCaption?: string;
   sourcePermalink?: string;
 }

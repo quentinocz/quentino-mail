@@ -17,6 +17,7 @@ import { closeCamera } from './shoot';
 import { closeSecondQuietly } from './shootsecond';
 import { mainWindowMaker } from './toolwindow';
 import { registerPreviewScheme, servePreview } from './bannerpreview';
+import { registerMediaScheme, serveMedia } from './mediafile';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -283,10 +284,14 @@ app.on('open-url', (e, url) => {
  * zákaz vloženého kódu, kvůli kterému zůstával náhled prázdný.
  */
 registerPreviewScheme();
+// Vlastní videa do střihu — okno na disk nedosáhne a base64 přes IPC by
+// u velkých souborů nestačilo (a nešlo by v nich přeskakovat)
+registerMediaScheme();
 
 app.whenReady().then(() => {
   installCrashGuards();
   servePreview();
+  serveMedia();
   installSystemCa(); // kořeny z Keychainu ještě před prvním síťovým voláním
 
   /*

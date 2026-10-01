@@ -35,6 +35,16 @@ import type {
   UpdateState
 } from '@shared/types';
 import type { ToolWindowId } from '@shared/windows';
+import type { VidProjekt, VidZnelka } from '@shared/videoedit';
+
+/** Co se dá o souboru zjistit z ffmpegu — délka, rozměry, zvuková stopa. */
+export interface VidPopis {
+  soubor: string;
+  delka: number;
+  sirka: number;
+  vyska: number;
+  zvuk: boolean;
+}
 import type { ShopEvent, ShopEventImpact } from '@shared/types';
 
 /** Jeden řádek podkladu pro štítky — kód, popis a kolikrát se vytiskne */
@@ -1157,7 +1167,30 @@ export const api = {
     cancelJob: (id: number) => call<void>('ig:cancelJob', id),
     retryJob: (id: number) => call<void>('ig:retryJob', id),
     runQueue: () => call<void>('ig:runQueue'),
-    refreshTokens: () => call<{ refreshed: number; failed: string[] }>('ig:refreshTokens')
+    refreshTokens: () => call<{ refreshed: number; failed: string[] }>('ig:refreshTokens'),
+
+    /* Střih videa s titulky */
+    video: (postId: number) => call<VidProjekt>('ig:video', postId),
+    videoSave: (p: VidProjekt) => call<VidProjekt>('ig:videoSave', p),
+    videoPick: () => call<VidPopis[]>('ig:videoPick'),
+    videoPickAudio: () => call<VidPopis | null>('ig:videoPickAudio'),
+    videoProbe: (soubor: string) => call<VidPopis>('ig:videoProbe', soubor),
+    /** Adresa, pod kterou si `<video>` soubor přečte (vlastní protokol). */
+    videoUrl: (soubor: string) => call<string>('ig:videoUrl', soubor),
+    videoRecord: (postId: number, lang: string, bytes: Uint8Array, pripona = 'webm') =>
+      call<VidPopis | null>('ig:videoRecord', postId, lang, Array.from(bytes), pripona),
+    videoTranslate: (postId: number, langs: string[]) =>
+      call<VidProjekt>('ig:videoTranslate', postId, langs),
+    videoRender: (postId: number, lang: string, obrazky: { id: string; png: string }[]) =>
+      call<VidProjekt>('ig:videoRender', postId, lang, obrazky),
+    videoStop: () => call<void>('ig:videoStop'),
+    videoFeed: (postId: number, on: boolean) => call<VidProjekt>('ig:videoFeed', postId, on),
+
+    /* Znělky — videa na začátek a na konec, nahraná jen jednou */
+    stings: () => call<VidZnelka[]>('ig:stings'),
+    stingAdd: (kam: 'zacatek' | 'konec' | 'kamkoli' = 'kamkoli') => call<VidZnelka[]>('ig:stingAdd', kam),
+    stingSave: (id: string, patch: Partial<VidZnelka>) => call<VidZnelka[]>('ig:stingSave', id, patch),
+    stingRemove: (id: string) => call<VidZnelka[]>('ig:stingRemove', id)
   },
   /** Chat na e-shopu (widget quentino.cz/.sk/.com) */
   chat: {

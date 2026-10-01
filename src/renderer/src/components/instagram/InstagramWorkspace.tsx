@@ -13,6 +13,7 @@ import IgPosts from './IgPosts';
 import IgQueue from './IgQueue';
 import IgAccounts from './IgAccounts';
 import IgBrand from './IgBrand';
+import IgVideo from './IgVideo';
 
 /*
  * `compose` je seznam rozdělaných, `new` je psaní nového příspěvku.
@@ -27,7 +28,12 @@ import IgBrand from './IgBrand';
  * bez textů, mezi rozdělanými ty s texty. Je to přitom jedna práce, jen
  * v jiné fázi, takže se hledalo na dvou místech.
  */
-export type IgView = 'feed' | 'posts' | 'new' | 'queue' | 'accounts' | 'brand';
+/*
+ * `video` je střih videa s titulky. Je to obrazovka jednoho příspěvku,
+ * ne samostatný nástroj — proto se do ní vchází z příspěvku a vrací se
+ * zpátky do něj, a v nabídce vlevo pro ni položka není.
+ */
+export type IgView = 'feed' | 'posts' | 'new' | 'queue' | 'accounts' | 'brand' | 'video';
 
 interface Props {
   onOpenSettings: () => void;
@@ -148,6 +154,8 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
           {view === 'posts' && overview && (
             <IgPosts overview={overview} onOpenPost={id => { setPostId(id); setView('new'); }} />
           )}
+          {/* Střih se na telefonu nenabízí — časová osa se na čtyřech
+              palcích neobslouží a ffmpeg tam stejně není */}
           {view === 'new' && overview && (
             <IgCompose overview={overview} postId={postId} onPostId={setPostId}
               onGoQueue={() => setView('queue')} />
@@ -262,7 +270,11 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
             postId={postId}
             onPostId={setPostId}
             onGoQueue={() => setView('queue')}
+            onGoVideo={id => { setPostId(id); setView('video'); }}
           />
+        )}
+        {view === 'video' && overview && (
+          <IgVideo overview={overview} postId={postId} onBack={() => setView('new')} />
         )}
         {view === 'queue' && overview && <IgQueue overview={overview} onOpenPost={openPost} />}
         {view === 'accounts' && overview && <IgAccounts overview={overview} onChanged={load} />}

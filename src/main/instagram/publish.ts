@@ -29,9 +29,15 @@ function emit(payload: unknown = {}) {
  */
 async function resolveMedia(
   postId: number,
-  source: { id: number; token: string } | null
+  source: { id: number; token: string } | null,
+  lang: string
 ): Promise<graph.GraphMedia[]> {
-  const rows = store.postMedia(postId);
+  /*
+   * Média se berou pro ten trh, na který se zveřejňuje: vypálené video
+   * s německými titulky patří na německý účet, ne na všechny. Kde vlastní
+   * video pro trh není, použijí se společná média.
+   */
+  const rows = store.postMedia(postId, lang);
   if (rows.length === 0) throw new Error('Příspěvek nemá žádná média.');
 
   const out: graph.GraphMedia[] = [];
@@ -105,7 +111,7 @@ async function cleanupPostMedia(postId: number): Promise<void> {
   ).get(postId) as any;
   if (open.c > 0) return;
 
-  for (const row of store.postMedia(postId)) {
+  for (const row of store.allPostMedia(postId)) {
     if (!row.storage_key) continue;
     await media.remove(row.storage_key);
     store.setMediaPublicUrl(row.id, null, null);
@@ -151,11 +157,13 @@ export async function runJob(jobId: number): Promise<void> {
       }
     }
 
-    const items = await resolveMedia(caption.post_id, source);
+    const items = await resolveMedia(caption.post_id, source, caption.lang);
     const text = store.captionText(caption);
 
     if (toInstagram) {
-      const result = await graph.publish(account.igUserId, token, text, items);
+      const result = await graph.publish(account.igUserId, token, text, items, {
+        shareToFeed: store.postFeed(caption.post_id)
+      });
       store.setJobState(jobId, {
         state: 'done',
         container_id: result.containerId,
@@ -269,7 +277,7 @@ export async function retryFacebook(jobId: number): Promise<void> {
   }
 
   try {
-    const items = await resolveMedia(caption.post_id, source);
+    const items = await resolveMedia(caption.post_id, source, caption.lang);
     await shareOnFacebook(jobId, account, token, store.captionText(caption), items);
   } finally {
     try { await cleanupPostMedia(caption.post_id); } catch { /* úklid není kritický */ }

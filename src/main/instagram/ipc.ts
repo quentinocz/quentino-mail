@@ -5,6 +5,7 @@
 import { ipcMain, dialog, shell, BrowserWindow } from 'electron';
 import * as ig from './index';
 import { callerWindow } from '../caller';
+import { mediaUrl } from '../mediafile';
 
 function handle(channel: string, fn: (...args: any[]) => any) {
   ipcMain.handle(channel, async (_e, ...args) => {
@@ -115,4 +116,38 @@ export function registerIgIpc() {
   handle('ig:retryJob', (id: number) => ig.retryJob(id));
   handle('ig:runQueue', () => ig.processQueue());
   handle('ig:refreshTokens', () => ig.refreshTokens(true));
+
+  /*
+   * Střih videa. Projekt se ukládá po každé změně sám — časová osa se
+   * ladí desítkami malých úprav a „neuložil jsem to" je tady nejhorší
+   * možná chyba: přijde se o práci, kterou nejde zopakovat z hlavy.
+   */
+  handle('ig:video', (postId: number) => {
+    const p = ig.videoProjekt(Number(postId));
+    // Náhled si sám o soubory řekne přes vlastní protokol; povolí se mu
+    // jen to, co v projektu skutečně je
+    ig.povolProjekt(p);
+    return p;
+  });
+  handle('ig:videoSave', (p: any) => ig.saveVideoProjekt(p));
+  handle('ig:videoPick', () => ig.pickKlipy());
+  handle('ig:videoPickAudio', () => ig.pickZvuk());
+  handle('ig:videoProbe', (soubor: string) => ig.videoPopis(String(soubor ?? '')));
+  handle('ig:videoUrl', (soubor: string) => {
+    // Adresa se vydá jen pro soubor, který už je v projektu nebo ve znělkách
+    ig.povolSoubor(String(soubor ?? ''));
+    return mediaUrl(String(soubor ?? ''));
+  });
+  handle('ig:videoRecord', (postId: number, lang: string, bytes: any, pripona?: string) =>
+    ig.saveNahravka(Number(postId), String(lang ?? ''), new Uint8Array(bytes ?? []), String(pripona || 'webm')));
+  handle('ig:videoTranslate', (postId: number, langs: string[]) =>
+    ig.prelozTitulky(Number(postId), Array.isArray(langs) ? langs : []));
+  handle('ig:videoRender', (postId: number, lang: string, obrazky: any[]) =>
+    ig.vykresliVideo(Number(postId), String(lang ?? ''), Array.isArray(obrazky) ? obrazky : []));
+  handle('ig:videoStop', () => ig.stopVideoRender());
+  handle('ig:videoFeed', (postId: number, on: boolean) => ig.setDoMrizky(Number(postId), !!on));
+  handle('ig:stings', () => ig.znelky());
+  handle('ig:stingAdd', (kam: any) => ig.addZnelka(kam === 'zacatek' || kam === 'konec' ? kam : 'kamkoli'));
+  handle('ig:stingSave', (id: string, patch: any) => ig.saveZnelka(String(id ?? ''), patch ?? {}));
+  handle('ig:stingRemove', (id: string) => ig.removeZnelka(String(id ?? '')));
 }

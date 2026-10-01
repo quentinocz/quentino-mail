@@ -354,6 +354,40 @@ console.log('\nsdílení příspěvků mezi zařízeními:\n');
     [ulozeno.count, ulozeno.hour, ulozeno.mixBest, ulozeno.days], [60, 23, 0, [1]]);
 }
 
+/* ---------- média podle trhu ---------- */
+
+/*
+ * Video s vypálenými titulky je pro každý trh jiný soubor. Zkouší se to,
+ * co by se jinak poznalo až po zveřejnění: že se na německý účet
+ * nedostane video s českými titulky a že vykreslení pro jeden trh
+ * nesmaže hotové video jiného.
+ */
+{
+  const id = store.createPost({ kind: 'new', brief: 'video s titulky' });
+  store.setPostMedia(id, [{ path: '/x/spolecna.jpg', mime: 'image/jpeg', isVideo: false }]);
+  store.setPostMedia(id, [{ path: '/x/cs.mp4', mime: 'video/mp4', isVideo: true }], 'CS');
+  store.setPostMedia(id, [{ path: '/x/de.mp4', mime: 'video/mp4', isVideo: true }], 'DE');
+
+  check('trh dostane svoje video', store.postMedia(id, 'DE').map(m => m.path), ['/x/de.mp4']);
+  check('trh bez vlastního videa dostane společná média',
+    store.postMedia(id, 'PL').map(m => m.path), ['/x/spolecna.jpg']);
+  check('bez trhu se berou jen společná',
+    store.postMedia(id).map(m => m.path), ['/x/spolecna.jpg']);
+  check('vykreslení pro jeden trh nesmazalo ostatní',
+    store.allPostMedia(id).length, 3);
+  check('jazyky s vlastním videem', store.mediaLangs(id).sort(), ['CS', 'DE']);
+
+  /* Přepsání téhož trhu starý soubor nahradí, ne přidá */
+  store.setPostMedia(id, [{ path: '/x/de2.mp4', mime: 'video/mp4', isVideo: true }], 'DE');
+  check('opakované vykreslení trh přepíše', store.postMedia(id, 'DE').map(m => m.path), ['/x/de2.mp4']);
+  check('a ostatních se to netkne', store.allPostMedia(id).length, 3);
+
+  /* Reel v mřížce profilu — výchozí je ano, jinak by se video v profilu nezjevilo */
+  ok('reel jde do mřížky, dokud se neřekne jinak', store.postFeed(id) === true);
+  store.setPostFeed(id, false);
+  ok('a volba se udrží', store.postFeed(id) === false);
+}
+
 if (failed) {
   console.log(`\n✗ ${failed} zkoušek selhalo`);
   process.exit(1);

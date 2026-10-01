@@ -306,7 +306,14 @@ export async function publish(
   igUserId: string,
   token: string,
   caption: string,
-  media: GraphMedia[]
+  media: GraphMedia[],
+  /*
+   * Jedno video Instagram publikuje **vždycky jako reel** — typ VIDEO pro
+   * feed už rozhraní nepřijímá. Jediné, co jde rozhodnout, je `share_to_feed`:
+   * jestli se reel objeví i v mřížce profilu. Odtud „příspěvek, nebo reel"
+   * v rozhraní — je to tenhle přepínač, ne dva různé druhy publikace.
+   */
+  volby: { shareToFeed?: boolean } = {}
 ): Promise<{ containerId: string; igMediaId: string; permalink: string | null }> {
   validateCaption(caption);
   if (media.length === 0) throw new Error('Příspěvek nemá žádná média.');
@@ -329,11 +336,12 @@ export async function publish(
     containerId = c.id;
   } else {
     const m = media[0];
+    const doMrizky = volby.shareToFeed === false ? 'false' : 'true';
     const params: Record<string, string> = m.isVideo
       ? m.data
         // Video putuje Metě přímo: kontejner se založí prázdný a bajty se pošlou zvlášť
-        ? { media_type: 'REELS', upload_type: 'resumable', caption, share_to_feed: 'true' }
-        : { media_type: 'REELS', video_url: m.publicUrl, caption, share_to_feed: 'true' }
+        ? { media_type: 'REELS', upload_type: 'resumable', caption, share_to_feed: doMrizky }
+        : { media_type: 'REELS', video_url: m.publicUrl, caption, share_to_feed: doMrizky }
       : { image_url: m.publicUrl, caption };
     if (m.isVideo && m.coverOffset != null) params.thumb_offset = String(Math.round(m.coverOffset * 1000));
     const c = await graph(`${igUserId}/media`, params, token, 'POST');

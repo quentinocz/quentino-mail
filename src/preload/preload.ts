@@ -49,6 +49,9 @@ const ALLOWED_INVOKE = [
   'ig:proposeOne', 'ig:acceptOne', 'ig:planSwap', 'ig:approve', 'ig:alerts',
   'secure:mode', 'secure:setMode',
   'ig:jobs', 'ig:cancelJob', 'ig:retryJob', 'ig:runQueue', 'ig:refreshTokens',
+  'ig:video', 'ig:videoSave', 'ig:videoPick', 'ig:videoPickAudio', 'ig:videoProbe', 'ig:videoUrl',
+  'ig:videoRecord', 'ig:videoTranslate', 'ig:videoRender', 'ig:videoStop', 'ig:videoFeed',
+  'ig:stings', 'ig:stingAdd', 'ig:stingSave', 'ig:stingRemove',
   // Chat
   'chat:overview', 'chat:saveConfig', 'chat:test',
   'chat:conversations', 'chat:messages', 'chat:send', 'chat:sendImage', 'chat:markRead', 'chat:setStatus',
@@ -152,7 +155,7 @@ const ALLOWED_INVOKE = [
 
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
-  'packing:progress', 'ig:changed', 'ig:connected', 'ig:planStep', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
+  'packing:progress', 'ig:changed', 'ig:connected', 'ig:planStep', 'ig:videoStep', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
   'ptrans:progress', 'ptrans:changed', 'np:step',
   'articles:progress', 'articles:changed', 'articles:check',
   'media:progress', 'media:incoming', 'media:watched',

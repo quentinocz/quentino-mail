@@ -647,6 +647,15 @@ const DESKTOP_ONLY = [
    * takže se po aktualizaci z App Storu na nic neptá.
    */
   'secure:mode', 'secure:setMode',
+  /*
+   * Střih videa s titulky. Potřebuje soubory na disku, ffmpeg a plátno,
+   * na kterém se kreslí titulky pro vypálení — telefon nemá ani jedno
+   * a na čtyřech palcích by se časová osa neobsloužila. Hotové video se
+   * na telefonu publikuje jako kterékoli jiné médium.
+   */
+  'ig:video', 'ig:videoSave', 'ig:videoPick', 'ig:videoPickAudio', 'ig:videoProbe',
+  'ig:videoUrl', 'ig:videoRecord', 'ig:videoTranslate', 'ig:videoRender', 'ig:videoStop',
+  'ig:videoFeed', 'ig:stings', 'ig:stingAdd', 'ig:stingSave', 'ig:stingRemove',
   // „Vybrat vše" slouží tisku štítků, a ten je jen na počítači
   'catalog:codes',
   'files:openAttachment', 'files:showInFolder',

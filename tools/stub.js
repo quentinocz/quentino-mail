@@ -961,7 +961,13 @@
     'chat:searchProducts': [],
     'ig:overview': {
       accounts: [], expiringSoon: 0,
-      markets: [{ lang: 'CS', label: 'Čeština', note: '', tags: '', color: '#232849', enabled: true }],
+      /* Trhů je víc než jeden — na jednom by se nikdy nepoznalo, že se
+         v střihu videa dá přepínat jazyk titulků ani že se překládá */
+      markets: [
+        { lang: 'CS', label: 'Čeština', note: '', tags: '', color: '#232849', enabled: true },
+        { lang: 'EN', label: 'Angličtina', note: '', tags: '', color: '#2F6BE0', enabled: true },
+        { lang: 'DE', label: 'Němčina', note: '', tags: '', color: '#B5701A', enabled: true }
+      ],
       brand: { context: '', loveOn: false, love: '', tones: [], avoid: '', rules: '', emoji: 'sparse', variants: 2, useKnowledge: false },
       connection: { hasAppId: false, hasAppSecret: false, appId: '', callbackUrl: '', storage: { url: '', bucket: 'instagram', hasKey: false }, autoSync: true },
       storageReady: true, queued: 2, failed: 0, hasSource: true
@@ -978,6 +984,49 @@
        (Reels 9:16, fotky 4:5), takže náhled musí ukázat i je — na čtvercích
        by se nikdy nepoznalo, že se dlaždice roztahují. */
     'ig:thumb': THUMBS,
+    /* Upozornění k médiím: prázdné, ne nic — rozhraní je prochází seznamem */
+    'ig:warnings': [],
+    /*
+     * Střih videa. Projekt je schválně rozehraný: tři záběry (z toho
+     * jedna znělka), jeden přechod, tři titulky ve dvou pásech a jeden
+     * nepřeložený — na prázdném projektu by se nepoznalo nic z toho,
+     * na čem v té obrazovce záleží.
+     */
+    'ig:video': {
+      postId: 702, pomer: '9:16', zdroj: 'CS', doMrizky: true,
+      klipy: [
+        { id: 'k1', soubor: '/fotky/zaber-okno.mp4', zdrojDelka: 24, od: 2, do: 7, prechod: 'zadny', prechodDelka: 0.5 },
+        { id: 'k2', soubor: '/fotky/zaber-detail.mp4', zdrojDelka: 12, od: 0, do: 4, prechod: 'prolinacka', prechodDelka: 0.6 },
+        { id: 'k3', soubor: '/znelky/logo-konec.mp4', zdrojDelka: 2.5, od: 0, do: 2.5, prechod: 'cerna', prechodDelka: 0.5, znelka: true }
+      ],
+      titulky: [
+        { id: 't1', od: 0.4, do: 2.6, styl: 'vyrazny', pozice: 'stred',
+          texty: { CS: 'Samet není jen na zimu', EN: 'Velvet is not just for winter' } },
+        { id: 't2', od: 3, do: 5.8, styl: 'pruh', pozice: 'dole',
+          texty: { CS: 'Na svatbu i na ples 🤵', EN: 'For weddings and proms 🤵' } },
+        { id: 't3', od: 6.2, do: 8.4, styl: 'cedule', pozice: 'dole',
+          texty: { CS: 'Skladem na quentino.cz' } }
+      ],
+      trhy: { DE: { zvuk: { druh: 'soubor', soubor: '/zvuk/mluvene-de.m4a', od: 0, do: 8, zdrojDelka: 14, hlasitost: 1 } } },
+      hotovo: { CS: { soubor: '/videa/702-CS.mp4', kdy: new Date().toISOString(), delka: 10.9 } }
+    },
+    'ig:videoPick': [],
+    'ig:videoPickAudio': null,
+    'ig:videoProbe': { soubor: '/x.mp4', delka: 8, sirka: 1080, vyska: 1920, zvuk: true },
+    /* Náhled si video čte vlastním protokolem; v prohlížeči se podstrčí
+       drobné video, ať se přehrávač opravdu vykreslí a nehlásí chybu */
+    'ig:videoUrl': 'data:video/mp4;base64,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',
+    'ig:videoRender': null,
+    'ig:videoStop': null,
+    'ig:videoFeed': null,
+    'ig:videoTranslate': null,
+    'ig:stings': [
+      { id: 'z1', nazev: 'Logo na začátek', soubor: '/znelky/logo-zacatek.mp4', delka: 1.8, kam: 'zacatek' },
+      { id: 'z2', nazev: 'Odkaz na e-shop', soubor: '/znelky/logo-konec.mp4', delka: 2.5, kam: 'konec' }
+    ],
+    'ig:stingAdd': [],
+    'ig:stingSave': [],
+    'ig:stingRemove': [],
     /*
      * Rozdělané příspěvky. V náhledu jsou schválně různě daleko: jeden
      * bez fotek s blížícím se termínem, jeden hotový a odsouhlasený,
@@ -2666,6 +2715,54 @@
           ok: true,
           data: URL.createObjectURL(new Blob([html], { type: 'text/html' }))
         });
+      }
+      /*
+       * Uložení projektu střihu musí vrátit to, co se poslalo. Pevná
+       * odpověď by rozhraní po uložení přepsala starým stavem a v náhledu
+       * by se změny „vracely" — chyba, která by se hledala v rozhraní,
+       * i když by byla tady.
+       */
+      /*
+       * Otevřený příspěvek. Bez toho zůstal v náhledu prázdný formulář
+       * „nového příspěvku" a nepoznalo se, že se z rozdělané práce
+       * nedostane ke střihu videa.
+       */
+      if (channel === 'ig:post' || channel === 'ig:updateDraft' || channel === 'ig:createDraft') {
+        var hledane = channel === 'ig:createDraft' ? 702 : Number(args[0]) || 702;
+        var nalezeny = (answers['ig:drafts'] || []).filter(function (one) { return one.id === hledane; })[0];
+        var kopie = Object.assign({}, nalezeny || (answers['ig:drafts'] || [])[1]);
+        // Vykreslená videa podle trhu — v příspěvku se to má poznat
+        kopie.videoLangs = Object.keys((answers['ig:video'] || {}).hotovo || {});
+        kopie.reelFeed = true;
+        return Promise.resolve({ ok: true, data: kopie });
+      }
+      if (channel === 'ig:videoSave') return Promise.resolve({ ok: true, data: args[0] });
+      if (channel === 'ig:videoFeed') {
+        var pr = answers['ig:video'];
+        pr.doMrizky = !!args[1];
+        return Promise.resolve({ ok: true, data: pr });
+      }
+      /* Vykreslení: hlavní proces hlásí postup událostí, ne návratem */
+      if (channel === 'ig:videoRender') {
+        var lang = args[1];
+        [10, 55, 100].forEach(function (procent, i) {
+          setTimeout(function () { window.__emit('ig:videoStep', { lang: lang, percent: procent }); }, 60 * (i + 1));
+        });
+        var hotovy = answers['ig:video'];
+        hotovy.hotovo = Object.assign({}, hotovy.hotovo);
+        hotovy.hotovo[lang] = { soubor: '/videa/702-' + lang + '.mp4', kdy: new Date().toISOString(), delka: 10.9 };
+        return Promise.resolve({ ok: true, data: hotovy });
+      }
+      /* Překlad doplní chybějící texty — jinak by se nepoznalo, že se stal */
+      if (channel === 'ig:videoTranslate') {
+        var proj = answers['ig:video'];
+        proj.titulky = proj.titulky.map(function (t) {
+          var texty = Object.assign({}, t.texty);
+          if (!texty.EN) texty.EN = '(EN) ' + texty.CS;
+          if (!texty.DE) texty.DE = '(DE) ' + texty.CS;
+          return Object.assign({}, t, { texty: texty });
+        });
+        return Promise.resolve({ ok: true, data: proj });
       }
       return Promise.resolve({ ok: true, data: channel in answers ? answers[channel] : null });
     },

@@ -9877,3 +9877,300 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   .ig-plan-row, .ig-plan-card { grid-template-columns: 1fr; }
   .ig-plan-head { flex-direction: column; }
 }
+
+/* ======================================================================
+   Střih videa s titulky (IgVideo)
+
+   Čtyři kroky pod sebou, každý s číslem. Nic není schované v druhé
+   záložce: u bannerů bylo nahrávání fotek až za druhým proklikem a
+   nikdo ho nenašel. Tady je navíc každý krok závislý na předchozím,
+   takže pořadí shora dolů je zároveň postup práce.
+   ====================================================================== */
+
+.qv { display: flex; flex-direction: column; gap: 16px; padding: 18px 22px 40px; overflow: auto; }
+
+/* Náhled u kraje, kroky vedle něj. Náhled se drží při rolování — ladit
+   titulek a nevidět ho je to poslední, co má tahle obrazovka dovolit. */
+.qv-telo { display: grid; grid-template-columns: 252px minmax(0, 1fr); gap: 18px; align-items: start; }
+.qv-rail { position: sticky; top: 72px; }
+.qv-kroky { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.qv-top {
+  position: sticky; top: 0; z-index: 6;
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 0 12px; margin-bottom: -4px;
+  background: linear-gradient(var(--bg) 78%, transparent);
+}
+.qv-top-t { flex: 1; min-width: 0; }
+.qv-top-t h2 { font-size: 19px; line-height: 1.2; }
+.qv-top-t .desc { font-size: 12.5px; }
+
+.qv-krok {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel);
+}
+.qv-krok > header { display: flex; align-items: flex-start; gap: 12px; }
+.qv-krok > header > div { flex: 1; min-width: 0; }
+.qv-krok h3 { font-size: 15px; }
+.qv-krok > header .desc { margin-top: 2px; font-size: 12.5px; }
+.qv-akce { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Číslo kroku: pořadí práce se pozná bez čtení */
+.qv-cislo {
+  flex: 0 0 26px; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-dark);
+  font-size: 13px; font-weight: 700;
+}
+
+/* ---------- pás záběrů ---------- */
+
+.qv-pas { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 4px; }
+.qv-spoj-a-klip { display: flex; align-items: stretch; }
+
+.qv-klip {
+  position: relative;
+  flex: 0 0 158px;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 10px 6px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); cursor: grab;
+}
+.qv-klip.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.qv-klip.over { border-color: var(--accent); }
+.qv-klip.znelka { background: repeating-linear-gradient(135deg, var(--bg), var(--bg) 7px, var(--panel) 7px, var(--panel) 14px); }
+.qv-klip b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qv-klip .desc { font-size: 11.5px; padding-right: 26px; }
+.qv-klip-c {
+  position: absolute; top: 6px; right: 8px;
+  font-size: 11px; font-weight: 700; color: var(--text-3);
+}
+.qv-klip .icon-btn.danger { position: absolute; right: 4px; bottom: 4px; }
+.qv .icon-btn.danger { color: var(--danger); }
+.qv-znacka {
+  align-self: flex-start; font-style: normal; font-size: 9.5px; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.qv-prazdno {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 22px 26px; border: 1px dashed var(--border); border-radius: 10px;
+  background: var(--bg); cursor: pointer; color: var(--text-2);
+}
+.qv-prazdno b { font-size: 13px; color: var(--text); }
+.qv-prazdno span { font-size: 12px; }
+
+/* Spoj mezi záběry. Přechod se nastavuje tam, kde je — tedy na spoji,
+   ne v nastavení druhého záběru, kde ho nikdo nehledá. */
+.qv-spoj { position: relative; display: flex; align-items: center; padding: 0 4px; }
+.qv-prechod {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 6px 7px; border: 1px dashed var(--border); border-radius: 8px;
+  background: var(--panel); cursor: pointer; font-size: 13px; color: var(--text-2);
+}
+.qv-prechod.on { border-style: solid; border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
+.qv-prechod em { font-style: normal; font-size: 9.5px; letter-spacing: .03em; }
+.qv-prechod-menu {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  z-index: 8; width: 260px;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel); box-shadow: var(--shadow-lg);
+}
+.qv-prechod-menu > button {
+  display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  padding: 7px 9px; border: 0; border-radius: 7px; background: none;
+  text-align: left; cursor: pointer;
+}
+.qv-prechod-menu > button:hover { background: var(--bg); }
+.qv-prechod-menu > button.on { background: var(--accent-soft); }
+.qv-prechod-menu > button b { font-size: 12.5px; }
+.qv-prechod-menu > button span { font-size: 11.5px; color: var(--text-2); }
+.qv-prechod-delka { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; font-size: 12px; }
+
+/* ---------- prostříhání vybraného záběru ---------- */
+
+.qv-strih {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.qv-strih > b { font-size: 12.5px; }
+.qv-strih-rada { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+.qv-strih-rada label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-2); }
+.qv-strih-rada label b { color: var(--text); }
+.qv-strih-info { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
+
+/* ---------- náhled a časová osa ---------- */
+
+.qv-prehravac { display: flex; flex-direction: column; gap: 8px; }
+
+/* Náhled má poměr toho, co se vykreslí — ne obecný rámeček. Kdo vidí
+   9:16, nesmí dostat 1:1. */
+.qv-obal {
+  position: relative; width: 100%; border-radius: 12px; overflow: hidden;
+  background: #111; cursor: pointer;
+  /* Na výšku se 9:16 roztáhne přes celou obrazovku a utopí všechno
+     ostatní — výšku proto drží okno, ne šířka sloupce */
+  max-height: 54vh; margin: 0 auto;
+}
+.qv-obal.pomer-9-16 { aspect-ratio: 9 / 16; width: min(100%, calc(54vh * 9 / 16)); }
+.qv-obal.pomer-4-5 { aspect-ratio: 4 / 5; width: min(100%, calc(54vh * 4 / 5)); }
+.qv-obal.pomer-1-1 { aspect-ratio: 1 / 1; }
+.qv-obal.pomer-16-9 { aspect-ratio: 16 / 9; }
+.qv-obal video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.qv-titulky { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.qv-play {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: #fff; background: rgba(0,0,0,.22);
+}
+.qv-ovladani { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.qv-cas { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.qv-pomery { display: flex; gap: 4px; flex: 0 0 100%; }
+.qv-pomery button {
+  padding: 3px 7px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); font-size: 11px; cursor: pointer;
+}
+.qv-pomery button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); }
+.qv-poznamka { font-size: 11.5px; }
+
+.qv-osa-box { display: flex; flex-direction: column; gap: 8px; }
+.qv-osa-hlava { display: flex; align-items: center; gap: 10px; }
+.qv-osa-hlava b { font-size: 13px; }
+.qv-osa-hlava .desc { flex: 1; font-size: 12px; }
+
+.qv-osa {
+  position: relative; height: 128px; padding: 8px 0;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+  overflow: hidden; cursor: crosshair;
+}
+.qv-vrstva { position: relative; height: 46px; margin: 0 0 6px; }
+.qv-vrstva-titulky { height: 58px; }
+
+.qv-blok {
+  position: absolute; top: 0; height: 100%;
+  display: grid; place-items: center;
+  border-radius: 6px; background: #cfc9dd; color: #3b3548;
+  font-size: 11px; font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.6);
+  overflow: hidden;
+}
+.qv-blok.on { background: var(--accent); color: #fff; }
+.qv-blok.znelka { background: repeating-linear-gradient(135deg, #cfc9dd, #cfc9dd 5px, #dcd7e7 5px, #dcd7e7 10px); }
+/* Kde se obraz prolíná, je vidět — přechod totiž výsledek zkracuje a bez
+   toho by se nedalo pochopit, proč je video kratší než součet záběrů. */
+.qv-prolnuti {
+  position: absolute; left: 0; top: 0; height: 100%;
+  background: linear-gradient(90deg, rgba(124,92,255,.55), rgba(124,92,255,0));
+}
+
+.qv-tit {
+  position: absolute; height: 22px; top: 18px;
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 4px; border-radius: 5px;
+  background: var(--accent-dark); color: #fff;
+  font-size: 10.5px; cursor: grab; user-select: none;
+  min-width: 26px;
+}
+.qv-tit.nahore { top: 0; }
+.qv-tit.dole { top: 36px; }
+.qv-tit span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qv-uchop { width: 5px; height: 100%; cursor: ew-resize; background: rgba(255,255,255,.45); border-radius: 2px; }
+
+.qv-hlava { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger); pointer-events: none; }
+
+/* ---------- titulky ---------- */
+
+.qv-jazyky { display: flex; gap: 5px; flex-wrap: wrap; }
+.qv-jazyky .tab em { margin-left: 4px; font-style: normal; font-size: 10.5px; opacity: .65; }
+
+.qv-titulky-list { display: flex; flex-direction: column; gap: 6px; }
+.qv-tit-radek {
+  display: grid; grid-template-columns: 22px 132px minmax(0, 1fr) 190px 62px;
+  gap: 10px; align-items: start;
+  padding: 8px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg);
+}
+/* Který titulek je právě v obraze — jinak se v deseti řádcích nedá poznat,
+   co se zrovna ladí */
+.qv-tit-radek.nyni { border-color: var(--accent); background: var(--accent-soft); }
+.qv-tit-c { padding-top: 6px; font-size: 11px; font-weight: 700; color: var(--text-3); }
+.qv-tit-cas { display: flex; align-items: center; gap: 4px; }
+.qv-tit-cas input { width: 54px; padding: 4px 5px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.qv-tit-cas em { font-style: normal; color: var(--text-3); }
+.qv-tit-text { display: flex; flex-direction: column; gap: 3px; }
+.qv-tit-text textarea { width: 100%; resize: vertical; font-size: 13px; }
+.qv-tit-zdroj { font-style: normal; font-size: 11px; color: var(--text-3); }
+.qv-tit-vzhled { display: flex; flex-direction: column; gap: 4px; }
+.qv-tit-vzhled select { font-size: 12px; padding: 4px 6px; }
+.qv-tit-btns { display: flex; gap: 4px; padding-top: 2px; }
+
+/* ---------- zvuk ---------- */
+
+.qv-zvuk { display: flex; flex-direction: column; gap: 10px; }
+.qv-volby { display: flex; gap: 6px; flex-wrap: wrap; }
+.qv-volba {
+  padding: 7px 12px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--panel); cursor: pointer; font-size: 12.5px;
+}
+.qv-volba.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
+.qv-zvuk-detail {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.qv-zvuk-rada { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.qv-zvuk-detail label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-2); }
+.qv-zvuk-detail label b { color: var(--text); }
+
+/* ---------- znělky ---------- */
+
+.qv-znelky {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.qv-znelka { display: flex; align-items: center; gap: 8px; }
+.qv-znelka input { flex: 1; min-width: 0; padding: 5px 7px; font-size: 12.5px; }
+
+.qv-vlastni {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg); font-size: 12.5px; color: var(--text-2);
+}
+
+/* ---------- vykreslení ---------- */
+
+.qv-trhy { display: flex; gap: 8px; flex-wrap: wrap; }
+.qv-trh {
+  position: relative;
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 132px; padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+  cursor: pointer; font-size: 12px;
+}
+.qv-trh.on { border-color: var(--accent); background: var(--accent-soft); }
+.qv-trh input { position: absolute; top: 9px; right: 9px; }
+.qv-trh b { font-size: 13px; }
+.qv-trh .desc { font-size: 11px; }
+.qv-hotovo { font-style: normal; font-size: 11px; color: var(--ok); }
+.qv-pruh { height: 4px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 4px; }
+.qv-pruh i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+
+.qv-mrizka { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; }
+.qv-mrizka span { display: flex; flex-direction: column; gap: 1px; }
+.qv-mrizka em { font-style: normal; font-size: 11.5px; color: var(--text-2); }
+.qv-konec { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Vstup do střihu z příspěvku — u médií, protože je to jeden ze způsobů,
+   jak k příspěvku přidat obraz */
+.ig-video-vstup {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 8px; padding-top: 10px; border-top: 1px dashed var(--border);
+}
+.ig-video-vstup p { flex-basis: 100%; margin: 0; font-size: 11.5px; }
+
+@media (max-width: 1100px) {
+  .qv-telo { grid-template-columns: 1fr; }
+  .qv-rail { position: static; }
+  .qv-obal { max-width: 240px; max-height: 40vh; }
+  .qv-tit-radek { grid-template-columns: 22px 120px minmax(0, 1fr); }
+  .qv-tit-vzhled { grid-column: 2 / -1; flex-direction: row; }
+  .qv-tit-btns { grid-column: 2 / -1; }
+}

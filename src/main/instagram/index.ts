@@ -200,7 +200,7 @@ function filesToMedia(files: string[]): IgMediaItem[] {
 /** Upozornění na poměr stran a formáty — ukazuje se v rozhraní před publikací. */
 export function mediaWarnings(postId: number): string[] {
   const out: string[] = [];
-  for (const m of store.postMedia(postId)) {
+  for (const m of store.allPostMedia(postId)) {
     const name = path.basename(m.path || 'médium');
     if (m.width && m.height) {
       const w = media.aspectWarning(m.width, m.height);
@@ -420,7 +420,7 @@ export function publishPost(
    * v noci tiše selhala — ráno by v profilu chyběl příspěvek a ve frontě
    * by byla chyba, kterou nikdo nečte. Lepší je nepustit to hned.
    */
-  if (post.media.length === 0) {
+  if (post.media.length === 0 && (post.videoLangs ?? []).length === 0) {
     throw new Error('Příspěvek nemá ani jednu fotku nebo video — bez média ho síť nepřijme.');
   }
   const skipped: string[] = [];
@@ -431,6 +431,17 @@ export function publishPost(
   }
   for (const c of post.captions) {
     if (!force && c.status === 'published') continue;
+    /*
+     * Trh bez médií se zastaví tady, ne až ve frontě v noci. Stává se to
+     * u videa s titulky: vykreslí se pro tři trhy z pěti a na zbylé dva
+     * není co zveřejnit, protože společné fotky u takového příspěvku
+     * nejsou. Hláška u trhu je srozumitelnější než „Příspěvek nemá
+     * žádná média" u položky fronty.
+     */
+    if (store.postMedia(postId, c.lang).length === 0) {
+      skipped.push(`${c.lang}: chybí médium — vykresli pro tenhle trh video, nebo přidej fotku pro všechny trhy.`);
+      continue;
+    }
     try {
       publisher.schedule(c.id, at, channels);
       queued++;
@@ -453,6 +464,15 @@ export const retryJob = (id: number) => { store.retryJob(id); emit(); setTimeout
 
 export { planSetup, savePlanSetup, proposeMonth, proposeOne, acceptPlan, acceptOne,
   plannedPosts } from './planner';
+
+/* ---------- střih videa s titulky ---------- */
+
+export {
+  projekt as videoProjekt, saveProjekt as saveVideoProjekt, pickKlipy, pickZvuk,
+  popis as videoPopis, saveNahravka, prelozTitulky, vykresli as vykresliVideo,
+  stopRender as stopVideoRender, znelky, addZnelka, saveZnelka, removeZnelka,
+  setDoMrizky, povolProjekt, povol as povolSoubor
+} from './videoedit';
 
 /** Přesun příspěvku v plánu na jiný den — plán se v praxi mění pořád. */
 export function movePlan(id: number, at: string): void {

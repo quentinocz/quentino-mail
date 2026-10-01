@@ -10,13 +10,15 @@ interface Props {
   postId: number | null;
   onPostId: (id: number | null) => void;
   onGoQueue: () => void;
+  /** Otevření střihu videa s titulky pro tenhle příspěvek. */
+  onGoVideo?: (postId: number) => void;
 }
 
 /**
  * Skládání příspěvku. Zadání a média nahoře, pod tím vygenerované popisky —
  * jeden sloupec na trh, aby šlo texty porovnat vedle sebe a ne po jednom.
  */
-export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Props) {
+export default function IgCompose({ overview, postId, onPostId, onGoQueue, onGoVideo }: Props) {
   const toast = useToast();
   const [post, setPost] = useState<IgPost | null>(null);
   const [files, setFiles] = useState<string[]>([]);
@@ -215,6 +217,43 @@ export default function IgCompose({ overview, postId, onPostId, onGoQueue }: Pro
                 </button>
               </div>
               {files.length > 1 && <p className="ig-muted">Víc souborů = karusel, pořadí odpovídá výběru.</p>}
+              {/*
+                * Střih videa je tady, u médií — ne v nabídce vlevo. Je to
+                * jeden z možných způsobů, jak k příspěvku přidat obraz,
+                * takže patří k ostatním, ne do jiné části aplikace.
+                */}
+              {onGoVideo && (
+                <div className="ig-video-vstup">
+                  <button className="btn ghost" onClick={async () => {
+                    try {
+                      /*
+                       * Příspěvek musí existovat, než se do něj dá stříhat —
+                       * projekt se ukládá k jeho číslu. Na rozdíl od ostatních
+                       * akcí se tu nezakládá z vybraných souborů: video se
+                       * teprve poskládá, takže se zakládá i bez médií.
+                       */
+                      const id = post
+                        ? (await api.ig.updateDraft(post.id, { brief, mediaNote })).id
+                        : (await api.ig.createDraft(files, brief, mediaNote)).id;
+                      if (!post) onPostId(id);
+                      onGoVideo(id);
+                    } catch (e: any) {
+                      toast(e.message, 'error');
+                    }
+                  }}>
+                    <Icon name="play" size={13} /> Video s titulky pro každý trh
+                  </button>
+                  {(post?.videoLangs ?? []).length > 0 && (
+                    <span className="ig-muted">
+                      Vykreslené pro: {(post!.videoLangs ?? []).join(', ')}
+                    </span>
+                  )}
+                  <p className="ig-muted">
+                    Několik záběrů za sebou, titulky na časové ose, přeložené pro
+                    ostatní trhy a vypálené do videa.
+                  </p>
+                </div>
+              )}
             </>
           )}
           {warnings.map(w => (

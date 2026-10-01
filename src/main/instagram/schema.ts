@@ -98,7 +98,12 @@ export const igSchema = `
     share_id TEXT NOT NULL DEFAULT '',
     -- Kdy se s příspěvkem naposledy hnulo. Při slučování vyhrává novější —
     -- bez razítka by starší zařízení přepsalo práci toho druhého.
-    updated_at TEXT NOT NULL DEFAULT ''
+    updated_at TEXT NOT NULL DEFAULT '',
+    -- Má se video objevit i v mřížce profilu? Jedno video Instagram
+    -- publikuje vždycky jako reel a v mřížce se ukáže jen na požádání;
+    -- výchozí je ano, protože příspěvek, který v profilu není vidět,
+    -- nikdo nečeká.
+    reel_feed INTEGER NOT NULL DEFAULT 1
   );
   -- Rejstřík nad plan_at tady schválně NENÍ. Tenhle blok běží i nad databází
   -- z minulé verze, kde tabulka ig_posts sloupec plan_at ještě nemá —
@@ -112,6 +117,11 @@ export const igSchema = `
     path TEXT NOT NULL DEFAULT '',
     mime TEXT NOT NULL DEFAULT '',
     is_video INTEGER NOT NULL DEFAULT 0,
+    -- Pro který trh je médium určené. Prázdno znamená „pro všechny" a je
+    -- to běžný případ: jedna fotka se publikuje na všech účtech. Vyplněné
+    -- to je u videí s vypálenými titulky, kde má každý trh vlastní soubor
+    -- s textem ve svém jazyce.
+    lang TEXT NOT NULL DEFAULT '',
     width INTEGER,
     height INTEGER,
     cover_offset REAL,
@@ -120,6 +130,19 @@ export const igSchema = `
     storage_key TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_ig_media_post ON ig_post_media(post_id, position);
+
+  -- Střih videa k jednomu příspěvku: záběry, přechody, titulky, zvuk
+  -- a vlastní verze pro jednotlivé trhy.
+  --
+  -- Jeden JSON, ne tři tabulky. Nic se v tom nevyhledává (vždycky se čte
+  -- celý projekt jednoho příspěvku) a časová osa se ještě bude měnit —
+  -- rozepsané do sloupců by každá nová vlastnost přechodu znamenala
+  -- migraci, ze které nic nekouká.
+  CREATE TABLE IF NOT EXISTS ig_video (
+    post_id INTEGER PRIMARY KEY REFERENCES ig_posts(id) ON DELETE CASCADE,
+    json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 
   CREATE TABLE IF NOT EXISTS ig_captions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,6 +223,9 @@ export const igAlters: string[] = [
   // starou databází spadl na „no such column: plan_at".
   "ALTER TABLE ig_posts ADD COLUMN share_id TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE ig_posts ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+  // Video pro každý trh: médium si nese jazyk, pro který je vypálené
+  "ALTER TABLE ig_post_media ADD COLUMN lang TEXT NOT NULL DEFAULT ''",
+  'ALTER TABLE ig_posts ADD COLUMN reel_feed INTEGER NOT NULL DEFAULT 1',
   'CREATE INDEX IF NOT EXISTS idx_ig_posts_plan ON ig_posts(plan_at)',
   'CREATE INDEX IF NOT EXISTS idx_ig_posts_share ON ig_posts(share_id)'
 ];
