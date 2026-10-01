@@ -113,6 +113,34 @@ export function encrypt(plain: string): string {
  * se staré hodnoty přepíšou postupně, ne najednou.
  */
 export function decrypt(stored: string): string {
+  /*
+   * V režimu „klíč v datech aplikace" se na klíčenku při běžném čtení
+   * nesahá vůbec.
+   *
+   * Po přepnutí se všechno čitelné přepsalo, takže co zůstalo
+   * s předponou `enc:`, se přečíst stejně nedá — klíč k tomu patří
+   * jinému podpisu aplikace. Sáhnout na to znamená jen vyvolat dotaz
+   * na heslo ke klíčence, a právě kvůli němu se přepínalo. Přesně tohle
+   * dělalo, že se systém ptal i po přepnutí.
+   *
+   * Výjimka je samo přepnutí: to musí staré hodnoty přečíst, aby je
+   * mohlo přepsat — a používá proto `decryptAny` níž.
+   */
+  if (stored.startsWith('enc:') && secureMode() === 'local') {
+    console.error('[secure] stará hodnota z klíčenky se přeskakuje — aplikace má klíč v datech');
+    return '';
+  }
+  return decryptAny(stored);
+}
+
+/**
+ * Rozšifruje obojí bez ohledu na nastavený režim.
+ *
+ * Používá se při přepínání: hodnoty uložené klíčenkou se musí jednou
+ * přečíst, aby šly přepsat místním klíčem. Jinde se nehodí — tam je
+ * dotaz na heslo ke klíčence přesně to, čemu se vyhýbáme.
+ */
+function decryptAny(stored: string): string {
   if (stored.startsWith('enc:')) {
     try {
       return safeStorage.decryptString(Buffer.from(stored.slice(4), 'base64'));
@@ -156,7 +184,7 @@ export function resealAll(
     for (const row of radky) {
       const stara = String(row[sloupec] ?? '');
       if (!stara.startsWith('enc:') && !stara.startsWith('loc:')) continue;
-      const plain = decrypt(stara);
+      const plain = decryptAny(stara);
       // Co se nepodařilo přečíst, se nesmí přepsat prázdnotou
       if (!plain) continue;
       db.prepare(sql).run(encrypt(plain), row[klic]);

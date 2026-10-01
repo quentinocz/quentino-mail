@@ -568,18 +568,63 @@ for (const okno of OKNA) {
     nakresleno.ok && nakresleno.pixelu > 200,
     `${nakresleno.pixelu} z ${nakresleno.celkem} pixelů`);
 
-  /* Přechod se vybírá z nabídky na spoji, ne v nastavení záběru */
+  /*
+   * Volby přechodu patří pod pás, ne do vyskakovací nabídky nad ním.
+   * Pás se při víc záběrech posouvá a nabídku ořízl — po klepnutí na
+   * spoj se pak nestalo nic viditelného.
+   */
   await page.locator('.qv-prechod').first().click();
   await page.waitForTimeout(300);
-  const nabidka = await page.evaluate(() => ({
-    voleb: document.querySelectorAll('.qv-prechod-menu > button').length,
-    popisky: [...document.querySelectorAll('.qv-prechod-menu > button span')].map(s => s.textContent.trim()).slice(0, 2)
-  }));
+  const nabidka = await page.evaluate(() => {
+    const panel = document.querySelector('.qv-krok .qv-strih');
+    const r = panel?.getBoundingClientRect();
+    const pas = document.querySelector('.qv-pas')?.getBoundingClientRect();
+    return {
+      voleb: document.querySelectorAll('.qv-prechod-volba').length,
+      popisky: [...document.querySelectorAll('.qv-prechod-volba span')].map(s => s.textContent.trim()).slice(0, 2),
+      podPasem: !!r && !!pas && r.top >= pas.bottom - 2,
+      videt: !!r && r.height > 40 && r.width > 200,
+      delka: !!document.querySelector('.qv-prechod-delka')
+    };
+  });
   say('  přechody se vybírají s popisem, ne podle názvu filtru',
     nabidka.voleb === 7 && nabidka.popisky.every(p => p.length > 15),
     `${nabidka.voleb} voleb: ${nabidka.popisky.join(' | ')}`);
+  say('  a nabídka stojí pod pásem, takže ji posuvný pás neořízne',
+    nabidka.podPasem && nabidka.videt, `pod pásem: ${nabidka.podPasem}, vidět: ${nabidka.videt}`);
+  say('  u přechodu jde nastavit i délka', nabidka.delka);
   await page.screenshot({ path: path.join(SHOTS, 'okno-social-video-prechod.png') });
-  await page.keyboard.press('Escape');
+
+  /*
+   * Prostříhání: jeden pás se dvěma úchyty nad celým zdrojem. Dva
+   * nezávislé posuvníky se nedaly přečíst a šel u nich nastavit konec
+   * před začátkem.
+   */
+  await page.locator('.qv-klip').first().click();
+  await page.waitForTimeout(400);
+  const prostrih = await page.evaluate(() => {
+    const vybrano = document.querySelector('.qv-vystrizek-vybrano');
+    const uchopy = [...document.querySelectorAll('.qv-vystrizek-uchop')];
+    const karta = document.querySelector('.qv-klip');
+    const nazev = karta?.querySelector('b')?.getBoundingClientRect();
+    const kos = karta?.querySelector('.icon-btn')?.getBoundingClientRect();
+    return {
+      uchopu: uchopy.length,
+      vybrano: !!vybrano && parseFloat(vybrano.style.width) > 0,
+      rozdelit: [...document.querySelectorAll('.qv-strih-hlava .btn')].map(b => b.textContent.trim()),
+      vyrez: [...document.querySelectorAll('.qv-vyrez label')].map(l => l.textContent.trim().split(/\s/)[0]),
+      // Název souboru se nesmí překrývat s košem — na dlouhých názvech se to stalo
+      kolize: !!nazev && !!kos && nazev.right > kos.left && nazev.top < kos.bottom && nazev.bottom > kos.top
+    };
+  });
+  say('  výstřižek má dva úchyty nad celým zdrojem',
+    prostrih.uchopu === 2 && prostrih.vybrano, `${prostrih.uchopu} úchyty`);
+  say('  záběr jde rozdělit v místě přehrávače',
+    prostrih.rozdelit.some(t => /Rozdělit/.test(t)), prostrih.rozdelit.join(' · '));
+  say('  a dá se přiblížit i posunout výřez',
+    prostrih.vyrez.length === 3, prostrih.vyrez.join(' · '));
+  say('  název souboru se nepřekrývá s košem', !prostrih.kolize);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-social-video-prostrih.png') });
 
   /* Překlad doplní chybějící jazyky — a je to vidět na počtu u záložky */
   await page.locator('.qv-krok button', { hasText: 'Přeložit do ostatních' }).click();

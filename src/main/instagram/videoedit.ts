@@ -44,7 +44,7 @@ import { ask } from '../ai';
 import { getSettings } from '../settings';
 import * as store from './store';
 import {
-  osa, delkaVidea, klipyTrhu, zvukTrhu, textTitulku, potize,
+  osa, delkaVidea, klipyTrhu, zvukTrhu, textTitulku, potize, vyrez,
   POMERY, PRECHODY, prazdnyProjekt, MIN_KLIP
 } from '../../shared/videoedit';
 import type {
@@ -340,7 +340,7 @@ export interface VidOverlay {
 }
 
 export interface VidPlan {
-  klipy: { soubor: string; od: number; do: number; zvuk: boolean }[];
+  klipy: { soubor: string; od: number; do: number; zvuk: boolean; zoom?: number; x?: number; y?: number }[];
   /** Přechody a časy — spočítané `osa()`, ať se náhled a výsledek shodují. */
   prechody: { xfade: string; delka: number }[];
   overlays: VidOverlay[];
@@ -372,9 +372,24 @@ export function stavbaFiltru(plan: VidPlan): { filtr: string; video: string; aud
    * sám.
    */
   plan.klipy.forEach((k, i) => {
+    /*
+     * Přiblížení a posun výřezu. Dělá se **až po** srovnání na formát:
+     * nejdřív se záběr ořízne na výsledný poměr ze středu (to je totéž,
+     * co v okně dělá `object-fit: cover`), teprve pak se přiblíží a
+     * posune. V opačném pořadí by se výřez u záběru na šířku a u záběru
+     * na výšku choval pokaždé jinak a náhled by se s výsledkem rozešel.
+     */
+    const zoom = Math.max(1, Math.min(3, k.zoom ?? 1));
+    const blizko = zoom > 1 || (k.x ?? 0) !== 0 || (k.y ?? 0) !== 0
+      ? `scale=${Math.round(sirka * zoom)}:${Math.round(vyska * zoom)},`
+        + `crop=${sirka}:${vyska}:`
+        + `${Math.round(((sirka * zoom - sirka) / 2) * (1 + (k.x ?? 0)))}:`
+        + `${Math.round(((vyska * zoom - vyska) / 2) * (1 + (k.y ?? 0)))},`
+      : '';
     casti.push(
       `[${i}:v]trim=start=${k.od.toFixed(3)}:end=${k.do.toFixed(3)},setpts=PTS-STARTPTS,`
       + `scale=${sirka}:${vyska}:force_original_aspect_ratio=increase,crop=${sirka}:${vyska},`
+      + blizko
       /*
        * `settb=AVTB` není kosmetika: `xfade` odmítne spojit dva proudy
        * s jiným časovým základem hláškou „First input link main timebase
@@ -598,12 +613,16 @@ export async function vykresli(
 
     const zvuk = zvukTrhu(p, lang);
     const plan: VidPlan = {
-      klipy: klipy.map(k => ({
-        soubor: k.soubor,
-        od: Math.max(0, k.od),
-        do: Math.max(k.od + MIN_KLIP, k.do),
-        zvuk: !!popisy.get(k.soubor)?.zvuk
-      })),
+      klipy: klipy.map(k => {
+        const v = vyrez(k);
+        return {
+          soubor: k.soubor,
+          od: Math.max(0, k.od),
+          do: Math.max(k.od + MIN_KLIP, k.do),
+          zvuk: !!popisy.get(k.soubor)?.zvuk,
+          zoom: v.zoom, x: v.x, y: v.y
+        };
+      }),
       prechody: klipy.map((k, i) => ({
         xfade: PRECHODY[k.prechod]?.xfade ?? '',
         delka: místa[i].prechod

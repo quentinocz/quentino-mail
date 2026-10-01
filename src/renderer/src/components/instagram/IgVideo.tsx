@@ -4,7 +4,7 @@ import type {
   VidProjekt, VidKlip, VidTitulek, VidZnelka, VidPrechod, VidStyl, VidPozice, VidPomer, VidZvuk
 } from '@shared/videoedit';
 import {
-  osa, delkaVidea, klipyTrhu, zvukTrhu, textTitulku, potize, cas,
+  osa, delkaVidea, klipyTrhu, zvukTrhu, textTitulku, potize, cas, vyrez, vyrezStyl, rozdel,
   PRECHODY, STYLY, POZICE, POMERY, MIN_KLIP
 } from '@shared/videoedit';
 import { api } from '../../api';
@@ -324,6 +324,42 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     zapisKlipy(klipy.map(k => (k.id === id ? { ...k, ...patch } : k)));
   }, [klipy, zapisKlipy]);
 
+  /* Tažení úchytů výstřižku nad zdrojovým videem */
+  const strihRef = useRef<HTMLDivElement | null>(null);
+  const strih = useRef<{ id: string; konec: 'od' | 'do' } | null>(null);
+
+  const zacniStrih = (e: React.PointerEvent, konec: 'od' | 'do') => {
+    if (!vybrany) return;
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    strih.current = { id: vybrany, konec };
+  };
+
+  const behemStrihu = (e: React.PointerEvent) => {
+    const t = strih.current;
+    const box = strihRef.current;
+    if (!t || !box) return;
+    const k = klipy.find(x => x.id === t.id);
+    if (!k) return;
+    const r = box.getBoundingClientRect();
+    const podil = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    const cas = podil * Math.max(0.1, k.zdrojDelka);
+    if (t.konec === 'od') {
+      upravKlip(k.id, { od: Math.max(0, Math.min(cas, k.do - MIN_KLIP)) });
+    } else {
+      upravKlip(k.id, { do: Math.min(k.zdrojDelka || cas, Math.max(cas, k.od + MIN_KLIP)) });
+    }
+    /*
+     * Během tažení se přehrávač posune na místo, kam se zrovna sahá.
+     * Stříhat podle čísel na posuvníku znamená hádat — tady je vidět
+     * snímek, na kterém záběr začne nebo skončí.
+     */
+    const el = video.current;
+    if (el && nactenyKlip === k.id) el.currentTime = cas;
+  };
+
+  const konecStrihu = () => { strih.current = null; };
+
   /* Přetažení záběru na jiné místo */
   const tahany = useRef<string | null>(null);
   const [nad, setNad] = useState<string | null>(null);
@@ -341,6 +377,97 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     if (list.length) list[0] = { ...list[0], prechod: 'zadny' };
     zapisKlipy(list);
   }, [klipy, zapisKlipy]);
+
+  /* ---------- náhledy snímků do časové osy ---------- */
+
+  /**
+   * Pásek snímků pod bloky záběrů.
+   *
+   * Posouvat titulek podle čísel znamená pamatovat si, co v tu chvíli
+   * v obraze je. Na pásku je to vidět — a při tažení se navíc přehrávač
+   * posune na místo úchytu, takže se titulek dá umístit na konkrétní
+   * záběr, ne na sekundu.
+   *
+   * Snímky bere okno z téhož souboru, který přehrává: nakreslí si je na
+   * plátno. Vytahovat je ffmpegem by znamenalo čekat na převod a mít
+   * někde na disku desítky dočasných obrázků.
+   */
+  const [snimky, setSnimky] = useState<Record<string, string[]>>({});
+  /** Pásek přes **celý zdroj** vybraného záběru — podklad pro výstřižek. */
+  const [zdrojSnimky, setZdrojSnimky] = useState<Record<string, string[]>>({});
+
+  /*
+   * Snímky se kreslí jedním pomocným přehrávačem a postupně, ne naráz:
+   * deset přetočení najednou nad jedním souborem si prohlížeč rozhodí
+   * a vrátí deset stejných obrázků.
+   */
+  const vytahni = useCallback(async (soubor: string, casy: number[]): Promise<string[]> => {
+    const url = await adresa(soubor);
+    const el = document.createElement('video');
+    el.muted = true;
+    el.preload = 'metadata';
+    el.src = url;
+    await new Promise<void>(ok => {
+      const hotovo = () => { el.removeEventListener('loadeddata', hotovo); ok(); };
+      el.addEventListener('loadeddata', hotovo);
+      window.setTimeout(ok, 4000);
+    });
+    const out: string[] = [];
+    for (const kdy of casy) {
+      const obr = await new Promise<string>(hotovo => {
+        const strop = window.setTimeout(() => hotovo(''), 4000);
+        el.onseeked = () => {
+          window.clearTimeout(strop);
+          try {
+            const c = document.createElement('canvas');
+            c.width = 64;
+            c.height = Math.max(16, Math.round(64 * (el.videoHeight / Math.max(1, el.videoWidth))));
+            c.getContext('2d')?.drawImage(el, 0, 0, c.width, c.height);
+            hotovo(c.toDataURL('image/jpeg', 0.6));
+          } catch { hotovo(''); }
+        };
+        el.currentTime = kdy;
+      });
+      if (obr) out.push(obr);
+    }
+    el.src = '';
+    return out;
+  }, [adresa]);
+
+  useEffect(() => {
+    if (klipy.length === 0) return;
+    let zive = true;
+    (async () => {
+      for (const k of klipy) {
+        if (!zive) break;
+        const delkaKlipu = Math.max(0.2, k.do - k.od);
+        const kolik = Math.max(1, Math.min(8, Math.round((delkaKlipu / Math.max(1, delka)) * 14)));
+        const casy = Array.from({ length: kolik },
+          (_x, i) => k.od + (delkaKlipu * (i + 0.5)) / kolik);
+        try {
+          const rada = await vytahni(k.soubor, casy);
+          if (zive) setSnimky(prev => ({ ...prev, [k.id]: rada }));
+        } catch { /* jeden nepovedený pásek zbytek osy nerozbije */ }
+      }
+    })();
+    return () => { zive = false; };
+    // Přepočítá se, jen když se změní soubory nebo výstřižky — ne při každém tahu
+  }, [klipy.map(k => `${k.id}:${k.soubor}:${k.od}:${k.do}`).join('|'), delka, vytahni]);
+
+  /* Pásek přes celý zdroj vybraného záběru — aby bylo vidět, z čeho se stříhá */
+  useEffect(() => {
+    const k = klipy.find(x => x.id === vybrany);
+    if (!k || !k.zdrojDelka || zdrojSnimky[k.id]) return;
+    let zive = true;
+    (async () => {
+      const casy = Array.from({ length: 10 }, (_x, i) => (k.zdrojDelka * (i + 0.5)) / 10);
+      try {
+        const rada = await vytahni(k.soubor, casy);
+        if (zive) setZdrojSnimky(prev => ({ ...prev, [k.id]: rada }));
+      } catch { /* bez pásku se stříhá dál, jen hůř */ }
+    })();
+    return () => { zive = false; };
+  }, [vybrany, klipy, zdrojSnimky, vytahni]);
 
   /* ---------- titulky ---------- */
 
@@ -392,15 +519,24 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     const posun = (e.clientX - t.x) / naSekundu;
     const titulek = p.titulky.find(x => x.id === t.id);
     if (!titulek) return;
+    let kam = titulek.od;
     if (t.druh === 'celý') {
       const sirka = t.do - t.od;
       const od = Math.max(0, Math.min(delka - sirka, t.od + posun));
       upravTitulek(t.id, { od, do: od + sirka });
+      kam = od;
     } else if (t.druh === 'od') {
-      upravTitulek(t.id, { od: Math.max(0, Math.min(t.do - 0.3, t.od + posun)) });
+      kam = Math.max(0, Math.min(t.do - 0.3, t.od + posun));
+      upravTitulek(t.id, { od: kam });
     } else {
-      upravTitulek(t.id, { do: Math.min(delka, Math.max(t.od + 0.3, t.do + posun)) });
+      kam = Math.min(delka, Math.max(t.od + 0.3, t.do + posun));
+      upravTitulek(t.id, { do: kam });
     }
+    /*
+     * Přehrávač jde s úchytem. Bez toho se titulek posouval podle čísel
+     * a co je v tu chvíli v obraze, se zjistilo až po puštění.
+     */
+    void skoc(kam);
   };
 
   const konecTahu = () => {
@@ -573,6 +709,8 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
 
   const chyby = potize(p, proTrhy.length ? proTrhy : [p.zdroj]);
   const vybranyKlip = klipy.find(k => k.id === vybrany) ?? null;
+  /** Spoj, jehož přechod se zrovna nastavuje — panel pod pásem. */
+  const spoj = klipy.find(k => k.id === prechodMenu) ?? null;
   const naSekundu = (s: number) => `${(s / Math.max(0.5, delka)) * 100}%`;
   const hotovoKolik = Object.keys(p.hotovo ?? {}).length;
 
@@ -613,7 +751,9 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
         <div className="qv-prehravac">
           <div className={`qv-obal pomer-${p.pomer.replace(':', '-')}`} ref={obal}
             onClick={() => void prehraj()}>
-            <video ref={video} playsInline muted={zvuk.druh !== 'original'} />
+            {/* Výřez se promítá i do náhledu — jinak by se ořez ladil naslepo */}
+            <video ref={video} playsInline muted={zvuk.druh !== 'original'}
+              style={nactenyKlip ? vyrezStyl(klipy.find(k => k.id === nactenyKlip) ?? klipy[0] ?? { id: '', soubor: '', zdrojDelka: 0, od: 0, do: 0, prechod: 'zadny', prechodDelka: 0 }) : undefined} />
             <canvas ref={platno} className="qv-titulky" />
             {!hraje && (
               <div className="qv-play"><Icon name="play" size={26} /></div>
@@ -720,31 +860,23 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
             <div className="qv-spoj-a-klip" key={k.id}>
               {i > 0 && (
                 <div className="qv-spoj">
+                  {/*
+                    * Jen přepínač výběru. Vyskakovací nabídka tu dřív visela
+                    * uvnitř pásu, a protože se pás při více záběrech posouvá,
+                    * ořízl ji — při třech a víc záběrech se po klepnutí na
+                    * spoj nestalo nic viditelného. Volby jsou proto v panelu
+                    * pod pásem, kde je na ně místo.
+                    */}
                   <button
-                    className={`qv-prechod ${k.prechod === 'zadny' ? '' : 'on'}`}
+                    className={`qv-prechod ${k.prechod === 'zadny' ? '' : 'on'} ${prechodMenu === k.id ? 'vybrany' : ''}`}
                     title={PRECHODY[k.prechod].popis}
-                    onClick={() => setPrechodMenu(prechodMenu === k.id ? null : k.id)}>
+                    onClick={() => {
+                      setPrechodMenu(prechodMenu === k.id ? null : k.id);
+                      setVybrany(null);
+                    }}>
                     {k.prechod === 'zadny' ? '✂' : '◑'}
                     <em>{PRECHODY[k.prechod].nazev}</em>
                   </button>
-                  {prechodMenu === k.id && (
-                    <div className="qv-prechod-menu">
-                      {(Object.keys(PRECHODY) as VidPrechod[]).map(druh => (
-                        <button key={druh} className={k.prechod === druh ? 'on' : ''}
-                          onClick={() => { upravKlip(k.id, { prechod: druh }); setPrechodMenu(null); }}>
-                          <b>{PRECHODY[druh].nazev}</b>
-                          <span>{PRECHODY[druh].popis}</span>
-                        </button>
-                      ))}
-                      {k.prechod !== 'zadny' && (
-                        <label className="qv-prechod-delka">
-                          Délka přechodu <b>{k.prechodDelka.toFixed(1)} s</b>
-                          <input type="range" min={0.2} max={2} step={0.1} value={k.prechodDelka}
-                            onChange={e => upravKlip(k.id, { prechodDelka: Number(e.target.value) })} />
-                        </label>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
               <div
@@ -754,54 +886,152 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
                 onDragOver={e => { e.preventDefault(); setNad(k.id); }}
                 onDragLeave={() => setNad(n => (n === k.id ? null : n))}
                 onDrop={e => { e.preventDefault(); pust(k.id); }}
-                onClick={() => { setVybrany(k.id); void skoc(rozvrzeni.místa[i].start); }}>
-                <span className="qv-klip-c">{i + 1}</span>
-                {k.znelka && <em className="qv-znacka">znělka</em>}
-                <b>{souborNazev(k.soubor)}</b>
+                onClick={() => {
+                  setVybrany(k.id);
+                  setPrechodMenu(null);
+                  void skoc(rozvrzeni.místa[i].start);
+                }}>
+                {/*
+                  * Pořadí, značka a koš mají vlastní řádek. Dřív stálo číslo
+                  * i koš nad textem napevno a dlouhý název souboru se s nimi
+                  * překrýval — a názvy z telefonu dlouhé bývají.
+                  */}
+                <div className="qv-klip-hlava">
+                  <span className="qv-klip-c">{i + 1}</span>
+                  {k.znelka && <em className="qv-znacka">znělka</em>}
+                  <button className="icon-btn danger" title="Odebrat záběr"
+                    onClick={e => { e.stopPropagation(); smazKlip(k.id); }}>
+                    <Icon name="trash" size={13} />
+                  </button>
+                </div>
+                <b title={souborNazev(k.soubor)}>{souborNazev(k.soubor)}</b>
                 <span className="desc">{cas(k.do - k.od)}</span>
-                <button className="icon-btn danger" title="Odebrat záběr"
-                  onClick={e => { e.stopPropagation(); smazKlip(k.id); }}>
-                  <Icon name="trash" size={13} />
-                </button>
               </div>
             </div>
           ))}
         </div>
 
-        {vybranyKlip && (
+        {spoj && (
           <div className="qv-strih">
-            <b>Záběr {klipy.indexOf(vybranyKlip) + 1}</b>
-            <div className="qv-strih-rada">
+            <div className="qv-strih-hlava">
+              <b>Přechod mezi {klipy.indexOf(spoj)} a {klipy.indexOf(spoj) + 1}</b>
+              <span className="desc">{PRECHODY[spoj.prechod].popis}</span>
+              <button className="btn ghost" onClick={() => setPrechodMenu(null)}>Hotovo</button>
+            </div>
+            <div className="qv-prechody">
+              {(Object.keys(PRECHODY) as VidPrechod[]).map(druh => (
+                <button key={druh} className={`qv-prechod-volba ${spoj.prechod === druh ? 'on' : ''}`}
+                  onClick={() => upravKlip(spoj.id, { prechod: druh })}>
+                  <b>{PRECHODY[druh].nazev}</b>
+                  <span>{PRECHODY[druh].popis}</span>
+                </button>
+              ))}
+            </div>
+            {spoj.prechod !== 'zadny' && (
+              <label className="qv-prechod-delka">
+                <span>Délka přechodu <b>{spoj.prechodDelka.toFixed(1)} s</b> — o tolik bude video kratší</span>
+                <input type="range" min={0.2} max={2} step={0.1} value={spoj.prechodDelka}
+                  onChange={e => upravKlip(spoj.id, { prechodDelka: Number(e.target.value) })} />
+              </label>
+            )}
+          </div>
+        )}
+
+        {vybranyKlip && !spoj && (
+          <div className="qv-strih">
+            <div className="qv-strih-hlava">
+              <b>Záběr {klipy.indexOf(vybranyKlip) + 1}</b>
+              <span className="desc">
+                Z celých {cas(vybranyKlip.zdrojDelka)} zůstane <b>{cas(vybranyKlip.do - vybranyKlip.od)}</b>
+              </span>
+              {/* Nastavit podle přehrávače je rychlejší než hádat sekundy */}
+              <button className="btn ghost" onClick={() => {
+                const el = video.current;
+                if (el) upravKlip(vybranyKlip.id, { od: Math.min(el.currentTime, vybranyKlip.do - MIN_KLIP) });
+              }}>Začátek tady</button>
+              <button className="btn ghost" onClick={() => {
+                const el = video.current;
+                if (el) upravKlip(vybranyKlip.id, { do: Math.max(el.currentTime, vybranyKlip.od + MIN_KLIP) });
+              }}>Konec tady</button>
+              {/*
+                * Rozdělení v místě přehrávače. Z jednoho dlouhého záběru
+                * se tím dá udělat několik kratších, mezi které jde dát
+                * přechod — a hlavně vyhodit to, co je uprostřed.
+                */}
+              <button className="btn ghost" onClick={() => {
+                const el = video.current;
+                if (!el || nactenyKlip !== vybranyKlip.id) {
+                  toast('Nejdřív pusť přehrávač na místo, kde se má záběr rozdělit.', 'error');
+                  return;
+                }
+                const i = klipy.indexOf(vybranyKlip);
+                const novy = rozdel(klipy, i, el.currentTime, () => crypto.randomUUID());
+                if (novy.length === klipy.length) {
+                  toast('Tady se rozdělit nedá — bylo by to moc blízko kraje.', 'error');
+                  return;
+                }
+                zapisKlipy(novy);
+              }}>Rozdělit tady</button>
+            </div>
+
+            {/*
+              * Jeden pás se dvěma úchyty, ne dva nezávislé posuvníky.
+              * Dva posuvníky nad týmž zdrojem nešlo přečíst: nebylo z nich
+              * poznat, který kus videa vlastně zůstane, a dal se nastavit
+              * konec před začátkem. Tady je vidět zdroj celý a v něm
+              * zvýrazněný výstřižek.
+              */}
+            <div className="qv-vystrizek" ref={strihRef}
+              onPointerMove={behemStrihu} onPointerUp={konecStrihu} onPointerLeave={konecStrihu}>
+              {(zdrojSnimky[vybranyKlip.id] ?? []).length > 0 && (
+                <div className="qv-snimky qv-snimky-zdroj" aria-hidden="true">
+                  {zdrojSnimky[vybranyKlip.id].map((src, j) => <img key={j} src={src} alt="" />)}
+                </div>
+              )}
+              <div className="qv-vystrizek-vybrano"
+                style={{
+                  left: `${(vybranyKlip.od / Math.max(0.1, vybranyKlip.zdrojDelka)) * 100}%`,
+                  width: `${((vybranyKlip.do - vybranyKlip.od) / Math.max(0.1, vybranyKlip.zdrojDelka)) * 100}%`
+                }} />
+              <button className="qv-vystrizek-uchop" title="Začátek záběru"
+                style={{ left: `${(vybranyKlip.od / Math.max(0.1, vybranyKlip.zdrojDelka)) * 100}%` }}
+                onPointerDown={e => zacniStrih(e, 'od')} />
+              <button className="qv-vystrizek-uchop" title="Konec záběru"
+                style={{ left: `${(vybranyKlip.do / Math.max(0.1, vybranyKlip.zdrojDelka)) * 100}%` }}
+                onPointerDown={e => zacniStrih(e, 'do')} />
+            </div>
+            <div className="qv-vystrizek-popis">
+              <span>{cas(vybranyKlip.od)}</span>
+              <span>{cas(vybranyKlip.zdrojDelka)}</span>
+            </div>
+
+            {/*
+              * Výřez. Natáčí se na šířku, publikuje na výšku — automatický
+              * ořez ze středu trefí půlku kravaty a kus zdi. Náhled ukazuje
+              * přesně to, co se vypálí, takže se dá zarovnat okem.
+              */}
+            <div className="qv-vyrez">
               <label>
-                Začátek <b>{cas(vybranyKlip.od)}</b>
-                <input type="range" min={0} max={Math.max(0.5, vybranyKlip.zdrojDelka || vybranyKlip.do)} step={0.05}
-                  value={vybranyKlip.od}
-                  onChange={e => {
-                    const od = Math.min(Number(e.target.value), vybranyKlip.do - MIN_KLIP);
-                    upravKlip(vybranyKlip.id, { od });
-                  }} />
+                Přiblížení <b>{vyrez(vybranyKlip).zoom.toFixed(2)}×</b>
+                <input type="range" min={1} max={3} step={0.05} value={vyrez(vybranyKlip).zoom}
+                  onChange={e => upravKlip(vybranyKlip.id, { zoom: Number(e.target.value) })} />
               </label>
               <label>
-                Konec <b>{cas(vybranyKlip.do)}</b>
-                <input type="range" min={0} max={Math.max(0.5, vybranyKlip.zdrojDelka || vybranyKlip.do)} step={0.05}
-                  value={vybranyKlip.do}
-                  onChange={e => {
-                    const dokdy = Math.max(Number(e.target.value), vybranyKlip.od + MIN_KLIP);
-                    upravKlip(vybranyKlip.id, { do: dokdy });
-                  }} />
+                Posun vodorovně
+                <input type="range" min={-1} max={1} step={0.02} value={vyrez(vybranyKlip).x}
+                  disabled={vyrez(vybranyKlip).zoom <= 1}
+                  onChange={e => upravKlip(vybranyKlip.id, { posunX: Number(e.target.value) })} />
               </label>
-              <div className="qv-strih-info">
-                <span>Z celých {cas(vybranyKlip.zdrojDelka)} zůstane <b>{cas(vybranyKlip.do - vybranyKlip.od)}</b>.</span>
-                {/* Nastavit ze přehrávače je rychlejší než hádat sekundy na posuvníku */}
-                <button className="btn ghost" onClick={() => {
-                  const el = video.current;
-                  if (el) upravKlip(vybranyKlip.id, { od: Math.min(el.currentTime, vybranyKlip.do - MIN_KLIP) });
-                }}>Začátek tady</button>
-                <button className="btn ghost" onClick={() => {
-                  const el = video.current;
-                  if (el) upravKlip(vybranyKlip.id, { do: Math.max(el.currentTime, vybranyKlip.od + MIN_KLIP) });
-                }}>Konec tady</button>
-              </div>
+              <label>
+                Posun svisle
+                <input type="range" min={-1} max={1} step={0.02} value={vyrez(vybranyKlip).y}
+                  disabled={vyrez(vybranyKlip).zoom <= 1}
+                  onChange={e => upravKlip(vybranyKlip.id, { posunY: Number(e.target.value) })} />
+              </label>
+              <button className="btn ghost"
+                onClick={() => upravKlip(vybranyKlip.id, { zoom: 1, posunX: 0, posunY: 0 })}>
+                Celý záběr
+              </button>
             </div>
           </div>
         )}
@@ -848,6 +1078,11 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
                   className={`qv-blok ${vybrany === k.id ? 'on' : ''} ${k.znelka ? 'znelka' : ''}`}
                   style={{ left: naSekundu(rozvrzeni.místa[i].start), width: naSekundu(rozvrzeni.místa[i].delka) }}
                   title={`${souborNazev(k.soubor)} · ${cas(rozvrzeni.místa[i].delka)}`}>
+                  {(snimky[k.id] ?? []).length > 0 && (
+                    <div className="qv-snimky" aria-hidden="true">
+                      {snimky[k.id].map((src, j) => <img key={j} src={src} alt="" />)}
+                    </div>
+                  )}
                   <span>{i + 1}</span>
                   {rozvrzeni.místa[i].prechod > 0 && (
                     <em className="qv-prolnuti" style={{ width: naSekundu(rozvrzeni.místa[i].prechod) }} />

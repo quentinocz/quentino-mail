@@ -53,6 +53,63 @@ export interface VidKlip {
   prechodDelka: number;
   /** Vložená znělka — v rozhraní se označí, ať je poznat od vlastního záběru. */
   znelka?: boolean;
+  /**
+   * Přiblížení obrazu, 1 = celý záběr. Nad jedničku se ořezává.
+   *
+   * Natáčí se na šířku, publikuje na výšku — a automatický ořez ze středu
+   * trefí půlku kravaty a kus zdi. Tímhle se dá vybrat, co ve svislém
+   * formátu zůstane.
+   */
+  zoom?: number;
+  /** Posun výřezu, −1 až 1 (0 = na střed). */
+  posunX?: number;
+  posunY?: number;
+}
+
+/** Hodnoty výřezu i tam, kde je záběr ještě nemá. */
+export function vyrez(k: VidKlip): { zoom: number; x: number; y: number } {
+  const zoom = Math.max(1, Math.min(3, k.zoom || 1));
+  return {
+    zoom,
+    x: Math.max(-1, Math.min(1, k.posunX ?? 0)),
+    y: Math.max(-1, Math.min(1, k.posunY ?? 0))
+  };
+}
+
+/**
+ * Posun obrazu v náhledu, aby okno ukazovalo týž výřez jako ffmpeg.
+ *
+ * Náhled kreslí prohlížeč (`object-fit: cover`, tedy totéž co zvětšení
+ * na formát a ořez ze středu), pak se přiblíží o `zoom`. Okno widí
+ * prostřední část, kterou lze posunout nejvýš o polovinu přesahu —
+ * a protože se `translate` v CSS použije **před** zvětšením, dělí se
+ * posun ještě `zoom`em. Bez toho by náhled ukazoval jiný výřez než
+ * hotové video a ořez by se ladil naslepo.
+ */
+export function vyrezStyl(k: VidKlip): { transform: string } {
+  const { zoom, x, y } = vyrez(k);
+  if (zoom === 1 && x === 0 && y === 0) return { transform: 'none' };
+  const tx = (-x * (zoom - 1)) / (2 * zoom) * 100;
+  const ty = (-y * (zoom - 1)) / (2 * zoom) * 100;
+  return { transform: `scale(${zoom}) translate(${tx.toFixed(3)}%, ${ty.toFixed(3)}%)` };
+}
+
+/**
+ * Rozdělí záběr v daném čase výsledného videa na dva.
+ *
+ * Z jednoho dlouhého záběru se tím dá udělat několik kratších, mezi
+ * kterými jde nastavit přechod — a hlavně vyhodit to, co je uprostřed.
+ * Vrací nový seznam; když čas do záběru nespadá, vrátí původní.
+ */
+export function rozdel(klipy: VidKlip[], index: number, casVeZdroji: number, novéId: () => string): VidKlip[] {
+  const k = klipy[index];
+  if (!k) return klipy;
+  const kde = Math.max(k.od + MIN_KLIP, Math.min(k.do - MIN_KLIP, casVeZdroji));
+  if (kde <= k.od || kde >= k.do) return klipy;
+  const prvni: VidKlip = { ...k, do: kde };
+  // Druhá půlka navazuje střihem — přechod by se tu vzal odkud?
+  const druha: VidKlip = { ...k, id: novéId(), od: kde, prechod: 'zadny', prechodDelka: k.prechodDelka };
+  return [...klipy.slice(0, index), prvni, druha, ...klipy.slice(index + 1)];
 }
 
 /** Vzhled titulku. Kreslí se na plátno, takže se náhled i výsledek shodují. */

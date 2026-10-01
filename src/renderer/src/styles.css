@@ -9914,7 +9914,9 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .qv-krok > header > div { flex: 1; min-width: 0; }
 .qv-krok h3 { font-size: 15px; }
 .qv-krok > header .desc { margin-top: 2px; font-size: 12.5px; }
-.qv-akce { display: flex; gap: 6px; flex-wrap: wrap; }
+/* Akce patří k nadpisu, ne doprostřed popisu — u třířádkového popisu
+   plavalo tlačítko někde v jeho polovině */
+.qv-akce { display: flex; gap: 6px; flex-wrap: wrap; align-self: flex-start; margin-top: 1px; }
 
 /* Číslo kroku: pořadí práce se pozná bez čtení */
 .qv-cislo {
@@ -9929,24 +9931,31 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .qv-pas { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 4px; }
 .qv-spoj-a-klip { display: flex; align-items: stretch; }
 
+.qv-spoj-a-klip { min-width: 0; }
 .qv-klip {
   position: relative;
-  flex: 0 0 158px;
+  flex: 0 0 168px; width: 168px; min-width: 0;
   display: flex; flex-direction: column; gap: 2px;
-  padding: 10px 10px 6px;
+  padding: 8px 10px 9px;
   border: 1px solid var(--border); border-radius: 10px;
   background: var(--bg); cursor: grab;
 }
 .qv-klip.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .qv-klip.over { border-color: var(--accent); }
 .qv-klip.znelka { background: repeating-linear-gradient(135deg, var(--bg), var(--bg) 7px, var(--panel) 7px, var(--panel) 14px); }
-.qv-klip b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qv-klip .desc { font-size: 11.5px; padding-right: 26px; }
+.qv-klip b { font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Pořadí, značka a koš mají vlastní řádek — dlouhý název souboru se s nimi
+   jinak překrýval, a názvy z telefonu dlouhé bývají */
+.qv-klip-hlava { display: flex; align-items: center; gap: 6px; min-height: 20px; }
+.qv-klip-hlava .icon-btn { margin-left: auto; }
+.qv-klip .desc { font-size: 11.5px; }
 .qv-klip-c {
-  position: absolute; top: 6px; right: 8px;
-  font-size: 11px; font-weight: 700; color: var(--text-3);
+  display: grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--panel); border: 1px solid var(--border);
+  font-size: 10.5px; font-weight: 700; color: var(--text-2);
 }
-.qv-klip .icon-btn.danger { position: absolute; right: 4px; bottom: 4px; }
+.qv-klip.on .qv-klip-c { background: var(--accent); border-color: var(--accent); color: #fff; }
 .qv .icon-btn.danger { color: var(--danger); }
 .qv-znacka {
   align-self: flex-start; font-style: normal; font-size: 9.5px; letter-spacing: .05em;
@@ -9970,23 +9979,21 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 .qv-prechod.on { border-style: solid; border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
 .qv-prechod em { font-style: normal; font-size: 9.5px; letter-spacing: .03em; }
-.qv-prechod-menu {
-  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
-  z-index: 8; width: 260px;
-  display: flex; flex-direction: column; gap: 2px; padding: 6px;
-  border: 1px solid var(--border); border-radius: 10px;
-  background: var(--panel); box-shadow: var(--shadow-lg);
-}
-.qv-prechod-menu > button {
+/* Vybraný spoj je poznat — volby k němu jsou v panelu pod pásem, protože
+   posuvný pás vyskakovací nabídku ořízl a při třech záběrech nebylo
+   po klepnutí vidět vůbec nic */
+.qv-prechod.vybrany { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.qv-prechody { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.qv-prechod-volba {
   display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
-  padding: 7px 9px; border: 0; border-radius: 7px; background: none;
-  text-align: left; cursor: pointer;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--panel); text-align: left; cursor: pointer;
 }
-.qv-prechod-menu > button:hover { background: var(--bg); }
-.qv-prechod-menu > button.on { background: var(--accent-soft); }
-.qv-prechod-menu > button b { font-size: 12.5px; }
-.qv-prechod-menu > button span { font-size: 11.5px; color: var(--text-2); }
-.qv-prechod-delka { display: flex; flex-direction: column; gap: 3px; padding: 7px 9px; font-size: 12px; }
+.qv-prechod-volba:hover { border-color: var(--accent); }
+.qv-prechod-volba.on { border-color: var(--accent); background: var(--accent-soft); }
+.qv-prechod-volba b { font-size: 12.5px; }
+.qv-prechod-volba span { font-size: 11.5px; color: var(--text-2); }
+.qv-prechod-delka { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 
 /* ---------- prostříhání vybraného záběru ---------- */
 
@@ -9995,10 +10002,46 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
 }
 .qv-strih > b { font-size: 12.5px; }
-.qv-strih-rada { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
-.qv-strih-rada label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-2); }
-.qv-strih-rada label b { color: var(--text); }
-.qv-strih-info { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
+.qv-strih-hlava { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.qv-strih-hlava > b { font-size: 12.5px; }
+.qv-strih-hlava .desc { flex: 1; min-width: 160px; font-size: 12px; }
+
+/* Výstřižek: celý zdroj a v něm zvýrazněné to, co zůstane. Dva nezávislé
+   posuvníky se nedaly přečíst — nebylo z nich poznat, který kus videa
+   vlastně projde, a šel nastavit konec před začátkem. */
+.qv-vystrizek {
+  position: relative; height: 54px; margin-top: 2px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); overflow: hidden; touch-action: none;
+}
+.qv-vystrizek-vybrano {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(124, 92, 255, .22);
+  border-left: 2px solid var(--accent); border-right: 2px solid var(--accent);
+}
+.qv-vystrizek-uchop {
+  position: absolute; top: 0; bottom: 0; width: 14px; margin-left: -7px;
+  border: 0; border-radius: 4px; background: var(--accent);
+  cursor: ew-resize; padding: 0;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.7);
+}
+.qv-vystrizek-uchop::after {
+  content: ''; position: absolute; left: 5px; top: 50%; width: 4px; height: 16px;
+  margin-top: -8px; border-left: 1px solid rgba(255,255,255,.85);
+  border-right: 1px solid rgba(255,255,255,.85);
+}
+.qv-vystrizek-popis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); }
+
+.qv-vyrez { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 10px 14px; align-items: end; }
+.qv-vyrez label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-2); }
+.qv-vyrez label b { color: var(--text); }
+.qv-vyrez input[disabled] { opacity: .4; }
+
+/* Pásky snímků. Posouvat titulek podle čísel znamená pamatovat si, co je
+   v tu chvíli v obraze — takhle je to vidět. */
+.qv-snimky { position: absolute; inset: 0; display: flex; opacity: .85; pointer-events: none; }
+.qv-snimky img { flex: 1 1 0; min-width: 0; height: 100%; object-fit: cover; }
+.qv-snimky-zdroj { opacity: .6; }
 
 /* ---------- náhled a časová osa ---------- */
 
@@ -10065,16 +10108,25 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 
 .qv-tit {
   position: absolute; height: 22px; top: 18px;
-  display: flex; align-items: center; gap: 2px;
-  padding: 0 4px; border-radius: 5px;
+  display: flex; align-items: center;
+  padding: 0 9px; border-radius: 5px;
   background: var(--accent-dark); color: #fff;
   font-size: 10.5px; cursor: grab; user-select: none;
-  min-width: 26px;
+  min-width: 34px; touch-action: none;
 }
 .qv-tit.nahore { top: 0; }
 .qv-tit.dole { top: 36px; }
 .qv-tit span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qv-uchop { width: 5px; height: 100%; cursor: ew-resize; background: rgba(255,255,255,.45); border-radius: 2px; }
+/* Úchyty sedí přesně na kraji pásku, ne odsazené dovnitř: tahat se za
+   roh je první, co člověk zkusí, a dřív se tím místo roztažení posouval
+   celý titulek. */
+.qv-uchop {
+  position: absolute; top: 0; bottom: 0; width: 8px;
+  cursor: ew-resize; background: rgba(255,255,255,.5);
+}
+.qv-uchop.od { left: 0; border-radius: 5px 0 0 5px; }
+.qv-uchop.do { right: 0; border-radius: 0 5px 5px 0; }
+.qv-tit span { pointer-events: none; }
 
 .qv-hlava { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger); pointer-events: none; }
 
