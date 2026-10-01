@@ -146,6 +146,49 @@ export interface VidTitulek {
   pozice: VidPozice;
   /** Text podle jazyka trhu: `{ CS: 'Ahoj', EN: 'Hello' }`. */
   texty: Record<string, string>;
+  /*
+   * Doladění jednoho titulku. Styl dává společný vzhled, tohle je
+   * výjimka pro jeden případ: delší věta, která se musí zmenšit, titulek
+   * na světlém záběru, kde bílá nestačí, nebo posun kousek nad ovládání
+   * přehrávače Instagramu.
+   */
+  /** Násobek velikosti písma ze stylu, 0,7–1,5. */
+  velikost?: number;
+  barva?: VidBarva;
+  /** Jemný svislý posun v dílech výšky obrazu, −0,25 až 0,25. */
+  posunY?: number;
+  zarovnani?: VidZarovnani;
+}
+
+export type VidBarva = 'auto' | 'bila' | 'cerna' | 'salvej' | 'zluta';
+
+export const BARVY: Record<VidBarva, { nazev: string; css: string }> = {
+  auto: { nazev: 'Podle stylu', css: '' },
+  bila: { nazev: 'Bílá', css: '#ffffff' },
+  cerna: { nazev: 'Černá', css: '#111111' },
+  // Táž šalvějová jako kontrastní zelená na e-shopu
+  salvej: { nazev: 'Šalvějová', css: '#acc2ab' },
+  zluta: { nazev: 'Žlutá', css: '#ffd84d' }
+};
+
+export type VidZarovnani = 'vlevo' | 'stred' | 'vpravo';
+
+export const ZAROVNANI: Record<VidZarovnani, string> = {
+  vlevo: 'Vlevo',
+  stred: 'Na střed',
+  vpravo: 'Vpravo'
+};
+
+/** Doladění titulku i tam, kde ho ještě nemá. */
+export function doladeni(t: VidTitulek): {
+  velikost: number; barva: VidBarva; posunY: number; zarovnani: VidZarovnani;
+} {
+  return {
+    velikost: Math.max(0.7, Math.min(1.5, t.velikost || 1)),
+    barva: BARVY[t.barva as VidBarva] ? (t.barva as VidBarva) : 'auto',
+    posunY: Math.max(-0.25, Math.min(0.25, t.posunY ?? 0)),
+    zarovnani: ZAROVNANI[t.zarovnani as VidZarovnani] ? (t.zarovnani as VidZarovnani) : 'stred'
+  };
 }
 
 export type VidZvukDruh = 'original' | 'soubor' | 'ticho';

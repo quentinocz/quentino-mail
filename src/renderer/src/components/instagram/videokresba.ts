@@ -24,12 +24,18 @@
  * rozměr se proto násobí `vyska / 1920` — náhled i výsledek pak vypadají
  * stejně v jakékoli velikosti.
  */
-import type { VidStyl, VidPozice } from '@shared/videoedit';
+import type { VidStyl, VidPozice, VidBarva, VidZarovnani } from '@shared/videoedit';
+import { BARVY } from '@shared/videoedit';
 
 export interface KresbaVstup {
   text: string;
   styl: VidStyl;
   pozice: VidPozice;
+  /** Doladění jednoho titulku — násobek velikosti, barva, posun, zarovnání. */
+  velikost?: number;
+  barva?: VidBarva;
+  posunY?: number;
+  zarovnani?: VidZarovnani;
 }
 
 /** Šalvějová zelená z e-shopu — táž barva jako odznak košíku. */
@@ -88,12 +94,17 @@ const POPISY: Record<VidStyl, Popis> = {
 };
 
 /*
- * Písmo: aplikace má Montserrat, a ten titulkům sluší. Emoji se z něj
- * nevezme — prohlížeč pro ně sáhne do systémového emoji písma sám, když
- * je v seznamu za hlavním. Bez `Apple Color Emoji` by na Macu zůstal
- * u některých znaků čtvereček.
+ * Písmo: aplikace má Montserrat, a ten titulkům sluší.
+ *
+ * Emoji písma v seznamu **nejsou**, i když by se to nabízelo. Prohlížeč
+ * si pro emoji sáhne do systémového písma sám — kdežto když se emoji
+ * rodiny vypíšou, vybere z nich i obyčejné znaky. Měřeno: se zapsaným
+ * „Apple Color Emoji" a spol. má mezera šířku 55 px místo 12,2 px při
+ * písmu 44 px, protože mezeru vezme z emoji písma, kde zabírá celý
+ * čtverec. V titulku se to projevilo jako nesmyslně velké mezery mezi
+ * slovy — a kdo to nezná, hledá chybu v textu, ne v písmu.
  */
-const PISMO = 'Montserrat, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui, sans-serif';
+const PISMO = 'Montserrat, system-ui, sans-serif';
 
 function radky(ctx: CanvasRenderingContext2D, text: string, maxSirka: number): string[] {
   const out: string[] = [];
@@ -146,12 +157,16 @@ export function nakresliTitulek(
 
   const p = POPISY[vstup.styl] ?? POPISY.klasik;
   const k = vyska / 1920;              // všechno se počítá z výšky, viz hlavička
-  const velikost = p.velikost * k;
+  const velikost = p.velikost * k * Math.max(0.7, Math.min(1.5, vstup.velikost || 1));
+  const zarovnani = vstup.zarovnani ?? 'stred';
+  // Vodorovná osa textu: u kraje se nechává tentýž okraj jako nahoře a dole
+  const okraj = sirka * 0.07;
+  const osaX = zarovnani === 'vlevo' ? okraj : zarovnani === 'vpravo' ? sirka - okraj : sirka / 2;
   const psane = p.verzalky ? text.toLocaleUpperCase('cs-CZ') : text;
 
   ctx.save();
   ctx.font = `${p.tuk} ${velikost}px ${PISMO}`;
-  ctx.textAlign = 'center';
+  ctx.textAlign = zarovnani === 'vlevo' ? 'left' : zarovnani === 'vpravo' ? 'right' : 'center';
   ctx.textBaseline = 'middle';
 
   const maxSirka = sirka * p.sirkaDilu;
@@ -164,11 +179,13 @@ export function nakresliTitulek(
    * přes spodní část přebíhají ovládací prvky přehrávače a titulek pod
    * nimi nikdo nepřečte.
    */
-  const stred = vstup.pozice === 'stred'
+  const zaklad = vstup.pozice === 'stred'
     ? vyska / 2
     : vstup.pozice === 'nahore'
       ? vyska * 0.16 + blok / 2
       : vyska * 0.86 - blok / 2;
+  // Jemný posun pro jeden titulek — třeba kousek nad ovládání přehrávače
+  const stred = zaklad + vyska * Math.max(-0.25, Math.min(0.25, vstup.posunY ?? 0));
 
   if (p.pozadi) {
     ctx.fillStyle = p.pozadi;
@@ -180,14 +197,20 @@ export function nakresliTitulek(
       rady.forEach((radek, i) => {
         const w = ctx.measureText(radek).width + vycpavkaX * 2;
         const y = stred - blok / 2 + rozteč * i;
-        zakulacenyObdelnik(ctx, sirka / 2 - w / 2, y + (rozteč - velikost) / 2 - vycpavkaY,
+        const x = zarovnani === 'vlevo' ? osaX - vycpavkaX
+          : zarovnani === 'vpravo' ? osaX - w + vycpavkaX
+            : osaX - w / 2;
+        zakulacenyObdelnik(ctx, x, y + (rozteč - velikost) / 2 - vycpavkaY,
           w, velikost + vycpavkaY * 2, velikost * p.radius);
       });
     } else {
       const sirkaTextu = Math.max(...rady.map(r => ctx.measureText(r).width));
       const w = sirkaTextu + vycpavkaX * 2;
       const h = blok + vycpavkaY * 2;
-      zakulacenyObdelnik(ctx, sirka / 2 - w / 2, stred - h / 2, w, h, velikost * p.radius);
+      const x = zarovnani === 'vlevo' ? osaX - vycpavkaX
+        : zarovnani === 'vpravo' ? osaX - w + vycpavkaX
+          : osaX - w / 2;
+      zakulacenyObdelnik(ctx, x, stred - h / 2, w, h, velikost * p.radius);
     }
   }
 
@@ -197,18 +220,19 @@ export function nakresliTitulek(
     ctx.shadowOffsetY = 2 * k;
   }
 
+  const vlastni = vstup.barva && vstup.barva !== 'auto' ? BARVY[vstup.barva]?.css : '';
   rady.forEach((radek, i) => {
     const y = stred - blok / 2 + rozteč * i + rozteč / 2;
     if (p.obtah > 0 && p.barvaObtahu) {
-      ctx.lineWidth = p.obtah * k;
+      ctx.lineWidth = p.obtah * k * Math.max(0.7, Math.min(1.5, vstup.velikost || 1));
       ctx.strokeStyle = p.barvaObtahu;
       // `round` — ostré spoje dělají na diakritice trny
       ctx.lineJoin = 'round';
       ctx.miterLimit = 2;
-      ctx.strokeText(radek, sirka / 2, y);
+      ctx.strokeText(radek, osaX, y);
     }
-    ctx.fillStyle = p.barva;
-    ctx.fillText(radek, sirka / 2, y);
+    ctx.fillStyle = vlastni || p.barva;
+    ctx.fillText(radek, osaX, y);
   });
 
   ctx.restore();

@@ -537,6 +537,18 @@ for (const okno of OKNA) {
     /pomer-9-16/.test(strih.pomer) && strih.video && strih.platno, strih.pomer);
   say('  u každého titulku se dá vybrat styl i umístění',
     strih.radky === 3 && strih.styly === 6, `${strih.radky} řádků, ${strih.styly} voleb`);
+  /* A doladit jeden titulek zvlášť, aniž by se měnil styl ostatních */
+  await page.locator('.qv-tit-btns .icon-btn').nth(1).click();
+  // Panel se rozbaluje až po překreslení seznamu — krátké čekání dělalo
+  // zkoušku občas vrtkavou
+  await page.waitForTimeout(600);
+  const vic = await page.evaluate(() => ({
+    poli: [...document.querySelectorAll('.qv-tit-vic label')].map(l => l.textContent.trim().split(/\s{2,}|\n/)[0]),
+    zpet: !!document.querySelector('.qv-tit-vic .btn')
+  }));
+  say('  a jeden titulek jde doladit zvlášť',
+    vic.poli.length === 4 && vic.zpet, vic.poli.join(' · '));
+  await page.locator('.qv-tit-btns .icon-btn').nth(1).click();
   say('  jazyk titulků se přepíná a je vidět, kolik je přeloženo',
     strih.jazyky.length === 3 && /zdroj/.test(strih.jazyky[0]) && /\d\/\d/.test(strih.jazyky[1]),
     strih.jazyky.join(' | '));
@@ -567,6 +579,26 @@ for (const okno of OKNA) {
   say('  titulek se v náhledu opravdu nakreslí',
     nakresleno.ok && nakresleno.pixelu > 200,
     `${nakresleno.pixelu} z ${nakresleno.celkem} pixelů`);
+
+  /*
+   * Mezery mezi slovy v titulku.
+   *
+   * Vypsat v seznamu písem emoji rodiny vypadá neškodně — jenže prohlížeč
+   * z nich pak vezme i obyčejné znaky, a mezera z emoji písma zabírá celý
+   * čtverec. V titulku to dělalo nesmyslně velké mezery mezi slovy a kdo
+   * to nezná, hledá chybu v textu. Měří se proto poměr mezery k písmenu,
+   * ne vzhled.
+   */
+  const mezery = await page.evaluate(() => {
+    const c = document.createElement('canvas').getContext('2d');
+    c.font = '700 44px Montserrat, system-ui, sans-serif';
+    const mezera = c.measureText(' ').width;
+    const pismeno = c.measureText('n').width;
+    return { mezera, pismeno, pomer: mezera / pismeno };
+  });
+  say('  mezera v titulku je mezera, ne čtverec z emoji písma',
+    mezery.pomer > 0.1 && mezery.pomer < 0.7,
+    `mezera ${mezery.mezera.toFixed(1)} px, písmeno ${mezery.pismeno.toFixed(1)} px`);
 
   /*
    * Volby přechodu patří pod pás, ne do vyskakovací nabídky nad ním.

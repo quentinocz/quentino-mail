@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { IgOverview } from '@shared/types';
 import type {
-  VidProjekt, VidKlip, VidTitulek, VidZnelka, VidPrechod, VidStyl, VidPozice, VidPomer, VidZvuk
+  VidProjekt, VidKlip, VidTitulek, VidZnelka, VidPrechod, VidStyl, VidPozice, VidPomer, VidZvuk,
+  VidBarva, VidZarovnani
 } from '@shared/videoedit';
 import {
-  osa, delkaVidea, klipyTrhu, zvukTrhu, textTitulku, potize, cas, vyrez, vyrezStyl, rozdel,
-  PRECHODY, STYLY, POZICE, POMERY, MIN_KLIP
+  osa, delkaVidea, klipyTrhu, zvukTrhu, textTitulku, potize, cas, vyrez, vyrezStyl, rozdel, doladeni,
+  PRECHODY, STYLY, POZICE, POMERY, BARVY, ZAROVNANI, MIN_KLIP
 } from '@shared/videoedit';
 import { api } from '../../api';
 import { useToast } from '../../toast';
@@ -60,6 +61,8 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
   const [pracuje, setPracuje] = useState('');
   const [nahrava, setNahrava] = useState(false);
   const [prechodMenu, setPrechodMenu] = useState<string | null>(null);
+  /** U kterého titulku jsou rozbalené podrobnosti. */
+  const [podrobne, setPodrobne] = useState<string | null>(null);
 
   /* Přehrávač */
   const video = useRef<HTMLVideoElement | null>(null);
@@ -158,11 +161,16 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     return klipy.length ? 0 : -1;
   }, [klipy, rozvrzeni]);
 
+  /** Který záběr je právě v přehrávači. Řídí se tím hodiny — viz níž. */
+  const hranyIndex = useRef(0);
+  const prepina = useRef(false);
+
   const skoc = useCallback(async (t: number, pustit = false) => {
     const cíl = Math.max(0, Math.min(delka, t));
     setKde(cíl);
     const i = klipV(cíl);
     if (i < 0) return;
+    hranyIndex.current = i;
     const k = klipy[i];
     const el = video.current;
     if (!el) return;
@@ -182,9 +190,18 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
    * Hodiny přehrávání.
    *
    * Čas se nebere z `<video>` přímo: element zná jen svůj soubor, kdežto
-   * časová osa je slepená z několika. Přepočítává se proto na čas
-   * výsledku a na konci výstřižku se sáhne po dalším záběru — bez toho
-   * by přehrávání pokračovalo i do části, která je z videa vystřižená.
+   * časová osa je slepená z několika. Běží se proto podle **indexu
+   * právě hraného záběru**, ne podle dopočítávání z času.
+   *
+   * Dopočítávání se rozbilo přesně na přechodu: ten se s oběma záběry
+   * překrývá, takže v jeho průběhu už čas spadal do dalšího záběru,
+   * zatímco v přehrávači pořád běžel ten předchozí. Hodiny z toho
+   * usoudily, že jsou mimo, a skočily — přehrávání se na přechodu
+   * zaseklo nebo přeskočilo na konec.
+   *
+   * Při přepnutí se překryv **přeskočí**: pokračuje se až za ním, aby
+   * čas šel pořád dopředu. Prolnutí se v náhledu stejně nepřehrává, je
+   * to řečeno pod přehrávačem.
    */
   useEffect(() => {
     if (!hraje) return;
@@ -192,29 +209,30 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     const tik = () => {
       if (!zive) return;
       const el = video.current;
-      const i = klipV(kdeRef.current);
-      if (el && i >= 0) {
-        const k = klipy[i];
-        const uvnitr = el.currentTime - k.od;
-        const t = rozvrzeni.místa[i].start + uvnitr;
-        if (el.currentTime >= k.do - 0.02 || uvnitr < -0.5) {
+      const i = hranyIndex.current;
+      const k = klipy[i];
+      if (el && k) {
+        const misto = rozvrzeni.místa[i];
+        setKde(Math.min(delka, misto.start + Math.max(0, el.currentTime - k.od)));
+        if (el.currentTime >= k.do - 0.03 && !prepina.current) {
           if (i + 1 < klipy.length) {
-            void skoc(rozvrzeni.místa[i + 1].start, true);
+            prepina.current = true;
+            const dalsi = rozvrzeni.místa[i + 1];
+            void skoc(dalsi.start + dalsi.prechod, true)
+              .finally(() => { prepina.current = false; });
           } else {
             setHraje(false);
             el.pause();
             setKde(delka);
             return;
           }
-        } else {
-          setKde(Math.min(delka, t));
         }
       }
       requestAnimationFrame(tik);
     };
     requestAnimationFrame(tik);
     return () => { zive = false; };
-  }, [hraje, klipy, rozvrzeni, delka, klipV, skoc]);
+  }, [hraje, klipy, rozvrzeni, delka, skoc]);
 
   const kdeRef = useRef(0);
   useEffect(() => { kdeRef.current = kde; }, [kde]);
@@ -259,7 +277,7 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
       if (kde < t.od - 0.001 || kde > t.do) continue;
       const text = textTitulku(t, lang, p.zdroj);
       if (!text) continue;
-      nakresliTitulek(ctx, sirka, vyska, { text, styl: t.styl, pozice: t.pozice });
+      nakresliTitulek(ctx, sirka, vyska, { text, styl: t.styl, pozice: t.pozice, ...doladeni(t) });
     }
   }, [kde, p, lang]);
 
@@ -651,7 +669,11 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
           .map(t => {
             const text = textTitulku(t, trh, p.zdroj);
             if (!text) return null;
-            return { id: t.id, png: titulekPng(rozmer.sirka, rozmer.vyska, { text, styl: t.styl, pozice: t.pozice }) };
+            return {
+              id: t.id,
+              png: titulekPng(rozmer.sirka, rozmer.vyska,
+                { text, styl: t.styl, pozice: t.pozice, ...doladeni(t) })
+            };
           })
           .filter((x): x is { id: string; png: string } => !!x);
         const novy = await api.ig.videoRender(postId, trh, obrazky);
@@ -1167,10 +1189,58 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
                   <button className="icon-btn" title="Přeskočit na titulek" onClick={() => void skoc(t.od)}>
                     <Icon name="play" size={13} />
                   </button>
+                  {/*
+                    * Podrobnosti jsou schované, ale na jedno klepnutí.
+                    * Styl dává společný vzhled; tohle je výjimka pro jeden
+                    * titulek — delší věta, světlý záběr, posun nad ovládání
+                    * přehrávače. Mít to rozbalené u všech by z deseti řádků
+                    * udělalo nepřehlednou zeď.
+                    */}
+                  <button className={`icon-btn ${podrobne === t.id ? 'on' : ''}`} title="Víc možností"
+                    onClick={() => setPodrobne(podrobne === t.id ? null : t.id)}>
+                    <Icon name="sliders" size={13} />
+                  </button>
                   <button className="icon-btn danger" title="Smazat titulek" onClick={() => smazTitulek(t.id)}>
                     <Icon name="trash" size={13} />
                   </button>
                 </div>
+
+                {podrobne === t.id && (
+                  <div className="qv-tit-vic">
+                    <label>
+                      Velikost <b>{Math.round(doladeni(t).velikost * 100)} %</b>
+                      <input type="range" min={0.7} max={1.5} step={0.05} value={doladeni(t).velikost}
+                        onChange={e => upravTitulek(t.id, { velikost: Number(e.target.value) })} />
+                    </label>
+                    <label>
+                      Svislé doladění <b>{doladeni(t).posunY === 0 ? 'žádné' : `${Math.round(doladeni(t).posunY * 100)} %`}</b>
+                      <input type="range" min={-0.25} max={0.25} step={0.01} value={doladeni(t).posunY}
+                        onChange={e => upravTitulek(t.id, { posunY: Number(e.target.value) })} />
+                    </label>
+                    <label>
+                      Barva
+                      <select value={doladeni(t).barva}
+                        onChange={e => upravTitulek(t.id, { barva: e.target.value as VidBarva })}>
+                        {(Object.keys(BARVY) as VidBarva[]).map(b => (
+                          <option key={b} value={b}>{BARVY[b].nazev}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Zarovnání
+                      <select value={doladeni(t).zarovnani}
+                        onChange={e => upravTitulek(t.id, { zarovnani: e.target.value as VidZarovnani })}>
+                        {(Object.keys(ZAROVNANI) as VidZarovnani[]).map(z => (
+                          <option key={z} value={z}>{ZAROVNANI[z]}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="btn ghost" onClick={() => upravTitulek(t.id,
+                      { velikost: 1, posunY: 0, barva: 'auto', zarovnani: 'stred' })}>
+                      Zpět podle stylu
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
