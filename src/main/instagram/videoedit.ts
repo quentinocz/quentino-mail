@@ -687,6 +687,109 @@ function vystup(postId: number, lang: string): string {
   return path.join(dir, `${lang}-${Date.now()}.mp4`);
 }
 
+/* ---------- písma ---------- */
+
+/**
+ * Písma nainstalovaná v počítači.
+ *
+ * Titulky kreslí okno na plátno, takže písmo musí umět načíst **prohlížeč**,
+ * ne ffmpeg. Vypisují se proto soubory z míst, kam systém písma ukládá, a
+ * okno si z nich vyrobí `FontFace`. Sbírky (`.ttc`) se vynechávají — je
+ * v nich víc řezů naráz a prohlížeč je takhle načíst neumí; kdo chce
+ * zrovna takové písmo, nahraje si jeho `.otf` nebo `.ttf` sám.
+ */
+const PISMA_MISTA = process.platform === 'darwin'
+  ? ['/System/Library/Fonts', '/Library/Fonts', path.join(os.homedir(), 'Library', 'Fonts')]
+  : process.platform === 'win32'
+    ? ['C:\\Windows\\Fonts', path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Windows', 'Fonts')]
+    : ['/usr/share/fonts', '/usr/local/share/fonts', path.join(os.homedir(), '.local', 'share', 'fonts')];
+
+const PISMA_PRIPONY = ['.otf', '.ttf', '.woff2', '.woff'];
+
+export interface VidPismo {
+  /** Název rodiny, jak se ukáže v nabídce i jak se zaregistruje v okně. */
+  nazev: string;
+  soubor: string;
+  /** Vlastní nahrané písmo se v seznamu drží navrchu. */
+  vlastni?: boolean;
+}
+
+const VLASTNI_PISMA = 'igVideoPisma';
+
+function projdiPisma(dir: string, hloubka = 0): string[] {
+  if (hloubka > 2) return [];
+  let polozky: string[] = [];
+  try { polozky = fs.readdirSync(dir); } catch { return []; }
+  const out: string[] = [];
+  for (const jmeno of polozky) {
+    const cela = path.join(dir, jmeno);
+    let stat: fs.Stats;
+    try { stat = fs.statSync(cela); } catch { continue; }
+    if (stat.isDirectory()) { out.push(...projdiPisma(cela, hloubka + 1)); continue; }
+    if (PISMA_PRIPONY.includes(path.extname(jmeno).toLowerCase())) out.push(cela);
+  }
+  return out;
+}
+
+/** Z „Montserrat-SemiBold.ttf" udělá „Montserrat SemiBold". */
+function nazevPisma(soubor: string): string {
+  return path.basename(soubor, path.extname(soubor))
+    .replace(/[_]+/g, ' ')
+    .replace(/-/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function pisma(): VidPismo[] {
+  const vlastni: VidPismo[] = (() => {
+    try {
+      const list = JSON.parse(getSetting(VLASTNI_PISMA, '[]') ?? '[]');
+      return Array.isArray(list) ? list.filter((f: any) => f?.soubor) : [];
+    } catch { return []; }
+  })();
+
+  const systemove: VidPismo[] = [];
+  const videno = new Set(vlastni.map(f => f.nazev));
+  for (const dir of PISMA_MISTA) {
+    for (const soubor of projdiPisma(dir)) {
+      const nazev = nazevPisma(soubor);
+      if (!nazev || videno.has(nazev)) continue;
+      videno.add(nazev);
+      systemove.push({ nazev, soubor });
+    }
+  }
+  systemove.sort((a, b) => a.nazev.localeCompare(b.nazev, 'cs'));
+  for (const f of [...vlastni, ...systemove]) povol(f.soubor);
+  return [...vlastni.map(f => ({ ...f, vlastni: true })), ...systemove];
+}
+
+/** Nahrání vlastního písma — třeba firemního, které v systému není. */
+export async function addPismo(): Promise<VidPismo[]> {
+  const okno = BrowserWindow.getFocusedWindow();
+  const pick = await dialog.showOpenDialog(okno ?? undefined as any, {
+    title: 'Vyber soubor s písmem',
+    properties: ['openFile'],
+    filters: [{ name: 'Písma', extensions: ['otf', 'ttf', 'woff2', 'woff'] }]
+  });
+  if (pick.canceled || pick.filePaths.length === 0) return pisma();
+  const soubor = pick.filePaths[0];
+  const list: VidPismo[] = (() => {
+    try { return JSON.parse(getSetting(VLASTNI_PISMA, '[]') ?? '[]'); } catch { return []; }
+  })();
+  if (!list.some(f => f.soubor === soubor)) {
+    list.unshift({ nazev: nazevPisma(soubor), soubor, vlastni: true });
+    setSetting(VLASTNI_PISMA, JSON.stringify(list));
+  }
+  povol(soubor);
+  return pisma();
+}
+
+/** Adresa, pod kterou si okno písmo načte vlastním protokolem. */
+export function pismoSoubor(soubor: string): string {
+  povol(soubor);
+  return soubor;
+}
+
 /* ---------- uložení na disk ---------- */
 
 /**

@@ -52,6 +52,7 @@ const ALLOWED_INVOKE = [
   'ig:video', 'ig:videoSave', 'ig:videoPick', 'ig:videoPickAudio', 'ig:videoProbe', 'ig:videoUrl',
   'ig:videoRecord', 'ig:videoTranslate', 'ig:videoRender', 'ig:videoStop', 'ig:videoFeed',
   'ig:videoExport', 'ig:videoExportAll', 'ig:videoReveal', 'ig:videoNew',
+  'ig:fonts', 'ig:fontAdd', 'ig:fontUrl',
   'ig:stings', 'ig:stingAdd', 'ig:stingSave', 'ig:stingRemove',
   // Chat
   'chat:overview', 'chat:saveConfig', 'chat:test',

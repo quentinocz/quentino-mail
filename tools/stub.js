@@ -1028,6 +1028,15 @@
     'ig:videoExportAll': ['/Users/patrik/Videa/sametovy-motylek-CS.mp4',
       '/Users/patrik/Videa/sametovy-motylek-EN.mp4', '/Users/patrik/Videa/sametovy-motylek-DE.mp4'],
     'ig:videoReveal': true,
+    /* Písma z počítače — v náhledu jen pár, ať je vidět nabídka i vlastní */
+    'ig:fonts': [
+      { nazev: 'Quentino Sans', soubor: '/Users/patrik/Library/Fonts/QuentinoSans.otf', vlastni: true },
+      { nazev: 'Avenir Next', soubor: '/Library/Fonts/AvenirNext.ttf' },
+      { nazev: 'Georgia', soubor: '/Library/Fonts/Georgia.ttf' },
+      { nazev: 'Helvetica Neue', soubor: '/Library/Fonts/HelveticaNeue.otf' }
+    ],
+    'ig:fontAdd': [],
+    'ig:fontUrl': 'data:font/woff2;base64,',
     'ig:videoNew': 777,
     'ig:stingAdd': [],
     'ig:stingSave': [],

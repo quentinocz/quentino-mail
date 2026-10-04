@@ -157,7 +157,11 @@ export interface VidTitulek {
   barva?: VidBarva;
   /** Jemný svislý posun v dílech výšky obrazu, −0,25 až 0,25. */
   posunY?: number;
+  /** Jemný vodorovný posun v dílech šířky obrazu, −0,4 až 0,4. */
+  posunX?: number;
   zarovnani?: VidZarovnani;
+  /** Vlastní písmo jen pro tenhle titulek; jinak platí písmo projektu. */
+  pismo?: string;
 }
 
 export type VidBarva = 'auto' | 'bila' | 'cerna' | 'salvej' | 'zluta';
@@ -181,12 +185,13 @@ export const ZAROVNANI: Record<VidZarovnani, string> = {
 
 /** Doladění titulku i tam, kde ho ještě nemá. */
 export function doladeni(t: VidTitulek): {
-  velikost: number; barva: VidBarva; posunY: number; zarovnani: VidZarovnani;
+  velikost: number; barva: VidBarva; posunY: number; posunX: number; zarovnani: VidZarovnani;
 } {
   return {
     velikost: Math.max(0.7, Math.min(1.5, t.velikost || 1)),
     barva: BARVY[t.barva as VidBarva] ? (t.barva as VidBarva) : 'auto',
     posunY: Math.max(-0.25, Math.min(0.25, t.posunY ?? 0)),
+    posunX: Math.max(-0.4, Math.min(0.4, t.posunX ?? 0)),
     zarovnani: ZAROVNANI[t.zarovnani as VidZarovnani] ? (t.zarovnani as VidZarovnani) : 'stred'
   };
 }
@@ -241,6 +246,8 @@ export interface VidProjekt {
   hotovo: Record<string, VidHotovo>;
   /** Reel se má objevit i v mřížce profilu. */
   doMrizky: boolean;
+  /** Písmo titulků pro celý projekt. Prázdno = písmo aplikace. */
+  pismo?: string;
   zmeneno?: string;
 }
 

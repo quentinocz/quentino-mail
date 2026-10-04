@@ -151,6 +151,11 @@ export function registerIgIpc() {
   handle('ig:videoExportAll', (postId: number, langs?: string[]) =>
     ig.ulozVidea(Number(postId), Array.isArray(langs) ? langs : undefined));
   handle('ig:videoReveal', (postId: number, lang: string) => ig.ukazVideo(Number(postId), String(lang ?? '')));
+  /* Písma pro titulky — ze systému i vlastní nahraná */
+  handle('ig:fonts', () => ig.pisma());
+  handle('ig:fontAdd', () => ig.addPismo());
+  handle('ig:fontUrl', (soubor: string) => mediaUrl(ig.pismoSoubor(String(soubor ?? ''))));
+
   /* Střih bez zakládání příspěvku — ten se založí sám */
   handle('ig:videoNew', () => ig.novyVideoPrispevek());
 

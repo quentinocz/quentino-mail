@@ -1194,6 +1194,11 @@ export const api = {
     /** Založí příspěvek pro střih, aby se do editoru dalo vejít rovnou. */
     videoNew: () => call<number>('ig:videoNew'),
 
+    /* Písma pro titulky — ze systému i vlastní nahraná */
+    fonts: () => call<{ nazev: string; soubor: string; vlastni?: boolean }[]>('ig:fonts'),
+    fontAdd: () => call<{ nazev: string; soubor: string; vlastni?: boolean }[]>('ig:fontAdd'),
+    fontUrl: (soubor: string) => call<string>('ig:fontUrl', soubor),
+
     /* Znělky — videa na začátek a na konec, nahraná jen jednou */
     stings: () => call<VidZnelka[]>('ig:stings'),
     stingAdd: (kam: 'zacatek' | 'konec' | 'kamkoli' = 'kamkoli') => call<VidZnelka[]>('ig:stingAdd', kam),

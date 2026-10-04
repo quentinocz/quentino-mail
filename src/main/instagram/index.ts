@@ -472,7 +472,8 @@ export {
   popis as videoPopis, saveNahravka, prelozTitulky, vykresli as vykresliVideo,
   stopRender as stopVideoRender, znelky, addZnelka, saveZnelka, removeZnelka,
   setDoMrizky, povolProjekt, povol as povolSoubor,
-  ulozVideo, ulozVidea, ukazVideo, novyVideoPrispevek
+  ulozVideo, ulozVidea, ukazVideo, novyVideoPrispevek,
+  pisma, addPismo, pismoSoubor
 } from './videoedit';
 
 /** Přesun příspěvku v plánu na jiný den — plán se v praxi mění pořád. */

@@ -496,7 +496,7 @@ for (const okno of OKNA) {
       prechody: [...document.querySelectorAll('.qv-prechod em')].map(e => e.textContent.trim()),
       radky: document.querySelectorAll('.qv-tit-radek').length,
       styly: [...document.querySelectorAll('.qv-tit-vzhled select')].length,
-      jazyky: [...document.querySelectorAll('.qv-jazyky .tab')].map(b => b.textContent.trim()),
+      jazyky: [...document.querySelectorAll('.qv-jazyk')].map(b => b.textContent.replace(/\s+/g, ' ').trim()),
       pomer: (document.querySelector('.qv-obal')?.className ?? ''),
       video: !!document.querySelector('.qv-obal video'),
       platno: !!document.querySelector('canvas.qv-titulky'),
@@ -544,13 +544,23 @@ for (const okno of OKNA) {
   await page.waitForTimeout(600);
   const vic = await page.evaluate(() => ({
     poli: [...document.querySelectorAll('.qv-tit-vic label')].map(l => l.textContent.trim().split(/\s{2,}|\n/)[0]),
-    zpet: !!document.querySelector('.qv-tit-vic .btn')
+    zpet: !!document.querySelector('.qv-tit-vic .btn'),
+    pisma: [...document.querySelectorAll('.qv-tit-vic select')].length
   }));
-  say('  a jeden titulek jde doladit zvlášť',
-    vic.poli.length === 4 && vic.zpet, vic.poli.join(' · '));
+  say('  a jeden titulek jde doladit zvlášť — velikost, barva, posun, zarovnání i písmo',
+    vic.poli.length === 6 && vic.zpet && vic.pisma === 3, vic.poli.join(' · '));
   await page.locator('.qv-tit-btns .icon-btn').nth(1).click();
+
+  /* Písmo pro celý projekt, včetně vlastního nahraného */
+  const pismo = await page.evaluate(() => ({
+    nabidka: [...document.querySelectorAll('.qv-pismo select option')].map(o => o.textContent.trim()),
+    nahrat: [...document.querySelectorAll('.qv-pismo .btn')].map(b => b.textContent.trim())
+  }));
+  say('  písmo titulků jde vybrat ze systémových i nahrát vlastní',
+    pismo.nabidka.length === 5 && pismo.nahrat.some(t => /Nahrát vlastní/.test(t)),
+    pismo.nabidka.join(' · '));
   say('  jazyk titulků se přepíná a je vidět, kolik je přeloženo',
-    strih.jazyky.length === 3 && /zdroj/.test(strih.jazyky[0]) && /\d\/\d/.test(strih.jazyky[1]),
+    strih.jazyky.length === 3 && /zdroj/.test(strih.jazyky[0]) && /\d\s*\/\s*\d/.test(strih.jazyky[1]),
     strih.jazyky.join(' | '));
   say('  zvuk jde pro trh vzít z videa, z vlastního souboru, nebo vypnout',
     strih.zvukVolby.length === 3, strih.zvukVolby.join(' · '));
@@ -643,7 +653,9 @@ for (const okno of OKNA) {
     return {
       uchopu: uchopy.length,
       vybrano: !!vybrano && parseFloat(vybrano.style.width) > 0,
-      rozdelit: [...document.querySelectorAll('.qv-strih-hlava .btn')].map(b => b.textContent.trim()),
+      rozdelit: [...document.querySelectorAll('.qv-konce .btn')].map(b => b.textContent.trim()),
+      konce: [...document.querySelectorAll('.qv-konec-popis')].map(e => e.textContent.trim()),
+      mimo: document.querySelectorAll('.qv-vystrizek-mimo').length,
       vyrez: [...document.querySelectorAll('.qv-vyrez label')].map(l => l.textContent.trim().split(/\s/)[0]),
       // Název souboru se nesmí překrývat s košem — na dlouhých názvech se to stalo
       kolize: !!nazev && !!kos && nazev.right > kos.left && nazev.top < kos.bottom && nazev.bottom > kos.top
@@ -653,19 +665,69 @@ for (const okno of OKNA) {
     prostrih.uchopu === 2 && prostrih.vybrano, `${prostrih.uchopu} úchyty`);
   say('  záběr jde rozdělit v místě přehrávače',
     prostrih.rozdelit.some(t => /Rozdělit/.test(t)), prostrih.rozdelit.join(' · '));
+  /*
+   * Snímky v místech střihu. Posouvat úchyt podle čísel znamená hádat,
+   * čím záběr začne a skončí — na obrázku je to vidět.
+   */
+  say('  a u obou konců i uprostřed je vidět snímek',
+    prostrih.konce.length === 3 && /Začíná na/.test(prostrih.konce[0]),
+    prostrih.konce.join(' · '));
+  say('  co se ze zdroje vyhodí, je ztlumené', prostrih.mimo === 2, `${prostrih.mimo} části`);
   say('  a dá se přiblížit i posunout výřez',
     prostrih.vyrez.length === 3, prostrih.vyrez.join(' · '));
   say('  název souboru se nepřekrývá s košem', !prostrih.kolize);
   await page.screenshot({ path: path.join(SHOTS, 'okno-social-video-prostrih.png') });
 
-  /* Překlad doplní chybějící jazyky — a je to vidět na počtu u záložky */
-  await page.locator('.qv-krok button', { hasText: 'Přeložit do ostatních' }).click();
-  await page.waitForTimeout(700);
+  /*
+   * Překlad se nabízí tam, kde chybí — u přepnutého trhu, ne v hlavičce
+   * kroku. Právě ve chvíli, kdy člověk vidí prázdná pole, má tlačítko
+   * smysl; nahoře u nadpisu ho hledal jinde.
+   */
+  await page.locator('.qv-jazyk', { hasText: 'DE' }).click();
+  await page.waitForTimeout(400);
+  const chybejici = await page.evaluate(() => {
+    const stav = document.querySelector('.qv-jazyk-stav');
+    return {
+      text: (stav?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      tlacitka: [...(stav?.querySelectorAll('.btn') ?? [])].map(b => b.textContent.trim()),
+      varovne: !!stav && !stav.className.includes('ok')
+    };
+  });
+  say('  u trhu bez překladu stojí, co se stane, a hned u toho překlad',
+    chybejici.varovne && /vypálí se (místo nich )?CS/.test(chybejici.text)
+      && chybejici.tlacitka.some(t => /Přeložit do DE/.test(t)),
+    `${chybejici.text.slice(0, 70)} → ${chybejici.tlacitka.join(' | ')}`);
+
+  await page.locator('.qv-jazyk-stav .btn', { hasText: 'Přeložit' }).first().click();
+  await page.waitForTimeout(800);
   const poPrekladu = await page.evaluate(() =>
-    [...document.querySelectorAll('.qv-jazyky .tab')].map(b => b.textContent.trim()));
+    [...document.querySelectorAll('.qv-jazyk')].map(b => b.textContent.replace(/\s+/g, ' ').trim()));
   say('  po překladu mají trhy všechny titulky',
-    poPrekladu.slice(1).every(t => /(\d+)\/\1/.test(t.replace(/\s/g, ''))),
+    poPrekladu.length === 3 && poPrekladu.slice(1).every(t => /(\d+) \/ \1/.test(t)),
     poPrekladu.join(' | '));
+
+  /* Měřítko a jména pásů — bez nich byla osa dva pruhy bez čísel */
+  const osa = await page.evaluate(() => ({
+    znacky: document.querySelectorAll('.qv-stupnice i').length,
+    jmena: [...document.querySelectorAll('.qv-osa-jmena span')].map(e => e.textContent.trim()),
+    hlava: (document.querySelector('.qv-hlava b')?.textContent ?? '').trim(),
+    prechodVOse: [...document.querySelectorAll('.qv-prolnuti b')].map(e => e.textContent.trim())
+  }));
+  say('  časová osa má měřítko, jména pásů i čas u hlavy',
+    osa.znacky >= 4 && osa.jmena.join('·') === 'Záběry·Titulky' && /\d/.test(osa.hlava),
+    `${osa.znacky} značek, hlava ${osa.hlava}`);
+  say('  a u překryvu stojí, který přechod to je',
+    osa.prechodVOse.length === 2, osa.prechodVOse.join(' · '));
+
+  /* Náhled jde zvětšit — na malém se titulky ladí špatně */
+  const velikosti = await page.evaluate(() =>
+    [...document.querySelectorAll('.qv-zvetseni button')].map(b => b.textContent.trim()));
+  say('  náhled jde zvětšit i zmenšit', velikosti.join('') === 'SML', velikosti.join(' '));
+  await page.locator('.qv-zvetseni button', { hasText: 'L' }).click();
+  await page.waitForTimeout(300);
+  const vetsi = await page.evaluate(() => (document.querySelector('.qv-obal')?.className ?? ''));
+  say('  a volba se opravdu projeví', /vel-l/.test(vetsi), vetsi);
+  await page.locator('.qv-zvetseni button', { hasText: 'M' }).click();
 
   /* Vykreslení: postup se hlásí průběžně, jinak to vypadá zaseknutě */
   await page.locator('.qv-konec button.primary').click();

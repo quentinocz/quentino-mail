@@ -35,7 +35,10 @@ export interface KresbaVstup {
   velikost?: number;
   barva?: VidBarva;
   posunY?: number;
+  posunX?: number;
   zarovnani?: VidZarovnani;
+  /** Název rodiny písma; prázdno = písmo aplikace. */
+  pismo?: string;
 }
 
 /** Šalvějová zelená z e-shopu — táž barva jako odznak košíku. */
@@ -161,11 +164,18 @@ export function nakresliTitulek(
   const zarovnani = vstup.zarovnani ?? 'stred';
   // Vodorovná osa textu: u kraje se nechává tentýž okraj jako nahoře a dole
   const okraj = sirka * 0.07;
-  const osaX = zarovnani === 'vlevo' ? okraj : zarovnani === 'vpravo' ? sirka - okraj : sirka / 2;
+  const osaX = (zarovnani === 'vlevo' ? okraj : zarovnani === 'vpravo' ? sirka - okraj : sirka / 2)
+    + sirka * Math.max(-0.4, Math.min(0.4, vstup.posunX ?? 0));
+  /*
+   * Vybrané písmo se dá před Montserrat. Zůstává za ním jako záloha:
+   * než se vlastní písmo načte, kreslí se tím, co je po ruce, místo
+   * aby titulek na chvíli zmizel.
+   */
+  const rodina = vstup.pismo ? `"${vstup.pismo.replace(/"/g, '')}", ${PISMO}` : PISMO;
   const psane = p.verzalky ? text.toLocaleUpperCase('cs-CZ') : text;
 
   ctx.save();
-  ctx.font = `${p.tuk} ${velikost}px ${PISMO}`;
+  ctx.font = `${p.tuk} ${velikost}px ${rodina}`;
   ctx.textAlign = zarovnani === 'vlevo' ? 'left' : zarovnani === 'vpravo' ? 'right' : 'center';
   ctx.textBaseline = 'middle';
 
