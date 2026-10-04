@@ -591,6 +591,62 @@ for (const okno of OKNA) {
     `${nakresleno.pixelu} z ${nakresleno.celkem} pixelů`);
 
   /*
+   * Náhled musí zůstat vidět i po sjetí k titulkům.
+   *
+   * Je to jediné místo, kde je vidět, jak titulek vypadá — psát text
+   * a nevidět ho znamená ladit naslepo. Drží se `position: sticky`,
+   * což ale potřebuje, aby rolovala sama obrazovka, ne okno nad ní.
+   */
+  {
+    const predtim = await page.evaluate(() => {
+      const r = document.querySelector('.qv-rail').getBoundingClientRect();
+      const k = document.querySelectorAll('.qv-krok')[1].getBoundingClientRect();
+      return { rail: Math.round(r.top), krok: Math.round(k.top) };
+    });
+    await page.evaluate(() => { document.querySelector('.qv').scrollTop = 700; });
+    await page.waitForTimeout(350);
+    const potom = await page.evaluate(() => {
+      const r = document.querySelector('.qv-rail').getBoundingClientRect();
+      const k = document.querySelectorAll('.qv-krok')[1].getBoundingClientRect();
+      return { rail: Math.round(r.top), krok: Math.round(k.top), posun: document.querySelector('.qv').scrollTop };
+    });
+    say('  náhled zůstane vidět i po sjetí k titulkům',
+      potom.posun > 100 && Math.abs(potom.rail - predtim.rail) < 12 && predtim.krok - potom.krok > 100,
+      `posun ${potom.posun}, náhled ${predtim.rail}→${potom.rail}, krok ${predtim.krok}→${potom.krok}`);
+    await page.evaluate(() => { document.querySelector('.qv').scrollTop = 0; });
+    await page.waitForTimeout(250);
+  }
+
+  /*
+   * Snímky z videa.
+   *
+   * Vytahuje je okno z téhož souboru, který přehrává. Dřív se pomocný
+   * přehrávač zakládal odpojený od stránky a s `preload="metadata"` —
+   * první snímek se tím nedekódoval, `loadeddata` nepřišlo a u pásků
+   * i u konců střihu pořád stálo „načítám snímek…". Zkouška proto
+   * nečeká na vzhled, ale na opravdu vytažené obrázky.
+   */
+  await page.waitForTimeout(2500);
+  const snimky = await page.evaluate(() => ({
+    vOse: document.querySelectorAll('.qv-osa .qv-snimky img').length,
+    naPolich: [...document.querySelectorAll('.qv-konec-snimek img')].length,
+    cekaji: document.querySelectorAll('.qv-konec-prazdno').length
+  }));
+  say('  snímky z videa se opravdu vytáhnou',
+    snimky.vOse > 0, `v ose ${snimky.vOse}, u konců střihu ${snimky.naPolich}`);
+
+  /* Přejíždění po ose ukazuje, co v tom místě je */
+  const osaBox = await page.locator('.qv-osa').boundingBox();
+  await page.mouse.move(osaBox.x + osaBox.width * 0.6, osaBox.y + 20);
+  await page.waitForTimeout(250);
+  const najeto = await page.evaluate(() => {
+    const n = document.querySelector('.qv-najeto');
+    return { je: !!n, cas: (n?.querySelector('b')?.textContent ?? '').trim(), obrazek: !!n?.querySelector('img') };
+  });
+  say('  při přejíždění po ose je vidět snímek i čas',
+    najeto.je && /\d/.test(najeto.cas), `${najeto.cas}${najeto.obrazek ? ' se snímkem' : ' bez snímku'}`);
+
+  /*
    * Mezery mezi slovy v titulku.
    *
    * Vypsat v seznamu písem emoji rodiny vypadá neškodně — jenže prohlížeč
@@ -673,6 +729,27 @@ for (const okno of OKNA) {
     prostrih.konce.length === 3 && /Začíná na/.test(prostrih.konce[0]),
     prostrih.konce.join(' · '));
   say('  co se ze zdroje vyhodí, je ztlumené', prostrih.mimo === 2, `${prostrih.mimo} části`);
+  /* A ty snímky se opravdu dotáhnou, ne že u nich zůstane „načítám" */
+  await page.waitForTimeout(2200);
+  const konceHotove = await page.evaluate(() => ({
+    obrazku: document.querySelectorAll('.qv-konec-snimek img').length,
+    ceka: document.querySelectorAll('.qv-konec-prazdno').length
+  }));
+  say('  a snímky u konců střihu se dotáhnou',
+    konceHotove.obrazku >= 2, `${konceHotove.obrazku} snímků, ${konceHotove.ceka} čeká`);
+
+  /*
+   * Klepnutí na titulek přesune náhled na něj. Bez toho se text psal
+   * naslepo: v náhledu stál jiný okamžik videa.
+   */
+  await page.locator('.qv-tit-radek').nth(2).click();
+  await page.waitForTimeout(400);
+  const poKliku = await page.evaluate(() => ({
+    cas: (document.querySelector('.qv-cas')?.textContent ?? '').trim(),
+    zvyraznen: document.querySelectorAll('.qv-tit-radek.nyni').length
+  }));
+  say('  klepnutí na titulek přesune náhled na něj',
+    poKliku.zvyraznen === 1, `${poKliku.cas}, zvýrazněných ${poKliku.zvyraznen}`);
   say('  a dá se přiblížit i posunout výřez',
     prostrih.vyrez.length === 3, prostrih.vyrez.join(' · '));
   say('  název souboru se nepřekrývá s košem', !prostrih.kolize);

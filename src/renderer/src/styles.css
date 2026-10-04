@@ -9887,7 +9887,19 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
    takže pořadí shora dolů je zároveň postup práce.
    ====================================================================== */
 
-.qv { display: flex; flex-direction: column; gap: 16px; padding: 18px 22px 40px; overflow: auto; }
+/*
+ * Rolovat musí tahle obrazovka sama, ne okno nad ní.
+ *
+ * Bez pevné výšky se `.qv` roztáhlo na výšku obsahu, rolovalo se o patro
+ * výš — a náhled přilepený `position: sticky` se neměl čeho chytit, takže
+ * při sjetí k titulkům zmizel. Přitom je to jediné místo, kde je vidět,
+ * jak titulek vypadá.
+ */
+.qv {
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 18px 22px 40px;
+  height: 100%; min-height: 0; overflow: auto;
+}
 
 /* Náhled u kraje, kroky vedle něj. Náhled se drží při rolování — ladit
    titulek a nevidět ho je to poslední, co má tahle obrazovka dovolit. */
@@ -10190,6 +10202,27 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .qv-uchop.od { left: 0; border-radius: 5px 0 0 5px; }
 .qv-uchop.do { right: 0; border-radius: 0 5px 5px 0; }
 .qv-tit span { pointer-events: none; }
+
+/* Snímek pod kurzorem: hledat místo klikáním znamená pokaždé přeskočit
+   přehrávač a ztratit, kde se zrovna bylo */
+.qv-najeto {
+  position: absolute; top: -4px; z-index: 3;
+  transform: translate(-50%, -100%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  pointer-events: none;
+}
+.qv-najeto img, .qv-najeto-prazdno {
+  width: 104px; aspect-ratio: 16 / 9; object-fit: cover;
+  border-radius: 6px; background: #111;
+  box-shadow: var(--shadow-lg); border: 1px solid rgba(255,255,255,.5);
+}
+.qv-najeto b {
+  padding: 1px 6px; border-radius: 4px;
+  background: var(--text); color: #fff; font-size: 10.5px;
+}
+/* Nad osou musí být na snímek místo — jinak by ho ořízl rámeček kroku */
+.qv-osa-plocha { min-width: 0; padding-top: 70px; margin-top: -70px; }
+.qv-osa { overflow: visible; }
 
 /* Hlava nese i čas — bez čísla se z pruhu nedalo poznat, kde se stojí */
 .qv-hlava { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger); pointer-events: none; }

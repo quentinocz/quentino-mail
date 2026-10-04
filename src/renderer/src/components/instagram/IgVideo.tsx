@@ -64,6 +64,14 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
   /** U kterého titulku jsou rozbalené podrobnosti. */
   const [podrobne, setPodrobne] = useState<string | null>(null);
   /**
+   * Kde je myš nad časovou osou.
+   *
+   * Hledat místo klikáním znamená pokaždé přeskočit přehrávač a ztratit,
+   * kde se zrovna bylo. Při přejíždění se proto ukáže snímek z toho
+   * místa — z pásku, který už je po ruce, takže to nic nestojí.
+   */
+  const [najeto, setNajeto] = useState<{ cas: number; podil: number } | null>(null);
+  /**
    * Velikost náhledu. Na malém se titulky ladí špatně — a právě kvůli
    * nim se sem chodí; na velkém zase není vidět zbytek obrazovky.
    * Proto volba, ne pevná hodnota.
@@ -531,11 +539,13 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
         zdrojDelka: v.delka,
         od: 0,
         /*
-         * Z dlouhého videa se nabídne prvních dvanáct sekund, ne celé.
-         * Reel má být krátký a nastavit konec je práce; nastavit ho
-         * z celé minuty je práce zbytečná.
+         * Vkládá se **celé** video. Dřív se z něj bralo prvních dvanáct
+         * sekund s úmyslem ušetřit práci — jenže nikdo o to nežádal a
+         * nebylo to nikde vidět: video se po vložení tvářilo kratší,
+         * než jaké je, a vypadalo to jako chyba. Zkrátit ho jde jedním
+         * tahem a je u toho vidět, co se zahazuje.
          */
-        do: v.delka > 0 ? Math.min(v.delka, NABIDKA) : NABIDKA,
+        do: v.delka > 0 ? v.delka : NABIDKA,
         prechod: 'zadny',
         prechodDelka: 0.5
       }));
@@ -660,12 +670,26 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     const url = await adresa(soubor);
     const el = document.createElement('video');
     el.muted = true;
-    el.preload = 'metadata';
+    /*
+     * `auto`, ne `metadata`. S `metadata` se načte jen délka a rozměry —
+     * první snímek se nedekóduje, `loadeddata` nepřijde a vytahování
+     * snímků čekalo marně do vypršení času. Proto u pásků i u konců
+     * střihu pořád stálo „načítám snímek…".
+     */
+    el.preload = 'auto';
+    el.playsInline = true;
+    /*
+     * A musí být ve stránce. Odpojený prvek Chromium dekódovat nemusí,
+     * takže z něj plátno vytáhne prázdno. Je schovaný za okrajem, ne
+     * přes `display: none` — to by dekódování zase vyplo.
+     */
+    el.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+    document.body.appendChild(el);
     el.src = url;
     await new Promise<void>(ok => {
       const hotovo = () => { el.removeEventListener('loadeddata', hotovo); ok(); };
       el.addEventListener('loadeddata', hotovo);
-      window.setTimeout(ok, 4000);
+      window.setTimeout(ok, 6000);
     });
     const out: string[] = [];
     for (const kdy of casy) {
@@ -686,6 +710,7 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
       if (obr) out.push(obr);
     }
     el.src = '';
+    el.remove();
     return out;
   }, [adresa]);
 
@@ -762,6 +787,17 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     return () => { zive = false; };
   }, [vybrany, klipy, zdrojSnimky, vytahni]);
 
+  /** Snímek nejblíž danému času výsledného videa — z už vytažených pásků. */
+  const snimekV = useCallback((t: number): string => {
+    const i = klipV(t);
+    if (i < 0) return '';
+    const rada = snimky[klipy[i]?.id] ?? [];
+    if (rada.length === 0) return '';
+    const misto = rozvrzeni.místa[i];
+    const podil = Math.max(0, Math.min(0.999, (t - misto.start) / Math.max(0.1, misto.delka)));
+    return rada[Math.min(rada.length - 1, Math.floor(podil * rada.length))] || '';
+  }, [klipV, klipy, rozvrzeni, snimky]);
+
   /* ---------- titulky ---------- */
 
   const pridejTitulek = useCallback((od?: number) => {
@@ -788,6 +824,22 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
     if (!p) return;
     upravTitulek(t.id, { texty: { ...t.texty, [lang]: hodnota } });
   }, [p, lang, upravTitulek]);
+
+  /**
+   * Přesun náhledu na titulek.
+   *
+   * Titulek patří k celému videu, ne k jednomu záběru — takže se náhled
+   * zároveň vrátí z režimu zkracování. Bez toho se text psal naslepo:
+   * v náhledu stál zdrojový soubor jednoho záběru a jak titulek vypadá,
+   * se poznalo až po vykreslení.
+   */
+  const naTitulek = useCallback((t: VidTitulek) => {
+    const uvnitr = rezimRef.current === 'osa' && kde >= t.od && kde <= t.do;
+    if (uvnitr) return;
+    setRezim('osa');
+    setVybrany(null);
+    void skoc(t.od + Math.min(0.15, Math.max(0.02, (t.do - t.od) / 4)));
+  }, [kde, skoc]);
 
   const smazTitulek = useCallback((id: string) => {
     if (!p) return;
@@ -1474,7 +1526,15 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
               </div>
 
               <div className="qv-osa" ref={osaRef}
-                onPointerMove={behemTahu}
+                onPointerMove={e => {
+                  behemTahu(e);
+                  const box = osaRef.current;
+                  if (!box) return;
+                  const r = box.getBoundingClientRect();
+                  const podil = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+                  setNajeto({ cas: podil * delka, podil });
+                }}
+                onPointerLeave={() => setNajeto(null)}
                 onPointerUp={konecTahu}
                 onClick={e => {
                   const box = osaRef.current;
@@ -1514,7 +1574,11 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
                       className={`qv-tit ${t.pozice} ${podrobne === t.id ? 'on' : ''}`}
                       style={{ left: naSekundu(t.od), width: naSekundu(Math.max(0.3, t.do - t.od)) }}
                       onPointerDown={e => zacniTah(e, t, 'celý')}
-                      onClick={e => { e.stopPropagation(); setPodrobne(t.id); }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setPodrobne(t.id);
+                        naTitulek(t);
+                      }}
                       title={`${textTitulku(t, lang, p.zdroj) || 'bez textu'} · ${cas(t.od)}–${cas(t.do)}`}>
                       <i className="qv-uchop od" onPointerDown={e => zacniTah(e, t, 'od')} />
                       <span>{textTitulku(t, lang, p.zdroj) || '—'}</span>
@@ -1525,6 +1589,20 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
                     <span className="qv-osa-prazdno">Zatím žádný titulek — klepni do osy a přidej ho tlačítkem výš.</span>
                   )}
                 </div>
+                {/*
+                  * Snímek pod kurzorem. Hledat místo klikáním znamená
+                  * pokaždé přeskočit přehrávač a ztratit, kde se zrovna
+                  * bylo — takhle je vidět, co v tom místě je, ještě než
+                  * se klepne.
+                  */}
+                {najeto && klipy.length > 0 && (
+                  <div className="qv-najeto" style={{ left: `${najeto.podil * 100}%` }}>
+                    {snimekV(najeto.cas)
+                      ? <img src={snimekV(najeto.cas)} alt="" />
+                      : <div className="qv-najeto-prazdno" />}
+                    <b>{cas(najeto.cas)}</b>
+                  </div>
+                )}
                 {/* Hlava s časem: kde přesně náhled stojí */}
                 <div className="qv-hlava" style={{ left: naSekundu(kde) }}>
                   <b>{cas(kde)}</b>
@@ -1651,7 +1729,13 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
             const text = t.texty?.[lang] ?? '';
             const zeZdroje = !text.trim() && !!textTitulku(t, lang, p.zdroj);
             return (
-              <div className={`qv-tit-radek ${kde >= t.od && kde <= t.do ? 'nyni' : ''}`} key={t.id}>
+              /*
+                * Klepnutí kamkoli na řádek přesune náhled na ten titulek.
+                * Jinak se text psal naslepo: v náhledu stál jiný okamžik
+                * videa a jak titulek vypadá, se poznalo až po vykreslení.
+                */
+              <div className={`qv-tit-radek ${rezim === 'osa' && kde >= t.od && kde <= t.do ? 'nyni' : ''}`} key={t.id}
+                onPointerDown={() => naTitulek(t)}>
                 <span className="qv-tit-c">{i + 1}</span>
                 <div className="qv-tit-cas">
                   <input type="number" step={0.1} min={0} max={delka} value={round1(t.od)}
@@ -1665,6 +1749,7 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
                     rows={2}
                     value={text}
                     placeholder={zeZdroje ? `Nepřeloženo — použije se ${p.zdroj}` : 'Text titulku, klidně s emoji'}
+                    onFocus={() => naTitulek(t)}
                     onChange={e => textTitulku2(t, e.target.value)} />
                   {zeZdroje && <em className="qv-tit-zdroj">Vypálí se {p.zdroj}: „{textTitulku(t, lang, p.zdroj)}"</em>}
                 </div>
