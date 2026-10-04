@@ -8,8 +8,12 @@ import * as config from './config';
 import * as db from './supabase';
 import * as products from './products';
 import * as ai from './ai';
-import { listPersons } from '../settings';
-import type { ChatConversation, ChatMessage, ChatOverview, ChatProduct } from '../../shared/types';
+import { listPersons, getSettings } from '../settings';
+import { getSetting, setSetting } from '../db';
+import { notifyPhone, wantsNotify, chatLink } from '../notify';
+import type {
+  ChatConversation, ChatMessage, ChatOverview, ChatProduct, ChatWaiting
+} from '../../shared/types';
 
 export { config, products };
 export const isConfigured = config.isConfigured;
@@ -159,6 +163,65 @@ export async function suggest(conversationId: string, note: string): Promise<str
 /* ---------- Hlídání nepřečtených na pozadí ---------- */
 
 let lastUnread = -1;
+let lastCeka = -1;
+
+/**
+ * Kdo čeká na odpověď.
+ *
+ * Nepřečtené zprávy nejsou totéž co nevyřízený chat: zprávu si lze
+ * přečíst a nechat ji ležet — a právě to se stávalo. Čeká ten otevřený
+ * rozhovor, kde poslední slovo má zákazník (`answered === false`),
+ * a je jedno, jestli se na něj někdo díval.
+ */
+export async function cekajici(): Promise<ChatWaiting> {
+  if (!config.isConfigured()) return { pocet: 0, minut: 0, jmena: [], id: '' };
+  const list = await db.listConversations(true);
+  const ceka = list
+    .filter(c => !c.answered)
+    .sort((a, b) => String(a.lastMessageAt).localeCompare(String(b.lastMessageAt)));
+  if (ceka.length === 0) return { pocet: 0, minut: 0, jmena: [], id: '' };
+  const nejstarsi = ceka[0];
+  const kdy = Date.parse(nejstarsi.lastMessageAt || '') || Date.now();
+  return {
+    pocet: ceka.length,
+    minut: Math.max(0, Math.round((Date.now() - kdy) / 60000)),
+    // Jména jen pár — do bubliny v panelu se jich víc nevejde
+    jmena: ceka.slice(0, 3).map(c => (c.name || c.email || 'Zákazník').trim()),
+    id: nejstarsi.id
+  };
+}
+
+/**
+ * Připomínka na telefon, dokud se neodpoví.
+ *
+ * Jedno upozornění při příchodu zprávy posílá sám projekt (spoušť
+ * v databázi). Jenže zpráva přijde ve chvíli, kdy je člověk u jiné
+ * práce — a druhá už nepřijde, takže zákazník čeká do večera. Proto
+ * je na výběr i opakování: každých pár minut, dokud se neodpoví.
+ *
+ * Hlídá to počítač, ne telefon — spoušť v databázi se spustí jen při
+ * nové zprávě a telefon na pozadí budit nelze spolehlivě.
+ */
+async function pripomen(ceka: ChatWaiting): Promise<void> {
+  const s = getSettings();
+  if (s.notifyChatMode !== 'repeat' || !wantsNotify('chat')) return;
+  const kazdych = Math.max(1, Math.min(240, s.notifyChatEvery || 15));
+  if (ceka.pocet === 0 || ceka.minut < kazdych) return;
+
+  const posledni = Number(getSetting('chatNudgeAt', '0')) || 0;
+  if (Date.now() - posledni < kazdych * 60_000) return;
+  setSetting('chatNudgeAt', String(Date.now()));
+
+  const kdo = ceka.jmena[0] || 'Zákazník';
+  await notifyPhone(
+    'chat',
+    ceka.pocet === 1 ? 'Zákazník čeká na odpověď' : `${ceka.pocet} zákazníci čekají na odpověď`,
+    ceka.pocet === 1
+      ? `${kdo} napsal před ${ceka.minut} min a zatím bez odpovědi.`
+      : `Nejdéle čeká ${kdo} — ${ceka.minut} min.`,
+    { click: chatLink(ceka.id), priority: 4 }
+  );
+}
 
 export async function pollUnread(): Promise<void> {
   if (!config.isConfigured()) return;
@@ -166,10 +229,18 @@ export async function pollUnread(): Promise<void> {
     const totals = await db.unreadTotal();
     // Každý úspěšný dotaz se počítá jako oťukání — projekt se právě ozval
     config.markSeen();
-    if (totals.unread !== lastUnread) {
+    const ceka = await cekajici();
+    /*
+     * Hlásí se i změna počtu čekajících, ne jen nepřečtených. Bublina
+     * u tlačítka chatu na tom stojí: zpráva přečtená a nezodpovězená
+     * nepřečtené nemění, ale čekat zákazník nepřestane.
+     */
+    if (totals.unread !== lastUnread || ceka.pocet !== lastCeka) {
       lastUnread = totals.unread;
-      emit('chat:unread', totals);
+      lastCeka = ceka.pocet;
+      emit('chat:unread', { ...totals, ceka });
     }
+    await pripomen(ceka);
   } catch { /* výpadek sítě se řeší při dalším kole */ }
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AccountPublic, FolderInfo, MessageHeader, MessageFull, Settings, Category, MessageSort, ListFilters } from '@shared/types';
+import type { AccountPublic, FolderInfo, MessageHeader, MessageFull, Settings, Category, MessageSort, ListFilters, ChatWaiting } from '@shared/types';
 import { isOutgoingFolder } from '@shared/folders';
 import { toolWindow, toolWindowByHash } from '@shared/windows';
 import { api } from './api';
@@ -129,9 +129,30 @@ function AppInner() {
 
   // Nepřečtené zprávy z chatu — číslo u záložky Chat, i když jsi v poště
   const [chatUnread, setChatUnread] = useState(0);
+  /*
+   * Kdo čeká na odpověď. Nepřečtené zprávy to nejsou: zprávu lze
+   * přečíst a nechat ji ležet — a právě to se stávalo, protože odznak
+   * s nepřečtenými se tím vynuloval a nic dál nepřipomínalo, že
+   * zákazník pořád čeká.
+   */
+  const [chatCeka, setChatCeka] = useState<ChatWaiting | null>(null);
   useEffect(() => {
     api.chat.overview().then(o => setChatUnread(o.unread)).catch(() => {});
-    return api.on('chat:unread', (p: any) => setChatUnread(p?.unread ?? 0));
+    return api.on('chat:unread', (p: any) => {
+      setChatUnread(p?.unread ?? 0);
+      if (p?.ceka) setChatCeka(p.ceka);
+    });
+  }, []);
+
+  /*
+   * Při startu se čekající dotáhnou rovnou — událost přijde až s dalším
+   * kolem hlídání a do té doby by proužek chyběl i ve chvíli, kdy někdo
+   * čeká od včerejška.
+   */
+  useEffect(() => {
+    let zive = true;
+    api.chat.waiting().then(w => { if (zive) setChatCeka(w); }).catch(() => {});
+    return () => { zive = false; };
   }, []);
 
   // Undo send — lišta s odpočtem, zprávu lze do ~10 s vzít zpět
@@ -471,6 +492,7 @@ function AppInner() {
           onOpenSettings={() => setSettingsOpen(true)}
           onWorkspace={setWorkspace}
           chatUnread={chatUnread}
+          chatCeka={chatCeka}
           onComposeEmail={email => { setPendingEmail(email); setWorkspace('mail'); }}
           onAiTool={openAiTool}
           activeTool={aiTool ?? undefined}
@@ -478,7 +500,7 @@ function AppInner() {
         />
         {phone && (
           <MobileTabs current="chat" onChange={setWorkspace} chatUnread={chatUnread}
-            onAiTool={openAiTool} activeTool={aiTool ?? undefined} />
+            chatCeka={chatCeka} onAiTool={openAiTool} activeTool={aiTool ?? undefined} />
         )}
         {settingsOpen && (
           <SettingsModal
@@ -501,12 +523,13 @@ function AppInner() {
           onOpenSettings={() => setSettingsOpen(true)}
           onWorkspace={setWorkspace}
           chatUnread={chatUnread}
+          chatCeka={chatCeka}
           onAiTool={openAiTool}
           activeTool={aiTool ?? undefined}
         />
         {phone && (
           <MobileTabs current="instagram" onChange={setWorkspace} chatUnread={chatUnread}
-            onAiTool={openAiTool} activeTool={aiTool ?? undefined} />
+            chatCeka={chatCeka} onAiTool={openAiTool} activeTool={aiTool ?? undefined} />
         )}
         {settingsOpen && (
           <SettingsModal
@@ -604,6 +627,7 @@ function AppInner() {
         orderPending={orderPending}
         onWorkspace={setWorkspace}
         chatUnread={chatUnread}
+        chatCeka={chatCeka}
         onAiTool={openAiTool}
         activeTool={aiTool ?? undefined}
       />

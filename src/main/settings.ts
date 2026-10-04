@@ -59,6 +59,9 @@ export function getSettings(): Settings {
     notifyTopic: getSetting('notifyTopic', '')!,
     notifyPhoneMail: getSetting('notifyPhoneMail', '1') === '1',
     notifyPhoneChat: getSetting('notifyPhoneChat', '1') === '1',
+    // Výchozí je jedno upozornění — opakování je volba, ne překvapení
+    notifyChatMode: getSetting('notifyChatMode', 'once') === 'repeat' ? 'repeat' : 'once',
+    notifyChatEvery: Math.max(1, Math.min(240, Number(getSetting('notifyChatEvery', '15')) || 15)),
     notifyPhoneLocal: getSetting('notifyPhoneLocal', '1') === '1',
     defaultPersonId: (() => {
       const v = parseInt(getSetting('defaultPersonId', '0')!, 10);
@@ -94,6 +97,10 @@ export function saveSettings(s: Partial<Settings>) {
   if (s.notifyTopic !== undefined) setSetting('notifyTopic', s.notifyTopic.trim());
   if (s.notifyPhoneMail !== undefined) setSetting('notifyPhoneMail', s.notifyPhoneMail ? '1' : '0');
   if (s.notifyPhoneChat !== undefined) setSetting('notifyPhoneChat', s.notifyPhoneChat ? '1' : '0');
+  if (s.notifyChatMode !== undefined) setSetting('notifyChatMode', s.notifyChatMode === 'repeat' ? 'repeat' : 'once');
+  if (s.notifyChatEvery !== undefined) {
+    setSetting('notifyChatEvery', String(Math.max(1, Math.min(240, Number(s.notifyChatEvery) || 15))));
+  }
   if (s.notifyPhoneLocal !== undefined) setSetting('notifyPhoneLocal', s.notifyPhoneLocal ? '1' : '0');
   if (s.defaultPersonId !== undefined) setSetting('defaultPersonId', String(s.defaultPersonId ?? 0));
   if (s.theme !== undefined) setSetting('theme', s.theme);

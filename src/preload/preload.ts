@@ -56,7 +56,7 @@ const ALLOWED_INVOKE = [
   'ig:stings', 'ig:stingAdd', 'ig:stingSave', 'ig:stingRemove',
   // Chat
   'chat:overview', 'chat:saveConfig', 'chat:test',
-  'chat:conversations', 'chat:messages', 'chat:send', 'chat:sendImage', 'chat:markRead', 'chat:setStatus',
+  'chat:conversations', 'chat:waiting', 'chat:messages', 'chat:send', 'chat:sendImage', 'chat:markRead', 'chat:setStatus',
   'chat:cards', 'chat:searchProducts', 'chat:productInDomain', 'chat:suggest',
   // Překlady produktů
   'ptrans:overview', 'ptrans:saveSettings', 'ptrans:refresh', 'ptrans:list', 'ptrans:codes', 'ptrans:fields',

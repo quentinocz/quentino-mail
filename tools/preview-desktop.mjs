@@ -172,6 +172,46 @@ await page.waitForTimeout(400);
   await snap('01d-prouzek-prispevky');
 }
 
+/*
+ * Zákazník čeká na odpověď.
+ *
+ * Odznak s nepřečtenými na tohle nestačí: zprávu lze přečíst a nechat
+ * ji ležet — odznak zhasne a od té chvíle nic nepřipomíná, že na druhé
+ * straně někdo čeká. Bublina počítá otevřené rozhovory, kde poslední
+ * slovo má zákazník, a po půl hodině zčervená.
+ */
+{
+  const bublina = await page.evaluate(() => {
+    const node = document.querySelector('.chw');
+    if (!node) return null;
+    const tlacitko = [...document.querySelectorAll('.ig-switch > button')]
+      .find(b => /Chat/.test(b.textContent ?? '') || /Chat/.test(b.getAttribute('aria-label') ?? ''));
+    const r = node.getBoundingClientRect();
+    const t = tlacitko?.getBoundingClientRect();
+    return {
+      text: (node.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      dlouho: node.className.includes('dlouho'),
+      odpovedet: !!node.querySelector('.chw-open'),
+      zavrit: !!node.querySelector('.chw-x'),
+      // Patří k tlačítku chatu, ne někam do obsahu
+      podTlacitkem: !!t && r.top >= t.top - 4,
+      odznak: (document.querySelector('.ws-badge')?.textContent ?? '').trim()
+    };
+  });
+  const ok = !!bublina && /čekají na odpověď/.test(bublina.text) && bublina.dlouho
+    && bublina.odpovedet && bublina.zavrit && bublina.podTlacitkem;
+  if (!ok) problems.push(`bublina o čekajícím zákazníkovi nesedí (${JSON.stringify(bublina)})`);
+  console.log(`${'zákazník čeká na odpověď'.padEnd(28)} ${ok ? '✓' : '✗'} ${bublina?.text?.slice(0, 48) ?? ''}`);
+  await snap('01e-chat-ceka');
+
+  /* Zavřít se dá, ale vrátí se — není to oznámení, které se jednou odbude */
+  await page.evaluate(() => document.querySelector('.chw-x')?.click());
+  await page.waitForTimeout(250);
+  const poZavreni = await page.evaluate(() => !!document.querySelector('.chw'));
+  console.log(`${'  a dá se zavřít'.padEnd(28)} ${poZavreni ? '✗' : '✓'}`);
+  if (poZavreni) problems.push('bublina o čekajícím zákazníkovi nejde zavřít');
+}
+
 // Překlady se otevírají z nabídky Funkce — v panelu už samostatnou položku nemají
 await click('.ig-switch button', { hasText: 'Funkce' });
 await click('.ws-menu-item', { hasText: 'Produkty a překlady' });

@@ -32,7 +32,111 @@ function ok(label, condition, detail) {
   if (!condition && detail) console.log('      ', detail);
 }
 
-/* ---------- 1. text notifikace ---------- */
+/* ---------- 0. kdo čeká na odpověď ---------- */
+
+/*
+ * Nepřečtené zprávy nejsou totéž co nevyřízený chat: zprávu stačí
+ * otevřít a nechat ji ležet — odznak zhasne a od té chvíle nic
+ * nepřipomíná, že na druhé straně někdo čeká. Tohle počítá otevřené
+ * rozhovory, kde poslední slovo má zákazník.
+ *
+ * Supabase se podstrčí, aby zkouška nepotřebovala síť; sleduje se
+ * i to, co a kdy odejde na telefon.
+ */
+console.log('\nKdo čeká na odpověď');
+
+const odeslano = [];
+const supaPath = require.resolve(path.join(DIST, 'chat/supabase.js'));
+let rozhovory = [];
+require.cache[supaPath] = {
+  id: supaPath, filename: supaPath, loaded: true, exports: {
+    listConversations: async () => rozhovory,
+    unreadTotal: async () => ({
+      unread: rozhovory.reduce((s, c) => s + (c.unread || 0), 0),
+      conversations: rozhovory.filter(c => c.unread > 0).length
+    })
+  }
+};
+const configPath = require.resolve(path.join(DIST, 'chat/config.js'));
+require.cache[configPath] = {
+  id: configPath, filename: configPath, loaded: true, exports: {
+    isConfigured: () => true, markSeen: () => {}, getConfig: () => ({}), saveConfig: () => ({})
+  }
+};
+const notifyPath = require.resolve(path.join(DIST, 'notify.js'));
+const skutecnyNotify = require(notifyPath).__esModule ? require(notifyPath) : require(notifyPath);
+require.cache[notifyPath] = {
+  id: notifyPath, filename: notifyPath, loaded: true, exports: {
+    ...skutecnyNotify,
+    wantsNotify: () => true,
+    chatLink: (id) => `quentino://chat/${id}`,
+    notifyPhone: async (kind, title, message) => { odeslano.push({ kind, title, message }); return { ok: true }; }
+  }
+};
+
+/*
+ * Nastavení si při čtení sahá i do účtů pošty (kvůli zamčeným heslům).
+ * Bez té tabulky `getSettings()` spadne — a protože `pollUnread` chyby
+ * polyká, projevilo by se to jen tím, že se připomínka tiše neodešle.
+ */
+db.exec('CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY, pass_enc TEXT)');
+
+const chat = require(path.join(DIST, 'chat/index.js'));
+
+const pred = (minut) => new Date(Date.now() - minut * 60000).toISOString();
+
+(async () => {
+  rozhovory = [
+    { id: 'a', name: 'Jana', unread: 0, answered: true, lastMessageAt: pred(5) },
+    { id: 'b', name: 'Petr', unread: 1, answered: false, lastMessageAt: pred(42) },
+    { id: 'c', name: 'Eva', unread: 0, answered: false, lastMessageAt: pred(9) }
+  ];
+  const ceka = await chat.cekajici();
+  check('čekají ti, kde poslední slovo má zákazník', ceka.pocet, 2);
+  check('nejdéle čekající je první', ceka.jmena[0], 'Petr');
+  ok('a ví se, jak dlouho čeká', Math.abs(ceka.minut - 42) <= 1, `${ceka.minut} min`);
+  check('odkaz vede na ten nejdéle čekající', ceka.id, 'b');
+
+  /*
+   * Přečtení nic nemění. Právě tohle odznak s nepřečtenými neuměl:
+   * stačilo zprávu otevřít a zhasl, i když se neodpovědělo.
+   */
+  rozhovory[1].unread = 0;
+  check('přečtení z čekajících nikoho neodebere', (await chat.cekajici()).pocet, 2);
+
+  rozhovory = rozhovory.map(c => ({ ...c, answered: true }));
+  check('po odpovědi nečeká nikdo', (await chat.cekajici()).pocet, 0);
+
+  /* ---------- připomínání ---------- */
+
+  settings.saveSettings({ notifyPhone: true, notifyTopic: 'test', notifyPhoneChat: true,
+    notifyChatMode: 'once', notifyChatEvery: 15 });
+  rozhovory = [{ id: 'b', name: 'Petr', unread: 1, answered: false, lastMessageAt: pred(42) }];
+  odeslano.length = 0;
+  await chat.pollUnread();
+  check('v režimu „jednou" se nepřipomíná', odeslano.length, 0);
+
+  settings.saveSettings({ notifyChatMode: 'repeat', notifyChatEvery: 15 });
+  await chat.pollUnread();
+  check('v režimu „připomínat" odejde upozornění', odeslano.length, 1);
+  ok('a je v něm, jak dlouho se čeká', /42 min/.test(odeslano[0].message), odeslano[0].message);
+
+  /* Hned podruhé se neposílá — jinak by telefon zvonil každých dvacet vteřin */
+  await chat.pollUnread();
+  check('podruhé hned nic neodejde', odeslano.length, 1);
+
+  /* Čerstvá zpráva počká, než uplyne nastavená doba */
+  require(path.join(DIST, 'db.js')).setSetting('chatNudgeAt', '0');
+  rozhovory = [{ id: 'c', name: 'Eva', unread: 1, answered: false, lastMessageAt: pred(3) }];
+  odeslano.length = 0;
+  await chat.pollUnread();
+  check('do uplynutí nastavené doby se nepřipomíná', odeslano.length, 0);
+
+  /* ---------- 1. text notifikace ---------- */
+  dalsiCast();
+})();
+
+function dalsiCast() {
 
 console.log('\nText notifikace');
 
@@ -200,4 +304,5 @@ check('okolní mezery se ořežou',
   'quentino-x');
 
 console.log(failed === 0 ? '\n✓ upozornění sedí' : `\n✗ ${failed} nesedí`);
-process.exit(failed === 0 ? 0 : 1);
+  process.exit(failed === 0 ? 0 : 1);
+}

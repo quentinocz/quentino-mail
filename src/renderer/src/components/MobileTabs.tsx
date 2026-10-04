@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Icon from './Icon';
+import type { ChatWaiting } from '@shared/types';
 import type { Workspace, AiTool } from './WorkspaceSwitch';
 import { AI_TOOLS } from './WorkspaceSwitch';
 import { Sheet, SheetActions } from './Sheet';
@@ -23,7 +24,7 @@ const TABS: { id: Workspace | 'funcs'; icon: string; label: string }[] = [
  * se schovával v zásuvce pod složkami — o dvě klepnutí dál, než má být, a
  * nebylo o tom vidět, že to existuje.
  */
-export default function MobileTabs({ current, onChange, onAiTool, activeTool, chatUnread }: {
+export default function MobileTabs({ current, onChange, onAiTool, activeTool, chatUnread, chatCeka }: {
   current: Workspace;
   onChange: (w: Workspace) => void;
   /** Otevření nástroje z nabídky Funkce */
@@ -31,6 +32,8 @@ export default function MobileTabs({ current, onChange, onAiTool, activeTool, ch
   /** Který nástroj je zrovna otevřený — kvůli zvýraznění lišty */
   activeTool?: AiTool;
   chatUnread?: number;
+  /** Kdo čeká na odpověď — na telefonu musí být vidět i bez otevření chatu. */
+  chatCeka?: ChatWaiting | null;
 }) {
   const [funcs, setFuncs] = useState(false);
   // Sociální sítě jsou taky „funkce", takže při nich svítí třetí místo
@@ -54,8 +57,15 @@ export default function MobileTabs({ current, onChange, onAiTool, activeTool, ch
             >
               <span className="m-tab-icon">
                 <Icon name={tab.icon} size={22} />
-                {tab.id === 'chat' && chatUnread ? (
-                  <span className="m-tab-badge">{chatUnread > 9 ? '9+' : chatUnread}</span>
+                {/*
+                  * Odznak svítí i u přečtené, ale nezodpovězené zprávy.
+                  * Počítat jen nepřečtené znamenalo, že po otevření zprávy
+                  * zhasl — a zákazník přitom čekal dál.
+                  */}
+                {tab.id === 'chat' && (chatUnread || chatCeka?.pocet) ? (
+                  <span className={`m-tab-badge ${chatCeka?.pocet ? 'ceka' : ''}`}>
+                    {(chatUnread || chatCeka?.pocet || 0) > 9 ? '9+' : (chatUnread || chatCeka?.pocet)}
+                  </span>
                 ) : null}
               </span>
               <span className="m-tab-label">{tab.label}</span>

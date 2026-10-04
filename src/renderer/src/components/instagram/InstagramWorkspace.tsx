@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { IgOverview } from '@shared/types';
+import type { IgOverview, ChatWaiting } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
@@ -39,6 +39,8 @@ interface Props {
   onOpenSettings: () => void;
   onWorkspace: (w: Workspace) => void;
   chatUnread: number;
+  /** Kdo čeká na odpověď v chatu — bublina u tlačítka chatu. */
+  chatCeka?: ChatWaiting | null;
   /** Otevření nástroje z nabídky AI */
   onAiTool: (tool: AiTool) => void;
   /** Který nástroj AI je zrovna otevřený */
@@ -49,7 +51,7 @@ interface Props {
  * Instagramový pracovní prostor. Sdílí s poštou vzhled i postranní panel,
  * ale obsah okna je jiný — pošta a sociální sítě spolu nesoupeří o místo.
  */
-export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUnread, onAiTool, activeTool }: Props) {
+export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUnread, chatCeka, onAiTool, activeTool }: Props) {
   const toast = useToast();
   const phone = useIsPhone();
   const [view, setView] = useState<IgView>('feed');
@@ -231,7 +233,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
       <div className="sidebar">
         <div className="brand">quentino<span> social</span></div>
 
-        <WorkspaceSwitch current="instagram" onChange={onWorkspace} chatUnread={chatUnread}
+        <WorkspaceSwitch current="instagram" onChange={onWorkspace} chatUnread={chatUnread} chatCeka={chatCeka}
           onAiTool={onAiTool} activeTool={activeTool} />
 
         <button className="btn-compose" onClick={newPost}>

@@ -36,6 +36,41 @@ extension Bridge {
         register("chat:conversations") { args in
             try await Chat.conversations(onlyOpen: (args.first as? Bool) ?? true)
         }
+
+        /*
+         * Kdo čeká na odpověď. Nepřečtené zprávy to nejsou: zprávu lze
+         * přečíst a nechat ji ležet — a právě to se stávalo. Čeká ten
+         * otevřený rozhovor, kde poslední slovo má zákazník.
+         */
+        register("chat:waiting") { _ in
+            let list = try await Chat.conversations(onlyOpen: true)
+            let ceka = list
+                .filter { ($0["answered"] as? Bool) != true }
+                .sorted { ($0["lastMessageAt"] as? String ?? "") < ($1["lastMessageAt"] as? String ?? "") }
+            guard let nejstarsi = ceka.first else {
+                return ["pocet": 0, "minut": 0, "jmena": [String](), "id": ""]
+            }
+            /*
+             * Supabase vrací čas i se zlomky sekundy, které základní
+             * `ISO8601DateFormatter` neumí — proto se zkouší obě podoby.
+             * Bez toho by u každého čekajícího stálo „0 min".
+             */
+            let text = nejstarsi["lastMessageAt"] as? String ?? ""
+            let sZlomky = ISO8601DateFormatter()
+            sZlomky.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let kdy = sZlomky.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+            let minut = kdy.map { Int(max(0, Date().timeIntervalSince($0) / 60).rounded()) } ?? 0
+            let jmena = ceka.prefix(3).map { one -> String in
+                let jmeno = (one["name"] as? String) ?? (one["email"] as? String) ?? "Zákazník"
+                return jmeno.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return [
+                "pocet": ceka.count,
+                "minut": minut,
+                "jmena": jmena,
+                "id": (nejstarsi["id"] as? String) ?? ""
+            ]
+        }
         register("chat:messages") { args in
             guard let id = args.first as? String else { throw BridgeError.message("Chybí konverzace.") }
             return try await Chat.messages(id)

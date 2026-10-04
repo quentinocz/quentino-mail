@@ -7,7 +7,7 @@ import type {
   VoucherClash, VoucherCode,
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
   IgPlanSetup, IgPlanProposal, IgPlanned, IgAlert,
-  ChatOverview, ChatConfig, ChatConversation, ChatMessage, ChatProduct,
+  ChatOverview, ChatConfig, ChatConversation, ChatWaiting, ChatMessage, ChatProduct,
   PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
   PtransFixProposal, PtransTrial, PtransStyle,
   OrderFeed, OrderFeedStatus, OrderContact, OrderStats, ShopOrder, SupabaseStatus,
@@ -1212,6 +1212,8 @@ export const api = {
     test: () => call<string>('chat:test'),
 
     conversations: (onlyOpen = true) => call<ChatConversation[]>('chat:conversations', onlyOpen),
+    /** Kdo čeká na odpověď — pro bublinu u tlačítka chatu a pruh na telefonu. */
+    waiting: () => call<ChatWaiting>('chat:waiting'),
     messages: (id: string) => call<ChatMessage[]>('chat:messages', id),
     /** `personId` 0 = tuhle zprávu nepodepisovat, undefined = podle nastavení */
     send: (id: string, text: string, personId?: number | null) =>

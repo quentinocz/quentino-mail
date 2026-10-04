@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatConversation, ChatMessage as Msg, ChatOverview, OrderContact } from '@shared/types';
+import type { ChatConversation, ChatWaiting, ChatMessage as Msg, ChatOverview, OrderContact } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
@@ -52,6 +52,8 @@ interface Props {
   onOpenSettings: () => void;
   onWorkspace: (w: Workspace) => void;
   chatUnread: number;
+  /** Kdo čeká na odpověď — na telefonu z toho je pruh nad seznamem. */
+  chatCeka?: ChatWaiting | null;
   /** Napsat zákazníkovi e-mail — přepne do pošty a otevře novou zprávu */
   onComposeEmail: (email: string) => void;
   /** Otevření nástroje z nabídky AI */
@@ -71,7 +73,7 @@ interface Props {
  * Chat ze zákaznického widgetu. Data jsou tatáž, se kterou pracuje webový
  * admin — aplikace do nich jen píše, takže widget ani nasazený chat se nemění.
  */
-export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread, onComposeEmail, onAiTool, activeTool, openConversation }: Props) {
+export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread, chatCeka, onComposeEmail, onAiTool, activeTool, openConversation }: Props) {
   const toast = useToast();
   const [overview, setOverview] = useState<ChatOverview | null>(null);
   const [convs, setConvs] = useState<ChatConversation[]>([]);
@@ -313,8 +315,30 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
             </button>
           )}
         </div>
-        <WorkspaceSwitch current="chat" onChange={onWorkspace} chatUnread={chatUnread}
+        <WorkspaceSwitch current="chat" onChange={onWorkspace} chatUnread={chatUnread} chatCeka={chatCeka}
           onAiTool={onAiTool} activeTool={activeTool} />
+
+        {/*
+          * Na telefonu musí být vidět, že někdo čeká, ještě než se otevře
+          * konverzace. Odznak u záložky na to nestačí: počítá nepřečtené,
+          * takže po otevření zprávy zhasne — a zákazník přitom čeká dál.
+          */}
+        {phone && chatCeka && chatCeka.pocet > 0 && (
+          <button className={`ch-ceka ${chatCeka.minut >= 30 ? 'dlouho' : ''}`}
+            onClick={() => { setOnlyOpen(true); if (chatCeka.id) setActiveId(chatCeka.id); }}>
+            <span className="chw-tecka" aria-hidden="true" />
+            <span className="ch-ceka-text">
+              <b>{chatCeka.pocet === 1 ? 'Zákazník čeká na odpověď' : `${chatCeka.pocet} zákazníci čekají`}</b>
+              <em>
+                {chatCeka.minut < 1 ? 'nová zpráva'
+                  : chatCeka.minut < 60 ? `nejdéle ${chatCeka.minut} min`
+                    : `nejdéle ${Math.floor(chatCeka.minut / 60)} h ${chatCeka.minut % 60} min`}
+                {chatCeka.jmena[0] ? ` · ${chatCeka.jmena[0]}` : ''}
+              </em>
+            </span>
+            <Icon name="chevRight" size={14} />
+          </button>
+        )}
 
         {/* Vlastní třída, ne jen `ig-seg`: ta má na telefonu pravidla šitá na
             hlavičku Instagramu a v postranním sloupci přetékala z okraje */}

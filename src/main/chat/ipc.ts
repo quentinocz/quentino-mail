@@ -20,6 +20,8 @@ export function registerChatIpc() {
   handle('chat:test', () => chat.test());
 
   handle('chat:conversations', (onlyOpen?: boolean) => chat.conversations(onlyOpen !== false));
+  /* Kdo čeká na odpověď — bublina u tlačítka chatu i pruh na telefonu */
+  handle('chat:waiting', () => chat.cekajici());
   handle('chat:messages', (id: string) => chat.messages(id));
   handle('chat:send', (id: string, text: string, personId?: number | null) => chat.send(id, text, personId));
   handle('chat:sendImage', (id: string, file: string) => chat.sendImage(id, file));

@@ -253,6 +253,14 @@ export interface Settings {
   notifyPhoneMail: boolean;
   notifyPhoneChat: boolean;
   /**
+   * Jak upozorňovat na chat: jednou při příchodu zprávy (spoušť
+   * v databázi), nebo opakovaně, dokud se neodpoví. Opakování hlídá
+   * počítač — spoušť se spustí jen při nové zprávě.
+   */
+  notifyChatMode: 'once' | 'repeat';
+  /** Po kolika minutách opakovat. */
+  notifyChatEvery: number;
+  /**
    * Upozornit i z telefonu, když si poštu najde sám na pozadí.
    *
    * Když zároveň běží počítač, může upozornění přijít dvakrát — jedno přes
@@ -1768,6 +1776,20 @@ export interface ChatOverview {
   /** Kolik konverzací čeká na odpověď */
   waiting: number;
   persons: { id: number; name: string; short: string }[];
+}
+
+/**
+ * Kdo čeká na odpověď. Nepřečtené zprávy to nejsou: zprávu lze přečíst
+ * a nechat ji ležet — čeká ten rozhovor, kde poslední slovo má zákazník.
+ */
+export interface ChatWaiting {
+  pocet: number;
+  /** Jak dlouho čeká ten nejdéle čekající, v minutách. */
+  minut: number;
+  /** Pár jmen do bubliny; víc se jich tam stejně nevejde. */
+  jmena: string[];
+  /** Nejdéle čekající rozhovor — na ten vede odkaz z upozornění. */
+  id: string;
 }
 
 export interface ChatConversation {

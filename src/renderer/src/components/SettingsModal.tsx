@@ -1113,6 +1113,42 @@ export default function SettingsModal(p: Props) {
                 Chat je na tom líp: umí se ozvat přímo ze Supabase, viz níž.
               </div>
 
+              {/*
+                * Jedno upozornění, nebo připomínání?
+                *
+                * Zpráva přijde ve chvíli, kdy je člověk u jiné práce, a druhá
+                * už nepřijde — zákazník pak čeká do večera. Opakování hlídá
+                * počítač: spoušť v databázi se spustí jen při nové zprávě
+                * a telefon na pozadí budit spolehlivě nejde.
+                */}
+              {settings.notifyPhoneChat && (
+                <div className="notify-chat">
+                  <div className="ig-seg">
+                    <button className={settings.notifyChatMode !== 'repeat' ? 'active' : ''}
+                      onClick={() => saveNotify({ notifyChatMode: 'once' })}>
+                      Jednou při zprávě
+                    </button>
+                    <button className={settings.notifyChatMode === 'repeat' ? 'active' : ''}
+                      onClick={() => saveNotify({ notifyChatMode: 'repeat' })}>
+                      Připomínat, dokud neodpovím
+                    </button>
+                  </div>
+                  {settings.notifyChatMode === 'repeat' && (
+                    <label className="notify-chat-kazdych">
+                      Připomínat každých
+                      <input type="number" min={1} max={240} value={settings.notifyChatEvery}
+                        onChange={e => saveNotify({ notifyChatEvery: Number(e.target.value) || 15 })} />
+                      minut, dokud zákazník čeká na odpověď
+                    </label>
+                  )}
+                  <div className="desc">
+                    {settings.notifyChatMode === 'repeat'
+                      ? 'Připomínku posílá počítač, takže funguje, dokud je zapnutý. Zhasne, jakmile odpovíš nebo rozhovor uzavřeš — ne tím, že si zprávu přečteš.'
+                      : 'Přijde jedno upozornění ve chvíli, kdy zákazník napíše.'}
+                  </div>
+                </div>
+              )}
+
               <label className="check-row">
                 <input type="checkbox" checked={settings.notifyPhoneLocal}
                   onChange={e => saveNotify({ notifyPhoneLocal: e.target.checked })} />

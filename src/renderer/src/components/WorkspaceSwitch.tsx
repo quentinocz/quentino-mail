@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
+import ChatWaitingBubble from './ChatWaitingBubble';
+import type { ChatWaiting } from '@shared/types';
 import { SIDE_COMPACT, useSidebarWidth } from '../sidebar';
 import { useIsPhone } from '../mobile';
 import { useOpenTools, inToolWindow } from '../toolwindows';
@@ -90,13 +92,19 @@ export const AI_TOOLS: {
  * spolu souvisí — proto jsou pod jedním tlačítkem **AI** a rozbalí se
  * nabídkou. Přibude-li další, přidá se jen řádek, ne další záložka.
  */
-export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnread, activeTool }: {
+export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnread, chatCeka, activeTool }: {
   current: Workspace;
   onChange: (w: Workspace) => void;
   /** Otevření nástroje z nabídky AI */
   onAiTool?: (tool: AiTool) => void;
   /** Nepřečtené zprávy v chatu — číslo u záložky */
   chatUnread?: number;
+  /**
+   * Kdo čeká na odpověď. Je to něco jiného než nepřečtené: zprávu lze
+   * přečíst a nechat ji ležet, a odznak tím zhasne — čekat ale zákazník
+   * nepřestane. Proto k němu patří vlastní, neodbytnější upozornění.
+   */
+  chatCeka?: ChatWaiting | null;
   /** Který nástroj je zrovna otevřený (kvůli zvýraznění) */
   activeTool?: AiTool;
 }) {
@@ -167,11 +175,22 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
           <Icon name={t.icon} size={14} />
           {!compact && <span className="ws-label">{t.label}</span>}
           {t.id === 'ai' && !compact && <Icon name="chevDown" size={10} className="ws-caret" />}
-          {t.id === 'chat' && chatUnread ? (
-            <span className="ws-badge">{chatUnread > 9 ? '9+' : chatUnread}</span>
+          {t.id === 'chat' && (chatUnread || chatCeka?.pocet) ? (
+            <span className={`ws-badge ${chatCeka?.pocet ? 'ceka' : ''}`}>
+              {(chatUnread || chatCeka?.pocet || 0) > 9 ? '9+' : (chatUnread || chatCeka?.pocet)}
+            </span>
           ) : null}
         </button>
       ))}
+
+      {/*
+        * Bublina sedí hned pod tlačítkem chatu, ne někde v obsahu: patří
+        * k místu, kam se jde odpovídat, a v poště je vidět i při práci
+        * s něčím jiným.
+        */}
+      {!phone && current !== 'chat' && (
+        <ChatWaitingBubble ceka={chatCeka ?? null} onOpen={() => onChange('chat')} />
+      )}
 
       {menu && (
         <FunctionsMenu

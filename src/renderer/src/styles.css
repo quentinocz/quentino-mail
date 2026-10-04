@@ -10348,3 +10348,62 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   .qv-tit-vzhled { grid-column: 2 / -1; flex-direction: row; }
   .qv-tit-btns { grid-column: 2 / -1; }
 }
+
+
+/* ======================================================================
+   Zákazník čeká na odpověď
+
+   Odznak s nepřečtenými na tohle nestačí: zprávu lze přečíst a nechat
+   ji ležet — odznak zhasne a od té chvíle nic nepřipomíná, že na druhé
+   straně někdo čeká. Tohle počítá otevřené rozhovory, kde poslední
+   slovo má zákazník, a zhasne teprve odpovědí nebo uzavřením.
+   ====================================================================== */
+
+.chw {
+  position: relative;
+  display: flex; align-items: center; gap: 8px;
+  margin: 8px 10px 2px; padding: 9px 10px;
+  border: 1px solid var(--warn); border-radius: 10px;
+  background: #fff8e8;
+}
+/* Po půl hodině už to není připomínka, ale problém */
+.chw.dlouho { border-color: var(--danger); background: #fdecee; }
+.chw-tecka {
+  flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--warn); animation: chw-pulz 1.8s ease-in-out infinite;
+}
+.chw.dlouho .chw-tecka { background: var(--danger); }
+@keyframes chw-pulz { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.chw-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.chw-text b { font-size: 12px; line-height: 1.25; }
+.chw-text span { font-size: 11px; color: var(--text-2); }
+.chw-open {
+  padding: 4px 9px; border: 0; border-radius: 7px;
+  background: var(--accent); color: #fff; font-size: 11.5px; cursor: pointer;
+}
+.chw-x {
+  position: absolute; top: 3px; right: 3px;
+  width: 18px; height: 18px; display: grid; place-items: center;
+  border: 0; border-radius: 5px; background: none; color: var(--text-3); cursor: pointer;
+}
+.chw-x:hover { background: rgba(0,0,0,.06); color: var(--text); }
+
+/* Odznak, který svítí i u přečtené, ale nezodpovězené zprávy */
+.ws-badge.ceka, .m-tab-badge.ceka { background: var(--danger); }
+
+/* Telefon: pruh nad seznamem konverzací */
+.ch-ceka {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  margin: 8px 0 4px; padding: 10px 12px;
+  border: 1px solid var(--warn); border-radius: 10px;
+  background: #fff8e8; text-align: left; cursor: pointer;
+}
+.ch-ceka.dlouho { border-color: var(--danger); background: #fdecee; }
+.ch-ceka-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ch-ceka-text b { font-size: 13px; }
+.ch-ceka-text em { font-style: normal; font-size: 11.5px; color: var(--text-2); }
+
+/* Nastavení: jedno upozornění, nebo připomínání */
+.notify-chat { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 2px; }
+.notify-chat-kazdych { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.notify-chat-kazdych input { width: 64px; padding: 4px 6px; }

@@ -956,6 +956,11 @@
     },
     'mail:cleanupRun': { done: 5, failed: 0, freed: 60 * 1024 ** 2, errors: [] },
     'chat:markRead': null,
+    /*
+     * Kdo čeká na odpověď. V náhledu schválně jeden čekající dlouho —
+     * na něm je vidět, že se bublina po půl hodině chová jinak.
+     */
+    'chat:waiting': { pocet: 2, minut: 41, jmena: ['Jana Nováková', 'Petr Klíma'], id: 'c1' },
     'chat:suggest': 'Dobry den, cerny pasek v delce 115 cm mame skladem.',
     'chat:cards': [],
     'chat:searchProducts': [],

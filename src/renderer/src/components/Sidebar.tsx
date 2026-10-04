@@ -1,4 +1,4 @@
-import type { AccountPublic, FolderInfo, Category } from '@shared/types';
+import type { AccountPublic, FolderInfo, Category, ChatWaiting } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import Icon from './Icon';
 import WorkspaceSwitch, { Workspace, AiTool } from './WorkspaceSwitch';
@@ -50,6 +50,8 @@ interface Props {
   onWorkspace: (w: Workspace) => void;
   /** Nepřečtené zprávy v chatu */
   chatUnread: number;
+  /** Kdo čeká na odpověď v chatu — bublina u tlačítka chatu. */
+  chatCeka?: ChatWaiting | null;
   /** Otevření nástroje z nabídky AI */
   onAiTool: (tool: AiTool) => void;
   /** Který nástroj AI je zrovna otevřený */
@@ -69,7 +71,7 @@ export default function Sidebar(p: Props) {
     <div className="sidebar">
       <div className="brand">quentino<span> mail</span></div>
 
-      <WorkspaceSwitch current="mail" onChange={p.onWorkspace} chatUnread={p.chatUnread}
+      <WorkspaceSwitch current="mail" onChange={p.onWorkspace} chatUnread={p.chatUnread} chatCeka={p.chatCeka}
         onAiTool={p.onAiTool} activeTool={p.activeTool} />
 
       <button className="btn-compose" onClick={p.onCompose}><Icon name="pen" size={15} /> Nová zpráva</button>
