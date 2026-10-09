@@ -67,6 +67,7 @@ import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
 import * as banners from './banners';
+import * as zkusebna from './zkusebna';
 import { iconIdeas } from './bannericon';
 import * as media from './media';
 import * as mediashop from './mediashop';
@@ -732,6 +733,37 @@ export function registerIpc() {
   handle('webtexts:season', (next: any) => webtexts.saveWebSeason(next ?? {}));
   handle('webtexts:publish', () => webtexts.publishWebTexts());
   handle('webtexts:config', (next: any) => webtexts.saveWebTextsConfig(next ?? {}));
+
+  /* ---------- zkušební kabina: jak produkty vypadají na modelu ---------- */
+  handle('zk:prehled', () => zkusebna.prehled());
+  handle('zk:vrstvy', (postava: string) => zkusebna.vrstvyPostavy(String(postava ?? '')));
+  handle('zk:kroky', (postava: string) => zkusebna.krokyPostavy(String(postava ?? '')));
+  // Generování stojí peníze, proto zvlášť postava, zvlášť jedna vrstva, zvlášť celá sada
+  handle('zk:generuj-postavu', (postava: string) => zkusebna.generujPostavu(String(postava ?? '')));
+  handle('zk:generuj-vrstvu', (postava: string, typ: string, varianta: string) =>
+    zkusebna.generujVrstvu(String(postava ?? ''), typ as any, String(varianta ?? '')));
+  handle('zk:generuj-vse', (postava: string, jenChybejici: boolean) =>
+    zkusebna.generujVse(String(postava ?? ''), jenChybejici !== false));
+  // Zástupná kresba: kabina jde zkoušet dřív, než se zaplatí první obrázek
+  handle('zk:ukazka', (postava: string) => zkusebna.postavUkazku(String(postava ?? '')));
+  handle('zk:ukazka-vse', () => zkusebna.postavUkazkuVse());
+  handle('zk:schval', (postava: string, typ: string, varianta: string, ano: boolean) =>
+    zkusebna.schval(String(postava ?? ''), typ as any, String(varianta ?? ''), !!ano));
+  handle('zk:zadani', (klic: string, text: string) => zkusebna.ulozZadani(String(klic ?? ''), String(text ?? '')));
+  handle('zk:zadani-zpet', (klic: string) => zkusebna.zadaniZpet(String(klic ?? '')));
+  handle('zk:nastaveni', () => zkusebna.nastaveni());
+  handle('zk:nastav', (co: any) => zkusebna.nastav(co ?? {}));
+  handle('zk:kontakt', (co: any) => zkusebna.ulozKontakt(co ?? {}));
+  handle('zk:katalog', (sAi: boolean, sBarvami: boolean) =>
+    zkusebna.projdiKatalog(sAi !== false, sBarvami !== false));
+  handle('zk:produkty', (limit: number) => zkusebna.produktyPrehled(Number(limit) || 300));
+  handle('zk:produkt', (kod: string, co: any) => zkusebna.upravProdukt(String(kod ?? ''), co ?? {}));
+  // Náhled běží na tomtéž skriptu, který se vkládá do e-shopu
+  handle('zk:nahled', () => zkusebna.nahledKabiny());
+  handle('zk:vzhledy', () => zkusebna.vzhledy());
+  handle('zk:vzhled-uloz', (id: string, nazev: string, text: string) =>
+    zkusebna.ulozVzhled(String(id ?? ''), String(nazev ?? ''), String(text ?? '')));
+  handle('zk:vzhled-smaz', (id: string) => zkusebna.smazVzhled(String(id ?? '')));
 
   /* ---------- bannery na úvodní stránce ---------- */
   handle('banners:state', () => banners.bannersState());

@@ -36,6 +36,85 @@ try {
 const SHOTS = new URL('./shots/', import.meta.url).pathname;
 
 /*
+ * Zkušební kabina. Do náhledu i do zkoušky jde **ten skutečný skript**,
+ * který se vkládá do e-shopu — kdyby si zkouška kreslila vlastní
+ * napodobeninu, neověřila by nic z toho, proč kabina vůbec je.
+ *
+ * Vrstvy jsou schválně vyrobené tady: mapa světla s polotónem přesně
+ * 128 na známém místě. Jen tak jde změřit to podstatné — že zvolená
+ * barva vyjde na plátně **přesně** tak, jak si ji zákazník vybral.
+ */
+let KABINA_SCRIPT = '';
+let KABINA_DATA = '{}';
+try {
+  const require2 = createRequire(import.meta.url);
+  const png = require2('../dist/ptdist/main/zkusebna/png.js');
+  KABINA_SCRIPT = require2('../dist/ptdist/main/modelscript.js').kabinaScript({
+    zdroj: '/kabina-data.json', ttl: 30,
+    kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' }
+  });
+  const SIRKA = 200;
+  const VYSKA = 400;
+  const vrstva = (kresli) => {
+    const obraz = png.novyObraz(SIRKA, VYSKA);
+    kresli((x, y, r, g, b, a) => {
+      const i = (y * SIRKA + x) * 4;
+      obraz.body[i] = r; obraz.body[i + 1] = g; obraz.body[i + 2] = b; obraz.body[i + 3] = a;
+    });
+    return 'data:image/png;base64,' + png.uloz(obraz).toString('base64');
+  };
+  const postavaUrl = vrstva(set => {
+    for (let y = 20; y < 380; y++) for (let x = 70; x < 130; x++) set(x, y, 206, 170, 142, 255);
+  });
+  /* Mapa světla: polotón 128 uprostřed, po krajích záhyb a odlesk */
+  const mapa = (odY, doY, odX, doX) => vrstva(set => {
+    for (let y = odY; y < doY; y++) {
+      for (let x = odX; x < doX; x++) {
+        const kraj = Math.abs(x - (odX + doX) / 2) / ((doX - odX) / 2);
+        const stin = kraj > 0.8 ? 80 : kraj > 0.55 ? 180 : 128;
+        set(x, y, stin, stin, stin, 255);
+      }
+    }
+  });
+  const katalogVrstvy = require2('../dist/ptdist/shared/zkusebna.js');
+  KABINA_DATA = JSON.stringify({
+    verze: 1,
+    kdy: new Date().toISOString(),
+    postavy: [{ id: 'dospely-bezny', vek: 'dospely', telo: 'bezny', vyskaCm: 180, sirka: SIRKA, vyska: VYSKA, temeno: 20, podrazka: 380 }],
+    vrstvy: [
+      { postava: 'dospely-bezny', typ: 'postava', varianta: 'zaklad', url: postavaUrl },
+      { postava: 'dospely-bezny', typ: 'kosile', varianta: 'klasicka', url: mapa(120, 240, 80, 120) },
+      { postava: 'dospely-bezny', typ: 'kalhoty', varianta: 'oblekove', url: mapa(240, 370, 75, 125) },
+      { postava: 'dospely-bezny', typ: 'kravata', varianta: 'kravata', url: mapa(125, 200, 95, 105) },
+      { postava: 'dospely-bezny', typ: 'sako', varianta: 'jednoradove', url: mapa(110, 250, 68, 132) },
+      { postava: 'dospely-bezny', typ: 'vlasy', varianta: 'kratke', url: mapa(20, 40, 75, 125) }
+    ],
+    produkty: [
+      { kod: 'SAKO1', nazev: 'Sako námořnické', url: 'https://quentino.cz/p/sako-namornicke', cena: '4 990 Kč', cenaCislo: 4990, obrazek: '', typ: 'sako', varianta: 'jednoradove', hex: '#1f2d4d', velikosti: true, skladem: true },
+      { kod: 'KOS1', nazev: 'Košile bílá', url: 'https://quentino.cz/p/kosile-bila', cena: '1 290 Kč', cenaCislo: 1290, obrazek: '', typ: 'kosile', varianta: 'klasicka', hex: '#f6f6f4', velikosti: false, skladem: true },
+      { kod: 'KRA1', nazev: 'Kravata burgundská', url: 'https://quentino.cz/p/kravata-burgundska', cena: '690 Kč', cenaCislo: 690, obrazek: '', typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', velikosti: false, skladem: true },
+      { kod: 'KAL1', nazev: 'Kalhoty oblekové', url: 'https://quentino.cz/p/kalhoty', cena: '2 190 Kč', cenaCislo: 2190, obrazek: '', typ: 'kalhoty', varianta: 'oblekove', hex: '#1f2d4d', velikosti: false, skladem: true }
+    ],
+    katalog: {
+      poradi: katalogVrstvy.ZK_PORADI,
+      vrstvy: katalogVrstvy.ZK_VRSTVY.map(one => ({
+        typ: one.typ, nazev: one.nazev, popis: one.popis,
+        barvitelna: one.barvitelna, nepovinna: one.nepovinna, varianty: one.varianty
+      })),
+      barvy: katalogVrstvy.ZK_BARVY,
+      vlasy: katalogVrstvy.ZK_VLASY,
+      veky: [{ id: 'dospely', nazev: 'Dospělý', popis: '', vyska: [155, 205] },
+        { id: 'dite', nazev: 'Dítě', popis: '', vyska: [86, 175] }],
+      tela: [{ id: 'hubeny', nazev: 'Štíhlý', popis: '' }, { id: 'bezny', nazev: 'Běžný', popis: '' },
+        { id: 'silny', nazev: 'Silnější', popis: '' }],
+      vychozi: katalogVrstvy.vychoziVzhled('dospely')
+    }
+  });
+} catch (e) {
+  console.log('kabina není přeložená — náhled kabiny bude prázdný:', e.message.split('\n')[0]);
+}
+
+/*
  * Playwright je jen v sandboxu, ne v repozitáři. Na počítači, kde chybí,
  * se náhled přeskočí — spadnout kvůli tomu nesmí.
  */
@@ -59,6 +138,17 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 
 const server = http.createServer((req, res) => {
   const rel = (req.url || '/').split('?')[0].replace(/^\//, '') || 'index.html';
+  /* Stránka kabiny a její seznam — tudy se zkouší skript pro e-shop */
+  if (rel === 'kabina-data.json') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(KABINA_DATA);
+  }
+  if (rel === 'kabina.html') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end('<!doctype html><html lang="cs"><head><meta charset="utf-8">'
+      + '<title>Kabina</title></head><body><button data-quentino-kabina type="button">Vyzkoušet na modelu</button>'
+      + KABINA_SCRIPT + '</body></html>');
+  }
   fs.readFile(path.join(ROOT, rel), (err, data) => {
     if (err) { res.writeHead(404); return res.end('nenalezeno'); }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(rel)] ?? 'application/octet-stream' });
@@ -124,7 +214,8 @@ const OKNA = [
   { hash: 'bannery', nadpis: 'Bannery' },
   { hash: 'media', nadpis: 'Konvertor' },
   { hash: 'clanky', nadpis: 'Články' },
-  { hash: 'produkty', nadpis: 'Produkty' }
+  { hash: 'produkty', nadpis: 'Produkty' },
+  { hash: 'kabina', nadpis: 'Zkušební kabina' }
 ];
 
 /*
@@ -1729,6 +1820,254 @@ for (const okno of OKNA) {
   const zeptalo = await page.evaluate(() =>
     (window.__calls || []).some(one => one[0] === 'tool:arg' && one[1] === 'catalog'));
   say('okno se zeptá, na co se má podívat', zeptalo);
+  await page.close();
+}
+
+
+
+/* ---------- okno zkušební kabiny: dílna s vrstvami ---------- */
+
+/*
+ * V okně se nerozhoduje o tom, jak oblek vypadá — to je vidět v kabině.
+ * Rozhoduje se tu o tom, **co je hotové, co nesedí a co to stojí**.
+ * Proto se zkouší přesně tyhle tři věci, a k tomu jedna čtvrtá: že se
+ * zástupná kresba nikde netváří jako hotová fotka.
+ */
+{
+  const page = await open('kabina');
+  const uvod = await page.evaluate(() => ({
+    zalozky: [...document.querySelectorAll('.zk-head-right .tab')].map(one => one.textContent.trim()),
+    pozor: (document.querySelector('.zk-pozor')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    ramec: !!document.querySelector('iframe.zk-ramec'),
+    lista: (document.querySelector('.zk-kabina-lista')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+  }));
+  say('kabina se otevře náhledem toho, co uvidí zákazník',
+    uvod.zalozky.join(' · ') === 'Kabina · Vizuály · Produkty · Nastavení' && uvod.ramec,
+    uvod.zalozky.join(' · '));
+  say('  a je u toho řečeno, že běží tentýž skript jako na e-shopu',
+    /tentýž skript/.test(uvod.lista) && /kB/.test(uvod.lista), uvod.lista.slice(0, 80));
+  /*
+   * Zástupná kresba se nesmí tvářit jako fotka. Je to jediná věta, která
+   * odlišuje „kabina je hotová" od „kabina se dá zkoušet" — a kdyby
+   * chyběla, posuzovalo by se nedopatřením něco jiného.
+   */
+  say('  zástupná kresba se netváří jako hotová fotka',
+    /zástupná kresba/.test(uvod.pozor), uvod.pozor.slice(0, 80));
+
+  await page.locator('.zk-head-right .tab', { hasText: 'Vizuály' }).click();
+  await page.waitForTimeout(500);
+  const dilna = await page.evaluate(() => ({
+    postav: document.querySelectorAll('.zk-postava').length,
+    karet: document.querySelectorAll('.zk-karta').length,
+    nesedi: [...document.querySelectorAll('.zk-potiz')].map(one => one.textContent.trim()),
+    odznaky: [...document.querySelectorAll('.zk-odznak')].map(one => one.textContent.trim()),
+    dogenerovat: (document.querySelector('.zk-akce .btn.primary')?.textContent ?? '').trim(),
+    kroku: document.querySelectorAll('.zk-kroky-rada figure').length
+  }));
+  say('dílna ukazuje postavy i vrstvy', dilna.postav === 7 && dilna.karet === 8,
+    `${dilna.postav} postav, ${dilna.karet} vrstev`);
+  say('  u nepovedené vrstvy stojí česky, co je špatně',
+    dilna.nesedi.length === 1 && /zabírá/.test(dilna.nesedi[0]), dilna.nesedi[0]?.slice(0, 70) ?? 'nic');
+  say('  a u každé vrstvy je vidět, v jakém je stavu',
+    new Set(dilna.odznaky).size >= 3, [...new Set(dilna.odznaky)].join(' · '));
+  /*
+   * Kolik to bude stát, má být vidět **před** kliknutím. Dávka přes
+   * dvanáct postav je jinak nenápadná cesta k účtu za padesát dolarů.
+   */
+  say('  a kolik stojí dogenerovat, je vidět předem',
+    /\$/.test(dilna.dogenerovat), dilna.dogenerovat);
+  say('  kroky oblékání jsou k nahlédnutí', dilna.kroku === 3, `${dilna.kroku} kroků`);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-vizualy.png') });
+
+  /* Zadání pro model se dá přepsat — bez něj se nepovedená vrstva nespraví */
+  await page.locator('.zk-karta .zk-karta-btns .icon-btn').first().click();
+  await page.waitForTimeout(400);
+  const zadani = await page.evaluate(() => ({
+    pole: document.querySelectorAll('.zk-zadani textarea').length,
+    text: (document.querySelector('.zk-zadani textarea')?.value ?? '').slice(0, 40),
+    zpet: !!document.querySelector('.zk-zadani .btn')
+  }));
+  say('  zadání pro model jde přepsat a vrátit', zadani.pole === 1 && zadani.zpet, zadani.text);
+
+  await page.locator('.zk-head-right .tab', { hasText: 'Produkty' }).click();
+  await page.waitForTimeout(500);
+  const produkty = await page.evaluate(() => ({
+    radku: document.querySelectorAll('.zk-radek').length,
+    bezTypu: [...document.querySelectorAll('.zk-radek select')]
+      .filter(one => one.value === '').length,
+    barvy: document.querySelectorAll('.zk-radek input[type="color"]').length
+  }));
+  say('produkty jdou zařadit a obarvit ručně',
+    produkty.radku === 3 && produkty.barvy === 3 && produkty.bezTypu === 1,
+    `${produkty.radku} řádků, ${produkty.bezTypu} nezařazený`);
+
+  await page.locator('.zk-head-right .tab', { hasText: 'Nastavení' }).click();
+  await page.waitForTimeout(500);
+  const nastaveni = await page.evaluate(() => ({
+    sekci: [...document.querySelectorAll('.zk-nastaveni h3')].map(one => one.textContent.trim()),
+    modely: document.querySelectorAll('.zk-model').length,
+    utrata: (document.querySelector('.zk-rada .desc')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+  }));
+  say('nastavení drží klíč, model, strop i větu o osobní radě',
+    nastaveni.sekci.length === 5 && nastaveni.modely >= 2,
+    nastaveni.sekci.join(' · '));
+  say('  a je vidět, kolik se tenhle měsíc utratilo',
+    /utraceno/.test(nastaveni.utrata), nastaveni.utrata.slice(0, 60));
+  await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-nastaveni.png') });
+  await page.close();
+}
+
+/* ---------- zkušební kabina: skript pro e-shop ---------- */
+
+/*
+ * Tohle je zkouška toho, co uvidí zákazník — a běží na tomtéž skriptu,
+ * který se vkládá do šablony e-shopu.
+ *
+ * Měří se tři věci, které se okem neposoudí:
+ *  1. **že se do stránky do kliknutí nesáhne** — kvůli rychlosti načítání
+ *     i kvůli tomu, aby se nezhoršilo hodnocení u Googlu,
+ *  2. **že zvolená barva vyjde přesně** — to je celé jádro kabiny; kdyby
+ *     se mapa světla posunula, byl by každý oblek o stupeň jinak a nikdo
+ *     by nepoznal proč,
+ *  3. **že se kusy dostanou do košíku adresou e-shopu** a že se u kusu
+ *     s velikostmi místo toho nabídne výběr velikosti.
+ */
+{
+  const page = await browser.newPage({ viewport: { width: 1180, height: 900 } });
+  page.on('pageerror', e => problems.push(`kabina: chyba stránky: ${e.message}`));
+  page.on('console', m => {
+    if (m.type() === 'error' && !/favicon/.test(m.text())) problems.push(`kabina: konzole: ${m.text()}`);
+  });
+  /* Košík se nikam neposílá — jen se zaznamená, co by se poslalo */
+  await page.addInitScript(() => {
+    window.__kosik = [];
+    const puvodni = window.fetch;
+    window.fetch = function (url, init) {
+      if (String(url).indexOf('addtocart') >= 0) {
+        window.__kosik.push(String(url));
+        return Promise.resolve(new Response('ok'));
+      }
+      return puvodni(url, init);
+    };
+  });
+  await page.goto('http://localhost:4324/kabina.html', { waitUntil: 'load' });
+  await page.waitForTimeout(500);
+
+  const predKliknutim = await page.evaluate(() => ({
+    prvku: document.querySelectorAll('.qkb-pozadi, .qkb, canvas').length,
+    stylu: document.querySelectorAll('style').length,
+    stazeno: performance.getEntriesByType('resource').filter(one => /kabina-data|data:image/.test(one.name)).length
+  }));
+  say('kabina do kliknutí do stránky nesáhne',
+    predKliknutim.prvku === 0 && predKliknutim.stylu === 0 && predKliknutim.stazeno === 0,
+    `prvků ${predKliknutim.prvku}, stylů ${predKliknutim.stylu}, staženo ${predKliknutim.stazeno}`);
+  say('  a skript se vejde do pole v administraci',
+    KABINA_SCRIPT.length > 1000 && KABINA_SCRIPT.length < 60000,
+    `${Math.round(KABINA_SCRIPT.length / 1000)} tisíc znaků`);
+
+  await page.locator('[data-quentino-kabina]').click();
+  await page.waitForTimeout(900);
+
+  const poOtevreni = await page.evaluate(() => ({
+    okno: document.querySelectorAll('.qkb').length,
+    platno: !!document.querySelector('.qkb-nahled canvas'),
+    kusu: document.querySelectorAll('.qkb-kus').length,
+    pata: (document.querySelector('.qkb-pata .qkb-suma')?.textContent ?? '').trim(),
+    osobne: (document.querySelector('.qkb-osobne')?.textContent ?? '').trim()
+  }));
+  say('po kliknutí se kabina otevře a model se vykreslí',
+    poOtevreni.okno === 1 && poOtevreni.platno && poOtevreni.kusu >= 5,
+    `${poOtevreni.kusu} kusů oblečení`);
+  say('  a že poradíme i osobně, je vidět pořád',
+    /osobně/.test(poOtevreni.osobne) && /607/.test(poOtevreni.osobne), poOtevreni.osobne.slice(0, 60));
+
+  /* Opravdu se něco nakreslilo, ne prázdné plátno */
+  const nakresleno = await page.evaluate(() => {
+    const c = document.querySelector('.qkb-nahled canvas');
+    const ctx = c.getContext('2d');
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    let kusu = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 20) kusu++;
+    return { kusu, celkem: data.length / 4 };
+  });
+  say('  na plátně je model, ne prázdno',
+    nakresleno.kusu > 2000, `${nakresleno.kusu} z ${nakresleno.celkem} bodů`);
+
+  /*
+   * A teď to hlavní. Vybere se námořnická modrá a změří se bod uprostřed
+   * saka, kde má mapa světla polotón. Musí z něj vyjít **přesně** ta
+   * barva — ne skoro.
+   */
+  await page.evaluate(() => {
+    const kusy = [...document.querySelectorAll('.qkb-kus')];
+    const sako = kusy.find(one => (one.querySelector('b')?.textContent ?? '').indexOf('Sako') === 0);
+    const barva = [...sako.querySelectorAll('.qkb-barva')]
+      .find(one => one.title === 'Námořnická modrá');
+    barva.click();
+  });
+  await page.waitForTimeout(500);
+  const barvaNaPlatne = await page.evaluate(() => {
+    const c = document.querySelector('.qkb-nahled canvas');
+    const ctx = c.getContext('2d');
+    const bod = ctx.getImageData(100, 130, 1, 1).data;
+    return [bod[0], bod[1], bod[2], bod[3]];
+  });
+  say('  zvolená barva vyjde na plátně přesně',
+    barvaNaPlatne[0] === 0x1f && barvaNaPlatne[1] === 0x2d && barvaNaPlatne[2] === 0x4d,
+    `rgb(${barvaNaPlatne.slice(0, 3).join(', ')}) místo rgb(31, 45, 77)`);
+
+  /* Košile v barvě saka musí dostat varování, ne mlčení */
+  await page.evaluate(() => {
+    const kusy = [...document.querySelectorAll('.qkb-kus')];
+    const kosile = kusy.find(one => (one.querySelector('b')?.textContent ?? '').indexOf('Košile') === 0);
+    const barva = [...kosile.querySelectorAll('.qkb-barva')]
+      .find(one => one.title === 'Námořnická modrá');
+    barva.click();
+  });
+  await page.waitForTimeout(400);
+  const rady = await page.evaluate(() =>
+    [...document.querySelectorAll('.qkb-rada')].map(one => one.textContent.trim()));
+  say('  košile v barvě saka dostane varování',
+    rady.some(one => /splyne/.test(one)), rady.join(' | ').slice(0, 90));
+
+  /* Rada se dá přijmout jedním kliknutím */
+  await page.locator('.qkb-rada.splyva button').first().click();
+  await page.waitForTimeout(400);
+  const poRade = await page.evaluate(() =>
+    [...document.querySelectorAll('.qkb-rada')].map(one => one.textContent.trim()));
+  say('  a dá se přijmout jedním kliknutím',
+    !poRade.some(one => /splyne/.test(one)), poRade.join(' | ').slice(0, 70) || 'bez varování');
+
+  /* Uložení vzhledu a srovnání dvou vedle sebe */
+  await page.locator('.qkb-ovladani button', { hasText: 'Uložit tenhle vzhled' }).click();
+  await page.waitForTimeout(400);
+  const ulozeno = await page.evaluate(() => document.querySelectorAll('.qkb-ulozeny').length);
+  say('  vzhled se dá uložit', ulozeno === 1, `${ulozeno} uložený`);
+  await page.locator('.qkb-ulozeny button', { hasText: '⇄' }).first().click();
+  await page.waitForTimeout(700);
+  const srovnani = await page.evaluate(() => ({
+    platen: document.querySelectorAll('.qkb-srovnani canvas').length,
+    popisky: [...document.querySelectorAll('.qkb-srovnani figcaption')].map(one => one.textContent.trim())
+  }));
+  say('  a postavit vedle sebe dva na porovnání',
+    srovnani.platen === 2, srovnani.popisky.join(' · '));
+  await page.screenshot({ path: path.join(SHOTS, 'kabina.png') });
+
+  /* Do košíku adresou e-shopu; kus s velikostmi se nepřidá naslepo */
+  await page.locator('.qkb-pata button', { hasText: 'Vložit celý vzhled' }).click();
+  await page.waitForTimeout(900);
+  const kosik = await page.evaluate(() => ({
+    poslano: window.__kosik,
+    velikosti: [...document.querySelectorAll('.qkb-blok h3')].map(one => one.textContent.trim())
+  }));
+  say('kusy se do košíku přidají adresou e-shopu',
+    kosik.poslano.length >= 2 && kosik.poslano.every(one => /addtocart=1&quantity=1/.test(one)),
+    `${kosik.poslano.length}× ${(kosik.poslano[0] || '').slice(-40)}`);
+  say('  a u kusu s velikostmi se nejdřív vybere velikost',
+    kosik.velikosti.some(one => /velikost/i.test(one))
+      && !kosik.poslano.some(one => /sako-namornicke/.test(one)),
+    kosik.velikosti.join(' · '));
+
   await page.close();
 }
 

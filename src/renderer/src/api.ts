@@ -36,6 +36,10 @@ import type {
 } from '@shared/types';
 import type { ToolWindowId } from '@shared/windows';
 import type { VidProjekt, VidZnelka } from '@shared/videoedit';
+import type {
+  ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
+  ZkVrstvaProOkno, ZkVrstvaTyp
+} from '@shared/zkusebna';
 
 /** Co se dá o souboru zjistit z ffmpegu — délka, rozměry, zvuková stopa. */
 export interface VidPopis {
@@ -935,6 +939,43 @@ export const api = {
     publish: () => call<WebTextsState>('webtexts:publish'),
     config: (next: Partial<WebTextsConfig> & { key?: string }) =>
       call<WebTextsConfig>('webtexts:config', next)
+  },
+
+  /**
+   * Zkušební kabina — jak produkty vypadají na modelu.
+   *
+   * Generování vrstev stojí peníze, proto jsou tři oddělené cesty:
+   * jedna vrstva, celá postava, a zástupná kresba zadarmo. Náhled
+   * nekreslí okno, ale **tentýž skript**, který běží na e-shopu.
+   */
+  zk: {
+    prehled: () => call<ZkPrehled>('zk:prehled'),
+    vrstvy: (postava: string) => call<ZkVrstvaProOkno[]>('zk:vrstvy', postava),
+    kroky: (postava: string) => call<ZkKrokProOkno[]>('zk:kroky', postava),
+    generujPostavu: (postava: string) => call<unknown>('zk:generuj-postavu', postava),
+    generujVrstvu: (postava: string, typ: ZkVrstvaTyp, varianta: string) =>
+      call<ZkVrstvaProOkno>('zk:generuj-vrstvu', postava, typ, varianta),
+    generujVse: (postava: string, jenChybejici: boolean) =>
+      call<{ hotovo: number; nesedi: number; potize: string[] }>('zk:generuj-vse', postava, jenChybejici),
+    ukazka: (postava: string) => call<{ hotovo: number; nesedi: string[] }>('zk:ukazka', postava),
+    ukazkaVse: () => call<{ hotovo: number; nesedi: string[] }>('zk:ukazka-vse'),
+    schval: (postava: string, typ: ZkVrstvaTyp, varianta: string, ano: boolean) =>
+      call<void>('zk:schval', postava, typ, varianta, ano),
+    zadani: (klic: string, text: string) => call<void>('zk:zadani', klic, text),
+    zadaniZpet: (klic: string) => call<void>('zk:zadani-zpet', klic),
+    nastaveni: () => call<ZkNastaveni>('zk:nastaveni'),
+    nastav: (co: Partial<{ klic: string; model: string; strop: number; kvalita: string; maska: boolean }>) =>
+      call<void>('zk:nastav', co),
+    kontakt: (co: { text: string; telefon: string; mail: string }) => call<void>('zk:kontakt', co),
+    katalog: (sAi: boolean, sBarvami: boolean) =>
+      call<{ zarazeno: number; obarveno: number; nezarazeno: number }>('zk:katalog', sAi, sBarvami),
+    produkty: (limit?: number) => call<ZkProduktRadek[]>('zk:produkty', limit ?? 300),
+    produkt: (kod: string, co: Partial<{ typ: ZkVrstvaTyp | ''; varianta: string; hex: string; schvaleno: boolean }>) =>
+      call<void>('zk:produkt', kod, co),
+    nahled: () => call<ZkNahled>('zk:nahled'),
+    vzhledy: () => call<{ id: string; nazev: string; text: string; kdy: string }[]>('zk:vzhledy'),
+    vzhledUloz: (id: string, nazev: string, text: string) => call<void>('zk:vzhled-uloz', id, nazev, text),
+    vzhledSmaz: (id: string) => call<void>('zk:vzhled-smaz', id)
   },
 
   /**

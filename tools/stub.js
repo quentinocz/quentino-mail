@@ -83,6 +83,85 @@
   ];
 
   const answers = {
+  /*
+   * Zkušební kabina. Vrstvy jsou tu jako jednobarevné čtverečky — na
+   * náhledu okna jde o to, jestli se dílna vykreslí a jestli je poznat,
+   * co je hotové a co nesedí, ne jak vypadá sako.
+   */
+  'zk:prehled': (function () {
+    var postavy = [];
+    var kombinace = [['dospely', 'hubeny'], ['dospely', 'bezny'], ['dospely', 'silny'],
+      ['dite', 'hubeny'], ['dite', 'bezny'], ['dite', 'silny'], ['kojenec', 'bezny']];
+    for (var i = 0; i < kombinace.length; i++) {
+      postavy.push({
+        id: kombinace[i][0] + '-' + kombinace[i][1],
+        vek: kombinace[i][0], telo: kombinace[i][1],
+        nazev: kombinace[i].join('-'),
+        hotovo: i < 3,
+        vrstev: i === 0 ? 21 : i < 3 ? 18 : 0,
+        chystanych: 22,
+        nesedi: i === 1 ? 1 : 0,
+        schvalenych: i === 0 ? 12 : 0
+      });
+    }
+    return {
+      postavy: postavy,
+      maKlic: true,
+      model: 'gpt-image-1.5',
+      modely: [
+        { id: 'gpt-image-1.5', nazev: 'gpt-image-1.5', popis: 'Drží zadání i vstupní obrázek.', verny: 'navolbu', cena: 0.19 },
+        { id: 'gpt-image-2', nazev: 'gpt-image-2', popis: 'Vstupní obrázek drží vždy.', verny: 'vzdy', cena: 0.22 }
+      ],
+      utrata: { mesic: '2026-10', usd: 6.84, kusu: 36, strop: 40 },
+      produkty: { zarazenych: 412, sBarvou: 388, schvalenych: 120 },
+      ukazkove: true
+    };
+  })(),
+  'zk:vrstvy': (function () {
+    var ctverec = 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==';
+    var kusy = [
+      ['postava', 'zaklad', 'Postava', 'Základ', 'schvaleno', ''],
+      ['vlasy', 'kratke', 'Vlasy', 'Krátké', 'schvaleno', ''],
+      ['vlasy', 'delsi', 'Vlasy', 'Delší', 'hotovo', ''],
+      ['kalhoty', 'oblekove', 'Kalhoty', 'Oblekové', 'hotovo', ''],
+      ['kosile', 'klasicka', 'Košile', 'Klasický límec', 'hotovo', ''],
+      ['kravata', 'kravata', 'Kravata nebo motýlek', 'Kravata', 'hotovo', ''],
+      ['kravata', 'motylek', 'Kravata nebo motýlek', 'Motýlek', 'ceka', ''],
+      ['sako', 'jednoradove', 'Sako', 'Jednořadové', 'nesedi',
+        'Vrstva zabírá 92 % postavy, víc než 86 %. Model nejspíš překreslil i to, co měl nechat.']
+    ];
+    return kusy.map(function (one) {
+      return {
+        postava: 'dospely-bezny', typ: one[0], varianta: one[1],
+        soubor: one[4] === 'ceka' ? '' : '/tmp/' + one[0] + '.png', url: '',
+        sirka: 1024, vyska: 1536, podil: 0.3, okraje: { x: 0, y: 0, w: 10, h: 10 },
+        stav: one[4], potiz: one[5],
+        zadani: 'Dress the person in a plain single-breasted suit jacket…',
+        kdy: '2026-10-09T09:00:00.000Z',
+        nazev: one[2], variantaNazev: one[3], barvitelna: one[0] !== 'postava',
+        nahled: one[4] === 'ceka' ? '' : ctverec
+      };
+    });
+  })(),
+  'zk:kroky': [
+    { poradi: 0, typ: 'postava', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' },
+    { poradi: 4, typ: 'kalhoty', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' },
+    { poradi: 5, typ: 'kosile', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' }
+  ],
+  'zk:nahled': { url: '/kabina.html', velikost: { seznamKb: 86.4, postav: 3, vrstev: 54, produktu: 180 } },
+  'zk:nastaveni': {
+    maKlic: true, model: 'gpt-image-1.5', kvalita: 'high', maska: true, strop: 40,
+    kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' }
+  },
+  'zk:produkty': [
+    { kod: 'SAKO1', typ: 'sako', varianta: 'jednoradove', hex: '#1f2d4d', rucne: false, velikosti: true,
+      schvaleno: true, nazev: 'Sako námořnické', obrazek: '', cena: '4 990 Kč', vKabine: true },
+    { kod: 'KRA1', typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', rucne: true, velikosti: false,
+      schvaleno: false, nazev: 'Kravata burgundská', obrazek: '', cena: '690 Kč', vKabine: true },
+    { kod: 'DAREK', typ: '', varianta: '', hex: '', rucne: false, velikosti: false,
+      schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false }
+  ],
+  'zk:vzhledy': [],
   'events:list': [
     { id: 1, kind: 'dovolena', title: 'Dovolená — zavřeno', from: '2026-08-04', to: '2026-08-10',
       note: 'balíky se neodesílaly', days: 7, future: false, orders: 3, revenue: 4200, currency: 'CZK',

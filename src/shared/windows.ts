@@ -22,7 +22,7 @@
 
 export type ToolWindowId =
   | 'shoot' | 'packing' | 'catalog' | 'ptrans' | 'articles'
-  | 'webtexts' | 'banners' | 'media' | 'reviews' | 'digest' | 'instagram';
+  | 'webtexts' | 'banners' | 'media' | 'reviews' | 'digest' | 'instagram' | 'zkusebna';
 
 export type ToolWindowDef = {
   id: ToolWindowId;
@@ -85,7 +85,14 @@ export const TOOL_WINDOWS: ToolWindowDef[] = [
    * okně nedalo na poštu. Ve vlastním okně jde obojí vedle sebe.
    */
   { id: 'instagram', hash: 'socialni', title: 'Sociální sítě — Quentino App',
-    width: 1320, height: 880, minWidth: 900, minHeight: 620 }
+    width: 1320, height: 880, minWidth: 900, minHeight: 620 },
+  /*
+   * Zkušební kabina potřebuje místo ze stejného důvodu jako bannery: vedle
+   * dílny s vrstvami stojí živý náhled toho, co uvidí zákazník, a v užším
+   * okně by se model zmenšil natolik, že by se na něm nedalo nic posoudit.
+   */
+  { id: 'zkusebna', hash: 'kabina', title: 'Zkušební kabina — Quentino App',
+    width: 1360, height: 900, minWidth: 940, minHeight: 640 }
 ];
 
 export function toolWindow(id: string): ToolWindowDef | undefined {

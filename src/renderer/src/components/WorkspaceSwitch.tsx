@@ -18,7 +18,7 @@ export type Workspace = 'mail' | 'chat' | 'instagram';
  * místa pro tutéž věc a v poště přebývala tlačítka, která s poštou nesouvisí.
  */
 export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles'
-  | 'webtexts' | 'banners' | 'media' | 'shoot' | 'reviews';
+  | 'webtexts' | 'banners' | 'media' | 'shoot' | 'reviews' | 'zkusebna';
 
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
@@ -79,6 +79,13 @@ export const AI_TOOLS: {
    */
   { id: 'banners', icon: 'banner', label: 'Bannery', group: 'obsah', color: '#c23a3a',
     hint: 'Úvodní stránka, plánování dopředu a odpočty', desktopOnly: true },
+
+  /*
+   * Zkušební kabina patří k obsahu, ne k přehledu: je to věc, kterou
+   * zákazník uvidí na e-shopu, stejně jako bannery a texty.
+   */
+  { id: 'zkusebna', icon: 'user', label: 'Zkušební kabina', group: 'obsah', color: '#2f6fc8',
+    hint: 'Jak produkty vypadají na modelu', desktopOnly: true },
 
   { id: 'digest', icon: 'sunrise', label: 'AI Přehled', group: 'prehled', color: '#c29a3a',
     hint: 'Prodeje v číslech a postřehy k nim' }

@@ -17,6 +17,7 @@ import { closeCamera } from './shoot';
 import { closeSecondQuietly } from './shootsecond';
 import { mainWindowMaker } from './toolwindow';
 import { registerPreviewScheme, servePreview } from './bannerpreview';
+import { registerKabinaScheme, serveKabina } from './zkusebna/nahled';
 import { registerMediaScheme, serveMedia } from './mediafile';
 
 let mainWindow: BrowserWindow | null = null;
@@ -284,6 +285,7 @@ app.on('open-url', (e, url) => {
  * zákaz vloženého kódu, kvůli kterému zůstával náhled prázdný.
  */
 registerPreviewScheme();
+registerKabinaScheme();
 // Vlastní videa do střihu — okno na disk nedosáhne a base64 přes IPC by
 // u velkých souborů nestačilo (a nešlo by v nich přeskakovat)
 registerMediaScheme();
@@ -291,6 +293,7 @@ registerMediaScheme();
 app.whenReady().then(() => {
   installCrashGuards();
   servePreview();
+  serveKabina();
   serveMedia();
   installSystemCa(); // kořeny z Keychainu ještě před prvním síťovým voláním
 

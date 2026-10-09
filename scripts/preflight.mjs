@@ -624,7 +624,14 @@ const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
   // Okna nástrojů: telefon okna nemá, nástroj se na něm otevře přes obrazovku
   'tool:',
   // Aktualizace aplikace: telefon se aktualizuje přes TestFlight a App Store
-  'update:'];
+  'update:',
+  /*
+   * Zkušební kabina: generování vrstev je dávková práce s obrázky, která
+   * trvá minuty a stojí peníze, a schvaluje se u velké obrazovky vedle
+   * katalogu. Zákazník kabinu stejně nevidí z aplikace, ale z e-shopu —
+   * na telefonu by tenhle nástroj neměl co obsluhovat.
+   */
+  'zk:'];
 const DESKTOP_ONLY = [
   'app:version',
   /*
