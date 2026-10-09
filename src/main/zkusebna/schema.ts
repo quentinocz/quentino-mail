@@ -58,6 +58,9 @@ CREATE TABLE IF NOT EXISTS zk_produkty (
   typ TEXT NOT NULL DEFAULT '',
   varianta TEXT NOT NULL DEFAULT '',
   hex TEXT NOT NULL DEFAULT '',
+  -- Vystřižený kousek látky z fotky, jako data: adresa. Motýlek s kostkou
+  -- není jedna barva a na modelu se má dláždit vzor, ne flek.
+  vzorek TEXT NOT NULL DEFAULT '',
   rucne INTEGER NOT NULL DEFAULT 0,
   velikosti INTEGER NOT NULL DEFAULT 0,
   schvaleno INTEGER NOT NULL DEFAULT 0,
@@ -73,3 +76,8 @@ CREATE TABLE IF NOT EXISTS zk_vzhledy (
   kdy TEXT NOT NULL DEFAULT ''
 );
 `;
+
+/** Doplňky sloupců pro databáze z minulých verzí. */
+export const ZK_ALTERS: string[] = [
+  "ALTER TABLE zk_produkty ADD COLUMN vzorek TEXT NOT NULL DEFAULT ''"
+];

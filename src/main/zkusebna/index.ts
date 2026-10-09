@@ -237,7 +237,7 @@ export function produktyPrehled(limit = 300) {
 
 export function upravProdukt(kod: string, co: { typ?: ZkVrstvaTyp | ''; varianta?: string; hex?: string; schvaleno?: boolean }) {
   const row = store.produktyRows().find(one => one.kod === kod)
-    ?? { kod, typ: '' as const, varianta: '', hex: '', rucne: false, velikosti: false, schvaleno: false };
+    ?? { kod, typ: '' as const, varianta: '', hex: '', vzorek: '', rucne: false, velikosti: false, schvaleno: false };
   store.zapisProdukt({
     ...row,
     typ: co.typ !== undefined ? co.typ : row.typ,

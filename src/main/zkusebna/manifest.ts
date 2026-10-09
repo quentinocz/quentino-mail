@@ -33,7 +33,7 @@ export interface Kabina {
     poradi: string[];
     vrstvy: {
       typ: string; nazev: string; popis: string;
-      barvitelna: boolean; nepovinna: boolean;
+      barvitelna: boolean; nepovinna: boolean; zbozi: boolean;
       varianty: { id: string; nazev: string }[];
     }[];
     barvy: { id: string; nazev: string; hex: string }[];
@@ -75,7 +75,7 @@ export function kabina(adresa: (v: ZkVrstva) => string, produktu = 400): Kabina 
       poradi: [...ZK_PORADI],
       vrstvy: ZK_VRSTVY.map(one => ({
         typ: one.typ, nazev: one.nazev, popis: one.popis,
-        barvitelna: one.barvitelna, nepovinna: one.nepovinna,
+        barvitelna: one.barvitelna, nepovinna: one.nepovinna, zbozi: one.zbozi,
         varianty: one.varianty
       })),
       barvy: ZK_BARVY,

@@ -3,8 +3,8 @@ import { ask } from '../ai';
 import { getSetting } from '../db';
 import { listProducts } from '../products';
 import { ZkProdukt, ZkVrstvaTyp, ZK_VRSTVY, vrstvaDef } from '../../shared/zkusebna';
-import { Obraz, nacti } from './png';
-import { barvaProduktu, zmensi } from './pixely';
+import { Obraz, nacti, uloz } from './png';
+import { barvaProduktu, vzorekLatky, zmensi } from './pixely';
 import * as store from './store';
 
 /**
@@ -52,7 +52,13 @@ export interface Zarazeni {
 export function zarad(nazev: string, kategorie: string): Zarazeni {
   const text = `${bezDiakritiky(nazev)} ${bezDiakritiky(kategorie)}`;
   const nalezy: { typ: ZkVrstvaTyp; delka: number }[] = [];
+  /*
+   * Hledá se jen mezi **zbožím**. Oblek a košile jsou v kabině kulisa,
+   * kterou si zákazník nastavuje barvou — přiřadit k nim produkt nemá
+   * kam, a kdyby se to zkusilo, „Kravata k obleku" by se stala sakem.
+   */
   for (const def of ZK_VRSTVY) {
+    if (!def.zbozi) continue;
     for (const slovo of def.slova) {
       const hledane = bezDiakritiky(slovo);
       if (hledane && text.includes(hledane)) nalezy.push({ typ: def.typ, delka: hledane.length });
@@ -108,34 +114,45 @@ export function dekoduj(data: Buffer): Obraz {
   return { sirka: velikost.width, vyska: velikost.height, body };
 }
 
-/** Barva produktu z jeho fotky. Prázdné, když fotka není nebo nejde přečíst. */
-export async function barvaZFotky(url: string): Promise<string> {
-  if (!url) return '';
+/**
+ * Barva **a vzorek** produktu z jeho fotky.
+ *
+ * Obojí z jednoho stažení: fotky je přes čtyři stovky a stahovat je
+ * dvakrát by znamenalo dvakrát tak dlouhé projití katalogu.
+ */
+export async function zFotky(url: string): Promise<{ hex: string; vzorek: string }> {
+  if (!url) return { hex: '', vzorek: '' };
   try {
     const odpoved = await fetch(url);
-    if (!odpoved.ok) return '';
+    if (!odpoved.ok) return { hex: '', vzorek: '' };
     const data = Buffer.from(await odpoved.arrayBuffer());
     const obraz = dekoduj(data);
-    /* Zmenšení je kvůli času: na odhad barvy stačí dvě stě bodů na šířku */
-    const mensi = zmensi(obraz, Math.max(1, Math.round(obraz.sirka / 220)));
-    return barvaProduktu(mensi).hex;
+    /* Zmenšení je kvůli času: na odhad barvy stačí tři sta bodů na šířku */
+    const mensi = zmensi(obraz, Math.max(1, Math.round(obraz.sirka / 300)));
+    const hex = barvaProduktu(mensi).hex;
+    const kousek = vzorekLatky(mensi, 56);
+    return {
+      hex,
+      vzorek: kousek ? `data:image/png;base64,${uloz(kousek).toString('base64')}` : ''
+    };
   } catch {
-    return '';
+    return { hex: '', vzorek: '' };
   }
 }
 
 /* ---------------------------------------------------------- dotřídění */
 
-const SYSTEM = `Třídíš produkty pánské módy do kategorií pro zkušební kabinu e-shopu.
+const SYSTEM = `Třídíš doplňky k obleku do kategorií pro zkušební kabinu e-shopu.
 
 Dostaneš seznam produktů (kód, název, kategorie). U každého řekni, na které
 místo na modelu patří. Možnosti:
-${ZK_VRSTVY.filter(one => one.typ !== 'postava' && one.typ !== 'vlasy' && one.typ !== 'fousy')
+${ZK_VRSTVY.filter(one => one.zbozi)
     .map(one => `- ${one.typ} (${one.nazev}) — varianty: ${one.varianty.map(v => v.id).join(', ')}`)
     .join('\n')}
 
-Když produkt na model nepatří (dárkový poukaz, čisticí sada, obal), vrať
-prázdný typ. Nehádej: radši prázdný typ než špatné zařazení — špatně
+Obleky, saka, košile ani kalhoty v seznamu nejsou schválně: ty se neprodávají
+a v kabině jsou jen kulisa, kterou si zákazník nastaví barvou. Když produkt na
+model nepatří (dárkový poukaz, čisticí sada, obal), vrať prázdný typ. Nehádej: radši prázdný typ než špatné zařazení — špatně
 zařazený produkt zákazníkovi v kabině obleče kravatu místo pásku.
 
 Vrať JEN JSON bez komentářů:
@@ -160,7 +177,7 @@ export async function dotridAi(produkty: { kod: string; nazev: string; kategorie
       const json = JSON.parse(odpoved.slice(odpoved.indexOf('{'), odpoved.lastIndexOf('}') + 1));
       for (const row of json.produkty ?? []) {
         if (!row?.kod || !row?.typ) continue;
-        if (!ZK_VRSTVY.some(one => one.typ === row.typ)) continue;
+        if (!ZK_VRSTVY.some(one => one.typ === row.typ && one.zbozi)) continue;
         out.set(String(row.kod), {
           typ: row.typ,
           varianta: String(row.varianta || vrstvaDef(row.typ).varianty[0]?.id || ''),
@@ -212,12 +229,13 @@ export async function projdiKatalog(
         typ: nalez.typ,
         varianta: nalez.varianta,
         hex: stare?.rucne ? stare.hex : (stare?.hex ?? ''),
+        vzorek: stare?.vzorek ?? '',
         rucne: !!stare?.rucne,
         velikosti: (produkt.variants?.length ?? 0) > 0,
         schvaleno: false
       });
       zarazeno += 1;
-      if (!stare?.rucne && !stare?.hex && produkt.image) {
+      if (!stare?.rucne && (!stare?.hex || !stare?.vzorek) && produkt.image) {
         kBarve.push({ kod: produkt.code, url: produkt.image });
       }
     }
@@ -229,7 +247,7 @@ export async function projdiKatalog(
     for (const [kod, nalez] of dotridene) {
       if (!nalez.typ) continue;
       store.zapisProdukt({
-        kod, typ: nalez.typ, varianta: nalez.varianta, hex: '',
+        kod, typ: nalez.typ, varianta: nalez.varianta, hex: '', vzorek: '',
         rucne: false, velikosti: false, schvaleno: false
       });
       zarazeno += 1;
@@ -238,12 +256,12 @@ export async function projdiKatalog(
 
   if (options.sBarvami !== false) {
     for (let i = 0; i < kBarve.length; i++) {
-      options.hlas?.({ hotovo: i, celkem: kBarve.length, co: 'Čtu barvy z fotek' });
-      const hex = await barvaZFotky(kBarve[i].url);
-      if (!hex) continue;
+      options.hlas?.({ hotovo: i, celkem: kBarve.length, co: 'Čtu barvy a vzory z fotek' });
+      const nalez = await zFotky(kBarve[i].url);
+      if (!nalez.hex && !nalez.vzorek) continue;
       const row = store.produktyRows().find(one => one.kod === kBarve[i].kod);
       if (!row || row.rucne) continue;
-      store.zapisProdukt({ ...row, hex });
+      store.zapisProdukt({ ...row, hex: nalez.hex || row.hex, vzorek: nalez.vzorek || row.vzorek });
       obarveno += 1;
     }
   }
@@ -296,6 +314,7 @@ export function proKabinu(limit = 400): ZkProdukt[] {
         typ: row.typ as ZkVrstvaTyp,
         varianta: row.varianta,
         hex: row.hex,
+        vzorek: row.vzorek,
         velikosti: row.velikosti,
         skladem: produkt.stock == null || produkt.stock > 0
       });

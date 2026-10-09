@@ -486,3 +486,76 @@ export function zmensi(obraz: Obraz, kolikrat: number): Obraz {
   }
   return out;
 }
+
+/* ------------------------------------------------------- vzorek látky */
+
+/**
+ * Kousek látky vystřižený z fotky produktu.
+ *
+ * ## Proč nestačí barva
+ *
+ * Quentino prodává doplňky a zákazník si v kabině nevybírá odstín, ale
+ * **konkrétní motýlka**. Ten má kostku, puntíky nebo proužek — a jedna
+ * průměrná barva z něj udělá nudný flek, který se neprodává. Vzorek se
+ * proto na modelu vydláždí pod mapu světla: vzor zůstane vzorem a sklady
+ * zůstanou sklady.
+ *
+ * ## Jak se vybírá
+ *
+ * Hledá se čtverec, který je **celý na produktu** (ne na pozadí) a jehož
+ * barva je nejblíž té nejčastější. Tím se vyhne hranám, odleskům a
+ * stínům, které by se na modelu vydláždily jako mřížka. Když se takový
+ * čtverec nenajde (malá fotka, samé pozadí), vrátí se prázdno a kabina
+ * si vystačí s barvou.
+ */
+export function vzorekLatky(obraz: Obraz, velikost = 64): Obraz | null {
+  const pozadi = pozadiOdKraje(obraz);
+  const cil = barvaProduktu(obraz);
+  if (!cil.hex) return null;
+  const hledana = {
+    r: parseInt(cil.hex.slice(1, 3), 16),
+    g: parseInt(cil.hex.slice(3, 5), 16),
+    b: parseInt(cil.hex.slice(5, 7), 16)
+  };
+  const strana = Math.min(velikost, obraz.sirka, obraz.vyska);
+  if (strana < 8) return null;
+
+  let nej: { x: number; y: number; chyba: number } | null = null;
+  const krok = Math.max(2, Math.round(strana / 6));
+  for (let y = 0; y + strana <= obraz.vyska; y += krok) {
+    for (let x = 0; x + strana <= obraz.sirka; x += krok) {
+      let soucet = 0;
+      let kusu = 0;
+      let naPozadi = 0;
+      /* Čte se každý třetí bod — hledá se místo, ne přesná hodnota */
+      for (let dy = 0; dy < strana; dy += 3) {
+        for (let dx = 0; dx < strana; dx += 3) {
+          const i = (y + dy) * obraz.sirka + (x + dx);
+          if (pozadi[i]) { naPozadi += 1; continue; }
+          const k = i * 4;
+          soucet += Math.abs(obraz.body[k] - hledana.r)
+            + Math.abs(obraz.body[k + 1] - hledana.g)
+            + Math.abs(obraz.body[k + 2] - hledana.b);
+          kusu += 1;
+        }
+      }
+      if (!kusu || naPozadi > kusu * 0.02) continue;
+      const chyba = soucet / kusu;
+      if (!nej || chyba < nej.chyba) nej = { x, y, chyba };
+    }
+  }
+  if (!nej) return null;
+
+  const out = novyObraz(strana, strana);
+  for (let dy = 0; dy < strana; dy++) {
+    for (let dx = 0; dx < strana; dx++) {
+      const z = ((nej.y + dy) * obraz.sirka + (nej.x + dx)) * 4;
+      const k = (dy * strana + dx) * 4;
+      out.body[k] = obraz.body[z];
+      out.body[k + 1] = obraz.body[z + 1];
+      out.body[k + 2] = obraz.body[z + 2];
+      out.body[k + 3] = 255;
+    }
+  }
+  return out;
+}

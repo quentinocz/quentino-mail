@@ -289,6 +289,49 @@ console.log('\nbarva z fotky');
     `${pozadiBodu} bodů, v saku ${bodVeSaku}, v rohu ${bodVRohu}`);
 }
 
+/* ---------- 5b. vzorek látky z fotky ---------- */
+
+{
+  /*
+   * Motýlek s kostkou není jedna barva. Z fotky se proto vystřihne kousek
+   * látky, který se na modelu vydláždí — a musí to být kousek **z
+   * produktu**, ne z pozadí a ne z hrany, kde je stín.
+   */
+  const foto = png.novyObraz(120, 120);
+  for (let y = 0; y < 120; y++) {
+    for (let x = 0; x < 120; x++) {
+      const i = (y * 120 + x) * 4;
+      let barva = [250, 250, 248];
+      if (x > 30 && x < 90 && y > 30 && y < 90) {
+        barva = ((x >> 3) + (y >> 3)) % 2 ? [40, 70, 120] : [230, 230, 225];
+      }
+      foto.body[i] = barva[0]; foto.body[i + 1] = barva[1];
+      foto.body[i + 2] = barva[2]; foto.body[i + 3] = 255;
+    }
+  }
+  const kousek = px.vzorekLatky(foto, 32);
+  ok('z fotky se vystřihne kousek látky', !!kousek && kousek.sirka === 32,
+    kousek ? `${kousek.sirka}×${kousek.vyska}` : 'nic');
+  if (kousek) {
+    const barvy = new Set();
+    let pozadi = 0;
+    for (let i = 0; i < kousek.body.length; i += 4) {
+      barvy.add(`${kousek.body[i]},${kousek.body[i + 1]},${kousek.body[i + 2]}`);
+      if (kousek.body[i] > 245 && kousek.body[i + 1] > 245) pozadi += 1;
+    }
+    ok('  a je v něm vzor, ne jedna barva', barvy.size >= 2, `${barvy.size} barev`);
+    ok('  a není v něm pozadí fotky', pozadi === 0, `${pozadi} bodů pozadí`);
+  }
+
+  /* Fotka bez produktu nesmí vrátit kus pozadí vydávaný za látku */
+  const prazdna = png.novyObraz(40, 40);
+  for (let i = 0; i < prazdna.body.length; i += 4) {
+    prazdna.body[i] = prazdna.body[i + 1] = prazdna.body[i + 2] = 250;
+    prazdna.body[i + 3] = 255;
+  }
+  ok('z fotky bez produktu nevznikne vzorek', px.vzorekLatky(prazdna, 16) === null);
+}
+
 /* ---------- 6. model vzhledu a rady ---------- */
 
 console.log('\nvzhled a rady');
@@ -319,9 +362,39 @@ console.log('\nvzhled a rady');
     splyva.some(one => one.typ === 'kosile' && one.druh === 'splyva'),
     splyva.map(one => `${one.typ}:${one.druh}`).join(' '));
 
-  const bezKravaty = zk.poradce({ ...v, kusy: { ...v.kusy, kravata: undefined } });
-  ok('bez kravaty se kravata doporučí',
-    bezKravaty.some(one => one.typ === 'kravata' && one.druh === 'ladi'));
+  /*
+   * Quentino prodává doplňky, ne obleky. Rada u doplňku proto musí
+   * ukázat **konkrétní kus z katalogu**, ne odstín: zákazník si nekupuje
+   * barvu, kupuje si tuhle kravatu. A bez katalogu nesmí radit vůbec —
+   * doporučit kravatu, kterou nemáme, je horší než neporadit nic.
+   */
+  const KATALOG = [
+    { kod: 'KRA1', nazev: 'Kravata burgundská', url: 'https://quentino.cz/p/kra1', cena: '690 Kč',
+      cenaCislo: 690, obrazek: '', vzorek: '', typ: 'kravata', varianta: 'kravata',
+      hex: '#5b1d26', velikosti: false, skladem: true },
+    { kod: 'KRA2', nazev: 'Kravata šalvějová', url: 'https://quentino.cz/p/kra2', cena: '690 Kč',
+      cenaCislo: 690, obrazek: '', vzorek: '', typ: 'kravata', varianta: 'kravata',
+      hex: '#acc2ab', velikosti: false, skladem: true }
+  ];
+  const bezKravaty = zk.poradce(v, KATALOG);
+  const radaKravata = bezKravaty.find(one => one.typ === 'kravata' && one.druh === 'ladi');
+  ok('k obleku se doporučí konkrétní kravata z katalogu',
+    !!radaKravata && !!radaKravata.produkt,
+    radaKravata ? `${radaKravata.produkt}: ${radaKravata.text}` : 'nic');
+  ok('  a je to ta, co k obleku barevně sedne',
+    radaKravata?.produkt === 'KRA1', radaKravata?.produkt ?? '—');
+  const bezKatalogu = zk.poradce(v, []);
+  ok('bez katalogu se kravata nedoporučí vůbec',
+    !bezKatalogu.some(one => one.typ === 'kravata'),
+    bezKatalogu.map(one => one.typ).join(' · '));
+
+  /* Doplněk, který na podkladu není vidět, je vyhozená koupě */
+  const splyvaKravata = zk.poradce({
+    ...v, kusy: { ...v.kusy, kravata: { varianta: 'kravata', hex: '#1f2d4d', produkt: 'KRA1' } }
+  }, KATALOG);
+  const varovani = splyvaKravata.find(one => one.typ === 'kravata' && one.druh === 'splyva');
+  ok('kravata v barvě saka dostane varování i náhradu',
+    !!varovani && !!varovani.produkt, varovani ? varovani.text : 'nic');
 
   const pasekIKsandy = zk.poradce({
     ...v,
@@ -333,13 +406,13 @@ console.log('\nvzhled a rady');
   /* Do košíku: produkt s velikostmi se naslepo přidat nesmí */
   const bezVelikosti = zk.doKosikuUrl({
     kod: 'A', nazev: '', url: 'https://quentino.cz/p/sako', cena: '', cenaCislo: 0,
-    obrazek: '', typ: 'sako', varianta: '', hex: '', velikosti: false, skladem: true
+    obrazek: '', vzorek: '', typ: 'sako', varianta: '', hex: '', velikosti: false, skladem: true
   });
   ok('produkt bez velikostí se přidá přímo z kabiny',
     bezVelikosti.rovnou && /addtocart=1/.test(bezVelikosti.url), bezVelikosti.url);
   const sVelikostmi = zk.doKosikuUrl({
     kod: 'B', nazev: '', url: 'https://quentino.cz/p/sako', cena: '', cenaCislo: 0,
-    obrazek: '', typ: 'sako', varianta: '', hex: '', velikosti: true, skladem: true
+    obrazek: '', vzorek: '', typ: 'sako', varianta: '', hex: '', velikosti: true, skladem: true
   });
   ok('produkt s velikostmi pošle na detail, ať si zákazník vybere',
     !sVelikostmi.rovnou && !/addtocart/.test(sVelikostmi.url), sVelikostmi.url);

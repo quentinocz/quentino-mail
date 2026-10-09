@@ -257,19 +257,30 @@ const TEMPLATE = String.raw`
   }
 
   /*
-   * Jedna vrstva na pomocné plátno: podklad zvolenou barvou, přes něj
-   * mapa světla režimem hard-light a nakonec se ořízne průhledností
-   * vrstvy. Bez toho oříznutí by barva zůstala i tam, kde látka není.
+   * Jedna vrstva na pomocné plátno.
+   *
+   * Podklad je buď **zvolená barva** (oblek, košile — to je kulisa, kterou
+   * si zákazník nastavuje přibližně podle svého), nebo **vydlážděný kousek
+   * látky** vystřižený z fotky produktu (kravata, motýlek, kšandy,
+   * kapesníček — to je zboží a kupuje se konkrétní kus se svým vzorem).
+   * Přes podklad jde mapa světla režimem hard-light, u kterého polotón
+   * vydá podklad beze změny, a nakonec se to ořízne průhledností vrstvy.
+   * Bez toho oříznutí by podklad zůstal i tam, kde látka není.
    */
   var pomocne = null;
-  function obarvi(img, hex, sirka, vyska) {
+  function oblec(img, hex, vzorekImg, sirka, vyska) {
     if (!pomocne) pomocne = document.createElement("canvas");
     pomocne.width = sirka;
     pomocne.height = vyska;
     var ctx = pomocne.getContext("2d");
     ctx.clearRect(0, 0, sirka, vyska);
     ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = podMapu(hex);
+    if (vzorekImg) {
+      var vzor = ctx.createPattern(vzorekImg, "repeat");
+      ctx.fillStyle = vzor || podMapu(hex || "#808080");
+    } else {
+      ctx.fillStyle = podMapu(hex);
+    }
     ctx.fillRect(0, 0, sirka, vyska);
     ctx.globalCompositeOperation = "hard-light";
     ctx.drawImage(img, 0, 0, sirka, vyska);
@@ -277,6 +288,14 @@ const TEMPLATE = String.raw`
     ctx.drawImage(img, 0, 0, sirka, vyska);
     ctx.globalCompositeOperation = "source-over";
     return pomocne;
+  }
+
+  /** Produkt podle kódu. */
+  function produkt(kod) {
+    if (!kod) return null;
+    var vse = (DATA && DATA.produkty) || [];
+    for (var i = 0; i < vse.length; i++) if (vse[i].kod === kod) return vse[i];
+    return null;
   }
 
   function nakresli(platno, v) {
@@ -290,8 +309,14 @@ const TEMPLATE = String.raw`
     for (var i = 0; i < kusy.length; i++) {
       var vr = vrstvaPro(postava.id, kusy[i].typ, kusy[i].varianta);
       if (!vr || !vr.url) continue;
-      mam.push({ kus: kusy[i], vrstva: vr });
+      var zbozi = produkt(kusy[i].produkt);
+      mam.push({ kus: kusy[i], vrstva: vr, vzorek: zbozi && zbozi.vzorek ? zbozi.vzorek : "" });
       cekani.push(obrazek(vr.url).catch(function () { return null; }));
+    }
+    /* Vzorky látek se načítají vedle vrstev, ne po nich — jinak se model
+       překresluje dvakrát a při přepínání kravat to poskakuje */
+    for (var z = 0; z < mam.length; z++) {
+      cekani.push(mam[z].vzorek ? obrazek(mam[z].vzorek).catch(function () { return null; }) : Promise.resolve(null));
     }
     return Promise.all(cekani).then(function (nactene) {
       platno.width = sirka;
@@ -309,12 +334,13 @@ const TEMPLATE = String.raw`
       ctx.translate(sirka / 2, postava.podrazka || vyska);
       ctx.scale(meritko, meritko);
       ctx.translate(-sirka / 2, -(postava.podrazka || vyska));
-      for (var j = 0; j < nactene.length; j++) {
+      for (var j = 0; j < mam.length; j++) {
         var img = nactene[j];
         if (!img) continue;
         var def = defVrstvy(mam[j].kus.typ);
-        if (def && def.barvitelna && mam[j].kus.hex) {
-          ctx.drawImage(obarvi(img, mam[j].kus.hex, sirka, vyska), 0, 0);
+        var vzorekImg = nactene[mam.length + j] || null;
+        if (def && def.barvitelna && (mam[j].kus.hex || vzorekImg)) {
+          ctx.drawImage(oblec(img, mam[j].kus.hex, vzorekImg, sirka, vyska), 0, 0);
         } else {
           ctx.drawImage(img, 0, 0, sirka, vyska);
         }
@@ -329,31 +355,89 @@ const TEMPLATE = String.raw`
    * Rady jsou krátké a každá má důvod, který se dá napsat do věty.
    * „Tohle se taky kupuje" se v obleku pozná: k námořnickému saku to
    * doporučí hnědý pásek a zákazník přestane radám věřit.
+   *
+   * U **zboží** rada ukazuje konkrétní kus z katalogu, ne odstín:
+   * zákazník si nekupuje barvu, kupuje si tuhle kravatu. U **kulisy**
+   * (oblek, košile) ukazuje barvu — tu si nastavuje podle svého.
    */
+  function maProdukty(typ) {
+    var vse = (DATA && DATA.produkty) || [];
+    for (var i = 0; i < vse.length; i++) if (vse[i].typ === typ) return true;
+    return false;
+  }
+
+  function nejblizsi(typ, hex, varianta) {
+    var nabidka = produktyKVrstve(typ, hex, varianta);
+    return nabidka.length ? nabidka[0] : null;
+  }
+
   function poradce(v) {
     var rady = [];
     var sako = v.kusy.sako, kosile = v.kusy.kosile, kravata = v.kusy.kravata;
-    if (!kosile) rady.push({ typ: "kosile", druh: "chybi", hex: "#f6f6f4", text: "Bez košile to není oblek — vyber barvu." });
-    if (!v.kusy.kalhoty) rady.push({ typ: "kalhoty", druh: "chybi", hex: sako ? sako.hex : "#1f2d4d", text: "Ke saku patří kalhoty. Nejčastěji ve stejné barvě." });
-    if (sako && !kravata) rady.push({ typ: "kravata", druh: "ladi", hex: ztmav(sako.hex, 0.35), text: "K saku sedne kravata o odstín tmavší." });
+
+    if (!kosile) {
+      rady.push({ typ: "kosile", druh: "chybi", hex: "#f6f6f4",
+        text: "Nastav barvu košile — na bílé vypadá motýlek jinak než na modré." });
+    }
+    if (!sako && !v.kusy.vesta) {
+      rady.push({ typ: "sako", druh: "chybi", hex: "#1f2d4d",
+        text: "Přidej sako nebo vestu, ať je vidět, na čem doplněk bude." });
+    }
+
+    if (!kravata && maProdukty("kravata")) {
+      var cil = sako ? ztmav(sako.hex, 0.35) : "#5b1d26";
+      var kus = nejblizsi("kravata", cil, "");
+      if (kus) {
+        rady.push({ typ: "kravata", druh: "ladi", hex: "", produkt: kus.kod,
+          text: "K tomuhle obleku sedne " + kus.nazev.toLowerCase() + "." });
+      }
+    }
+    if (!v.kusy.kapesnicek && (sako || v.kusy.vesta) && maProdukty("kapesnicek")) {
+      var cilK = kravata ? kravata.hex : (kosile ? kosile.hex : "#f6f6f4");
+      var kapesnik = nejblizsi("kapesnicek", cilK, "");
+      if (kapesnik) {
+        rady.push({ typ: "kapesnicek", druh: "ladi", hex: "", produkt: kapesnik.kod,
+          text: "Kapesníček je nejlevnější způsob, jak oblek pozvednout — " + kapesnik.nazev.toLowerCase() + " ladí." });
+      }
+    }
+
+    /* Doplněk, který na podkladu není vidět, je vyhozená koupě */
+    var hlidane = ["kravata", "kapesnicek", "ksandy"];
+    for (var h = 0; h < hlidane.length; h++) {
+      var typ = hlidane[h];
+      var mam = v.kusy[typ];
+      if (!mam) continue;
+      var vuci = typ === "ksandy" ? kosile : (sako || kosile);
+      if (!vuci || rozdilBarev(mam.hex, vuci.hex) >= 0.1) continue;
+      var def = defVrstvy(typ);
+      /* Mluví se o tom, co má zákazník vybrané — „Motýlek", ne „Kravata nebo motýlek" */
+      var jmeno = def ? def.nazev : typ;
+      if (def) {
+        for (var vv2 = 0; vv2 < def.varianty.length; vv2++) {
+          if (def.varianty[vv2].id === mam.varianta) jmeno = def.varianty[vv2].nazev;
+        }
+      }
+      var cilJiny = svetlost(vuci.hex) < 0.5 ? "#c8b394" : ztmav(vuci.hex, 0.5);
+      var jiny = nejblizsi(typ, cilJiny, mam.varianta);
+      rady.push({
+        typ: typ, druh: "splyva",
+        hex: jiny ? "" : cilJiny,
+        produkt: jiny ? jiny.kod : "",
+        text: jiny
+          ? jmeno + " v barvě podkladu zmizí. Vedle něj vynikne " + jiny.nazev.toLowerCase() + "."
+          : jmeno + " v barvě podkladu zmizí — zkus výraznější."
+      });
+    }
+
     if (sako && kosile && rozdilBarev(sako.hex, kosile.hex) < 0.12) {
       rady.push({
         typ: "kosile", druh: "splyva",
         hex: svetlost(sako.hex) < 0.5 ? "#f6f6f4" : "#1f2d4d",
-        text: "Košile má skoro stejnou barvu jako sako — na fotce i naživo to splyne. Zkus světlejší."
+        text: "Košile má skoro stejnou barvu jako sako — na takové kulise se doplněk posoudit nedá."
       });
-    }
-    if (kravata && sako && rozdilBarev(kravata.hex, sako.hex) < 0.1) {
-      rady.push({ typ: "kravata", druh: "splyva", hex: ztmav(sako.hex, 0.45), text: "Kravata v barvě saka zmizí. Buď výrazně tmavší, nebo úplně jiná barva." });
-    }
-    if (v.kusy.pasek && v.kusy.boty && rozdilBarev(v.kusy.pasek.hex, v.kusy.boty.hex) > 0.25) {
-      rady.push({ typ: "pasek", druh: "ladi", hex: v.kusy.boty.hex, text: "Pásek a boty se mají shodovat — černá k černé, hnědá k hnědé." });
     }
     if (v.kusy.pasek && v.kusy.ksandy) {
       rady.push({ typ: "ksandy", druh: "splyva", hex: "", text: "Pásek a kšandy naráz se nenosí. Nech jedno z toho." });
-    }
-    if (sako && !v.kusy.kapesnicek) {
-      rady.push({ typ: "kapesnicek", druh: "ladi", hex: kosile ? kosile.hex : "#f6f6f4", text: "Kapesníček do saka je nejlevnější způsob, jak oblek pozvednout." });
     }
     return rady;
   }
@@ -412,6 +496,17 @@ const TEMPLATE = String.raw`
     + ".qkb-kus{display:grid;grid-template-columns:92px minmax(0,1fr);gap:8px;align-items:start;padding:7px 0;border-top:1px dashed #ededf0}"
     + ".qkb-kus:first-of-type{border-top:0}"
     + ".qkb-kus>b{font-size:12.5px;padding-top:5px;font-weight:600}"
+    + ".qkb-zbozi{background:#fbfbfc;border-radius:11px;padding:10px 12px;border:1px solid #ededf0}"
+    + ".qkb-zbozi h3{margin-bottom:2px}"
+    + ".qkb-mrizka{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}"
+    + ".qkb-kousek{border:1px solid #dcdce1;background:#fff;border-radius:9px;padding:3px;cursor:pointer;width:62px;display:flex;flex-direction:column;align-items:center;gap:2px}"
+    + ".qkb-kousek.on{border-color:#18181b;box-shadow:0 0 0 1px #18181b}"
+    + ".qkb-kousek img{width:54px;height:54px;object-fit:cover;border-radius:6px;background:#f2f2f4}"
+    + ".qkb-flek{width:54px;height:54px;border-radius:6px}"
+    + ".qkb-kousek em{font-style:normal;font-size:10.5px;color:#6b7280}"
+    + ".qkb-vybrany{flex:1 1 100%;font-size:12.5px;margin-top:4px;display:flex;gap:8px;align-items:baseline}"
+    + ".qkb-vybrany a{margin-left:auto;font-size:12px}"
+    + ".qkb-rada-foto{width:34px;height:34px;object-fit:cover;border-radius:6px;background:#fff}"
     + ".qkb-barvy{display:flex;flex-wrap:wrap;gap:5px;align-items:center}"
     + ".qkb-barva{width:22px;height:22px;border-radius:50%;border:1px solid rgba(0,0,0,.16);cursor:pointer;padding:0}"
     + ".qkb-barva.on{outline:2px solid #18181b;outline-offset:2px}"
@@ -519,17 +614,27 @@ const TEMPLATE = String.raw`
       for (var r = 0; r < Math.min(3, rady.length); r++) {
         (function (rada) {
           var e = el("div", "qkb-rada " + rada.druh);
+          /* U rady, která nabízí konkrétní kus, je vidět i jeho fotka */
+          var navrzeny = rada.produkt ? produkt(rada.produkt) : null;
+          if (navrzeny && (navrzeny.obrazek || navrzeny.vzorek)) {
+            var mini = el("img", "qkb-rada-foto");
+            mini.src = navrzeny.obrazek || navrzeny.vzorek;
+            mini.alt = "";
+            mini.loading = "lazy";
+            e.appendChild(mini);
+          }
           e.appendChild(el("span", null, rada.text));
-          if (rada.hex) {
+          if (rada.hex || navrzeny) {
             var b = el("button", "qkb-btn qkb-maly", rada.druh === "chybi" ? "Přidat" : "Použít");
             b.type = "button";
             b.addEventListener("click", function () {
               var def = defVrstvy(rada.typ);
               var stavajici = vzhled.kusy[rada.typ];
               vzhled.kusy[rada.typ] = {
-                varianta: stavajici ? stavajici.varianta : (def && def.varianty[0] ? def.varianty[0].id : ""),
-                hex: rada.hex,
-                produkt: stavajici ? stavajici.produkt : ""
+                varianta: navrzeny ? navrzeny.varianta
+                  : (stavajici ? stavajici.varianta : (def && def.varianty[0] ? def.varianty[0].id : "")),
+                hex: navrzeny && navrzeny.hex ? navrzeny.hex : rada.hex,
+                produkt: navrzeny ? navrzeny.kod : (stavajici ? stavajici.produkt : "")
               };
               prekresli();
             });
@@ -638,16 +743,39 @@ const TEMPLATE = String.raw`
     }
     kam.appendChild(blok);
 
-    /* --- oblečení --- */
-    var oblek = el("div", "qkb-blok");
-    oblek.appendChild(el("h3", null, "Oblečení"));
+    /*
+     * Oblečení se dělí na dvě věci, a je to ten nejpodstatnější rozdíl
+     * v celé kabině. **Tvůj oblek** je kulisa: zákazník si ji nastaví
+     * přibližně podle toho, co má doma, aby viděl, na čem ten doplněk
+     * bude. **Naše doplňky** jsou zboží: vybírá se konkrétní kus se svým
+     * vzorem, ne odstín. Kdyby se obojí míchalo do jednoho seznamu,
+     * zákazník by si naladil motýlka, který neexistuje.
+     */
     var poradi = (DATA.katalog && DATA.katalog.poradi) || [];
+    var kulisa = el("div", "qkb-blok");
+    kulisa.appendChild(el("h3", null, "Tvůj oblek"));
+    kulisa.appendChild(el("div", "qkb-sub", "Nastav přibližně to, co máš doma — ať je vidět, na čem doplněk bude."));
+    var zbozi = el("div", "qkb-blok qkb-zbozi");
+    zbozi.appendChild(el("h3", null, "Naše doplňky"));
+    zbozi.appendChild(el("div", "qkb-sub", "Tohle si vybíráš doopravdy. Klepni na kus, který chceš vidět na modelu."));
+    var mameZbozi = false;
     for (var pi = 0; pi < poradi.length; pi++) {
       var typ = poradi[pi];
       if (typ === "postava" || typ === "vlasy" || typ === "fousy") continue;
-      oblek.appendChild(radekKusu(typ));
+      var def = defVrstvy(typ);
+      /*
+       * Vrstva, která je zboží, ale nemá v katalogu jediný kus, se chová
+       * jako kulisa — jinak by se nedala nastavit vůbec.
+       */
+      if (def && def.zbozi && maProdukty(typ)) {
+        zbozi.appendChild(radekKusu(typ, true));
+        mameZbozi = true;
+      } else {
+        kulisa.appendChild(radekKusu(typ, false));
+      }
     }
-    kam.appendChild(oblek);
+    if (mameZbozi) kam.appendChild(zbozi);
+    kam.appendChild(kulisa);
 
     /* --- uložené vzhledy --- */
     var ulozeneBlok = el("div", "qkb-blok");
@@ -707,9 +835,9 @@ const TEMPLATE = String.raw`
     kam.appendChild(ulozeneBlok);
   }
 
-  function radekKusu(typ) {
+  function radekKusu(typ, jeZbozi) {
     var def = defVrstvy(typ);
-    var obal = el("div", "qkb-kus");
+    var obal = el("div", "qkb-kus" + (jeZbozi ? " zbozi" : ""));
     obal.appendChild(el("b", null, def ? def.nazev : typ));
     var vpravo = el("div");
     var kus = vzhled.kusy[typ];
@@ -729,65 +857,105 @@ const TEMPLATE = String.raw`
           vzhled.kusy[typ] = {
             varianta: one.id,
             hex: stare ? stare.hex : "#1f2d4d",
-            produkt: stare ? stare.produkt : ""
+            produkt: ""
           };
+          /* Po přepnutí na motýlka se vybere nejbližší motýlek, ne kravata */
+          if (jeZbozi) {
+            var prvni = nejblizsi(typ, stare ? stare.hex : "", one.id);
+            if (prvni) {
+              vzhled.kusy[typ].produkt = prvni.kod;
+              vzhled.kusy[typ].hex = prvni.hex || vzhled.kusy[typ].hex;
+            }
+          } else if (stare) {
+            vzhled.kusy[typ].produkt = stare.produkt;
+          }
           prekresli();
         }));
       })(varianty[i]);
     }
     vpravo.appendChild(volby);
 
-    if (kus) {
+    if (kus && !jeZbozi) {
       vpravo.appendChild(barvyRadek(kus.hex, function (hex) {
         vzhled.kusy[typ].hex = hex;
-        /* Barva se změnila: dřív vybraný produkt už nemusí sedět */
         prekresli();
       }));
-      var nabidka = produktyKVrstve(typ, kus.hex, kus.varianta);
-      if (nabidka.length) vpravo.appendChild(produktRadek(typ, nabidka, kus));
+    }
+    /*
+     * Nabídka kusů je vidět **i když zákazník zatím nic nevybral** — je to
+     * výloha, ne nastavení. Dokud se tu neukazovalo nic, dokud nebyl kus
+     * vybraný, byla kabina pro doplňky prázdná a nebylo z čeho vybírat.
+     */
+    if (jeZbozi) {
+      vpravo.appendChild(produktyMrizka(typ, kus, kus ? kus.varianta : (varianty[0] ? varianty[0].id : "")));
     }
     obal.appendChild(vpravo);
     return obal;
   }
 
-  function produktRadek(typ, nabidka, kus) {
-    var vybrany = null;
-    for (var i = 0; i < nabidka.length; i++) if (nabidka[i].kod === kus.produkt) vybrany = nabidka[i];
-    var p = vybrany || nabidka[0];
-    var e = el("div", "qkb-produkt");
-    if (p.obrazek) {
-      var img = el("img");
-      img.src = p.obrazek;
-      img.alt = "";
-      img.loading = "lazy";
-      e.appendChild(img);
+  /*
+   * Nabídka konkrétních kusů.
+   *
+   * Dlaždice s fotkou, ne rozbalovací seznam: zákazník si vybírá motýlka,
+   * a ten se vybírá očima. Řadí se podle toho, jak barevně sedne k tomu,
+   * co už na modelu je — kdo si naklikal námořnický oblek, hledá k němu
+   * doplněk, ne abecedu.
+   */
+  function produktyMrizka(typ, kus, varianta) {
+    var vuci = vzhled.kusy.sako || vzhled.kusy.vesta || vzhled.kusy.kosile;
+    var nabidka = produktyKVrstve(typ, vuci ? ztmav(vuci.hex, 0.3) : "", varianta);
+    var obal = el("div", "qkb-mrizka");
+    if (!nabidka.length) {
+      obal.appendChild(el("div", "qkb-sub", "V téhle variantě teď nic skladem nemáme."));
+      return obal;
     }
-    var text = el("div");
-    text.appendChild(el("div", "qkb-pnazev", p.nazev));
-    text.appendChild(el("div", "qkb-pcena", p.cena + (nabidka.length > 1 ? " · " + nabidka.length + " na výběr" : "")));
-    e.appendChild(text);
-
-    if (nabidka.length > 1) {
-      var vyber = el("select");
-      vyber.style.maxWidth = "150px";
-      for (var j = 0; j < Math.min(40, nabidka.length); j++) {
-        var o = el("option", null, nabidka[j].nazev);
-        o.value = nabidka[j].kod;
-        if (nabidka[j].kod === p.kod) o.selected = true;
-        vyber.appendChild(o);
-      }
-      vyber.addEventListener("change", function () {
-        vzhled.kusy[typ].produkt = vyber.value;
-        /* Barva jde za produktem — zákazník si vybral konkrétní látku */
-        for (var k = 0; k < nabidka.length; k++) {
-          if (nabidka[k].kod === vyber.value && nabidka[k].hex) vzhled.kusy[typ].hex = nabidka[k].hex;
+    for (var i = 0; i < Math.min(24, nabidka.length); i++) {
+      (function (p) {
+        var e = el("button", "qkb-kousek" + (kus && kus.produkt === p.kod ? " on" : ""));
+        e.type = "button";
+        e.title = p.nazev + " · " + p.cena;
+        if (p.obrazek || p.vzorek) {
+          var img = el("img");
+          img.src = p.obrazek || p.vzorek;
+          img.alt = p.nazev;
+          img.loading = "lazy";
+          e.appendChild(img);
+        } else {
+          var flek = el("span", "qkb-flek");
+          flek.style.background = p.hex || "#ddd";
+          e.appendChild(flek);
         }
-        prekresli();
-      });
-      e.appendChild(vyber);
+        e.appendChild(el("em", null, p.cena));
+        e.addEventListener("click", function () {
+          /* Klepnutím na kus se doplněk rovnou nasadí, i když tam žádný nebyl */
+          vzhled.kusy[typ] = {
+            varianta: p.varianta || varianta,
+            hex: p.hex || "#808080",
+            produkt: p.kod
+          };
+          prekresli();
+        });
+        obal.appendChild(e);
+      })(nabidka[i]);
     }
-    if (!kus.produkt) vzhled.kusy[typ].produkt = p.kod;
-    return e;
+    /*
+     * Jméno a cena jen u toho, co je **opravdu vybrané**. Dřív se tu
+     * ukazoval první kus z nabídky i tehdy, když si zákazník nevybral nic,
+     * a vypadalo to, že ho na modelu má.
+     */
+    var vybrany = kus ? produkt(kus.produkt) : null;
+    if (vybrany) {
+      var popis = el("div", "qkb-vybrany");
+      popis.appendChild(el("b", null, vybrany.nazev));
+      popis.appendChild(el("span", null, " " + vybrany.cena));
+      var odkaz = el("a", null, "Otevřít produkt");
+      odkaz.href = vybrany.url;
+      odkaz.target = "_blank";
+      odkaz.rel = "noopener";
+      popis.appendChild(odkaz);
+      obal.appendChild(popis);
+    }
+    return obal;
   }
 
   /* --------------------------------------------------------- pata */

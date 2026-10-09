@@ -10582,3 +10582,5 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .zk-kontakt input:first-child { flex: 1 1 260px; }
 .zk-barvy { display: flex; gap: 5px; flex-wrap: wrap; }
 .zk-barva { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
+/* Vzorek látky: na modelu se vydláždí tenhle kousek, ne fotka produktu */
+.zk-vzorek { width: 34px; height: 34px; border-radius: 6px; background: var(--bg); object-fit: cover; }

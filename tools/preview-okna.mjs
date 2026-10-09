@@ -63,6 +63,20 @@ try {
     });
     return 'data:image/png;base64,' + png.uloz(obraz).toString('base64');
   };
+  /* Vzorek látky: kostka, ať je poznat, že se na modelu dláždí vzor */
+  const vzorekUrl = (a, b) => {
+    const strana = 16;
+    const obraz = png.novyObraz(strana, strana);
+    for (let y = 0; y < strana; y++) {
+      for (let x = 0; x < strana; x++) {
+        const i = (y * strana + x) * 4;
+        const barva = ((x >> 2) + (y >> 2)) % 2 ? a : b;
+        obraz.body[i] = barva[0]; obraz.body[i + 1] = barva[1];
+        obraz.body[i + 2] = barva[2]; obraz.body[i + 3] = 255;
+      }
+    }
+    return 'data:image/png;base64,' + png.uloz(obraz).toString('base64');
+  };
   const postavaUrl = vrstva(set => {
     for (let y = 20; y < 380; y++) for (let x = 70; x < 130; x++) set(x, y, 206, 170, 142, 255);
   });
@@ -86,20 +100,40 @@ try {
       { postava: 'dospely-bezny', typ: 'kosile', varianta: 'klasicka', url: mapa(120, 240, 80, 120) },
       { postava: 'dospely-bezny', typ: 'kalhoty', varianta: 'oblekove', url: mapa(240, 370, 75, 125) },
       { postava: 'dospely-bezny', typ: 'kravata', varianta: 'kravata', url: mapa(125, 200, 95, 105) },
-      { postava: 'dospely-bezny', typ: 'sako', varianta: 'jednoradove', url: mapa(110, 250, 68, 132) },
-      { postava: 'dospely-bezny', typ: 'vlasy', varianta: 'kratke', url: mapa(20, 40, 75, 125) }
+      { postava: 'dospely-bezny', typ: 'kravata', varianta: 'motylek', url: mapa(124, 136, 88, 112) },
+      /*
+       * Sako je schválně **rozepnuté** — dva díly a mezi nimi vidět košile
+       * s kravatou. Zavřený obdélník by kravatu překryl a zkouška vzoru by
+       * pak měřila barvu saka, aniž by si toho kdo všiml.
+       */
+      { postava: 'dospely-bezny', typ: 'sako', varianta: 'jednoradove', url: vrstva(set => {
+        for (let y = 110; y < 250; y++) {
+          for (const [odX, doX] of [[68, 88], [112, 132]]) {
+            for (let x = odX; x < doX; x++) {
+              const kraj = Math.abs(x - (odX + doX) / 2) / ((doX - odX) / 2);
+              const stin = kraj > 0.8 ? 80 : kraj > 0.55 ? 180 : 128;
+              set(x, y, stin, stin, stin, 255);
+            }
+          }
+        }
+      }) },
+      { postava: 'dospely-bezny', typ: 'vlasy', varianta: 'kratke', url: mapa(20, 40, 75, 125) },
+      { postava: 'dospely-bezny', typ: 'kapesnicek', varianta: 'spicka', url: mapa(140, 150, 112, 126) },
+      { postava: 'dospely-bezny', typ: 'ksandy', varianta: 'uzke', url: mapa(125, 240, 84, 92) }
     ],
     produkty: [
-      { kod: 'SAKO1', nazev: 'Sako námořnické', url: 'https://quentino.cz/p/sako-namornicke', cena: '4 990 Kč', cenaCislo: 4990, obrazek: '', typ: 'sako', varianta: 'jednoradove', hex: '#1f2d4d', velikosti: true, skladem: true },
-      { kod: 'KOS1', nazev: 'Košile bílá', url: 'https://quentino.cz/p/kosile-bila', cena: '1 290 Kč', cenaCislo: 1290, obrazek: '', typ: 'kosile', varianta: 'klasicka', hex: '#f6f6f4', velikosti: false, skladem: true },
-      { kod: 'KRA1', nazev: 'Kravata burgundská', url: 'https://quentino.cz/p/kravata-burgundska', cena: '690 Kč', cenaCislo: 690, obrazek: '', typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', velikosti: false, skladem: true },
-      { kod: 'KAL1', nazev: 'Kalhoty oblekové', url: 'https://quentino.cz/p/kalhoty', cena: '2 190 Kč', cenaCislo: 2190, obrazek: '', typ: 'kalhoty', varianta: 'oblekove', hex: '#1f2d4d', velikosti: false, skladem: true }
+      { kod: 'KRA1', nazev: 'Kravata burgundská', url: 'https://quentino.cz/p/kravata-burgundska', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([91, 29, 38], [120, 44, 54]), typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', velikosti: false, skladem: true },
+      { kod: 'KRA2', nazev: 'Kravata šalvějová', url: 'https://quentino.cz/p/kravata-salvejova', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([172, 194, 171], [140, 165, 140]), typ: 'kravata', varianta: 'kravata', hex: '#acc2ab', velikosti: false, skladem: true },
+      { kod: 'MOT1', nazev: 'Motýlek kostkovaný', url: 'https://quentino.cz/p/motylek-kostkovany', cena: '490 Kč', cenaCislo: 490, obrazek: '', vzorek: vzorekUrl([40, 70, 120], [230, 230, 225]), typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', velikosti: false, skladem: true },
+      { kod: 'KAP1', nazev: 'Kapesníček bílý', url: 'https://quentino.cz/p/kapesnicek-bily', cena: '290 Kč', cenaCislo: 290, obrazek: '', vzorek: vzorekUrl([246, 246, 244], [238, 238, 236]), typ: 'kapesnicek', varianta: 'spicka', hex: '#f6f6f4', velikosti: false, skladem: true },
+      { kod: 'KSA1', nazev: 'Kšandy hnědé', url: 'https://quentino.cz/p/ksandy-hnede', cena: '890 Kč', cenaCislo: 890, obrazek: '', vzorek: vzorekUrl([90, 66, 49], [110, 82, 60]), typ: 'ksandy', varianta: 'uzke', hex: '#5a4231', velikosti: true, skladem: true }
     ],
     katalog: {
       poradi: katalogVrstvy.ZK_PORADI,
       vrstvy: katalogVrstvy.ZK_VRSTVY.map(one => ({
         typ: one.typ, nazev: one.nazev, popis: one.popis,
-        barvitelna: one.barvitelna, nepovinna: one.nepovinna, varianty: one.varianty
+        barvitelna: one.barvitelna, nepovinna: one.nepovinna, zbozi: one.zbozi,
+        varianty: one.varianty
       })),
       barvy: katalogVrstvy.ZK_BARVY,
       vlasy: katalogVrstvy.ZK_VLASY,
@@ -2009,12 +2043,66 @@ for (const okno of OKNA) {
   const barvaNaPlatne = await page.evaluate(() => {
     const c = document.querySelector('.qkb-nahled canvas');
     const ctx = c.getContext('2d');
-    const bod = ctx.getImageData(100, 130, 1, 1).data;
+    /* Uprostřed levého dílu saka, kde má mapa světla polotón */
+    const bod = ctx.getImageData(78, 130, 1, 1).data;
     return [bod[0], bod[1], bod[2], bod[3]];
   });
   say('  zvolená barva vyjde na plátně přesně',
     barvaNaPlatne[0] === 0x1f && barvaNaPlatne[1] === 0x2d && barvaNaPlatne[2] === 0x4d,
     `rgb(${barvaNaPlatne.slice(0, 3).join(', ')}) místo rgb(31, 45, 77)`);
+
+  /*
+   * A teď ten rozdíl, na kterém celá kabina stojí: **oblek je kulisa,
+   * doplněk je zboží**. Quentino prodává kravaty, motýlky, kšandy a
+   * kapesníčky; oblek a košili ne. U obleku se proto vybírá barva, u
+   * doplňku konkrétní kus — vybírat motýlka jako odstín by znamenalo
+   * ukázat zákazníkovi něco, co si nemůže koupit.
+   */
+  const rozdeleni = await page.evaluate(() => {
+    const bloky = [...document.querySelectorAll('.qkb-blok')];
+    const zbozi = bloky.find(one => /Naše doplňky/.test(one.querySelector('h3')?.textContent ?? ''));
+    const kulisa = bloky.find(one => /Tvůj oblek/.test(one.querySelector('h3')?.textContent ?? ''));
+    return {
+      zbozi: [...(zbozi?.querySelectorAll('.qkb-kus > b') ?? [])].map(one => one.textContent.trim()),
+      kulisa: [...(kulisa?.querySelectorAll('.qkb-kus > b') ?? [])].map(one => one.textContent.trim()),
+      kouskuVZbozi: zbozi?.querySelectorAll('.qkb-kousek').length ?? 0,
+      barevVZbozi: zbozi?.querySelectorAll('.qkb-barva').length ?? 0,
+      barevVKulise: kulisa?.querySelectorAll('.qkb-barva').length ?? 0
+    };
+  });
+  say('  oblek je kulisa, doplňky jsou zboží',
+    rozdeleni.zbozi.length >= 1 && rozdeleni.kulisa.includes('Sako')
+      && !rozdeleni.zbozi.includes('Sako'),
+    `doplňky: ${rozdeleni.zbozi.join(', ')} | kulisa: ${rozdeleni.kulisa.join(', ')}`);
+  say('  u doplňku se vybírá konkrétní kus, ne odstín',
+    rozdeleni.kouskuVZbozi > 0 && rozdeleni.barevVZbozi === 0 && rozdeleni.barevVKulise > 0,
+    `${rozdeleni.kouskuVZbozi} kusů k výběru, ${rozdeleni.barevVZbozi} barev u zboží`);
+
+  /*
+   * A vzor se na modelu opravdu vydláždí. Kdyby se místo vzorku použila
+   * jedna barva, byl by kostkovaný motýlek na modelu jednobarevný flek —
+   * a zákazník by si koupil něco jiného, než co viděl.
+   */
+  await page.evaluate(() => {
+    const kusy = [...document.querySelectorAll('.qkb-kus')];
+    const kravata = kusy.find(one => /Kravata/.test(one.querySelector('b')?.textContent ?? ''));
+    const motylek = [...kravata.querySelectorAll('.qkb-volba')].find(one => one.textContent.trim() === 'Motýlek');
+    motylek.click();
+  });
+  await page.waitForTimeout(600);
+  const vzorNaModelu = await page.evaluate(() => {
+    const c = document.querySelector('.qkb-nahled canvas');
+    const ctx = c.getContext('2d');
+    /* Pruh přes motýlka — hledají se dvě různé barvy jeho vzoru */
+    const barvy = new Set();
+    for (let x = 90; x < 110; x++) {
+      const bod = ctx.getImageData(x, 130, 1, 1).data;
+      if (bod[3] > 200) barvy.add(`${bod[0]},${bod[1]},${bod[2]}`);
+    }
+    return [...barvy];
+  });
+  say('  vzor látky se na modelu vydláždí, ne slije do fleku',
+    vzorNaModelu.length >= 2, `${vzorNaModelu.length} barev: ${vzorNaModelu.slice(0, 2).join(' · ')}`);
 
   /* Košile v barvě saka musí dostat varování, ne mlčení */
   await page.evaluate(() => {
@@ -2028,7 +2116,7 @@ for (const okno of OKNA) {
   const rady = await page.evaluate(() =>
     [...document.querySelectorAll('.qkb-rada')].map(one => one.textContent.trim()));
   say('  košile v barvě saka dostane varování',
-    rady.some(one => /splyne/.test(one)), rady.join(' | ').slice(0, 90));
+    rady.some(one => /stejnou barvu jako sako/.test(one)), rady.join(' | ').slice(0, 90));
 
   /* Rada se dá přijmout jedním kliknutím */
   await page.locator('.qkb-rada.splyva button').first().click();
@@ -2036,7 +2124,8 @@ for (const okno of OKNA) {
   const poRade = await page.evaluate(() =>
     [...document.querySelectorAll('.qkb-rada')].map(one => one.textContent.trim()));
   say('  a dá se přijmout jedním kliknutím',
-    !poRade.some(one => /splyne/.test(one)), poRade.join(' | ').slice(0, 70) || 'bez varování');
+    !poRade.some(one => /stejnou barvu jako sako/.test(one)),
+    poRade.join(' | ').slice(0, 70) || 'bez varování');
 
   /* Uložení vzhledu a srovnání dvou vedle sebe */
   await page.locator('.qkb-ovladani button', { hasText: 'Uložit tenhle vzhled' }).click();
@@ -2051,9 +2140,22 @@ for (const okno of OKNA) {
   }));
   say('  a postavit vedle sebe dva na porovnání',
     srovnani.platen === 2, srovnani.popisky.join(' · '));
+  /* Náhled odshora: nejdřív rady a doplňky, teprve pod nimi kulisa */
+  await page.evaluate(() => { document.querySelector('.qkb-ovladani').scrollTop = 0; });
+  await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(SHOTS, 'kabina.png') });
 
-  /* Do košíku adresou e-shopu; kus s velikostmi se nepřidá naslepo */
+  /*
+   * Do košíku adresou e-shopu. Kšandy mají ve zkušebním seznamu velikosti,
+   * takže se na nich ověří i druhá cesta — naslepo se přidat nesmí.
+   */
+  await page.evaluate(() => {
+    const kusy = [...document.querySelectorAll('.qkb-kus')];
+    const ksandy = kusy.find(one => /Kšandy/.test(one.querySelector('b')?.textContent ?? ''));
+    const volba = [...ksandy.querySelectorAll('.qkb-volba')].find(one => one.textContent.trim() === 'Úzké');
+    volba.click();
+  });
+  await page.waitForTimeout(600);
   await page.locator('.qkb-pata button', { hasText: 'Vložit celý vzhled' }).click();
   await page.waitForTimeout(900);
   const kosik = await page.evaluate(() => ({
@@ -2061,11 +2163,11 @@ for (const okno of OKNA) {
     velikosti: [...document.querySelectorAll('.qkb-blok h3')].map(one => one.textContent.trim())
   }));
   say('kusy se do košíku přidají adresou e-shopu',
-    kosik.poslano.length >= 2 && kosik.poslano.every(one => /addtocart=1&quantity=1/.test(one)),
-    `${kosik.poslano.length}× ${(kosik.poslano[0] || '').slice(-40)}`);
+    kosik.poslano.length >= 1 && kosik.poslano.every(one => /addtocart=1&quantity=1/.test(one)),
+    `${kosik.poslano.length}× ${(kosik.poslano[0] || '').slice(-44)}`);
   say('  a u kusu s velikostmi se nejdřív vybere velikost',
     kosik.velikosti.some(one => /velikost/i.test(one))
-      && !kosik.poslano.some(one => /sako-namornicke/.test(one)),
+      && !kosik.poslano.some(one => /ksandy-hnede/.test(one)),
     kosik.velikosti.join(' · '));
 
   await page.close();

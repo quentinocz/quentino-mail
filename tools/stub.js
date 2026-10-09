@@ -154,11 +154,11 @@
     kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' }
   },
   'zk:produkty': [
-    { kod: 'SAKO1', typ: 'sako', varianta: 'jednoradove', hex: '#1f2d4d', rucne: false, velikosti: true,
-      schvaleno: true, nazev: 'Sako námořnické', obrazek: '', cena: '4 990 Kč', vKabine: true },
-    { kod: 'KRA1', typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', rucne: true, velikosti: false,
+    { kod: 'MOT1', typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', vzorek: '', rucne: false, velikosti: false,
+      schvaleno: true, nazev: 'Motýlek kostkovaný', obrazek: '', cena: '490 Kč', vKabine: true },
+    { kod: 'KRA1', typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', vzorek: '', rucne: true, velikosti: false,
       schvaleno: false, nazev: 'Kravata burgundská', obrazek: '', cena: '690 Kč', vKabine: true },
-    { kod: 'DAREK', typ: '', varianta: '', hex: '', rucne: false, velikosti: false,
+    { kod: 'DAREK', typ: '', varianta: '', hex: '', vzorek: '', rucne: false, velikosti: false,
       schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false }
   ],
   'zk:vzhledy': [],

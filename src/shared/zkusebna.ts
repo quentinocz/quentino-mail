@@ -124,8 +124,24 @@ export interface ZkVrstvaDef {
    */
   varianty: { id: string; nazev: string }[];
   /**
+   * Je to **naše zboží**, nebo jen kulisa?
+   *
+   * Quentino prodává doplňky: kravaty, motýlky, kšandy, kapesníčky.
+   * Oblek, košili a kalhoty neprodává — zákazník si je v kabině nastaví
+   * jen přibližně podle toho, co má doma, aby viděl, na čem ten doplněk
+   * bude. Je to rozdíl, který se táhne celou kabinou: u kulisy se vybírá
+   * **barva**, u zboží se vybírá **konkrétní kus** i se svým vzorem.
+   * Vybírat motýlka jako odstín by znamenalo ukázat zákazníkovi něco,
+   * co si nemůže koupit.
+   *
+   * Vrstva, která je zboží, ale nemá v katalogu jediný produkt, se chová
+   * jako kulisa — jinak by se nedala nastavit vůbec.
+   */
+  zbozi: boolean;
+  /**
    * Podle čeho se k vrstvě hledá produkt v katalogu. Slova se porovnávají
-   * s názvem a kategorií — přiřazení pak ještě potvrzuje člověk.
+   * s názvem a kategorií — přiřazení pak ještě potvrzuje člověk. U kulisy
+   * je seznam prázdný: produkt se k ní přiřadit nemá jak.
    */
   slova: string[];
   /**
@@ -150,13 +166,13 @@ export interface ZkVrstvaDef {
 export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'postava', nazev: 'Postava', popis: 'Model, na kterém se zkouší.',
-    barvitelna: false, nepovinna: false, slova: [],
+    barvitelna: false, nepovinna: false, zbozi: false, slova: [],
     kontrola: { odY: 0, doY: 1, podilOd: 0.1, podilDo: 0.8 },
     varianty: [{ id: 'zaklad', nazev: 'Základ' }]
   },
   {
     typ: 'vlasy', nazev: 'Vlasy', popis: 'Barvu si zákazník vybere přesně.',
-    barvitelna: true, nepovinna: false, slova: [],
+    barvitelna: true, nepovinna: false, zbozi: false, slova: [],
     kontrola: { odY: 0, doY: 0.2, podilOd: 0.004, podilDo: 0.1 },
     varianty: [
       { id: 'kratke', nazev: 'Krátké' },
@@ -166,7 +182,7 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   },
   {
     typ: 'fousy', nazev: 'Fousy', popis: 'Od ničeho po plnovous.',
-    barvitelna: true, nepovinna: true, slova: [], nePro: ['kojenec', 'dite'],
+    barvitelna: true, nepovinna: true, zbozi: false, slova: [], nePro: ['kojenec', 'dite'],
     kontrola: { odY: 0.03, doY: 0.22, podilOd: 0.001, podilDo: 0.09 },
     varianty: [
       { id: 'knir', nazev: 'Knír' },
@@ -176,20 +192,20 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
     ]
   },
   {
-    typ: 'boty', nazev: 'Boty', popis: 'Společenské, k obleku.',
-    barvitelna: true, nepovinna: true, slova: ['bot', 'obuv', 'polobotk', 'shoe'],
+    typ: 'boty', nazev: 'Boty', popis: 'Nastav přibližně podle svých bot.',
+    barvitelna: true, nepovinna: true, zbozi: false, slova: [],
     kontrola: { odY: 0.84, doY: 1.01, podilOd: 0.006, podilDo: 0.14 },
     varianty: [{ id: 'spolecenske', nazev: 'Společenské' }]
   },
   {
-    typ: 'kalhoty', nazev: 'Kalhoty', popis: 'Barva se obvykle drží se sakem.',
-    barvitelna: true, nepovinna: false, slova: ['kalhot', 'trouser', 'hose'],
+    typ: 'kalhoty', nazev: 'Kalhoty', popis: 'Nastav přibližně podle svých kalhot.',
+    barvitelna: true, nepovinna: false, zbozi: false, slova: [],
     kontrola: { odY: 0.4, doY: 1.01, podilOd: 0.18, podilDo: 0.64 },
     varianty: [{ id: 'oblekove', nazev: 'Oblekové' }]
   },
   {
-    typ: 'kosile', nazev: 'Košile', popis: 'Barvu si zákazník volí zvlášť.',
-    barvitelna: true, nepovinna: false, slova: ['košil', 'kosil', 'shirt', 'hemd'],
+    typ: 'kosile', nazev: 'Košile', popis: 'Nastav přibližně podle své košile.',
+    barvitelna: true, nepovinna: false, zbozi: false, slova: [],
     kontrola: { odY: 0.1, doY: 0.7, podilOd: 0.18, podilDo: 0.7 },
     varianty: [
       { id: 'klasicka', nazev: 'Klasický límec' },
@@ -197,14 +213,14 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
     ]
   },
   {
-    typ: 'pasek', nazev: 'Pásek', popis: 'Ke kalhotám, místo kšand.',
-    barvitelna: true, nepovinna: true, slova: ['pás', 'pas', 'opasek', 'belt', 'gürtel'],
+    typ: 'pasek', nazev: 'Pásek', popis: 'Vyber si konkrétní pásek.',
+    barvitelna: true, nepovinna: true, zbozi: true, slova: ['pás', 'pas', 'opasek', 'belt', 'gürtel'],
     kontrola: { odY: 0.38, doY: 0.62, podilOd: 0.001, podilDo: 0.07 },
     varianty: [{ id: 'kozeny', nazev: 'Kožený' }]
   },
   {
-    typ: 'ksandy', nazev: 'Kšandy', popis: 'Přes košili, pod sakem.',
-    barvitelna: true, nepovinna: true, slova: ['kšand', 'ksand', 'šle', 'sle', 'suspender', 'brace', 'hosenträger'],
+    typ: 'ksandy', nazev: 'Kšandy', popis: 'Vyber si konkrétní kšandy.',
+    barvitelna: true, nepovinna: true, zbozi: true, slova: ['kšand', 'ksand', 'šle', 'sle', 'suspender', 'brace', 'hosenträger'],
     kontrola: { odY: 0.13, doY: 0.6, podilOd: 0.004, podilDo: 0.22 },
     varianty: [
       { id: 'uzke', nazev: 'Úzké' },
@@ -212,8 +228,8 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
     ]
   },
   {
-    typ: 'kravata', nazev: 'Kravata nebo motýlek', popis: 'První, co zákazník mění.',
-    barvitelna: true, nepovinna: true, slova: ['kravat', 'motýl', 'motyl', 'tie', 'krawatte', 'regat'],
+    typ: 'kravata', nazev: 'Kravata nebo motýlek', popis: 'Vyber si konkrétní kravatu, motýlka nebo regatu.',
+    barvitelna: true, nepovinna: true, zbozi: true, slova: ['kravat', 'motýl', 'motyl', 'tie', 'krawatte', 'regat'],
     kontrola: { odY: 0.11, doY: 0.52, podilOd: 0.001, podilDo: 0.09 },
     varianty: [
       { id: 'kravata', nazev: 'Kravata' },
@@ -222,14 +238,14 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
     ]
   },
   {
-    typ: 'vesta', nazev: 'Vesta', popis: 'S vestou, nebo bez ní.',
-    barvitelna: true, nepovinna: true, slova: ['vest', 'waistcoat', 'weste'],
+    typ: 'vesta', nazev: 'Vesta', popis: 'Nastav přibližně podle své vesty, nebo ji nech být.',
+    barvitelna: true, nepovinna: true, zbozi: false, slova: [],
     kontrola: { odY: 0.14, doY: 0.64, podilOd: 0.045, podilDo: 0.44 },
     varianty: [{ id: 'klasicka', nazev: 'Klasická' }]
   },
   {
-    typ: 'sako', nazev: 'Sako', popis: 'Nese barvu celého obleku.',
-    barvitelna: true, nepovinna: true, slova: ['sako', 'oblek', 'jacket', 'suit', 'anzug', 'blazer'],
+    typ: 'sako', nazev: 'Sako', popis: 'Nastav přibližně podle svého saka.',
+    barvitelna: true, nepovinna: true, zbozi: false, slova: [],
     kontrola: { odY: 0.08, doY: 0.76, podilOd: 0.22, podilDo: 0.86 },
     varianty: [
       { id: 'jednoradove', nazev: 'Jednořadové' },
@@ -237,8 +253,8 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
     ]
   },
   {
-    typ: 'kapesnicek', nazev: 'Kapesníček', popis: 'Do náprsní kapsy saka.',
-    barvitelna: true, nepovinna: true, slova: ['kapesní', 'kapesni', 'pochette', 'pocket square', 'einstecktuch'],
+    typ: 'kapesnicek', nazev: 'Kapesníček', popis: 'Vyber si konkrétní kapesníček.',
+    barvitelna: true, nepovinna: true, zbozi: true, slova: ['kapesní', 'kapesni', 'pochette', 'pocket square', 'einstecktuch'],
     kontrola: { odY: 0.18, doY: 0.46, podilOd: 0.0003, podilDo: 0.035 },
     varianty: [{ id: 'spicka', nazev: 'Do špičky' }]
   }
@@ -426,10 +442,15 @@ export function vychoziVzhled(vek: ZkVek = 'dospely'): ZkVzhled {
     vlasyVarianta: 'kratke',
     vlasyHex: '#3b2a20',
     fousy: '',
+    /*
+     * Kulisa se předvyplní, doplněk ne. Je to schválně: prázdné místo po
+     * kravatě je to, kvůli čemu zákazník přišel, a rada mu rovnou nabídne
+     * konkrétní kus z katalogu. Předvyplněná kravata by vypadala jako
+     * hotový vzhled, ve kterém není co dokupovat.
+     */
     kusy: {
       kalhoty: { varianta: 'oblekove', hex: '#1f2d4d' },
       kosile: { varianta: 'klasicka', hex: '#f6f6f4' },
-      kravata: { varianta: 'kravata', hex: '#5b1d26' },
       sako: { varianta: 'jednoradove', hex: '#1f2d4d' },
       boty: { varianta: 'spolecenske', hex: '#1b1b1d' }
     }
@@ -466,6 +487,15 @@ export interface ZkProdukt {
   varianta: string;
   /** Barva produktu, spočítaná z fotky nebo zadaná ručně. */
   hex: string;
+  /**
+   * Kousek látky produktu, vystřižený z jeho fotky.
+   *
+   * Motýlek s kostkou není jedna barva a vybírat si ho jako odstín by
+   * znamenalo ukázat zákazníkovi něco, co si nemůže koupit. Vzorek se
+   * proto na modelu **vydláždí** pod mapu světla: vzor zůstane vzorem
+   * a sklady a stíny zůstanou sklady a stíny.
+   */
+  vzorek: string;
   /** Má velikosti? Pak se do košíku nedá hodit naslepo. */
   velikosti: boolean;
   skladem: boolean;
@@ -474,23 +504,35 @@ export interface ZkProdukt {
 /**
  * Co doporučit k tomu, co už na postavě je.
  *
- * Pravidla jsou schválně krátká a vysvětlitelná — zákazník má u každého
- * doporučení vidět **proč**. Náhodné „tohle se taky kupuje" se v obleku
- * pozná: k námořnickému saku doporučí hnědý pásek a je to pryč.
+ * ## Proč rady doporučují konkrétní kusy, ne barvy
+ *
+ * Quentino prodává doplňky. Oblek a košile jsou v kabině **kulisa** —
+ * zákazník si je nastaví přibližně podle toho, co má doma, aby viděl, na
+ * čem ten doplněk bude. Rada „zkus tmavší odstín" by u kravaty byla rada
+ * k ničemu: zákazník si nekupuje odstín, kupuje si tuhle kravatu. Proto
+ * rady u zboží ukazují **kus z katalogu**, a u kulisy barvu.
+ *
+ * ## Proč jsou pravidla krátká
+ *
+ * Zákazník má u každého doporučení vidět **proč**. Náhodné „tohle se taky
+ * kupuje" se v obleku pozná: k námořnickému saku to doporučí hnědý pásek
+ * a zákazník přestane radám věřit.
  *
  * Co se hlídá:
- *  1. chybí kus, bez kterého vzhled není hotový (košile, kalhoty),
- *  2. kus, který by se k té barvě vyloženě hodil (kravata k saku),
- *  3. dvě barvy tak blízko, že vzhled splývá (černá na černé),
- *  4. dvě hnědé a černé dohromady (pásek a boty se mají shodovat).
+ *  1. k nastavenému obleku chybí doplněk, který se k němu hodí,
+ *  2. vybraný doplněk je barvou tak blízko obleku nebo košili, že splyne,
+ *  3. pásek a kšandy naráz,
+ *  4. košile v barvě saka — kulisa, ale bez ní se nedá nic posoudit.
  */
 export interface ZkRada {
   /** Čeho se rada týká. */
   typ: ZkVrstvaTyp;
   /** Co říct zákazníkovi. */
   text: string;
-  /** Barva, kterou rada navrhuje. Prázdné = jen doplnit kus. */
+  /** Barva, kterou rada navrhuje. Jen u kulisy. */
   hex: string;
+  /** Kód produktu, který rada navrhuje. Jen u zboží. */
+  produkt?: string;
   /** Jak je to důležité: `chybi` se ukazuje první. */
   druh: 'chybi' | 'ladi' | 'splyva';
 }
@@ -504,61 +546,100 @@ export function barevnyRozdil(a: string, b: string): number {
   return Math.min(1, d / 441.67);
 }
 
-export function poradce(v: ZkVzhled): ZkRada[] {
+/** Nejbližší produkt dané vrstvy k hledané barvě. */
+export function nejblizsiProdukt(
+  katalog: ZkProdukt[],
+  typ: ZkVrstvaTyp,
+  hex: string,
+  varianta = ''
+): ZkProdukt | null {
+  const nabidka = produktyKVrstve(katalog, typ, hex, varianta);
+  return nabidka[0] ?? null;
+}
+
+export function poradce(v: ZkVzhled, katalog: ZkProdukt[] = []): ZkRada[] {
   const rady: ZkRada[] = [];
   const sako = v.kusy.sako;
   const kosile = v.kusy.kosile;
   const kravata = v.kusy.kravata;
+  const maProdukty = (typ: ZkVrstvaTyp) => katalog.some(one => one.typ === typ);
 
+  /* Kulisa: bez košile a kalhot se nedá posoudit, jak doplněk vypadá */
   if (!kosile) {
-    rady.push({ typ: 'kosile', text: 'Bez košile to není oblek — vyber barvu.', hex: '#f6f6f4', druh: 'chybi' });
+    rady.push({ typ: 'kosile', text: 'Nastav barvu košile — na bílé vypadá motýlek jinak než na modré.', hex: '#f6f6f4', druh: 'chybi' });
   }
-  if (!v.kusy.kalhoty) {
-    rady.push({ typ: 'kalhoty', text: 'Ke saku patří kalhoty. Nejčastěji ve stejné barvě.', hex: sako?.hex ?? '#1f2d4d', druh: 'chybi' });
+  if (!v.kusy.sako && !v.kusy.vesta) {
+    rady.push({ typ: 'sako', text: 'Přidej sako nebo vestu, ať je vidět, na čem doplněk bude.', hex: '#1f2d4d', druh: 'chybi' });
   }
-  if (sako && !kravata) {
+
+  /*
+   * A teď to hlavní: k nastavenému obleku chybí doplněk. Navrhne se
+   * **konkrétní kus** — ten, co má k obleku barevně nejblíž o odstín
+   * tmavší. Tohle je nejčastější první dokoupení k obleku.
+   */
+  if (!kravata && maProdukty('kravata')) {
+    const cil = sako ? ztmav(sako.hex, 0.35) : '#5b1d26';
+    const kus = nejblizsiProdukt(katalog, 'kravata', cil);
+    if (kus) {
+      rady.push({
+        typ: 'kravata', produkt: kus.kod, hex: '',
+        text: `K tomuhle obleku sedne ${kus.nazev.toLowerCase()}.`,
+        druh: 'ladi'
+      });
+    }
+  }
+  if (!v.kusy.kapesnicek && (sako || v.kusy.vesta) && maProdukty('kapesnicek')) {
+    const cil = kravata ? kravata.hex : (kosile?.hex ?? '#f6f6f4');
+    const kus = nejblizsiProdukt(katalog, 'kapesnicek', cil);
+    if (kus) {
+      rady.push({
+        typ: 'kapesnicek', produkt: kus.kod, hex: '',
+        text: `Kapesníček je nejlevnější způsob, jak oblek pozvednout — ${kus.nazev.toLowerCase()} ladí.`,
+        druh: 'ladi'
+      });
+    }
+  }
+
+  /* Splývání: doplněk, který není vidět, je vyhozená koupě */
+  for (const typ of ['kravata', 'kapesnicek', 'ksandy'] as ZkVrstvaTyp[]) {
+    const kus = v.kusy[typ];
+    if (!kus) continue;
+    const vuci = typ === 'ksandy' ? kosile : (sako ?? kosile);
+    if (!vuci || barevnyRozdil(kus.hex, vuci.hex) >= 0.1) continue;
+    const def = vrstvaDef(typ);
     /*
-     * Kravata k saku. Ne náhodná: tmavší odstín téže barvy drží u sebe
-     * vždycky, a právě tohle je nejčastější první dokoupení k obleku.
+     * Mluví se o tom, co má zákazník vybrané — „Motýlek", ne „Kravata
+     * nebo motýlek". Jméno vrstvy je název řádku v nabídce, ne slovo
+     * do věty.
      */
-    rady.push({ typ: 'kravata', text: 'K saku sedne kravata o odstín tmavší.', hex: ztmav(sako.hex, 0.35), druh: 'ladi' });
+    const jmeno = def.varianty.find(one => one.id === kus.varianta)?.nazev ?? def.nazev;
+    const cil = svetlost(vuci.hex) < 0.5 ? '#c8b394' : ztmav(vuci.hex, 0.5);
+    const jiny = nejblizsiProdukt(katalog, typ, cil, kus.varianta);
+    rady.push({
+      typ,
+      produkt: jiny?.kod,
+      hex: jiny ? '' : cil,
+      text: jiny
+        ? `${jmeno} v barvě podkladu zmizí. Vedle něj vynikne ${jiny.nazev.toLowerCase()}.`
+        : `${jmeno} v barvě podkladu zmizí — zkus výraznější.`,
+      druh: 'splyva'
+    });
   }
+
   if (sako && kosile && barevnyRozdil(sako.hex, kosile.hex) < 0.12) {
     rady.push({
       typ: 'kosile',
-      text: 'Košile má skoro stejnou barvu jako sako — na fotce i naživo to splyne. Zkus světlejší.',
+      text: 'Košile má skoro stejnou barvu jako sako — na takové kulise se doplněk posoudit nedá.',
       hex: svetlost(sako.hex) < 0.5 ? '#f6f6f4' : '#1f2d4d',
       druh: 'splyva'
     });
   }
-  if (kravata && sako && barevnyRozdil(kravata.hex, sako.hex) < 0.1) {
-    rady.push({
-      typ: 'kravata',
-      text: 'Kravata v barvě saka zmizí. Buď výrazně tmavší, nebo úplně jiná barva.',
-      hex: ztmav(sako.hex, 0.45), druh: 'splyva'
-    });
-  }
-  const pasek = v.kusy.pasek;
-  const boty = v.kusy.boty;
-  if (pasek && boty && barevnyRozdil(pasek.hex, boty.hex) > 0.25) {
-    rady.push({
-      typ: 'pasek',
-      text: 'Pásek a boty se mají shodovat — černá k černé, hnědá k hnědé.',
-      hex: boty.hex, druh: 'ladi'
-    });
-  }
-  if (pasek && v.kusy.ksandy) {
+
+  if (v.kusy.pasek && v.kusy.ksandy) {
     rady.push({
       typ: 'ksandy',
       text: 'Pásek a kšandy naráz se nenosí. Nech jedno z toho.',
       hex: '', druh: 'splyva'
-    });
-  }
-  if (sako && !v.kusy.kapesnicek) {
-    rady.push({
-      typ: 'kapesnicek',
-      text: 'Kapesníček do saka je nejlevnější způsob, jak oblek pozvednout.',
-      hex: kosile?.hex ?? '#f6f6f4', druh: 'ladi'
     });
   }
   return rady;
@@ -832,6 +913,8 @@ export interface ZkProduktRadek {
   typ: ZkVrstvaTyp | '';
   varianta: string;
   hex: string;
+  /** Kousek látky z fotky — tohle se vydláždí na modelu. */
+  vzorek: string;
   rucne: boolean;
   velikosti: boolean;
   schvaleno: boolean;

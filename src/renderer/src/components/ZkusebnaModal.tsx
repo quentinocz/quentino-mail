@@ -349,11 +349,13 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
           <div className="modal-body zk-produkty">
             <header className="zk-produkty-hlava">
               <div>
-                <h3>Co z katalogu patří na model</h3>
+                <h3>Naše doplňky na modelu</h3>
                 <p className="desc">
-                  Zařazeno {prehled?.produkty.zarazenych ?? 0} produktů, barvu z fotky má{' '}
-                  {prehled?.produkty.sBarvou ?? 0}. Špatně zařazený produkt obleče zákazníkovi
-                  kravatu místo pásku — proto to nakonec potvrzuje člověk.
+                  Zařazeno {prehled?.produkty.zarazenych ?? 0} doplňků, barvu a vzor z fotky má{' '}
+                  {prehled?.produkty.sBarvou ?? 0}. Obleky a košile tu nejsou schválně — ty se
+                  neprodávají a v kabině jsou jen kulisa, kterou si zákazník nastaví barvou.
+                  Špatně zařazený kus obleče zákazníkovi kravatu místo pásku, proto to nakonec
+                  potvrzuje člověk.
                 </p>
               </div>
               <div className="zk-akce">
@@ -376,6 +378,10 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
               {produktyFiltr.map(p => (
                 <div key={p.kod} className={`zk-radek ${p.schvaleno ? 'ok' : ''}`}>
                   {p.obrazek ? <img src={p.obrazek} alt="" /> : <span className="zk-chybi" />}
+                  {/* Vzorek látky: tohle se vydláždí na modelu, ne fotka produktu */}
+                  {p.vzorek
+                    ? <img className="zk-vzorek" src={p.vzorek} alt="" data-tip="Vzorek látky — tohle se vykreslí na modelu" />
+                    : <span className="zk-vzorek zk-chybi" data-tip="Vzorek se nepodařilo z fotky vystřihnout — použije se barva" />}
                   <div className="zk-radek-text">
                     <b>{p.nazev}</b>
                     <span className="desc">{p.kod}{p.cena ? ` · ${p.cena}` : ''}{p.velikosti ? ' · má velikosti' : ''}</span>
@@ -387,7 +393,12 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                       ? { ...one, typ, varianta: typ ? vrstvaDef(typ).varianty[0].id : '' } : one));
                   }}>
                     <option value="">— nepatří na model —</option>
-                    {ZK_VRSTVY.filter(one => one.slova.length).map(one => (
+                    {/*
+                      * Nabízí se jen **zboží**. Oblek a košile se neprodávají
+                      * a v kabině jsou kulisa, kterou si zákazník nastavuje
+                      * barvou — přiřadit k nim produkt nemá kam.
+                      */}
+                    {ZK_VRSTVY.filter(one => one.zbozi).map(one => (
                       <option key={one.typ} value={one.typ}>{one.nazev}</option>
                     ))}
                   </select>

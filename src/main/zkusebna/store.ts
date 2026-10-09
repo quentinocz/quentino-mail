@@ -181,6 +181,8 @@ export interface ZkProduktRow {
   typ: ZkVrstvaTyp | '';
   varianta: string;
   hex: string;
+  /** Kousek látky z fotky jako `data:` adresa — vzor, ne jedna barva. */
+  vzorek: string;
   rucne: boolean;
   velikosti: boolean;
   schvaleno: boolean;
@@ -193,6 +195,7 @@ export function produktyRows(): ZkProduktRow[] {
     typ: row.typ,
     varianta: row.varianta,
     hex: row.hex,
+    vzorek: row.vzorek ?? '',
     rucne: !!row.rucne,
     velikosti: !!row.velikosti,
     schvaleno: !!row.schvaleno
@@ -201,13 +204,13 @@ export function produktyRows(): ZkProduktRow[] {
 
 export function zapisProdukt(row: ZkProduktRow): void {
   getDb().prepare(
-    `INSERT INTO zk_produkty (kod, typ, varianta, hex, rucne, velikosti, schvaleno, kdy)
-     VALUES (?,?,?,?,?,?,?,?)
+    `INSERT INTO zk_produkty (kod, typ, varianta, hex, vzorek, rucne, velikosti, schvaleno, kdy)
+     VALUES (?,?,?,?,?,?,?,?,?)
      ON CONFLICT(kod) DO UPDATE SET
        typ = excluded.typ, varianta = excluded.varianta, hex = excluded.hex,
-       rucne = excluded.rucne, velikosti = excluded.velikosti,
+       vzorek = excluded.vzorek, rucne = excluded.rucne, velikosti = excluded.velikosti,
        schvaleno = excluded.schvaleno, kdy = excluded.kdy`
-  ).run(row.kod, row.typ, row.varianta, row.hex, row.rucne ? 1 : 0,
+  ).run(row.kod, row.typ, row.varianta, row.hex, row.vzorek ?? '', row.rucne ? 1 : 0,
     row.velikosti ? 1 : 0, row.schvaleno ? 1 : 0, new Date().toISOString());
 }
 

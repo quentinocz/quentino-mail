@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { app } from 'electron';
 import { igSchema, igAlters } from './instagram/schema';
-import { ZK_SCHEMA } from './zkusebna/schema';
+import { ZK_SCHEMA, ZK_ALTERS } from './zkusebna/schema';
 import { SCHEMA as ptransSchema, ALTERS as ptransAlters } from './ptrans/schema';
 import { SCHEMA as artSchema, ALTERS as artAlters } from './articles/schema';
 import { SCHEMA as shootSchema, ALTERS as shootAlters } from './shoot/store';
@@ -414,7 +414,7 @@ function migrate(d: Database.Database) {
   // Instagram: účty, trhy, příspěvky, popisky a fronta publikací
   zaved('instagram', igSchema, igAlters);
   // Zkušební kabina: postavy, vrstvy oblečení a jejich přiřazení k produktům
-  zaved('zkusebna', ZK_SCHEMA, []);
+  zaved('zkusebna', ZK_SCHEMA, ZK_ALTERS);
 
   // Fulltextové vyhledávání (FTS5) nad zprávami
   d.exec(`
