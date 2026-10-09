@@ -10220,8 +10220,18 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   padding: 1px 6px; border-radius: 4px;
   background: var(--text); color: #fff; font-size: 10.5px;
 }
-/* Nad osou musí být na snímek místo — jinak by ho ořízl rámeček kroku */
-.qv-osa-plocha { min-width: 0; padding-top: 70px; margin-top: -70px; }
+/*
+ * Snímek smí přesahovat nad osu — proto osa nic neořezává.
+ *
+ * Dřív si na ten přesah plocha osy brala místo navrch (`padding-top`
+ * se zápornou mezerou). Tím ale nad hlavičkou osy ležel sedmdesát
+ * pixelů vysoký neviditelný pás, který **polykal kliknutí** — a právě
+ * v té hlavičce stojí tlačítko „Titulek tady". Titulek se tak nedal
+ * přidat vůbec: kliknutí nedošlo na tlačítko, ale do prázdné plochy.
+ * Snímek je `pointer-events: none`, takže přesah stačí povolit
+ * ořezáním a žádné místo si brát nemusí.
+ */
+.qv-osa-plocha { min-width: 0; }
 .qv-osa { overflow: visible; }
 
 /* Hlava nese i čas — bez čísla se z pruhu nedalo poznat, kde se stojí */

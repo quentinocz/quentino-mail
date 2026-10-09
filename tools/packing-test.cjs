@@ -79,6 +79,21 @@ function check(label, got, want) {
 
 /* ---------- podklad ---------- */
 
+/*
+ * Data v podkladu se počítají **od dneška**, ne natvrdo.
+ *
+ * Dřív tu stály pevné dny (2025-09-01 a podobně) a zkouška v sobě měla
+ * časovanou bombu: seznam k balení se staví z objednávek za posledních
+ * 400 dní, takže objednávka „jen ve feedu" jednou tuhle hranici přelezla,
+ * ze seznamu vypadla a zkouška začala padat sama od sebe — bez jediné
+ * změny v kódu, který zkouší. Záleží tu přitom jen na **vzdálenostech**
+ * mezi dny: co je v okně k balení, co dávno doručené, co za hranicí feedu.
+ */
+const DEN = 86400000;
+const kdy = (dnuZpet, cas = '09:00:00.000Z') =>
+  `${new Date(Date.now() - dnuZpet * DEN).toISOString().slice(0, 10)}T${cas}`;
+const den = dnuZpet => kdy(dnuZpet).slice(0, 10);
+
 function item(code, title, qty, variants = []) {
   return {
     qty, unit: 'ks', title, code, url: null, price: '', availability: null,
@@ -110,10 +125,10 @@ db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
   .run(2, JSON.stringify(SPLIT), new Date().toISOString());
 // Půl roku stará objednávka — do okna k balení nespadá, načtená faktura ji najít musí
 db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
-  .run(3, JSON.stringify({ ...CARD, orderNumber: '021900' }), '2026-02-10T09:00:00.000Z');
+  .run(3, JSON.stringify({ ...CARD, orderNumber: '021900' }), kdy(240));
 // Objednávka starší, než kam feed sahá — jedinou stopou je potvrzovací e-mail
 db.prepare('INSERT INTO order_cache (message_pk, json, at) VALUES (?, ?, ?)')
-  .run(4, JSON.stringify({ ...CARD, orderNumber: '020500' }), '2025-11-02T09:00:00.000Z');
+  .run(4, JSON.stringify({ ...CARD, orderNumber: '020500' }), kdy(340));
 
 /*
  * Faktury a objednávky mají v e-shopu různá čísla — právě proto se překlad
@@ -129,19 +144,19 @@ const FEED_ITEMS = JSON.stringify([
   { title: 'Kšandy (starý název)', code: 'PS120CRV-110', quantity: 2, price: 479 },
   { title: 'Pásek hnědý', code: 'OP01HN', quantity: 1, price: 690 }
 ]);
-shop.run('022605', 'cz', '999111', 'Přijata', '2026-08-20', '2026-08-21', FEED_ITEMS);
-shop.run('021900', 'cz', '998700', 'Doručeno', '2026-02-10', '2026-02-14', FEED_ITEMS);
+shop.run('022605', 'cz', '999111', 'Přijata', den(50), den(49), FEED_ITEMS);
+shop.run('021900', 'cz', '998700', 'Doručeno', den(240), den(236), FEED_ITEMS);
 /*
  * Past, na kterou se přišlo v provozu: číslo faktury jedné objednávky je
  * zároveň číslem jiné objednávky. Faktura 020100 patří objednávce 019800,
  * ale existuje i objednávka 020100 — otevřít se musí ta z faktury.
  */
-shop.run('019800', 'cz', '020100', 'Vyřizuje se', '2025-12-01', '2025-12-02', FEED_ITEMS);
-shop.run('020100', 'cz', '020400', 'Vyřizuje se', '2025-12-20', '2025-12-21', FEED_ITEMS);
+shop.run('019800', 'cz', '020100', 'Vyřizuje se', den(310), den(309), FEED_ITEMS);
+shop.run('020100', 'cz', '020400', 'Vyřizuje se', den(292), den(291), FEED_ITEMS);
 // Objednávka jen ve feedu, bez potvrzovacího mailu — balit se musí dát i tak
-shop.run('018000', 'cz', '018100', 'Vyřizuje se', '2025-09-01', '2025-09-02', FEED_ITEMS);
+shop.run('018000', 'cz', '018100', 'Vyřizuje se', den(370), den(369), FEED_ITEMS);
 // Objednávka bez položek — do seznamu k balení nepatří, balit se na ní nedá nic
-shop.run('017000', 'cz', '017100', 'Vyřizuje se', '2025-08-01', '2025-08-02', '[]');
+shop.run('017000', 'cz', '017100', 'Vyřizuje se', den(380), den(379), '[]');
 
 /*
  * Adresy. Doručovací u výdejního místa, jinde jen fakturační — přesně jak to
@@ -162,14 +177,14 @@ for (const code of ['022605', '021900', '019800', '020100', '018000']) {
 
 // Potvrzovací maily — starší objednávka je jen tady, mimo okno k balení
 const mail = db.prepare('INSERT INTO messages (id, date, subject, from_addr) VALUES (?, ?, ?, ?)');
-mail.run(1, '2026-08-20T09:00:00.000Z', 'Objednávka č. 022605 přijata', 'info@quentino.cz');
-mail.run(2, '2026-08-19T09:00:00.000Z', 'Objednávka č. 022700 přijata', 'info@quentino.cz');
-mail.run(3, '2026-02-10T09:00:00.000Z', 'Objednávka č. 021900 přijata', 'info@quentino.cz');
+mail.run(1, kdy(50), 'Objednávka č. 022605 přijata', 'info@quentino.cz');
+mail.run(2, kdy(51), 'Objednávka č. 022700 přijata', 'info@quentino.cz');
+mail.run(3, kdy(240), 'Objednávka č. 021900 přijata', 'info@quentino.cz');
 // Objednávka, ke které se karta nikdy neuložila — najít se musí podle předmětu
-mail.run(4, '2025-11-02T09:00:00.000Z', 'Objednávka č. 020500 přijata', 'info@quentino.cz');
-mail.run(6, '2025-12-01T09:00:00.000Z', 'Objednávka č. 019800 přijata', 'info@quentino.cz');
-mail.run(7, '2025-12-20T09:00:00.000Z', 'Objednávka č. 020100 přijata', 'info@quentino.cz');
-mail.run(5, '2025-11-02T09:05:00.000Z', 'Sleva 020500 jen dnes', 'newsletter@jinyshop.cz');
+mail.run(4, kdy(340), 'Objednávka č. 020500 přijata', 'info@quentino.cz');
+mail.run(6, kdy(310), 'Objednávka č. 019800 přijata', 'info@quentino.cz');
+mail.run(7, kdy(292), 'Objednávka č. 020100 přijata', 'info@quentino.cz');
+mail.run(5, kdy(340, '09:05:00.000Z'), 'Sleva 020500 jen dnes', 'newsletter@jinyshop.cz');
 
 // Doména e-shopu se bere z adresy feedu — bez ní se odesílatel neuzná
 db.prepare(
@@ -278,7 +293,7 @@ async function orders() {
   const old = (await packing.openOrder('998700')).order;
   check('stará objednávka se najde podle faktury', old?.card.orderNumber, '021900');
   check('konečný stav i s datem',
-    [old.shop.status, old.shop.final, old.shop.at], ['Doručeno', true, '2026-02-14']);
+    [old.shop.status, old.shop.final, old.shop.at], ['Doručeno', true, den(236)]);
   /*
    * Objednávka starší, než kam feed sahá, ve feedu vůbec není — tam zůstává
    * jedinou stopou potvrzovací e-mail a vede se podle něj.

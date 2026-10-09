@@ -796,6 +796,91 @@ for (const okno of OKNA) {
   say('  a u překryvu stojí, který přechod to je',
     osa.prechodVOse.length === 2, osa.prechodVOse.join(' · '));
 
+  /*
+   * Nic v editoru nesmí polykat kliknutí.
+   *
+   * Tohle je zkouška za jednu konkrétní chybu: snímek pod kurzorem si
+   * nad osou bral místo zápornou mezerou, takže nad hlavičkou osy ležel
+   * sedmdesát pixelů vysoký neviditelný pás. Tlačítko „Titulek tady"
+   * bylo vidět, nebylo zakázané, a přesto se titulek nedal přidat —
+   * kliknutí došlo do toho pásu. Z kódu se to nepozná a na snímku taky
+   * ne; pozná se to jedině tím, že se u každého ovládacího prvku zeptám,
+   * co je na jeho středu doopravdy navrchu.
+   */
+  {
+    const projdi = () => page.evaluate(() => {
+      const out = [];
+      for (const el of document.querySelectorAll('.qv button, .qv select, .qv input, .qv textarea')) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) continue;
+        if (r.bottom < 4 || r.top > innerHeight - 4) continue;
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        if (!hit || el === hit || el.contains(hit) || hit.contains(el)) continue;
+        /*
+         * Lepivá hlavička a hlášky jsou v právu: pod hlavičku obsah při
+         * rolování zajet má a hláška se za chvíli sama ztratí. Chyba je
+         * jen to, co ovládání zakrývá **natrvalo a neviditelně**.
+         */
+        if (hit.closest('.qv-top, .toast-wrap')) continue;
+        const co = (el.textContent || el.getAttribute('title') || el.tagName).trim().slice(0, 28);
+        out.push(`${co} ← ${hit.className || hit.tagName}`);
+      }
+      return out;
+    });
+    const vyska = await page.evaluate(() => document.querySelector('.qv').scrollHeight);
+    const zakryte = new Set();
+    for (let y = 0; y < vyska; y += 400) {
+      await page.evaluate(t => { document.querySelector('.qv').scrollTop = t; }, y);
+      await page.waitForTimeout(220);
+      for (const one of await projdi()) zakryte.add(one);
+    }
+    await page.evaluate(() => { document.querySelector('.qv').scrollTop = 0; });
+    await page.waitForTimeout(250);
+    say('  nic v editoru nepolyká kliknutí',
+      zakryte.size === 0,
+      zakryte.size ? [...zakryte].join(' | ') : 'prošlo celé okno');
+  }
+
+  /*
+   * A pak to hlavní, k čemu se sem chodí: přidat titulek a napsat do něj.
+   * Dřív se kontrolovalo jen to, že už existující titulky jdou táhnout a
+   * doladit — že **vznikne nový**, nekontroloval nikdo.
+   */
+  {
+    const pred = await page.evaluate(() => document.querySelectorAll('.qv-tit-radek').length);
+    await page.locator('.qv-osa-hlava button', { hasText: 'Titulek tady' }).click();
+    await page.waitForTimeout(700);
+    const po = await page.evaluate(() => document.querySelectorAll('.qv-tit-radek').length);
+    say('  titulek jde přidat tlačítkem v hlavičce osy', po === pred + 1, `${pred} → ${po}`);
+
+    /*
+     * Prázdný řádek se hledá podle `value`, ne podle textu v HTML —
+     * textarea nemá hodnotu v obsahu, takže `hasText` by minul.
+     */
+    const prazdny = await page.evaluate(() =>
+      [...document.querySelectorAll('.qv-tit-radek')]
+        .findIndex(r => !(r.querySelector('textarea')?.value ?? 'x')));
+    if (prazdny >= 0) {
+      await page.locator('.qv-tit-radek').nth(prazdny).locator('textarea').fill('Nový titulek z ruky');
+      await page.waitForTimeout(700);
+    }
+    const vose = await page.evaluate(() =>
+      [...document.querySelectorAll('.qv-tit span')].map(s => s.textContent.trim()));
+    say('  a text se do něj dá hned napsat — a je vidět v ose',
+      vose.includes('Nový titulek z ruky'), vose.join(' | ').slice(0, 90));
+
+    /* Uklidit po sobě, ať další zkoušky vidí stejný projekt jako dosud */
+    const kam = await page.evaluate(() =>
+      [...document.querySelectorAll('.qv-tit-radek')]
+        .findIndex(r => r.querySelector('textarea')?.value === 'Nový titulek z ruky'));
+    if (kam >= 0) {
+      await page.locator('.qv-tit-radek').nth(kam).locator('.icon-btn.danger').click();
+      await page.waitForTimeout(500);
+    }
+    const zbylo = await page.evaluate(() => document.querySelectorAll('.qv-tit-radek').length);
+    say('  a smazat jedním tlačítkem', zbylo === pred, `zbylo ${zbylo}`);
+  }
+
   /* Náhled jde zvětšit — na malém se titulky ladí špatně */
   const velikosti = await page.evaluate(() =>
     [...document.querySelectorAll('.qv-zvetseni button')].map(b => b.textContent.trim()));
@@ -1485,9 +1570,20 @@ for (const okno of OKNA) {
     const sada = kopie.length
       ? kopie[0].offsetLeft - track.children[0].offsetLeft
       : 0;
-    // Odrolovat až na první kopii a počkat, až si to posuvník srovná
+    /*
+     * Odrolovat až na první kopii a počkat, až si to posuvník srovná.
+     *
+     * Čeká se, dokud se to nestane — ne pevných 400 ms. Srovnání je ve
+     * skriptu odložené o 120 ms po rolování (uprostřed tahu prstem by
+     * posun ucukl pod rukou) a při pevném čekání zkouška občas spadla:
+     * ne proto, že by se posuvník nesrovnal, ale proto, že časovač pod
+     * zátěží doběhl o chvíli později. Padající zkouška, která nic
+     * neříká o kódu, je horší než žádná.
+     */
     track.scrollLeft = sada;
-    await new Promise(r => setTimeout(r, 400));
+    for (let pokus = 0; pokus < 40 && track.scrollLeft > sada / 2; pokus++) {
+      await new Promise(r => setTimeout(r, 50));
+    }
     return {
       dlazdic,
       tecek,
