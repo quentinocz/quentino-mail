@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Shoot, ShootPhoto, ShootState, ShootOverlay, ShootFix, ShootCrop, ShootSlot,
-  ShootSecond, ShootScreen
+  ShootSecond, ShootScreen, ShootNoveFoceni
 } from '@shared/types';
+import type { ShootPosledni } from '@shared/foceni';
+import { SHOOT_NOVE, automatickyNazev, denniDuvod, denniKrok } from '@shared/foceni';
 import { api } from '../api';
 import { bytesToBlob } from '../media';
 import { useToast } from '../toast';
@@ -62,6 +64,14 @@ export default function ShootModal({ onClose, standalone = false }: {
   const toast = useToast();
   const [state, setState] = useState<ShootState | null>(null);
   const [shoot, setShoot] = useState<Shoot | null>(null);
+  /**
+   * Dotaz „je nový den, založit nové focení?".
+   *
+   * Drží se v něm focení, ve kterém by se jinak pokračovalo — do dotazu
+   * patří jeho jméno, datum a kolik je v něm fotek. Bez těch tří údajů je
+   * to otázka, na kterou se nedá odpovědět jinak než odhadem.
+   */
+  const [denniDotaz, setDenniDotaz] = useState<ShootPosledni | null>(null);
   const [photos, setPhotos] = useState<ShootPhoto[]>([]);
   const [frame, setFrame] = useState('');
   const [busy, setBusy] = useState('');
@@ -136,12 +146,35 @@ export default function ShootModal({ onClose, standalone = false }: {
       setState(next);
       const last = localStorage.getItem('shootLast') || '';
       const pick = next.shoots.find(one => one.id === last) ?? next.shoots[0] ?? null;
-      if (pick) openShoot(pick.id);
-      else {
-        const made = await api.shoot.create('', '');
+      /*
+       * Pokračovat v posledním focení je správně **během dne**. Druhý den
+       * už ne: fotky z úterý by skončily ve stejné sérii jako ty
+       * z pondělí a poznalo by se to až po dvou dnech, kdy je v jedné
+       * sérii osmdesát fotek od tří zakázek.
+       */
+      const krok = denniKrok({
+        rezim: next.setup?.newDay ?? 'zeptat',
+        posledni: pick ? { nazev: pick.name, kdy: pick.createdAt, fotek: pick.photos } : null,
+        ted: new Date(),
+        priOtevreni: true
+      });
+      if (!pick || krok === 'zalozit') {
+        const made = await api.shoot.create('', pick?.folder ?? '');
         setShoot(made);
         setPhotos([]);
+        localStorage.setItem('shootLast', made.id);
         await refresh();
+        return;
+      }
+      await openShoot(pick.id);
+      if (krok === 'prejmenovat') {
+        /* Prázdné focení z jiného dne se nezahazuje — dostane dnešní datum */
+        const nazev = automatickyNazev(new Date());
+        await api.shoot.save(pick.id, { name: nazev });
+        setShoot(had => (had ? { ...had, name: nazev } : had));
+        await refresh();
+      } else if (krok === 'zeptat') {
+        setDenniDotaz({ nazev: pick.name, kdy: pick.createdAt, fotek: pick.photos });
       }
     })();
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
@@ -212,6 +245,55 @@ export default function ShootModal({ onClose, standalone = false }: {
     localStorage.setItem('shootLast', made.id);
     await refresh();
   }, [shoot, refresh]);
+
+  /* ---------- nový den ---------- */
+
+  /**
+   * Hlídání půlnoci **za běhu**.
+   *
+   * Okno focení zůstává otevřené celé dny — u fotoaparátu se nezavírá,
+   * zavírá se počítač. Kdyby se na nový den ptalo jen při otevření, tomu,
+   * kdo okno nezavírá, by se nezeptalo nikdy; a právě ten na nové focení
+   * zapomíná nejčastěji. Porovnává se **datum**, ne odpočet do půlnoci:
+   * uspaný počítač žádný časovač nedoběhne, kdežto datum po probuzení
+   * sedí.
+   */
+  const denRef = useRef(new Date().toDateString());
+  const zmenaDne = useCallback(() => {
+    const dnes = new Date().toDateString();
+    if (dnes === denRef.current) return;
+    denRef.current = dnes;
+    if (!shoot || denniDotaz) return;
+    const krok = denniKrok({
+      rezim: state?.setup?.newDay ?? 'zeptat',
+      posledni: { nazev: shoot.name, kdy: shoot.createdAt, fotek: photos.length },
+      ted: new Date(),
+      priOtevreni: false
+    });
+    if (krok === 'zalozit') void newShoot();
+    else if (krok === 'prejmenovat') void patch({ name: automatickyNazev(new Date()) });
+    else if (krok === 'zeptat') {
+      setDenniDotaz({ nazev: shoot.name, kdy: shoot.createdAt, fotek: photos.length });
+    }
+  }, [shoot, photos.length, state, denniDotaz, newShoot, patch]);
+
+  useEffect(() => {
+    const tik = window.setInterval(zmenaDne, 60_000);
+    /* Po probuzení počítače se nečeká na další minutu */
+    window.addEventListener('focus', zmenaDne);
+    document.addEventListener('visibilitychange', zmenaDne);
+    return () => {
+      window.clearInterval(tik);
+      window.removeEventListener('focus', zmenaDne);
+      document.removeEventListener('visibilitychange', zmenaDne);
+    };
+  }, [zmenaDne]);
+
+  /** Jak často se ptát. Mění se rovnou v dotazu — jinde by se to nehledalo. */
+  const nastavPtani = useCallback(async (rezim: ShootNoveFoceni) => {
+    const setup = await api.shoot.setup({ newDay: rezim });
+    setState(had => (had ? { ...had, setup } : had));
+  }, []);
 
   const dropShoot = useCallback(async (id: string) => {
     /*
@@ -582,6 +664,12 @@ export default function ShootModal({ onClose, standalone = false }: {
       const target = e.target as HTMLElement;
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? '') || target?.isContentEditable;
       if (typing) return;
+      /*
+       * Dokud visí dotaz na nové focení, mezerník nefotí. Jinak by první
+       * zmáčknutí po otevření okna poslalo snímek do včerejší série —
+       * tedy přesně tam, kam se ptáme, jestli má jít.
+       */
+      if (denniDotaz) return;
       if (e.code === 'Space') { e.preventDefault(); capture(); }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selected) { e.preventDefault(); dropShape(selected); }
@@ -602,7 +690,7 @@ export default function ShootModal({ onClose, standalone = false }: {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [capture, selected]);
+  }, [capture, selected, denniDotaz]);
 
   /* ---------- vodítka ---------- */
 
@@ -724,6 +812,50 @@ export default function ShootModal({ onClose, standalone = false }: {
         )}
         <button className="sh-mini" onClick={onClose} title="Zavřít"><Icon name="x" size={13} /></button>
       </header>
+
+      {/*
+        * Dotaz na nové focení. Je to překryv přes celé okno schválně:
+        * odpověď rozhoduje o tom, kam se budou ukládat další fotky, a
+        * proklikat se k focení kolem něj by znamenalo rozhodnout to
+        * nevědomky.
+        */}
+      {denniDotaz && (
+        <div className="sh-den">
+          <div className="sh-den-box">
+            <h3>Je nový den</h3>
+            <p>{denniDuvod(denniDotaz, new Date())}</p>
+            <p className="desc">
+              Když se bude pokračovat, smíchají se dnešní kusy s těmi z minula — v galerii,
+              v plánu záběrů i ve složce.
+            </p>
+            <div className="sh-den-btns">
+              <button className="sh-go" onClick={async () => {
+                setDenniDotaz(null);
+                await newShoot();
+              }}>
+                <Icon name="plus" size={13} /> Založit nové focení
+              </button>
+              <button className="sh-mini" onClick={() => setDenniDotaz(null)}>
+                Pokračovat v „{denniDotaz.nazev}"
+              </button>
+            </div>
+            <label className="sh-den-rezim">
+              Příště
+              <select
+                value={state?.setup?.newDay ?? 'zeptat'}
+                onChange={e => void nastavPtani(e.target.value as ShootNoveFoceni)}
+              >
+                {SHOOT_NOVE.map(one => (
+                  <option key={one.id} value={one.id}>{one.nazev}</option>
+                ))}
+              </select>
+            </label>
+            <p className="desc sh-den-popis">
+              {SHOOT_NOVE.find(one => one.id === (state?.setup?.newDay ?? 'zeptat'))?.popis}
+            </p>
+          </div>
+        </div>
+      )}
 
       {finish && (
         <ShootFinish
@@ -1388,6 +1520,28 @@ export default function ShootModal({ onClose, standalone = false }: {
                 placeholder="Světla, vzdálenost, objektiv… co bude potřeba vědět, až se série bude dofocovat"
                 onChange={e => patch({ note: e.target.value })}
               />
+
+              {/*
+                * Jak se zakládá nové focení. Je to tady, a ne jen v tom
+                * dotazu po půlnoci: kdo si ho jednou vypne („Neptat se
+                * vůbec"), by ho jinak už nikdy neviděl a neměl kde ho
+                * zapnout zpátky.
+                */}
+              <div className="sh-panel-head" style={{ marginTop: 14 }}><b>Nové focení</b></div>
+              <label className="sh-field sh-field-novy">
+                <span>Nový den</span>
+                <select
+                  value={state.setup?.newDay ?? 'zeptat'}
+                  onChange={e => void nastavPtani(e.target.value as ShootNoveFoceni)}
+                >
+                  {SHOOT_NOVE.map(one => (
+                    <option key={one.id} value={one.id}>{one.nazev}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="sh-panel-note">
+                {SHOOT_NOVE.find(one => one.id === (state.setup?.newDay ?? 'zeptat'))?.popis}
+              </div>
 
               <div className="sh-panel-head" style={{ marginTop: 14 }}><b>Uložená focení</b></div>
               {state.shoots.map(one => (

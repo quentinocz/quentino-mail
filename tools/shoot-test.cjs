@@ -907,6 +907,74 @@ async function liveSection() {
   }
   }
 
+  /* ---------- nové focení s novým dnem ---------- */
+
+  /*
+   * Pokračovat v posledním focení je správně během dne a špatně druhý den.
+   * Rozhodnutí závisí na čase a na tom, co se stalo včera — tedy na věcech,
+   * které se v okně nedají nastavit tak, aby se daly projít. Tady se projdou
+   * všechny případy včetně půlnoci.
+   */
+  {
+    console.log('\nnový den');
+    const foceni = require(path.join(DIST, '../shared/foceni.js'));
+    const UTERY = new Date('2026-10-13T09:00:00');
+    const PONDELI = '2026-10-12T16:00:00';
+    const DNES = '2026-10-13T08:00:00';
+
+    const krok = (zmeny) => foceni.denniKrok({
+      rezim: 'zeptat',
+      posledni: { nazev: 'Kravaty hedvábí', kdy: PONDELI, fotek: 42 },
+      ted: UTERY,
+      priOtevreni: true,
+      ...zmeny
+    });
+
+    check('focení z jiného dne se zeptá', krok({}), 'zeptat');
+    check('focení z dneška mlčí',
+      krok({ posledni: { nazev: 'Kravaty', kdy: DNES, fotek: 8 } }), 'nic');
+    /*
+     * Focení přes půlnoc a focení ve dvou kusech během dne jsou běžné.
+     * Ptát se u focení, které vzniklo před hodinou, je přesně ten druh
+     * hlášky, kterou si člověk odklikne, aniž ji přečte — a pak si ji
+     * odklikne i ten den, kdy na ní záleželo.
+     */
+    check('a při „zeptat se vždy" se zeptá i na dnešní',
+      krok({ rezim: 'vzdy', posledni: { nazev: 'Kravaty', kdy: DNES, fotek: 8 } }), 'zeptat');
+    check('„založit samo" se neptá, prostě založí', krok({ rezim: 'samo' }), 'zalozit');
+    check('„neptat se vůbec" nedělá nic', krok({ rezim: 'nikdy' }), 'nic');
+    check('bez jediného focení se rovnou založí', krok({ posledni: null }), 'zalozit');
+
+    /*
+     * Prázdné focení z jiného dne nemá cenu ani nabízet k pokračování,
+     * ani kvůli němu zakládat další prázdné — dostane dnešní datum do
+     * názvu a fotí se do něj.
+     */
+    check('prázdné focení z minula se jen přejmenuje',
+      krok({ posledni: { nazev: 'Focení 12. 10. 2026', kdy: PONDELI, fotek: 0 } }), 'prejmenovat');
+    check('ale pojmenované prázdné se nepřejmenuje',
+      krok({ posledni: { nazev: 'Kravaty na čtvrtek', kdy: PONDELI, fotek: 0 } }), 'zeptat');
+
+    /* Půlnoc za běhu: okno zůstává otevřené celé dny */
+    check('půlnoc za běhu se taky zeptá', krok({ priOtevreni: false }), 'zeptat');
+    check('a při „zeptat se vždy" se za běhu neptá na dnešní',
+      krok({ rezim: 'vzdy', priOtevreni: false, posledni: { nazev: 'K', kdy: DNES, fotek: 1 } }), 'nic');
+
+    check('nečitelné datum se bere jako jiný den',
+      krok({ posledni: { nazev: 'K', kdy: 'nesmysl', fotek: 3 } }), 'zeptat');
+
+    ok('automatický název se pozná podle tvaru',
+      foceni.jeAutomatickyNazev('Focení 12. 10. 2026')
+      && foceni.jeAutomatickyNazev('Focení 12.10.2026')
+      && !foceni.jeAutomatickyNazev('Kravaty hedvábí'));
+
+    const duvod = foceni.denniDuvod({ nazev: 'Kravaty hedvábí', kdy: PONDELI, fotek: 42 }, UTERY);
+    ok('v dotazu stojí jméno, datum i počet fotek',
+      /Kravaty hedvábí/.test(duvod) && /12\. 10/.test(duvod) && /42 fotek/.test(duvod), duvod);
+    ok('  a u jedné fotky se nepíše „1 fotek"',
+      /1 fotka/.test(foceni.denniDuvod({ nazev: 'K', kdy: PONDELI, fotek: 1 }, UTERY)));
+  }
+
   fs.rmSync(work, { recursive: true, force: true });
   console.log(failed ? `\n${failed} chyb\n` : '\nfocení sedí\n');
   process.exit(failed ? 1 : 0);

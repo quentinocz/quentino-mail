@@ -80,6 +80,16 @@ await page.waitForTimeout(1000);
 const say = (label, ok, note = '') =>
   console.log(`${label.padEnd(34)} ${ok ? '✓' : '✗'}${note ? ' (' + note + ')' : ''}`);
 const snap = async name => { await page.waitForTimeout(250); await page.screenshot({ path: path.join(SHOTS, `foceni-${name}.png`) }); };
+/*
+ * Po každém načtení okna se ptá na nové focení — poslední je tu schválně
+ * z jiného dne. Je to správně a kontroluje se to níž; pro zbytek zkoušky
+ * se odpoví „pokračovat", jinak by dotaz překryl všechno ostatní.
+ */
+const odklepniDen = async () => {
+  if (await page.locator('.sh-den').count() === 0) return;
+  await page.locator('.sh-den-btns .sh-mini').click();
+  await page.waitForTimeout(300);
+};
 
 /* Snímek náhledu — malý JPEG poslaný jako by přišel z fotoaparátu */
 const FRAME = fs.readFileSync(new URL('./fixtures/shoot-frame.jpg', import.meta.url).pathname);
@@ -91,6 +101,59 @@ await page.evaluate(bytes => {
 await page.waitForTimeout(500);
 
 say('okno focení se otevřelo', await page.locator('.sh-wrap').count() === 1);
+
+/* ---------- nový den ---------- */
+
+/*
+ * Poslední focení v náhledu je schválně **z jiného dne** a jsou v něm
+ * fotky. Pokračovat v něm by znamenalo, že dnešní kusy skončí ve stejné
+ * sérii jako ty z minula — a právě na tohle se zapomíná, protože se
+ * pokračuje samo. Okno se proto musí zeptat dřív, než se cokoli vyfotí.
+ */
+const den = await page.evaluate(() => {
+  const box = document.querySelector('.sh-den-box');
+  if (!box) return null;
+  return {
+    nadpis: (box.querySelector('h3')?.textContent ?? '').trim(),
+    duvod: (box.querySelector('p')?.textContent ?? '').trim(),
+    tlacitka: [...box.querySelectorAll('.sh-den-btns button')].map(one => one.textContent.trim()),
+    rezimu: box.querySelectorAll('.sh-den-rezim option').length,
+    kryje: (() => {
+      const vrstva = document.querySelector('.sh-den');
+      const r = vrstva?.getBoundingClientRect();
+      return !!r && r.width > innerWidth * 0.9 && r.height > innerHeight * 0.9;
+    })()
+  };
+});
+say('nový den se ohlásí dřív, než se cokoli vyfotí',
+  !!den && /nový den/i.test(den.nadpis), den?.nadpis ?? 'nic');
+say('a je v tom, proč se ptá',
+  !!den && /„Kravaty hedvábí" je z 16\. 9\.$/.test(den.duvod), den?.duvod ?? '');
+say('nabídne obojí — nové i pokračovat',
+  den?.tlacitka.length === 2 && /Založit nové/.test(den.tlacitka[0])
+    && /Pokračovat/.test(den.tlacitka[1]),
+  (den?.tlacitka ?? []).join(' | '));
+say('a jde u toho rovnou nastavit, jak často se ptát', den?.rezimu === 4,
+  `${den?.rezimu ?? 0} voleb`);
+/*
+ * Dotaz musí kabinu překrýt celou. Odpověď rozhoduje o tom, kam se uloží
+ * další fotky; kdyby šlo kolem něj fotit, rozhodlo by se to nevědomky.
+ */
+say('  a nejde ho obejít', den?.kryje === true);
+/*
+ * A hlavně: mezerník přes dotaz nefotí. Jinak by první zmáčknutí po
+ * otevření okna poslalo snímek do včerejší série — tedy přesně tam, kam
+ * se ptáme, jestli má jít.
+ */
+await page.keyboard.press('Space');
+await page.waitForTimeout(400);
+say('  a mezerník přes něj nefotí',
+  await page.locator('.sh-thumb').count() === 0,
+  `${await page.locator('.sh-thumb').count()} fotek`);
+await snap('00-novy-den');
+await odklepniDen();
+say('  po odpovědi dotaz zmizí', await page.locator('.sh-den').count() === 0);
+
 say('náhled ukazuje obraz', await page.locator('img.sh-frame').count() === 1);
 
 /*
@@ -369,7 +432,8 @@ await page.waitForTimeout(600);
   await page.locator('.sh-panel', { hasText: 'KAM SE FOTÍ' }).count();
   await page.locator('.sh-tabs button', { hasText: 'Soubor' }).click();
   await page.waitForTimeout(300);
-  await page.locator('.sh-field select').first().selectOption('');
+  /* Poměr se vybírá jmenovitě — v panelu je i volba „Nový den" */
+  await page.locator('.sh-field', { hasText: 'Poměr stran' }).locator('select').selectOption('');
   await page.waitForTimeout(400);
   await page.locator('.sh-tool', { hasText: 'Ořez' }).click();
   await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.3);
@@ -384,7 +448,7 @@ await page.waitForTimeout(600);
     `${(free.w * frameB).toFixed(2)} × ${free.h.toFixed(2)}`);
 
   // Zpátky na čtverec, ať následující snímky sedí
-  await page.locator('.sh-field select').first().selectOption('1:1');
+  await page.locator('.sh-field', { hasText: 'Poměr stran' }).locator('select').selectOption('1:1');
   await page.waitForTimeout(400);
   const back = await page.evaluate(() => window.__shoot.shoot.crop);
   say('přepnutí zpět rámeček rovnou srovná',
@@ -567,6 +631,7 @@ await page.addInitScript(() => {
 });
 await page.reload({ waitUntil: 'load' });
 await page.waitForTimeout(1400);
+await odklepniDen();
 await page.evaluate(bytes => {
   window.__emit('shoot:frame', new Uint8Array(bytes));
   window.__shootFile = new Uint8Array(bytes);

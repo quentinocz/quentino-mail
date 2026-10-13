@@ -56,7 +56,13 @@ const DEFAULTS: ShootSettings = {
    * (`usb:008,001`) se mění při každém zapojení kabelu, takže zapamatovat
    * si ho znamená, že se podruhé nepozná nic.
    */
-  lastCamera: ''
+  lastCamera: '',
+  /*
+   * Nový den se zeptá, jestli založit nové focení. Ne „založit samo":
+   * focení přes půlnoc a focení ve dvou kusech během dne jsou běžné a
+   * rozdělit kvůli nim sérii na dvě je stejná chyba, jen opačná.
+   */
+  newDay: 'zeptat'
 };
 
 export function shootSetup(): ShootSettings {

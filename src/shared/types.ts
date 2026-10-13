@@ -4078,6 +4078,9 @@ export interface ShootPhoto {
   createdAt: string;
 }
 
+/** Kdy se okno ptá na nové focení. Podrobnosti v `shared/foceni.ts`. */
+export type ShootNoveFoceni = 'zeptat' | 'vzdy' | 'samo' | 'nikdy';
+
 export interface ShootSettings {
   keepOnCamera: boolean;
   pattern: string;
@@ -4088,6 +4091,14 @@ export interface ShootSettings {
   backend: 'gphoto' | 'webcam';
   /** Model naposledy připojeného těla. Podle něj se příště připojí samo. */
   lastCamera: string;
+  /**
+   * Kdy se okno ptá na nové focení.
+   *
+   * Bez tohohle se pokračovalo v posledním focení napořád a fotky z úterý
+   * končily ve stejné sérii jako ty z pondělí — stačilo zapomenout
+   * kliknout na „Nové focení".
+   */
+  newDay: ShootNoveFoceni;
 }
 
 /** Připojená obrazovka, na kterou se dá poslat velký náhled. */
