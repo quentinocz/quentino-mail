@@ -324,6 +324,13 @@ export async function setCameraSetting(settingPath: string, value: string):
  */
 export async function autofocus(): Promise<{ ok: boolean; error: string }> {
   if (!session.alive) return { ok: false, error: 'fotoaparát není připojený' };
+  /*
+   * Ostření je operace živého náhledu — mimo něj nemá co zaostřit.
+   * Kontroluje se to i tady, ne jen po vyfocení: tělo se mohlo z náhledu
+   * dostat i jinak (vypnutý náhled, spoušť na těle, uspané USB), a
+   * „zaostřit se nepovedlo" je pak hláška, se kterou se nedá nic dělat.
+   */
+  await liveViewZpet();
   const reply = await live.hold(async () => {
     const out = await session.send('set-config /main/actions/autofocusdrive=1',
       { urgent: true, timeout: 15000 });
@@ -457,6 +464,46 @@ export function outputPath(paths: string[]): string {
   return paths.find(one => /\/output$/i.test(one)) ?? '';
 }
 
+/**
+ * Co měl `output` před vyfocením.
+ *
+ * Před spouští se musí vypnout (jinak zrcátko zůstane vyklopené a tělo
+ * spoušť odmítne), ale po snímku se musí vrátit — viz `liveViewZpet`.
+ */
+let outputPred = '';
+
+/**
+ * Vrátí tělo do živého náhledu.
+ *
+ * ## Proč to vůbec musí existovat
+ *
+ * Před každou spouští se posílá `output=Off`, protože v živém náhledu
+ * Canon spoušť odmítne. Jenže se to nikdy nevracelo zpátky — a tělo tím
+ * po **první** vyfocené fotce zůstalo mimo živý náhled napořád. Náhled
+ * v okně běžel dál (`capture-preview` si ho obnoví po svém), takže to
+ * nebylo vidět; co přestalo fungovat, bylo **ostření**: `autofocusdrive`
+ * je operace živého náhledu a mimo něj nemá co zaostřit. Zvenku to
+ * vypadalo přesně takhle: první zaostření zabere, po první fotce už ne.
+ *
+ * Vrací se **ta hodnota, která tam byla** (`TFT`, `PC`, `TFT + PC`) —
+ * ne nějaká zvolená za uživatele. Fotoaparát se má po nás najít ve
+ * stavu, v jakém jsme ho našli my.
+ */
+async function liveViewZpet(): Promise<void> {
+  const output = outputPath(allPaths);
+  if (!output || !session.alive) return;
+  const ted = await readSetting(output);
+  /* Když náhled na těle běží, není co vracet */
+  if (!ted || !/^off$/i.test(ted.value)) return;
+  const zpet = outputPred && !/^off$/i.test(outputPred)
+    ? outputPred
+    : (ted.choices.find(one => /pc/i.test(one.value))
+      ?? ted.choices.find(one => !/^off$/i.test(one.value)))?.value ?? '';
+  if (!zpet) return;
+  await session.send(`set-config-value ${output}=${zpet}`, { urgent: true, timeout: 15000 })
+    .catch(() => null);
+}
+
 export function viewfinderPath(paths: string[]): string {
   const hit = paths.find(one => /\/(eos)?viewfinder$/i.test(one))
     ?? paths.find(one => /liveview/i.test(one));
@@ -524,6 +571,9 @@ async function captureOne(shootId: string): Promise<{ ok: boolean; error: string
    */
   const output = outputPath(allPaths);
   if (output) {
+    /* Co tam bylo, tam po snímku zase patří — jinak tělo zůstane mimo náhled */
+    const melo = await readSetting(output);
+    if (melo && !/^off$/i.test(melo.value)) outputPred = melo.value;
     await session.send(`set-config-value ${output}=Off`, { urgent: true, timeout: 15000 });
     await wait(300);
   }
@@ -573,6 +623,13 @@ async function captureOne(shootId: string): Promise<{ ok: boolean; error: string
     }
   }
 
+  /*
+   * Tělo zpátky do živého náhledu — i když se vyfotit nepovedlo. Dělá se
+   * to **před** rozjetím naší smyčky, aby první `capture-preview` padl
+   * už do zapnutého náhledu.
+   */
+  await liveViewZpet();
+
   // Náhled se rozjede zpátky, i když se vyfotit nepovedlo — jinak zůstane okno slepé
   if (wasLive && session.alive) await startLive();
 
@@ -594,6 +651,8 @@ async function captureOne(shootId: string): Promise<{ ok: boolean; error: string
       if (fresh) await session.send(`set-config-value ${fresh}=Off`, { urgent: true, timeout: 15000 });
       await wait(500);
       reply = await session.send('capture-image-and-download', { urgent: true, timeout: 60000 });
+      /* I po záchranné cestě se tělo vrací do náhledu — vypnula ho znovu */
+      await liveViewZpet();
     }
   }
 

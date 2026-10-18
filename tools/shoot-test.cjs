@@ -589,6 +589,32 @@ async function liveSection() {
     await new Promise(done => setTimeout(done, 400));
     ok('náhled po snímku zase běží', (await shoot.shootState()).live);
 
+    /*
+     * Po snímku musí tělo zůstat v živém náhledu.
+     *
+     * Před spouští se `output` vypíná (jinak Canon spoušť odmítne), ale
+     * nikdy se nevracel zpátky — tělo tím po první fotce zůstalo mimo
+     * náhled napořád. Nebylo to vidět, protože náhled v okně si `output`
+     * obnoví po svém; přestalo ale fungovat **ostření**, které je
+     * operace živého náhledu. Zvenku to vypadalo tak, že první zaostření
+     * zabere a po první fotce už žádné.
+     */
+    const vystup = await shoot.readSetting('/main/settings/output');
+    check('po snímku zůstane tělo v živém náhledu', vystup && vystup.value, 'TFT');
+    const zaostreni = await shoot.autofocus();
+    ok('a jde znovu zaostřit', zaostreni.ok, zaostreni.error);
+
+    /*
+     * A ostření si náhled umí zapnout samo. Z náhledu se tělo dostane
+     * i jinak než focením (vypnutý náhled, spoušť na těle, uspané USB)
+     * a „zaostřit se nepovedlo" je hláška, se kterou se nedá nic dělat.
+     */
+    await shoot.setCameraSetting('/main/settings/output', 'Off');
+    const znovu = await shoot.autofocus();
+    ok('ostření si náhled zapne samo', znovu.ok, znovu.error);
+    const poOstreni = await shoot.readSetting('/main/settings/output');
+    check('a vrátí ten výstup, co tam byl', poOstreni && poOstreni.value, 'TFT');
+
     shoot.stopLive();
     await new Promise(done => setTimeout(done, 300));
     await shoot.disconnect();

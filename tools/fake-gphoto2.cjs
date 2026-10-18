@@ -203,6 +203,18 @@ function run(line) {
     const one = TREE[settingPath];
     if (!one) { fail(-101, 'Unknown model', ''); return; }
     if (one.readonly) { fail(-2, 'Bad parameters', 'The property is read only.'); return; }
+    /*
+     * Ostření je operace živého náhledu. S vypnutým výstupem tělo nemá
+     * co zaostřit a vrátí „device busy" — přesně tenhle stav po sobě
+     * nechávala aplikace po každé vyfocené fotce, protože si `output`
+     * před spouští vypnula a nikdy ho nevrátila.
+     */
+    if (settingPath === '/main/actions/autofocusdrive' && value === '1'
+      && TREE['/main/settings/output'].value === 'Off') {
+      fail(-110, 'I/O in progress',
+        'Canon EOS Drive Autofocus failed (0x2019: PTP Device Busy)');
+      return;
+    }
     one.value = STUBBORN[settingPath] || value;
     return;
   }
