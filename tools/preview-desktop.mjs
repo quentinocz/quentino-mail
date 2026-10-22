@@ -64,7 +64,7 @@ const NASTROJE = {
   'AI Přehled': ['digest', 'prehled'], 'Balení objednávek': ['packing', 'baleni'],
   'Katalog a naskladnění': ['catalog', 'katalog'], 'Texty na webu': ['webtexts', 'texty'],
   'Recenze zákazníků': ['reviews', 'recenze'], 'Konvertor médií': ['media', 'media'],
-  'Sociální sítě': ['instagram', 'socialni']
+  'Sociální sítě': ['instagram', 'socialni'], 'Zkušební kabina': ['zkusebna', 'kabina']
 };
 const vOkneNastroje = () => page.url().includes('#');
 /*
@@ -443,6 +443,19 @@ await page.waitForTimeout(400);
 await overflow('chat — vše'); await snap('24c-chat-vse');
 
 await click('.ig-switch button', { hasText: 'Pošta' });
+
+/*
+ * Zkušební kabina. Kontroluje se hlavně to, že se **z nabídky opravdu
+ * otevře**: okno má vlastní adresu, kterou v hotové aplikaci není kam
+ * napsat, takže když v nabídce řádek chybí, nástroj neexistuje.
+ */
+await click('.ig-switch button', { hasText: 'Funkce' });
+await click('.ws-menu-item', { hasText: 'Zkušební kabina' });
+await page.waitForTimeout(600);
+console.log('  kabina — záložky:', await page.evaluate(() =>
+  [...document.querySelectorAll('.zk-head-right .tab')].map(one => one.textContent.trim()).join(' · ')));
+await overflow('zkušební kabina'); await snap('25-zkusebna');
+await doPosty();
 
 // Nastavení → AI: feedy objednávek jsou dole, proto se k nim odroluje
 await click('.side-item', { hasText: 'Nastavení' });

@@ -81,17 +81,19 @@ export const AI_TOOLS: {
     hint: 'Úvodní stránka, plánování dopředu a odpočty', desktopOnly: true },
 
   /*
-   * Zkušební kabina v nabídce **zatím není**.
+   * Zkušební kabina tu chvíli nebyla — dokud byly postavy jen zástupná
+   * kresba, nabízet ji mezi hotovými nástroji nedávalo smysl. Jenže bez
+   * řádku v nabídce **nešla otevřít vůbec**: okno má vlastní adresu
+   * (`#kabina`), kterou v hotové aplikaci není kam napsat. Teď už se
+   * v ní dá proklikat celá cesta zákazníka i vystavení na web, takže
+   * tudy vede.
    *
-   * Hotová je dílna i skript pro e-shop, chybí ale vygenerované vizuály —
-   * dokud jsou postavy zástupná kresba, otevřít kabinu z nabídky by
-   * znamenalo nabízet rozdělanou věc mezi hotovými. Okno zůstává (otevře
-   * se adresou `#kabina`) i s celým modulem; až budou vizuály hotové,
-   * vrátí se sem jediný řádek.
-   *
-   * { id: 'zkusebna', icon: 'user', label: 'Zkušební kabina', group: 'obsah',
-   *   color: '#2f6fc8', hint: 'Jak produkty vypadají na modelu', desktopOnly: true },
+   * Že jsou postavy zatím kresba, říká pruh rovnou v okně — tam, kde to
+   * člověk uvidí, ne tím, že se nástroj schová.
    */
+  { id: 'zkusebna', icon: 'user', label: 'Zkušební kabina', group: 'obsah',
+    color: '#2f6fc8', hint: 'Jak doplňky vypadají na modelu — a skript pro e-shop',
+    desktopOnly: true },
 
   { id: 'digest', icon: 'sunrise', label: 'AI Přehled', group: 'prehled', color: '#c29a3a',
     hint: 'Prodeje v číslech a postřehy k nim' }
