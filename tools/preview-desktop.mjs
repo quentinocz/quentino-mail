@@ -188,7 +188,21 @@ await page.waitForTimeout(400);
       .find(b => /Chat/.test(b.textContent ?? '') || /Chat/.test(b.getAttribute('aria-label') ?? ''));
     const r = node.getBoundingClientRect();
     const t = tlacitko?.getBoundingClientRect();
+    /*
+     * Šířka se měří proti přepínači. Proužek byl totiž vykreslený
+     * **uvnitř** jeho mřížky tří stejných dílů, takže dostal třetinu
+     * panelu: text se zalomil po jednom slově a křížek se o něj otřel.
+     * Na snímku to bylo vidět, jen to nikdo neměřil.
+     */
+    const prepinac = document.querySelector('.ig-switch').getBoundingClientRect();
+    const krizek = node.querySelector('.chw-x').getBoundingClientRect();
+    const text = node.querySelector('.chw-text b').getBoundingClientRect();
     return {
+      sirka: Math.round(r.width),
+      sirkaPrepinace: Math.round(prepinac.width),
+      /* Křížek nesmí ležet na textu — jinak se zavírá omylem a nejde číst */
+      prekryv: krizek.left < text.right && krizek.top < text.bottom,
+      radku: Math.round(text.height / 17),
       text: (node.textContent ?? '').replace(/\s+/g, ' ').trim(),
       dlouho: node.className.includes('dlouho'),
       odpovedet: !!node.querySelector('.chw-open'),
@@ -202,6 +216,13 @@ await page.waitForTimeout(400);
     && bublina.odpovedet && bublina.zavrit && bublina.podTlacitkem;
   if (!ok) problems.push(`bublina o čekajícím zákazníkovi nesedí (${JSON.stringify(bublina)})`);
   console.log(`${'zákazník čeká na odpověď'.padEnd(28)} ${ok ? '✓' : '✗'} ${bublina?.text?.slice(0, 48) ?? ''}`);
+  const siroka = !!bublina && Math.abs(bublina.sirka - bublina.sirkaPrepinace) <= 2 && !bublina.prekryv;
+  if (!siroka) {
+    problems.push('proužek o čekajícím zákazníkovi nemá šířku panelu, nebo křížek leží na textu '
+      + `(${bublina?.sirka} z ${bublina?.sirkaPrepinace} px, překryv ${bublina?.prekryv})`);
+  }
+  console.log(`${'  a je přes celou šířku panelu'.padEnd(28)} ${siroka ? '✓' : '✗'} `
+    + `${bublina?.sirka} z ${bublina?.sirkaPrepinace} px, nadpis na ${bublina?.radku} řádky`);
   await snap('01e-chat-ceka');
 
   /* Zavřít se dá, ale vrátí se — není to oznámení, které se jednou odbude */

@@ -165,17 +165,27 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
   // Bez jediné záložky není co kreslit — okno nástroje si vystačí samo
   if (tabs.length === 0) return null;
 
+  /*
+   * Bublina stojí **vedle přepínače, ne v něm**.
+   *
+   * Přepínač je mřížka tří stejných dílů, takže cokoli dalšího uvnitř
+   * dostane šířku jednoho tlačítka: proužek o čekajícím zákazníkovi se
+   * tím zúžil na třetinu panelu, text se zalomil po jednom slově a
+   * křížek se o něj otřel. Vypadalo to jako rozbité okno, přitom to byl
+   * jeden řádek v nesprávném rodiči.
+   */
+  /*
+   * S jedinou záložkou to není přepínač.
+   *
+   * V okně nástroje ani na telefonu se mezi poštou a chatem nepřepíná,
+   * takže zbude samotné tlačítko „Funkce". V pruhu přepínače vypadalo
+   * jako dvoupolohový přepínač, u kterého je druhá poloha prázdná —
+   * a nedalo se poznat, co by měl přepínat. Zůstává z něj obyčejné
+   * tlačítko s nabídkou.
+   */
   return (
-    /*
-     * S jedinou záložkou to není přepínač.
-     *
-     * V okně nástroje ani na telefonu se mezi poštou a chatem nepřepíná,
-     * takže zbude samotné tlačítko „Funkce". V pruhu přepínače vypadalo
-     * jako dvoupolohový přepínač, u kterého je druhá poloha prázdná —
-     * a nedalo se poznat, co by měl přepínat. Zůstává z něj obyčejné
-     * tlačítko s nabídkou.
-     */
-    <div className={`ig-switch ${compact ? 'compact' : ''} ${tabs.length < 2 ? 'solo' : ''}`} ref={box}>
+    <>
+      <div className={`ig-switch ${compact ? 'compact' : ''} ${tabs.length < 2 ? 'solo' : ''}`} ref={box}>
       {tabs.map(t => (
         <button
           key={t.id}
@@ -198,15 +208,6 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
         </button>
       ))}
 
-      {/*
-        * Bublina sedí hned pod tlačítkem chatu, ne někde v obsahu: patří
-        * k místu, kam se jde odpovídat, a v poště je vidět i při práci
-        * s něčím jiným.
-        */}
-      {!phone && current !== 'chat' && (
-        <ChatWaitingBubble ceka={chatCeka ?? null} onOpen={() => onChange('chat')} />
-      )}
-
       {menu && (
         <FunctionsMenu
           activeTool={activeTool}
@@ -225,7 +226,17 @@ export default function WorkspaceSwitch({ current, onChange, onAiTool, chatUnrea
           highlightInstagram={current === 'instagram'}
         />
       )}
-    </div>
+      </div>
+
+      {/*
+        * Bublina sedí hned pod přepínačem, ne někde v obsahu: patří
+        * k místu, kam se jde odpovídat, a v poště je vidět i při práci
+        * s něčím jiným.
+        */}
+      {!phone && current !== 'chat' && (
+        <ChatWaitingBubble ceka={chatCeka ?? null} onOpen={() => onChange('chat')} />
+      )}
+    </>
   );
 }
 

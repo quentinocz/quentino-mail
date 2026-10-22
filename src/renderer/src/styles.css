@@ -10404,8 +10404,14 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 
 .chw {
   position: relative;
-  display: flex; align-items: center; gap: 8px;
-  margin: 8px 10px 2px; padding: 9px 10px;
+  /*
+   * Zalomí se, místo aby se zmáčkla. V nejužším panelu (180 px) se text,
+   * tlačítko a křížek do řádku nevejdou — bez zalomení se z „Odpovědět"
+   * stal svislý proužek přes text. Vpravo je schválně víc místa: tam
+   * sedí křížek a nesmí se o text otřít.
+   */
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 0 10px 10px; padding: 9px 26px 9px 10px;
   border: 1px solid var(--warn); border-radius: 10px;
   background: #fff8e8;
 }
@@ -10417,10 +10423,11 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 .chw.dlouho .chw-tecka { background: var(--danger); }
 @keyframes chw-pulz { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-.chw-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.chw-text { flex: 1 1 120px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .chw-text b { font-size: 12px; line-height: 1.25; }
 .chw-text span { font-size: 11px; color: var(--text-2); }
 .chw-open {
+  flex: 0 0 auto; margin-left: auto; white-space: nowrap;
   padding: 4px 9px; border: 0; border-radius: 7px;
   background: var(--accent); color: #fff; font-size: 11.5px; cursor: pointer;
 }
