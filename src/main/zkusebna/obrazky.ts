@@ -46,32 +46,50 @@ export interface ObrazkovyModel {
  * Seznam je tady proto, aby šlo v okně vybírat ze jmen a aby u každého
  * stálo, co od něj čekat. Kdyby přibyl další, přidá se řádek — zadat se
  * dá i jméno, které tu není.
+ *
+ * Starší řady zůstávají dole: kdo si je jednou vybral, nemá se dozvědět
+ * „neznámý model" jen proto, že se seznam posunul. Když u OpenAI
+ * doslouží, pozná se to z hlášky a rada k ní ukáže sem.
  */
 export const MODELY: ObrazkovyModel[] = [
   {
-    id: 'gpt-image-1.5', nazev: 'gpt-image-1.5',
-    popis: 'Drží zadání i vstupní obrázek, umí průhledné pozadí. Pro vrstvy nejspolehlivější.',
-    verny: 'navolbu', cena: 0.19
+    id: 'gpt-image-2.5-sunburst', nazev: 'gpt-image-2.5 Sunburst',
+    popis: 'Nejpřesnější v úpravách hotového obrázku — a na tom oblékání po vrstvách stojí.',
+    verny: 'vzdy', cena: 0.05
   },
   {
-    id: 'gpt-image-2', nazev: 'gpt-image-2',
-    popis: 'Vstupní obrázek drží vždy a zvládne i větší rozměry. Průhledné pozadí u něj zatím dozrává.',
+    id: 'gpt-image-2.5-flare', nazev: 'gpt-image-2.5 Flare',
+    popis: 'Rychlejší, na běžné kreslení od nuly. Vstupní obrázek drží volněji než Sunburst.',
+    verny: 'vzdy', cena: 0.05
+  },
+  {
+    id: 'gpt-image-2', nazev: 'gpt-image-2 (starší)',
+    popis: 'Předchozí řada. Vstupní obrázek drží vždy, průhledné pozadí umí.',
     verny: 'vzdy', cena: 0.22
   },
   {
-    id: 'gpt-image-1', nazev: 'gpt-image-1',
-    popis: 'Starší, ale vyzkoušený. Levnější, zadání drží o něco volněji.',
+    id: 'gpt-image-1', nazev: 'gpt-image-1 (starší)',
+    popis: 'Ještě starší. Levnější, zadání drží o něco volněji.',
     verny: 'navolbu', cena: 0.17
-  },
-  {
-    id: 'gpt-image-1-mini', nazev: 'gpt-image-1-mini',
-    popis: 'Nejlevnější. Na zkoušku zadání ano, na hotové vrstvy ne — vstupní obrázek nedrží.',
-    verny: 'ne', cena: 0.04
   }
 ];
 
+/**
+ * Modely, které jsme kdysi nabízeli a u OpenAI dosloužily.
+ *
+ * Kdo si je vybral, nemá kvůli tomu zůstat s nefunkčním nastavením —
+ * jednou se mu tiše přepne na ten současný. Vlastnoručně zadaného jména
+ * se to netýká: to si člověk napsal schválně a přepisovat mu ho by bylo
+ * drzé.
+ */
+const DOSLOUZILY = ['gpt-image-1.5', 'gpt-image-1-mini'];
+
 export function model(): ObrazkovyModel {
-  const id = getSetting('obrazkovyModel', 'gpt-image-1.5')!;
+  let id = getSetting('obrazkovyModel', MODELY[0].id)!;
+  if (DOSLOUZILY.includes(id)) {
+    id = MODELY[0].id;
+    setSetting('obrazkovyModel', id);
+  }
   return MODELY.find(one => one.id === id) ?? { ...MODELY[0], id, nazev: id };
 }
 
@@ -95,19 +113,31 @@ export function maKlic(): boolean {
 export function zapisUtratu(pocet = 1): void {
   const mesic = new Date().toISOString().slice(0, 7);
   const klicZapisu = `obrazkyUtrata:${mesic}`;
-  const ted = Number(getSetting(klicZapisu, '0')) || 0;
+  const ted = cislo(klicZapisu, 0);
   setSetting(klicZapisu, String(ted + pocet * model().cena));
   const kusy = `obrazkyKusy:${mesic}`;
-  setSetting(kusy, String((Number(getSetting(kusy, '0')) || 0) + pocet));
+  setSetting(kusy, String(cislo(kusy, 0) + pocet));
+}
+
+/**
+ * Číslo z nastavení. Nula je hodnota, ne „nevyplněno".
+ *
+ * Strop nastavený na nulu znamená „teď nekresli nic" — a přesně to
+ * dřív nefungovalo: `Number(…) || 40` udělalo z nuly čtyřicet dolarů,
+ * takže jediná pojistka proti nechtěnému generování tiše nefungovala.
+ */
+function cislo(klic: string, vychozi: number): number {
+  const ulozene = Number(getSetting(klic, String(vychozi)));
+  return Number.isFinite(ulozene) ? ulozene : vychozi;
 }
 
 export function utrata(): { mesic: string; usd: number; kusu: number; strop: number } {
   const mesic = new Date().toISOString().slice(0, 7);
   return {
     mesic,
-    usd: Number(getSetting(`obrazkyUtrata:${mesic}`, '0')) || 0,
-    kusu: Number(getSetting(`obrazkyKusy:${mesic}`, '0')) || 0,
-    strop: Number(getSetting('obrazkyStrop', '40')) || 40
+    usd: cislo(`obrazkyUtrata:${mesic}`, 0),
+    kusu: cislo(`obrazkyKusy:${mesic}`, 0),
+    strop: cislo('obrazkyStrop', 40)
   };
 }
 
@@ -139,7 +169,20 @@ function znovu(stav: number, text: string): boolean {
   return /overloaded|timeout|fetch failed|ECONNRESET|socket hang up/i.test(text);
 }
 
-async function posli(cesta: string, telo: FormData, pokusu = 3): Promise<Obraz> {
+/**
+ * Pošle požadavek a vrátí obrázek.
+ *
+ * ## Proč dva tvary těla
+ *
+ * Kreslení od nuly (`/images/generations`) bere **jen JSON**; posílat mu
+ * formulář končí na „Unsupported content type: 'multipart/form-data'" a
+ * žádný obrázek nevznikne. Dokreslování (`/images/edits`) je naopak
+ * formulář, protože s sebou nese soubory — vstupní obrázek a masku.
+ * Dřív se oběma posílal formulář a generování postavy proto nikdy
+ * neproběhlo; vidět to nebylo, protože se do té doby pracovalo jen se
+ * zástupnou kresbou.
+ */
+async function posli(cesta: string, telo: FormData | Record<string, unknown>, pokusu = 3): Promise<Obraz> {
   let naposled = '';
   for (let pokus = 0; pokus < pokusu; pokus++) {
     if (zbyvaDoStropu() <= 0) {
@@ -147,7 +190,13 @@ async function posli(cesta: string, telo: FormData, pokusu = 3): Promise<Obraz> 
     }
     let odpoved: Response;
     try {
-      odpoved = await fetch(`${ZAKLAD()}${cesta}`, { method: 'POST', headers: hlavicky(), body: telo });
+      const formular = telo instanceof FormData;
+      odpoved = await fetch(`${ZAKLAD()}${cesta}`, {
+        method: 'POST',
+        /* U formuláře si hranici doplní fetch sám — vlastní hlavička by ji přebila */
+        headers: formular ? hlavicky() : { ...hlavicky(), 'content-type': 'application/json' },
+        body: formular ? telo : JSON.stringify(telo)
+      });
     } catch (e: any) {
       naposled = String(e?.message ?? e);
       if (!znovu(0, naposled) || pokus === pokusu - 1) break;
@@ -170,7 +219,24 @@ async function posli(cesta: string, telo: FormData, pokusu = 3): Promise<Obraz> 
     zapisUtratu(1);
     return nacti(Buffer.from(b64, 'base64'));
   }
-  throw new Error(`Obrázek se nepodařilo nakreslit: ${naposled}`);
+  throw new Error(`Obrázek se nepodařilo nakreslit: ${naposled}${radaKChybe(naposled)}`);
+}
+
+/**
+ * Věta navíc tam, kde z hlášky od OpenAI není poznat, co s tím.
+ *
+ * Rodiny obrázkových modelů se mění rychleji než aplikace a „model not
+ * found" je hláška, nad kterou člověk neví, jestli je rozbitá aplikace,
+ * klíč, nebo účet. Přitom stačí vybrat jiný model.
+ */
+function radaKChybe(text: string): string {
+  if (/model/i.test(text) && /not found|does not exist|unknown|neexistuje/i.test(text)) {
+    return ` — vypadá to, že model „${model().id}" už není k dispozici. Vyber jiný v Nastavení → Vizuály na modelu.`;
+  }
+  if (/insufficient_quota|billing|credit/i.test(text)) {
+    return ' — účet u OpenAI nemá kredit.';
+  }
+  return '';
 }
 
 function pauza(pokus: number): Promise<void> {
@@ -183,14 +249,16 @@ export interface Rozmer { sirka: number; vyska: number }
 
 /** Nakreslí obrázek od nuly — tak vzniká postava. */
 export async function nakresli(zadani: string, rozmer: Rozmer, prusvitne = true): Promise<Obraz> {
-  const telo = new FormData();
-  telo.append('model', model().id);
-  telo.append('prompt', zadani);
-  telo.append('size', `${rozmer.sirka}x${rozmer.vyska}`);
-  telo.append('quality', getSetting('obrazkyKvalita', 'high')!);
-  telo.append('output_format', 'png');
-  if (prusvitne) telo.append('background', 'transparent');
-  telo.append('n', '1');
+  const telo: Record<string, unknown> = {
+    model: model().id,
+    prompt: zadani,
+    size: `${rozmer.sirka}x${rozmer.vyska}`,
+    quality: getSetting('obrazkyKvalita', 'high')!,
+    output_format: 'png',
+    n: 1
+  };
+  /* Průhledné pozadí jde jen k png nebo webp — u jpeg by to rozhraní odmítlo */
+  if (prusvitne) telo.background = 'transparent';
   return posli('/images/generations', telo);
 }
 
