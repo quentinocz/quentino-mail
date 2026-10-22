@@ -161,6 +161,22 @@ export interface ZkVrstvaDef {
    * a v nabídce pro zákazníka volba, která nemá co udělat.
    */
   nePro?: ZkVek[];
+  /**
+   * Kde na modelu je citlivé místo — díl šířky a výšky obrázku.
+   *
+   * Zákazník nemá hledat doplněk v seznamu. Má si ho **všimnout na
+   * modelu**: v klopě chybí kapesníček, tak se na to místo klikne.
+   * Proto to má jen zboží — na kulisu se neklikne, ta se nekupuje.
+   *
+   * Souřadnice jsou z pohledu diváka, ne modela: kapesníček je v levé
+   * klopě saka, což je na obrázku **vpravo**. Body jsou taky schválně
+   * rozházené do výšky: postava je na mobilu úzká a tři puntíky ve
+   * stejné výšce se překryly natolik, že se nedalo kliknout na ten
+   * prostřední.
+   */
+  bod?: { x: number; y: number };
+  /** Pobídka u bodu — krátká, konkrétní, bez vykřičníku. */
+  pobidka?: string;
 }
 
 export const ZK_VRSTVY: ZkVrstvaDef[] = [
@@ -215,12 +231,14 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'pasek', nazev: 'Pásek', popis: 'Vyber si konkrétní pásek.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['pás', 'pas', 'opasek', 'belt', 'gürtel'],
+    bod: { x: 0.5, y: 0.49 }, pobidka: 'Pásek k tomu?',
     kontrola: { odY: 0.38, doY: 0.62, podilOd: 0.001, podilDo: 0.07 },
     varianty: [{ id: 'kozeny', nazev: 'Kožený' }]
   },
   {
     typ: 'ksandy', nazev: 'Kšandy', popis: 'Vyber si konkrétní kšandy.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kšand', 'ksand', 'šle', 'sle', 'suspender', 'brace', 'hosenträger'],
+    bod: { x: 0.32, y: 0.38 }, pobidka: 'Kšandy místo pásku?',
     kontrola: { odY: 0.13, doY: 0.6, podilOd: 0.004, podilDo: 0.22 },
     varianty: [
       { id: 'uzke', nazev: 'Úzké' },
@@ -230,6 +248,7 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'kravata', nazev: 'Kravata nebo motýlek', popis: 'Vyber si konkrétní kravatu, motýlka nebo regatu.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kravat', 'motýl', 'motyl', 'tie', 'krawatte', 'regat'],
+    bod: { x: 0.5, y: 0.2 }, pobidka: 'Kravatu nebo motýlka?',
     kontrola: { odY: 0.11, doY: 0.52, podilOd: 0.001, podilDo: 0.09 },
     varianty: [
       { id: 'kravata', nazev: 'Kravata' },
@@ -255,6 +274,7 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'kapesnicek', nazev: 'Kapesníček', popis: 'Vyber si konkrétní kapesníček.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kapesní', 'kapesni', 'pochette', 'pocket square', 'einstecktuch'],
+    bod: { x: 0.68, y: 0.29 }, pobidka: 'Kapesníček do klopy?',
     kontrola: { odY: 0.18, doY: 0.46, podilOd: 0.0003, podilDo: 0.035 },
     varianty: [{ id: 'spicka', nazev: 'Do špičky' }]
   }
@@ -415,7 +435,20 @@ export interface ZkKus {
   hex: string;
   /** Kód produktu z katalogu. Prázdné = jen barva, bez konkrétního produktu. */
   produkt?: string;
+  /**
+   * Kolik kusů z téhle věci do košíku.
+   *
+   * Nula je plnohodnotná odpověď: vzhled se dělá i pro to, aby se na něm
+   * **vybíralo**, a kus, který na modelu zůstane, ale nekupuje se,
+   * je běžný případ (vlastní kravata, jen si k ní vybírám kapesníček).
+   */
+  pocet?: number;
+  /** Vybraná velikost — kód varianty produktu. Jen u toho, co velikosti má. */
+  velikost?: string;
 }
+
+/** Jak se k sakovi chovat, když jsou na modelu kšandy. */
+export type ZkSako = 'auto' | 'vidi' | 'skryto';
 
 /** Celý vzhled: postava, nastavení a kusy na ní. */
 export interface ZkVzhled {
@@ -427,6 +460,15 @@ export interface ZkVzhled {
   vlasyVarianta: string;
   vlasyHex: string;
   fousy: string;
+  /**
+   * Co se sakem.
+   *
+   * `auto` znamená „zařiď to rozumně": s kšandami se sako schová, protože
+   * kšandy pod sakem vidět nejsou a zákazník, který si je přidal, si je
+   * chce prohlédnout. Jenže někdy je to naopak — ke kšandám se vybírá
+   * kapesníček a ten je v klopě saka. Proto se to dá přebít oběma směry.
+   */
+  sako?: ZkSako;
   kusy: Partial<Record<ZkVrstvaTyp, ZkKus>>;
 }
 
@@ -457,9 +499,26 @@ export function vychoziVzhled(vek: ZkVek = 'dospely'): ZkVzhled {
   };
 }
 
+/**
+ * Je sako na modelu vidět?
+ *
+ * S kšandami se samo schová: kšandy se nosí pod sakem a vidět z nich
+ * není nic, takže ukázat kšandy v saku znamená ukázat sako. Přebít se to
+ * dá oběma směry — ke kšandám se často vybírá kapesníček a ten je
+ * v klopě saka.
+ */
+export function sakoVidi(v: ZkVzhled): boolean {
+  if (!v.kusy.sako) return false;
+  const rezim = v.sako ?? 'auto';
+  if (rezim === 'vidi') return true;
+  if (rezim === 'skryto') return false;
+  return !v.kusy.ksandy;
+}
+
 /** Které vrstvy se pro daný vzhled kreslí, odspodu nahoru. */
 export function vrstvyVzhledu(v: ZkVzhled): { typ: ZkVrstvaTyp; varianta: string; hex: string }[] {
   const out: { typ: ZkVrstvaTyp; varianta: string; hex: string }[] = [];
+  const sako = sakoVidi(v);
   for (const typ of ZK_PORADI) {
     if (typ === 'postava') { out.push({ typ, varianta: 'zaklad', hex: '' }); continue; }
     if (typ === 'vlasy') { out.push({ typ, varianta: v.vlasyVarianta, hex: v.vlasyHex }); continue; }
@@ -467,6 +526,9 @@ export function vrstvyVzhledu(v: ZkVzhled): { typ: ZkVrstvaTyp; varianta: string
       if (v.fousy) out.push({ typ, varianta: v.fousy, hex: v.vlasyHex });
       continue;
     }
+    if (typ === 'sako' && !sako) continue;
+    /* Kapesníček je v klopě saka — bez saka nemá kde být */
+    if (typ === 'kapesnicek' && !sako) continue;
     const kus = v.kusy[typ];
     if (kus) out.push({ typ, varianta: kus.varianta, hex: kus.hex });
   }
@@ -499,6 +561,77 @@ export interface ZkProdukt {
   /** Má velikosti? Pak se do košíku nedá hodit naslepo. */
   velikosti: boolean;
   skladem: boolean;
+  /**
+   * Konkrétní velikosti i se zásobou.
+   *
+   * Samotné `velikosti: true` stačilo, dokud se produkt s velikostmi
+   * jenom otvíral na detailu. Jenže zákazník, který si v kabině složil
+   * vzhled, chce jedním klikem koupit **všechno** — a u dětských kšand
+   * k tomu potřebuje slyšet, která velikost mu sedí. Bez seznamu se
+   * nedá ani poradit, ani vložit do košíku.
+   */
+  velikostiSeznam?: ZkVelikost[];
+  /**
+   * Komu je produkt určený, pokud to z katalogu plyne.
+   *
+   * Dětský motýlek na dospělém modelu je nabídka, která nemá co udělat —
+   * a naopak. Prázdné = platí pro všechny.
+   */
+  proVek?: ZkVek[];
+  /** Název, odkaz a cena na ostatních jazykových verzích e-shopu. */
+  trhy?: Partial<Record<ZkTrh, ZkTrhData>>;
+}
+
+/** Jedna velikost produktu — tak, jak ji má e-shop. */
+export interface ZkVelikost {
+  /** Kód varianty z feedu. */
+  kod: string;
+  /** „Délka: 120 cm", „2–4 roky", „98/104" — text z e-shopu, jak je. */
+  popis: string;
+  skladem: boolean;
+}
+
+/**
+ * Jazykové verze e-shopu.
+ *
+ * Shodné s `MailLang` ve zbytku aplikace, aby se data z feedu nemusela
+ * překládat sem a tam: feed posílá název, odkaz i cenu pro každou verzi.
+ */
+export type ZkTrh = 'cz' | 'sk' | 'en';
+export const ZK_TRHY: ZkTrh[] = ['cz', 'sk', 'en'];
+
+export interface ZkTrhData {
+  nazev: string;
+  url: string;
+  cena: string;
+  cenaCislo: number;
+}
+
+/**
+ * Produkt v jazyce, ve kterém se zákazník právě dívá.
+ *
+ * Odkaz je tu důležitější než název: kabina pracuje s adresou — vkládá do
+ * košíku, otvírá detail. Kdyby se na slovenském e-shopu vložila česká
+ * adresa, zákazník by skončil na jiné doméně a s prázdným košíkem.
+ */
+export function proTrh(p: ZkProdukt, trh: ZkTrh): ZkProdukt {
+  const data = p.trhy?.[trh];
+  if (!data || !data.url) return p;
+  return {
+    ...p,
+    nazev: data.nazev || p.nazev,
+    url: data.url,
+    cena: data.cena || p.cena,
+    cenaCislo: data.cenaCislo || p.cenaCislo
+  };
+}
+
+/** Jazyková verze podle `<html lang>` nebo domény. */
+export function trhZJazyka(kod: string): ZkTrh {
+  const t = String(kod || '').toLowerCase();
+  if (/^(cs|cz)/.test(t) || /\.cz$/.test(t)) return 'cz';
+  if (/^sk/.test(t) || /\.sk$/.test(t)) return 'sk';
+  return 'en';
 }
 
 /**
@@ -672,17 +805,236 @@ export function produktyKVrstve(
     .map(x => x.one);
 }
 
-/** Cena vzhledu dohromady. Kusy bez produktu se nepočítají. */
-export function cenaVzhledu(v: ZkVzhled, katalog: ZkProdukt[]): { suma: number; kusu: number; chybi: number } {
+/**
+ * Cena vzhledu dohromady.
+ *
+ * Počítá se **tím, co se nakupuje**, ne tím, co je na modelu. Kus
+ * s nulovým počtem na modelu zůstane (vlastní kravata, ke které si
+ * zákazník vybírá kapesníček), ale do součtu nepatří — jinak by se
+ * v košíku objevila věc, kterou nikdo nechtěl, a to je ta nejhorší
+ * chyba, jakou může kabina udělat.
+ */
+export function cenaVzhledu(
+  v: ZkVzhled,
+  katalog: ZkProdukt[]
+): { suma: number; kusu: number; chybi: number; celkem: number } {
   let suma = 0;
   let kusu = 0;
   let chybi = 0;
+  let celkem = 0;
   for (const [, kus] of Object.entries(v.kusy)) {
     if (!kus) continue;
     const produkt = kus.produkt ? katalog.find(one => one.kod === kus.produkt) : null;
-    if (produkt) { suma += produkt.cenaCislo; kusu += 1; } else { chybi += 1; }
+    if (!produkt) { chybi += 1; continue; }
+    const pocet = kus.pocet === undefined ? 1 : Math.max(0, Math.round(kus.pocet));
+    if (pocet === 0) continue;
+    suma += produkt.cenaCislo * pocet;
+    kusu += 1;
+    celkem += pocet;
   }
-  return { suma, kusu, chybi };
+  return { suma, kusu, chybi, celkem };
+}
+
+/* ------------------------------------------------- body na modelu */
+
+/**
+ * Citlivá místa na modelu, na která se dá kliknout.
+ *
+ * ## Proč to vůbec je
+ *
+ * Kabina má na mobilu plochu na model a pár řádků — na vedlejší nabídku
+ * „co ještě přidat" tam místo není. Zákazník ale sám nepřijde na to, že
+ * ke kšandám se hodí kapesníček; ve výpisu kategorií to nehledá. Když je
+ * **prázdné místo na modelu** samo malým puntíkem řekne „sem patří
+ * kapesníček", je to nabídka, která nezabírá nic a je vidět přesně tam,
+ * kde dává smysl.
+ *
+ * ## Proč jsou první prázdná
+ *
+ * Bod na obsazeném místě je k přepnutí kusu, bod na prázdném je k nákupu.
+ * Pořadí rozhoduje o tom, který se na mobilu vejde.
+ */
+export interface ZkBod {
+  typ: ZkVrstvaTyp;
+  nazev: string;
+  /** Díl šířky a výšky obrázku, z pohledu diváka. */
+  x: number;
+  y: number;
+  /** Už tam něco je? Pak bod nabízí výměnu, ne přidání. */
+  obsazeno: boolean;
+  pobidka: string;
+}
+
+export function bodyNaModelu(v: ZkVzhled, katalog: ZkProdukt[] = []): ZkBod[] {
+  const sako = sakoVidi(v);
+  const body: ZkBod[] = [];
+  for (const def of ZK_VRSTVY) {
+    if (!def.bod || !def.zbozi) continue;
+    /* Nabízet kus, který se nemá z čeho vybrat, je slepá ulička */
+    if (katalog.length > 0 && !katalog.some(one => one.typ === def.typ)) continue;
+    /* Kapesníček bez saka nemá kde být — bod by ukazoval na košili */
+    if (def.typ === 'kapesnicek' && !sako) continue;
+    body.push({
+      typ: def.typ,
+      nazev: def.nazev,
+      x: def.bod.x,
+      y: def.bod.y,
+      obsazeno: !!v.kusy[def.typ],
+      pobidka: def.pobidka ?? ''
+    });
+  }
+  return body.sort((a, b) => Number(a.obsazeno) - Number(b.obsazeno));
+}
+
+/* ------------------------------------------------- rada s velikostí */
+
+/** Rozsah, na který velikost míří. */
+export interface ZkRozsah {
+  od: number;
+  do: number;
+  druh: 'cm' | 'roky';
+}
+
+/**
+ * Co je v popisu velikosti za číslo.
+ *
+ * E-shop má velikosti napsané lidsky a nesourodě: „Délka: 120 cm",
+ * „2–4 roky", „98/104", „6-12 měsíců". Nic z toho se nedá porovnat,
+ * dokud se z toho nevytáhne rozsah a jeho jednotka. Co se vytáhnout
+ * nedá (velikost „M", „univerzální"), vrátí prázdno — a kabina se pak
+ * neodváží radit.
+ */
+export function rozsahVelikosti(popis: string): ZkRozsah | null {
+  const t = String(popis || '').toLowerCase().replace(',', '.');
+
+  const mesice = t.match(/(\d+)\s*(?:-|–|až)\s*(\d+)\s*(?:měs|mes|month)/);
+  if (mesice) return { od: Number(mesice[1]) / 12, do: Number(mesice[2]) / 12, druh: 'roky' };
+  const mesic = t.match(/(\d+)\s*(?:měs|mes|month)/);
+  if (mesic) return { od: Number(mesic[1]) / 12, do: Number(mesic[1]) / 12, druh: 'roky' };
+
+  const roky = t.match(/(\d+(?:\.\d+)?)\s*(?:-|–|až|to)\s*(\d+(?:\.\d+)?)\s*(?:rok|roky|roků|let|year)/);
+  if (roky) return { od: Number(roky[1]), do: Number(roky[2]), druh: 'roky' };
+  const rok = t.match(/(\d+(?:\.\d+)?)\s*(?:rok|roky|roků|let|year)/);
+  if (rok) return { od: Number(rok[1]), do: Number(rok[1]), druh: 'roky' };
+
+  const cmOd = t.match(/(\d{2,3})\s*(?:-|–|\/|až)\s*(\d{2,3})/);
+  if (cmOd) return { od: Number(cmOd[1]), do: Number(cmOd[2]), druh: 'cm' };
+  const cm = t.match(/(\d{2,3})\s*cm/);
+  if (cm) return { od: Number(cm[1]), do: Number(cm[1]), druh: 'cm' };
+  return null;
+}
+
+/**
+ * Kolik je modelu let — odhad z výšky uvnitř věkové skupiny.
+ *
+ * Zákazník výšku nastavuje, věk v letech ne. Velikosti dětských věcí se
+ * přitom značí oběma způsoby a často naráz.
+ */
+export function rokyPostavy(v: Pick<ZkVzhled, 'vek' | 'vyskaCm'>): number {
+  const def = ZK_VEKY[v.vek];
+  const [v0, v1] = def.vyska;
+  const [r0, r1] = def.roky;
+  if (v1 <= v0) return r0;
+  const dil = Math.min(1, Math.max(0, (v.vyskaCm - v0) / (v1 - v0)));
+  return Math.round((r0 + dil * (r1 - r0)) * 10) / 10;
+}
+
+/**
+ * Jakou část výšky člověka měří kšandy.
+ *
+ * Je to **odhad, ne tabulka**: dětské kšandy se značí délkou a zákazník
+ * nemá doma metr. Poměr je schválně na jednom místě a dá se v aplikaci
+ * přenastavit, až se z vrácených zásilek pozná, kde je přesně.
+ */
+export const ZK_KSANDY_DIL = 0.62;
+
+export interface ZkRadaVelikosti {
+  /** Kód varianty, kterou doporučujeme. Prázdné = neumíme poradit. */
+  kod: string;
+  popis: string;
+  /** Podle čeho se to poznalo — web si podle toho složí větu ve svém jazyce. */
+  podle: 'roky' | 'vyska' | 'delka' | 'nic';
+  /** Číslo, se kterým se porovnávalo (roky, nebo centimetry). */
+  mira: number;
+  /** Odpověď z e-shopu (`true`), nebo náš odhad (`false`). */
+  jiste: boolean;
+  /** Česká věta pro okno v aplikaci. */
+  text: string;
+}
+
+/**
+ * Která velikost zákazníkovi sedí.
+ *
+ * ## Proč to radí i tam, kde si není jisté
+ *
+ * Dětské kšandy se v košíku zaseknou právě na tomhle: rodič netuší,
+ * jestli „70 cm" je na čtyřleté dítě, a nákup odloží. Mlčet je tedy
+ * nejhorší možnost. Druhá nejhorší je tvrdit to jistě — proto se u
+ * odhadu pozná, že je to odhad, a nabídne se doptání.
+ *
+ * ## Proč se centimetry čtou dvakrát
+ *
+ * Číslo v centimetrech znamená u dětského zboží jednou **výšku dítěte**
+ * („98/104"), jednou **délku kusu** („Délka: 70 cm"). Rozezná se to
+ * velikostí: co je blízko výšky modela, je výška; co je výrazně menší,
+ * je délka kusu.
+ */
+export function radaVelikosti(
+  p: ZkProdukt,
+  v: ZkVzhled,
+  dil = ZK_KSANDY_DIL
+): ZkRadaVelikosti | null {
+  const seznam = (p.velikostiSeznam ?? []).filter(one => one && one.kod);
+  if (seznam.length === 0) return null;
+  if (seznam.length === 1) {
+    return { kod: seznam[0].kod, popis: seznam[0].popis, podle: 'nic', mira: 0, jiste: true, text: '' };
+  }
+
+  const roky = rokyPostavy(v);
+  const delka = Math.round(v.vyskaCm * dil);
+
+  type Kandidat = {
+    velikost: ZkVelikost;
+    podle: 'roky' | 'vyska' | 'delka';
+    odchylka: number;
+    jiste: boolean;
+  };
+  const kandidati: Kandidat[] = [];
+  for (const velikost of seznam) {
+    const r = rozsahVelikosti(velikost.popis);
+    if (!r) continue;
+    if (r.druh === 'roky') {
+      const odchylka = roky < r.od ? r.od - roky : roky > r.do ? roky - r.do : 0;
+      kandidati.push({ velikost, podle: 'roky', odchylka, jiste: odchylka === 0 });
+      continue;
+    }
+    const jeVyska = r.do >= v.vyskaCm * 0.85;
+    if (jeVyska) {
+      const odchylka = v.vyskaCm < r.od ? r.od - v.vyskaCm : v.vyskaCm > r.do ? v.vyskaCm - r.do : 0;
+      kandidati.push({ velikost, podle: 'vyska', odchylka: odchylka / 10, jiste: odchylka === 0 });
+    } else {
+      const stred = (r.od + r.do) / 2;
+      kandidati.push({ velikost, podle: 'delka', odchylka: Math.abs(stred - delka) / 10, jiste: false });
+    }
+  }
+
+  if (kandidati.length === 0) {
+    return { kod: '', popis: '', podle: 'nic', mira: v.vyskaCm, jiste: false, text: 'Velikost rádi doporučíme — napište nám výšku dítěte.' };
+  }
+
+  /* Skladem má přednost až při stejné odchylce: poradit nedostupnou
+     velikost je lepší než poradit špatnou */
+  kandidati.sort((a, b) =>
+    a.odchylka - b.odchylka
+    || Number(b.velikost.skladem) - Number(a.velikost.skladem));
+  const vyhra = kandidati[0];
+  const mira = vyhra.podle === 'roky' ? roky : vyhra.podle === 'vyska' ? v.vyskaCm : delka;
+  const text = vyhra.jiste
+    ? (vyhra.podle === 'roky'
+      ? `Na ${mira} roky vychází velikost „${vyhra.velikost.popis}".`
+      : `Na výšku ${mira} cm vychází velikost „${vyhra.velikost.popis}".`)
+    : `Na výšku ${v.vyskaCm} cm odhadujeme „${vyhra.velikost.popis}". Když si nejste jistí, napište nám — projdeme to s vámi.`;
+  return { kod: vyhra.velikost.kod, popis: vyhra.velikost.popis, podle: vyhra.podle, mira, jiste: vyhra.jiste, text };
 }
 
 /* ------------------------------------------------------- sdílení vzhledu */
@@ -700,12 +1052,22 @@ export function vzhledDoTextu(v: ZkVzhled): string {
     .map(typ => {
       const kus = v.kusy[typ];
       if (!kus) return '';
-      return `${typ}:${kus.varianta}:${kus.hex.replace('#', '')}:${kus.produkt ?? ''}`;
+      const pocet = kus.pocet === undefined ? '' : String(Math.max(0, Math.round(kus.pocet)));
+      return [
+        typ, kus.varianta, kus.hex.replace('#', ''), kus.produkt ?? '', pocet, kus.velikost ?? ''
+      ].join(':').replace(/:+$/, '');
     })
     .filter(Boolean);
+  /*
+   * Sako se připisuje na konec hlavičky, ne doprostřed: odkazy
+   * s vzhledem už jsou rozeslané v e-mailech a starší zápis má polí
+   * šest. Čtení proto chybějící pole dopočítá a odkaz z loňska se
+   * otevře, jak se otevřít má.
+   */
   const hlava = [
     v.vek, v.telo, String(v.vyskaCm),
-    v.vlasyVarianta, v.vlasyHex.replace('#', ''), v.fousy || '-'
+    v.vlasyVarianta, v.vlasyHex.replace('#', ''), v.fousy || '-',
+    v.sako ?? 'auto'
   ].join(':');
   return [hlava, ...kusy].join('|');
 }
@@ -723,14 +1085,17 @@ export function vzhledZTextu(text: string): ZkVzhled | null {
   v.vlasyVarianta = hlava[3] || v.vlasyVarianta;
   v.vlasyHex = `#${hlava[4]}`;
   v.fousy = hlava[5] === '-' ? '' : hlava[5];
+  v.sako = hlava[6] === 'vidi' || hlava[6] === 'skryto' ? hlava[6] : 'auto';
   v.kusy = {};
   for (const kus of casti.slice(1)) {
-    const [typ, varianta, hex, produkt] = kus.split(':');
+    const [typ, varianta, hex, produkt, pocet, velikost] = kus.split(':');
     if (!ZK_PORADI.includes(typ as ZkVrstvaTyp)) continue;
     v.kusy[typ as ZkVrstvaTyp] = {
       varianta: varianta || '',
       hex: `#${hex || 'ffffff'}`,
-      produkt: produkt || undefined
+      produkt: produkt || undefined,
+      pocet: pocet === '' || pocet === undefined ? undefined : Math.max(0, Number(pocet) || 0),
+      velikost: velikost || undefined
     };
   }
   return v;
@@ -753,6 +1118,55 @@ export function doKosikuUrl(p: ZkProdukt, pocet = 1): { url: string; rovnou: boo
   return {
     url: `${zaklad}${spojka}addtocart=1&quantity=${Math.max(1, Math.round(pocet))}&return=back`,
     rovnou: true
+  };
+}
+
+/** Formulář, kterým se produkt vloží do košíku na pozadí. */
+export interface ZkKosikPost {
+  akce: string;
+  pole: Record<string, string>;
+}
+
+/**
+ * Vložení do košíku odesláním **toho samého formuláře, co má detail**.
+ *
+ * ## Proč ne adresou
+ *
+ * `?addtocart=1&quantity=N` je jednoduché a u produktu bez velikostí
+ * stačí. Jen s velikostmi si neporadí: v adrese se velikost nepředává a
+ * do košíku by spadl jiný kus, než si zákazník vybral. A zrovna dětské
+ * kšandy — to, na co se v kabině nejvíc ptá — velikosti mají.
+ *
+ * ## Co je v tom formuláři
+ *
+ * Z detailu produktu na quentino.cz (`form#frm-productForm`):
+ * odesílá se POST na `<adresa produktu>?do=productForm-submit` a nese
+ * tři pole — `product_id` (skryté v formuláři), `option_set_id`
+ * (prázdné u produktu bez variant, jinak id vybrané velikosti) a
+ * `quantity`. Víc tam není; tohle je celé rozhraní, které e-shop na
+ * vložení do košíku má.
+ *
+ * `product_id` ani `option_set_id` nejsou ve feedu, takže se čtou ze
+ * stránky produktu — z té otevřené, nebo stažené na pozadí. Kdyby se
+ * to nepovedlo, zbývá adresa a otevření detailu; obojí kabina umí, aby
+ * zákazník neskončil u ničeho.
+ */
+export function doKosikuPost(
+  p: ZkProdukt,
+  pocet: number,
+  productId: string,
+  optionSetId = ''
+): ZkKosikPost | null {
+  const zaklad = p.url || '';
+  if (!zaklad || !productId) return null;
+  const spojka = zaklad.includes('?') ? '&' : '?';
+  return {
+    akce: `${zaklad}${spojka}do=productForm-submit`,
+    pole: {
+      product_id: String(productId),
+      option_set_id: String(optionSetId || ''),
+      quantity: String(Math.max(1, Math.round(pocet)))
+    }
   };
 }
 
@@ -906,6 +1320,13 @@ export interface ZkNastaveni {
   maska: boolean;
   strop: number;
   kontakt: { text: string; telefon: string; mail: string };
+  /** Odkaz na kategorii pro každý typ zboží a jazykovou verzi. */
+  kategorie: Record<string, Record<string, string>>;
+  ksandyDil: number;
+  /** Kde na stránkách e-shopu zavaděč hledá, kam dát tlačítko. */
+  vyber: { detail?: string[]; karta?: string[]; kartaObrazek?: string[]; souvisejici?: string[] };
+  /** Co je vystavené na webu a co se vkládá do šablony. */
+  vystaveno: { kod: string; skript: string; kdy: string };
 }
 
 export interface ZkProduktRadek {

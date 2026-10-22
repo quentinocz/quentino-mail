@@ -2,7 +2,7 @@ import fs from 'fs';
 import { getSetting, setSetting } from '../db';
 import { encrypt } from '../secure';
 import {
-  ZkPrehled, ZkVrstva, ZkVrstvaProOkno, ZkVrstvaTyp, ZK_VRSTVY,
+  ZkPrehled, ZkVrstva, ZkVrstvaProOkno, ZkVrstvaTyp, ZK_KSANDY_DIL, ZK_VRSTVY,
   vrstvaDef, vzhledDoTextu, vzhledZTextu
 } from '../../shared/zkusebna';
 import { nacti, uloz } from './png';
@@ -13,6 +13,8 @@ import * as obrazky from './obrazky';
 import * as ukazka from './ukazka';
 import * as produkty from './produkty';
 import { kabina, velikost } from './manifest';
+import { vystavKabinu, zavadecTed, VystavPrubeh } from '../kabina/vystav';
+import { KabinaVyber } from '../kabina/loader';
 import { jmenoVrstvy, stashKabinu, KABINA_SCHEME } from './nahled';
 import { zadaniKusuTed, zadaniPostavyTed } from './zadani';
 
@@ -179,12 +181,22 @@ export function zadaniZpet(klic: string): void {
 
 /* ----------------------------------------------------------- nastavení */
 
-export function nastav(co: { klic?: string; model?: string; strop?: number; kvalita?: string; maska?: boolean }): void {
+export function nastav(co: {
+  klic?: string; model?: string; strop?: number; kvalita?: string; maska?: boolean;
+  kategorie?: Record<string, Record<string, string>>; ksandyDil?: number;
+  vyber?: Partial<KabinaVyber>;
+}): void {
   if (co.klic !== undefined) setSetting('openaiApiKey', co.klic ? encrypt(co.klic) : '');
   if (co.model !== undefined) setSetting('obrazkovyModel', co.model);
   if (co.strop !== undefined) setSetting('obrazkyStrop', String(Math.max(0, co.strop)));
   if (co.kvalita !== undefined) setSetting('obrazkyKvalita', co.kvalita);
   if (co.maska !== undefined) setSetting('zkMaska', co.maska ? '1' : '0');
+  if (co.kategorie !== undefined) ulozKategorie(co.kategorie);
+  if (co.vyber !== undefined) ulozVyber(co.vyber);
+  if (co.ksandyDil !== undefined) {
+    const dil = Number(co.ksandyDil);
+    if (dil > 0.2 && dil < 1.2) setSetting('zkKsandyDil', String(Math.round(dil * 1000) / 1000));
+  }
 }
 
 export function nastaveni() {
@@ -194,8 +206,39 @@ export function nastaveni() {
     kvalita: getSetting('obrazkyKvalita', 'high')!,
     maska: getSetting('zkMaska', '1') === '1',
     strop: Number(getSetting('obrazkyStrop', '40')) || 40,
-    kontakt: kontakt()
+    kontakt: kontakt(),
+    kategorie: kategorie(),
+    ksandyDil: ksandyDil(),
+    vyber: vyberNaWebu(),
+    vystaveno: zavadec()
   };
+}
+
+/**
+ * Odkazy na kategorie e-shopu pro pobídky z modelu.
+ *
+ * Když zákazník klikne na prázdné místo v klopě, kabina mu nabídne
+ * kapesníčky — a kdo chce vidět celou nabídku, má jít do kategorie.
+ * Adresy se ale nedají uhodnout: slug je v každé jazykové verzi jiný a
+ * mění se podle toho, jak si je kdo v administraci pojmenuje. Proto se
+ * zadávají, a když zadané nejsou, kabina zůstane u hledání v sobě —
+ * což je mimochodem rychlejší, jen z e-shopu neodvede.
+ */
+export function kategorie(): Record<string, Record<string, string>> {
+  try {
+    const ulozene = JSON.parse(getSetting('zkKabinaKategorie', '{}')!);
+    return ulozene && typeof ulozene === 'object' ? ulozene : {};
+  } catch { return {}; }
+}
+
+export function ulozKategorie(co: Record<string, Record<string, string>>): void {
+  setSetting('zkKabinaKategorie', JSON.stringify(co ?? {}));
+}
+
+/** Poměr délky kšand k výšce člověka — kvůli radě s velikostí. */
+export function ksandyDil(): number {
+  const ulozeny = Number(getSetting('zkKsandyDil', String(ZK_KSANDY_DIL)));
+  return ulozeny > 0.2 && ulozeny < 1.2 ? ulozeny : ZK_KSANDY_DIL;
 }
 
 /** Kontakt „rádi poradíme osobně" — ukazuje se v kabině pořád. */
@@ -261,14 +304,54 @@ export function nahledKabiny(): { url: string; velikost: ReturnType<typeof velik
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   const klicovac = new Map(hotove.map(one => [`${one.postava}:${one.typ}:${one.varianta}`, one]));
   const { url, data } = stashKabinu(
-    klic => kabina(v => {
+    (klic, adresaProduktu) => kabina(v => {
       const mam = klicovac.get(`${v.postava}:${v.typ}:${v.varianta}`);
       return mam?.soubor ? `${KABINA_SCHEME}://nahled/${klic}/vrstva/${jmenoVrstvy(v)}` : '';
+    }, 400, {
+      kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt(),
+      url: adresaProduktu
     }),
-    hotove,
-    kontakt()
+    hotove
   );
   return { url, velikost: velikost(data) };
+}
+
+/* ------------------------------------------------------------- vystavení */
+
+/**
+ * Kde na stránkách e-shopu se tlačítka hledají.
+ *
+ * Výchozí hodnoty sedí na dnešní šablonu quentino.cz. Jsou tu k přepsání
+ * proto, že šablona se mění bez nás: kdyby se karta produktu přestala
+ * jmenovat `card-item`, tlačítko by zmizelo a jediná oprava by byla nové
+ * vydání aplikace.
+ */
+export function vyberNaWebu(): Partial<KabinaVyber> {
+  try {
+    const ulozene = JSON.parse(getSetting('zkKabinaVyber', '{}')!);
+    return ulozene && typeof ulozene === 'object' ? ulozene : {};
+  } catch { return {}; }
+}
+
+export function ulozVyber(co: Partial<KabinaVyber>): void {
+  setSetting('zkKabinaVyber', JSON.stringify(co ?? {}));
+}
+
+/** Vystaví kabinu na web a vrátí kód zavaděče do šablony. */
+export async function vystav(hlas?: (p: VystavPrubeh) => void) {
+  const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
+  return vystavKabinu(
+    adresa => kabina(adresa, 400, {
+      kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt()
+    }),
+    hotove,
+    { vyber: vyberNaWebu(), hlas }
+  );
+}
+
+/** Co se vkládá do šablony — i bez vystavení, ať je vidět co a kam. */
+export function zavadec() {
+  return zavadecTed(vyberNaWebu());
 }
 
 /* -------------------------------------------------------------- vzhledy */

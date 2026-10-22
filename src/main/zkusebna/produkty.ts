@@ -2,7 +2,7 @@ import { nativeImage } from 'electron';
 import { ask } from '../ai';
 import { getSetting } from '../db';
 import { listProducts } from '../products';
-import { ZkProdukt, ZkVrstvaTyp, ZK_VRSTVY, vrstvaDef } from '../../shared/zkusebna';
+import { ZkProdukt, ZkVek, ZkVrstvaTyp, ZK_VRSTVY, vrstvaDef } from '../../shared/zkusebna';
 import { Obraz, nacti, uloz } from './png';
 import { barvaProduktu, vzorekLatky, zmensi } from './pixely';
 import * as store from './store';
@@ -289,6 +289,20 @@ export function cenaNaCislo(text: string): number {
 }
 
 /** Produkty, jak je potřebuje kabina — jen ty zařazené a s adresou. */
+/**
+ * Komu je produkt určený, pokud to z názvu nebo kategorie plyne.
+ *
+ * Dětský motýlek na dospělém modelu je nabídka, která nemá co udělat —
+ * a dospělé kšandy na dítěti radí velikost, která nikdy nesedne. Co se
+ * nepozná, platí pro všechny: hádat tady znamená schovat zboží.
+ */
+function proVek(nazev: string, kategorie: string): ZkVek[] | undefined {
+  const t = bezDiakritiky(`${nazev} ${kategorie}`);
+  if (/kojenec|miminko|baby|newborn/.test(t)) return ['kojenec', 'dite'];
+  if (/detsk|deti|pro deti|kids|child|junior/.test(t)) return ['dite', 'kojenec'];
+  return undefined;
+}
+
 export function proKabinu(limit = 400): ZkProdukt[] {
   const zarazene = store.produktyRows().filter(one => one.typ);
   if (zarazene.length === 0) return [];
@@ -304,6 +318,34 @@ export function proKabinu(limit = 400): ZkProdukt[] {
       if (!row?.typ) continue;
       /* Co není skladem, se do kabiny nedává: zklamání na jedno kliknutí */
       if (produkt.stock != null && produkt.stock <= 0) continue;
+      /*
+       * Varianty se posílají i se zásobou, protože kabina na nich staví
+       * dvě věci naráz: radu „na výšku 120 cm vychází tahle" a vložení
+       * do košíku s tou velikostí. Vyprodaná velikost se neskrývá —
+       * rada, která mlčí o tom, že zrovna tahle není, je horší než rada
+       * s poznámkou „není skladem".
+       */
+      const velikostiSeznam = (produkt.variants ?? []).map(one => ({
+        kod: one.code,
+        popis: one.label,
+        skladem: one.stock == null || one.stock > 0
+      }));
+      /*
+       * Ostatní jazykové verze se posílají jen tam, kde se opravdu liší:
+       * seznam se stahuje zákazníkovi do mobilu a trojnásobek názvů
+       * a adres u čtyř set produktů je čtvrt megabajtu navíc.
+       */
+      const trhy: ZkProdukt['trhy'] = {};
+      for (const trh of ['sk', 'en'] as const) {
+        const url = produkt.url?.[trh] ?? '';
+        if (!url || url === (produkt.url?.cz ?? '')) continue;
+        trhy[trh] = {
+          nazev: produkt.title?.[trh] ?? '',
+          url,
+          cena: produkt.price?.[trh] ?? '',
+          cenaCislo: cenaNaCislo(produkt.price?.[trh] ?? '')
+        };
+      }
       out.push({
         kod: produkt.code,
         nazev: produkt.title?.cz ?? '',
@@ -315,8 +357,11 @@ export function proKabinu(limit = 400): ZkProdukt[] {
         varianta: row.varianta,
         hex: row.hex,
         vzorek: row.vzorek,
-        velikosti: row.velikosti,
-        skladem: produkt.stock == null || produkt.stock > 0
+        velikosti: row.velikosti || velikostiSeznam.length > 1,
+        skladem: produkt.stock == null || produkt.stock > 0,
+        velikostiSeznam: velikostiSeznam.length > 1 ? velikostiSeznam : undefined,
+        proVek: proVek(produkt.title?.cz ?? '', produkt.category ?? ''),
+        trhy: Object.keys(trhy).length > 0 ? trhy : undefined
       });
       if (out.length >= limit) break;
     }

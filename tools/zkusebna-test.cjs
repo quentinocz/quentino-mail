@@ -492,5 +492,266 @@ console.log('\nřetěz oblékání');
     kusuSako > 500, `${kusuSako} bodů v rgb(31, 45, 77)`);
 }
 
+/* ---------- 8. košík, velikosti, body na modelu ---------- */
+
+console.log('\nvzhled k nákupu');
+
+{
+  const KRAVATA = {
+    kod: 'KRA1', nazev: 'Námořnická kravata', url: 'https://www.quentino.cz/p/namornicka-kravata',
+    cena: '590 Kč', cenaCislo: 590, obrazek: '', vzorek: '', typ: 'kravata', varianta: 'kravata',
+    hex: '#2b3a5c', velikosti: false, skladem: true,
+    trhy: {
+      sk: { nazev: 'Námornícka kravata', url: 'https://www.quentino.sk/p/namornicka-kravata', cena: '23 €', cenaCislo: 23 }
+    }
+  };
+  const KSANDY = {
+    kod: 'KSA9', nazev: 'Dětské kšandy', url: 'https://www.quentino.cz/p/detske-ksandy',
+    cena: '389 Kč', cenaCislo: 389, obrazek: '', vzorek: '', typ: 'ksandy', varianta: 'uzke',
+    hex: '#8d2b2b', velikosti: true, skladem: true, proVek: ['dite'],
+    velikostiSeznam: [
+      { kod: 'KSA9-65', popis: 'Délka: 65 cm', skladem: true },
+      { kod: 'KSA9-75', popis: 'Délka: 75 cm', skladem: true },
+      { kod: 'KSA9-90', popis: 'Délka: 90 cm', skladem: false }
+    ]
+  };
+
+  /* --- sako se s kšandami schová, ale dá se přebít --- */
+  const zaklad = zk.vychoziVzhled('dospely');
+  ok('bez kšand je sako vidět', zk.sakoVidi(zaklad));
+  const sKsandami = { ...zaklad, kusy: { ...zaklad.kusy, ksandy: { varianta: 'uzke', hex: '#1b1b1d' } } };
+  ok('kšandy sako samy schovají — jinak by po nich nebylo ani vidu',
+    !zk.sakoVidi(sKsandami));
+  ok('  a vrstvy to respektují',
+    !zk.vrstvyVzhledu(sKsandami).some(one => one.typ === 'sako'),
+    zk.vrstvyVzhledu(sKsandami).map(one => one.typ).join(' · '));
+  ok('zákazník si sako vynutí zpátky (kvůli kapesníčku)',
+    zk.sakoVidi({ ...sKsandami, sako: 'vidi' }));
+  ok('a schová ho i bez kšand', !zk.sakoVidi({ ...zaklad, sako: 'skryto' }));
+  const kapesnicekBezSaka = zk.vrstvyVzhledu({
+    ...zaklad, sako: 'skryto',
+    kusy: { ...zaklad.kusy, kapesnicek: { varianta: 'spicka', hex: '#fff', produkt: 'KAP1' } }
+  });
+  ok('kapesníček se bez saka nekreslí — neměl by kde být',
+    !kapesnicekBezSaka.some(one => one.typ === 'kapesnicek'));
+
+  /* --- body na modelu --- */
+  const KATALOG = [KRAVATA, KSANDY, { ...KRAVATA, kod: 'KAP1', typ: 'kapesnicek', varianta: 'spicka' }];
+  const body = zk.bodyNaModelu(zaklad, KATALOG);
+  ok('body jsou jen na zboží, ne na kulise',
+    body.length > 0 && body.every(one => zk.vrstvaDef(one.typ).zbozi),
+    body.map(one => one.typ).join(' · '));
+  ok('prázdná místa jdou první — ta zvou k nákupu',
+    body.length > 0 && !body[0].obsazeno);
+  ok('každý bod má pobídku', body.every(one => one.pobidka.length > 2));
+  ok('na pásek bod nevznikne, když ho katalog nemá',
+    !zk.bodyNaModelu(zaklad, [KRAVATA]).some(one => one.typ === 'pasek'));
+  ok('bez saka zmizí i bod na kapesníček',
+    !zk.bodyNaModelu({ ...zaklad, sako: 'skryto' }, KATALOG).some(one => one.typ === 'kapesnicek'));
+  const sKravatou = { ...zaklad, kusy: { ...zaklad.kusy, kravata: { varianta: 'kravata', hex: '#2b3a5c', produkt: 'KRA1' } } };
+  ok('obsazený bod se pozná',
+    zk.bodyNaModelu(sKravatou, KATALOG).find(one => one.typ === 'kravata')?.obsazeno === true);
+
+  /* --- počty: nula je odpověď, ne chybějící hodnota --- */
+  const kNakupu = {
+    ...zaklad,
+    kusy: {
+      kravata: { varianta: 'kravata', hex: '#2b3a5c', produkt: 'KRA1', pocet: 2 },
+      ksandy: { varianta: 'uzke', hex: '#8d2b2b', produkt: 'KSA9', pocet: 0 }
+    }
+  };
+  check('dva kusy jedné kravaty se sečtou, kus s nulou se vynechá',
+    zk.cenaVzhledu(kNakupu, KATALOG), { suma: 1180, kusu: 1, chybi: 0, celkem: 2 });
+  /* `chybi` jsou čtyři kusy kulisy (kalhoty, košile, sako, boty): mají
+     barvu, ale žádný produkt — a to je v pořádku, neprodávají se */
+  check('bez počtu se bere jeden kus — starší uložené vzhledy',
+    zk.cenaVzhledu(sKravatou, KATALOG), { suma: 590, kusu: 1, chybi: 4, celkem: 1 });
+
+  /* --- zápis vzhledu do textu: počty, velikosti, sako, starší odkazy --- */
+  const sVelikosti = {
+    ...zaklad, sako: 'vidi',
+    kusy: { ksandy: { varianta: 'uzke', hex: '#8d2b2b', produkt: 'KSA9', pocet: 3, velikost: 'KSA9-75' } }
+  };
+  const tam = zk.vzhledDoTextu(sVelikosti);
+  const zpet = zk.vzhledZTextu(tam);
+  check('počet, velikost i sako přežijí cestu do odkazu a zpět',
+    [zpet.sako, zpet.kusy.ksandy.pocet, zpet.kusy.ksandy.velikost, zpet.kusy.ksandy.produkt],
+    ['vidi', 3, 'KSA9-75', 'KSA9']);
+  const stary = 'dospely:bezny:180:kratke:3b2a20:-|kravata:kravata:2b3a5c:KRA1';
+  const zStareho = zk.vzhledZTextu(stary);
+  ok('odkaz rozeslaný před touhle změnou se pořád otevře',
+    !!zStareho && zStareho.kusy.kravata.produkt === 'KRA1'
+    && zStareho.sako === 'auto' && zStareho.kusy.kravata.pocet === undefined,
+    zStareho ? JSON.stringify(zStareho.kusy.kravata) : 'nic');
+
+  /* --- jazykové verze --- */
+  check('na slovenském e-shopu se vkládá slovenská adresa',
+    zk.proTrh(KRAVATA, 'sk').url, 'https://www.quentino.sk/p/namornicka-kravata');
+  check('česká verze zůstane, i když ji feed zvlášť neposílá',
+    zk.proTrh(KRAVATA, 'cz').url, 'https://www.quentino.cz/p/namornicka-kravata');
+  check('bez dat pro trh se nespadne na prázdný odkaz',
+    zk.proTrh({ ...KRAVATA, trhy: undefined }, 'en').url, KRAVATA.url);
+  check('jazyk se pozná ze stránky', [
+    zk.trhZJazyka('cs'), zk.trhZJazyka('sk-SK'), zk.trhZJazyka('en-GB'), zk.trhZJazyka('www.quentino.sk')
+  ], ['cz', 'sk', 'en', 'sk']);
+
+  /* --- do košíku formulářem, i s velikostí --- */
+  const post = zk.doKosikuPost(KSANDY, 2, '1428', '5571');
+  check('formulář míří na detail produktu a nese velikost',
+    post, {
+      akce: 'https://www.quentino.cz/p/detske-ksandy?do=productForm-submit',
+      pole: { product_id: '1428', option_set_id: '5571', quantity: '2' }
+    });
+  ok('bez id produktu se formulář neodešle — radši otevřít detail',
+    zk.doKosikuPost(KSANDY, 1, '') === null);
+
+  /* --- rada s velikostí u dětských kšand --- */
+  check('„2–4 roky" se přečte jako roky',
+    zk.rozsahVelikosti('2-4 roky'), { od: 2, do: 4, druh: 'roky' });
+  check('„6-12 měsíců" taky, jen v letech',
+    zk.rozsahVelikosti('6-12 měsíců'), { od: 0.5, do: 1, druh: 'roky' });
+  check('„98/104" je výška v centimetrech',
+    zk.rozsahVelikosti('98/104'), { od: 98, do: 104, druh: 'cm' });
+  check('„Délka: 120 cm" je jedno číslo',
+    zk.rozsahVelikosti('Délka: 120 cm'), { od: 120, do: 120, druh: 'cm' });
+  check('velikost „M" se přečíst nedá a kabina to přizná',
+    zk.rozsahVelikosti('M'), null);
+
+  const dite = { ...zk.vychoziVzhled('dite'), vyskaCm: 120 };
+  const rada = zk.radaVelikosti(KSANDY, dite);
+  ok('dětským kšandám se poradí délka podle výšky',
+    rada.kod === 'KSA9-75' && rada.podle === 'delka' && !rada.jiste,
+    `${rada.kod} · ${rada.text}`);
+  ok('  a je v tom vidět, že je to odhad, i nabídka doptat se',
+    /odhad|nejist/i.test(rada.text) && /napište/i.test(rada.text), rada.text);
+
+  const PODLE_VYSKY = {
+    ...KSANDY,
+    velikostiSeznam: [
+      { kod: 'A', popis: '98/104', skladem: true },
+      { kod: 'B', popis: '110/116', skladem: true },
+      { kod: 'C', popis: '122/128', skladem: true }
+    ]
+  };
+  const poVysce = zk.radaVelikosti(PODLE_VYSKY, { ...dite, vyskaCm: 114 });
+  ok('velikost podle výšky dítěte je odpověď, ne odhad',
+    poVysce.kod === 'B' && poVysce.podle === 'vyska' && poVysce.jiste,
+    `${poVysce.kod} · ${poVysce.text}`);
+  /*
+   * 120 cm nepadne do žádné velikosti — mezi 110/116 a 122/128 je mezera.
+   * Vybere se větší (menší by byla krátká) a **neslíbí se, že sedne**:
+   * rodič, kterému se tvrdilo „tahle vám bude", zásilku vrátí.
+   */
+  const mezi = zk.radaVelikosti(PODLE_VYSKY, dite);
+  ok('výška mezi dvěma velikostmi se přizná jako odhad',
+    mezi.kod === 'C' && !mezi.jiste, `${mezi.kod} · ${mezi.text}`);
+
+  const poLetech = zk.radaVelikosti({
+    ...KSANDY,
+    velikostiSeznam: [
+      { kod: 'A', popis: '1-2 roky', skladem: true },
+      { kod: 'B', popis: '3-5 let', skladem: true },
+      { kod: 'C', popis: '6-8 let', skladem: true }
+    ]
+  }, { ...zk.vychoziVzhled('dite'), vyskaCm: 100 });
+  ok('a podle věku se trefí taky',
+    poLetech.podle === 'roky' && poLetech.jiste,
+    `${poLetech.kod} (${poLetech.popis}) · ${zk.rokyPostavy({ vek: 'dite', vyskaCm: 100 })} roky`);
+
+  const nevim = zk.radaVelikosti({
+    ...KSANDY, velikostiSeznam: [{ kod: 'A', popis: 'univerzální', skladem: true }, { kod: 'B', popis: 'M', skladem: true }]
+  }, dite);
+  ok('u nečitelných velikostí kabina netvrdí nic a nabídne pomoc',
+    nevim.kod === '' && /napište/i.test(nevim.text), nevim.text);
+  ok('produkt bez velikostí žádnou radu nepotřebuje',
+    zk.radaVelikosti(KRAVATA, dite) === null);
+  ok('jediná velikost se vybere sama a mlčky',
+    zk.radaVelikosti({ ...KSANDY, velikostiSeznam: [{ kod: 'X', popis: 'Délka: 70 cm', skladem: true }] }, dite).kod === 'X');
+}
+
+/* ---------- 9. zavaděč, skript a náhradní e-shop ---------- */
+
+console.log('\nskript pro e-shop');
+
+{
+  const zavadec = require(path.join(DIST, 'kabina/loader.js'));
+  const skript = require(path.join(DIST, 'kabina/script.js'));
+  const stranky = require(path.join(DIST, 'zkusebna/nahledstranky.js'));
+
+  const kod = zavadec.kabinaLoader({ skript: 'https://ulozi.ste/kabina/kabina.js' });
+  ok('zavaděč nese adresu kabiny a nic víc nestahuje',
+    kod.includes('https://ulozi.ste/kabina/kabina.js') && !/fetch\(/.test(kod),
+    `${Math.round(kod.length / 1000)} tisíc znaků`);
+  /*
+   * Zavaděč jde do šablony e-shopu ručně, přes pole v administraci.
+   * Kdyby narostl, nevejde se — a hlavně by ho nesl každý požadavek na
+   * každou stránku, což je přesně to, co se slíbilo neudělat.
+   */
+  ok('  a vejde se do šablony', kod.length < 12000, `${kod.length} znaků`);
+  ok('  má svoje třídy, aby nepřebíjel kabinu',
+    /qkbz-/.test(kod) && !/[^z]qkb-karta/.test(kod));
+  ok('  výchozí výběr sedí na dnešní šablonu quentino.cz',
+    kod.includes('card-item') && kod.includes('p-i-media') && kod.includes('frm-productForm'));
+  const vlastni = zavadec.kabinaLoader({
+    skript: 'x.js', vyber: { karta: ['.moje-karta'] }
+  });
+  ok('  a dá se přepsat, když se šablona změní',
+    vlastni.includes('.moje-karta') && vlastni.includes('p-i-media'));
+
+  const telo = skript.kabinaScript({ zdroj: 'https://ulozi.ste/kabina/data.json', ttl: 900 });
+  ok('kabina se stahuje jako soubor, ne jako kus stránky',
+    !/<script/.test(telo) && telo.includes('https://ulozi.ste/kabina/data.json'),
+    `${Math.round(telo.length / 1000)} tisíc znaků`);
+  ok('  umí česky, slovensky i anglicky',
+    telo.includes('Zkušební kabina') && telo.includes('Skúšobná kabína') && telo.includes('Fitting room'));
+  ok('  vkládá do košíku formulářem z detailu',
+    telo.includes('do=productForm-submit') && telo.includes('option_set_id'));
+
+  /* Náhradní e-shop v náhledu musí mít tvar toho skutečného */
+  const produkt = {
+    kod: 'KSA-D', cesta: '/p/detske-ksandy', nazev: 'Dětské kšandy', cena: '389 Kč',
+    obrazek: '', cislo: '1428',
+    velikosti: [
+      { kod: 'A', popis: 'Délka: 65 cm', skladem: true },
+      { kod: 'B', popis: 'Délka: 75 cm', skladem: true }
+    ]
+  };
+  const detail = stranky.detailStranka('3', produkt, [produkt, { ...produkt, kod: 'X', nazev: 'Kravata', cesta: '/p/kravata' }]);
+  ok('detail v náhledu nese formulář košíku jako quentino.cz',
+    detail.includes('id="frm-productForm"')
+    && detail.includes('name="product_id" id="frmproductForm-product_id" value="1428"')
+    && detail.includes('do=productForm-submit'));
+  ok('  u produktu s velikostmi je výběr varianty',
+    /name="option_set_id"[\s\S]*option value="2000"/.test(detail));
+  ok('  a související produkty, ze kterých kabina doporučuje',
+    detail.includes('snippet--relatedProducts') && detail.includes('data-product-id'));
+  const vypis = stranky.vypisStranka('3', [produkt]);
+  ok('výpis nese kartu s číslem i adresou produktu',
+    vypis.includes('data-product-id="1428"') && vypis.includes('data-href="/3/p/detske-ksandy"')
+    && vypis.includes('class="p-i-media'));
+  ok('  a na obou stránkách je zavaděč',
+    /qkbz-/.test(vypis) && /qkbz-/.test(detail));
+
+  /*
+   * Čtení odeslaného formuláře. Prázdné pole se musí přečíst jako
+   * prázdné — dřív se bralo „co je na dalším řádku" a u produktu bez
+   * velikostí z toho vyšla jako velikost hranice formuláře.
+   */
+  const telo2 = [
+    '------X', 'Content-Disposition: form-data; name="product_id"', '', '1428',
+    '------X', 'Content-Disposition: form-data; name="option_set_id"', '', '',
+    '------X', 'Content-Disposition: form-data; name="quantity"', '', '2',
+    '------X--', ''
+  ].join('\r\n');
+  check('z formuláře se přečte číslo, velikost i počet', [
+    stranky.poleFormulare(telo2, 'product_id'),
+    stranky.poleFormulare(telo2, 'option_set_id'),
+    stranky.poleFormulare(telo2, 'quantity')
+  ], ['1428', '', '2']);
+  check('cesta produktu si nechá slug z e-shopu',
+    stranky.cestaProduktu({ kod: 'KSA1', url: 'https://www.quentino.cz/p/detske-ksandy-modre' }),
+    '/p/detske-ksandy-modre');
+}
+
 console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ zkušební kabina sedí');
 process.exit(failed ? 1 : 0);

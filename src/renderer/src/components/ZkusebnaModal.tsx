@@ -54,6 +54,7 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
   const [nastaveni, setNastaveni] = useState<ZkNastaveni | null>(null);
   const [produkty, setProdukty] = useState<ZkProduktRadek[]>([]);
   const [pracuje, setPracuje] = useState('');
+  const [vystavuji, setVystavuji] = useState('');
   const [podrobne, setPodrobne] = useState<string | null>(null);
   const [filtr, setFiltr] = useState('');
 
@@ -76,6 +77,11 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
     if (zalozka !== 'nastaveni' || nastaveni) return;
     api.zk.nastaveni().then(setNastaveni).catch((e: any) => toast(e.message, 'error'));
   }, [zalozka, nastaveni, toast]);
+
+  /* Vystavení nahrává stovky obrázků — bez průběhu to vypadá zaseknutě */
+  useEffect(() => api.on('zk:vystav-krok', (krok: any) => {
+    setVystavuji(`${krok?.co ?? 'Vystavuji'} · ${krok?.hotovo ?? 0} z ${krok?.celkem ?? 0}`);
+  }), []);
 
   useEffect(() => {
     if (zalozka !== 'produkty' || produkty.length) return;
@@ -516,6 +522,102 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   onBlur={e => void api.zk.kontakt({ ...nastaveni.kontakt, telefon: e.target.value })} />
                 <input defaultValue={nastaveni.kontakt.mail} placeholder="E-mail"
                   onBlur={e => void api.zk.kontakt({ ...nastaveni.kontakt, mail: e.target.value })} />
+              </div>
+            </section>
+
+            <section>
+              <h3>Kabina na e-shopu</h3>
+              <p className="desc">
+                Do šablony e-shopu se vkládá <b>jen zavaděč</b> — pár kilobajtů, které do kliknutí
+                nic nestáhnou. Sama kabina i obrázky vrstev leží v úložišti a mění se tady;
+                kód v administraci se podruhé vkládat nemusí.
+              </p>
+              <div className="zk-akce">
+                <button className="btn primary" disabled={!!vystavuji}
+                  onClick={async () => {
+                    setVystavuji('Vystavuji…');
+                    try {
+                      const hotovo = await api.zk.vystav();
+                      setNastaveni(await api.zk.nastaveni());
+                      toast(`Vystaveno: ${hotovo.nahranych} souborů (${hotovo.megabajtu} MB), `
+                        + `${hotovo.preskocenych} beze změny.`);
+                    } catch (e: any) { toast(e.message, 'error'); }
+                    setVystavuji('');
+                  }}>
+                  <Icon name="upload" size={13} /> Vystavit na web
+                </button>
+                {vystavuji && <span className="desc"><span className="spin" /> {vystavuji}</span>}
+                {!vystavuji && nastaveni.vystaveno?.kdy && (
+                  <span className="desc">
+                    Naposledy {new Date(nastaveni.vystaveno?.kdy).toLocaleString('cs-CZ')}
+                  </span>
+                )}
+              </div>
+              {nastaveni.vystaveno?.kod
+                ? (
+                  <>
+                    <textarea className="zk-zavadec" readOnly rows={4} value={nastaveni.vystaveno?.kod}
+                      onFocus={e => e.currentTarget.select()} />
+                    <div className="zk-akce">
+                      <button className="btn ghost" onClick={async () => {
+                        await navigator.clipboard.writeText(nastaveni.vystaveno?.kod);
+                        toast('Zavaděč je ve schránce — vlož ho do šablony e-shopu.');
+                      }}>
+                        <Icon name="copy" size={13} /> Zkopírovat zavaděč
+                      </button>
+                      <span className="desc">{Math.round(nastaveni.vystaveno?.kod.length / 1000)} tisíc znaků</span>
+                    </div>
+                  </>
+                )
+                : (
+                  <p className="desc">
+                    Zavaděč se ukáže po prvním vystavení — nese v sobě adresu, na které kabina leží.
+                  </p>
+                )}
+            </section>
+
+            <section>
+              <h3>Pobídky na modelu</h3>
+              <p className="desc">
+                Když zákazník klikne na prázdné místo v klopě, kabina nabídne kapesníčky. Kdo chce
+                vidět celou nabídku, má jít do kategorie — jen ta adresa se nedá uhodnout, slug je
+                v každé jazykové verzi jiný. Bez adresy zůstane hledání uvnitř kabiny.
+              </p>
+              <div className="zk-kategorie">
+                {(['kravata', 'ksandy', 'pasek', 'kapesnicek'] as const).map(typ => (
+                  <label key={typ}>
+                    <span>{ZK_VRSTVY.find(one => one.typ === typ)?.nazev ?? typ}</span>
+                    {(['cz', 'sk', 'en'] as const).map(jazyk => (
+                      <input key={jazyk} placeholder={jazyk.toUpperCase()}
+                        defaultValue={nastaveni.kategorie?.[typ]?.[jazyk] ?? ''}
+                        onBlur={e => {
+                          const vse = { ...(nastaveni.kategorie ?? {}) };
+                          vse[typ] = { ...(vse[typ] ?? {}), [jazyk]: e.target.value.trim() };
+                          void api.zk.nastav({ kategorie: vse });
+                        }} />
+                    ))}
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3>Rada s velikostí kšand</h3>
+              <p className="desc">
+                Rodič, který netuší, jestli „70 cm" je na čtyřleté dítě, nákup odloží. Kabina proto
+                poradí podle výšky — a přizná, že je to odhad. Tenhle poměr říká, jakou část výšky
+                člověka kšandy měří; až se z vrácených zásilek pozná přesnější číslo, přepiš ho.
+              </p>
+              <div className="zk-kontakt">
+                <input type="number" step={0.01} min={0.3} max={1.1} defaultValue={nastaveni.ksandyDil}
+                  onBlur={async e => {
+                    await api.zk.nastav({ ksandyDil: Number(e.target.value) });
+                    setNastaveni(await api.zk.nastaveni());
+                  }} />
+                <span className="desc">
+                  Dítě 120 cm → {Math.round(120 * (nastaveni.ksandyDil || 0.62))} cm ·
+                  dospělý 180 cm → {Math.round(180 * (nastaveni.ksandyDil || 0.62))} cm
+                </span>
               </div>
             </section>
 

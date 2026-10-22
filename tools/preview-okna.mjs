@@ -45,13 +45,17 @@ const SHOTS = new URL('./shots/', import.meta.url).pathname;
  * barva vyjde na plátně **přesně** tak, jak si ji zákazník vybral.
  */
 let KABINA_SCRIPT = '';
+let KABINA_ZAVADEC = '';
 let KABINA_DATA = '{}';
 try {
   const require2 = createRequire(import.meta.url);
   const png = require2('../dist/ptdist/main/zkusebna/png.js');
-  KABINA_SCRIPT = require2('../dist/ptdist/main/modelscript.js').kabinaScript({
-    zdroj: '/kabina-data.json', ttl: 30,
-    kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' }
+  KABINA_SCRIPT = require2('../dist/ptdist/main/kabina/script.js').kabinaScript({
+    zdroj: '/kabina-data.json', ttl: 30
+  });
+  /* Zavaděč je to, co se vkládá do šablony — tlačítka u produktů dělá on */
+  KABINA_ZAVADEC = require2('../dist/ptdist/main/kabina/loader.js').kabinaLoader({
+    skript: '/kabina.js'
   });
   const SIRKA = 200;
   const VYSKA = 400;
@@ -122,26 +126,42 @@ try {
       { postava: 'dospely-bezny', typ: 'ksandy', varianta: 'uzke', url: mapa(125, 240, 84, 92) }
     ],
     produkty: [
-      { kod: 'KRA1', nazev: 'Kravata burgundská', url: 'https://quentino.cz/p/kravata-burgundska', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([91, 29, 38], [120, 44, 54]), typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', velikosti: false, skladem: true },
-      { kod: 'KRA2', nazev: 'Kravata šalvějová', url: 'https://quentino.cz/p/kravata-salvejova', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([172, 194, 171], [140, 165, 140]), typ: 'kravata', varianta: 'kravata', hex: '#acc2ab', velikosti: false, skladem: true },
-      { kod: 'MOT1', nazev: 'Motýlek kostkovaný', url: 'https://quentino.cz/p/motylek-kostkovany', cena: '490 Kč', cenaCislo: 490, obrazek: '', vzorek: vzorekUrl([40, 70, 120], [230, 230, 225]), typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', velikosti: false, skladem: true },
-      { kod: 'KAP1', nazev: 'Kapesníček bílý', url: 'https://quentino.cz/p/kapesnicek-bily', cena: '290 Kč', cenaCislo: 290, obrazek: '', vzorek: vzorekUrl([246, 246, 244], [238, 238, 236]), typ: 'kapesnicek', varianta: 'spicka', hex: '#f6f6f4', velikosti: false, skladem: true },
-      { kod: 'KSA1', nazev: 'Kšandy hnědé', url: 'https://quentino.cz/p/ksandy-hnede', cena: '890 Kč', cenaCislo: 890, obrazek: '', vzorek: vzorekUrl([90, 66, 49], [110, 82, 60]), typ: 'ksandy', varianta: 'uzke', hex: '#5a4231', velikosti: true, skladem: true }
+      { kod: 'KRA1', nazev: 'Kravata burgundská', url: '/p/kravata-burgundska', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([91, 29, 38], [120, 44, 54]), typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', velikosti: false, skladem: true },
+      { kod: 'KRA2', nazev: 'Kravata šalvějová', url: '/p/kravata-salvejova', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([172, 194, 171], [140, 165, 140]), typ: 'kravata', varianta: 'kravata', hex: '#acc2ab', velikosti: false, skladem: true },
+      { kod: 'MOT1', nazev: 'Motýlek kostkovaný', url: '/p/motylek-kostkovany', cena: '490 Kč', cenaCislo: 490, obrazek: '', vzorek: vzorekUrl([40, 70, 120], [230, 230, 225]), typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', velikosti: false, skladem: true },
+      { kod: 'KAP1', nazev: 'Kapesníček bílý', url: '/p/kapesnicek-bily', cena: '290 Kč', cenaCislo: 290, obrazek: '', vzorek: vzorekUrl([246, 246, 244], [238, 238, 236]), typ: 'kapesnicek', varianta: 'spicka', hex: '#f6f6f4', velikosti: false, skladem: true },
+      { kod: 'KSA1', nazev: 'Kšandy hnědé', url: '/p/ksandy-hnede', cena: '890 Kč', cenaCislo: 890, obrazek: '', vzorek: vzorekUrl([90, 66, 49], [110, 82, 60]), typ: 'ksandy', varianta: 'uzke', hex: '#5a4231', velikosti: false, skladem: true },
+      /*
+       * Dětské kšandy s velikostmi — na nich se zkouší dvě věci, které
+       * se jinde nezkusí: rada s velikostí (rodič jinak nákup odloží) a
+       * vložení do košíku **s tou velikostí**, protože adresa e-shopu
+       * velikost nepřenese a musí se odeslat formulář z detailu.
+       */
+      { kod: 'KSA-D', nazev: 'Dětské kšandy modré', url: '/p/detske-ksandy-modre', cena: '389 Kč', cenaCislo: 389, obrazek: '', vzorek: vzorekUrl([44, 74, 124], [60, 94, 150]), typ: 'ksandy', varianta: 'uzke', hex: '#2c4a7c', velikosti: true, skladem: true, proVek: ['dite', 'kojenec'], velikostiSeznam: [
+        { kod: 'KSA-D-65', popis: 'Délka: 65 cm', skladem: true },
+        { kod: 'KSA-D-75', popis: 'Délka: 75 cm', skladem: true },
+        { kod: 'KSA-D-90', popis: 'Délka: 90 cm', skladem: false }
+      ] }
     ],
     katalog: {
       poradi: katalogVrstvy.ZK_PORADI,
       vrstvy: katalogVrstvy.ZK_VRSTVY.map(one => ({
         typ: one.typ, nazev: one.nazev, popis: one.popis,
         barvitelna: one.barvitelna, nepovinna: one.nepovinna, zbozi: one.zbozi,
-        varianty: one.varianty
+        varianty: one.varianty, bod: one.bod, pobidka: one.pobidka
       })),
       barvy: katalogVrstvy.ZK_BARVY,
       vlasy: katalogVrstvy.ZK_VLASY,
-      veky: [{ id: 'dospely', nazev: 'Dospělý', popis: '', vyska: [155, 205] },
-        { id: 'dite', nazev: 'Dítě', popis: '', vyska: [86, 175] }],
+      veky: [{ id: 'dospely', nazev: 'Dospělý', popis: '', vyska: [155, 205], roky: [18, 80] },
+        { id: 'dite', nazev: 'Dítě', popis: '', vyska: [86, 175], roky: [2, 15] }],
       tela: [{ id: 'hubeny', nazev: 'Štíhlý', popis: '' }, { id: 'bezny', nazev: 'Běžný', popis: '' },
         { id: 'silny', nazev: 'Silnější', popis: '' }],
       vychozi: katalogVrstvy.vychoziVzhled('dospely')
+    },
+    nastaveni: {
+      kategorie: { kapesnicek: { cz: '/kapesnicky' } },
+      ksandyDil: katalogVrstvy.ZK_KSANDY_DIL,
+      kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' }
     }
   });
 } catch (e) {
@@ -170,18 +190,119 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   fs.writeFileSync(html, text);
 }
 
+/*
+ * Náhradní e-shop.
+ *
+ * Kabina se na quentino.cz neotevírá tlačítkem, které bychom tam dali
+ * sami — otevírá se tlačítkem, které si do **cizí šablony** vloží
+ * zavaděč. Proto se tady vydává výpis produktů i detail produktu se
+ * stejnými názvy tříd, jaké má quentino.cz, a formulář košíku odpovídá
+ * tomu skutečnému (`product_id`, `option_set_id`, `quantity` na adresu
+ * s `?do=productForm-submit`). Jen tak jde zkoušet to, co se dá rozbít:
+ * že se tlačítko má kam vložit a že do košíku dorazí ta velikost, co si
+ * zákazník vybral.
+ */
+const KOSIK = [];
+const ESHOP = JSON.parse(KABINA_DATA).produkty ?? [];
+function slugProduktu(p) { return String(p.url).split('/').filter(Boolean).pop(); }
+function cisloProduktu(p) { return String(1000 + ESHOP.indexOf(p)); }
+
+function kartaHtml(p) {
+  return `<article class="card card-item p-i" data-product-id="${cisloProduktu(p)}" data-href="${p.url}">
+    <a href="${p.url}" class="p-i-media mb-3"><picture class="p-i-media-one">
+      <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="160" height="160" alt="${p.nazev}">
+    </picture></a>
+    <h4 class="p-i-header"><a href="${p.url}">${p.nazev}</a></h4>
+    <div class="p-i-price"><strong class="price-main">${p.cena}</strong></div>
+    <a href="#" class="btn btn-to-cart AddProductToCart" title="Do košíku">Do košíku</a>
+  </article>`;
+}
+
+function strankaHtml(titulek, telo) {
+  return `<!doctype html><html lang="cs"><head><meta charset="utf-8">`
+    + `<meta name="viewport" content="width=device-width, initial-scale=1">`
+    + `<title>${titulek}</title><style>body{margin:0;font:14px/1.5 system-ui}`
+    + `.products{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;padding:14px}`
+    + `.card-item{border:1px solid #e5e5e5;border-radius:10px;padding:8px}`
+    + `.p-i-media img{width:100%;height:120px;background:#f3f3f3}</style></head><body>`
+    + `<header><a href="/kosik">Košík</a></header>`
+    + telo + KABINA_ZAVADEC + '</body></html>';
+}
+
+function detailHtml(p) {
+  const vyber = (p.velikostiSeznam ?? []).length > 1
+    ? `<select name="option_set_id">`
+      + p.velikostiSeznam.map((v, i) => `<option value="${2000 + i}">${v.popis}</option>`).join('')
+      + `</select>`
+    : `<input type="hidden" name="option_set_id" value="">`;
+  const souvisejici = ESHOP.filter(one => one.kod !== p.kod).slice(0, 3).map(kartaHtml).join('');
+  return strankaHtml(p.nazev, `<main><h1>${p.nazev}</h1>`
+    + `<form action="${p.url}?do=productForm-submit" method="post" id="frm-productForm" class="pd-tocart">`
+    + `<div class="pd-prices"><strong class="price-main">${p.cena}</strong></div>`
+    + `<div class="pd-order-buttons"><div class="pd-add-to-cart">`
+    + `<input type="text" name="quantity" value="1">${vyber}`
+    + `<div class="AddToCart"><button type="button" class="button-to-cart AddToCartButton">Do košíku</button></div>`
+    + `</div></div>`
+    + `<div style="display:none"><input type="hidden" name="product_id" value="${cisloProduktu(p)}"></div>`
+    + `</form>`
+    + `<h2>Hodí se k tomu</h2><div class="products" id="snippet--relatedProducts">${souvisejici}</div>`
+    + `</main>`);
+}
+
 const server = http.createServer((req, res) => {
   const rel = (req.url || '/').split('?')[0].replace(/^\//, '') || 'index.html';
-  /* Stránka kabiny a její seznam — tudy se zkouší skript pro e-shop */
+  const dotaz = (req.url || '').split('?')[1] ?? '';
+
+  /* Vložení do košíku — tentýž formulář, jaký odesílá kabina na e-shopu */
+  if (req.method === 'POST' && /do=productForm-submit/.test(dotaz)) {
+    let telo = '';
+    req.on('data', kus => { telo += kus; });
+    return req.on('end', () => {
+      /*
+       * Prázdné pole se musí přečíst jako prázdné. Dřív se bralo „co je
+       * na dalším řádku", a tím u produktu bez velikostí vyšla jako
+       * velikost hranice formuláře (------WebKitFormBoundary…) — tedy
+       * zkouška, která by přehlédla, že se do košíku posílá nesmysl.
+       */
+      const pole = jmeno => {
+        const m = new RegExp(`name="${jmeno}"\\r?\\n\\r?\\n([\\s\\S]*?)\\r?\\n--`).exec(telo);
+        return m ? m[1].trim() : '';
+      };
+      KOSIK.push({
+        cesta: '/' + rel,
+        cislo: pole('product_id'),
+        optionSet: pole('option_set_id'),
+        pocet: Number(pole('quantity')) || 1
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+  }
+
   if (rel === 'kabina-data.json') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     return res.end(KABINA_DATA);
   }
+  if (rel === 'kabina.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+    return res.end(KABINA_SCRIPT);
+  }
   if (rel === 'kabina.html') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end('<!doctype html><html lang="cs"><head><meta charset="utf-8">'
-      + '<title>Kabina</title></head><body><button data-quentino-kabina type="button">Vyzkoušet na modelu</button>'
-      + KABINA_SCRIPT + '</body></html>');
+    return res.end(strankaHtml('Doplňky',
+      '<main><h1>Doplňky</h1><div class="products">' + ESHOP.map(kartaHtml).join('') + '</div></main>'));
+  }
+  if (rel === 'kosik') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(strankaHtml('Košík', '<main><h1>Košík</h1><ul id="kosik">'
+      + KOSIK.map(one => `<li>${one.cislo} · ${one.optionSet || '—'} · ${one.pocet}</li>`).join('')
+      + '</ul></main>'));
+  }
+  if (rel.startsWith('p/')) {
+    const produkt = ESHOP.find(one => slugProduktu(one) === rel.slice(2));
+    if (!produkt) { res.writeHead(404); return res.end('nenalezeno'); }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(detailHtml(produkt));
   }
   fs.readFile(path.join(ROOT, rel), (err, data) => {
     if (err) { res.writeHead(404); return res.end('nenalezeno'); }
@@ -1940,160 +2061,223 @@ for (const okno of OKNA) {
   const nastaveni = await page.evaluate(() => ({
     sekci: [...document.querySelectorAll('.zk-nastaveni h3')].map(one => one.textContent.trim()),
     modely: document.querySelectorAll('.zk-model').length,
-    utrata: (document.querySelector('.zk-rada .desc')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+    utrata: (document.querySelector('.zk-rada .desc')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    zavadec: (document.querySelector('.zk-zavadec')?.value ?? '').slice(0, 40),
+    kategorii: document.querySelectorAll('.zk-kategorie label').length,
+    kategoriePolí: document.querySelectorAll('.zk-kategorie input').length,
+    prvniKategorie: document.querySelector('.zk-kategorie input')?.value ?? '',
+    dil: [...document.querySelectorAll('.zk-nastaveni .desc')]
+      .map(one => one.textContent.replace(/\s+/g, ' ').trim())
+      .find(one => /120 cm →/.test(one)) ?? ''
   }));
   say('nastavení drží klíč, model, strop i větu o osobní radě',
-    nastaveni.sekci.length === 5 && nastaveni.modely >= 2,
+    nastaveni.sekci.length === 8 && nastaveni.modely >= 2,
     nastaveni.sekci.join(' · '));
   say('  a je vidět, kolik se tenhle měsíc utratilo',
     /utraceno/.test(nastaveni.utrata), nastaveni.utrata.slice(0, 60));
+  /* Zavaděč je to jediné, co se vkládá do šablony — musí jít zkopírovat */
+  say('  zavaděč do šablony je po vystavení k dispozici',
+    /zavaděč/.test(nastaveni.zavadec), nastaveni.zavadec || 'chybí');
+  say('  pobídky mají odkaz do kategorie pro každou jazykovou verzi',
+    nastaveni.kategorii === 4 && nastaveni.kategoriePolí === 12,
+    `${nastaveni.kategorii} kategorií, ${nastaveni.kategoriePolí} polí`);
+  /*
+   * Poměr pro radu s velikostí je číslo, kterému nikdo nerozumí, dokud
+   * nevidí, co z něj vyjde. Proto je u něj příklad na dítě i dospělého.
+   */
+  say('  u poměru pro velikost kšand je vidět, co z něj vyjde',
+    /120 cm → 74 cm/.test(nastaveni.dil), nastaveni.dil || 'bez příkladu');
   await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-nastaveni.png') });
   await page.close();
 }
 
-/* ---------- zkušební kabina: skript pro e-shop ---------- */
+/* ---------- zkušební kabina na e-shopu ---------- */
 
 /*
- * Tohle je zkouška toho, co uvidí zákazník — a běží na tomtéž skriptu,
- * který se vkládá do šablony e-shopu.
+ * Zkouška toho, co uvidí zákazník — na tomtéž zavaděči a tomtéž skriptu,
+ * které se vkládají do e-shopu, a na stránkách se stejnou stavbou, jakou
+ * má quentino.cz.
  *
- * Měří se tři věci, které se okem neposoudí:
- *  1. **že se do stránky do kliknutí nesáhne** — kvůli rychlosti načítání
- *     i kvůli tomu, aby se nezhoršilo hodnocení u Googlu,
- *  2. **že zvolená barva vyjde přesně** — to je celé jádro kabiny; kdyby
- *     se mapa světla posunula, byl by každý oblek o stupeň jinak a nikdo
- *     by nepoznal proč,
- *  3. **že se kusy dostanou do košíku adresou e-shopu** a že se u kusu
- *     s velikostmi místo toho nabídne výběr velikosti.
+ * Měří se to, co se okem neposoudí:
+ *  1. **že se do kliknutí nic nestahuje** — kvůli rychlosti načítání i
+ *     kvůli hodnocení u Googlu; tlačítka smí přibýt, data ne,
+ *  2. **že zvolená barva vyjde přesně** — to je celé jádro kabiny,
+ *  3. **že kšandy schovají sako** a dá se to přebít,
+ *  4. **že počty a velikosti dojdou do košíku** tak, jak si je zákazník
+ *     nastavil — tedy formulářem z detailu, protože adresa velikost
+ *     nepřenese,
+ *  5. **že kabina přežije odchod na jinou stránku**, protože doplňky se
+ *     vybírají prohlížením a každý odchod by jinak znamenal začínat znovu.
  */
 {
-  const page = await browser.newPage({ viewport: { width: 1180, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   page.on('pageerror', e => problems.push(`kabina: chyba stránky: ${e.message}`));
   page.on('console', m => {
     if (m.type() === 'error' && !/favicon/.test(m.text())) problems.push(`kabina: konzole: ${m.text()}`);
   });
-  /* Košík se nikam neposílá — jen se zaznamená, co by se poslalo */
-  await page.addInitScript(() => {
-    window.__kosik = [];
-    const puvodni = window.fetch;
-    window.fetch = function (url, init) {
-      if (String(url).indexOf('addtocart') >= 0) {
-        window.__kosik.push(String(url));
-        return Promise.resolve(new Response('ok'));
-      }
-      return puvodni(url, init);
+
+  await page.goto('http://localhost:4324/kabina.html', { waitUntil: 'load' });
+  await page.waitForTimeout(150);
+  const hnedPoNacteni = await page.evaluate(() => ({
+    skript: document.querySelectorAll('script[src*="kabina.js"]').length,
+    data: performance.getEntriesByType('resource').filter(one => /kabina-data|kabina\.js/.test(one.name)).length,
+    okno: document.querySelectorAll('.qkb').length
+  }));
+  say('kabina se do kliknutí nestahuje',
+    hnedPoNacteni.skript === 0 && hnedPoNacteni.data === 0 && hnedPoNacteni.okno === 0,
+    `skriptů ${hnedPoNacteni.skript}, stažení ${hnedPoNacteni.data}`);
+  say('  a zavaděč se vejde do pole v administraci',
+    KABINA_ZAVADEC.length > 500 && KABINA_ZAVADEC.length < 12000,
+    `zavaděč ${Math.round(KABINA_ZAVADEC.length / 1000)} tisíc znaků, kabina ${Math.round(KABINA_SCRIPT.length / 1000)}`);
+
+  await page.waitForSelector('.qkbz-karta', { timeout: 4000 });
+  const tlacitka = await page.evaluate(() => ({
+    karet: document.querySelectorAll('article.card-item').length,
+    nasich: document.querySelectorAll('.qkbz-karta').length,
+    vOdkazu: [...document.querySelectorAll('.qkbz-karta')].filter(one => one.closest('a')).length,
+    nadObrazkem: [...document.querySelectorAll('.qkbz-karta')]
+      .filter(one => one.previousElementSibling && one.previousElementSibling.classList.contains('p-i-media')).length
+  }));
+  say('ve výpisu přibude tlačítko u každé karty',
+    tlacitka.nasich === tlacitka.karet && tlacitka.karet >= 5,
+    `${tlacitka.nasich} z ${tlacitka.karet} karet`);
+  /*
+   * Obrázek v kartě je odkaz na produkt. Kdyby tlačítko leželo v něm,
+   * kliknutí by odešlo na produkt a kabina by se nikdy neotevřela.
+   */
+  say('  a leží nad obrázkem, ne v odkazu na produkt',
+    tlacitka.vOdkazu === 0 && tlacitka.nadObrazkem === tlacitka.nasich,
+    `v odkazu ${tlacitka.vOdkazu}, nad obrázkem ${tlacitka.nadObrazkem}`);
+
+  /* Teprve kliknutí stáhne kabinu a nasadí produkt z té karty */
+  await page.evaluate(() => {
+    const karta = [...document.querySelectorAll('article.card-item')]
+      .find(one => /burgundská/.test(one.textContent));
+    karta.querySelector('.qkbz-karta').click();
+  });
+  await page.waitForSelector('.qkb-kus', { timeout: 6000 });
+  await page.waitForTimeout(700);
+
+  const poKliknuti = await page.evaluate(() => ({
+    okno: document.querySelectorAll('.qkb').length,
+    platno: !!document.querySelector('.qkb-platno canvas'),
+    kusy: [...document.querySelectorAll('.qkb-kus-nazev')].map(one => one.textContent.trim()),
+    suma: (document.querySelector('.qkb-suma b')?.textContent ?? '').trim(),
+    kontakt: (document.querySelector('.qkb-kontakt')?.textContent ?? '').trim()
+  }));
+  say('kliknutí ve výpisu otevře kabinu s tím produktem',
+    poKliknuti.okno === 1 && poKliknuti.platno && poKliknuti.kusy.some(one => /burgundská/.test(one)),
+    poKliknuti.kusy.join(' · ') || 'nic');
+  say('  a cena je vidět hned, bez hledání',
+    /690/.test(poKliknuti.suma), poKliknuti.suma);
+  say('  že poradíme i osobně, je vidět pořád',
+    /osobně/.test(poKliknuti.kontakt) && /607/.test(poKliknuti.kontakt),
+    poKliknuti.kontakt.slice(0, 70));
+
+  /* Na mobilu se nesmí nic rozlézt do strany a tlačítko do košíku musí být vidět */
+  const mobil = await page.evaluate(() => {
+    const okno = document.querySelector('.qkb');
+    const kosik = document.querySelector('.qkb-kosik');
+    const r = kosik.getBoundingClientRect();
+    return {
+      sirka: okno.scrollWidth - okno.clientWidth,
+      kosikVidi: r.top >= 0 && r.bottom <= window.innerHeight && r.width > 60,
+      model: document.querySelector('.qkb-platno canvas').getBoundingClientRect().height
     };
   });
-  await page.goto('http://localhost:4324/kabina.html', { waitUntil: 'load' });
-  await page.waitForTimeout(500);
-
-  const predKliknutim = await page.evaluate(() => ({
-    prvku: document.querySelectorAll('.qkb-pozadi, .qkb, canvas').length,
-    stylu: document.querySelectorAll('style').length,
-    stazeno: performance.getEntriesByType('resource').filter(one => /kabina-data|data:image/.test(one.name)).length
-  }));
-  say('kabina do kliknutí do stránky nesáhne',
-    predKliknutim.prvku === 0 && predKliknutim.stylu === 0 && predKliknutim.stazeno === 0,
-    `prvků ${predKliknutim.prvku}, stylů ${predKliknutim.stylu}, staženo ${predKliknutim.stazeno}`);
-  say('  a skript se vejde do pole v administraci',
-    KABINA_SCRIPT.length > 1000 && KABINA_SCRIPT.length < 60000,
-    `${Math.round(KABINA_SCRIPT.length / 1000)} tisíc znaků`);
-
-  await page.locator('[data-quentino-kabina]').click();
-  await page.waitForTimeout(900);
-
-  const poOtevreni = await page.evaluate(() => ({
-    okno: document.querySelectorAll('.qkb').length,
-    platno: !!document.querySelector('.qkb-nahled canvas'),
-    kusu: document.querySelectorAll('.qkb-kus').length,
-    pata: (document.querySelector('.qkb-pata .qkb-suma')?.textContent ?? '').trim(),
-    osobne: (document.querySelector('.qkb-osobne')?.textContent ?? '').trim()
-  }));
-  say('po kliknutí se kabina otevře a model se vykreslí',
-    poOtevreni.okno === 1 && poOtevreni.platno && poOtevreni.kusu >= 5,
-    `${poOtevreni.kusu} kusů oblečení`);
-  say('  a že poradíme i osobně, je vidět pořád',
-    /osobně/.test(poOtevreni.osobne) && /607/.test(poOtevreni.osobne), poOtevreni.osobne.slice(0, 60));
+  say('na mobilu se nic nerozlézá a „do košíku" je vidět bez posouvání',
+    mobil.sirka <= 1 && mobil.kosikVidi && mobil.model > 120,
+    `přetečení ${mobil.sirka} px, model ${Math.round(mobil.model)} px`);
 
   /* Opravdu se něco nakreslilo, ne prázdné plátno */
   const nakresleno = await page.evaluate(() => {
-    const c = document.querySelector('.qkb-nahled canvas');
-    const ctx = c.getContext('2d');
-    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    const c = document.querySelector('.qkb-platno canvas');
+    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
     let kusu = 0;
     for (let i = 3; i < data.length; i += 4) if (data[i] > 20) kusu++;
     return { kusu, celkem: data.length / 4 };
   });
-  say('  na plátně je model, ne prázdno',
-    nakresleno.kusu > 2000, `${nakresleno.kusu} z ${nakresleno.celkem} bodů`);
+  say('  na plátně je model, ne prázdno', nakresleno.kusu > 2000,
+    `${nakresleno.kusu} z ${nakresleno.celkem} bodů`);
 
   /*
-   * A teď to hlavní. Vybere se námořnická modrá a změří se bod uprostřed
-   * saka, kde má mapa světla polotón. Musí z něj vyjít **přesně** ta
-   * barva — ne skoro.
+   * Body na modelu. Prázdné místo samo řekne „sem patří kapesníček" —
+   * ve výpisu kategorií by to zákazník nehledal.
    */
+  const body = await page.evaluate(() => [...document.querySelectorAll('.qkb-bod')].map(one => ({
+    typ: one.getAttribute('data-typ'),
+    obsazeno: one.getAttribute('data-obsazeno'),
+    popis: one.getAttribute('title'),
+    x: one.style.left, y: one.style.top
+  })));
+  say('na modelu jsou body k přidání dalšího doplňku',
+    body.length >= 3 && body.every(one => one.popis && one.x && one.y),
+    body.map(one => `${one.typ}${one.obsazeno === '1' ? '✓' : ''}`).join(' · '));
+  say('  a kravata je poznaná jako obsazená',
+    body.find(one => one.typ === 'kravata')?.obsazeno === '1');
+
+  /* Kliknutí na bod otevře výběr jen z té kategorie */
+  await page.locator('.qkb-bod[data-typ="kapesnicek"]').click();
+  await page.waitForTimeout(400);
+  const vyberKapesnicku = await page.evaluate(() => ({
+    nadpis: (document.querySelector('.qkb-hledani-blok h3')?.textContent ?? '').trim(),
+    nalezeno: [...document.querySelectorAll('.qkb-mrizka .qkb-karta b')].map(one => one.textContent.trim()),
+    kategorie: (document.querySelector('.qkb-hledani-blok a')?.getAttribute('href') ?? '')
+  }));
+  say('bod na modelu nabídne jen tu kategorii',
+    vyberKapesnicku.nalezeno.length === 1 && /Kapesníček/.test(vyberKapesnicku.nalezeno[0]),
+    `${vyberKapesnicku.nadpis}: ${vyberKapesnicku.nalezeno.join(', ')}`);
+  say('  a odkaz do kategorie e-shopu, když je zadaný',
+    vyberKapesnicku.kategorie === '/kapesnicky', vyberKapesnicku.kategorie || 'žádný');
+
+  await page.locator('.qkb-mrizka .qkb-karta').first().click();
+  await page.waitForTimeout(600);
+
+  /*
+   * A teď to hlavní: zvolená barva musí na plátně vyjít **přesně**.
+   * Kdyby se mapa světla posunula, byl by každý oblek o stupeň jinak a
+   * nikdo by nepoznal proč.
+   */
+  await page.locator('.qkb-chip', { hasText: 'Upravit postavu' }).click();
+  await page.waitForTimeout(300);
   await page.evaluate(() => {
-    const kusy = [...document.querySelectorAll('.qkb-kus')];
-    const sako = kusy.find(one => (one.querySelector('b')?.textContent ?? '').indexOf('Sako') === 0);
-    const barva = [...sako.querySelectorAll('.qkb-barva')]
-      .find(one => one.title === 'Námořnická modrá');
-    barva.click();
-  });
-  await page.waitForTimeout(500);
-  const barvaNaPlatne = await page.evaluate(() => {
-    const c = document.querySelector('.qkb-nahled canvas');
-    const ctx = c.getContext('2d');
-    /* Uprostřed levého dílu saka, kde má mapa světla polotón */
-    const bod = ctx.getImageData(78, 130, 1, 1).data;
-    return [bod[0], bod[1], bod[2], bod[3]];
-  });
-  say('  zvolená barva vyjde na plátně přesně',
-    barvaNaPlatne[0] === 0x1f && barvaNaPlatne[1] === 0x2d && barvaNaPlatne[2] === 0x4d,
-    `rgb(${barvaNaPlatne.slice(0, 3).join(', ')}) místo rgb(31, 45, 77)`);
-
-  /*
-   * A teď ten rozdíl, na kterém celá kabina stojí: **oblek je kulisa,
-   * doplněk je zboží**. Quentino prodává kravaty, motýlky, kšandy a
-   * kapesníčky; oblek a košili ne. U obleku se proto vybírá barva, u
-   * doplňku konkrétní kus — vybírat motýlka jako odstín by znamenalo
-   * ukázat zákazníkovi něco, co si nemůže koupit.
-   */
-  const rozdeleni = await page.evaluate(() => {
-    const bloky = [...document.querySelectorAll('.qkb-blok')];
-    const zbozi = bloky.find(one => /Naše doplňky/.test(one.querySelector('h3')?.textContent ?? ''));
-    const kulisa = bloky.find(one => /Tvůj oblek/.test(one.querySelector('h3')?.textContent ?? ''));
-    return {
-      zbozi: [...(zbozi?.querySelectorAll('.qkb-kus > b') ?? [])].map(one => one.textContent.trim()),
-      kulisa: [...(kulisa?.querySelectorAll('.qkb-kus > b') ?? [])].map(one => one.textContent.trim()),
-      kouskuVZbozi: zbozi?.querySelectorAll('.qkb-kousek').length ?? 0,
-      barevVZbozi: zbozi?.querySelectorAll('.qkb-barva').length ?? 0,
-      barevVKulise: kulisa?.querySelectorAll('.qkb-barva').length ?? 0
-    };
-  });
-  say('  oblek je kulisa, doplňky jsou zboží',
-    rozdeleni.zbozi.length >= 1 && rozdeleni.kulisa.includes('Sako')
-      && !rozdeleni.zbozi.includes('Sako'),
-    `doplňky: ${rozdeleni.zbozi.join(', ')} | kulisa: ${rozdeleni.kulisa.join(', ')}`);
-  say('  u doplňku se vybírá konkrétní kus, ne odstín',
-    rozdeleni.kouskuVZbozi > 0 && rozdeleni.barevVZbozi === 0 && rozdeleni.barevVKulise > 0,
-    `${rozdeleni.kouskuVZbozi} kusů k výběru, ${rozdeleni.barevVZbozi} barev u zboží`);
-
-  /*
-   * A vzor se na modelu opravdu vydláždí. Kdyby se místo vzorku použila
-   * jedna barva, byl by kostkovaný motýlek na modelu jednobarevný flek —
-   * a zákazník by si koupil něco jiného, než co viděl.
-   */
-  await page.evaluate(() => {
-    const kusy = [...document.querySelectorAll('.qkb-kus')];
-    const kravata = kusy.find(one => /Kravata/.test(one.querySelector('b')?.textContent ?? ''));
-    const motylek = [...kravata.querySelectorAll('.qkb-volba')].find(one => one.textContent.trim() === 'Motýlek');
-    motylek.click();
+    const bloky = [...document.querySelectorAll('.qkb-zavoj .qkb-blok')];
+    const sako = bloky.find(one => (one.querySelector('h3')?.textContent ?? '').trim() === 'Sako');
+    [...sako.querySelectorAll('.qkb-barva')].find(one => one.title === 'Námořnická modrá').click();
   });
   await page.waitForTimeout(600);
+  const barvaNaPlatne = await page.evaluate(() => {
+    const c = document.querySelector('.qkb-platno canvas');
+    /* Uprostřed levého dílu saka, kde má mapa světla polotón */
+    const bod = c.getContext('2d').getImageData(78, 130, 1, 1).data;
+    return [bod[0], bod[1], bod[2]];
+  });
+  say('zvolená barva obleku vyjde na plátně přesně',
+    barvaNaPlatne[0] === 0x1f && barvaNaPlatne[1] === 0x2d && barvaNaPlatne[2] === 0x4d,
+    `rgb(${barvaNaPlatne.join(', ')}) místo rgb(31, 45, 77)`);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+
+  /*
+   * Vzor se na modelu vydláždí. Kdyby se místo vzorku použila jedna
+   * barva, byl by kostkovaný motýlek na modelu jednobarevný flek — a
+   * zákazník by si koupil něco jiného, než co viděl.
+   */
+  await page.evaluate(() => {
+    const pole = document.querySelector('.qkb-hledani input');
+    pole.value = 'motýlek';
+    pole.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(400);
+  const hledani = await page.evaluate(() =>
+    [...document.querySelectorAll('.qkb-mrizka .qkb-karta b')].map(one => one.textContent.trim()));
+  say('doplněk se dá najít rovnou v kabině',
+    hledani.length === 1 && /Motýlek/.test(hledani[0]), hledani.join(', ') || 'nic');
+  await page.locator('.qkb-mrizka .qkb-karta').first().click();
+  await page.waitForTimeout(700);
   const vzorNaModelu = await page.evaluate(() => {
-    const c = document.querySelector('.qkb-nahled canvas');
+    const c = document.querySelector('.qkb-platno canvas');
     const ctx = c.getContext('2d');
-    /* Pruh přes motýlka — hledají se dvě různé barvy jeho vzoru */
     const barvy = new Set();
     for (let x = 90; x < 110; x++) {
       const bod = ctx.getImageData(x, 130, 1, 1).data;
@@ -2104,73 +2288,223 @@ for (const okno of OKNA) {
   say('  vzor látky se na modelu vydláždí, ne slije do fleku',
     vzorNaModelu.length >= 2, `${vzorNaModelu.length} barev: ${vzorNaModelu.slice(0, 2).join(' · ')}`);
 
-  /* Košile v barvě saka musí dostat varování, ne mlčení */
-  await page.evaluate(() => {
-    const kusy = [...document.querySelectorAll('.qkb-kus')];
-    const kosile = kusy.find(one => (one.querySelector('b')?.textContent ?? '').indexOf('Košile') === 0);
-    const barva = [...kosile.querySelectorAll('.qkb-barva')]
-      .find(one => one.title === 'Námořnická modrá');
-    barva.click();
-  });
-  await page.waitForTimeout(400);
-  const rady = await page.evaluate(() =>
-    [...document.querySelectorAll('.qkb-rada')].map(one => one.textContent.trim()));
-  say('  košile v barvě saka dostane varování',
-    rady.some(one => /stejnou barvu jako sako/.test(one)), rady.join(' | ').slice(0, 90));
-
-  /* Rada se dá přijmout jedním kliknutím */
-  await page.locator('.qkb-rada.splyva button').first().click();
-  await page.waitForTimeout(400);
-  const poRade = await page.evaluate(() =>
-    [...document.querySelectorAll('.qkb-rada')].map(one => one.textContent.trim()));
-  say('  a dá se přijmout jedním kliknutím',
-    !poRade.some(one => /stejnou barvu jako sako/.test(one)),
-    poRade.join(' | ').slice(0, 70) || 'bez varování');
-
-  /* Uložení vzhledu a srovnání dvou vedle sebe */
-  await page.locator('.qkb-ovladani button', { hasText: 'Uložit tenhle vzhled' }).click();
-  await page.waitForTimeout(400);
-  const ulozeno = await page.evaluate(() => document.querySelectorAll('.qkb-ulozeny').length);
-  say('  vzhled se dá uložit', ulozeno === 1, `${ulozeno} uložený`);
-  await page.locator('.qkb-ulozeny button', { hasText: '⇄' }).first().click();
-  await page.waitForTimeout(700);
-  const srovnani = await page.evaluate(() => ({
-    platen: document.querySelectorAll('.qkb-srovnani canvas').length,
-    popisky: [...document.querySelectorAll('.qkb-srovnani figcaption')].map(one => one.textContent.trim())
-  }));
-  say('  a postavit vedle sebe dva na porovnání',
-    srovnani.platen === 2, srovnani.popisky.join(' · '));
-  /* Náhled odshora: nejdřív rady a doplňky, teprve pod nimi kulisa */
-  await page.evaluate(() => { document.querySelector('.qkb-ovladani').scrollTop = 0; });
-  await page.waitForTimeout(250);
-  await page.screenshot({ path: path.join(SHOTS, 'kabina.png') });
-
   /*
-   * Do košíku adresou e-shopu. Kšandy mají ve zkušebním seznamu velikosti,
-   * takže se na nich ověří i druhá cesta — naslepo se přidat nesmí.
+   * Kšandy a sako. Kšandy se nosí pod sakem a vidět z nich není nic,
+   * takže je kabina sama ukáže — ale ke kšandám se vybírá kapesníček a
+   * ten je v klopě saka, takže se to musí dát přebít.
    */
   await page.evaluate(() => {
-    const kusy = [...document.querySelectorAll('.qkb-kus')];
-    const ksandy = kusy.find(one => /Kšandy/.test(one.querySelector('b')?.textContent ?? ''));
-    const volba = [...ksandy.querySelectorAll('.qkb-volba')].find(one => one.textContent.trim() === 'Úzké');
-    volba.click();
+    const pole = document.querySelector('.qkb-hledani input');
+    pole.value = 'kšandy hnědé';
+    pole.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  await page.waitForTimeout(600);
-  await page.locator('.qkb-pata button', { hasText: 'Vložit celý vzhled' }).click();
-  await page.waitForTimeout(900);
-  const kosik = await page.evaluate(() => ({
-    poslano: window.__kosik,
-    velikosti: [...document.querySelectorAll('.qkb-blok h3')].map(one => one.textContent.trim())
+  await page.waitForTimeout(400);
+  await page.locator('.qkb-mrizka .qkb-karta').first().click();
+  await page.waitForTimeout(700);
+  const poKsandach = await page.evaluate(() => ({
+    chip: (document.querySelector('.qkb-scena-lista .qkb-chip[aria-pressed]')?.textContent ?? '').trim(),
+    sakoVidi: document.querySelector('.qkb-scena-lista .qkb-chip[aria-pressed]')?.getAttribute('aria-pressed'),
+    bodKapesnicek: !!document.querySelector('.qkb-bod[data-typ="kapesnicek"]')
   }));
-  say('kusy se do košíku přidají adresou e-shopu',
-    kosik.poslano.length >= 1 && kosik.poslano.every(one => /addtocart=1&quantity=1/.test(one)),
-    `${kosik.poslano.length}× ${(kosik.poslano[0] || '').slice(-44)}`);
-  say('  a u kusu s velikostmi se nejdřív vybere velikost',
-    kosik.velikosti.some(one => /velikost/i.test(one))
-      && !kosik.poslano.some(one => /ksandy-hnede/.test(one)),
-    kosik.velikosti.join(' · '));
+  say('kšandy samy schovají sako',
+    poKsandach.sakoVidi === 'false' && /Bez saka/.test(poKsandach.chip), poKsandach.chip);
+  say('  a s ním zmizí i bod na kapesníček — neměl by kde být',
+    poKsandach.bodKapesnicek === false);
+  await page.locator('.qkb-scena-lista .qkb-chip[aria-pressed]').click();
+  await page.waitForTimeout(600);
+  const poPrebiti = await page.evaluate(() => ({
+    sakoVidi: document.querySelector('.qkb-scena-lista .qkb-chip[aria-pressed]')?.getAttribute('aria-pressed'),
+    bodKapesnicek: !!document.querySelector('.qkb-bod[data-typ="kapesnicek"]')
+  }));
+  say('  sako se dá vrátit i s kšandami (kvůli kapesníčku)',
+    poPrebiti.sakoVidi === 'true' && poPrebiti.bodKapesnicek === true);
+
+  /* Další vzhled k porovnání */
+  await page.locator('.qkb-varianty .qkb-chip', { hasText: 'Další vzhled' }).click();
+  await page.waitForTimeout(500);
+  const varianty = await page.evaluate(() =>
+    [...document.querySelectorAll('.qkb-varianty .qkb-chip[aria-pressed]')]
+      .map(one => one.textContent.trim() + (one.getAttribute('aria-pressed') === 'true' ? '*' : '')));
+  say('vzhledů může být víc a dá se mezi nimi přepínat',
+    varianty.length === 2 && varianty[1].endsWith('*'), varianty.join(' · '));
+  await page.locator('.qkb-varianty .qkb-chip').first().click();
+  await page.waitForTimeout(500);
+
+  await page.screenshot({ path: path.join(SHOTS, 'kabina-mobil.png') });
+
+  /*
+   * Počty. Nula je plnohodnotná odpověď: kus na modelu zůstane (vlastní
+   * kravata, ke které si zákazník vybírá kapesníček), ale do košíku
+   * nepůjde. Kdyby se přidal, byla by to ta nejhorší chyba, jakou může
+   * kabina udělat.
+   */
+  const pred = await page.evaluate(() => (document.querySelector('.qkb-suma b')?.textContent ?? '').trim());
+  await page.evaluate(() => {
+    const kus = [...document.querySelectorAll('.qkb-kus')]
+      .find(one => /Motýlek/.test(one.textContent));
+    kus.querySelectorAll('.qkb-pocet button')[1].click();
+  });
+  await page.waitForTimeout(300);
+  const poPridani = await page.evaluate(() => ({
+    suma: (document.querySelector('.qkb-suma b')?.textContent ?? '').trim(),
+    pocet: [...document.querySelectorAll('.qkb-kus')]
+      .find(one => /Motýlek/.test(one.textContent))?.querySelector('.qkb-pocet span')?.textContent
+  }));
+  say('počet se dá zvýšit a cena se sečte',
+    poPridani.pocet === '2' && poPridani.suma !== pred, `${pred} → ${poPridani.suma}`);
+  await page.evaluate(() => {
+    const kus = [...document.querySelectorAll('.qkb-kus')]
+      .find(one => /Motýlek/.test(one.textContent));
+    kus.querySelectorAll('.qkb-pocet button')[0].click();
+    kus.querySelectorAll('.qkb-pocet button')[0].click();
+  });
+  await page.waitForTimeout(300);
+  const poNule = await page.evaluate(() => {
+    const kus = [...document.querySelectorAll('.qkb-kus')]
+      .find(one => /Motýlek/.test(one.textContent));
+    return {
+      pocet: kus.querySelector('.qkb-pocet span').textContent,
+      zeslabeno: kus.getAttribute('data-nic'),
+      naModelu: !!document.querySelector('.qkb-bod[data-typ="kravata"][data-obsazeno="1"]')
+    };
+  });
+  say('  nula znamená „na modelu ano, do košíku ne"',
+    poNule.pocet === '0' && poNule.zeslabeno === '1' && poNule.naModelu,
+    `počet ${poNule.pocet}, na modelu ${poNule.naModelu ? 'zůstala' : 'zmizela'}`);
+
+  /*
+   * Dětské kšandy: rada s velikostí. Rodič, který netuší, jestli „70 cm"
+   * je na čtyřleté dítě, nákup odloží — a rada, která si není jistá, to
+   * musí přiznat a nabídnout doptání.
+   */
+  await page.evaluate(() => {
+    const pole = document.querySelector('.qkb-hledani input');
+    pole.value = 'dětské';
+    pole.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(400);
+  await page.locator('.qkb-mrizka .qkb-karta').first().click();
+  await page.waitForTimeout(800);
+  const detske = await page.evaluate(() => {
+    const kus = [...document.querySelectorAll('.qkb-kus')].find(one => /Dětské/.test(one.textContent));
+    return {
+      velikosti: [...(kus?.querySelectorAll('select option') ?? [])].map(one => one.textContent.trim()),
+      vybrana: kus?.querySelector('select')?.value,
+      rada: (kus?.querySelector('.qkb-rada')?.textContent ?? '').trim(),
+      pomoc: !!kus?.querySelector('.qkb-rada a'),
+      hlaska: (document.querySelector('.qkb-hlaska')?.textContent ?? '').trim()
+    };
+  });
+  say('dětský kus přepne model na dítě',
+    /dítě/i.test(detske.hlaska), detske.hlaska || 'bez hlášky');
+  say('  a nabídne velikosti i s tím, co není skladem',
+    detske.velikosti.length === 3 && /není skladem/.test(detske.velikosti[2]),
+    detske.velikosti.join(' · '));
+  say('  rada s velikostí vychází z výšky a přizná, že je to odhad',
+    /odhadujeme/.test(detske.rada) && detske.pomoc, detske.rada.slice(0, 90));
+
+  /*
+   * A do košíku. Produkt s velikostmi se adresou přidat nedá, takže
+   * kabina odesílá tentýž formulář, co má detail — a tady se změří, že
+   * do košíku dorazila ta velikost, kterou zákazník vybral.
+   */
+  await page.evaluate(() => {
+    const kus = [...document.querySelectorAll('.qkb-kus')].find(one => /Dětské/.test(one.textContent));
+    const vyber = kus.querySelector('select');
+    vyber.value = [...vyber.options].find(one => /75/.test(one.textContent)).value;
+    vyber.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.waitForTimeout(250);
+  await page.locator('.qkb-kosik').click();
+  await page.waitForTimeout(2200);
+  const kosik = await page.request.get('http://localhost:4324/kosik');
+  const kosikHtml = await kosik.text();
+  const pata = await page.evaluate(() => (document.querySelector('.qkb-pata')?.textContent ?? '').trim());
+  const kosikRadky = kosikHtml.replace(/\s+/g, ' ').replace(/.*<ul id="kosik">/, '');
+  say('kusy se vloží do košíku formulářem e-shopu',
+    /1005 · 2001/.test(kosikRadky), kosikRadky.slice(0, 100));
+  /* Produkt bez velikostí posílá prázdné option_set_id, ne nějakou náhodnou */
+  say('  a produkt bez velikostí žádnou velikost nepřidá',
+    /1003 · — /.test(kosikRadky), kosikRadky.slice(0, 100));
+  say('  a kabina pak nabídne jít do košíku',
+    /košíku/i.test(pata), pata.slice(0, 60));
+
+  /*
+   * Minimalizace a návrat. Doplňky se vybírají prohlížením: zákazník
+   * přidá motýlka, jde se podívat na kapesníčky, přidá kapesníček.
+   * Kdyby kabina odchodem ze stránky zmizela, začínal by pokaždé znovu.
+   */
+  await page.goto('http://localhost:4324/p/kravata-salvejova', { waitUntil: 'load' });
+  await page.waitForSelector('.qkbz-bublina', { timeout: 4000 });
+  const naDetailu = await page.evaluate(() => ({
+    bublina: (document.querySelector('.qkbz-bublina')?.textContent ?? '').trim(),
+    tlacitko: (document.querySelector('.qkbz-vlozit')?.textContent ?? '').trim(),
+    kdeJe: document.querySelector('.qkbz-vlozit')?.closest('.AddToCart') ? 'u košíku' : 'jinde'
+  }));
+  say('na detailu je tlačítko vedle „do košíku"',
+    /Vyzkoušet na modelu/.test(naDetailu.tlacitko) && naDetailu.kdeJe === 'u košíku',
+    `${naDetailu.tlacitko} (${naDetailu.kdeJe})`);
+  say('  a kabina zůstala k otevření i na jiné stránce',
+    /Zkušební kabina/.test(naDetailu.bublina), naDetailu.bublina);
+
+  /*
+   * E-shop si při přepnutí velikosti překreslí celý blok s košíkem.
+   * Kdyby zavaděč hlídal jen výpis, tlačítko by po první změně velikosti
+   * zmizelo a zpátky by se dostalo jedině načtením stránky.
+   */
+  const poSmazani = await page.evaluate(() => {
+    const blok = document.querySelector('.pd-order-buttons');
+    blok.innerHTML = blok.innerHTML.replace(/<button[^>]*qkbz-vlozit[\s\S]*?<\/button>/, '');
+    return document.querySelectorAll('.qkbz-vlozit').length;
+  });
+  say('  překreslení košíku tlačítko opravdu smaže', poSmazani === 0, `${poSmazani} tlačítek`);
+  await page.waitForTimeout(800);
+  const poPrekresleni = await page.evaluate(() => document.querySelectorAll('.qkbz-vlozit').length);
+  say('  a vrátí se i po překreslení košíku na stránce',
+    poPrekresleni === 1, `${poPrekresleni} tlačítek`);
+
+  await page.locator('.qkbz-bublina').click();
+  await page.waitForSelector('.qkb-kus', { timeout: 6000 });
+  await page.waitForTimeout(700);
+  const poVraceni = await page.evaluate(() =>
+    [...document.querySelectorAll('.qkb-kus-nazev')].map(one => one.textContent.trim()));
+  say('  a vrátí se s tím, co v ní bylo',
+    poVraceni.some(one => /Dětské/.test(one)), poVraceni.join(' · ') || 'nic');
+
+  /* Souvisejicí produkty ze stránky se nabídnou v kabině */
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  await page.locator('.qkbz-vlozit').click();
+  await page.waitForTimeout(1200);
+  const doporuceni = await page.evaluate(() => ({
+    nadpis: (document.querySelector('.qkb-rady h3')?.textContent ?? '').trim(),
+    karty: [...document.querySelectorAll('.qkb-rady .qkb-karta b')].map(one => one.textContent.trim())
+  }));
+  say('kabina doporučí to, co e-shop dal k produktu jako související',
+    doporuceni.karty.length >= 2, `${doporuceni.nadpis}: ${doporuceni.karty.slice(0, 3).join(' · ')}`);
 
   await page.close();
+
+  /* Na počítači je model vlevo a nabídka vedle — na mobilu pod sebou */
+  const siroka = await browser.newPage({ viewport: { width: 1180, height: 900 } });
+  siroka.on('pageerror', e => problems.push(`kabina: chyba stránky: ${e.message}`));
+  await siroka.goto('http://localhost:4324/kabina.html', { waitUntil: 'load' });
+  await siroka.waitForSelector('.qkbz-karta', { timeout: 4000 });
+  await siroka.evaluate(() => {
+    document.querySelector('article.card-item .qkbz-karta').click();
+  });
+  await siroka.waitForSelector('.qkb-kus', { timeout: 6000 });
+  await siroka.waitForTimeout(900);
+  const naPocitaci = await siroka.evaluate(() => {
+    const model = document.querySelector('.qkb-platno').getBoundingClientRect();
+    const nabidka = document.querySelector('.qkb-pravy').getBoundingClientRect();
+    return { vedleSebe: model.right <= nabidka.left + 2, sirkaOkna: document.querySelector('.qkb').getBoundingClientRect().width };
+  });
+  say('na počítači stojí model vedle nabídky, ne nad ní',
+    naPocitaci.vedleSebe && naPocitaci.sirkaOkna > 700,
+    `okno ${Math.round(naPocitaci.sirkaOkna)} px`);
+  await siroka.screenshot({ path: path.join(SHOTS, 'kabina.png') });
+  await siroka.close();
 }
 
 console.log(problems.length ? '\n' + problems.join('\n') : '\nžádné chyby');

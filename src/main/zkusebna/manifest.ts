@@ -1,6 +1,8 @@
 import {
-  ZkVrstva, ZK_BARVY, ZK_PORADI, ZK_TELA, ZK_VEKY, ZK_VLASY, ZK_VRSTVY, vychoziVzhled
+  ZkVrstva, ZK_BARVY, ZK_KSANDY_DIL, ZK_PORADI, ZK_TELA, ZK_VEKY, ZK_VLASY, ZK_VRSTVY,
+  vychoziVzhled
 } from '../../shared/zkusebna';
+import { ZkProdukt } from '../../shared/zkusebna';
 import * as store from './store';
 import { proKabinu } from './produkty';
 
@@ -35,13 +37,51 @@ export interface Kabina {
       typ: string; nazev: string; popis: string;
       barvitelna: boolean; nepovinna: boolean; zbozi: boolean;
       varianty: { id: string; nazev: string }[];
+      /** Citlivé místo na modelu — díl šířky a výšky. */
+      bod?: { x: number; y: number };
+      pobidka?: string;
     }[];
     barvy: { id: string; nazev: string; hex: string }[];
     vlasy: { id: string; nazev: string; hex: string }[];
-    veky: { id: string; nazev: string; popis: string; vyska: [number, number] }[];
+    veky: {
+      id: string; nazev: string; popis: string;
+      vyska: [number, number];
+      /** Kolik je takovému modelu let — kabina z toho radí velikost. */
+      roky: [number, number];
+    }[];
     tela: { id: string; nazev: string; popis: string }[];
     vychozi: ReturnType<typeof vychoziVzhled>;
   };
+  /**
+   * Co se dá změnit bez zasahování do šablony e-shopu.
+   *
+   * Všechno, co by jinak bylo zadrátované ve skriptu v šabloně: odkazy
+   * na kategorie pro pobídky, poměr pro radu s délkou kšand, kontakt.
+   * Jednou vložený skript v šabloně se tak nemusí vkládat znovu — a to
+   * je v e-shopu, kde je vložení ruční práce v administraci, rozdíl
+   * mezi „to se opraví" a „to se opraví někdy".
+   */
+  nastaveni: {
+    /** Odkaz na kategorii pro každý typ zboží a jazykovou verzi. */
+    kategorie: Record<string, Record<string, string>>;
+    /** Jakou část výšky člověka měří kšandy — pro radu s velikostí. */
+    ksandyDil: number;
+    kontakt: { text: string; telefon: string; mail: string };
+  };
+}
+
+export interface KabinaNastaveni {
+  kategorie?: Record<string, Record<string, string>>;
+  ksandyDil?: number;
+  kontakt?: { text: string; telefon: string; mail: string };
+  /**
+   * Přepsání adres produktů — jen pro náhled v aplikaci.
+   *
+   * V náhledu zastupuje e-shop stránka, kterou vydává aplikace sama, a
+   * kabina produkt poznává podle cesty v adrese. Bez přepsání by
+   * ukazovala na quentino.cz a v náhledu by se nedalo proklikat nic.
+   */
+  url?: (p: ZkProdukt) => string;
 }
 
 /**
@@ -52,7 +92,11 @@ export interface Kabina {
  * hlavní proces. Je to jediný rozdíl mezi náhledem a ostrým provozem,
  * takže se v aplikaci opravdu zkouší tentýž skript.
  */
-export function kabina(adresa: (v: ZkVrstva) => string, produktu = 400): Kabina {
+export function kabina(
+  adresa: (v: ZkVrstva) => string,
+  produktu = 400,
+  nastaveni: KabinaNastaveni = {}
+): Kabina {
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   const maPostavu = new Set(
     hotove.filter(one => one.typ === 'postava').map(one => one.postava)
@@ -70,23 +114,33 @@ export function kabina(adresa: (v: ZkVrstva) => string, produktu = 400): Kabina 
       .filter(one => maPostavu.has(one.postava))
       .map(one => ({ postava: one.postava, typ: one.typ, varianta: one.varianta, url: adresa(one) }))
       .filter(one => !!one.url),
-    produkty: proKabinu(produktu),
+    produkty: nastaveni.url
+      ? proKabinu(produktu).map(p => ({ ...p, url: nastaveni.url!(p), trhy: undefined }))
+      : proKabinu(produktu),
     katalog: {
       poradi: [...ZK_PORADI],
       vrstvy: ZK_VRSTVY.map(one => ({
         typ: one.typ, nazev: one.nazev, popis: one.popis,
         barvitelna: one.barvitelna, nepovinna: one.nepovinna, zbozi: one.zbozi,
-        varianty: one.varianty
+        varianty: one.varianty,
+        bod: one.bod,
+        pobidka: one.pobidka
       })),
       barvy: ZK_BARVY,
       vlasy: ZK_VLASY,
       veky: (Object.keys(ZK_VEKY) as (keyof typeof ZK_VEKY)[]).map(id => ({
-        id, nazev: ZK_VEKY[id].nazev, popis: ZK_VEKY[id].popis, vyska: ZK_VEKY[id].vyska
+        id, nazev: ZK_VEKY[id].nazev, popis: ZK_VEKY[id].popis,
+        vyska: ZK_VEKY[id].vyska, roky: ZK_VEKY[id].roky
       })),
       tela: (Object.keys(ZK_TELA) as (keyof typeof ZK_TELA)[]).map(id => ({
         id, nazev: ZK_TELA[id].nazev, popis: ZK_TELA[id].popis
       })),
       vychozi: vychoziVzhled('dospely')
+    },
+    nastaveni: {
+      kategorie: nastaveni.kategorie ?? {},
+      ksandyDil: nastaveni.ksandyDil ?? ZK_KSANDY_DIL,
+      kontakt: nastaveni.kontakt ?? { text: '', telefon: '', mail: '' }
     }
   };
 }

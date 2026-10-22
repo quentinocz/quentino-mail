@@ -764,6 +764,9 @@ export function registerIpc() {
   handle('zk:vzhled-uloz', (id: string, nazev: string, text: string) =>
     zkusebna.ulozVzhled(String(id ?? ''), String(nazev ?? ''), String(text ?? '')));
   handle('zk:vzhled-smaz', (id: string) => zkusebna.smazVzhled(String(id ?? '')));
+  // Vystavení trvá minuty a nahrává stovky souborů — okno musí vidět, kde to je
+  handle('zk:vystav', () => zkusebna.vystav(krok => emit('zk:vystav-krok', krok)));
+  handle('zk:zavadec', () => zkusebna.zavadec());
 
   /* ---------- bannery na úvodní stránce ---------- */
   handle('banners:state', () => banners.bannersState());

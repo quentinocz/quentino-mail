@@ -964,8 +964,11 @@ export const api = {
     zadani: (klic: string, text: string) => call<void>('zk:zadani', klic, text),
     zadaniZpet: (klic: string) => call<void>('zk:zadani-zpet', klic),
     nastaveni: () => call<ZkNastaveni>('zk:nastaveni'),
-    nastav: (co: Partial<{ klic: string; model: string; strop: number; kvalita: string; maska: boolean }>) =>
-      call<void>('zk:nastav', co),
+    nastav: (co: Partial<{
+      klic: string; model: string; strop: number; kvalita: string; maska: boolean;
+      kategorie: Record<string, Record<string, string>>; ksandyDil: number;
+      vyber: { detail?: string[]; karta?: string[]; kartaObrazek?: string[]; souvisejici?: string[] };
+    }>) => call<void>('zk:nastav', co),
     kontakt: (co: { text: string; telefon: string; mail: string }) => call<void>('zk:kontakt', co),
     katalog: (sAi: boolean, sBarvami: boolean) =>
       call<{ zarazeno: number; obarveno: number; nezarazeno: number }>('zk:katalog', sAi, sBarvami),
@@ -975,7 +978,13 @@ export const api = {
     nahled: () => call<ZkNahled>('zk:nahled'),
     vzhledy: () => call<{ id: string; nazev: string; text: string; kdy: string }[]>('zk:vzhledy'),
     vzhledUloz: (id: string, nazev: string, text: string) => call<void>('zk:vzhled-uloz', id, nazev, text),
-    vzhledSmaz: (id: string) => call<void>('zk:vzhled-smaz', id)
+    vzhledSmaz: (id: string) => call<void>('zk:vzhled-smaz', id),
+    /* Vystavení trvá minuty — okno mezitím poslouchá „zk:vystav-krok" */
+    vystav: () => call<{
+      kdy: string; skript: string; zdroj: string; zavadec: string;
+      nahranych: number; preskocenych: number; megabajtu: number;
+    }>('zk:vystav'),
+    zavadec: () => call<{ kod: string; skript: string; kdy: string }>('zk:zavadec')
   },
 
   /**

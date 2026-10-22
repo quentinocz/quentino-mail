@@ -151,7 +151,15 @@
   'zk:nahled': { url: '/kabina.html', velikost: { seznamKb: 86.4, postav: 3, vrstev: 54, produktu: 180 } },
   'zk:nastaveni': {
     maKlic: true, model: 'gpt-image-1.5', kvalita: 'high', maska: true, strop: 40,
-    kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' }
+    kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' },
+    kategorie: { kapesnicek: { cz: '/kapesnicky', sk: '', en: '' } },
+    ksandyDil: 0.62,
+    vyber: {},
+    vystaveno: {
+      kod: '<script>/* zavaděč zkušební kabiny */</script>',
+      skript: 'https://ulozi.ste/kabina/kabina.js',
+      kdy: '2026-10-20T09:12:00.000Z'
+    }
   },
   'zk:produkty': [
     { kod: 'MOT1', typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', vzorek: '', rucne: false, velikosti: false,
