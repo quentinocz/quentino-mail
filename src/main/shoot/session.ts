@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from 'child_process';
-import { gphotoBinary, freeCamera, workDir } from './gphoto';
+import { gphotoBinary, freeOwnShells, workDir } from './gphoto';
 
 /**
  * Jedno spojení s fotoaparátem, které vydrží celé focení.
@@ -100,7 +100,18 @@ export class CameraSession {
     const bin = gphotoBinary();
     if (!bin) { this.lastError = 'gphoto2 není'; return false; }
 
-    await freeCamera();
+    /*
+     * Před otevřením se uklidí **jen po sobě** — zapomenutý vlastní
+     * `gphoto2 --shell` drží tělo stejně jako cizí program.
+     *
+     * Systémové procesy macOS (`ptpcamerad`, `icdd`) se tu schválně
+     * nezabíjejí. Dělalo se to při každém připojení, tedy i tam, kde
+     * žádný fotoaparát není — při každém spuštění zkoušek se na Macu
+     * třikrát střílelo po systémových službách. Zabít je má smysl jedině
+     * tehdy, když tělo opravdu někdo drží, a přesně tam to zůstalo:
+     * `connect` to udělá mezi pokusy, když přijde „-53 could not claim".
+     */
+    await freeOwnShells();
 
     const args = ['--force-overwrite'];
     /*

@@ -24,9 +24,40 @@ const path = require('path');
 const { DIST, db } = require('./ptrans/harness.cjs');
 
 let failed = 0;
+
+/**
+ * Hlídač zaseknutí.
+ *
+ * Tahle zkouška jako jediná spouští procesy a mluví s nimi po rourách —
+ * tedy jediná může **viset**. Stalo se to: `npm run typecheck` zůstal
+ * stát uprostřed focení a z výpisu se dalo poznat jen to, který řádek
+ * byl poslední. Nic nenapovědělo, jestli se čeká na odpověď, na úklid
+ * procesů, nebo na něco třetího, a znovu se to už nestalo.
+ *
+ * Od téhle chvíle se zapamatuje poslední hotový krok a čas. Když se
+ * dvě minuty nic nepohne, zkouška to **řekne a skončí** — s číslem kroku
+ * i s tím, co zrovna běží. Viset nesmí: zaseknutá zkouška zastaví celé
+ * vydání a nikdo z toho nemá ani řádek informace.
+ */
+let posledniKrok = 'start';
+let posledniCas = Date.now();
+/* Dá se zkrátit zvenčí: SHOOT_HLIDAC_MS=5000 node tools/shoot-test.cjs */
+const HLIDAC_MS = Number(process.env.SHOOT_HLIDAC_MS) || 120000;
+const hlidac = setInterval(() => {
+  if (Date.now() - posledniCas < HLIDAC_MS) return;
+  const ticho = Math.round((Date.now() - posledniCas) / 1000);
+  console.log(`\n✗ focení se zaseklo za krokem „${posledniKrok}" — ${ticho} s bez pohybu`);
+  console.log('   (poslední krok dojel, zasekl se ten hned za ním)');
+  process.exit(1);
+}, 5000);
+/* Hlídač nesmí držet node naživu — jen hlídat, dokud běží sám */
+hlidac.unref?.();
+
 function check(label, got, want) {
   const ok = JSON.stringify(got) === JSON.stringify(want);
   if (!ok) failed++;
+  posledniKrok = label;
+  posledniCas = Date.now();
   console.log(`  ${ok ? '✓' : '✗'} ${label}`);
   if (!ok) { console.log('      čekáno:', JSON.stringify(want)); console.log('      dostal:', JSON.stringify(got)); }
 }
@@ -361,8 +392,10 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'shoot-'));
 const CAN_SPAWN = process.platform !== 'win32';
 
 const wrapper = path.join(work, 'gphoto2');
+/* Každé spuštění se zapíše — jinak se nedá změřit, kolikrát se volá */
+const volani = path.join(work, 'volani.log');
 if (CAN_SPAWN) {
-  fs.writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
+  fs.writeFileSync(wrapper, `#!/bin/sh\necho "$@" >> "${volani}"\nexec "${process.execPath}" "${fake}" "$@"\n`);
   fs.chmodSync(wrapper, 0o755);
 }
 
@@ -376,6 +409,21 @@ async function liveSection() {
 
   const cameras = await gphoto.detectCameras();
   check('tělo se ohlásilo', cameras[0], { model: 'Canon EOS 250D', port: 'usb:001,004' });
+
+  /*
+   * Hledání se ptá **jednou**, dokud je tělo vidět.
+   *
+   * Dřív se před každým hledáním „uklízelo" — na macOS to znamená
+   * zastřelit systémové služby `ptpcamerad` a `icdd`. Dělalo se to i
+   * tehdy, kdy žádný fotoaparát připojený nebyl, tedy při každém
+   * spuštění zkoušek, a bylo to podezřelé místo u zkoušky, která se
+   * jednou na Macu zasekla. Uklízí se teď jen tehdy, když hledání
+   * nenajde nic.
+   */
+  fs.writeFileSync(volani, '');
+  await gphoto.detectCameras(true);
+  const pokusu = fs.readFileSync(volani, 'utf8').split('\n').filter(one => /auto-detect/.test(one)).length;
+  check('když je tělo vidět, hledá se jednou a neuklízí se', pokusu, 1);
 
   const talk = new session.CameraSession();
   // Pracovní složka je jinde než ta z Electronu — v testu žádná aplikace není

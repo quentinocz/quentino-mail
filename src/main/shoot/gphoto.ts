@@ -106,18 +106,50 @@ const HOGS = ['ptpcamerad', 'icdd', 'PTPCamera'];
 const OWN_SHELL = 'gphoto2.*--force-overwrite.*--shell';
 
 /**
+ * Čekání s tvrdým stropem.
+ *
+ * `execFile` má sice svůj časový limit, jenže ten jen pošle procesu
+ * signál — na odpověď se čeká dál, dokud se nezavře jeho výstup. Stačí,
+ * aby ho držel otevřený někdo jiný, a připojení k fotoaparátu visí
+ * navždy: žádná hláška, žádná chyba, jen nic. Tenhle strop je poslední
+ * pojistka, po které se prostě pokračuje.
+ */
+function sMezi<T>(prace: Promise<T>, strop: number, kdyzNic: T): Promise<T> {
+  return new Promise<T>(resolve => {
+    let hotovo = false;
+    const casovac = setTimeout(() => {
+      if (hotovo) return;
+      hotovo = true;
+      resolve(kdyzNic);
+    }, strop);
+    casovac.unref?.();
+    prace.then(co => {
+      if (hotovo) return;
+      hotovo = true;
+      clearTimeout(casovac);
+      resolve(co);
+    }, () => {
+      if (hotovo) return;
+      hotovo = true;
+      clearTimeout(casovac);
+      resolve(kdyzNic);
+    });
+  });
+}
+
+/**
  * Vyhledá čísla procesů. Vrací prázdno, když nic neběží nebo `pgrep` chybí.
  */
 function findOwnShells(): Promise<number[]> {
   if (process.platform === 'win32') return Promise.resolve([]);
-  return new Promise(resolve => {
+  return sMezi(new Promise<number[]>(resolve => {
     execFile('/usr/bin/pgrep', ['-f', OWN_SHELL], { timeout: 4000 }, (err, out) => {
       if (err) { resolve([]); return; }
       resolve(String(out).split('\n')
         .map(line => Number(line.trim()))
         .filter(pid => Number.isInteger(pid) && pid > 0));
     });
-  });
+  }), 6000, []);
 }
 
 /**
@@ -145,12 +177,12 @@ export async function freeCamera(): Promise<boolean> {
   if (process.platform !== 'darwin') return false;
   let killed = false;
   for (const name of HOGS) {
-    const gone = await new Promise<boolean>(resolve => {
+    const gone = await sMezi(new Promise<boolean>(resolve => {
       execFile('/usr/bin/killall', [name], { timeout: 4000 }, err => {
         // Nenulový návratový kód znamená „žádný takový proces" — to je v pořádku
         resolve(!err);
       });
-    });
+    }), 6000, false);
     killed = killed || gone;
   }
   /*
@@ -203,16 +235,27 @@ export function parseCameras(text: string): ShootCamera[] {
 /**
  * Vypíše připojená těla.
  *
- * Úklid se dělá jen tehdy, když žádné spojení neběží. Zabíjí totiž i
- * **naše** `gphoto2 --shell` — a hledání fotoaparátu uprostřed focení by
- * shodilo právě to spojení, přes které se fotí. Kdyby k tomu došlo při
- * stahování snímku, zůstala by fotka jen na kartě a aplikace by o ní
- * nevěděla.
+ * ## Proč se nejdřív hledá a teprve pak uklízí
+ *
+ * Úklid znamená na macOS zastřelit systémové služby (`ptpcamerad`,
+ * `icdd`). Dělat to pokaždé, když se hledá fotoaparát, je střelba do
+ * tmy: ve většině případů je tělo vidět a uklízet není co. Navíc to
+ * sahá na systém i tam, kde žádný fotoaparát připojený není — třeba při
+ * každém spuštění zkoušek.
+ *
+ * Když ale `--auto-detect` nenajde **nic**, je jedno z vysvětlení právě
+ * to, že tělo drží Digitalizace obrazu. Až tehdy má smysl uklidit a
+ * podívat se znovu.
+ *
+ * Úklid se navíc dělá jen tehdy, když žádné naše spojení neběží: zabíjí
+ * totiž i **naše** `gphoto2 --shell` a hledání fotoaparátu uprostřed
+ * focení by shodilo právě to spojení, přes které se fotí.
  */
 export async function detectCameras(free = true): Promise<ShootCamera[]> {
-  if (free) await freeCamera();
-  const { out } = await run(['--auto-detect']);
-  return parseCameras(out);
+  const prvni = parseCameras((await run(['--auto-detect'])).out);
+  if (prvni.length > 0 || !free) return prvni;
+  await freeCamera();
+  return parseCameras((await run(['--auto-detect'])).out);
 }
 
 /** Složka, kam gphoto2 odkládá snímky náhledu, než je přečteme. */
