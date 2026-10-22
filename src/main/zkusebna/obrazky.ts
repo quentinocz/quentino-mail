@@ -233,6 +233,15 @@ function radaKChybe(text: string): string {
   if (/model/i.test(text) && /not found|does not exist|unknown|neexistuje/i.test(text)) {
     return ` — vypadá to, že model „${model().id}" už není k dispozici. Vyber jiný v Nastavení → Vizuály na modelu.`;
   }
+  /*
+   * Odmítnutí bezpečnostní kontrolou není porucha, ale zadání. Hláška od
+   * OpenAI je anglická a končí číslem požadavku, takže z ní nikdo
+   * nepozná, že stačí přepsat jednu větu — a kde.
+   */
+  if (/safety|moderation|rejected by the safety/i.test(text)) {
+    return ' — zadání neprošlo bezpečnostní kontrolou modelu. Uprav ho u té vrstvy'
+      + ' (Vizuály → vrstva → Zadání); postava musí být popsaná jako oblečená.';
+  }
   if (/insufficient_quota|billing|credit/i.test(text)) {
     return ' — účet u OpenAI nemá kredit.';
   }

@@ -187,6 +187,21 @@ async function main() {
   let chyba = '';
   try { await obrazky.nakresli('Zkouška', { sirka: 1024, vyska: 1024 }); }
   catch (e) { chyba = String(e.message); }
+  /*
+   * Odmítnutí bezpečnostní kontrolou je zadání, ne porucha — a hláška od
+   * OpenAI je anglická a končí číslem požadavku, takže z ní nikdo
+   * nepozná, co s tím.
+   */
+  odpovez = {
+    stav: 400,
+    telo: JSON.stringify({ error: { message: 'Your request was rejected by the safety system. safety_violations=[sexual].' } })
+  };
+  let bezpecnost = '';
+  try { await obrazky.nakresli('Zkouška', { sirka: 1024, vyska: 1024 }); }
+  catch (e) { bezpecnost = String(e.message); }
+  ok('u odmítnutí bezpečnostní kontrolou se poradí, kde přepsat zadání',
+    /bezpečnostní kontrolou/.test(bezpecnost) && /Vizuály/.test(bezpecnost), bezpecnost.slice(-120));
+
   ok('chyba se vrátí česky a s radou, kam sáhnout',
     /Obrázek se nepodařilo nakreslit/.test(chyba) && /Nastavení/.test(chyba), chyba.slice(0, 120));
   check('  a za nepovedený obrázek se nic nepřipíše', obrazky.utrata().kusu, pred);

@@ -49,10 +49,30 @@ const TELA: Record<ZkTelo, string> = {
   silny: 'heavier build, waist wider than the shoulders'
 };
 
+/**
+ * V čem stojí postava, než se začne oblékat.
+ *
+ * ## Proč ne spodní prádlo
+ *
+ * Původně to bylo tílko a spodky — pro skládání vrstev nejčistší základ,
+ * protože každý další kus se kreslí přes něj. Jenže model takové zadání
+ * odmítne: „Your request was rejected by the safety system …
+ * safety_violations=[sexual]". U dítěte a kojence je to i správně a
+ * trvat na tom by znamenalo obcházet něco, co obcházet nemá cenu.
+ *
+ * ## Proč to skládání nevadí
+ *
+ * Vrstva je **rozdíl dvou kroků**, ne výřez z holé postavy. Základní
+ * tričko a kalhoty jsou pod oblekem schované a kus, který se obléká,
+ * tu plochu přebarví celou — rozdíl tedy vyjde stejně. Podmínka je
+ * jediná: základ musí mít barvu výrazně jinou než to, co přijde na něj,
+ * jinak se rozdíl ztratí (přesně to se stalo sakovi v šedé na šedé
+ * košili). Šedá je proto schválně: žádný kus se v šedé nekreslí.
+ */
 const SPODEK: Record<ZkVek, string> = {
-  dospely: 'a plain white short-sleeve undershirt and plain light grey briefs',
-  dite: 'a plain white short-sleeve undershirt and plain light grey shorts',
-  kojenec: 'a plain white short-sleeve bodysuit'
+  dospely: 'a plain mid-grey crew-neck t-shirt and plain mid-grey straight trousers',
+  dite: 'a plain mid-grey crew-neck t-shirt and plain mid-grey straight trousers',
+  kojenec: 'a plain mid-grey long-sleeve top and plain mid-grey leggings'
 };
 
 /** Co platí pro každý obrázek: výřez, světlo, pozadí. */
@@ -61,6 +81,9 @@ const SPOLECNE = [
   'Isolated subject on a fully transparent background: no floor, no backdrop,',
   'no shadow cast on the ground, no checkerboard pattern.',
   'Photographic and true to life, no stylisation, no illustration.',
+  /* Věta pro bezpečnostní kontrolu modelu: tohle je katalog oblečení */
+  'Modest clothing catalogue photograph, fully clothed, no skin exposed',
+  'beyond the face, neck, hands and feet.',
   'The whole body from the top of the head to the soles of the feet must be',
   'inside the frame with a small margin above and below.'
 ].join(' ');
@@ -71,7 +94,7 @@ export function zadaniPostavy(vek: ZkVek, telo: ZkTelo): string {
     'standing straight and facing the camera, arms relaxed at the sides,',
     'feet together, neutral friendly expression.',
     'Completely bald with a shaved head and no facial hair at all.',
-    `Wearing only ${SPODEK[vek]}, barefoot.`,
+    `Wearing ${SPODEK[vek]} and plain grey socks, no shoes.`,
     SPOLECNE
   ].join(' ');
 }
@@ -131,8 +154,20 @@ export function zadaniKusu(typ: ZkVrstvaTyp, varianta: string): string {
  * Klíč v nastavení drží i doladěnou verzi, takže se po přegenerování
  * použije ta samá věta, která už jednou vyšla dobře.
  */
+/**
+ * Zadání, které model odmítá, se nepoužije ani tehdy, když je uložené.
+ *
+ * Uložená verze má přednost — je to ta, která už jednou vyšla dobře.
+ * Jenže starší znění nechávalo postavu ve spodním prádle a model ho dnes
+ * odmítá („safety_violations=[sexual]"), takže by uložená věta znamenala
+ * nekonečné „Obrázek se nepodařilo nakreslit" bez vysvětlení, kde to
+ * přepsat.
+ */
+const ODMITANE = /\b(briefs|undershirt|underwear|bodysuit)\b/i;
+
 export function zadani(klic: string, vychozi: string): string {
   const ulozene = getSetting(`zkZadani:${klic}`, '')!;
+  if (ulozene && ODMITANE.test(ulozene)) return vychozi;
   return ulozene || vychozi;
 }
 

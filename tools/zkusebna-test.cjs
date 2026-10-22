@@ -669,6 +669,44 @@ console.log('\nvzhled k nákupu');
     zk.radaVelikosti({ ...KSANDY, velikostiSeznam: [{ kod: 'X', popis: 'Délka: 70 cm', skladem: true }] }, dite).kod === 'X');
 }
 
+/* ---------- 8b. zadání pro kreslení ---------- */
+
+console.log('\nzadání pro model');
+
+{
+  const zadani = require(path.join(DIST, 'zkusebna/zadani.js'));
+  const { setSetting } = require(path.join(DIST, 'db.js'));
+
+  /*
+   * Postava se kreslí **oblečená**. Dřív stála ve spodním prádle —
+   * pro skládání vrstev nejčistší základ, jenže model takové zadání
+   * odmítne („safety_violations=[sexual]") a u dítěte a kojence
+   * oprávněně. Vrstva je rozdíl dvou kroků, takže základ pod oblekem
+   * může být tričko a kalhoty; podmínka je jen výrazně jiná barva.
+   */
+  for (const vek of ['dospely', 'dite', 'kojenec']) {
+    const text = zadani.__test.zadaniPostavy(vek, 'bezny');
+    ok(`postava (${vek}) je v zadání oblečená`,
+      !/briefs|underwear|undershirt|bodysuit/i.test(text) && /t-shirt|top/i.test(text),
+      text.slice(text.indexOf('Wearing'), text.indexOf('Wearing') + 70));
+  }
+  ok('a je u toho řečeno, že jde o katalog oblečení',
+    /fully clothed/i.test(zadani.__test.zadaniPostavy('dite', 'bezny')));
+  /* Základ je šedý — žádný kus oblečení se v šedé nekreslí, takže se
+     rozdíl dvou kroků neztratí */
+  ok('základ je šedý, aby se rozdíl vrstvy neztratil',
+    /mid-grey/.test(zadani.__test.zadaniPostavy('dospely', 'bezny')));
+
+  setSetting('zkZadani:postava:dospely:bezny',
+    'Full-body photo of a man wearing only a white undershirt and light grey briefs.');
+  ok('starší uložené znění se spodním prádlem se už nepoužije',
+    !/briefs/i.test(zadani.zadaniPostavyTed('dospely', 'bezny')));
+  setSetting('zkZadani:postava:dospely:bezny', 'Vlastní zadání bez problému.');
+  check('ale vlastní zadání, které projde, zůstane',
+    zadani.zadaniPostavyTed('dospely', 'bezny'), 'Vlastní zadání bez problému.');
+  setSetting('zkZadani:postava:dospely:bezny', '');
+}
+
 /* ---------- 9. zavaděč, skript a náhradní e-shop ---------- */
 
 console.log('\nskript pro e-shop');
