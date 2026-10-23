@@ -101,6 +101,7 @@
         vrstev: i === 0 ? 21 : i < 3 ? 18 : 0,
         chystanych: 22,
         nesedi: i === 1 ? 1 : 0,
+        upozorneni: i === 0 ? 2 : 0,
         schvalenych: i === 0 ? 12 : 0
       });
     }

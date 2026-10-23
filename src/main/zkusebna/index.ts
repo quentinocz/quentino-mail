@@ -38,6 +38,7 @@ export function prehled(): ZkPrehled {
         vrstev: moje.filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno').length,
         chystanych: vrstvy.plan(p.id, false).length + 1,
         nesedi: moje.filter(one => one.stav === 'nesedi').length,
+        upozorneni: moje.filter(one => one.stav !== 'nesedi' && !!one.potiz).length,
         schvalenych: moje.filter(one => one.stav === 'schvaleno').length
       };
     }),

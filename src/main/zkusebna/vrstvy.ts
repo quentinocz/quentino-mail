@@ -52,11 +52,37 @@ function hlas(payload: unknown) {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send('zk:krok', payload);
 }
 
-/** Obdélník, ve kterém na plátně stojí postava. */
-export function okrajePostavy(obraz: Obraz): px.Okraje {
+/** Silueta postavy — kde na plátně vůbec něco je. */
+export function siluetaPostavy(obraz: Obraz): Uint8Array {
   const maska = new Uint8Array(obraz.sirka * obraz.vyska);
   for (let i = 0; i < maska.length; i++) maska[i] = obraz.body[i * 4 + 3] > 24 ? 255 : 0;
-  return px.okraje(maska, obraz.sirka, obraz.vyska);
+  return maska;
+}
+
+/** Obdélník, ve kterém na plátně stojí postava. */
+export function okrajePostavy(obraz: Obraz): px.Okraje {
+  return px.okraje(siluetaPostavy(obraz), obraz.sirka, obraz.vyska);
+}
+
+/**
+ * Kolik z vrstvy leží na postavě.
+ *
+ * Kus látky, který se z poloviny vznáší vedle postavy, na ni nikdy
+ * nesedne — a tohle je jediné měření, které to pozná. Počítá se proti
+ * siluetě **kroku před**, trochu rozšířené: sako je širší než košile
+ * pod ním a vlasy přidají hlavě objem, takže pár bodů za původním
+ * obrysem je v pořádku.
+ */
+export function naPostave(maska: Uint8Array, silueta: Uint8Array, sirka: number, vyska: number): number {
+  const siroka = px.zmekci(silueta, sirka, vyska, 3);
+  let celkem = 0;
+  let uvnitr = 0;
+  for (let i = 0; i < maska.length; i++) {
+    if (!maska[i]) continue;
+    celkem += 1;
+    if (siroka[i]) uvnitr += 1;
+  }
+  return celkem === 0 ? 0 : uvnitr / celkem;
 }
 
 /**
@@ -131,6 +157,15 @@ export async function vygenerujPostavu(id: string): Promise<ZkPostava> {
   const kde = okrajePostavy(obraz);
   const potiz = zkontrolujPostavu(kde, obraz.vyska);
   if (potiz) throw new Error(potiz);
+
+  /*
+   * Nová postava znamená **nového člověka**: jiná ramena, jiný postoj,
+   * jiné světlo. Co se oblékalo na tu starou, na něm viselo o kus vedle
+   * — a v okně by u toho svítilo „hotovo". Zahodí se to hned, ať se na
+   * tom nestaví dál.
+   */
+  const zahozeno = store.zahodOblekani(id);
+  if (zahozeno > 0) hlas({ postava: id, typ: 'postava', stav: 'uklid', zahozeno });
 
   const krok = store.cestaKroku(id, 0, 'postava');
   fs.writeFileSync(krok, uloz(obraz));
@@ -277,11 +312,16 @@ export function vrstvaZKroku(
   const maska = px.uklid(px.rozdil(pred, slepeny), pred.sirka, pred.vyska);
   const kde = px.okraje(maska, pred.sirka, pred.vyska);
   const podilNaPostave = kdePostava.podil > 0 ? kde.podil / kdePostava.podil : 0;
-  const potiz = zkontrolujVrstvu(
+  const nalez = zkontrolujVrstvu(
     typ,
-    { okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h }, podil: podilNaPostave },
+    {
+      okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
+      podil: podilNaPostave,
+      naPostave: naPostave(maska, siluetaPostavy(pred), pred.sirka, pred.vyska)
+    },
     { y: kdePostava.y, h: kdePostava.h }
   );
+  const potiz = nalez.potiz;
 
   const obraz = def.barvitelna ? px.stinovaMapa(slepeny, maska) : px.vyrizni(slepeny, maska);
 
@@ -305,7 +345,12 @@ export function vrstvaZKroku(
       podil: podilNaPostave,
       okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
       stav: potiz ? 'nesedi' : 'hotovo',
-      potiz,
+      /*
+       * U použitelné vrstvy se do stejného políčka dá upozornění. Je to
+       * věta vedle obrázku, ne verdikt: „vyšlo z toho víc, než je
+       * obvyklé" se čte jinak než „nesedí", a rozhodnout má člověk.
+       */
+      potiz: potiz || nalez.varovani,
       zadani,
       kdy: new Date().toISOString()
     },

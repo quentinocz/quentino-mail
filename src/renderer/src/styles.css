@@ -10543,7 +10543,13 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .zk-odznak.schvaleno { background: var(--accent); color: #fff; }
 .zk-odznak.nesedi { background: var(--danger); color: #fff; }
 /* Co je na vrstvě špatně, stojí česky u ní — ne v logu */
-.zk-potiz { margin: 0; font-size: 11.5px; color: var(--danger); }
+/*
+ * Červená jen tam, kde se vrstva použít nedá. U použitelné je to
+ * poznámka k nahlédnutí („vyšlo z toho víc, než je obvyklé") a červená
+ * by z ní dělala chybu, kterou nikdo neudělal.
+ */
+.zk-potiz { margin: 0; font-size: 11.5px; color: var(--warn); }
+.zk-karta.nesedi .zk-potiz { color: var(--danger); }
 .zk-karta-btns { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .zk-karta-btns .btn { font-size: 11.5px; padding: 3px 8px; }
 .zk-zadani { display: flex; flex-direction: column; gap: 5px; }

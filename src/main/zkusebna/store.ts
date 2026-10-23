@@ -151,6 +151,25 @@ export function zapisKrok(postava: string, poradi: number, typ: string, soubor: 
   ).run(postava, poradi, typ, soubor);
 }
 
+/**
+ * Zahodí všechno, co bylo nakreslené na předchozí podobu postavy.
+ *
+ * Vrstva je rozdíl dvou kroků **téhož obrázku** — na tom celé skládání
+ * stojí. Když se postava nakreslí znovu, je to jiný člověk: jiná ramena,
+ * jiný postoj, jiné světlo. Staré sako by na něm viselo o kus vedle a
+ * nikdo by nepoznal proč, protože v okně by u něj svítilo „hotovo".
+ * Proto se při přegenerování postavy zahodí i to, co se na ni oblékalo.
+ */
+export function zahodOblekani(postava: string): number {
+  const db = getDb();
+  const kolik = db.prepare(
+    `SELECT COUNT(*) AS n FROM zk_vrstvy WHERE postava = ? AND typ <> 'postava'`
+  ).get(postava) as { n: number } | undefined;
+  db.prepare(`DELETE FROM zk_vrstvy WHERE postava = ? AND typ <> 'postava'`).run(postava);
+  db.prepare('DELETE FROM zk_kroky WHERE postava = ? AND poradi > 0').run(postava);
+  return kolik?.n ?? 0;
+}
+
 export function kroky(postava: string): { poradi: number; typ: string; soubor: string }[] {
   return getDb().prepare('SELECT poradi, typ, soubor FROM zk_kroky WHERE postava = ? ORDER BY poradi')
     .all(postava) as any[];

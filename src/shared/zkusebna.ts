@@ -1231,46 +1231,92 @@ export interface ZkMery {
   okraje: { x: number; y: number; w: number; h: number };
   /** Kolik plochy postavy vrstva zabírá. */
   podil: number;
+  /**
+   * Kolik z vrstvy leží **na postavě** (0 až 1).
+   *
+   * Tohle je to podstatné: kus látky, který se z poloviny vznáší vedle
+   * postavy, na ni nikdy nesedne, ať zabírá procent kolik chce.
+   */
+  naPostave: number;
+}
+
+/** Výsledek kontroly: co brání použití a na co se jen podívat. */
+export interface ZkNalez {
+  /** Proč se vrstva použít nedá. Prázdné = dá se. */
+  potiz: string;
+  /** Stojí za podívání, ale použít to jde. */
+  varovani: string;
 }
 
 /**
- * Sedí vrstva tam, kam patří?
+ * Dá se vrstva použít?
  *
- * Vrací prázdno, když je všechno v pořádku, a jinak **česky to, co je
- * špatně** — ne kód chyby. Tahle věta je totiž jediné, co pak v okně
- * stojí u nepovedené vrstvy, a rozhoduje o tom, jestli člověk pochopí,
- * že má přegenerovat sako, nebo bude hledat chybu v aplikaci.
+ * ## Proč se neměří „kolik procent postavy to zabírá"
  *
- * Měří se v dílech postavy, ne v bodech: dětská postava má jiné rozměry
- * než dospělá, a oblékají se stejně.
+ * Měřilo se. Každý kus měl své rozmezí a nepovedené číslo vrstvu
+ * zahodilo — jenže ta čísla byla odhadnutá podle zástupné kresby.
+ * Na skutečné fotce vyšly krátké vlasy na jedenáct procent, mez byla
+ * deset, a kontrola zahodila vrstvu, která byla v pořádku. Přegenerovat
+ * ji stálo peníze a napodruhé vyšlo totéž.
+ *
+ * Procento samo o sobě nic neříká: záleží na účesu, na postavě, na tom,
+ * jestli jsou vidět kotlety. Proto se teď **neměří velikost, ale to, co
+ * rozhoduje o tom, jestli kusy na sebe pasují**:
+ *
+ *  1. **něco vzniklo** — mezi krokem před a po musí být rozdíl, jinak
+ *     model nic nepřikreslil,
+ *  2. **leží to na postavě** — vrstva, která se z větší části vznáší
+ *     vedle ní, nesedne nikdy,
+ *  3. **není to celá postava** — když rozdíl pokryje skoro všechno,
+ *     model překreslil obrázek, ne oblékl kus látky.
+ *
+ * Kam na postavě kus patří, se **nekontroluje, ale vynucuje**: rozdíl se
+ * bere jen z pruhu, kde ten kus leží, a mimo něj se převezme původní
+ * obrázek bod po bodu. Kontrolovat potom polohu by znamenalo ptát se na
+ * něco, co z principu nemůže vyjít jinak.
+ *
+ * Velikost zůstává jako **upozornění**, ne jako zákaz: „z tohohle vyšlo
+ * víc, než je obvyklé" je užitečná věta vedle obrázku, na kterém je
+ * vidět, co se stalo. Rozhodnout má člověk.
  */
 export function zkontrolujVrstvu(
   typ: ZkVrstvaTyp,
   mery: ZkMery,
   postava: { y: number; h: number }
-): string {
+): ZkNalez {
+  void postava;
   const def = vrstvaDef(typ);
   const k = def.kontrola;
+  const nic = (potiz: string): ZkNalez => ({ potiz, varovani: '' });
+
   if (mery.podil <= 0 || mery.okraje.w === 0) {
-    return 'Mezi krokem před a po se nezměnilo nic — model nic nepřikreslil.';
+    return nic('Mezi krokem před a po se nezměnilo nic — model nic nepřikreslil.');
   }
+  if (mery.naPostave < 0.5) {
+    return nic(`Jen ${Math.round(mery.naPostave * 100)} % vrstvy leží na postavě, zbytek vedle ní.`
+      + ' Takhle to na model nesedne — kus je potřeba nakreslit znovu.');
+  }
+  if (mery.podil > 0.92) {
+    return nic(`Vrstva pokrývá ${Math.round(mery.podil * 100)} % postavy — to už není kus látky.`
+      + ' Model překreslil celý obrázek místo toho, aby do něj dokreslil.');
+  }
+
+  /* Dál už jen upozornění: vrstva se použít dá, jen stojí za podívání */
   if (mery.podil < k.podilOd) {
-    return `Vrstva zabírá jen ${(mery.podil * 100).toFixed(1)} % postavy, čekalo se aspoň ${(k.podilOd * 100).toFixed(1)} %.`
-      + ' Buď model kus nedokreslil, nebo z něj zbyl jen cíp.';
+    return {
+      potiz: '',
+      varovani: `Vyšel z toho jen cíp — ${(mery.podil * 100).toFixed(1)} % postavy.`
+        + ' Podívej se, jestli je kus celý.'
+    };
   }
   if (mery.podil > k.podilDo) {
-    return `Vrstva zabírá ${(mery.podil * 100).toFixed(0)} % postavy, víc než ${(k.podilDo * 100).toFixed(0)} %.`
-      + ' Model nejspíš překreslil i to, co měl nechat.';
+    return {
+      potiz: '',
+      varovani: `Vrstva zabírá ${Math.round(mery.podil * 100)} % postavy, víc než je u téhle části obvyklé.`
+        + ' Zkontroluj, jestli model nepřekreslil i okolí.'
+    };
   }
-  const vyska = Math.max(1, postava.h);
-  const od = (mery.okraje.y - postava.y) / vyska;
-  const doKam = (mery.okraje.y + mery.okraje.h - postava.y) / vyska;
-  if (od < k.odY - 0.05 || doKam > k.doY + 0.05) {
-    const procent = (hodnota: number) => `${Math.round(hodnota * 100)} %`;
-    return `Vrstva leží mezi ${procent(od)} a ${procent(doKam)} výšky postavy;`
-      + ` ${def.nazev.toLowerCase()} má být mezi ${procent(k.odY)} a ${procent(k.doY)}.`;
-  }
-  return '';
+  return { potiz: '', varovani: '' };
 }
 
 /* --------------------------------------------- co vidí okno aplikace */
@@ -1284,6 +1330,8 @@ export interface ZkPostavaStav {
   vrstev: number;
   chystanych: number;
   nesedi: number;
+  /** Vrstvy, které se použít dají, ale něco na nich stojí za podívání. */
+  upozorneni: number;
   schvalenych: number;
 }
 

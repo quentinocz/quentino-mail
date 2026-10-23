@@ -256,6 +256,7 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   <span className="desc">
                     {one.vrstev} z {one.chystanych} vrstev
                     {one.nesedi ? ` · ${one.nesedi} nesedí` : ''}
+                    {one.upozorneni ? ` · ${one.upozorneni} k nahlédnutí` : ''}
                   </span>
                   <span className="zk-pruh">
                     <i style={{ width: `${Math.min(100, (one.vrstev / Math.max(1, one.chystanych)) * 100)}%` }} />

@@ -467,6 +467,23 @@ console.log('\nřetěz oblékání');
     !!dozadu && dozadu.stav !== 'nesedi' && dozadu.podil > 0,
     dozadu ? `${dozadu.stav}, ${(dozadu.podil * 100).toFixed(1)} %` : 'chybí');
 
+  /*
+   * Přegenerovaná postava zahodí, co se na ni oblékalo. Vrstva je rozdíl
+   * dvou kroků téhož obrázku — na jiné postavě visí o kus vedle, a
+   * v okně by u ní přitom svítilo „hotovo".
+   */
+  {
+    const pred = store.vrstvy('dospely-bezny').length;
+    const zahozeno = store.zahodOblekani('dospely-bezny');
+    const po = store.vrstvy('dospely-bezny');
+    ok('přegenerování postavy zahodí staré oblékání',
+      zahozeno === pred - 1 && po.length === 1 && po[0].typ === 'postava',
+      `z ${pred} vrstev zbyla ${po.length}`);
+    ok('  a kroky oblékání taky', store.kroky('dospely-bezny').length === 1);
+    /* Zpátky, ať má zbytek zkoušky na čem měřit */
+    ukazka.postavUkazku('dospely-bezny');
+  }
+
   /* A složený vzhled má barvu, kterou si zákazník vybral */
   const slozeno = px.slozeni(
     zk.vrstvyVzhledu(zk.vychoziVzhled('dospely'))
@@ -776,16 +793,38 @@ console.log('\nkdyž model ujede');
     }
   }
   const poPrekresleni = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, prekreslene, 'zkouška');
-  ok('překreslený trup se pozná a vrstva se nepoužije',
-    poPrekresleni.vrstva.stav === 'nesedi', poPrekresleni.vrstva.potiz);
   /*
-   * Obrázek u ní ale zůstane. Bez něj zbyla u nepovedené vrstvy jen
-   * věta „zabírá 45 %" a nedalo se poznat, jestli model překreslil
-   * obličej, nebo jsou to vlasy i s kotletami — a rozhodnout to má
-   * člověk, ne procento, protože přegenerování stojí peníze.
+   * Velká vrstva se **neza­kazuje, upozorňuje se na ni**. Procento je
+   * odhad podle zástupné kresby a na skutečné fotce zahodilo i vrstvu,
+   * která byla v pořádku (krátké vlasy: 11 % proti mezi 10 %).
+   * Rozhodnout má člověk u obrázku, ne číslo.
    */
+  ok('na nezvykle velkou vrstvu se upozorní, ale použít jde',
+    poPrekresleni.vrstva.stav === 'hotovo' && /okolí/.test(poPrekresleni.vrstva.potiz),
+    poPrekresleni.vrstva.potiz);
   ok('  a obrázek u ní zůstane, ať je vidět, co vyšlo',
     !!poPrekresleni.vrstva.soubor && fs.existsSync(poPrekresleni.vrstva.soubor));
+
+  /*
+   * Co se zakazuje, jsou tři věci — a všechny jsou o tom, jestli kusy na
+   * sebe pasují, ne o velikosti.
+   */
+  const zk2 = zk.zkontrolujVrstvu;
+  const postavaMery = { y: 10, h: 160 };
+  check('nic se nezměnilo → nedá se použít',
+    !!zk2('kravata', { okraje: { x: 0, y: 0, w: 0, h: 0 }, podil: 0, naPostave: 0 }, postavaMery).potiz, true);
+  ok('vrstva vedle postavy → nedá se použít',
+    /vedle ní/.test(zk2('kravata',
+      { okraje: { x: 0, y: 20, w: 20, h: 20 }, podil: 0.05, naPostave: 0.3 }, postavaMery).potiz));
+  ok('vrstva přes celou postavu → nedá se použít',
+    /celý obrázek/.test(zk2('kravata',
+      { okraje: { x: 0, y: 0, w: 100, h: 160 }, podil: 0.95, naPostave: 1 }, postavaMery).potiz));
+  const vPoradku = zk2('kravata',
+    { okraje: { x: 50, y: 40, w: 10, h: 40 }, podil: 0.05, naPostave: 0.98 }, postavaMery);
+  check('a co leží na postavě a není celá, projde bez řečí', [vPoradku.potiz, vPoradku.varovani], ['', '']);
+  const velke = zk2('vlasy',
+    { okraje: { x: 30, y: 10, w: 40, h: 30 }, podil: 0.19, naPostave: 0.95 }, postavaMery);
+  ok('velké vlasy jsou upozornění, ne zákaz', !velke.potiz && !!velke.varovani, velke.varovani);
 }
 
 /* ---------- 8b. zadání pro kreslení ---------- */
