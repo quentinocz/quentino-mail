@@ -898,6 +898,17 @@ console.log('\nskript pro e-shop');
     stranky.poleFormulare(telo2, 'option_set_id'),
     stranky.poleFormulare(telo2, 'quantity')
   ], ['1428', '', '2']);
+  /*
+   * Náhled běží v rámečku se sandboxem, takže má původ „null" a každý
+   * jeho požadavek je pro prohlížeč cizí. Bez hlavičky se nestáhne ani
+   * seznam, ani obrázky vrstev — a kabina v okně ukáže jen „Teď to
+   * nejde". Přesně to se stalo.
+   */
+  const nahled = require(path.join(DIST, 'zkusebna/nahled.js'));
+  const hlavy = nahled.__test.hlavicky('application/json; charset=utf-8');
+  check('náhled posílá hlavičku, bez které rámeček nic nestáhne',
+    [hlavy['access-control-allow-origin'], hlavy['cache-control']], ['*', 'no-store']);
+
   check('cesta produktu si nechá slug z e-shopu',
     stranky.cestaProduktu({ kod: 'KSA1', url: 'https://www.quentino.cz/p/detske-ksandy-modre' }),
     '/p/detske-ksandy-modre');

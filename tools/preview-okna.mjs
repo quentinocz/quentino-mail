@@ -129,7 +129,12 @@ try {
       { kod: 'KRA1', nazev: 'Kravata burgundská', url: '/p/kravata-burgundska', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([91, 29, 38], [120, 44, 54]), typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', velikosti: false, skladem: true },
       { kod: 'KRA2', nazev: 'Kravata šalvějová', url: '/p/kravata-salvejova', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([172, 194, 171], [140, 165, 140]), typ: 'kravata', varianta: 'kravata', hex: '#acc2ab', velikosti: false, skladem: true },
       { kod: 'MOT1', nazev: 'Motýlek kostkovaný', url: '/p/motylek-kostkovany', cena: '490 Kč', cenaCislo: 490, obrazek: '', vzorek: vzorekUrl([40, 70, 120], [230, 230, 225]), typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', velikosti: false, skladem: true },
-      { kod: 'KAP1', nazev: 'Kapesníček bílý', url: '/p/kapesnicek-bily', cena: '290 Kč', cenaCislo: 290, obrazek: '', vzorek: vzorekUrl([246, 246, 244], [238, 238, 236]), typ: 'kapesnicek', varianta: 'spicka', hex: '#f6f6f4', velikosti: false, skladem: true },
+      /*
+       * Vzorek jako **soubor**, ne jako text v seznamu. Tak to vypadá po
+       * vystavení na web: u čtyř set produktů by vzorky v seznamu dělaly
+       * dva megabajty, které si stáhne každý, kdo kabinu otevře.
+       */
+      { kod: 'KAP1', nazev: 'Kapesníček bílý', url: '/p/kapesnicek-bily', cena: '290 Kč', cenaCislo: 290, obrazek: '', vzorek: '/vzorek-kapesnicek.png', typ: 'kapesnicek', varianta: 'spicka', hex: '#f6f6f4', velikosti: false, skladem: true },
       { kod: 'KSA1', nazev: 'Kšandy hnědé', url: '/p/ksandy-hnede', cena: '890 Kč', cenaCislo: 890, obrazek: '', vzorek: vzorekUrl([90, 66, 49], [110, 82, 60]), typ: 'ksandy', varianta: 'uzke', hex: '#5a4231', velikosti: false, skladem: true },
       /*
        * Dětské kšandy s velikostmi — na nich se zkouší dvě věci, které
@@ -279,6 +284,12 @@ const server = http.createServer((req, res) => {
     });
   }
 
+  if (rel === 'vzorek-kapesnicek.png') {
+    const base64 = JSON.parse(KABINA_DATA).produkty
+      .find(one => one.kod === 'KRA2').vzorek.split(',')[1];
+    res.writeHead(200, { 'Content-Type': 'image/png' });
+    return res.end(Buffer.from(base64, 'base64'));
+  }
   if (rel === 'kabina-data.json') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     return res.end(KABINA_DATA);
@@ -2243,7 +2254,18 @@ for (const okno of OKNA) {
     vyberKapesnicku.kategorie === '/kapesnicky', vyberKapesnicku.kategorie || 'žádný');
 
   await page.locator('.qkb-mrizka .qkb-karta').first().click();
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(900);
+
+  /*
+   * Vzorek stažený jako soubor. Po vystavení na web jsou takhle všechny:
+   * v seznamu je jen adresa, obrázek se stáhne teprve tehdy, až je ten
+   * kus na modelu. Jinak by si každý zákazník stáhl dva megabajty
+   * vzorků, ze kterých uvidí jeden.
+   */
+  say('vzorek ze souboru se stáhne, až je kus na modelu',
+    await page.evaluate(() => performance.getEntriesByType('resource')
+      .some(one => /vzorek-kapesnicek\.png/.test(one.name))),
+    'vzorek-kapesnicek.png');
 
   /*
    * A teď to hlavní: zvolená barva musí na plátně vyjít **přesně**.

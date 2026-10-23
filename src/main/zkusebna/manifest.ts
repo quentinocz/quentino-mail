@@ -82,6 +82,15 @@ export interface KabinaNastaveni {
    * ukazovala na quentino.cz a v náhledu by se nedalo proklikat nic.
    */
   url?: (p: ZkProdukt) => string;
+  /**
+   * Adresa vzorku látky místo jeho obsahu.
+   *
+   * Vzorek je kousek fotky produktu a v seznamu je jako text — u čtyř
+   * set produktů z toho jsou **dva megabajty**, které si stáhne každý,
+   * kdo kabinu otevře, a potřebuje z nich jeden. Když se vzorky vystaví
+   * jako soubory, stáhne se jen ten, co je zrovna na modelu.
+   */
+  vzorek?: (p: ZkProdukt) => string;
 }
 
 /**
@@ -114,9 +123,17 @@ export function kabina(
       .filter(one => maPostavu.has(one.postava))
       .map(one => ({ postava: one.postava, typ: one.typ, varianta: one.varianta, url: adresa(one) }))
       .filter(one => !!one.url),
-    produkty: nastaveni.url
-      ? proKabinu(produktu).map(p => ({ ...p, url: nastaveni.url!(p), trhy: undefined }))
-      : proKabinu(produktu),
+    produkty: proKabinu(produktu).map(p => {
+      if (!nastaveni.url && !nastaveni.vzorek) return p;
+      return {
+        ...p,
+        url: nastaveni.url ? nastaveni.url(p) : p.url,
+        /* V náhledu se adresy přepisují na vlastní, takže cizí jazykové
+           verze by vedly na quentino.cz — tam se proklikat nedá */
+        trhy: nastaveni.url ? undefined : p.trhy,
+        vzorek: nastaveni.vzorek ? nastaveni.vzorek(p) : p.vzorek
+      };
+    }),
     katalog: {
       poradi: [...ZK_PORADI],
       vrstvy: ZK_VRSTVY.map(one => ({

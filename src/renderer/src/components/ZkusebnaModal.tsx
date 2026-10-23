@@ -230,7 +230,17 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
               </button>
             </div>
             {nahled?.url
-              ? <iframe className="zk-ramec" src={nahled.url} title="Zkušební kabina" sandbox="allow-scripts allow-downloads" />
+              ? (
+                /*
+                 * `allow-same-origin` tu musí být. Bez něj má rámeček původ
+                 * „null", takže mu prohlížeč zakáže sáhnout na vlastní
+                 * seznam i na paměť — kabina pak ukázala jen „Teď to nejde"
+                 * a minimalizace se neměla kam uložit. Obsah rámečku je
+                 * naše vlastní stránka z vlastního protokolu, ne cizí web.
+                 */
+                <iframe className="zk-ramec" src={nahled.url} title="Zkušební kabina"
+                  sandbox="allow-scripts allow-same-origin allow-downloads" />
+              )
               : <div className="zk-prazdno">Náhled se připravuje…</div>}
           </div>
         )}

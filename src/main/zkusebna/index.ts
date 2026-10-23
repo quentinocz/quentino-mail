@@ -305,12 +305,12 @@ export function nahledKabiny(): { url: string; velikost: ReturnType<typeof velik
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   const klicovac = new Map(hotove.map(one => [`${one.postava}:${one.typ}:${one.varianta}`, one]));
   const { url, data } = stashKabinu(
-    (klic, adresaProduktu) => kabina(v => {
+    (klic, adresaProduktu, adresaVzorku) => kabina(v => {
       const mam = klicovac.get(`${v.postava}:${v.typ}:${v.varianta}`);
       return mam?.soubor ? `${KABINA_SCHEME}://nahled/${klic}/vrstva/${jmenoVrstvy(v)}` : '';
     }, 400, {
       kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt(),
-      url: adresaProduktu
+      url: adresaProduktu, vzorek: adresaVzorku
     }),
     hotove
   );
@@ -342,8 +342,8 @@ export function ulozVyber(co: Partial<KabinaVyber>): void {
 export async function vystav(hlas?: (p: VystavPrubeh) => void) {
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   return vystavKabinu(
-    adresa => kabina(adresa, 400, {
-      kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt()
+    (adresa, vzorek) => kabina(adresa, 400, {
+      kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt(), vzorek
     }),
     hotove,
     { vyber: vyberNaWebu(), hlas }

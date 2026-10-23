@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { protocol, net } from 'electron';
+import { protocol } from 'electron';
 import { ZkProdukt, ZkVrstva } from '../../shared/zkusebna';
 import { kabinaScript } from '../kabina/script';
 import { Kabina } from './manifest';
@@ -42,6 +42,15 @@ interface Nahled {
   data: string;
   soubory: Map<string, string>;
   produkty: NahledProdukt[];
+  /**
+   * Vzorky látek jako soubory, ne jako text v seznamu.
+   *
+   * Kousek látky z fotky má pár kilobajtů, jenže produktů jsou čtyři
+   * stovky — v seznamu to dělalo **dva megabajty**, které by si stáhl
+   * každý zákazník, co kabinu otevře, a většinu z nich nikdy nevidí.
+   * Takhle se stáhne jen ten vzorek, který je zrovna na modelu.
+   */
+  vzorky: Map<string, Buffer>;
   /** Co se v náhledu „vložilo do košíku". */
   kosik: NahledKosik[];
 }
@@ -55,6 +64,23 @@ export function registerKabinaScheme(): void {
     scheme: KABINA_SCHEME,
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
   }]);
+}
+
+/**
+ * Hlavičky ke každé odpovědi náhledu.
+ *
+ * `access-control-allow-origin` tu není z rozmaru: rámeček v okně běží
+ * v sandboxu, takže má **původ „null"** a každý jeho požadavek je pro
+ * prohlížeč cizí. Bez téhle hlavičky se seznam nestáhne a kabina v okně
+ * ukáže jen „Teď to nejde" — přesně to se stalo. Nic to neotevírá:
+ * tenhle protokol obsluhuje jen náhled, který aplikace sama připravila.
+ */
+function hlavicky(typ: string): Record<string, string> {
+  return {
+    'content-type': typ,
+    'cache-control': 'no-store',
+    'access-control-allow-origin': '*'
+  };
 }
 
 export function serveKabina(): void {
@@ -74,28 +100,22 @@ export function serveKabina(): void {
         pocet: Number(poleFormulare(telo, 'quantity')) || 1
       });
       return new Response(JSON.stringify({ ok: true, kusu: nahled.kosik.length }), {
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
+        headers: hlavicky('application/json; charset=utf-8')
       });
     }
 
     if (casti.length === 1 || casti[1] === 'index.html') {
-      return new Response(nahled.html, {
-        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
-      });
+      return new Response(nahled.html, { headers: hlavicky('text/html; charset=utf-8') });
     }
     if (casti[1] === 'kabina.js') {
-      return new Response(nahled.skript, {
-        headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' }
-      });
+      return new Response(nahled.skript, { headers: hlavicky('text/javascript; charset=utf-8') });
     }
     if (casti[1] === 'data.json') {
-      return new Response(nahled.data, {
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
-      });
+      return new Response(nahled.data, { headers: hlavicky('application/json; charset=utf-8') });
     }
     if (casti[1] === 'kosik') {
       return new Response(kosikStranka(klic, nahled.kosik, nahled.produkty), {
-        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+        headers: hlavicky('text/html; charset=utf-8')
       });
     }
     if (casti[1] === 'p') {
@@ -103,13 +123,23 @@ export function serveKabina(): void {
       const produkt = nahled.produkty.find(one => one.cesta === hledana);
       if (!produkt) return new Response('Produkt není.', { status: 404 });
       return new Response(detailStranka(klic, produkt, nahled.produkty), {
-        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }
+        headers: hlavicky('text/html; charset=utf-8')
       });
     }
     if (casti[1] === 'vrstva') {
       const soubor = nahled.soubory.get(casti.slice(2).join('/'));
       if (!soubor || !fs.existsSync(soubor)) return new Response('Vrstva není.', { status: 404 });
-      return net.fetch(`file://${soubor}`);
+      /*
+       * Obrázek vrstvy se čte na plátno s `crossOrigin="anonymous"`, takže
+       * i on potřebuje hlavičku — bez ní by se plátno „ušpinilo" a model
+       * by se nedal složit.
+       */
+      return new Response(new Uint8Array(fs.readFileSync(soubor)), { headers: hlavicky('image/png') });
+    }
+    if (casti[1] === 'vzorek') {
+      const data = nahled.vzorky.get(decodeURIComponent(casti.slice(2).join('/')).replace(/\.png$/, ''));
+      if (!data) return new Response('Vzorek není.', { status: 404 });
+      return new Response(new Uint8Array(data), { headers: hlavicky('image/png') });
     }
     return new Response('Nenalezeno.', { status: 404 });
   });
@@ -127,7 +157,7 @@ export function jmenoVrstvy(v: ZkVrstva): string {
  * rámeček nechal to, co už jednou načetl, a náhled by se přestal měnit.
  */
 export function stashKabinu(
-  postav: (klic: string, url: (p: ZkProdukt) => string) => Kabina,
+  postav: (klic: string, url: (p: ZkProdukt) => string, vzorek: (p: ZkProdukt) => string) => Kabina,
   vrstvy: ZkVrstva[]
 ): { url: string; data: Kabina } {
   pocitadlo += 1;
@@ -138,7 +168,17 @@ export function stashKabinu(
    * pak se ukládal podruhé, aby se značka nahradila — tedy dvakrát tatáž
    * práce jen kvůli pořadí dvou řádků.
    */
-  const data = postav(klic, p => `/${klic}${cestaProduktu(p)}`);
+  const vzorky = new Map<string, Buffer>();
+  const data = postav(
+    klic,
+    p => `/${klic}${cestaProduktu(p)}`,
+    p => {
+      const shoda = /^data:image\/png;base64,(.+)$/.exec(p.vzorek || '');
+      if (!shoda) return p.vzorek || '';
+      vzorky.set(p.kod, Buffer.from(shoda[1], 'base64'));
+      return `/${klic}/vzorek/${encodeURIComponent(p.kod)}.png`;
+    }
+  );
   const soubory = new Map<string, string>();
   for (const v of vrstvy) {
     if (v.soubor) soubory.set(jmenoVrstvy(v), v.soubor);
@@ -155,6 +195,7 @@ export function stashKabinu(
     velikosti: p.velikostiSeznam ?? []
   }));
   const nahled: Nahled = {
+    vzorky,
     html: '',
     skript: kabinaScript({ zdroj: `/${klic}/data.json`, ttl: 30 }),
     data: JSON.stringify(data),
@@ -174,3 +215,5 @@ export function stashKabinu(
 export function kosikNahledu(klic: string): { cislo: string; optionSet: string; pocet: number }[] {
   return stranky.get(klic)?.kosik ?? [];
 }
+
+export const __test = { hlavicky };

@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { getSetting, setSetting } from '../db';
 import { webStorage } from '../webtexts';
-import { ZkVrstva } from '../../shared/zkusebna';
+import { ZkProdukt, ZkVrstva } from '../../shared/zkusebna';
 import { kabinaScript } from './script';
 import { kabinaLoader, KabinaVyber } from './loader';
 import { Kabina } from '../zkusebna/manifest';
@@ -114,6 +114,11 @@ export function cestaVrstvy(v: Pick<ZkVrstva, 'postava' | 'typ' | 'varianta'>): 
   return `${CESTA}/vrstvy/${v.postava}/${v.typ}-${v.varianta}.png`;
 }
 
+/** Jméno souboru se vzorkem látky. */
+export function cestaVzorku(kod: string): string {
+  return `${CESTA}/vzorky/${String(kod).replace(/[^\w.-]+/g, '-')}.png`;
+}
+
 export interface VystavVysledek {
   kdy: string;
   /** Adresa kabiny — tu nese zavaděč v šabloně. */
@@ -135,11 +140,24 @@ export interface VystavVysledek {
  * opravdu zkouší to, co poběží na e-shopu.
  */
 export async function vystavKabinu(
-  postav: (adresa: (v: ZkVrstva) => string) => Kabina,
+  postav: (adresa: (v: ZkVrstva) => string, vzorek?: (p: ZkProdukt) => string) => Kabina,
   vrstvy: ZkVrstva[],
   moznosti: { ttl?: number; vyber?: Partial<KabinaVyber>; hlas?: (p: VystavPrubeh) => void } = {}
 ): Promise<VystavVysledek> {
   const hlas = moznosti.hlas ?? (() => undefined);
+  /*
+   * Seznam se staví dvakrát. Napoprvé se z něj vezmou vzorky látek —
+   * ty jsou v něm jako text a u čtyř set produktů dělají dva megabajty,
+   * které by si stáhl každý zákazník. Vystaví se jako soubory a
+   * napodruhé se do seznamu dají jejich adresy, takže se stáhne jen
+   * ten vzorek, který je zrovna na modelu.
+   */
+  const prvni = postav(v => verejnaAdresa(cestaVrstvy(v)));
+  const vzorky = new Map<string, Buffer>();
+  for (const p of prvni.produkty) {
+    const shoda = /^data:image\/png;base64,(.+)$/.exec(p.vzorek || '');
+    if (shoda) vzorky.set(p.kod, Buffer.from(shoda[1], 'base64'));
+  }
   const data = postav(v => verejnaAdresa(cestaVrstvy(v)));
   /* Vystavují se jen vrstvy, které jsou v seznamu — co kabina nepoužívá,
      by v úložišti jen leželo a platilo se za to */
@@ -159,6 +177,19 @@ export async function vystavKabinu(
     hlas({ hotovo: i, celkem, co: `Vystavuji ${vrstva.typ} ${vrstva.varianta}` });
     let telo: Buffer;
     try { telo = fs.readFileSync(vrstva.soubor!); } catch { continue; }
+    const otisk = crypto.createHash('sha1').update(telo).digest('hex');
+    if (zname[cesta] === otisk) { preskocenych += 1; continue; }
+    await nahraj(cesta, new Uint8Array(telo), 'image/png', 'max-age=31536000, immutable');
+    nove[cesta] = otisk;
+    nahranych += 1;
+    bajtu += telo.length;
+  }
+
+  let hotovychVzorku = 0;
+  for (const [kod, telo] of vzorky) {
+    const cesta = cestaVzorku(kod);
+    hotovychVzorku += 1;
+    hlas({ hotovo: kVystaveni.length, celkem, co: `Vystavuji vzorky (${hotovychVzorku} z ${vzorky.size})` });
     const otisk = crypto.createHash('sha1').update(telo).digest('hex');
     if (zname[cesta] === otisk) { preskocenych += 1; continue; }
     await nahraj(cesta, new Uint8Array(telo), 'image/png', 'max-age=31536000, immutable');
