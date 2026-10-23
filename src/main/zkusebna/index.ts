@@ -43,6 +43,7 @@ export function prehled(): ZkPrehled {
     }),
     maKlic: obrazky.maKlic(),
     model: obrazky.model().id,
+    kvalita: getSetting('obrazkyKvalita', 'high')!,
     modely: obrazky.MODELY,
     utrata: obrazky.utrata(),
     produkty: {

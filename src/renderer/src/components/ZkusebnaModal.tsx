@@ -3,7 +3,7 @@ import type {
   ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
   ZkVrstvaProOkno, ZkVrstvaTyp
 } from '@shared/zkusebna';
-import { ZK_BARVY, ZK_VRSTVY, vrstvaDef } from '@shared/zkusebna';
+import { ZK_BARVY, ZK_KVALITY, ZK_VRSTVY, dilKvality, vrstvaDef } from '@shared/zkusebna';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -159,11 +159,16 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
   };
 
   /* Kolik by stálo dogenerovat, co chybí — než se klikne, ne až potom */
+  /* Odhad musí počítat i s kvalitou — v nízké stojí obrázek čtvrtinu */
+  const cenaObrazku = useMemo(() => {
+    const zaklad = prehled?.modely.find(one => one.id === prehled?.model)?.cena ?? 0.05;
+    return zaklad * dilKvality(prehled?.kvalita ?? 'high');
+  }, [prehled]);
+
   const odhad = useMemo(() => {
     if (!prehled || !stav) return 0;
-    const cena = prehled.modely.find(one => one.id === prehled.model)?.cena ?? 0.19;
-    return Math.round((stav.chystanych - stav.vrstev) * cena * 100) / 100;
-  }, [prehled, stav]);
+    return Math.round((stav.chystanych - stav.vrstev) * cenaObrazku * 100) / 100;
+  }, [prehled, stav, cenaObrazku]);
 
   /* ---------------------------------------------------------- výpis */
 
@@ -484,6 +489,34 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                       <span className="desc">{m.popis}</span>
                       <span className="desc">asi {m.cena} $ za obrázek</span>
                     </div>
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h3>Kvalita kreslení</h3>
+              <p className="desc">
+                Jeden obrázek ve vysoké kvalitě stojí čtyřikrát tolik co v nízké a postav je devět
+                po dvaadvaceti vrstvách. Projet řetěz nejdřív nízkou kvalitou stojí pár korun a
+                ukáže to podstatné — jestli model drží postavu mezi kroky a jestli vrstvy sedí.
+                Načisto se pak dogeneruje ve vysoké.
+              </p>
+              <div className="zk-modely">
+                {ZK_KVALITY.map(k => (
+                  <label key={k.id} className={`zk-model ${nastaveni.kvalita === k.id ? 'sel' : ''}`}>
+                    <input type="radio" name="zkkvalita" checked={nastaveni.kvalita === k.id}
+                      onChange={async () => {
+                        await api.zk.nastav({ kvalita: k.id });
+                        setNastaveni(await api.zk.nastaveni());
+                        void nactiPrehled();
+                      }} />
+                    <b>{k.nazev}</b>
+                    <span className="desc">{k.popis}</span>
+                    <span className="desc">
+                      asi {Math.round((prehled?.modely.find(one => one.id === prehled?.model)?.cena ?? 0.05)
+                        * k.dil * 1000) / 1000} $ za obrázek
+                    </span>
                   </label>
                 ))}
               </div>

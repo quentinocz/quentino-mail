@@ -1,5 +1,6 @@
 import { getSetting, setSetting } from '../db';
 import { decrypt } from '../secure';
+import { dilKvality } from '../../shared/zkusebna';
 import { Obraz, nacti, uloz } from './png';
 
 /**
@@ -114,7 +115,7 @@ export function zapisUtratu(pocet = 1): void {
   const mesic = new Date().toISOString().slice(0, 7);
   const klicZapisu = `obrazkyUtrata:${mesic}`;
   const ted = cislo(klicZapisu, 0);
-  setSetting(klicZapisu, String(ted + pocet * model().cena));
+  setSetting(klicZapisu, String(ted + pocet * cenaObrazku()));
   const kusy = `obrazkyKusy:${mesic}`;
   setSetting(kusy, String(cislo(kusy, 0) + pocet));
 }
@@ -297,9 +298,21 @@ export async function dokresli(zadani: string, vstup: Obraz, maska?: Obraz): Pro
   return posli('/images/edits', telo);
 }
 
+/**
+ * Cena jednoho obrázku při dnešním nastavení.
+ *
+ * Cena u modelu platí pro vysokou kvalitu; nižší kvalita je násobkem
+ * levnější. Bez toho by evidence utrácení tvrdila, že zkušební běh
+ * v nízké kvalitě stál totéž co ten načisto — a strop by se vyčerpal
+ * čtyřikrát rychleji, než se opravdu utratilo.
+ */
+export function cenaObrazku(): number {
+  return Math.round(model().cena * dilKvality(getSetting('obrazkyKvalita', 'high')!) * 1000) / 1000;
+}
+
 /** Kolik by stálo vygenerovat daný počet obrázků. */
 export function odhadCeny(kusu: number): number {
-  return Math.round(kusu * model().cena * 100) / 100;
+  return Math.round(kusu * cenaObrazku() * 100) / 100;
 }
 
 export const __test = { znovu, posli };

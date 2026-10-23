@@ -669,6 +669,118 @@ console.log('\nvzhled k nákupu');
     zk.radaVelikosti({ ...KSANDY, velikostiSeznam: [{ kod: 'X', popis: 'Délka: 70 cm', skladem: true }] }, dite).kod === 'X');
 }
 
+/* ---------- 8c. ujetý krok: tón, posun a kreslení mimo pruh ---------- */
+
+console.log('\nkdyž model ujede');
+
+{
+  /*
+   * Tohle je ta chyba z ostrého provozu: krátké vlasy vyšly na 23 %
+   * postavy místo tří procent. Model nevrátí obrázek beze změny ani tam,
+   * kam sáhnout neměl — celek je o stupeň světlejší, o dva body
+   * posunutý, a někde navíc překreslený. Rozdíl dvou kroků to pak vezme
+   * všechno jako „kus látky".
+   *
+   * Zkouší se to na kresbě, ne na vygenerovaných obrázcích: každý pokus
+   * u modelu stojí peníze a tohle se musí dát proměřit zadarmo.
+   */
+  const vrstvy = require(path.join(DIST, 'zkusebna/vrstvy.js'));
+  const P = { id: 'dospely-bezny', vek: 'dospely', telo: 'bezny', vyskaCm: 180, sirka: SIRKA, vyska: VYSKA };
+
+  /* Kravata leží v horní polovině trupu — do pruhu pro ten kus */
+  const kravata = { x: 56, y: 52, w: 8, h: 40 };
+  const sKravatou = sePřidaným(pred, kravata, [120, 40, 30]);
+
+  const zdravy = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, sKravatou, 'zkouška');
+  ok('čistý krok projde a vrstva je ta kravata',
+    zdravy.vrstva.stav === 'hotovo' && Math.abs(zdravy.vrstva.okraje.x - kravata.x) <= 3,
+    `${zdravy.vrstva.stav}, ${(zdravy.vrstva.podil * 100).toFixed(1)} % postavy`);
+
+  /*
+   * 1. Celý obrázek o stupeň světlejší. Čtrnáct stupňů na složku je přes
+   * práh rozdílu, takže bez srovnání tónu se jako „kus látky" označí celá
+   * postava — tohle je ta chyba z ostrého provozu.
+   */
+  const svetlejsi = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(sKravatou.body) };
+  for (let i = 0; i < svetlejsi.body.length; i += 4) {
+    if (svetlejsi.body[i + 3] < 128) continue;
+    for (let k = 0; k < 3; k++) svetlejsi.body[i + k] = Math.min(255, svetlejsi.body[i + k] + 14);
+  }
+  /* Nejdřív se ukáže, že bez opravy je to opravdu průšvih — jinak by
+     zkouška níž mohla projít i s vypnutým srovnáním tónu */
+  const bezOpravy = px.okraje(px.uklid(px.rozdil(pred, svetlejsi), SIRKA, VYSKA), SIRKA, VYSKA);
+  ok('  bez srovnání tónu by vrstva spolkla celou postavu',
+    bezOpravy.podil > 0.2, `${(bezOpravy.podil * 100).toFixed(1)} % plátna`);
+  const poTonu = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, svetlejsi, 'zkouška');
+  ok('celkové projasnění vrstvu nezvětší',
+    poTonu.vrstva.stav === 'hotovo' && poTonu.vrstva.podil < zdravy.vrstva.podil * 1.5,
+    `${poTonu.vrstva.stav}, ${(poTonu.vrstva.podil * 100).toFixed(1)} % místo ${(zdravy.vrstva.podil * 100).toFixed(1)} %`);
+
+  /* 2. Překreslené boty, když se obléká kravata — mimo pruh, nezajímá nás to */
+  const sBotami = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(sKravatou.body) };
+  for (let y = 160; y < 176; y++) {
+    for (let x = 40; x < 80; x++) {
+      const i = (y * SIRKA + x) * 4;
+      if (sBotami.body[i + 3] < 128) continue;
+      sBotami.body[i] = 20; sBotami.body[i + 1] = 20; sBotami.body[i + 2] = 20;
+    }
+  }
+  const poBotach = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, sBotami, 'zkouška');
+  ok('co model překreslil mimo pruh, do vrstvy nepatří',
+    poBotach.vrstva.stav === 'hotovo'
+    && poBotach.vrstva.okraje.y + poBotach.vrstva.okraje.h < 140,
+    `vrstva končí na ${poBotach.vrstva.okraje.y + poBotach.vrstva.okraje.h}, boty byly na 160+`);
+  /*
+   * A hlavně: krok, ze kterého se obléká dál, musí být mimo pruh bod po
+   * bodu ten původní. Jinak se odchylky přes dvaadvacet kroků sčítají a
+   * po deseti má postava jiný odstín pleti než na začátku.
+   */
+  let stejne = true;
+  for (let y = 150; y < VYSKA && stejne; y++) {
+    for (let x = 0; x < SIRKA; x++) {
+      const i = (y * SIRKA + x) * 4;
+      for (let k = 0; k < 4; k++) {
+        if (poBotach.krok.body[i + k] !== pred.body[i + k]) { stejne = false; break; }
+      }
+      if (!stejne) break;
+    }
+  }
+  ok('  a krok pro další oblékání zůstal mimo pruh nedotčený', stejne);
+
+  /*
+   * Základ se kontroluje dřív, než se na něj začne oblékat. Je to ta
+   * nejlevnější kontrola v kabině: postava stojí jeden obrázek, oblečení
+   * dvaadvacet.
+   */
+  const zkontroluj = vrstvy.__test.zkontrolujPostavu;
+  check('postava, co se vejde celá, projde',
+    zkontroluj({ x: 30, y: 10, w: 60, h: 160, podil: 0.3 }, VYSKA), '');
+  ok('useknutá nahoře neprojde',
+    /nahoře/.test(zkontroluj({ x: 30, y: 0, w: 60, h: 170, podil: 0.3 }, VYSKA)));
+  ok('useknutá dole taky ne',
+    /dole/.test(zkontroluj({ x: 30, y: 8, w: 60, h: 172, podil: 0.3 }, VYSKA)));
+  ok('prázdné plátno se pozná',
+    /prázdné plátno/.test(zkontroluj({ x: 0, y: 0, w: 2, h: 2, podil: 0.001 }, VYSKA)));
+  ok('detail místo celé figury taky',
+    /detail/.test(zkontroluj({ x: 2, y: 10, w: 116, h: 160, podil: 0.8 }, VYSKA)));
+  ok('a moc malá postava se nepustí dál',
+    /moc malá/.test(zkontroluj({ x: 40, y: 40, w: 30, h: 60, podil: 0.12 }, VYSKA)));
+
+  /* 3. Skutečné přemalování uvnitř pruhu se ale zatajit nesmí */
+  const prekreslene = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(sKravatou.body) };
+  for (let y = 40; y < 110; y++) {
+    for (let x = 36; x < 84; x++) {
+      const i = (y * SIRKA + x) * 4;
+      if (prekreslene.body[i + 3] < 128) continue;
+      prekreslene.body[i] = 30; prekreslene.body[i + 1] = 90; prekreslene.body[i + 2] = 200;
+    }
+  }
+  const poPrekresleni = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, prekreslene, 'zkouška');
+  ok('překreslený trup se pozná a vrstva se neuloží',
+    poPrekresleni.vrstva.stav === 'nesedi' && !poPrekresleni.vrstva.soubor,
+    poPrekresleni.vrstva.potiz);
+}
+
 /* ---------- 8b. zadání pro kreslení ---------- */
 
 console.log('\nzadání pro model');

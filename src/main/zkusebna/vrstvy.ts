@@ -68,15 +68,43 @@ export function okrajePostavy(obraz: Obraz): px.Okraje {
  * odřízla. Když je volba vypnutá, modelu se maska neposílá vůbec a
  * spoléhá se jen na zadání.
  */
+/**
+ * Pruh, ve kterém kus látky leží.
+ *
+ * Jedno místo pro tři věci, které spolu **musí** souhlasit: co se pošle
+ * modelu jako maska, odkud se bere rozdíl dvou kroků a co se z nového
+ * kroku vůbec převezme. Kdyby se každá z nich počítala zvlášť, stačilo
+ * by změnit jednu mez a vrstva by se brala odjinud, než kam model směl
+ * kreslit — a nikdo by nepoznal proč.
+ */
+export function pruhKusu(
+  typ: ZkVrstvaTyp,
+  postava: px.Okraje,
+  vyska: number
+): { od: number; do: number } {
+  const k = vrstvaDef(typ).kontrola;
+  /* Rezerva kolem mezí: límec saka sahá o kousek výš, než se čeká, a
+     tvrdá hranice by ho odřízla */
+  const rezerva = 0.07;
+  return {
+    od: Math.max(0, Math.round(postava.y + (k.odY - rezerva) * postava.h)),
+    do: Math.min(vyska, Math.round(postava.y + (k.doY + rezerva) * postava.h))
+  };
+}
+
+/**
+ * Maska, kterou se modelu omezí, kam smí kreslit.
+ *
+ * Průhledné místo znamená „tady uprav", neprůhledné „tady nech". Když je
+ * volba vypnutá, modelu se maska neposílá vůbec a spoléhá se jen na
+ * zadání.
+ */
 export function maskaProKus(typ: ZkVrstvaTyp, postava: px.Okraje, sirka: number, vyska: number): Obraz | undefined {
   if (getSetting('zkMaska', '1') !== '1') return undefined;
-  const k = vrstvaDef(typ).kontrola;
-  const rezerva = 0.07;
-  const od = Math.max(0, Math.round(postava.y + (k.odY - rezerva) * postava.h));
-  const doKam = Math.min(vyska, Math.round(postava.y + (k.doY + rezerva) * postava.h));
+  const pruh = pruhKusu(typ, postava, vyska);
   const maska = novyObraz(sirka, vyska);
   for (let y = 0; y < vyska; y++) {
-    const upravit = y >= od && y <= doKam;
+    const upravit = y >= pruh.od && y <= pruh.do;
     for (let x = 0; x < sirka; x++) {
       const i = (y * sirka + x) * 4;
       maska.body[i + 3] = upravit ? 0 : 255;
@@ -101,9 +129,8 @@ export async function vygenerujPostavu(id: string): Promise<ZkPostava> {
   const zadani = zadaniPostavyTed(p.vek, p.telo);
   const obraz = await obrazky.nakresli(zadani, { sirka: p.sirka, vyska: p.vyska });
   const kde = okrajePostavy(obraz);
-  if (kde.podil < 0.08) {
-    throw new Error('Na obrázku skoro nic není — model nakreslil prázdné plátno nebo samé pozadí.');
-  }
+  const potiz = zkontrolujPostavu(kde, obraz.vyska);
+  if (potiz) throw new Error(potiz);
 
   const krok = store.cestaKroku(id, 0, 'postava');
   fs.writeFileSync(krok, uloz(obraz));
@@ -123,6 +150,32 @@ export async function vygenerujPostavu(id: string): Promise<ZkPostava> {
   store.zapisPostavu(hotova, zadani);
   hlas({ postava: id, typ: 'postava', stav: 'hotovo' });
   return hotova;
+}
+
+/**
+ * Je postava použitelná jako základ?
+ *
+ * Kontroluje se dřív, než se na ni začne oblékat — a je to ta
+ * nejlevnější kontrola v celé kabině. Postava stojí jeden obrázek,
+ * oblečení dvaadvacet: nakreslit dvaadvacet vrstev na postavu, které
+ * chybí půlka bot, znamená zaplatit dvaadvacetkrát za něco, co se stejně
+ * zahodí.
+ *
+ * Mezera u okraje musí být, protože výška se počítá od temene
+ * k podrážce. Postava uříznutá dole vypadá vyšší, než je, a každý kus
+ * oblečení pak sedí o kousek jinam.
+ */
+export function zkontrolujPostavu(kde: px.Okraje, vyska: number): string {
+  if (kde.podil < 0.08) {
+    return 'Na obrázku skoro nic není — model nakreslil prázdné plátno nebo samé pozadí.';
+  }
+  if (kde.podil > 0.75) {
+    return 'Postava zabírá skoro celé plátno — nejspíš je to detail, ne celá figura.';
+  }
+  if (kde.y <= 2) return 'Postava je useknutá nahoře — od temene se počítá výška, takže se musí vejít celá.';
+  if (kde.y + kde.h >= vyska - 2) return 'Postava je useknutá dole — nohy musí být celé, od nich se měří výška.';
+  if (kde.h < vyska * 0.5) return 'Postava je na plátně moc malá — vrstvy by z ní vyšly rozmazané.';
+  return '';
 }
 
 /* ---------------------------------------------------------------- vrstva */
@@ -165,16 +218,21 @@ export async function vygenerujVrstvu(
 
   const vysledek = vrstvaZKroku(p, typ, varianta, pred, po, zadani);
 
-  /* Krok se ukládá vždycky — i nepovedený, aby bylo vidět, co model udělal */
+  /*
+   * Ukládá se **slepený** krok, ne to, co přišlo od modelu: mimo pruh je
+   * v něm bod po bodu původní obrázek. Další kus se tedy obléká na
+   * postavu, která se od prvního kroku nezměnila, a drobné odchylky se
+   * přes dvaadvacet kroků nesčítají.
+   */
   const poradi = ZK_VRSTVY.findIndex(one => one.typ === typ);
   const krok = store.cestaKroku(postavaId, poradi, `${typ}-${varianta}`);
-  fs.writeFileSync(krok, uloz(po));
+  fs.writeFileSync(krok, uloz(vysledek.krok));
   const kanonicka = def.varianty[0].id === varianta;
-  if (kanonicka && vysledek.stav !== 'nesedi') store.zapisKrok(postavaId, poradi, typ, krok);
+  if (kanonicka && vysledek.vrstva.stav !== 'nesedi') store.zapisKrok(postavaId, poradi, typ, krok);
 
-  store.zapisVrstvu(vysledek);
-  hlas({ postava: postavaId, typ, varianta, stav: vysledek.stav, potiz: vysledek.potiz });
-  return { vrstva: vysledek, krok };
+  store.zapisVrstvu(vysledek.vrstva);
+  hlas({ postava: postavaId, typ, varianta, stav: vysledek.vrstva.stav, potiz: vysledek.vrstva.potiz });
+  return { vrstva: vysledek.vrstva, krok };
 }
 
 /**
@@ -187,7 +245,7 @@ export function vrstvaZKroku(
   pred: Obraz,
   po: Obraz,
   zadani: string
-): ZkVrstva {
+): { vrstva: ZkVrstva; krok: Obraz } {
   const def = vrstvaDef(typ);
   const kdePostava = okrajePostavy(pred);
   /*
@@ -200,7 +258,23 @@ export function vrstvaZKroku(
     : { x: kdePostava.x, y: kdePostava.y, w: kdePostava.w, h: Math.max(8, Math.round(kdePostava.h * 0.12)) };
   const posun = px.zarovnej(pred, po, kotva, 6);
 
-  const maska = px.uklid(px.rozdil(pred, po, posun), pred.sirka, pred.vyska);
+  /*
+   * Tři kroky, než se vůbec začne počítat rozdíl. Každý z nich zahazuje
+   * jeden způsob, jakým model „ujede":
+   *
+   *  1. **posun zpátky** — obrázek jako celek odnesený o pár bodů,
+   *  2. **srovnání tónu** — celek o kousek světlejší nebo teplejší,
+   *  3. **slepení** — cokoli překresleného mimo pruh, kde se obléká.
+   *
+   * Bez nich vyjde jako „kus látky" půlka postavy: krátké vlasy se
+   * naměřily na 23 % postavy místo tří procent, protože model vrátil
+   * všechno o stupeň jinak.
+   */
+  const srovnany = posunObraz(po, -posun.dx, -posun.dy);
+  const pruh = pruhKusu(typ, kdePostava, pred.vyska);
+  const slepeny = px.slep(pred, px.srovnejTon(pred, srovnany, pruh), pruh);
+
+  const maska = px.uklid(px.rozdil(pred, slepeny), pred.sirka, pred.vyska);
   const kde = px.okraje(maska, pred.sirka, pred.vyska);
   const podilNaPostave = kdePostava.podil > 0 ? kde.podil / kdePostava.podil : 0;
   const potiz = zkontrolujVrstvu(
@@ -209,27 +283,25 @@ export function vrstvaZKroku(
     { y: kdePostava.y, h: kdePostava.h }
   );
 
-  /*
-   * Posunutý krok se před výřezem posune zpátky, aby vrstva sedla na
-   * postavu, a ne na to, kam ji model odnesl.
-   */
-  const srovnany = posunObraz(po, -posun.dx, -posun.dy);
-  const obraz = def.barvitelna ? px.stinovaMapa(srovnany, maska) : px.vyrizni(srovnany, maska);
+  const obraz = def.barvitelna ? px.stinovaMapa(slepeny, maska) : px.vyrizni(slepeny, maska);
 
   const soubor = store.cestaVrstvy(p.id, typ, varianta);
   if (!potiz) fs.writeFileSync(soubor, uloz(obraz));
 
   return {
-    postava: p.id, typ, varianta,
-    soubor: potiz ? '' : soubor,
-    url: '',
-    sirka: pred.sirka, vyska: pred.vyska,
-    podil: podilNaPostave,
-    okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
-    stav: potiz ? 'nesedi' : 'hotovo',
-    potiz,
-    zadani,
-    kdy: new Date().toISOString()
+    vrstva: {
+      postava: p.id, typ, varianta,
+      soubor: potiz ? '' : soubor,
+      url: '',
+      sirka: pred.sirka, vyska: pred.vyska,
+      podil: podilNaPostave,
+      okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
+      stav: potiz ? 'nesedi' : 'hotovo',
+      potiz,
+      zadani,
+      kdy: new Date().toISOString()
+    },
+    krok: slepeny
   };
 }
 
@@ -323,4 +395,4 @@ export async function vygenerujVse(postavaId: string, jenChybejici = true): Prom
   return { hotovo, nesedi, potize };
 }
 
-export const __test = { maskaProKus, okrajePostavy, posunObraz, vrstvaZKroku };
+export const __test = { maskaProKus, pruhKusu, okrajePostavy, posunObraz, vrstvaZKroku, zkontrolujPostavu };

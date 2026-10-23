@@ -2066,13 +2066,25 @@ for (const okno of OKNA) {
     kategorii: document.querySelectorAll('.zk-kategorie label').length,
     kategoriePolí: document.querySelectorAll('.zk-kategorie input').length,
     prvniKategorie: document.querySelector('.zk-kategorie input')?.value ?? '',
+    kvality: [...document.querySelectorAll('.zk-nastaveni input[name="zkkvalita"]')].length,
+    cenaKvality: ([...document.querySelectorAll('.zk-nastaveni .zk-model')]
+      .find(one => /Nízká/.test(one.textContent ?? ''))?.textContent ?? '')
+      .replace(/\s+/g, ' ').trim(),
     dil: [...document.querySelectorAll('.zk-nastaveni .desc')]
       .map(one => one.textContent.replace(/\s+/g, ' ').trim())
       .find(one => /120 cm →/.test(one)) ?? ''
   }));
   say('nastavení drží klíč, model, strop i větu o osobní radě',
-    nastaveni.sekci.length === 8 && nastaveni.modely >= 2,
+    nastaveni.sekci.length === 9 && nastaveni.modely >= 2,
     nastaveni.sekci.join(' · '));
+  /*
+   * Cena za obrázek musí být vidět u každé kvality. Projet řetěz nízkou
+   * kvalitou stojí čtvrtinu — a to je rozdíl mezi „zkusím to" a „radši
+   * ne".
+   */
+  say('  a u kvality je vidět, co stojí obrázek',
+    nastaveni.kvality === 3 && /za obrázek/.test(nastaveni.cenaKvality),
+    nastaveni.cenaKvality);
   say('  a je vidět, kolik se tenhle měsíc utratilo',
     /utraceno/.test(nastaveni.utrata), nastaveni.utrata.slice(0, 60));
   /* Zavaděč je to jediné, co se vkládá do šablony — musí jít zkopírovat */

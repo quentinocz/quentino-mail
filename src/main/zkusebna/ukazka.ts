@@ -459,7 +459,7 @@ export function postavUkazku(id: string): { hotovo: number; nesedi: string[] } {
     for (let i = 0; i < def.varianty.length; i++) {
       const varianta = def.varianty[i].id;
       const po = kresliKus(p, zaklad, def.typ, varianta);
-      const vrstva = vrstvaZKroku(p, def.typ, varianta, zaklad, po, 'ukázková kresba');
+      const { vrstva } = vrstvaZKroku(p, def.typ, varianta, zaklad, po, 'ukázková kresba');
       store.zapisVrstvu(vrstva);
       if (vrstva.stav === 'nesedi') {
         nesedi.push(`${vrstvaDef(def.typ).nazev} (${def.varianty[i].nazev}): ${vrstva.potiz}`);

@@ -1280,6 +1280,39 @@ export interface ZkPostavaStav {
   schvalenych: number;
 }
 
+/**
+ * Kvalita kreslení — a co stojí.
+ *
+ * ## Proč je to vidět v okně
+ *
+ * Jeden obrázek ve vysoké kvalitě stojí několikrát tolik co v nízké a
+ * postav je devět po dvaadvaceti vrstvách. Projet celý řetěz nejdřív
+ * nízkou kvalitou stojí pár korun a ukáže **to podstatné**: jestli
+ * model drží postavu mezi kroky a jestli vrstvy sedí. Teprve co projde,
+ * má smysl kreslit načisto.
+ *
+ * Podíl je orientační — přesnou cenu určuje počet obrazových tokenů,
+ * který se liší i podle rozměru. Na rozhodnutí „zkusit levně, pak
+ * načisto" to stačí.
+ */
+export interface ZkKvalita {
+  id: string;
+  nazev: string;
+  popis: string;
+  /** Kolikrát je to dražší než nízká kvalita. */
+  dil: number;
+}
+
+export const ZK_KVALITY: ZkKvalita[] = [
+  { id: 'low', nazev: 'Nízká', popis: 'Na zkoušku řetězu — levné, hrubší.', dil: 0.25 },
+  { id: 'medium', nazev: 'Střední', popis: 'Kompromis; na posouzení tvaru stačí.', dil: 0.5 },
+  { id: 'high', nazev: 'Vysoká', popis: 'Načisto. Tohle uvidí zákazník.', dil: 1 }
+];
+
+export function dilKvality(id: string): number {
+  return ZK_KVALITY.find(one => one.id === id)?.dil ?? 1;
+}
+
 export interface ZkObrazkovyModel {
   id: string;
   nazev: string;
@@ -1292,6 +1325,8 @@ export interface ZkPrehled {
   postavy: ZkPostavaStav[];
   maKlic: boolean;
   model: string;
+  /** Kvalita, ve které se teď kreslí — rozhoduje o ceně. */
+  kvalita: string;
   modely: ZkObrazkovyModel[];
   utrata: { mesic: string; usd: number; kusu: number; strop: number };
   produkty: { zarazenych: number; sBarvou: number; schvalenych: number };

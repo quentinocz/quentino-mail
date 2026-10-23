@@ -72,6 +72,85 @@ export function zarovnej(
   return nej.chyba === Number.POSITIVE_INFINITY ? { dx: 0, dy: 0, chyba: 0 } : nej;
 }
 
+
+/* ------------------------------------------------- srovnání dvou kroků */
+
+/**
+ * Srovná celkový tón nového kroku podle toho starého.
+ *
+ * ## Proč to vůbec je
+ *
+ * Model obrázek nevrací beze změny ani tam, kam neměl sáhnout: celek
+ * vyjde o kousek světlejší nebo teplejší. Člověk to nepozná, ale rozdíl
+ * dvou kroků ano — a pak se jako „kus látky" označí celá postava.
+ * Přesně takhle vyšly krátké vlasy na 23 % postavy místo tří procent.
+ *
+ * ## Jak se to měří
+ *
+ * Posun se bere **mimo pruh**, kde se kreslit nemělo, takže ho nemůže
+ * zkreslit samotný kus látky. Z rozdílů se bere medián, ne průměr:
+ * průměr by utáhlo pár bodů, kde se opravdu něco změnilo.
+ */
+export function srovnejTon(pred: Obraz, po: Obraz, pruh: { od: number; do: number }): Obraz {
+  const vzorky: number[][] = [[], [], []];
+  for (let y = 0; y < pred.vyska; y++) {
+    if (y >= pruh.od && y <= pruh.do) continue;
+    for (let x = 0; x < pred.sirka; x += 2) {
+      const i = (y * pred.sirka + x) * 4;
+      /* Průhledné pozadí nic neříká — počítá se jen tam, kde je postava */
+      if (pred.body[i + 3] < 200 || po.body[i + 3] < 200) continue;
+      for (let k = 0; k < 3; k++) vzorky[k].push(po.body[i + k] - pred.body[i + k]);
+    }
+  }
+  const posun = vzorky.map(one => {
+    if (one.length < 64) return 0;
+    const serazene = one.slice().sort((a, b) => a - b);
+    return serazene[Math.floor(serazene.length / 2)];
+  });
+  if (posun.every(one => one === 0)) return po;
+
+  const out = novyObraz(po.sirka, po.vyska);
+  for (let i = 0; i < po.body.length; i += 4) {
+    for (let k = 0; k < 3; k++) {
+      out.body[i + k] = Math.max(0, Math.min(255, po.body[i + k] - posun[k]));
+    }
+    out.body[i + 3] = po.body[i + 3];
+  }
+  return out;
+}
+
+/**
+ * Z nového kroku vezme jen pruh, kde se kreslit mělo; zbytek je původní.
+ *
+ * ## Proč se to slepuje
+ *
+ * Maska modelu říká, kam smí kreslit, ale nezaručuje, že zbytek vrátí
+ * **bod po bodu stejný** — vrací překreslený obrázek, který se jinde jen
+ * velmi podobá. Při dvaadvaceti krocích se ty drobné odchylky sčítají a
+ * postava se postupně mění: po deseti krocích má jiný odstín pleti než
+ * na začátku a vrstvy přestanou sedět.
+ *
+ * Slepením se to zastaví úplně: co je mimo pruh, je pořád ten první
+ * obrázek, bod po bodu. Model tedy nemůže ujet jinam než tam, kde se
+ * zrovna obléká — a rozdíl dvou kroků pak nemůže obsahovat nic jiného
+ * než ten kus látky.
+ */
+export function slep(pred: Obraz, po: Obraz, pruh: { od: number; do: number }): Obraz {
+  const out = novyObraz(pred.sirka, pred.vyska);
+  for (let y = 0; y < pred.vyska; y++) {
+    const zNoveho = y >= pruh.od && y <= pruh.do;
+    for (let x = 0; x < pred.sirka; x++) {
+      const i = (y * pred.sirka + x) * 4;
+      const zdroj = zNoveho ? po : pred;
+      out.body[i] = zdroj.body[i];
+      out.body[i + 1] = zdroj.body[i + 1];
+      out.body[i + 2] = zdroj.body[i + 2];
+      out.body[i + 3] = zdroj.body[i + 3];
+    }
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ maska */
 
 /**

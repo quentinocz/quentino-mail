@@ -107,10 +107,11 @@
     return {
       postavy: postavy,
       maKlic: true,
-      model: 'gpt-image-1.5',
+      model: 'gpt-image-2.5-sunburst',
+      kvalita: 'high',
       modely: [
-        { id: 'gpt-image-1.5', nazev: 'gpt-image-1.5', popis: 'Drží zadání i vstupní obrázek.', verny: 'navolbu', cena: 0.19 },
-        { id: 'gpt-image-2', nazev: 'gpt-image-2', popis: 'Vstupní obrázek drží vždy.', verny: 'vzdy', cena: 0.22 }
+        { id: 'gpt-image-2.5-sunburst', nazev: 'gpt-image-2.5 Sunburst', popis: 'Nejpřesnější v úpravách.', verny: 'vzdy', cena: 0.05 },
+        { id: 'gpt-image-2.5-flare', nazev: 'gpt-image-2.5 Flare', popis: 'Rychlejší, na kreslení od nuly.', verny: 'vzdy', cena: 0.05 }
       ],
       utrata: { mesic: '2026-10', usd: 6.84, kusu: 36, strop: 40 },
       produkty: { zarazenych: 412, sBarvou: 388, schvalenych: 120 },
@@ -150,7 +151,7 @@
   ],
   'zk:nahled': { url: '/kabina.html', velikost: { seznamKb: 86.4, postav: 3, vrstev: 54, produktu: 180 } },
   'zk:nastaveni': {
-    maKlic: true, model: 'gpt-image-1.5', kvalita: 'high', maska: true, strop: 40,
+    maKlic: true, model: 'gpt-image-2.5-sunburst', kvalita: 'high', maska: true, strop: 40,
     kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' },
     kategorie: { kapesnicek: { cz: '/kapesnicky', sk: '', en: '' } },
     ksandyDil: 0.62,
