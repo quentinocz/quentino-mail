@@ -6,7 +6,7 @@ import type {
 } from '@shared/videoedit';
 import {
   osa, delkaVidea, klipyTrhu, zvukTrhu, textTitulku, potize, cas, vyrez, vyrezStyl, rozdel, doladeni,
-  PRECHODY, STYLY, POZICE, POMERY, BARVY, ZAROVNANI, MIN_KLIP
+  PRECHODY, STYLY, POZICE, POMERY, BARVY, ZAROVNANI, MIN_KLIP, FORMATY, formatDef
 } from '@shared/videoedit';
 import { api } from '../../api';
 import { useToast } from '../../toast';
@@ -1978,6 +1978,34 @@ export default function IgVideo({ overview, postId, onBack }: Props) {
             <em>Video se publikuje jako reel. Bez zaškrtnutí zůstane jen v reelech, ne v mřížce.</em>
           </span>
         </label>
+
+        {/*
+          * Formát výstupu. Není to kosmetika: na Instagram projde
+          * spolehlivě jen H.264 v MP4, kdežto na web je WebM poloviční
+          * a HEVC udělá z téhož videa menší soubor, který ale starší
+          * zařízení nepřehrají. Proto je u každé volby napsané, kam se
+          * hodí, a u těch mimo Instagram i varování.
+          */}
+        <div className="qv-format">
+          <b>Formát výstupu</b>
+          <div className="qv-format-volby">
+            {FORMATY.map(f => (
+              <button key={f.id} className={formatDef(p.format).id === f.id ? 'on' : ''}
+                title={f.popis}
+                onClick={() => {
+                  const dalsi = { ...p, format: f.id };
+                  setP(dalsi);
+                  if (postId) api.ig.videoSave(dalsi).then(setP).catch((err: any) => toast(err.message, 'error'));
+                }}>
+                {f.nazev}
+              </button>
+            ))}
+          </div>
+          <em className="desc">
+            {formatDef(p.format).popis}
+            {!formatDef(p.format).proInstagram && ' Na Instagram tohle neposílej — převede si to sám a hůř.'}
+          </em>
+        </div>
 
         {chyby.length > 0 && (
           <div className="warn-box">

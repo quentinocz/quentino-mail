@@ -133,10 +133,16 @@ export function registerIgIpc() {
   handle('ig:videoPick', () => ig.pickKlipy());
   handle('ig:videoPickAudio', () => ig.pickZvuk());
   handle('ig:videoProbe', (soubor: string) => ig.videoPopis(String(soubor ?? '')));
-  handle('ig:videoUrl', (soubor: string) => {
+  handle('ig:videoUrl', async (soubor: string) => {
     // Adresa se vydá jen pro soubor, který už je v projektu nebo ve znělkách
     ig.povolSoubor(String(soubor ?? ''));
-    return mediaUrl(String(soubor ?? ''));
+    /*
+     * Co si okno nepřehraje (HEVC z iPhonu, .mts z kamery, ProRes, .avi),
+     * dostane náhledovou kopii v H.264. Střih i vykreslení pracují dál
+     * s originálem — tohle je jen proto, aby bylo v okně co vidět.
+     */
+    const kam = await ig.nahledVidea(String(soubor ?? ''));
+    return mediaUrl(kam);
   });
   handle('ig:videoRecord', (postId: number, lang: string, bytes: any, pripona?: string) =>
     ig.saveNahravka(Number(postId), String(lang ?? ''), new Uint8Array(bytes ?? []), String(pripona || 'webm')));

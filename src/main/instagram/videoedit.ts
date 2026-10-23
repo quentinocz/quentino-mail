@@ -45,10 +45,10 @@ import { getSettings } from '../settings';
 import * as store from './store';
 import {
   osa, delkaVidea, klipyTrhu, zvukTrhu, textTitulku, potize, vyrez,
-  POMERY, PRECHODY, prazdnyProjekt, MIN_KLIP
+  POMERY, PRECHODY, prazdnyProjekt, MIN_KLIP, formatDef, VSTUPNI_PRIPONY
 } from '../../shared/videoedit';
 import type {
-  VidProjekt, VidKlip, VidTitulek, VidZvuk, VidZnelka, VidPomer
+  VidProjekt, VidKlip, VidTitulek, VidZvuk, VidZnelka, VidPomer, VidFormat
 } from '../../shared/videoedit';
 
 /* ---------- uložení projektu ---------- */
@@ -117,7 +117,7 @@ export async function addZnelka(kam: VidZnelka['kam'] = 'kamkoli'): Promise<VidZ
   const pick = await dialog.showOpenDialog(okno ?? undefined as any, {
     title: 'Video na začátek nebo na konec',
     properties: ['openFile'],
-    filters: [{ name: 'Videa', extensions: ['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'] }]
+    filters: [{ name: 'Videa', extensions: VSTUPNI_PRIPONY }]
   });
   if (pick.canceled || pick.filePaths.length === 0) return znelky();
 
@@ -182,6 +182,43 @@ export interface VidPopis {
   vyska: number;
   /** Má soubor zvukovou stopu? Bez toho by `atrim` spadl na neexistující stopě. */
   zvuk: boolean;
+  /** Kodek obrazu, jak ho hlásí ffmpeg: `h264`, `hevc`, `prores`… */
+  kodek?: string;
+  /** Kodek zvuku. */
+  kodekZvuku?: string;
+  /**
+   * Přehraje si tenhle soubor okno samo?
+   *
+   * Ffmpeg přečte skoro cokoli, ale **okno je prohlížeč** a ten umí jen
+   * pár kodeků v pár schránkách. Video z iPhonu (HEVC v MOV), záznam
+   * z kamery (.mts), ProRes ze střižny ani cokoli v .avi nebo .mkv se
+   * v náhledu nepřehraje — zůstane černá plocha a vypadá to, že
+   * aplikace nefunguje. Pro takové soubory se udělá náhledová kopie.
+   */
+  prehratelne?: boolean;
+}
+
+/**
+ * Co si okno přehraje samo.
+ *
+ * Schránka i kodek musí sedět obojí: H.264 v `.mkv` prohlížeč nepřehraje,
+ * i když kodek zná. Seznam je schválně úzký — co v něm není, dostane
+ * náhledovou kopii, a ta vždycky funguje.
+ */
+export const PREHRATELNE_SCHRANKY = ['mp4', 'm4v', 'mov', 'webm'];
+export const PREHRATELNE_OBRAZ = ['h264', 'vp8', 'vp9', 'av1'];
+export const PREHRATELNE_ZVUK = ['aac', 'mp3', 'opus', 'vorbis', 'flac', 'pcm_s16le', 'pcm_s24le'];
+
+export function umiOknoPrehrat(
+  soubor: string,
+  kodek: string | undefined,
+  kodekZvuku: string | undefined
+): boolean {
+  const pripona = (/\.([a-z0-9]+)$/i.exec(soubor)?.[1] ?? '').toLowerCase();
+  if (!PREHRATELNE_SCHRANKY.includes(pripona)) return false;
+  if (kodek && !PREHRATELNE_OBRAZ.includes(kodek)) return false;
+  if (kodekZvuku && !PREHRATELNE_ZVUK.includes(kodekZvuku)) return false;
+  return true;
 }
 
 /**
@@ -207,13 +244,89 @@ export async function popis(soubor: string): Promise<VidPopis> {
   if (!v && delka === 0) {
     throw new Error(`Soubor „${path.basename(soubor)}" se nepodařilo přečíst jako video.`);
   }
+  const kodek = /Stream #\d+:\d+[^\n]*: Video:\s*([a-z0-9_]+)/i.exec(text)?.[1]?.toLowerCase();
+  const kodekZvuku = /Stream #\d+:\d+[^\n]*: Audio:\s*([a-z0-9_]+)/i.exec(text)?.[1]?.toLowerCase();
   return {
     soubor,
     delka,
     sirka: v ? Number(v[1]) : 0,
     vyska: v ? Number(v[2]) : 0,
-    zvuk: /Stream #\d+:\d+[^\n]*: Audio:/.test(text)
+    zvuk: /Stream #\d+:\d+[^\n]*: Audio:/.test(text),
+    kodek,
+    kodekZvuku,
+    prehratelne: umiOknoPrehrat(soubor, kodek, kodekZvuku)
   };
+}
+
+/* ---------- náhledová kopie ---------- */
+
+function nahledyDir(): string {
+  const dir = path.join(nahravkyDir(), '..', 'nahledy');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * Kopie souboru, kterou si okno přehraje.
+ *
+ * ## Proč vůbec
+ *
+ * Ffmpeg přečte skoro cokoli — HEVC z iPhonu, ProRes ze střižny, .mts
+ * z kamery, .avi i .mkv. Okno je ale prohlížeč a ten z toho neumí nic.
+ * Soubor se načetl, do střihu šel, jenže náhled zůstal černý a nešlo
+ * nastavit ani začátek záběru. Vypadalo to, že aplikace video nebere.
+ *
+ * ## Co se s tím dělá
+ *
+ * Udělá se **náhledová kopie** v H.264: jednou, do mezipaměti, a vrací
+ * se znovu, dokud se původní soubor nezmění. Střih i vykreslení pracují
+ * dál s originálem — do výsledku jde plná kvalita, ne tahle kopie.
+ *
+ * Velikost se shora omezí na 1280 bodů. Náhled v okně je menší a
+ * překódovat 4K z telefonu v plné velikosti trvá desítky vteřin, které
+ * by se jen čekalo.
+ */
+export async function nahledVidea(soubor: string): Promise<string> {
+  const stat = fs.existsSync(soubor) ? fs.statSync(soubor) : null;
+  if (!stat) return soubor;
+
+  let info: VidPopis;
+  try { info = await popis(soubor); } catch { return soubor; }
+  if (info.prehratelne) return soubor;
+
+  const otisk = crypto.createHash('sha1')
+    .update(`${path.resolve(soubor)}|${stat.size}|${Math.round(stat.mtimeMs)}`)
+    .digest('hex').slice(0, 16);
+  const cil = path.join(nahledyDir(), `${otisk}.mp4`);
+  if (fs.existsSync(cil) && fs.statSync(cil).size > 0) { povol(cil); return cil; }
+
+  const tool = await findFfmpeg();
+  if (!tool.ok) return soubor;
+
+  const args = [
+    '-y', '-hide_banner', '-v', 'error',
+    '-i', soubor,
+    '-map', '0:v:0', '-map', '0:a:0?',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26',
+    /* Poměr stran zůstává — náhled se podle něj v okně měří */
+    '-vf', "scale='min(1280,iw)':-2",
+    '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-b:a', '128k',
+    '-movflags', '+faststart',
+    cil
+  ];
+  const hotovo = await new Promise<boolean>(resolve => {
+    const proc = spawn(tool.path, args);
+    proc.on('error', () => resolve(false));
+    proc.on('close', code => resolve(code === 0));
+  });
+  if (!hotovo || !fs.existsSync(cil)) {
+    /* Když se kopie nepovede, ať si okno zkusí originál — hůř už nebude */
+    try { fs.rmSync(cil, { force: true }); } catch { /* nic */ }
+    return soubor;
+  }
+  povol(cil);
+  return cil;
 }
 
 export async function pickKlipy(): Promise<VidPopis[]> {
@@ -221,7 +334,7 @@ export async function pickKlipy(): Promise<VidPopis[]> {
   const pick = await dialog.showOpenDialog(okno ?? undefined as any, {
     title: 'Vyber videa',
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Videa', extensions: ['mp4', 'mov', 'm4v', 'webm', 'avi', 'mkv'] }]
+    filters: [{ name: 'Videa', extensions: VSTUPNI_PRIPONY }]
   });
   if (pick.canceled) return [];
   const out: VidPopis[] = [];
@@ -236,7 +349,10 @@ export async function pickZvuk(): Promise<VidPopis | null> {
   const pick = await dialog.showOpenDialog(okno ?? undefined as any, {
     title: 'Vyber zvuk',
     properties: ['openFile'],
-    filters: [{ name: 'Zvuk a video', extensions: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'mp4', 'mov'] }]
+    filters: [{
+      name: 'Zvuk a video',
+      extensions: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', ...VSTUPNI_PRIPONY]
+    }]
   });
   if (pick.canceled || pick.filePaths.length === 0) return null;
   return popis(pick.filePaths[0]);
@@ -350,6 +466,8 @@ export interface VidPlan {
   zvuk: VidZvuk;
   /** Má nahrazující zvuk vlastní vstup? Pak je to index v `-i`. */
   zvukVstup: number;
+  /** V čem se vykresluje — rozhoduje o kodeku i o schránce. */
+  format?: VidFormat;
 }
 
 /**
@@ -515,6 +633,56 @@ function delkaSkupiny(plan: VidPlan, g: number[]): number {
   return g.reduce((s, i) => s + (plan.klipy[i].do - plan.klipy[i].od), 0);
 }
 
+/**
+ * Přepínače kodeku podle zvoleného formátu.
+ *
+ * Tři věci, na kterých to padá, když se odbydou:
+ *
+ *  * **`-tag:v hvc1` u HEVC** — bez téhle značky Apple soubor přehrát
+ *    odmítne; QuickTime ukáže černou plochu a vypadá to na rozbité video,
+ *  * **`faststart` jen u MP4 a MOV** — WebM ho nezná a ffmpeg by na něm
+ *    skončil chybou,
+ *  * **zvuk podle schránky** — AAC do MP4 a MOV, Opus do WebM. AAC ve
+ *    WebM přehrávače tiše mlčí, takže by vyšlo video beze zvuku.
+ */
+export function kodekArgy(format: string | undefined): string[] {
+  const def = formatDef(format);
+  if (def.id === 'webm-vp9') {
+    return [
+      '-c:v', 'libvpx-vp9',
+      /* Nulový bitrate znamená „řiď se jen kvalitou"; bez něj VP9 crf ignoruje */
+      '-b:v', '0', '-crf', '32',
+      /* Bez vláken na řádky trvá VP9 na dlouhém videu násobně déle */
+      '-row-mt', '1',
+      '-pix_fmt', 'yuv420p'
+    ];
+  }
+  if (def.id === 'mp4-hevc' || def.id === 'mov-hevc') {
+    return [
+      '-c:v', 'libx265',
+      '-tag:v', 'hvc1',
+      '-preset', 'medium',
+      '-crf', '24',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart'
+    ];
+  }
+  /*
+   * H.264 v `high` s `yuv420p`: Instagram si cokoli jiného převede sám
+   * a obvykle hůř. `faststart` přesune hlavičku na začátek — bez ní
+   * Meta u videa hlásí chyby řady 22070xx, protože si ho nedokáže
+   * přehrát bez stažení celého souboru.
+   */
+  return [
+    '-c:v', 'libx264',
+    '-profile:v', 'high',
+    '-preset', 'veryfast',
+    '-crf', '20',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart'
+  ];
+}
+
 /** Celý příkaz. Oddělené od spouštění, ať se dá zkoušet bez ffmpegu. */
 export function ffmpegArgy(plan: VidPlan, cil: string): string[] {
   const args = ['-y', '-hide_banner'];
@@ -526,22 +694,18 @@ export function ffmpegArgy(plan: VidPlan, cil: string): string[] {
 
   const { filtr, video, audio } = stavbaFiltru(plan);
   args.push('-filter_complex', filtr, '-map', `[${video}]`);
-  if (audio) args.push('-map', `[${audio}]`, '-c:a', 'aac', '-b:a', '128k', '-ar', '48000');
-  else args.push('-an');
+  if (audio) {
+    const doWebm = formatDef(plan.format).id === 'webm-vp9';
+    args.push('-map', `[${audio}]`,
+      ...(doWebm
+        ? ['-c:a', 'libopus', '-b:a', '128k']
+        : ['-c:a', 'aac', '-b:a', '128k', '-ar', '48000']));
+  } else {
+    args.push('-an');
+  }
 
   args.push(
-    '-c:v', 'libx264',
-    /*
-     * H.264 v `high` s `yuv420p`: Instagram si cokoli jiného převede sám
-     * a obvykle hůř. `faststart` přesune hlavičku na začátek — bez ní
-     * Meta u videa hlásí chyby řady 22070xx, protože si ho nedokáže
-     * přehrát bez stažení celého souboru.
-     */
-    '-profile:v', 'high',
-    '-preset', 'veryfast',
-    '-crf', '20',
-    '-pix_fmt', 'yuv420p',
-    '-movflags', '+faststart',
+    ...kodekArgy(plan.format),
     '-r', '30',
     '-t', plan.delka.toFixed(3),
     cil
@@ -632,10 +796,11 @@ export async function vykresli(
       vyska: rozmer.vyska,
       delka,
       zvuk,
-      zvukVstup: zvuk.druh === 'soubor' && zvuk.soubor ? klipy.length + overlays.length : -1
+      zvukVstup: zvuk.druh === 'soubor' && zvuk.soubor ? klipy.length + overlays.length : -1,
+      format: p.format
     };
 
-    const cil = vystup(postId, lang);
+    const cil = vystup(postId, lang, p.format);
     const args = ffmpegArgy(plan, cil);
 
     await new Promise<void>((resolve, reject) => {
@@ -669,7 +834,7 @@ export async function vykresli(
     /* Hotové video se hned stane médiem toho trhu, ať se dá publikovat */
     store.setPostMedia(postId, [{
       path: cil,
-      mime: 'video/mp4',
+      mime: formatDef(p.format).mime,
       isVideo: true,
       width: rozmer.sirka,
       height: rozmer.vyska
@@ -681,10 +846,10 @@ export async function vykresli(
   }
 }
 
-function vystup(postId: number, lang: string): string {
+function vystup(postId: number, lang: string, format?: string): string {
   const dir = path.join(nahravkyDir(), '..', 'videa', String(postId));
   fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, `${lang}-${Date.now()}.mp4`);
+  return path.join(dir, `${lang}-${Date.now()}.${formatDef(format).pripona}`);
 }
 
 /* ---------- písma ---------- */
@@ -800,7 +965,15 @@ export function pismoSoubor(soubor: string): string {
  * zveřejní. Dostat ho z aplikace ven by jinak znamenalo hledat ho
  * v datech aplikace — cesta, kterou nikdo nezná a znát nemá.
  */
-function nazevSouboru(postId: number, lang: string): string {
+/**
+ * Jméno souboru i s příponou podle toho, **čím se vykreslilo**.
+ *
+ * Přípona se bere z hotového souboru, ne z nastavení projektu: kdo
+ * vykreslil v MP4 a pak přepnul na WebM, má na disku pořád to MP4 — a
+ * uložit ho pod jménem `.webm` by znamenalo soubor, který se nikde
+ * neotevře.
+ */
+function nazevSouboru(postId: number, lang: string, pripona = 'mp4'): string {
   let zaklad = '';
   try {
     const post = store.getPost(postId);
@@ -816,7 +989,13 @@ function nazevSouboru(postId: number, lang: string): string {
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 48);
-  return `${cisty || `prispevek-${postId}`}-${lang}.mp4`;
+  return `${cisty || `prispevek-${postId}`}-${lang}.${pripona}`;
+}
+
+/** Přípona hotového souboru — ta skutečná, ne ta zamýšlená. */
+function priponaHotoveho(soubor: string): string {
+  const m = /\.([a-z0-9]{2,5})$/i.exec(String(soubor || ''));
+  return m ? m[1].toLowerCase() : 'mp4';
 }
 
 /** Uloží video jednoho trhu tam, kam uživatel ukáže. */
@@ -826,10 +1005,11 @@ export async function ulozVideo(postId: number, lang: string): Promise<string> {
     throw new Error(`Pro trh ${lang} zatím žádné vykreslené video není.`);
   }
   const okno = BrowserWindow.getFocusedWindow();
+  const pripona = priponaHotoveho(hotovo.soubor);
   const kam = await dialog.showSaveDialog(okno ?? undefined as any, {
     title: `Uložit video pro ${lang}`,
-    defaultPath: path.join(app.getPath('downloads'), nazevSouboru(postId, lang)),
-    filters: [{ name: 'Video', extensions: ['mp4'] }]
+    defaultPath: path.join(app.getPath('downloads'), nazevSouboru(postId, lang, pripona)),
+    filters: [{ name: 'Video', extensions: [pripona] }]
   });
   if (kam.canceled || !kam.filePath) return '';
   fs.copyFileSync(hotovo.soubor, kam.filePath);
@@ -859,10 +1039,12 @@ export async function ulozVidea(postId: number, langs?: string[]): Promise<strin
 
   const out: string[] = [];
   for (const lang of kandidati) {
-    let cil = path.join(kam.filePaths[0], nazevSouboru(postId, lang));
+    const pripona = priponaHotoveho(hotovo[lang].soubor);
+    const jmeno = nazevSouboru(postId, lang, pripona);
+    let cil = path.join(kam.filePaths[0], jmeno);
     // Starší soubor se nepřepíše — nikdo nečeká, že uložení něco smaže
     for (let i = 2; fs.existsSync(cil); i++) {
-      cil = path.join(kam.filePaths[0], nazevSouboru(postId, lang).replace(/\.mp4$/, `-${i}.mp4`));
+      cil = path.join(kam.filePaths[0], jmeno.replace(new RegExp(`\\.${pripona}$`), `-${i}.${pripona}`));
     }
     fs.copyFileSync(hotovo[lang].soubor, cil);
     out.push(cil);
@@ -902,7 +1084,9 @@ export function setDoMrizky(postId: number, on: boolean): VidProjekt {
   return saveProjekt(p);
 }
 
-export const __test = { stavbaFiltru, ffmpegArgy, vytahniJson, nazevSouboru };
+export const __test = {
+  stavbaFiltru, ffmpegArgy, kodekArgy, vytahniJson, nazevSouboru, priponaHotoveho, umiOknoPrehrat
+};
 
 export type { VidProjekt, VidKlip, VidTitulek, VidZvuk, VidZnelka };
 export { delkaVidea };

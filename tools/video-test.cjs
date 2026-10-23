@@ -390,6 +390,106 @@ if (!FF) {
     ok('ani po něm', !zaTitulkem.every(v => v > 200), zaTitulkem.join(','));
   }
 
+  /* ---------- co si okno přehraje samo ---------- */
+
+  /*
+   * Ffmpeg přečte skoro cokoli, ale **okno je prohlížeč**. Video z iPhonu
+   * (HEVC v MOV), záznam z kamery (.mts), ProRes ze střižny ani nic
+   * v .avi nebo .mkv se v náhledu nepřehraje — zůstane černá plocha a
+   * vypadá to, že aplikace video nebere. Přesně tohle hlásil uživatel.
+   * Pro takové soubory se dělá náhledová kopie v H.264; tady se zkouší
+   * rozhodnutí, kdy je potřeba.
+   */
+  check('běžné MP4 z telefonu si okno přehraje',
+    E.__test.umiOknoPrehrat('/x/klip.mp4', 'h264', 'aac'), true);
+  check('WebM s VP9 taky', E.__test.umiOknoPrehrat('/x/klip.webm', 'vp9', 'opus'), true);
+  check('HEVC z iPhonu ne — i když je to MOV',
+    E.__test.umiOknoPrehrat('/x/IMG_0042.MOV', 'hevc', 'aac'), false);
+  check('ProRes ze střižny ne', E.__test.umiOknoPrehrat('/x/zaber.mov', 'prores', 'pcm_s16le'), false);
+  check('H.264 v .mkv ne — schránku prohlížeč nezná',
+    E.__test.umiOknoPrehrat('/x/zaber.mkv', 'h264', 'aac'), false);
+  check('ani .avi', E.__test.umiOknoPrehrat('/x/stary.avi', 'mpeg4', 'mp3'), false);
+  check('záznam z kamery .mts ne', E.__test.umiOknoPrehrat('/x/00001.MTS', 'h264', 'ac3'), false);
+  check('MP4 s AC-3 zvukem ne — obraz by šel, zvuk ne',
+    E.__test.umiOknoPrehrat('/x/klip.mp4', 'h264', 'ac3'), false);
+
+  /* ---------- formáty výstupu ---------- */
+
+  /*
+   * Jedno video skončí na Instagramu, druhé na webu, třetí v mailu.
+   * Každé z těch míst chce něco jiného — a chyba se pozná až tam, kde
+   * se video nepřehraje. Proto se každý formát **opravdu vykreslí** a
+   * ffprobe se zeptá, co v souboru je.
+   *
+   * Hlídají se tři věci, na kterých to padá:
+   *  1. **kodek a schránka sedí** (HEVC v MP4, VP9 ve WebM…),
+   *  2. **zvuk podle schránky** — AAC do MP4/MOV, Opus do WebM; AAC ve
+   *     WebM přehrávače tiše mlčí a video je němé,
+   *  3. **značka `hvc1` u HEVC** — bez ní Apple ukáže černou plochu.
+   */
+  {
+    const probe = (soubor, proud) => spawnSync('ffprobe', ['-v', 'error',
+      '-select_streams', proud, '-show_entries', 'stream=codec_name,codec_tag_string',
+      '-of', 'default=nw=1:nk=1', soubor], { encoding: 'utf8' }).stdout.trim().split('\n');
+
+    const umi = spawnSync(FF, ['-hide_banner', '-encoders'], { encoding: 'utf8' }).stdout || '';
+    const cekane = {
+      'mp4-h264': { kodek: 'h264', zvuk: 'aac', encoder: 'libx264' },
+      'mp4-hevc': { kodek: 'hevc', zvuk: 'aac', encoder: 'libx265', tag: 'hvc1' },
+      'mov-h264': { kodek: 'h264', zvuk: 'aac', encoder: 'libx264' },
+      'mov-hevc': { kodek: 'hevc', zvuk: 'aac', encoder: 'libx265', tag: 'hvc1' },
+      'webm-vp9': { kodek: 'vp9', zvuk: 'opus', encoder: 'libvpx-vp9' }
+    };
+
+    for (const def of V.FORMATY) {
+      const co = cekane[def.id];
+      if (!umi.includes(co.encoder)) {
+        console.log(`  · ${def.nazev} přeskočeno — tenhle ffmpeg nemá ${co.encoder}`);
+        continue;
+      }
+      const soubor = path.join(dir, `format-${def.id}.${def.pripona}`);
+      /* Krátké video stačí: zkouší se, co v souboru je, ne jak vypadá */
+      const kratky = {
+        ...plan,
+        klipy: [{ soubor: cerveny, od: 0, do: 1, zvuk: true }],
+        prechody: [{ xfade: '', delka: 0 }],
+        overlays: [],
+        delka: 1,
+        format: def.id
+      };
+      let chyba = '';
+      try {
+        execFileSync(FF, ['-v', 'error', ...E.__test.ffmpegArgy(kratky, soubor)], { encoding: 'utf8' });
+      } catch (e) {
+        chyba = String(e.stderr || e.message).slice(0, 200);
+      }
+      if (chyba || !fs.existsSync(soubor)) {
+        ok(`${def.nazev}: video vznikne`, false, chyba);
+        continue;
+      }
+      const video = probe(soubor, 'v:0');
+      const zvuk = probe(soubor, 'a:0');
+      ok(`${def.nazev}: v souboru je ${co.kodek} a ${co.zvuk}`,
+        video[0] === co.kodek && zvuk[0] === co.zvuk,
+        `${video[0]} / ${zvuk[0] || 'bez zvuku'}`);
+      if (co.tag) {
+        ok(`  a značka hvc1, bez které to Apple nepřehraje`,
+          video[1] === 'hvc1', video[1] || 'žádná');
+      }
+    }
+
+    /* Přepínače se skládají podle formátu, ne podle nálady */
+    ok('WebM nedostane faststart, který nezná',
+      !E.__test.kodekArgy('webm-vp9').includes('-movflags'),
+      E.__test.kodekArgy('webm-vp9').join(' '));
+    ok('a MP4 ho dostane', E.__test.kodekArgy('mp4-h264').includes('+faststart'));
+    check('neznámý formát spadne zpátky na MP4 s H.264',
+      V.formatDef('nesmysl').id, 'mp4-h264');
+    check('hotový soubor se uloží s vlastní příponou',
+      [E.__test.priponaHotoveho('/x/y-cs-123.webm'), E.__test.priponaHotoveho('/x/bez-pripony')],
+      ['webm', 'mp4']);
+  }
+
   /*
    * Vlastní zvuk kratší než video. `apad` má doplnit ticho; kdyby tam
    * nebyl, `-shortest` by celý výstup uřízl na délku hudby a z pěti

@@ -471,7 +471,7 @@ export {
   projekt as videoProjekt, saveProjekt as saveVideoProjekt, pickKlipy, pickZvuk,
   popis as videoPopis, saveNahravka, prelozTitulky, vykresli as vykresliVideo,
   stopRender as stopVideoRender, znelky, addZnelka, saveZnelka, removeZnelka,
-  setDoMrizky, povolProjekt, povol as povolSoubor,
+  setDoMrizky, povolProjekt, povol as povolSoubor, nahledVidea,
   ulozVideo, ulozVidea, ukazVideo, novyVideoPrispevek,
   pisma, addPismo, pismoSoubor
 } from './videoedit';

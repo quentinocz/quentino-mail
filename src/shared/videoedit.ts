@@ -227,6 +227,82 @@ export const POMERY: Record<VidPomer, { nazev: string; sirka: number; vyska: num
   '16:9': { nazev: '16:9', sirka: 1920, vyska: 1080, popis: 'Na šířku, spíš na web než na Instagram.' }
 };
 
+/**
+ * V čem se video vykreslí.
+ *
+ * ## Proč je to na výběr
+ *
+ * Jedno video skončí na Instagramu, druhé na webu a třetí v mailu
+ * zákazníkovi. Každé z těch míst chce něco jiného: Instagram přijme
+ * spolehlivě jen H.264 v MP4, web ušetří polovinu dat s VP9 ve WebM a
+ * HEVC udělá z téhož videa poloviční soubor — ale přehraje ho jen to,
+ * co ho umí.
+ *
+ * ## Co je u každého důležité
+ *
+ *  * **`hvc1` u HEVC** — bez téhle značky Apple video nepřehraje
+ *    a QuickTime ukáže černou plochu, i když je soubor v pořádku.
+ *  * **`faststart` u MP4 a MOV** — přesune hlavičku na začátek, aby se
+ *    video dalo přehrát bez stažení celého souboru. Bez ní Meta hlásí
+ *    chyby řady 22070xx.
+ *  * **zvuk podle schránky** — AAC do MP4 a MOV, Opus do WebM; AAC ve
+ *    WebM je podle specifikace nepřípustný a přehrávače ho tiše mlčí.
+ */
+export type VidFormat = 'mp4-h264' | 'mp4-hevc' | 'mov-h264' | 'mov-hevc' | 'webm-vp9';
+
+export interface VidFormatDef {
+  id: VidFormat;
+  nazev: string;
+  popis: string;
+  pripona: string;
+  mime: string;
+  /** Přijme ho Instagram bez vlastního převodu? */
+  proInstagram: boolean;
+}
+
+export const FORMATY: VidFormatDef[] = [
+  {
+    id: 'mp4-h264', nazev: 'MP4 · H.264',
+    popis: 'Přehraje všechno. Tohle chce Instagram — a když si nejste jistí, tohle.',
+    pripona: 'mp4', mime: 'video/mp4', proInstagram: true
+  },
+  {
+    id: 'mp4-hevc', nazev: 'MP4 · HEVC (H.265)',
+    popis: 'Poloviční soubor při stejné kvalitě. Starší zařízení a některé weby ho nepřehrají.',
+    pripona: 'mp4', mime: 'video/mp4', proInstagram: false
+  },
+  {
+    id: 'mov-h264', nazev: 'MOV · H.264',
+    popis: 'Pro další střih na Macu — QuickTime a Final Cut s tím počítají.',
+    pripona: 'mov', mime: 'video/quicktime', proInstagram: false
+  },
+  {
+    id: 'mov-hevc', nazev: 'MOV · HEVC (H.265)',
+    popis: 'Totéž menší, jak to natáčí iPhone. Mimo Apple se na to nedá spolehnout.',
+    pripona: 'mov', mime: 'video/quicktime', proInstagram: false
+  },
+  {
+    id: 'webm-vp9', nazev: 'WebM · VP9',
+    popis: 'Na web: nejmenší soubor a přehraje ho každý prohlížeč. Na Instagram ne.',
+    pripona: 'webm', mime: 'video/webm', proInstagram: false
+  }
+];
+
+export function formatDef(id: string | undefined): VidFormatDef {
+  return FORMATY.find(one => one.id === id) ?? FORMATY[0];
+}
+
+/**
+ * Přípony, které jdou do střihu načíst.
+ *
+ * Co z toho ffmpeg umí přečíst, to projde — včetně HEVC z iPhonu
+ * (`.mov`) i videí z fotoaparátu (`.mts`). Seznam je jen pro dialog
+ * výběru souboru, ať se nemusí přepínat na „všechny soubory".
+ */
+export const VSTUPNI_PRIPONY = [
+  'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'hevc', 'h264', 'm2ts', 'mts', 'mpg', 'mpeg', '3gp', 'wmv', 'flv', 'ogv'
+];
+
 export interface VidHotovo {
   soubor: string;
   kdy: string;
@@ -237,6 +313,8 @@ export interface VidHotovo {
 export interface VidProjekt {
   postId: number;
   pomer: VidPomer;
+  /** V čem se vykreslí. Prázdné = MP4 s H.264, to vezme všude. */
+  format?: VidFormat;
   /** Jazyk, ze kterého se překládá. Bere se zdrojový účet, dá se přepsat. */
   zdroj: string;
   klipy: VidKlip[];
