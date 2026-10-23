@@ -25,6 +25,18 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 
 const server = http.createServer((req, res) => {
   const rel = (req.url || '/').split('?')[0].replace(/^\//, '') || 'index.html';
+  /*
+   * Náhled kabiny je v aplikaci stránka z vlastního protokolu, kterou
+   * připravuje hlavní proces — tady žádný není. Místo 404 se vydá
+   * zástupná stránka, aby se dalo měřit, jestli rámeček vyplní okno.
+   */
+  if (rel === 'kabina.html') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end('<!doctype html><html lang="cs"><head><meta charset="utf-8"><title>Kabina</title>'
+      + '<style>body{margin:0;display:grid;place-items:center;height:100vh;'
+      + "font:14px system-ui;color:#6b6579;background:#faf9fc}</style></head>"
+      + '<body>Náhled kabiny — v aplikaci sem patří stránka e-shopu</body></html>');
+  }
   fs.readFile(path.join(ROOT, rel), (err, data) => {
     if (err) { res.writeHead(404); return res.end('nenalezeno'); }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(rel)] ?? 'application/octet-stream' });
@@ -38,9 +50,26 @@ const preinstalled = ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/op
 const browser = await pw.chromium.launch(preinstalled ? { executablePath: preinstalled } : {});
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const problems = [];
-page.on('pageerror', e => problems.push('chyba stránky: ' + e.message));
+/*
+ * Hlášky z konzole se sbírají zvlášť od **měření**.
+ *
+ * Jsou mezi nimi věci, které s kvalitou okna nesouvisí: síť v sandboxu
+ * nepustí cizí adresu, náhled bannerů běží v `srcdoc` bez skriptů.
+ * Kdyby na nich padal celý náhled, nedal by se použít jako hlídač —
+ * a naopak: dokud se nikde nepadalo, prošel náhled „zeleně" i s oknem
+ * zmáčknutým na proužek. Měření tedy návratový kód určují, hlášky
+ * z konzole se jen vypíšou.
+ */
+const konzole = [];
+const JEN_VYPSAT = /favicon|ERR_TUNNEL|ERR_INTERNET_DISCONNECTED|about:srcdoc|sandboxed and the 'allow-scripts'/;
+page.on('pageerror', e => {
+  const text = 'chyba stránky: ' + e.message;
+  (JEN_VYPSAT.test(e.message) ? konzole : problems).push(text);
+});
 page.on('console', m => {
-  if (m.type() === 'error' && !/favicon/.test(m.text() + m.location().url)) problems.push('konzole: ' + m.text());
+  if (m.type() !== 'error') return;
+  const text = m.text() + ' ' + m.location().url;
+  (JEN_VYPSAT.test(text) ? konzole : problems).push('konzole: ' + m.text());
 });
 
 // Stub hlásí telefon; tady chceme počítač
@@ -475,6 +504,27 @@ await click('.ws-menu-item', { hasText: 'Zkušební kabina' });
 await page.waitForTimeout(600);
 console.log('  kabina — záložky:', await page.evaluate(() =>
   [...document.querySelectorAll('.zk-head-right .tab')].map(one => one.textContent.trim()).join(' · ')));
+/*
+ * Rámeček s náhledem musí vyplnit okno. Když tělo okna nemá `flex: 1`,
+ * zmenší se na obsah a iframe spadne na svou výchozí výšku 150 bodů —
+ * kabina se pak ukáže jako úzký proužek nahoře a pod ním prázdno.
+ */
+{
+  const ramec = await page.evaluate(() => {
+    const el = document.querySelector('.zk-ramec');
+    const telo = document.querySelector('.zk-kabina');
+    if (!el || !telo) return null;
+    return {
+      vyska: Math.round(el.getBoundingClientRect().height),
+      telo: Math.round(telo.getBoundingClientRect().height),
+      okno: Math.round(document.querySelector('.zk-modal').getBoundingClientRect().height)
+    };
+  });
+  const sedi = !!ramec && ramec.vyska > ramec.okno * 0.6;
+  if (!sedi) problems.push(`náhled kabiny nevyplňuje okno (${JSON.stringify(ramec)})`);
+  console.log(`  kabina — náhled vyplňuje okno: ${sedi ? '✓' : '✗'} `
+    + `${ramec?.vyska} z ${ramec?.okno} px`);
+}
 await overflow('zkušební kabina'); await snap('25-zkusebna');
 await doPosty();
 
@@ -1138,6 +1188,13 @@ await overflow('média — focení'); await snap('46-media-foceni');
 await click('.md-modal .ig-seg button', { hasText: 'Nastavení' });
 await overflow('média — nastavení'); await snap('47-media-nastaveni');
 
+if (konzole.length) console.log(`\n(${konzole.length} hlášek z konzole, na kvalitu okna nemají vliv)`);
 console.log(problems.length ? '\nPROBLÉMY:\n' + problems.slice(0, 10).join('\n') : '\nžádné chyby');
 await browser.close();
 server.close();
+/*
+ * Nalezené problémy musí být vidět i na návratovém kódu. Dokud se jen
+ * vypisovaly, prošel náhled „zeleně" i s rozbitým oknem — a pozná se to
+ * až tehdy, když si někdo přečte celý výpis.
+ */
+process.exit(problems.length ? 1 : 0);

@@ -312,6 +312,16 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                         {v.stav === 'hotovo' && (
                           <button className="btn ghost" onClick={() => schval(v, true)}>Schválit</button>
                         )}
+                        {/*
+                          * Kontrola je mez, ne soud. Vlasy i s kotletami vyjdou
+                          * na jedenáct procent postavy a mez je deset — na
+                          * obrázku vedle je ale vidět, že jsou to vlasy.
+                          * Rozhodnout to má člověk: přegenerovat stojí peníze.
+                          */}
+                        {v.stav === 'nesedi' && v.nahled && (
+                          <button className="btn ghost" data-tip="Vrstva se použije, i když je mimo mez"
+                            onClick={() => schval(v, true)}>Přesto použít</button>
+                        )}
                         {v.stav === 'schvaleno' && (
                           <button className="btn ghost" onClick={() => schval(v, false)}>Zrušit schválení</button>
                         )}

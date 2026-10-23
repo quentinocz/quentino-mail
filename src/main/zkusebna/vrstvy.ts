@@ -285,13 +285,21 @@ export function vrstvaZKroku(
 
   const obraz = def.barvitelna ? px.stinovaMapa(slepeny, maska) : px.vyrizni(slepeny, maska);
 
+  /*
+   * Vrstva se ukládá **i když neprojde kontrolou**. Používat se nebude —
+   * to hlídá stav — ale v okně je pak vidět, co z toho vlastně vyšlo.
+   * Bez obrázku zbyla u nepovedené vrstvy jen věta „zabírá 11 %" a
+   * nedalo se poznat, jestli model překreslil obličej, nebo jsou to
+   * prostě vlasy i s kotletami. Rozhodnout to má člověk, ne procento,
+   * a přegenerování stojí peníze.
+   */
   const soubor = store.cestaVrstvy(p.id, typ, varianta);
-  if (!potiz) fs.writeFileSync(soubor, uloz(obraz));
+  fs.writeFileSync(soubor, uloz(obraz));
 
   return {
     vrstva: {
       postava: p.id, typ, varianta,
-      soubor: potiz ? '' : soubor,
+      soubor,
       url: '',
       sirka: pred.sirka, vyska: pred.vyska,
       podil: podilNaPostave,

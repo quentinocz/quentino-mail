@@ -776,9 +776,16 @@ console.log('\nkdyž model ujede');
     }
   }
   const poPrekresleni = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, prekreslene, 'zkouška');
-  ok('překreslený trup se pozná a vrstva se neuloží',
-    poPrekresleni.vrstva.stav === 'nesedi' && !poPrekresleni.vrstva.soubor,
-    poPrekresleni.vrstva.potiz);
+  ok('překreslený trup se pozná a vrstva se nepoužije',
+    poPrekresleni.vrstva.stav === 'nesedi', poPrekresleni.vrstva.potiz);
+  /*
+   * Obrázek u ní ale zůstane. Bez něj zbyla u nepovedené vrstvy jen
+   * věta „zabírá 45 %" a nedalo se poznat, jestli model překreslil
+   * obličej, nebo jsou to vlasy i s kotletami — a rozhodnout to má
+   * člověk, ne procento, protože přegenerování stojí peníze.
+   */
+  ok('  a obrázek u ní zůstane, ať je vidět, co vyšlo',
+    !!poPrekresleni.vrstva.soubor && fs.existsSync(poPrekresleni.vrstva.soubor));
 }
 
 /* ---------- 8b. zadání pro kreslení ---------- */

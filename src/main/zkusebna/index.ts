@@ -166,8 +166,23 @@ export function postavUkazkuVse(): { hotovo: number; nesedi: string[] } {
   return { hotovo, nesedi };
 }
 
+/**
+ * Schválení vrstvy — a u nepovedené i přijetí jejího kroku.
+ *
+ * Kontrola je mez, ne soud: vlasy i s kotletami vyjdou na jedenáct
+ * procent postavy, mez je deset, a na obrázku je přitom vidět, že jsou
+ * to vlasy. Když člověk takovou vrstvu přesto přijme, musí se přijmout
+ * i **krok, který z ní vznikl** — jinak by se další kus oblékal na
+ * postavu bez ní (sako rovnou na tričko místo na košili).
+ */
 export function schval(postavaId: string, typ: ZkVrstvaTyp, varianta: string, ano: boolean) {
   store.schval(postavaId, typ, varianta, ano);
+  if (!ano) return;
+  const def = vrstvaDef(typ);
+  if (def.varianty[0]?.id !== varianta) return;
+  const poradi = ZK_VRSTVY.findIndex(one => one.typ === typ);
+  const krok = store.cestaKroku(postavaId, poradi, `${typ}-${varianta}`);
+  if (fs.existsSync(krok)) store.zapisKrok(postavaId, poradi, typ, krok);
 }
 
 /* ------------------------------------------------------------- zadání */

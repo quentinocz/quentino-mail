@@ -189,7 +189,13 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'vlasy', nazev: 'Vlasy', popis: 'Barvu si zákazník vybere přesně.',
     barvitelna: true, nepovinna: false, zbozi: false, slova: [],
-    kontrola: { odY: 0, doY: 0.2, podilOd: 0.004, podilDo: 0.1 },
+    /*
+     * Horní mez byla napoprvé podle zástupné kresby, kde jsou vlasy
+     * čepička na temeni. Na vygenerované fotce k nim patří i kotlety,
+     * okraj u uší a stín na krku — krátké vlasy vyšly na 11 % postavy
+     * a kontrola je zamítla, i když byly v pořádku.
+     */
+    kontrola: { odY: 0, doY: 0.2, podilOd: 0.004, podilDo: 0.16 },
     varianty: [
       { id: 'kratke', nazev: 'Krátké' },
       { id: 'delsi', nazev: 'Delší' },
@@ -199,7 +205,8 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'fousy', nazev: 'Fousy', popis: 'Od ničeho po plnovous.',
     barvitelna: true, nepovinna: true, zbozi: false, slova: [], nePro: ['kojenec', 'dite'],
-    kontrola: { odY: 0.03, doY: 0.22, podilOd: 0.001, podilDo: 0.09 },
+    /* Plnovous je na fotce víc než kresba napovídá — viz vlasy výš */
+    kontrola: { odY: 0.03, doY: 0.22, podilOd: 0.001, podilDo: 0.13 },
     varianty: [
       { id: 'knir', nazev: 'Knír' },
       { id: 'strniste', nazev: 'Strniště' },
