@@ -723,10 +723,11 @@ console.log('\nkdyž model ujede');
     if (svetlejsi.body[i + 3] < 128) continue;
     for (let k = 0; k < 3; k++) svetlejsi.body[i + k] = Math.min(255, svetlejsi.body[i + k] + 14);
   }
-  /* Nejdřív se ukáže, že bez opravy je to opravdu průšvih — jinak by
-     zkouška níž mohla projít i s vypnutým srovnáním tónu */
-  const bezOpravy = px.okraje(px.uklid(px.rozdil(pred, svetlejsi), SIRKA, VYSKA), SIRKA, VYSKA);
-  ok('  bez srovnání tónu by vrstva spolkla celou postavu',
+  /* Nejdřív se ukáže, že se samotným pevným prahem je to průšvih —
+     jinak by zkouška níž mohla projít i bez obrany proti ujetí */
+  const bezOpravy = px.okraje(
+    px.uklid(px.rozdil(pred, svetlejsi, undefined, 38, 0), SIRKA, VYSKA), SIRKA, VYSKA);
+  ok('  s pevným prahem by vrstva spolkla celou postavu',
     bezOpravy.podil > 0.2, `${(bezOpravy.podil * 100).toFixed(1)} % plátna`);
   const poTonu = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, svetlejsi, 'zkouška');
   ok('celkové projasnění vrstvu nezvětší',
@@ -763,6 +764,51 @@ console.log('\nkdyž model ujede');
     }
   }
   ok('  a krok pro další oblékání zůstal mimo pruh nedotčený', stejne);
+
+  /*
+   * Duch postavy ve vrstvě. Tohle je ta chyba, která byla vidět na
+   * vrstvě s vlasy: kromě vlasů v ní visel **tenký obrys hlavy a
+   * ramen**. Model totiž celý obrázek překreslí a kolem obrysů po sobě
+   * nechá slabý rozdíl. Na modelu by z toho byl šmouhovitý stín přes
+   * obličej.
+   *
+   * Vlasy proti holé hlavě jsou rozdíl o stovky stupňů, duch o desítky —
+   * a je tenký. Proti tomu stojí dvě věci: práh odvozený od síly
+   * skutečné změny a dvojí zúžení masky, které spolkne všechno tenčí
+   * než zhruba čtyři body.
+   */
+  {
+    const hlava = { x: 48, y: 22, w: 24, h: 18 };
+    const sVlasy = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(pred.body) };
+    /* Silná změna: tmavé vlasy na světlé hlavě */
+    for (let y = hlava.y; y < hlava.y + hlava.h; y++) {
+      for (let x = hlava.x; x < hlava.x + hlava.w; x++) {
+        const i = (y * SIRKA + x) * 4;
+        if (sVlasy.body[i + 3] < 128) continue;
+        sVlasy.body[i] = 48; sVlasy.body[i + 1] = 38; sVlasy.body[i + 2] = 30;
+      }
+    }
+    /* A slabý duch: obrys postavy posunutý o dva stupně jasu */
+    for (let y = 20; y < 150; y++) {
+      for (const x of [36, 37, 38, 83, 84, 85]) {
+        const i = (y * SIRKA + x) * 4;
+        if (sVlasy.body[i + 3] < 128) continue;
+        for (let k = 0; k < 3; k++) sVlasy.body[i + k] = Math.min(255, sVlasy.body[i + k] + 22);
+      }
+    }
+
+    const maska = px.uklid(px.rozdil(pred, sVlasy), SIRKA, VYSKA);
+    const kde = px.okraje(maska, SIRKA, VYSKA);
+    ok('ve vrstvě zůstanou vlasy, ne duch celé postavy',
+      kde.y >= hlava.y - 4 && kde.y + kde.h <= hlava.y + hlava.h + 6,
+      `vrstva od ${kde.y} do ${kde.y + kde.h}, vlasy jsou ${hlava.y}–${hlava.y + hlava.h}`);
+    ok('  a vlasy v ní zůstanou celé',
+      kde.w >= hlava.w - 6 && kde.h >= hlava.h - 6, `${kde.w}×${kde.h} proti ${hlava.w}×${hlava.h}`);
+    /* S pevným prahem a jedním zúžením tam duch zůstane — ať je vidět rozdíl */
+    const sDuchem = px.okraje(px.uklid(px.rozdil(pred, sVlasy, undefined, 38, 0), SIRKA, VYSKA), SIRKA, VYSKA);
+    ok('  (s pevným prahem by duch ve vrstvě zůstal)',
+      sDuchem.h > hlava.h * 2, `sahá přes ${sDuchem.h} bodů`);
+  }
 
   /*
    * Základ se kontroluje dřív, než se na něj začne oblékat. Je to ta

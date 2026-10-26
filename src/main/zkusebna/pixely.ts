@@ -153,6 +153,10 @@ export function slep(pred: Obraz, po: Obraz, pruh: { od: number; do: number }): 
 
 /* ------------------------------------------------------------------ maska */
 
+/** Jakým dílem síly skutečné změny se řídí práh, a kam až smí vystoupat. */
+const DIL_PRAHU = 0.3;
+const STROP_PRAHU = 160;
+
 /**
  * Co se mezi dvěma kroky změnilo.
  *
@@ -160,8 +164,15 @@ export function slep(pred: Obraz, po: Obraz, pruh: { od: number; do: number }): 
  * pochytala šum komprese, vysoko by se ztratil přechod mezi tmavou
  * látkou a tmavým pozadím za ní.
  */
-export function rozdil(pred: Obraz, po: Obraz, posun: Posun = { dx: 0, dy: 0, chyba: 0 }, prah = 38): Uint8Array {
-  const maska = new Uint8Array(pred.sirka * pred.vyska);
+export function rozdil(
+  pred: Obraz,
+  po: Obraz,
+  posun: Posun = { dx: 0, dy: 0, chyba: 0 },
+  prah = 38,
+  /* Nula znamená „jen pevný práh" — tak se dá změřit, co přizpůsobení dělá */
+  dil = DIL_PRAHU
+): Uint8Array {
+  const sila = new Uint16Array(pred.sirka * pred.vyska);
   for (let y = 0; y < pred.vyska; y++) {
     const yb = y + posun.dy;
     if (yb < 0 || yb >= po.vyska) continue;
@@ -170,19 +181,59 @@ export function rozdil(pred: Obraz, po: Obraz, posun: Posun = { dx: 0, dy: 0, ch
       if (xb < 0 || xb >= po.sirka) continue;
       const ia = (y * pred.sirka + x) * 4;
       const ib = (yb * po.sirka + xb) * 4;
-      const rozd = Math.abs(pred.body[ia] - po.body[ib])
-        + Math.abs(pred.body[ia + 1] - po.body[ib + 1])
-        + Math.abs(pred.body[ia + 2] - po.body[ib + 2])
-        + Math.abs(pred.body[ia + 3] - po.body[ib + 3]);
       /*
        * Kde v novém kroku není nic (průhledno), tam vrstva není, i kdyby
        * se rozdíl zdál velký — zmizelá ruka není kus látky.
        */
       if (po.body[ib + 3] < 24) continue;
-      if (rozd >= prah) maska[y * pred.sirka + x] = 255;
+      sila[y * pred.sirka + x] = Math.abs(pred.body[ia] - po.body[ib])
+        + Math.abs(pred.body[ia + 1] - po.body[ib + 1])
+        + Math.abs(pred.body[ia + 2] - po.body[ib + 2])
+        + Math.abs(pred.body[ia + 3] - po.body[ib + 3]);
     }
   }
+
+  const prahTed = Math.max(prah, Math.min(STROP_PRAHU, Math.round(silnyRozdil(sila) * dil)));
+  const maska = new Uint8Array(sila.length);
+  for (let i = 0; i < sila.length; i++) if (sila[i] >= prahTed) maska[i] = 255;
   return maska;
+}
+
+/**
+ * Práh se přizpůsobí tomu, jak silná je ta skutečná změna.
+ *
+ * ## Proč pevný práh nestačí
+ *
+ * Model obrázek nepřekresluje jen tam, kam má. Kolem hlavy a ramen
+ * zůstane slabý obrys — pár stupňů rozdílu, pevným prahem projde — a ve
+ * vrstvě s vlasy pak visí duch celé postavy. Na modelu by to byl
+ * šmouhovitý stín přes obličej.
+ *
+ * ## Co se místo toho dělá
+ *
+ * Vlasy proti holé hlavě jsou rozdíl o stovky stupňů, duch o desítky.
+ * Práh se proto odvodí od **síly té skutečné změny**: vezme se horní
+ * okraj rozdílů (98. percentil, aby ho neutáhlo pár vystřelených bodů)
+ * a práh je jeho zlomek. Pevný práh zůstává jako spodní mez pro změny,
+ * které jsou slabé celé (bílý kapesníček na bílé košili), a strop brání
+ * tomu, aby silná změna vyžrala vlastní okraje.
+ */
+export function silnyRozdil(sila: Uint16Array): number {
+  const histogram = new Uint32Array(1021);
+  let kusu = 0;
+  for (let i = 0; i < sila.length; i++) {
+    if (sila[i] === 0) continue;
+    histogram[Math.min(1020, sila[i])] += 1;
+    kusu += 1;
+  }
+  if (kusu === 0) return 0;
+  const kam = Math.floor(kusu * 0.98);
+  let nasbirano = 0;
+  for (let hodnota = 0; hodnota < histogram.length; hodnota++) {
+    nasbirano += histogram[hodnota];
+    if (nasbirano >= kam) return hodnota;
+  }
+  return 1020;
 }
 
 /** Jedno projetí: bod zůstane, má-li aspoň `kolik` sousedů z osmi. */
@@ -313,9 +364,20 @@ export function zmekci(maska: Uint8Array, sirka: number, vyska: number, sila = 1
   return out;
 }
 
-/** Celý úklid masky v jednom: zúžit, rozšířit, zahodit smítka, zjemnit okraj. */
+/**
+ * Celý úklid masky v jednom: zúžit, rozšířit, zahodit smítka, zjemnit.
+ *
+ * Zužuje se **dvakrát**, a to je ten rozdíl. Jedno projetí smete
+ * osamělé body, ale ne tenký obrys kolem hlavy a ramen, který po sobě
+ * model nechá — ten má pár bodů na šířku a každý jeho bod má dost
+ * sousedů, aby přežil. Dvě projetí spolknou všechno tenčí než zhruba
+ * čtyři body; kus látky je o řád tlustší a rozšíření ho vrátí do
+ * původní velikosti.
+ */
 export function uklid(maska: Uint8Array, sirka: number, vyska: number): Uint8Array {
   let out = zuz(maska, sirka, vyska, 4);
+  out = zuz(out, sirka, vyska, 4);
+  out = rozsir(out, sirka, vyska, 4);
   out = rozsir(out, sirka, vyska, 4);
   out = jenVelke(out, sirka, vyska);
   return zmekci(out, sirka, vyska, 1);

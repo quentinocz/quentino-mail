@@ -195,7 +195,12 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
      * okraj u uší a stín na krku — krátké vlasy vyšly na 11 % postavy
      * a kontrola je zamítla, i když byly v pořádku.
      */
-    kontrola: { odY: 0, doY: 0.2, podilOd: 0.004, podilDo: 0.16 },
+    /*
+     * Dolní mez pruhu je u krku, ne na prsou. Vlasy nikam níž nesahají
+     * a každý bod navíc je místo, kde po sobě model může nechat ducha —
+     * ve vrstvě s vlasy pak visel obrys ramen.
+     */
+    kontrola: { odY: 0, doY: 0.14, podilOd: 0.004, podilDo: 0.16 },
     varianty: [
       { id: 'kratke', nazev: 'Krátké' },
       { id: 'delsi', nazev: 'Delší' },
@@ -206,7 +211,7 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
     typ: 'fousy', nazev: 'Fousy', popis: 'Od ničeho po plnovous.',
     barvitelna: true, nepovinna: true, zbozi: false, slova: [], nePro: ['kojenec', 'dite'],
     /* Plnovous je na fotce víc než kresba napovídá — viz vlasy výš */
-    kontrola: { odY: 0.03, doY: 0.22, podilOd: 0.001, podilDo: 0.13 },
+    kontrola: { odY: 0.03, doY: 0.16, podilOd: 0.001, podilDo: 0.13 },
     varianty: [
       { id: 'knir', nazev: 'Knír' },
       { id: 'strniste', nazev: 'Strniště' },
