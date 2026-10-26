@@ -152,6 +152,20 @@ const po = sePřidaným(pred, sako, [60, 70, 110]);
   }
   const nalez = px.zarovnej(pred, posunuty, { x: 0, y: 0, w: SIRKA, h: 30 }, 5);
   check('posunutý krok se zarovná podle hlavy', [nalez.dx, nalez.dy], [3, -2]);
+  /* Dva body nahoru po třech bodech vzorkování nepoznat nejdou — tohle
+     projde jen díky druhému, jemnému průchodu */
+
+  /*
+   * A opačně: na kotvě, kde není co poznat, se **neposouvá**. Jednolité
+   * tričko nebo klidné pozadí sedí při každém posunu stejně dobře a
+   * dřív vyhrál ten, na který se narazilo první — kraj rozsahu. Na
+   * postavě to znamenalo posun o šest bodů při nulové chybě, celý
+   * obrázek se tím odnesl stranou a z rozdílu dvou kroků byl obrys
+   * postavy místo kusu látky.
+   */
+  const jednolita = { x: 40, y: 60, w: 40, h: 40 };
+  const klid = px.zarovnej(pred, pred, jednolita, 6);
+  check('na kotvě bez kresby se neposouvá', [klid.dx, klid.dy], [0, 0]);
 }
 
 {
@@ -911,6 +925,131 @@ console.log('\nkdyž model ujede');
     const sDuchem = px.okraje(px.uklid(px.rozdil(pred, sVlasy, undefined, 38, 0), SIRKA, VYSKA), SIRKA, VYSKA);
     ok('  (s pevným prahem by duch ve vrstvě zůstal)',
       sDuchem.h > hlava.h * 2, `sahá přes ${sDuchem.h} bodů`);
+  }
+
+  /*
+   * Zaplněné pozadí — chyba z ostrého provozu, kde z vrstvy s krátkými
+   * vlasy leželo na postavě **osm procent**. Hlava zůstala holá a model
+   * místo vlasů zaplnil prázdno kolem krku a ramen.
+   *
+   * Příčina: pruh pro kus je vodorovný a jde přes celé plátno, takže
+   * maska otevřela i prázdno vedle postavy — a tam, kde model vidí
+   * průhledno a povolení kreslit, kreslí. Oprava je jeden zákon na
+   * dvou místech. Maska otevře jen postavu a její těsné okolí. A co
+   * přijde zpátky mimo postavu, se vezme jen tam, kde je to těsně
+   * u změny na postavě **a vypadá to stejně** — vlasy přerůstající
+   * hlavu mají barvu vlasů, zaplněné pozadí barvu pozadí.
+   *
+   * Zkouší se to na plátně 1024×1536, protože dosah se počítá
+   * z velikosti postavy: na kresbičce 120×180 by vyšel jinak a
+   * neměřilo by se to, co běží v provozu.
+   */
+  {
+    const SV = 1024;
+    const VV = 1536;
+    const hlava = { x: 430, y: 120, w: 160, h: 200 };
+    const velka = png.novyObraz(SV, VV);
+    for (let y = 0; y < VV; y++) {
+      for (let x = 0; x < SV; x++) {
+        const vHlave = x >= hlava.x && x < hlava.x + hlava.w && y >= hlava.y && y < hlava.y + hlava.h;
+        const vTele = x >= 330 && x < 700 && y >= hlava.y + hlava.h && y < 1450;
+        if (!vHlave && !vTele) continue;
+        const i = (y * SV + x) * 4;
+        velka.body[i] = 206; velka.body[i + 1] = 170; velka.body[i + 2] = 140; velka.body[i + 3] = 255;
+      }
+    }
+    const VP = { id: 'dospely-bezny', vek: 'dospely', telo: 'bezny', vyskaCm: 180, sirka: SV, vyska: VV };
+    const pruhVlasu = vrstvy.__test.pruhKusu('vlasy', vrstvy.__test.okrajePostavy(velka), VV);
+    /** Zaplní prázdno v pruhu vlasů — to, co model udělal místo vlasů. */
+    const zaplnPozadi = obraz => {
+      for (let y = pruhVlasu.od; y <= Math.min(VV - 1, pruhVlasu.do); y++) {
+        for (let x = 0; x < SV; x++) {
+          const i = (y * SV + x) * 4;
+          if (obraz.body[i + 3] >= 24) continue;
+          obraz.body[i] = 232; obraz.body[i + 1] = 228; obraz.body[i + 2] = 220; obraz.body[i + 3] = 255;
+        }
+      }
+      return obraz;
+    };
+
+    /* a) Vlasy na hlavě a k tomu zaplněné pozadí */
+    const vlasy = { x: hlava.x, y: hlava.y, w: hlava.w, h: 70 };
+    const sVlasy = { sirka: SV, vyska: VV, body: Uint8Array.from(velka.body) };
+    for (let y = vlasy.y; y < vlasy.y + vlasy.h; y++) {
+      for (let x = vlasy.x; x < vlasy.x + vlasy.w; x++) {
+        const i = (y * SV + x) * 4;
+        if (sVlasy.body[i + 3] < 128) continue;
+        sVlasy.body[i] = 44; sVlasy.body[i + 1] = 34; sVlasy.body[i + 2] = 28;
+      }
+    }
+    zaplnPozadi(sVlasy);
+
+    /* Nejdřív bez obrany, ať je vidět, co se v provozu dělo */
+    const bezObrany = px.uklid(px.rozdil(velka, px.slep(velka, sVlasy, pruhVlasu)), SV, VV);
+    const naPostaveBez = vrstvy.__test.naPostave(
+      bezObrany, vrstvy.__test.siluetaPostavy(velka), SV, VV);
+    const kdeBez = px.okraje(bezObrany, SV, VV);
+    ok('  (bez obrany je vrstva zaplněné pozadí přes celé plátno)',
+      naPostaveBez < 0.2 && kdeBez.w > SV * 0.9,
+      `na postavě ${Math.round(naPostaveBez * 100)} % vrstvy, široká ${kdeBez.w} z ${SV}`);
+
+    const sObranou = vrstvy.__test.vrstvaZKroku(VP, 'vlasy', 'kratke', velka, sVlasy, 'zkouška');
+    const kde = sObranou.vrstva.okraje;
+    ok('zaplněné pozadí se do vrstvy nedostane',
+      sObranou.vrstva.stav === 'hotovo'
+      && Math.abs(kde.x - vlasy.x) <= 6 && Math.abs(kde.w - vlasy.w) <= 12
+      && Math.abs(kde.h - vlasy.h) <= 12,
+      `${sObranou.vrstva.stav}: ${kde.x},${kde.y} ${kde.w}×${kde.h}, vlasy ${vlasy.w}×${vlasy.h}`);
+
+    /*
+     * b) A naopak: vlasy, které hlavu opravdu přerůstají, se uříznout
+     * nesmí. Kdyby se bralo jen to, co leží na původním obrysu, byl by
+     * z každého účesu přilepený čepec.
+     */
+    const prerustajici = { sirka: SV, vyska: VV, body: Uint8Array.from(velka.body) };
+    const ucles = { x: hlava.x - 18, y: hlava.y - 30, w: hlava.w + 36, h: 100 };
+    for (let y = ucles.y; y < ucles.y + ucles.h; y++) {
+      for (let x = ucles.x; x < ucles.x + ucles.w; x++) {
+        const i = (y * SV + x) * 4;
+        prerustajici.body[i] = 44; prerustajici.body[i + 1] = 34;
+        prerustajici.body[i + 2] = 28; prerustajici.body[i + 3] = 255;
+      }
+    }
+    zaplnPozadi(prerustajici);
+    const sUcesem = vrstvy.__test.vrstvaZKroku(VP, 'vlasy', 'kratke', velka, prerustajici, 'zkouška');
+    const kdeU = sUcesem.vrstva.okraje;
+    ok('  a účes, který hlavu přerůstá, zůstane celý',
+      sUcesem.vrstva.stav === 'hotovo'
+      && Math.abs(kdeU.x - ucles.x) <= 4 && Math.abs(kdeU.w - ucles.w) <= 8
+      && Math.abs(kdeU.h - ucles.h) <= 8,
+      `${kdeU.x},${kdeU.y} ${kdeU.w}×${kdeU.h} proti ${ucles.w}×${ucles.h}`);
+
+    /*
+     * A totéž na vstupu: maska je to jediné, co modelu dopředu řekne,
+     * kam nemá sahat. Otevřená je postava a pás kolem ní, ne pruh přes
+     * celé plátno — tam, kde není co oblékat, se kreslit nedá.
+     */
+    const maskaVlasu = vrstvy.__test.maskaProKus('vlasy', velka);
+    let otevrenych = 0;
+    let naPostave = 0;
+    let uKraje = 0;
+    for (let y = 0; y < VV; y++) {
+      for (let x = 0; x < SV; x++) {
+        const i = (y * SV + x) * 4;
+        if (maskaVlasu.body[i + 3] !== 0) continue;
+        otevrenych += 1;
+        if (x < 80 || x > SV - 80) uKraje += 1;
+        if (velka.body[i + 3] >= 24) naPostave += 1;
+      }
+    }
+    ok('maska pro vlasy otevře hlavu, ne pruh přes celé plátno',
+      otevrenych > 0 && uKraje === 0,
+      `${otevrenych} otevřených bodů, u kraje plátna ${uKraje}`);
+    /* Celý pruh by byl 373 řádků přes celé plátno; otevřená je čtvrtina */
+    const celyPruh = (Math.min(VV - 1, pruhVlasu.do) - pruhVlasu.od + 1) * SV;
+    ok('  a z pruhu zůstane otevřená jen postava a pás kolem ní',
+      otevrenych < celyPruh * 0.35 && naPostave / otevrenych > 0.5,
+      `${Math.round(otevrenych / celyPruh * 100)} % pruhu, z toho ${Math.round(naPostave / otevrenych * 100)} % sama postava`);
   }
 
   /*

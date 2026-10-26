@@ -43,16 +43,42 @@ export function zarovnej(
   oblast: { x: number; y: number; w: number; h: number },
   rozsah = 6
 ): Posun {
+  /*
+   * Dvojí hledání: nejdřív nahrubo po třech bodech přes celý rozsah,
+   * pak najemno bod po bodu kolem nalezeného posunu.
+   *
+   * Jedním průchodem to nejde. Po třech bodech se posun o jeden bod
+   * **nedá poznat** — vzorky padnou doprostřed a vyjde táž chyba pro
+   * posun o jedna i o tři. Zrovna ten jeden bod ale dělá ve vrstvě
+   * tenký obrys postavy. Bod po bodu přes celý rozsah by zase bylo
+   * stotřicetkrát tolik počítání, a to u každé z dvaadvaceti vrstev.
+   */
+  const nahrubo = hledejPosun(a, b, oblast, -rozsah, rozsah, -rozsah, rozsah, 3);
+  return hledejPosun(
+    a, b, oblast,
+    nahrubo.dx - 2, nahrubo.dx + 2,
+    nahrubo.dy - 2, nahrubo.dy + 2,
+    1
+  );
+}
+
+function hledejPosun(
+  a: Obraz,
+  b: Obraz,
+  oblast: { x: number; y: number; w: number; h: number },
+  odX: number, doX: number,
+  odY: number, doY: number,
+  krok: number
+): Posun {
   let nej: Posun = { dx: 0, dy: 0, chyba: Number.POSITIVE_INFINITY };
-  for (let dy = -rozsah; dy <= rozsah; dy++) {
-    for (let dx = -rozsah; dx <= rozsah; dx++) {
+  for (let dy = odY; dy <= doY; dy++) {
+    for (let dx = odX; dx <= doX; dx++) {
       let soucet = 0;
       let kusu = 0;
-      // Každý třetí bod stačí: hledá se posun, ne rozdíl v detailu
-      for (let y = oblast.y; y < oblast.y + oblast.h; y += 3) {
+      for (let y = oblast.y; y < oblast.y + oblast.h; y += krok) {
         const yb = y + dy;
         if (yb < 0 || yb >= b.vyska) continue;
-        for (let x = oblast.x; x < oblast.x + oblast.w; x += 3) {
+        for (let x = oblast.x; x < oblast.x + oblast.w; x += krok) {
           const xb = x + dx;
           if (xb < 0 || xb >= b.sirka) continue;
           const ia = (y * a.sirka + x) * 4;
@@ -66,11 +92,26 @@ export function zarovnej(
       }
       if (!kusu) continue;
       const chyba = soucet / kusu;
-      if (chyba < nej.chyba) nej = { dx, dy, chyba };
+      /*
+       * Na shodu se posun **nemění**. Kotva může být skoro jednolitá —
+       * hladké tričko, klidné pozadí — a pak sedí každý posun stejně
+       * dobře. Dřív vyhrál ten, na který se narazilo první, tedy kraj
+       * rozsahu: na zkoušce vyšel posun o šest bodů při nulové chybě a
+       * celá postava se tím odnesla stranou. Z rozdílu dvou kroků byl
+       * pak obrys postavy místo kusu látky — ten „duch".
+       *
+       * Proto se bere menší posun, dokud je rozdíl v chybě v šumu
+       * (půl stupně jasu na bod, nebo pět procent). Když se obrázek
+       * opravdu posunul, je rozdíl v chybě o řády větší a vyhraje.
+       */
+      const sum = Math.max(0.5, chyba * 0.05);
+      const bliz = Math.abs(dx) + Math.abs(dy) < Math.abs(nej.dx) + Math.abs(nej.dy);
+      if (chyba < nej.chyba - sum || (bliz && chyba < nej.chyba + sum)) nej = { dx, dy, chyba };
     }
   }
   return nej.chyba === Number.POSITIVE_INFINITY ? { dx: 0, dy: 0, chyba: 0 } : nej;
 }
+
 
 
 /* ---------------------------------------------------------- výřezy */
@@ -185,6 +226,49 @@ export function srovnejTon(
 }
 
 /**
+ * Rozšíří masku o `r` bodů do všech stran.
+ *
+ * Na rozdíl od `zmekci` to není rozostření: tady jde o dosah, ne o
+ * měkký okraj, a dělá se to dvěma průchody přes vzdálenost k nejbližšímu
+ * bodu masky (vodorovně, pak svisle). Rozostřením by se rozšíření o
+ * padesát bodů počítalo padesátkrát přes celé plátno — tohle je jednou
+ * tam a jednou zpátky, ať je dosah jakkoli velký.
+ */
+export function rozsir(maska: Uint8Array, sirka: number, vyska: number, r: number): Uint8Array {
+  if (r <= 0) return Uint8Array.from(maska);
+  const DALEKO = 1 << 30;
+  const vodorovne = new Uint8Array(maska.length);
+  const vzdalenost = new Int32Array(Math.max(sirka, vyska));
+  for (let y = 0; y < vyska; y++) {
+    const radek = y * sirka;
+    let posledni = -DALEKO;
+    for (let x = 0; x < sirka; x++) {
+      if (maska[radek + x]) posledni = x;
+      vzdalenost[x] = x - posledni;
+    }
+    let dalsi = DALEKO;
+    for (let x = sirka - 1; x >= 0; x--) {
+      if (maska[radek + x]) dalsi = x;
+      vodorovne[radek + x] = Math.min(vzdalenost[x], dalsi - x) <= r ? 255 : 0;
+    }
+  }
+  const out = new Uint8Array(maska.length);
+  for (let x = 0; x < sirka; x++) {
+    let posledni = -DALEKO;
+    for (let y = 0; y < vyska; y++) {
+      if (vodorovne[y * sirka + x]) posledni = y;
+      vzdalenost[y] = y - posledni;
+    }
+    let dalsi = DALEKO;
+    for (let y = vyska - 1; y >= 0; y--) {
+      if (vodorovne[y * sirka + x]) dalsi = y;
+      out[y * sirka + x] = Math.min(vzdalenost[y], dalsi - y) <= r ? 255 : 0;
+    }
+  }
+  return out;
+}
+
+/**
  * Z nového kroku vezme jen pruh, kde se kreslit mělo; zbytek je původní.
  *
  * ## Proč se to slepuje
@@ -199,13 +283,30 @@ export function srovnejTon(
  * obrázek, bod po bodu. Model tedy nemůže ujet jinam než tam, kde se
  * zrovna obléká — a rozdíl dvou kroků pak nemůže obsahovat nic jiného
  * než ten kus látky.
+ *
+ * ## Proč nestačí pruh
+ *
+ * Pruh je vodorovný a jde přes celé plátno, takže v něm vedle postavy
+ * zbývá **prázdné pozadí**. Model do něj kreslí: u vlasů přišel zpátky
+ * výřez, kde hlava zůstala holá a zaplnilo se okolí krku a ramen — a
+ * z rozdílu vyšel kus „látky", ze kterého na postavě leželo osm
+ * procent. Proto se dá předat `kde`: co je mimo postavu a její těsné
+ * okolí, se bere taky z prvního obrázku. Kus oblečení je na člověku,
+ * ne dvě stě bodů vedle něj.
  */
-export function slep(pred: Obraz, po: Obraz, pruh: { od: number; do: number }): Obraz {
+export function slep(
+  pred: Obraz,
+  po: Obraz,
+  pruh: { od: number; do: number },
+  /** Kam model vůbec smí sáhnout. Nic = celá šířka pruhu. */
+  kde?: Uint8Array
+): Obraz {
   const out = novyObraz(pred.sirka, pred.vyska);
   for (let y = 0; y < pred.vyska; y++) {
-    const zNoveho = y >= pruh.od && y <= pruh.do;
+    const vPruhu = y >= pruh.od && y <= pruh.do;
     for (let x = 0; x < pred.sirka; x++) {
       const i = (y * pred.sirka + x) * 4;
+      const zNoveho = vPruhu && (!kde || kde[y * pred.sirka + x] !== 0);
       const zdroj = zNoveho ? po : pred;
       out.body[i] = zdroj.body[i];
       out.body[i + 1] = zdroj.body[i + 1];
@@ -325,7 +426,7 @@ function zuz(maska: Uint8Array, sirka: number, vyska: number, kolik: number): Ui
 }
 
 /** Jedno projetí opačně: dolije se bod, který má aspoň `kolik` sousedů. */
-function rozsir(maska: Uint8Array, sirka: number, vyska: number, kolik: number): Uint8Array {
+function dolij(maska: Uint8Array, sirka: number, vyska: number, kolik: number): Uint8Array {
   const out = Uint8Array.from(maska);
   for (let y = 0; y < vyska; y++) {
     for (let x = 0; x < sirka; x++) {
@@ -442,8 +543,8 @@ export function zmekci(maska: Uint8Array, sirka: number, vyska: number, sila = 1
 export function uklid(maska: Uint8Array, sirka: number, vyska: number): Uint8Array {
   let out = zuz(maska, sirka, vyska, 4);
   out = zuz(out, sirka, vyska, 4);
-  out = rozsir(out, sirka, vyska, 4);
-  out = rozsir(out, sirka, vyska, 4);
+  out = dolij(out, sirka, vyska, 4);
+  out = dolij(out, sirka, vyska, 4);
   out = jenVelke(out, sirka, vyska);
   return zmekci(out, sirka, vyska, 1);
 }

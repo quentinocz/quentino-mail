@@ -224,28 +224,122 @@ export function pruhKusu(
 
 
 /**
+ * Dosah postavy — postava a její těsné okolí.
+ *
+ * Oblečení i vlasy přečnívají přes obrys kroku před: sako je širší než
+ * košile pod ním a vlasy přidají hlavě pár centimetrů. Proto se obrys
+ * rozšíří, a to podle velikosti postavy, ne pevným počtem bodů — táž
+ * postava se kreslí na plátno 1024 i 1536 bodů vysoké.
+ *
+ * Tři procenta výšky postavy jsou na plátně 1024×1536 zhruba čtyřicet
+ * bodů, tedy několikanásobek toho, oč účes přeroste holou hlavu, a
+ * zároveň zlomek toho, co zabere zaplněné pozadí.
+ */
+export function dosahPostavy(pred: Obraz, postava: px.Okraje): Uint8Array {
+  return px.rozsir(siluetaPostavy(pred), pred.sirka, pred.vyska, precnivani(postava));
+}
+
+/** Oč kus smí přerůst obrys kroku před. */
+function precnivani(postava: px.Okraje): number {
+  return Math.max(12, Math.round(postava.h * 0.03));
+}
+
+/**
+ * Kam model opravdu smělo sáhnout — postava a těsné okolí **toho, co se
+ * na ní změnilo**.
+ *
+ * Samotná postava a pás kolem ní nestačí. Když model nechal hlavu holou
+ * a zaplnil kolem ní pozadí, zbyl by z toho prstenec vyplněného pozadí
+ * kolem celé postavy a ve vrstvě by visel jako obrys. Vlasy ale
+ * přerůstají hlavu **tam, kde se hlava změnila** — proto se okolí měří
+ * od změny, ne od obrysu. Když se na postavě nezměnilo nic, nezůstane
+ * ani okolí a v okně stojí po pravdě, že model nic nepřikreslil.
+ */
+function dosahZmeny(pred: Obraz, postava: px.Okraje, vPruhu: Obraz): Uint8Array {
+  const silueta = siluetaPostavy(pred);
+  const zmena = px.rozdil(pred, vPruhu);
+  for (let i = 0; i < zmena.length; i++) if (!silueta[i]) zmena[i] = 0;
+
+  /*
+   * Barva toho, co na postavě vzniklo. Venku kolem postavy se totiž
+   * nebere všechno, co je blízko — bere se jen to, co **vypadá jako ten
+   * kus**. Vlasy přerůstající hlavu mají barvu vlasů, klopa saka barvu
+   * saka; zaplněné pozadí má barvu pozadí a mezi vlasy a pozadím je
+   * rozdíl o stovky stupňů. Bez téhle podmínky by kolem účesu zůstal
+   * světlý lem a nikdo by nepoznal, odkud se vzal.
+   */
+  const barva = prostredniBarva(vPruhu, zmena);
+  const dosah = px.rozsir(zmena, pred.sirka, pred.vyska, precnivani(postava));
+  for (let i = 0; i < dosah.length; i++) {
+    if (silueta[i]) { dosah[i] = 255; continue; }
+    if (!dosah[i] || !barva) continue;
+    const j = i * 4;
+    const odchylka = Math.abs(vPruhu.body[j] - barva[0])
+      + Math.abs(vPruhu.body[j + 1] - barva[1])
+      + Math.abs(vPruhu.body[j + 2] - barva[2]);
+    if (odchylka > PODOBNA_BARVA) dosah[i] = 0;
+  }
+  return dosah;
+}
+
+/**
+ * Oč se smí barva kusu venku kolem postavy lišit od té, co vznikla na
+ * ní. Sto dvacet stupňů přes tři složky je čtyřicet na složku — pod
+ * tím se vejde stín i odlesk téže látky, nad ním končí jiná věc.
+ */
+const PODOBNA_BARVA = 120;
+
+/** Prostřední barva míst, kde maska svítí. Medián, ne průměr: jeden
+    bílý odlesk by průměr odtáhl, medián ne. */
+function prostredniBarva(obraz: Obraz, maska: Uint8Array): [number, number, number] | null {
+  const slozky: number[][] = [[], [], []];
+  /* Stačí vzorek — u velkých vrstev by se jinak třídily statisíce čísel */
+  const krok = Math.max(1, Math.floor(Math.sqrt(maska.length) / 64));
+  for (let i = 0; i < maska.length; i += krok) {
+    if (!maska[i]) continue;
+    for (let k = 0; k < 3; k++) slozky[k].push(obraz.body[i * 4 + k]);
+  }
+  if (slozky[0].length === 0) return null;
+  const median = (pole: number[]) => {
+    pole.sort((a, b) => a - b);
+    return pole[Math.floor(pole.length / 2)];
+  };
+  return [median(slozky[0]), median(slozky[1]), median(slozky[2])];
+}
+
+/**
  * Maska, kterou se modelu omezí, kam smí kreslit.
  *
  * Průhledné místo znamená „tady uprav", neprůhledné „tady nech". Když je
  * volba vypnutá, modelu se maska neposílá vůbec a spoléhá se jen na
  * zadání.
+ *
+ * ## Proč maska není celý pruh
+ *
+ * Pruh je vodorovný. U vlasů to znamená pás přes celé plátno ve výšce
+ * hlavy — a hlava v něm zabírá sotva desetinu šířky. Zbytek je prázdné
+ * pozadí a model ho bere jako místo, které má vyplnit: přišel zpátky
+ * výřez, kde hlava zůstala holá a zaplnilo se okolí krku a ramen.
+ * Maska proto otevírá jen postavu a její těsné okolí — tam, kde kus
+ * oblečení vůbec může být.
  */
 export function maskaProKus(
   typ: ZkVrstvaTyp,
-  postava: px.Okraje,
-  sirka: number,
-  vyska: number,
+  pred: Obraz,
   vyrez?: px.Obdelnik
 ): Obraz | undefined {
   if (getSetting('zkMaska', '1') !== '1') return undefined;
-  const pruh = pruhKusu(typ, postava, vyska);
-  const kde = vyrez ?? { x: 0, y: 0, w: sirka, h: vyska };
+  const postava = okrajePostavy(pred);
+  const pruh = pruhKusu(typ, postava, pred.vyska);
+  const dosah = dosahPostavy(pred, postava);
+  const kde = vyrez ?? { x: 0, y: 0, w: pred.sirka, h: pred.vyska };
   const maska = novyObraz(kde.w, kde.h);
   for (let y = 0; y < kde.h; y++) {
     const naPlatne = kde.y + y;
-    const upravit = naPlatne >= pruh.od && naPlatne <= pruh.do;
+    const vPruhu = naPlatne >= pruh.od && naPlatne <= pruh.do;
     for (let x = 0; x < kde.w; x++) {
       const i = (y * kde.w + x) * 4;
+      const upravit = vPruhu && dosah[naPlatne * pred.sirka + kde.x + x] !== 0;
       maska.body[i + 3] = upravit ? 0 : 255;
     }
   }
@@ -373,7 +467,7 @@ export async function vygenerujVrstvu(
   const vyrez = vyrezPredem;
   const vstup = px.vyrizniObdelnik(pred, vyrez);
   const upraveny = await obrazky.dokresli(
-    zadani, vstup, maskaProKus(typ, kdePostava, pred.sirka, pred.vyska, vyrez)
+    zadani, vstup, maskaProKus(typ, pred, vyrez)
   );
   const po = px.vlozObdelnik(pred, upraveny, vyrez);
 
@@ -444,7 +538,16 @@ export function vrstvaZKroku(
    * všechno o stupeň jinak.
    */
   const srovnany = posunObraz(po, -posun.dx, -posun.dy);
-  const slepeny = px.slep(pred, px.srovnejTon(pred, srovnany, pruh, vyrez), pruh);
+  /*
+   * Čtvrtý krok, a je to tentýž zákon jako maska pro model: kus
+   * oblečení je **na člověku**. Co přišlo zpátky mimo postavu a její
+   * těsné okolí, se zahodí a bere se původní obrázek — model totiž
+   * masku dodržet nemusí, a jednou ji nedodržel tak, že z vrstvy
+   * s vlasy leželo na postavě osm procent a zbytek vedle ní.
+   */
+  const srovnanyTon = px.srovnejTon(pred, srovnany, pruh, vyrez);
+  const dosah = dosahZmeny(pred, kdePostava, px.slep(pred, srovnanyTon, pruh));
+  const slepeny = px.slep(pred, srovnanyTon, pruh, dosah);
 
   const maska = px.uklid(px.rozdil(pred, slepeny), pred.sirka, pred.vyska);
   const kde = px.okraje(maska, pred.sirka, pred.vyska);
@@ -454,7 +557,14 @@ export function vrstvaZKroku(
     {
       okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
       podil: podilNaPostave,
-      naPostave: naPostave(maska, siluetaPostavy(pred), pred.sirka, pred.vyska)
+      /*
+       * Měří se proti postavě **i prostoru, kam kus smí přerůst** —
+       * účes nad holou hlavou leží z poloviny mimo původní obrys a
+       * přitom je v pořádku. Co je dál, se do vrstvy nedostane už
+       * z principu, tahle míra tedy hlídá zbytek: vrstvu, která
+       * vznikla vedle postavy, ne na ní.
+       */
+      naPostave: naPostave(maska, dosahPostavy(pred, kdePostava), pred.sirka, pred.vyska)
     },
     { y: kdePostava.y, h: kdePostava.h }
   );
@@ -594,6 +704,6 @@ export async function vygenerujVse(
 }
 
 export const __test = {
-  maskaProKus, pruhKusu, vyrezKusu, okrajePostavy, siluetaPostavy, naPostave,
+  maskaProKus, pruhKusu, vyrezKusu, okrajePostavy, siluetaPostavy, naPostave, dosahPostavy,
   posunObraz, vrstvaZKroku, zkontrolujPostavu, plan
 };
