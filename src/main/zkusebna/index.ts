@@ -36,7 +36,8 @@ export function prehled(): ZkPrehled {
         nazev: `${p.vek}-${p.telo}`,
         hotovo: p.hotovo,
         vrstev: moje.filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno').length,
-        chystanych: vrstvy.plan(p.id, false).length + 1,
+        chystanych: vrstvy.plan(p.id, false, 'vse').length + 1,
+        zakladnich: vrstvy.plan(p.id, false, 'zakladni').length + 1,
         nesedi: moje.filter(one => one.stav === 'nesedi').length,
         upozorneni: moje.filter(one => one.stav !== 'nesedi' && !!one.potiz).length,
         schvalenych: moje.filter(one => one.stav === 'schvaleno').length
@@ -147,8 +148,12 @@ export async function generujVrstvu(postavaId: string, typ: ZkVrstvaTyp, variant
   return { ...vrstva, nahled: vrstva.soubor ? maly(vrstva.soubor, 150) : '' };
 }
 
-export async function generujVse(postavaId: string, jenChybejici = true) {
-  return vrstvy.vygenerujVse(postavaId, jenChybejici);
+export async function generujVse(
+  postavaId: string,
+  jenChybejici = true,
+  rozsah: 'zakladni' | 'vse' = 'zakladni'
+) {
+  return vrstvy.vygenerujVse(postavaId, jenChybejici, rozsah);
 }
 
 export function postavUkazku(postavaId: string) {

@@ -3,7 +3,9 @@ import type {
   ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
   ZkVrstvaProOkno, ZkVrstvaTyp
 } from '@shared/zkusebna';
-import { ZK_BARVY, ZK_KVALITY, ZK_VRSTVY, dilKvality, vrstvaDef } from '@shared/zkusebna';
+import {
+  ZK_BARVY, ZK_KVALITY, ZK_VRSTVY, dilKvality, dilPlochy, doZakladu, vrstvaDef
+} from '@shared/zkusebna';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
@@ -137,10 +139,10 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
     setPracuje('');
   };
 
-  const generujVse = async () => {
+  const generujVse = async (rozsah: 'zakladni' | 'vse' = 'zakladni') => {
     setPracuje('Kreslím…');
     try {
-      const vysledek = await api.zk.generujVse(postava, true);
+      const vysledek = await api.zk.generujVse(postava, true, rozsah);
       toast(vysledek.nesedi
         ? `Zastaveno u nepovedené vrstvy: ${vysledek.potize[0] ?? ''}`
         : `Hotovo: ${vysledek.hotovo} vrstev.`, vysledek.nesedi ? 'error' : 'info');
@@ -165,10 +167,28 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
     return zaklad * dilKvality(prehled?.kvalita ?? 'high');
   }, [prehled]);
 
-  const odhad = useMemo(() => {
-    if (!prehled || !stav) return 0;
-    return Math.round((stav.chystanych - stav.vrstev) * cenaObrazku * 100) / 100;
-  }, [prehled, stav, cenaObrazku]);
+  /*
+   * Odhad se počítá po vrstvách, ne po kusech: modelu jde jen výřez
+   * kolem toho, co se obléká, a obrázek se platí podle plochy. Kravata
+   * na výřezu hrudníku stojí zlomek toho, co postava na celé ploše —
+   * a číslo u tlačítka má říkat, co to opravdu bude stát.
+   */
+  const volneRozmery = prehled?.modely.find(one => one.id === prehled?.model)?.volneRozmery ?? true;
+
+  const odhadRozsahu = useCallback((rozsah: 'zakladni' | 'vse') => {
+    let suma = 0;
+    for (const v of vrstvy) {
+      if (v.stav === 'hotovo' || v.stav === 'schvaleno') continue;
+      const def = ZK_VRSTVY.find(one => one.typ === v.typ);
+      if (!def) continue;
+      if (rozsah === 'zakladni' && !doZakladu(def, v.varianta)) continue;
+      suma += cenaObrazku * dilPlochy(v.typ, volneRozmery);
+    }
+    return Math.round(suma * 100) / 100;
+  }, [vrstvy, cenaObrazku, volneRozmery]);
+
+  const odhad = useMemo(() => odhadRozsahu('zakladni'), [odhadRozsahu]);
+  const odhadVse = useMemo(() => odhadRozsahu('vse'), [odhadRozsahu]);
 
   /* ---------------------------------------------------------- výpis */
 
@@ -278,13 +298,27 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   <button className="btn ghost" onClick={() => udelejUkazku(false)} disabled={!!pracuje}>
                     Zástupná kresba
                   </button>
-                  <button className="btn primary" onClick={generujVse}
+                  {/*
+                    * Dvě tlačítka, ne přepínač. Základní běh nakreslí
+                    * všechny doplňky a jednu podobu kulisy — to je to, co
+                    * prodává. Varianty navíc (čtvery vousy, dvoje sako)
+                    * jsou vzhled modela a stojí další peníze, takže se
+                    * o ně musí říct schválně.
+                    */}
+                  <button className="btn primary" onClick={() => generujVse('zakladni')}
                     disabled={!!pracuje || !prehled?.maKlic}
                     data-tip={prehled?.maKlic
-                      ? `Dogeneruje, co chybí. Odhad ${odhad} $.`
+                      ? `Doplňky a jedna podoba obleku. Odhad ${odhad} $.`
                       : 'Nejdřív vlož klíč k OpenAI v Nastavení.'}>
-                    Dogenerovat chybějící{odhad ? ` · ${odhad} $` : ''}
+                    Dogenerovat potřebné{odhad ? ` · ${odhad} $` : ''}
                   </button>
+                  {odhadVse > odhad && (
+                    <button className="btn ghost" onClick={() => generujVse('vse')}
+                      disabled={!!pracuje || !prehled?.maKlic}
+                      data-tip="Včetně variant navíc — vousy, druhé sako, další účesy.">
+                      I varianty navíc · {odhadVse} $
+                    </button>
+                  )}
                 </div>
               </header>
 

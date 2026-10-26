@@ -1,12 +1,13 @@
 import fs from 'fs';
 import { BrowserWindow } from 'electron';
 import {
-  ZkPostava, ZkVrstva, ZkVrstvaTyp, ZK_VRSTVY, vrstvaDef, zkontrolujVrstvu
+  ZkPostava, ZkVrstva, ZkVrstvaTyp, ZK_VRSTVY, doZakladu, vrstvaDef, zkontrolujVrstvu
 } from '../../shared/zkusebna';
 import { getSetting } from '../db';
 import { Obraz, nacti, uloz, novyObraz } from './png';
 import * as px from './pixely';
 import * as obrazky from './obrazky';
+import { NEJMENE_BODU } from './obrazky';
 import * as store from './store';
 import { zadaniKusuTed, zadaniPostavyTed } from './zadani';
 
@@ -86,6 +87,109 @@ export function naPostave(maska: Uint8Array, silueta: Uint8Array, sirka: number,
 }
 
 /**
+ * Výřez, který se posílá modelu — ne celá postava.
+ *
+ * ## Proč se posílá jen kus
+ *
+ * Tři důvody, a každý sám o sobě by stačil:
+ *
+ *  1. **cena.** Obrázek se platí podle plochy, kterou model vykreslí.
+ *     Kravata na výřezu hrudníku stojí čtvrtinu toho, co kravata na
+ *     celé postavě — a kusů je přes dvacet na každou postavu.
+ *  2. **spolehlivost.** Čím menší plocha, tím míň místa, kde může model
+ *     „ujet". Mimo výřez se vrací původní obrázek bod po bodu, takže
+ *     překreslený obličej při oblékání bot není možný **z principu**,
+ *     ne proto, že to pochytá kontrola.
+ *  3. **detail.** Kapesníček dostane na výřezu klopy desetkrát víc
+ *     bodů než na celé postavě, takže je na něm vidět látka, ne skvrna.
+ *
+ * ## Co se hlídá
+ *
+ * Rozměry musí být násobek šestnácti a poměr stran nejvýš 1:3 — to je
+ * mez rozhraní. Výřez užší než to se proto rozšíří; když už by byl skoro
+ * jako celé plátno, pošle se rovnou celé (ušetřit není co).
+ */
+export function vyrezKusu(
+  typ: ZkVrstvaTyp,
+  postava: px.Okraje,
+  sirka: number,
+  vyska: number,
+  /** Bere model libovolný rozměr? Starší jen tři předepsané. */
+  volneRozmery = true,
+  /** Nejmenší obrázek, který rozhraní přijme. Je to vlastnost rozhraní,
+      ne naše volba — proto se dá předat (a ve zkoušce zmenšit). */
+  nejmene = NEJMENE_BODU
+): px.Obdelnik {
+  const cele: px.Obdelnik = { x: 0, y: 0, w: sirka, h: vyska };
+  const pruh = pruhKusu(typ, postava, vyska);
+  if (typ === 'postava') return cele;
+
+  if (!volneRozmery) {
+    /*
+     * Starší modely berou jen 1024×1024, 1024×1536 a 1536×1024. Na plátně
+     * na výšku z toho zbývá čtverec — a ten stojí dvě třetiny celého
+     * obrázku. Kam se pruh nevejde, jde celé plátno.
+     */
+    const strana = Math.min(sirka, vyska);
+    if (strana >= pruh.do - pruh.od) {
+      const stred = Math.round((pruh.od + pruh.do) / 2 - strana / 2);
+      const y = Math.max(0, Math.min(vyska - strana, stred));
+      const x = Math.max(0, Math.min(sirka - strana, Math.round(postava.x + postava.w / 2 - strana / 2)));
+      if (strana * strana < sirka * vyska * 0.95) return { x, y, w: strana, h: strana };
+    }
+    return cele;
+  }
+
+  /* Okraj kolem pruhu: model potřebuje vidět, na co kus navazuje */
+  const okraj = Math.round(postava.h * 0.06);
+  let y1 = Math.max(0, pruh.od - okraj);
+  let y2 = Math.min(vyska, pruh.do + okraj);
+  const bok = Math.round(postava.w * 0.12);
+  let x1 = Math.max(0, postava.x - bok);
+  let x2 = Math.min(sirka, postava.x + postava.w + bok);
+
+  /*
+   * Rozhraní má tři meze: násobek šestnácti, poměr stran do 1:3 a
+   * nejmíň 0,65 megabodu. Ta poslední je ta překvapivá — menší výřez
+   * než zhruba 1024×640 prostě nevezme, takže z úspory je strop.
+   */
+  const rozsir = () => {
+    for (let pokus = 0; pokus < 40; pokus++) {
+      const w = x2 - x1;
+      const h = y2 - y1;
+      const malyPomer = w * 3 < h;
+      const velkyPomer = h * 3 < w;
+      const maloBodu = w * h < nejmene;
+      if (!malyPomer && !velkyPomer && !maloBodu) return;
+      if (malyPomer || (maloBodu && w < sirka)) {
+        const krok = Math.max(16, Math.round((sirka - w) / 8));
+        x1 = Math.max(0, x1 - krok);
+        x2 = Math.min(sirka, x2 + krok);
+      }
+      if (velkyPomer || (maloBodu && (x2 - x1) >= sirka)) {
+        const krok = Math.max(16, Math.round((vyska - h) / 8));
+        y1 = Math.max(0, y1 - krok);
+        y2 = Math.min(vyska, y2 + krok);
+      }
+      if (x1 === 0 && y1 === 0 && x2 === sirka && y2 === vyska) return;
+    }
+  };
+  rozsir();
+
+  x1 = Math.max(0, Math.floor(x1 / 16) * 16);
+  y1 = Math.max(0, Math.floor(y1 / 16) * 16);
+  x2 = Math.min(sirka, Math.ceil(x2 / 16) * 16);
+  y2 = Math.min(vyska, Math.ceil(y2 / 16) * 16);
+  const w = x2 - x1;
+  const h = y2 - y1;
+  if (w * h < nejmene) return cele;
+  if (w * 3 < h || h * 3 < w) return cele;
+  /* Kdyby zbylo přes devadesát procent plochy, nestojí to za složitost */
+  if (w * h > sirka * vyska * 0.9) return cele;
+  return { x: x1, y: y1, w, h };
+}
+
+/**
  * Maska, kterou se modelu omezí, kam smí kreslit.
  *
  * Průhledné místo znamená „tady uprav", neprůhledné „tady nech". Pruh se
@@ -118,6 +222,7 @@ export function pruhKusu(
   };
 }
 
+
 /**
  * Maska, kterou se modelu omezí, kam smí kreslit.
  *
@@ -125,14 +230,22 @@ export function pruhKusu(
  * volba vypnutá, modelu se maska neposílá vůbec a spoléhá se jen na
  * zadání.
  */
-export function maskaProKus(typ: ZkVrstvaTyp, postava: px.Okraje, sirka: number, vyska: number): Obraz | undefined {
+export function maskaProKus(
+  typ: ZkVrstvaTyp,
+  postava: px.Okraje,
+  sirka: number,
+  vyska: number,
+  vyrez?: px.Obdelnik
+): Obraz | undefined {
   if (getSetting('zkMaska', '1') !== '1') return undefined;
   const pruh = pruhKusu(typ, postava, vyska);
-  const maska = novyObraz(sirka, vyska);
-  for (let y = 0; y < vyska; y++) {
-    const upravit = y >= pruh.od && y <= pruh.do;
-    for (let x = 0; x < sirka; x++) {
-      const i = (y * sirka + x) * 4;
+  const kde = vyrez ?? { x: 0, y: 0, w: sirka, h: vyska };
+  const maska = novyObraz(kde.w, kde.h);
+  for (let y = 0; y < kde.h; y++) {
+    const naPlatne = kde.y + y;
+    const upravit = naPlatne >= pruh.od && naPlatne <= pruh.do;
+    for (let x = 0; x < kde.w; x++) {
+      const i = (y * kde.w + x) * 4;
       maska.body[i + 3] = upravit ? 0 : 255;
     }
   }
@@ -246,12 +359,25 @@ export async function vygenerujVrstvu(
   hlas({ postava: postavaId, typ, varianta, stav: 'kreslim' });
   const pred = nacti(fs.readFileSync(predSoubor));
   const kdePostava = okrajePostavy(pred);
-  const zadani = zadaniKusuTed(typ, varianta);
-  const po = await obrazky.dokresli(
-    zadani, pred, maskaProKus(typ, kdePostava, pred.sirka, pred.vyska)
+  const vyrezPredem = vyrezKusu(
+    typ, kdePostava, pred.sirka, pred.vyska, obrazky.model().volneRozmery
   );
+  const naVyrezu = vyrezPredem.w < pred.sirka || vyrezPredem.h < pred.vyska;
+  const zadani = zadaniKusuTed(typ, varianta, naVyrezu);
 
-  const vysledek = vrstvaZKroku(p, typ, varianta, pred, po, zadani);
+  /*
+   * Modelu se posílá **jen výřez**, ne celá postava: je to levnější,
+   * míň místa na ujetí a víc bodů na detail. Vrácený výřez se vloží
+   * zpátky, takže mimo něj zůstane původní obrázek bod po bodu.
+   */
+  const vyrez = vyrezPredem;
+  const vstup = px.vyrizniObdelnik(pred, vyrez);
+  const upraveny = await obrazky.dokresli(
+    zadani, vstup, maskaProKus(typ, kdePostava, pred.sirka, pred.vyska, vyrez)
+  );
+  const po = px.vlozObdelnik(pred, upraveny, vyrez);
+
+  const vysledek = vrstvaZKroku(p, typ, varianta, pred, po, zadani, vyrez);
 
   /*
    * Ukládá se **slepený** krok, ne to, co přišlo od modelu: mimo pruh je
@@ -279,7 +405,9 @@ export function vrstvaZKroku(
   varianta: string,
   pred: Obraz,
   po: Obraz,
-  zadani: string
+  zadani: string,
+  /** Kus obrázku, který šel modelu. Mimo něj je `po` shodné s `pred`. */
+  vyrez?: px.Obdelnik
 ): { vrstva: ZkVrstva; krok: Obraz } {
   const def = vrstvaDef(typ);
   const kdePostava = okrajePostavy(pred);
@@ -288,9 +416,19 @@ export function vrstvaZKroku(
    * ani u vlasů, kde se mění jen to, co na ní roste. U vlasů se proto
    * bere pruh přes trup.
    */
-  const kotva = typ === 'vlasy' || typ === 'fousy'
-    ? { x: kdePostava.x, y: Math.round(kdePostava.y + kdePostava.h * 0.45), w: kdePostava.w, h: Math.round(kdePostava.h * 0.2) }
-    : { x: kdePostava.x, y: kdePostava.y, w: kdePostava.w, h: Math.max(8, Math.round(kdePostava.h * 0.12)) };
+  const pruh = pruhKusu(typ, kdePostava, pred.vyska);
+  /*
+   * Kotva musí ležet **ve výřezu**, který šel modelu, a mimo pruh, kde
+   * se obléká. Mimo výřez je obrázek shodný z principu, takže by se na
+   * něm nedalo nic naměřit, a v pruhu se mění látka.
+   */
+  const kotva = vyrez
+    ? (pruh.od - vyrez.y >= 12
+      ? { x: vyrez.x, y: vyrez.y, w: vyrez.w, h: pruh.od - vyrez.y }
+      : { x: vyrez.x, y: Math.min(pruh.do + 1, vyrez.y + vyrez.h - 12), w: vyrez.w, h: Math.max(12, vyrez.y + vyrez.h - pruh.do - 1) })
+    : (typ === 'vlasy' || typ === 'fousy'
+      ? { x: kdePostava.x, y: Math.round(kdePostava.y + kdePostava.h * 0.45), w: kdePostava.w, h: Math.round(kdePostava.h * 0.2) }
+      : { x: kdePostava.x, y: kdePostava.y, w: kdePostava.w, h: Math.max(8, Math.round(kdePostava.h * 0.12)) });
   const posun = px.zarovnej(pred, po, kotva, 6);
 
   /*
@@ -306,8 +444,7 @@ export function vrstvaZKroku(
    * všechno o stupeň jinak.
    */
   const srovnany = posunObraz(po, -posun.dx, -posun.dy);
-  const pruh = pruhKusu(typ, kdePostava, pred.vyska);
-  const slepeny = px.slep(pred, px.srovnejTon(pred, srovnany, pruh), pruh);
+  const slepeny = px.slep(pred, px.srovnejTon(pred, srovnany, pruh, vyrez), pruh);
 
   const maska = px.uklid(px.rozdil(pred, slepeny), pred.sirka, pred.vyska);
   const kde = px.okraje(maska, pred.sirka, pred.vyska);
@@ -382,7 +519,12 @@ export function posunObraz(obraz: Obraz, dx: number, dy: number): Obraz {
 /* ------------------------------------------------------------ celá postava */
 
 /** Co všechno se pro jednu postavu chystá vygenerovat. */
-export function plan(postavaId: string, jenChybejici = true): { typ: ZkVrstvaTyp; varianta: string }[] {
+export function plan(
+  postavaId: string,
+  jenChybejici = true,
+  /** `zakladni` kreslí doplňky a jednu podobu kulisy; `vse` i varianty navíc. */
+  rozsah: 'zakladni' | 'vse' = 'zakladni'
+): { typ: ZkVrstvaTyp; varianta: string }[] {
   const hotove = new Set(
     store.vrstvy(postavaId)
       .filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno')
@@ -396,6 +538,7 @@ export function plan(postavaId: string, jenChybejici = true): { typ: ZkVrstvaTyp
     if (p && def.nePro?.includes(p.vek)) continue;
     for (const varianta of def.varianty) {
       if (jenChybejici && hotove.has(`${def.typ}:${varianta.id}`)) continue;
+      if (rozsah === 'zakladni' && !doZakladu(def, varianta.id)) continue;
       out.push({ typ: def.typ, varianta: varianta.id });
     }
   }
@@ -412,14 +555,16 @@ export function plan(postavaId: string, jenChybejici = true): { typ: ZkVrstvaTyp
  * První chyba běh zastaví. Pokračovat po nepovedeném kroku znamená stavět
  * na něm celý zbytek obleku — a platit za každý další obrázek.
  */
-export async function vygenerujVse(postavaId: string, jenChybejici = true): Promise<{
-  hotovo: number; nesedi: number; potize: string[];
-}> {
+export async function vygenerujVse(
+  postavaId: string,
+  jenChybejici = true,
+  rozsah: 'zakladni' | 'vse' = 'zakladni'
+): Promise<{ hotovo: number; nesedi: number; potize: string[] }> {
   const p = store.postava(postavaId);
   if (!p) throw new Error(`Postava ${postavaId} v seznamu není.`);
   if (!p.hotovo) await vygenerujPostavu(postavaId);
 
-  const ukoly = plan(postavaId, jenChybejici);
+  const ukoly = plan(postavaId, jenChybejici, rozsah);
   /* Kanonická varianta musí být před ostatními u téhož kusu */
   ukoly.sort((a, b) => {
     const poradiA = ZK_VRSTVY.findIndex(one => one.typ === a.typ);
@@ -448,4 +593,7 @@ export async function vygenerujVse(postavaId: string, jenChybejici = true): Prom
   return { hotovo, nesedi, potize };
 }
 
-export const __test = { maskaProKus, pruhKusu, okrajePostavy, posunObraz, vrstvaZKroku, zkontrolujPostavu };
+export const __test = {
+  maskaProKus, pruhKusu, vyrezKusu, okrajePostavy, siluetaPostavy, naPostave,
+  posunObraz, vrstvaZKroku, zkontrolujPostavu, plan
+};

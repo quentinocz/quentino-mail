@@ -73,6 +73,57 @@ export function zarovnej(
 }
 
 
+/* ---------------------------------------------------------- výřezy */
+
+export interface Obdelnik { x: number; y: number; w: number; h: number }
+
+/** Kus obrázku jako samostatný obrázek. */
+export function vyrizniObdelnik(obraz: Obraz, kde: Obdelnik): Obraz {
+  const out = novyObraz(kde.w, kde.h);
+  for (let y = 0; y < kde.h; y++) {
+    const zy = kde.y + y;
+    if (zy < 0 || zy >= obraz.vyska) continue;
+    for (let x = 0; x < kde.w; x++) {
+      const zx = kde.x + x;
+      if (zx < 0 || zx >= obraz.sirka) continue;
+      const zi = (zy * obraz.sirka + zx) * 4;
+      const ci = (y * kde.w + x) * 4;
+      out.body[ci] = obraz.body[zi];
+      out.body[ci + 1] = obraz.body[zi + 1];
+      out.body[ci + 2] = obraz.body[zi + 2];
+      out.body[ci + 3] = obraz.body[zi + 3];
+    }
+  }
+  return out;
+}
+
+/**
+ * Vloží upravený výřez zpátky do celého obrázku.
+ *
+ * Mimo výřez zůstane původní obrázek **bod po bodu**. Tím se celá otázka
+ * „nepřekreslil model i něco jiného?" scvrkne na jediný výřez — mimo něj
+ * to není možné.
+ */
+export function vlozObdelnik(zaklad: Obraz, kus: Obraz, kde: Obdelnik): Obraz {
+  const out = novyObraz(zaklad.sirka, zaklad.vyska);
+  out.body.set(zaklad.body);
+  for (let y = 0; y < kus.vyska; y++) {
+    const cy = kde.y + y;
+    if (cy < 0 || cy >= zaklad.vyska) continue;
+    for (let x = 0; x < kus.sirka; x++) {
+      const cx = kde.x + x;
+      if (cx < 0 || cx >= zaklad.sirka) continue;
+      const ci = (cy * zaklad.sirka + cx) * 4;
+      const zi = (y * kus.sirka + x) * 4;
+      out.body[ci] = kus.body[zi];
+      out.body[ci + 1] = kus.body[zi + 1];
+      out.body[ci + 2] = kus.body[zi + 2];
+      out.body[ci + 3] = kus.body[zi + 3];
+    }
+  }
+  return out;
+}
+
 /* ------------------------------------------------- srovnání dvou kroků */
 
 /**
@@ -91,11 +142,25 @@ export function zarovnej(
  * zkreslit samotný kus látky. Z rozdílů se bere medián, ne průměr:
  * průměr by utáhlo pár bodů, kde se opravdu něco změnilo.
  */
-export function srovnejTon(pred: Obraz, po: Obraz, pruh: { od: number; do: number }): Obraz {
+export function srovnejTon(
+  pred: Obraz,
+  po: Obraz,
+  pruh: { od: number; do: number },
+  /*
+   * Kde se smí odečítat. Při práci s výřezem jsou totiž body mimo něj
+   * shodné z principu — kdyby se počítaly, medián by vyšel nula a
+   * srovnání by se nikdy neprovedlo.
+   */
+  oblast?: Obdelnik
+): Obraz {
   const vzorky: number[][] = [[], [], []];
-  for (let y = 0; y < pred.vyska; y++) {
+  const odY = oblast ? Math.max(0, oblast.y) : 0;
+  const doY = oblast ? Math.min(pred.vyska, oblast.y + oblast.h) : pred.vyska;
+  const odX = oblast ? Math.max(0, oblast.x) : 0;
+  const doX = oblast ? Math.min(pred.sirka, oblast.x + oblast.w) : pred.sirka;
+  for (let y = odY; y < doY; y++) {
     if (y >= pruh.od && y <= pruh.do) continue;
-    for (let x = 0; x < pred.sirka; x += 2) {
+    for (let x = odX; x < doX; x += 2) {
       const i = (y * pred.sirka + x) * 4;
       /* Průhledné pozadí nic neříká — počítá se jen tam, kde je postava */
       if (pred.body[i + 3] < 200 || po.body[i + 3] < 200) continue;

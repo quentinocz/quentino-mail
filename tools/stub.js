@@ -100,6 +100,7 @@
         hotovo: i < 3,
         vrstev: i === 0 ? 21 : i < 3 ? 18 : 0,
         chystanych: 22,
+        zakladnich: 14,
         nesedi: i === 1 ? 1 : 0,
         upozorneni: i === 0 ? 2 : 0,
         schvalenych: i === 0 ? 12 : 0
@@ -111,8 +112,8 @@
       model: 'gpt-image-2.5-sunburst',
       kvalita: 'high',
       modely: [
-        { id: 'gpt-image-2.5-sunburst', nazev: 'gpt-image-2.5 Sunburst', popis: 'Nejpřesnější v úpravách.', verny: 'vzdy', cena: 0.05 },
-        { id: 'gpt-image-2.5-flare', nazev: 'gpt-image-2.5 Flare', popis: 'Rychlejší, na kreslení od nuly.', verny: 'vzdy', cena: 0.05 }
+        { id: 'gpt-image-2.5-sunburst', nazev: 'gpt-image-2.5 Sunburst', popis: 'Nejpřesnější v úpravách.', verny: 'vzdy', cena: 0.05, volneRozmery: true },
+        { id: 'gpt-image-2.5-flare', nazev: 'gpt-image-2.5 Flare', popis: 'Rychlejší, na kreslení od nuly.', verny: 'vzdy', cena: 0.05, volneRozmery: true }
       ],
       utrata: { mesic: '2026-10', usd: 6.84, kusu: 36, strop: 40 },
       produkty: { zarazenych: 412, sBarvou: 388, schvalenych: 120 },
@@ -130,7 +131,12 @@
       ['kravata', 'kravata', 'Kravata nebo motýlek', 'Kravata', 'hotovo', ''],
       ['kravata', 'motylek', 'Kravata nebo motýlek', 'Motýlek', 'ceka', ''],
       ['sako', 'jednoradove', 'Sako', 'Jednořadové', 'nesedi',
-        'Vrstva zabírá 92 % postavy, víc než 86 %. Model nejspíš překreslil i to, co měl nechat.']
+        'Vrstva zabírá 92 % postavy, víc než 86 %. Model nejspíš překreslil i to, co měl nechat.'],
+      /* Dvě vrstvy nad rámec potřebného — druhá podoba saka a vousy.
+         Bez nich by v okně nebylo vidět, že levnější běh vynechává
+         právě tyhle, a dvojí tlačítko by se nedalo posoudit. */
+      ['sako', 'dvouradove', 'Sako', 'Dvouřadové', 'ceka', ''],
+      ['fousy', 'kratke', 'Vousy', 'Krátké', 'ceka', '']
     ];
     return kusy.map(function (one) {
       return {

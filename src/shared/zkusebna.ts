@@ -155,6 +155,17 @@ export interface ZkVrstvaDef {
    */
   kontrola: { odY: number; doY: number; podilOd: number; podilDo: number };
   /**
+   * Co se kreslí při základním běhu a co až na vyžádání.
+   *
+   * Postava má přes dvacet vrstev a každá stojí peníze. Většina z nich
+   * přitom na prodej nemá vliv: čtyři druhy vousů ani dvoje sako jsou
+   * vzhled modela, ne zboží. Základní běh proto nakreslí **všechny
+   * doplňky** (ty se prodávají a každý má jiný tvar), **jednu podobu
+   * kulisy** (oblek si zákazník stejně přebarví) a **žádné vousy**.
+   * Zbytek se dá dogenerovat kdykoli potom, jeden po druhém.
+   */
+  zakladni: 'vse' | 'prvni' | 'zadna';
+  /**
    * Komu se tenhle kus negeneruje.
    *
    * Plnovous na kojenci není vtip, je to tři zaplacené obrázky k ničemu —
@@ -183,12 +194,14 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'postava', nazev: 'Postava', popis: 'Model, na kterém se zkouší.',
     barvitelna: false, nepovinna: false, zbozi: false, slova: [],
+    zakladni: 'prvni',
     kontrola: { odY: 0, doY: 1, podilOd: 0.1, podilDo: 0.8 },
     varianty: [{ id: 'zaklad', nazev: 'Základ' }]
   },
   {
     typ: 'vlasy', nazev: 'Vlasy', popis: 'Barvu si zákazník vybere přesně.',
     barvitelna: true, nepovinna: false, zbozi: false, slova: [],
+    zakladni: 'prvni',
     /*
      * Horní mez byla napoprvé podle zástupné kresby, kde jsou vlasy
      * čepička na temeni. Na vygenerované fotce k nim patří i kotlety,
@@ -210,6 +223,7 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'fousy', nazev: 'Fousy', popis: 'Od ničeho po plnovous.',
     barvitelna: true, nepovinna: true, zbozi: false, slova: [], nePro: ['kojenec', 'dite'],
+    zakladni: 'zadna',
     /* Plnovous je na fotce víc než kresba napovídá — viz vlasy výš */
     kontrola: { odY: 0.03, doY: 0.16, podilOd: 0.001, podilDo: 0.13 },
     varianty: [
@@ -222,18 +236,21 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'boty', nazev: 'Boty', popis: 'Nastav přibližně podle svých bot.',
     barvitelna: true, nepovinna: true, zbozi: false, slova: [],
+    zakladni: 'prvni',
     kontrola: { odY: 0.84, doY: 1.01, podilOd: 0.006, podilDo: 0.14 },
     varianty: [{ id: 'spolecenske', nazev: 'Společenské' }]
   },
   {
     typ: 'kalhoty', nazev: 'Kalhoty', popis: 'Nastav přibližně podle svých kalhot.',
     barvitelna: true, nepovinna: false, zbozi: false, slova: [],
+    zakladni: 'prvni',
     kontrola: { odY: 0.4, doY: 1.01, podilOd: 0.18, podilDo: 0.64 },
     varianty: [{ id: 'oblekove', nazev: 'Oblekové' }]
   },
   {
     typ: 'kosile', nazev: 'Košile', popis: 'Nastav přibližně podle své košile.',
     barvitelna: true, nepovinna: false, zbozi: false, slova: [],
+    zakladni: 'prvni',
     kontrola: { odY: 0.1, doY: 0.7, podilOd: 0.18, podilDo: 0.7 },
     varianty: [
       { id: 'klasicka', nazev: 'Klasický límec' },
@@ -243,6 +260,7 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'pasek', nazev: 'Pásek', popis: 'Vyber si konkrétní pásek.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['pás', 'pas', 'opasek', 'belt', 'gürtel'],
+    zakladni: 'vse',
     bod: { x: 0.5, y: 0.49 }, pobidka: 'Pásek k tomu?',
     kontrola: { odY: 0.38, doY: 0.62, podilOd: 0.001, podilDo: 0.07 },
     varianty: [{ id: 'kozeny', nazev: 'Kožený' }]
@@ -250,6 +268,7 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'ksandy', nazev: 'Kšandy', popis: 'Vyber si konkrétní kšandy.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kšand', 'ksand', 'šle', 'sle', 'suspender', 'brace', 'hosenträger'],
+    zakladni: 'vse',
     bod: { x: 0.32, y: 0.38 }, pobidka: 'Kšandy místo pásku?',
     kontrola: { odY: 0.13, doY: 0.6, podilOd: 0.004, podilDo: 0.22 },
     varianty: [
@@ -260,6 +279,7 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'kravata', nazev: 'Kravata nebo motýlek', popis: 'Vyber si konkrétní kravatu, motýlka nebo regatu.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kravat', 'motýl', 'motyl', 'tie', 'krawatte', 'regat'],
+    zakladni: 'vse',
     bod: { x: 0.5, y: 0.2 }, pobidka: 'Kravatu nebo motýlka?',
     kontrola: { odY: 0.11, doY: 0.52, podilOd: 0.001, podilDo: 0.09 },
     varianty: [
@@ -271,12 +291,14 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'vesta', nazev: 'Vesta', popis: 'Nastav přibližně podle své vesty, nebo ji nech být.',
     barvitelna: true, nepovinna: true, zbozi: false, slova: [],
+    zakladni: 'prvni',
     kontrola: { odY: 0.14, doY: 0.64, podilOd: 0.045, podilDo: 0.44 },
     varianty: [{ id: 'klasicka', nazev: 'Klasická' }]
   },
   {
     typ: 'sako', nazev: 'Sako', popis: 'Nastav přibližně podle svého saka.',
     barvitelna: true, nepovinna: true, zbozi: false, slova: [],
+    zakladni: 'prvni',
     kontrola: { odY: 0.08, doY: 0.76, podilOd: 0.22, podilDo: 0.86 },
     varianty: [
       { id: 'jednoradove', nazev: 'Jednořadové' },
@@ -286,11 +308,44 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'kapesnicek', nazev: 'Kapesníček', popis: 'Vyber si konkrétní kapesníček.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kapesní', 'kapesni', 'pochette', 'pocket square', 'einstecktuch'],
+    zakladni: 'vse',
     bod: { x: 0.68, y: 0.29 }, pobidka: 'Kapesníček do klopy?',
     kontrola: { odY: 0.18, doY: 0.46, podilOd: 0.0003, podilDo: 0.035 },
     varianty: [{ id: 'spicka', nazev: 'Do špičky' }]
   }
 ];
+
+/** Patří tahle varianta do základního běhu? */
+export function doZakladu(def: ZkVrstvaDef, varianta: string): boolean {
+  if (def.zakladni === 'vse') return true;
+  if (def.zakladni === 'zadna') return false;
+  return def.varianty[0]?.id === varianta;
+}
+
+/**
+ * Jakým dílem plochy postavy se kus kreslí — odhad ceny jednoho obrázku.
+ *
+ * Modelu se posílá jen výřez kolem toho, co se obléká, a obrázek se platí
+ * podle plochy. Kravata na výřezu hrudníku tedy stojí zlomek toho, co
+ * kravata na celé postavě. Číslo je orientační (přesný výřez závisí na
+ * tom, kde postava na plátně stojí), ale na odhad před kliknutím stačí.
+ */
+export function dilPlochy(typ: ZkVrstvaTyp, volneRozmery = true): number {
+  if (typ === 'postava') return 1;
+  const k = vrstvaDef(typ).kontrola;
+  /* Pruh kusu, rezerva kolem mezí a okraj výřezu nahoru i dolů */
+  const vyska = Math.min(1, (k.doY - k.odY) + 2 * 0.07 + 2 * 0.06);
+  if (!volneRozmery) {
+    /* Starší modely berou jen tři rozměry: na plátně na výšku zbývá
+       čtverec (dvě třetiny plochy), a kam se pruh nevejde, jde celé */
+    return vyska <= 0.66 ? 0.67 : 1;
+  }
+  /*
+   * Spodní mez není naše volba: rozhraní menší obrázek než 0,65 megabodu
+   * nevezme, což je z plátna 1024×1536 zhruba čtyřiačtyřicet procent.
+   */
+  return Math.max(0.45, Math.min(1, Math.round(vyska * 100) / 100));
+}
 
 export function vrstvaDef(typ: ZkVrstvaTyp): ZkVrstvaDef {
   const found = ZK_VRSTVY.find(one => one.typ === typ);
@@ -1334,6 +1389,8 @@ export interface ZkPostavaStav {
   hotovo: boolean;
   vrstev: number;
   chystanych: number;
+  /** Kolik vrstev má základní běh — bez variant navíc. */
+  zakladnich: number;
   nesedi: number;
   /** Vrstvy, které se použít dají, ale něco na nich stojí za podívání. */
   upozorneni: number;
@@ -1379,6 +1436,8 @@ export interface ZkObrazkovyModel {
   popis: string;
   verny: 'vzdy' | 'navolbu' | 'ne';
   cena: number;
+  /** Bere libovolný rozměr výřezu? Starší modely jen tři předepsané. */
+  volneRozmery: boolean;
 }
 
 export interface ZkPrehled {

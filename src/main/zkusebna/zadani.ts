@@ -131,10 +131,21 @@ const KUSY: Record<string, string> = {
  * postavu překreslí po svém a rozdíl mezi kroky nevydá kus látky, ale
  * jiného člověka.
  */
-export function zadaniKusu(typ: ZkVrstvaTyp, varianta: string): string {
+export function zadaniKusu(typ: ZkVrstvaTyp, varianta: string, naVyrezu = false): string {
   const co = KUSY[`${typ}:${varianta}`] ?? `plain ${typ} in ${ZK_KRESLICI_SLOVY[typ]}`;
   const vlasy = typ === 'vlasy' || typ === 'fousy';
   return [
+    /*
+     * Když jde modelu jen výřez, musí to vědět. Bez téhle věty si
+     * „celou postavu" doplní sám: domaluje chybějící nohy nebo obrázek
+     * oddálí, aby se do něj postava vešla — a z rozdílu dvou kroků je
+     * pak nesmysl.
+     */
+    naVyrezu
+      ? 'Image 1 is a close-up crop of the subject, not the whole figure.'
+        + ' Keep exactly the same framing, scale and crop; do not zoom out and do not add'
+        + ' body parts that are outside the crop.'
+      : '',
     `Image 1 is the subject. ${vlasy ? 'Give the person' : 'Dress the person in'} ${co}.`,
     'Keep the person completely unchanged: identical face, facial features, skin tone,',
     'body shape, pose, hands, framing, scale and lighting.',
@@ -145,7 +156,7 @@ export function zadaniKusu(typ: ZkVrstvaTyp, varianta: string): string {
     'but no pattern, no stripes, no checks, no logo and no text.',
     'The background must stay fully transparent.',
     'Match the lighting and colour temperature of the original exactly.'
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 /**
@@ -175,8 +186,8 @@ export function zadaniPostavyTed(vek: ZkVek, telo: ZkTelo): string {
   return zadani(`postava:${vek}:${telo}`, zadaniPostavy(vek, telo));
 }
 
-export function zadaniKusuTed(typ: ZkVrstvaTyp, varianta: string): string {
-  return zadani(`${typ}:${varianta}`, zadaniKusu(typ, varianta));
+export function zadaniKusuTed(typ: ZkVrstvaTyp, varianta: string, naVyrezu = false): string {
+  return zadani(`${typ}:${varianta}`, zadaniKusu(typ, varianta, naVyrezu));
 }
 
 export const __test = { KUSY, zadaniPostavy, zadaniKusu };

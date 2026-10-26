@@ -766,6 +766,109 @@ console.log('\nkdyž model ujede');
   ok('  a krok pro další oblékání zůstal mimo pruh nedotčený', stejne);
 
   /*
+   * Výřez: modelu jde jen kus obrázku kolem toho, co se obléká.
+   *
+   * Je to tři věci naráz — levnější (obrázek se platí podle plochy),
+   * spolehlivější (mimo výřez se překreslit nedá **z principu**) a
+   * detailnější (kapesníček dostane víc bodů). Zkouší se, že výřez
+   * sedne na pruh kusu, že splňuje meze rozhraní a že se vložením
+   * zpátky nezmění nic mimo něj.
+   */
+  {
+    const okraje = px.okraje(
+      (() => {
+        const m = new Uint8Array(SIRKA * VYSKA);
+        for (let i = 0; i < m.length; i++) m[i] = pred.body[i * 4 + 3] > 24 ? 255 : 0;
+        return m;
+      })(), SIRKA, VYSKA);
+
+    /*
+     * Nejdřív to, co není naše volba: rozhraní nevezme obrázek menší
+     * než 0,65 megabodu. Plátno téhle zkoušky je 120×180, tedy menší
+     * než ta mez celé — a tam se výřez **musí** vzdát a poslat celý
+     * obrázek. Kdyby to mlčky poslalo menší, vrátí rozhraní chybu a
+     * nevznikne nic; proto se to zkouší jako první.
+     */
+    const maleP = vrstvy.__test.vyrezKusu('kravata', okraje, SIRKA, VYSKA);
+    ok('na plátně pod mezí rozhraní jde celý obrázek, ne výřez',
+      maleP.x === 0 && maleP.y === 0 && maleP.w === SIRKA && maleP.h === VYSKA,
+      `${maleP.w}×${maleP.h} z ${SIRKA}×${VYSKA}`);
+
+    /*
+     * A teď geometrie na opravdovém plátně postavy (1024×1536), kde se
+     * výřez vyplatí. Postava zabírá obvyklý sloupec doprostřed.
+     */
+    const VS = 1024, VV = 1536;
+    const velkaPostava = { x: 300, y: 90, w: 430, h: 1380 };
+    const velky = vrstvy.__test.vyrezKusu('kravata', velkaPostava, VS, VV);
+    ok('výřez pro kravatu je menší než celé plátno',
+      velky.w * velky.h < VS * VV * 0.7,
+      `${velky.w}×${velky.h} z ${VS}×${VV}, tedy ${Math.round(velky.w * velky.h / (VS * VV) * 100)} %`);
+    ok('  a drží meze rozhraní (násobek 16, poměr do 1:3, nad 0,65 Mb)',
+      velky.w % 16 === 0 && velky.h % 16 === 0
+      && velky.w * 3 >= velky.h && velky.h * 3 >= velky.w
+      && velky.w * velky.h >= 655360,
+      `${velky.w}×${velky.h} = ${velky.w * velky.h} bodů`);
+    const pruhVelky = vrstvy.__test.pruhKusu('kravata', velkaPostava, VV);
+    ok('  a pruh, kde kravata na postavě leží, je celý uvnitř',
+      velky.y <= pruhVelky.od && velky.y + velky.h >= pruhVelky.do,
+      `výřez ${velky.y}–${velky.y + velky.h}, pruh ${pruhVelky.od}–${pruhVelky.do}`);
+    /*
+     * Starší modely berou jen tři předepsané rozměry. Poslat jim výřez
+     * 752×960 znamená chybu rozhraní, takže se jim dává čtverec —
+     * pořád dvakrát levnější než plátno na výšku.
+     */
+    const pevny = vrstvy.__test.vyrezKusu('kravata', velkaPostava, VS, VV, false);
+    ok('  a modelu s pevnými rozměry jde jeden z nich',
+      [[1024, 1024], [1024, 1536], [1536, 1024]].some(([w, h]) => pevny.w === w && pevny.h === h),
+      `${pevny.w}×${pevny.h}`);
+
+    /*
+     * Zbytek zkoušky pracuje s malým plátnem, aby šel obrázek po
+     * bodech přečíst. Mez rozhraní se proto předá menší — je to
+     * vlastnost rozhraní, ne naše volba, a jinde se nemění.
+     */
+    const vyrezKravaty = vrstvy.__test.vyrezKusu('kravata', okraje, SIRKA, VYSKA, true, 1500);
+    ok('  na malém plátně s menší mezí výřez vznikne',
+      vyrezKravaty.w * vyrezKravaty.h < SIRKA * VYSKA,
+      `${vyrezKravaty.w}×${vyrezKravaty.h} z ${SIRKA}×${VYSKA}`);
+    const pruhKravaty = vrstvy.__test.pruhKusu('kravata', okraje, VYSKA);
+    ok('  a pruh, kde kravata leží, je celý uvnitř',
+      vyrezKravaty.y <= pruhKravaty.od && vyrezKravaty.y + vyrezKravaty.h >= pruhKravaty.do,
+      `výřez ${vyrezKravaty.y}–${vyrezKravaty.y + vyrezKravaty.h}, pruh ${pruhKravaty.od}–${pruhKravaty.do}`);
+
+    /* Vyříznout a vložit zpátky beze změny nesmí nic pokazit */
+    const tamZpet = px.vlozObdelnik(pred, px.vyrizniObdelnik(pred, vyrezKravaty), vyrezKravaty);
+    let shodne = true;
+    for (let i = 0; i < pred.body.length && shodne; i++) {
+      if (tamZpet.body[i] !== pred.body[i]) shodne = false;
+    }
+    ok('  vyříznutí a vložení zpátky obrázek nezmění', shodne);
+
+    /*
+     * A celý krok přes výřez: model „obleče" jen ve výřezu a vrstva
+     * z toho vyjde stejně jako kdyby dostal celý obrázek.
+     */
+    const kravata = { x: 56, y: 52, w: 8, h: 40 };
+    const vyrezObraz = px.vyrizniObdelnik(pred, vyrezKravaty);
+    for (let y = kravata.y - vyrezKravaty.y; y < kravata.y - vyrezKravaty.y + kravata.h; y++) {
+      for (let x = kravata.x - vyrezKravaty.x; x < kravata.x - vyrezKravaty.x + kravata.w; x++) {
+        if (y < 0 || x < 0 || y >= vyrezObraz.vyska || x >= vyrezObraz.sirka) continue;
+        const i = (y * vyrezObraz.sirka + x) * 4;
+        if (vyrezObraz.body[i + 3] < 128) continue;
+        vyrezObraz.body[i] = 120; vyrezObraz.body[i + 1] = 40; vyrezObraz.body[i + 2] = 30;
+      }
+    }
+    const celek = px.vlozObdelnik(pred, vyrezObraz, vyrezKravaty);
+    const zVyrezu = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, celek, 'zkouška', vyrezKravaty);
+    ok('vrstva z výřezu je ta kravata, ne nic jiného',
+      zVyrezu.vrstva.stav === 'hotovo'
+      && Math.abs(zVyrezu.vrstva.okraje.x - kravata.x) <= 3
+      && Math.abs(zVyrezu.vrstva.okraje.h - kravata.h) <= 6,
+      `${zVyrezu.vrstva.okraje.x},${zVyrezu.vrstva.okraje.y} ${zVyrezu.vrstva.okraje.w}×${zVyrezu.vrstva.okraje.h}`);
+  }
+
+  /*
    * Duch postavy ve vrstvě. Tohle je ta chyba, která byla vidět na
    * vrstvě s vlasy: kromě vlasů v ní visel **tenký obrys hlavy a
    * ramen**. Model totiž celý obrázek překreslí a kolem obrysů po sobě

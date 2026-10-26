@@ -2028,9 +2028,12 @@ for (const okno of OKNA) {
     nesedi: [...document.querySelectorAll('.zk-potiz')].map(one => one.textContent.trim()),
     odznaky: [...document.querySelectorAll('.zk-odznak')].map(one => one.textContent.trim()),
     dogenerovat: (document.querySelector('.zk-akce .btn.primary')?.textContent ?? '').trim(),
+    navic: ([...document.querySelectorAll('.zk-akce .btn')]
+      .map(one => one.textContent.trim()).find(one => /varianty navíc/.test(one)) ?? ''),
     kroku: document.querySelectorAll('.zk-kroky-rada figure').length
   }));
-  say('dílna ukazuje postavy i vrstvy', dilna.postav === 7 && dilna.karet === 8,
+  const cena = text => Number((/([\d.,]+)\s*\$/.exec(text) ?? [])[1]?.replace(',', '.') ?? NaN);
+  say('dílna ukazuje postavy i vrstvy', dilna.postav === 7 && dilna.karet === 10,
     `${dilna.postav} postav, ${dilna.karet} vrstev`);
   say('  u nepovedené vrstvy stojí česky, co je špatně',
     dilna.nesedi.length === 1 && /zabírá/.test(dilna.nesedi[0]), dilna.nesedi[0]?.slice(0, 70) ?? 'nic');
@@ -2042,6 +2045,16 @@ for (const okno of OKNA) {
    */
   say('  a kolik stojí dogenerovat, je vidět předem',
     /\$/.test(dilna.dogenerovat), dilna.dogenerovat);
+  /*
+   * Dvě tlačítka, ne jedno. Potřebné vrstvy jsou to, bez čeho kabina
+   * nejde otevřít; varianty navíc jsou odstíny kulis, které zákazník
+   * většinou ani nepřepne. Dřív se kreslilo všechno naráz a jedna
+   * postava stála přes dolar — proto musí být levnější cesta první a
+   * musí být **vidět, že je levnější**.
+   */
+  say('  a levnější cesta (jen potřebné) je nabídnutá vedle té úplné',
+    cena(dilna.dogenerovat) > 0 && cena(dilna.navic) > cena(dilna.dogenerovat),
+    `potřebné ${dilna.dogenerovat} proti ${dilna.navic}`);
   say('  kroky oblékání jsou k nahlédnutí', dilna.kroku === 3, `${dilna.kroku} kroků`);
   await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-vizualy.png') });
 

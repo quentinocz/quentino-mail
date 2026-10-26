@@ -955,8 +955,8 @@ export const api = {
     generujPostavu: (postava: string) => call<unknown>('zk:generuj-postavu', postava),
     generujVrstvu: (postava: string, typ: ZkVrstvaTyp, varianta: string) =>
       call<ZkVrstvaProOkno>('zk:generuj-vrstvu', postava, typ, varianta),
-    generujVse: (postava: string, jenChybejici: boolean) =>
-      call<{ hotovo: number; nesedi: number; potize: string[] }>('zk:generuj-vse', postava, jenChybejici),
+    generujVse: (postava: string, jenChybejici: boolean, rozsah: 'zakladni' | 'vse' = 'zakladni') =>
+      call<{ hotovo: number; nesedi: number; potize: string[] }>('zk:generuj-vse', postava, jenChybejici, rozsah),
     ukazka: (postava: string) => call<{ hotovo: number; nesedi: string[] }>('zk:ukazka', postava),
     ukazkaVse: () => call<{ hotovo: number; nesedi: string[] }>('zk:ukazka-vse'),
     schval: (postava: string, typ: ZkVrstvaTyp, varianta: string, ano: boolean) =>

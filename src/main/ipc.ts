@@ -742,8 +742,9 @@ export function registerIpc() {
   handle('zk:generuj-postavu', (postava: string) => zkusebna.generujPostavu(String(postava ?? '')));
   handle('zk:generuj-vrstvu', (postava: string, typ: string, varianta: string) =>
     zkusebna.generujVrstvu(String(postava ?? ''), typ as any, String(varianta ?? '')));
-  handle('zk:generuj-vse', (postava: string, jenChybejici: boolean) =>
-    zkusebna.generujVse(String(postava ?? ''), jenChybejici !== false));
+  handle('zk:generuj-vse', (postava: string, jenChybejici: boolean, rozsah?: string) =>
+    zkusebna.generujVse(String(postava ?? ''), jenChybejici !== false,
+      rozsah === 'vse' ? 'vse' : 'zakladni'));
   // Zástupná kresba: kabina jde zkoušet dřív, než se zaplatí první obrázek
   handle('zk:ukazka', (postava: string) => zkusebna.postavUkazku(String(postava ?? '')));
   handle('zk:ukazka-vse', () => zkusebna.postavUkazkuVse());

@@ -39,6 +39,15 @@ export interface ObrazkovyModel {
   verny: 'vzdy' | 'navolbu' | 'ne';
   /** Orientační cena jednoho obrázku v dolarech, při vysoké kvalitě na výšku. */
   cena: number;
+  /**
+   * Přijme libovolný rozměr, nebo jen tři předepsané?
+   *
+   * Rozhoduje o tom, jak velký výřez se dá modelu poslat — a tím
+   * i o ceně, protože obrázek se platí podle plochy. Novější řada bere
+   * cokoli (násobky šestnácti, poměr do 1:3, nejmíň 0,65 megabodu),
+   * starší jen 1024×1024, 1024×1536 a 1536×1024.
+   */
+  volneRozmery: boolean;
 }
 
 /**
@@ -56,24 +65,27 @@ export const MODELY: ObrazkovyModel[] = [
   {
     id: 'gpt-image-2.5-sunburst', nazev: 'gpt-image-2.5 Sunburst',
     popis: 'Nejpřesnější v úpravách hotového obrázku — a na tom oblékání po vrstvách stojí.',
-    verny: 'vzdy', cena: 0.05
+    verny: 'vzdy', cena: 0.05, volneRozmery: true
   },
   {
     id: 'gpt-image-2.5-flare', nazev: 'gpt-image-2.5 Flare',
     popis: 'Rychlejší, na běžné kreslení od nuly. Vstupní obrázek drží volněji než Sunburst.',
-    verny: 'vzdy', cena: 0.05
+    verny: 'vzdy', cena: 0.05, volneRozmery: true
   },
   {
     id: 'gpt-image-2', nazev: 'gpt-image-2 (starší)',
     popis: 'Předchozí řada. Vstupní obrázek drží vždy, průhledné pozadí umí.',
-    verny: 'vzdy', cena: 0.22
+    verny: 'vzdy', cena: 0.22, volneRozmery: false
   },
   {
     id: 'gpt-image-1', nazev: 'gpt-image-1 (starší)',
     popis: 'Ještě starší. Levnější, zadání drží o něco volněji.',
-    verny: 'navolbu', cena: 0.17
+    verny: 'navolbu', cena: 0.17, volneRozmery: false
   }
 ];
+
+/** Nejmenší obrázek, který rozhraní u volných rozměrů přijme. */
+export const NEJMENE_BODU = 655_360;
 
 /**
  * Modely, které jsme kdysi nabízeli a u OpenAI dosloužily.
