@@ -60,9 +60,90 @@ export function siluetaPostavy(obraz: Obraz): Uint8Array {
   return maska;
 }
 
-/** Obdélník, ve kterém na plátně stojí postava. */
-export function okrajePostavy(obraz: Obraz): px.Okraje {
-  return px.okraje(siluetaPostavy(obraz), obraz.sirka, obraz.vyska);
+/** Kde na plátně stojí postava — a kde na ní končí hlava. */
+export interface KdePostava extends px.Okraje {
+  /** Řádek, kde postavě začíná krk. Nad ním je hlava. */
+  krk: number;
+}
+
+export function okrajePostavy(obraz: Obraz): KdePostava {
+  const silueta = siluetaPostavy(obraz);
+  const kde = px.okraje(silueta, obraz.sirka, obraz.vyska);
+  return { ...kde, krk: kdeKrk(silueta, obraz.sirka, kde) };
+}
+
+/**
+ * Kde postavě začíná krk — nejužší místo mezi temenem a rameny.
+ *
+ * ## Proč se to měří, a ne odhaduje
+ *
+ * Pruhy pro kusy jsou zlomky výšky postavy a u šesti z jedenácti kusů
+ * sahaly **na hlavu**: sako začínalo třináct bodů pod temenem, košile
+ * čtyřicet, kravata padesát. Model tedy měl povoleno překreslit
+ * obličej — a dělal to. Ve vrstvě se sakem visela celá hlava i s
+ * vousy a na krocích oblékání se člověk od kroku ke kroku měnil.
+ *
+ * Nedá se to spravit tím, že se ke zlomkům přičte jiný zlomek: hlava
+ * je u dítěte pětina postavy a u dospělého sedmina, u kojence ještě
+ * víc. Kde končí, se ale dá **změřit**: od temene dolů se silueta
+ * zužuje do krku a pod ním se rozšíří do ramen. Nejužší řádek mezi
+ * temenem a rameny je krk, a spodní z nich je jeho základ — přesně
+ * tam, kde sedí límec.
+ */
+export function kdeKrk(silueta: Uint8Array, sirka: number, postava: px.Okraje): number {
+  if (postava.h < 8 || postava.w < 4) return postava.y;
+  const sirkaRadku = (y: number): number => {
+    let od = -1;
+    let doKonce = -1;
+    for (let x = postava.x; x < postava.x + postava.w; x++) {
+      if (!silueta[y * sirka + x]) continue;
+      if (od < 0) od = x;
+      doKonce = x;
+    }
+    return od < 0 ? 0 : doKonce - od + 1;
+  };
+  const sirky: number[] = [];
+  for (let y = postava.y; y < postava.y + postava.h; y++) sirky.push(sirkaRadku(y));
+  const nejsirsi = Math.max(...sirky);
+  if (nejsirsi <= 0) return postava.y;
+
+  /* Ramena: první řádek shora, kde se postava rozšíří na většinu své
+     největší šířky. Hlava ani krk jí nikdy nedosáhnou. */
+  let ramena = -1;
+  for (let i = 0; i < sirky.length; i++) {
+    if (sirky[i] >= nejsirsi * 0.6) { ramena = i; break; }
+  }
+  /* Bez ramen (detail, useknutá postava) se radši nic neomezuje */
+  if (ramena <= 2) return postava.y;
+
+  /*
+   * Od ramen se jde **nahoru, dokud se postava zužuje**. Tam, kde se
+   * zužovat přestane, je nejužší místo — krk. Nejde hledat nejmenší
+   * šířku shora: temeno je samo o sobě úzké a vyšlo by hned ono.
+   *
+   * Profil se nejdřív uhladí přes pět řádků. Na fotce je obrys
+   * roztřepený a jediný zoubek o dva body by chůzi zastavil o kus
+   * výš, než kde krk opravdu je.
+   */
+  const hladce = sirky.map((_, i) => {
+    let soucet = 0;
+    let kusu = 0;
+    for (let j = Math.max(0, i - 2); j <= Math.min(sirky.length - 1, i + 2); j++) {
+      soucet += sirky[j];
+      kusu += 1;
+    }
+    return soucet / kusu;
+  });
+  let krk = ramena;
+  while (krk > 1 && hladce[krk - 1] < hladce[krk]) krk -= 1;
+  /*
+   * A pojistka. U stojící postavy je krk v první pětině výšky; kdyby
+   * měření vyšlo níž, není to krk a něco je jinak (detail, ruce
+   * v bok, useknutá figura). Pak se radši neomezuje nic — pruhy
+   * zůstanou jako dřív a hlídá to kontrola vrstvy.
+   */
+  if (krk > postava.h * 0.3) return postava.y;
+  return postava.y + krk;
 }
 
 /**
@@ -209,17 +290,43 @@ export function vyrezKusu(
  */
 export function pruhKusu(
   typ: ZkVrstvaTyp,
-  postava: px.Okraje,
+  postava: px.Okraje | KdePostava,
   vyska: number
 ): { od: number; do: number } {
   const k = vrstvaDef(typ).kontrola;
   /* Rezerva kolem mezí: límec saka sahá o kousek výš, než se čeká, a
      tvrdá hranice by ho odřízla */
   const rezerva = 0.07;
+  let od = Math.max(0, Math.round(postava.y + (k.odY - rezerva) * postava.h));
+  /*
+   * Oblečení začíná u krku. Nad ním je obličej, a ten se mezi kroky
+   * měnit nesmí — ani o vous. Pruhy ze zlomků výšky tam sahaly u šesti
+   * kusů z jedenácti, takže model směl obličej překreslit, a ve vrstvě
+   * se sakem pak visela celá hlava.
+   */
+  const krk = (postava as KdePostava).krk;
+  if (krk && !NAD_KRKEM.has(typ)) od = Math.max(od, krk);
   return {
-    od: Math.max(0, Math.round(postava.y + (k.odY - rezerva) * postava.h)),
+    od,
     do: Math.min(vyska, Math.round(postava.y + (k.doY + rezerva) * postava.h))
   };
+}
+
+/** Kusy, které na hlavu patří — ty se krkem neomezují. */
+const NAD_KRKEM = new Set<ZkVrstvaTyp>(['postava', 'vlasy', 'fousy']);
+
+/**
+ * Stane se tahle vrstva základem pro další oblékání?
+ *
+ * Jen první varianta kusu, a **nikdy vlasy ani vousy**. Na nich se
+ * oblékalo dál a jediný nepovedený účes tím otrávil všechno po sobě:
+ * na krocích měla postava od vlasů dál černou hlavu místo obličeje a
+ * sako ji pak „opravilo", takže ve vrstvě se sakem visel celý
+ * obličej. Oblečení začíná u krku, takže na hlavě nezáleží.
+ */
+export function zapisujeKrok(typ: ZkVrstvaTyp, varianta: string): boolean {
+  if (NAD_KRKEM.has(typ)) return false;
+  return vrstvaDef(typ).varianty[0].id === varianta;
 }
 
 
@@ -482,8 +589,17 @@ export async function vygenerujVrstvu(
   const poradi = ZK_VRSTVY.findIndex(one => one.typ === typ);
   const krok = store.cestaKroku(postavaId, poradi, `${typ}-${varianta}`);
   fs.writeFileSync(krok, uloz(vysledek.krok));
-  const kanonicka = def.varianty[0].id === varianta;
-  if (kanonicka && vysledek.vrstva.stav !== 'nesedi') store.zapisKrok(postavaId, poradi, typ, krok);
+  /*
+   * Vlasy a vousy se do řady kroků **nezapisují**. Na nich se obléká
+   * dál a jediný nepovedený účes tím otrávil všechno po sobě: na
+   * krocích oblékání měla postava od vlasů dál černou hlavu místo
+   * obličeje a sako ji pak „opravilo", takže ve vrstvě se sakem visel
+   * celý obličej. Kusy oblečení začínají u krku, takže na hlavě
+   * nezáleží — základ pro ně je postava, jak vyšla z prvního kroku.
+   */
+  if (zapisujeKrok(typ, varianta) && vysledek.vrstva.stav !== 'nesedi') {
+    store.zapisKrok(postavaId, poradi, typ, krok);
+  }
 
   store.zapisVrstvu(vysledek.vrstva);
   hlas({ postava: postavaId, typ, varianta, stav: vysledek.vrstva.stav, potiz: vysledek.vrstva.potiz });
@@ -704,6 +820,6 @@ export async function vygenerujVse(
 }
 
 export const __test = {
-  maskaProKus, pruhKusu, vyrezKusu, okrajePostavy, siluetaPostavy, naPostave, dosahPostavy,
+  maskaProKus, pruhKusu, vyrezKusu, okrajePostavy, siluetaPostavy, naPostave, dosahPostavy, kdeKrk, zapisujeKrok,
   posunObraz, vrstvaZKroku, zkontrolujPostavu, plan
 };

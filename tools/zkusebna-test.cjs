@@ -1053,6 +1053,116 @@ console.log('\nkdyž model ujede');
   }
 
   /*
+   * Obličej. Tohle je ta chyba, kvůli které ve vrstvě se sakem visela
+   * celá hlava i s vousy a na krocích oblékání se člověk od kroku ke
+   * kroku měnil: pruhy pro kusy jsou zlomky výšky postavy a šest
+   * z jedenácti jich sahalo **na hlavu**. Sako začínalo třináct bodů
+   * pod temenem, košile čtyřicet, kravata padesát — model tedy měl
+   * obličej povolený k překreslení.
+   *
+   * Přičíst k zlomkům jiný zlomek nejde: hlava je u dospělého sedmina
+   * postavy, u dítěte pětina, u kojence ještě víc. Kde končí, se ale
+   * dá změřit — od ramen nahoru se postava zužuje do krku.
+   */
+  {
+    const SV = 1024;
+    const VV = 1536;
+    /* Postava tvaru člověka: hlava, krk, ramena, trup, nohy */
+    const clovek = png.novyObraz(SV, VV);
+    const bod = (x, y) => {
+      if (x < 0 || y < 0 || x >= SV || y >= VV) return;
+      const i = (y * SV + x) * 4;
+      clovek.body[i] = 206; clovek.body[i + 1] = 170; clovek.body[i + 2] = 140; clovek.body[i + 3] = 255;
+    };
+    const hlava = { cx: 512, cy: 230, rx: 80, ry: 105 };
+    for (let y = hlava.cy - hlava.ry; y <= hlava.cy + hlava.ry; y++) {
+      for (let x = hlava.cx - hlava.rx; x <= hlava.cx + hlava.rx; x++) {
+        const dx = (x - hlava.cx) / hlava.rx;
+        const dy = (y - hlava.cy) / hlava.ry;
+        if (dx * dx + dy * dy <= 1) bod(x, y);
+      }
+    }
+    const KRK = { od: 320, do: 375 };
+    for (let y = KRK.od; y < KRK.do; y++) for (let x = 472; x < 552; x++) bod(x, y);
+    for (let y = KRK.do; y < 430; y++) {
+      const sir = 80 + Math.round((y - KRK.do) / 55 * 210);
+      for (let x = 512 - sir / 2; x < 512 + sir / 2; x++) bod(Math.round(x), y);
+    }
+    for (let y = 430; y < 1000; y++) for (let x = 367; x < 657; x++) bod(x, y);
+    for (let y = 1000; y < 1460; y++) for (let x = 392; x < 632; x++) bod(x, y);
+
+    const kde = vrstvy.__test.okrajePostavy(clovek);
+    ok('krk se na postavě najde měřením, ne odhadem',
+      Math.abs(kde.krk - KRK.do) <= 12, `krk na ${kde.krk}, ve skutečnosti ${KRK.do}`);
+
+    const naHlave = [];
+    const bezKrku = { x: kde.x, y: kde.y, w: kde.w, h: kde.h, podil: kde.podil };
+    const drive = [];
+    for (const def of zk.ZK_VRSTVY) {
+      if (def.typ === 'postava' || def.typ === 'vlasy' || def.typ === 'fousy') continue;
+      if (vrstvy.__test.pruhKusu(def.typ, kde, VV).od < kde.krk) naHlave.push(def.typ);
+      if (vrstvy.__test.pruhKusu(def.typ, bezKrku, VV).od < kde.krk) drive.push(def.typ);
+    }
+    ok('  (dřív sahalo na hlavu šest kusů z jedenácti)',
+      drive.length >= 5, drive.join(' · '));
+    ok('žádný kus oblečení nezačíná nad krkem',
+      naHlave.length === 0, naHlave.length ? naHlave.join(' · ') : 'ani jeden');
+    ok('  ale vlasy a vousy na hlavu dosáhnou dál',
+      vrstvy.__test.pruhKusu('vlasy', kde, VV).od < kde.krk
+      && vrstvy.__test.pruhKusu('fousy', kde, VV).od < kde.krk,
+      `vlasy od ${vrstvy.__test.pruhKusu('vlasy', kde, VV).od}, krk na ${kde.krk}`);
+
+    /*
+     * A celý krok: model obleče sako a **při tom překreslí obličej**.
+     * Do vrstvy se sakem obličej patřit nesmí — a hlavně se nesmí
+     * změnit ani v kroku, ze kterého se obléká dál.
+     */
+    const sSakem = { sirka: SV, vyska: VV, body: Uint8Array.from(clovek.body) };
+    for (let y = 430; y < 980; y++) {
+      for (let x = 367; x < 657; x++) {
+        const i = (y * SV + x) * 4;
+        if (sSakem.body[i + 3] < 128) continue;
+        sSakem.body[i] = 60; sSakem.body[i + 1] = 70; sSakem.body[i + 2] = 110;
+      }
+    }
+    /* Překreslený obličej: jiná pleť, jiný člověk */
+    for (let y = kde.y; y < KRK.od; y++) {
+      for (let x = 0; x < SV; x++) {
+        const i = (y * SV + x) * 4;
+        if (sSakem.body[i + 3] < 128) continue;
+        sSakem.body[i] = 150; sSakem.body[i + 1] = 110; sSakem.body[i + 2] = 92;
+      }
+    }
+    const VP = { id: 'dospely-bezny', vek: 'dospely', telo: 'bezny', vyskaCm: 180, sirka: SV, vyska: VV };
+    const vrstvaSaka = vrstvy.__test.vrstvaZKroku(VP, 'sako', 'jednoradove', clovek, sSakem, 'zkouška');
+    ok('překreslený obličej se do vrstvy se sakem nedostane',
+      vrstvaSaka.vrstva.okraje.y >= kde.krk - 4,
+      `vrstva začíná na ${vrstvaSaka.vrstva.okraje.y}, krk je na ${kde.krk}`);
+    let hlavaStejna = true;
+    for (let y = kde.y; y < KRK.od && hlavaStejna; y++) {
+      for (let x = 0; x < SV; x++) {
+        const i = (y * SV + x) * 4;
+        for (let k = 0; k < 4; k++) {
+          if (vrstvaSaka.krok.body[i + k] !== clovek.body[i + k]) { hlavaStejna = false; break; }
+        }
+        if (!hlavaStejna) break;
+      }
+    }
+    ok('  a v kroku pro další oblékání zůstal původní obličej, bod po bodu', hlavaStejna);
+
+    /*
+     * Vlasy se do řady kroků nezapisují vůbec. Dřív se na nich
+     * oblékalo dál, takže jediný nepovedený účes otrávil všechno po
+     * sobě — na krocích měla postava od vlasů dál černou hlavu.
+     */
+    ok('na vlasech ani vousech se dál neobléká',
+      !vrstvy.__test.zapisujeKrok('vlasy', 'kratke')
+      && !vrstvy.__test.zapisujeKrok('fousy', 'plnovous')
+      && vrstvy.__test.zapisujeKrok('kosile', 'klasicka'));
+  }
+
+
+  /*
    * Základ se kontroluje dřív, než se na něj začne oblékat. Je to ta
    * nejlevnější kontrola v kabině: postava stojí jeden obrázek, oblečení
    * dvaadvacet.
