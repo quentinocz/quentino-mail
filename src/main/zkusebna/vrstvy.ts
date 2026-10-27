@@ -1,7 +1,8 @@
 import fs from 'fs';
 import { BrowserWindow } from 'electron';
 import {
-  ZkPostava, ZkVrstva, ZkVrstvaTyp, ZK_VRSTVY, doZakladu, vrstvaDef, zkontrolujVrstvu
+  ZkPostava, ZkVrstva, ZkVrstvaTyp, ZK_VRSTVY, ZK_PODKLAD_HEX,
+  doZakladu, signalniBarva, vrstvaDef, zkontrolujVrstvu
 } from '../../shared/zkusebna';
 import { getSetting } from '../db';
 import { Obraz, nacti, uloz, novyObraz } from './png';
@@ -312,8 +313,14 @@ export function pruhKusu(
   };
 }
 
-/** Kusy, které na hlavu patří — ty se krkem neomezují. */
-const NAD_KRKEM = new Set<ZkVrstvaTyp>(['postava', 'vlasy', 'fousy']);
+/**
+ * Kusy, které na hlavu patří — ty se krkem neomezují.
+ *
+ * Od chvíle, kdy jsou vlasy i vousy součástí postavy, je tu jediná:
+ * sama postava. Vlasy jako vrstva byly to jediné, co se kdy odečítalo
+ * nad obličejem, a byly i jediné, kde se duch obličeje objevil.
+ */
+const NAD_KRKEM = new Set<ZkVrstvaTyp>(['postava']);
 
 /**
  * Stane se tahle vrstva základem pro další oblékání?
@@ -543,6 +550,49 @@ export interface VysledekVrstvy {
  * předchozího kroku — jinak by se motýlek dal zapnout jen tomu, kdo má
  * zároveň kravatu.
  */
+/**
+ * Podklad, na který se kus kreslí.
+ *
+ * ## Proč se skládá, a nebere od modelu
+ *
+ * Dřív se obléká postupně a každý krok byl obrázek od modelu: kravata
+ * se kreslila na obrázek, který vyšel z kroku s košilí. Jenže ten
+ * obrázek je **nový obrázek**, ne původní postava s košilí — a jediný
+ * nepovedený krok otrávil všechno po sobě. Na krocích oblékání měla
+ * postava od vlasů dál černou hlavu místo obličeje a každý další kus
+ * se kreslil na ni.
+ *
+ * Podklad se proto skládá z toho, co máme: z postavy a z vrstev, které
+ * už jsou hotové. Je to tentýž výpočet, jakým se model skládá
+ * zákazníkovi v prohlížeči, takže model vidí přesně to, co uvidí on.
+ * Nepovedená vrstva se do podkladu nedostane a nemá co otrávit.
+ *
+ * Doplňky (kravata, kšandy, pásek, kapesníček) se do podkladu nedávají:
+ * jsou jeden místo druhého a kreslit kravatu přes kšandy nedává smysl.
+ */
+export function podkladProKus(postavaId: string, typ: ZkVrstvaTyp): Obraz {
+  const vrstvy = store.vrstvy(postavaId);
+  const zaklad = vrstvy.find(one => one.typ === 'postava' && one.soubor);
+  if (!zaklad || !fs.existsSync(zaklad.soubor)) {
+    throw new Error('Nejdřív se musí nakreslit postava.');
+  }
+  const postava = nacti(fs.readFileSync(zaklad.soubor));
+  const kusy: { obraz: Obraz; hex?: string }[] = [{ obraz: postava }];
+  for (const def of ZK_VRSTVY) {
+    if (def.typ === typ) break;
+    if (def.typ === 'postava' || def.zbozi) continue;
+    const hex = ZK_PODKLAD_HEX[def.typ];
+    if (!hex) continue;
+    const vrstva = vrstvy.find(one =>
+      one.typ === def.typ && one.varianta === def.varianty[0].id
+      && one.stav !== 'nesedi' && one.soubor && fs.existsSync(one.soubor));
+    if (!vrstva) continue;
+    kusy.push({ obraz: nacti(fs.readFileSync(vrstva.soubor)), hex });
+  }
+  if (kusy.length === 1) return postava;
+  return px.slozeni(kusy, postava.sirka, postava.vyska);
+}
+
 export async function vygenerujVrstvu(
   postavaId: string,
   typ: ZkVrstvaTyp,
@@ -554,49 +604,33 @@ export async function vygenerujVrstvu(
   if (!def.varianty.some(one => one.id === varianta)) {
     throw new Error(`Vrstva ${def.nazev} nemá variantu ${varianta}.`);
   }
-  const predSoubor = store.krokPred(postavaId, typ);
-  if (!predSoubor) throw new Error('Chybí krok před tímhle — nejdřív se musí nakreslit postava.');
 
   hlas({ postava: postavaId, typ, varianta, stav: 'kreslim' });
-  const pred = nacti(fs.readFileSync(predSoubor));
-  const kdePostava = okrajePostavy(pred);
-  const vyrezPredem = vyrezKusu(
-    typ, kdePostava, pred.sirka, pred.vyska, obrazky.model().volneRozmery
+  const zaklad = podkladProKus(postavaId, typ);
+  const kdePostava = okrajePostavy(zaklad);
+  const vyrez = vyrezKusu(
+    typ, kdePostava, zaklad.sirka, zaklad.vyska, obrazky.model().volneRozmery
   );
-  const naVyrezu = vyrezPredem.w < pred.sirka || vyrezPredem.h < pred.vyska;
+  const naVyrezu = vyrez.w < zaklad.sirka || vyrez.h < zaklad.vyska;
   const zadani = zadaniKusuTed(typ, varianta, naVyrezu);
 
   /*
    * Modelu se posílá **jen výřez**, ne celá postava: je to levnější,
-   * míň místa na ujetí a víc bodů na detail. Vrácený výřez se vloží
-   * zpátky, takže mimo něj zůstane původní obrázek bod po bodu.
+   * míň místa na ujetí a víc bodů na detail.
    */
-  const vyrez = vyrezPredem;
-  const vstup = px.vyrizniObdelnik(pred, vyrez);
-  const upraveny = await obrazky.dokresli(
-    zadani, vstup, maskaProKus(typ, pred, vyrez)
-  );
-  const po = px.vlozObdelnik(pred, upraveny, vyrez);
-
-  const vysledek = vrstvaZKroku(p, typ, varianta, pred, po, zadani, vyrez);
+  const vstup = px.vyrizniObdelnik(zaklad, vyrez);
+  const vracene = await obrazky.dokresli(zadani, vstup, maskaProKus(typ, zaklad, vyrez));
+  const vysledek = vrstvaZObrazku(p, typ, varianta, zaklad, vracene, zadani, vyrez);
 
   /*
-   * Ukládá se **slepený** krok, ne to, co přišlo od modelu: mimo pruh je
-   * v něm bod po bodu původní obrázek. Další kus se tedy obléká na
-   * postavu, která se od prvního kroku nezměnila, a drobné odchylky se
-   * přes dvaadvacet kroků nesčítají.
+   * Co přišlo od modelu, se uloží jako krok oblékání. Není to podklad
+   * pro nic dalšího — ten se skládá — ale v okně je na něm vidět, co
+   * model opravdu nakreslil, a to je jediné, podle čeho se dá poznat,
+   * proč vrstva vyšla, jak vyšla.
    */
   const poradi = ZK_VRSTVY.findIndex(one => one.typ === typ);
   const krok = store.cestaKroku(postavaId, poradi, `${typ}-${varianta}`);
   fs.writeFileSync(krok, uloz(vysledek.krok));
-  /*
-   * Vlasy a vousy se do řady kroků **nezapisují**. Na nich se obléká
-   * dál a jediný nepovedený účes tím otrávil všechno po sobě: na
-   * krocích oblékání měla postava od vlasů dál černou hlavu místo
-   * obličeje a sako ji pak „opravilo", takže ve vrstvě se sakem visel
-   * celý obličej. Kusy oblečení začínají u krku, takže na hlavě
-   * nezáleží — základ pro ně je postava, jak vyšla z prvního kroku.
-   */
   if (zapisujeKrok(typ, varianta) && vysledek.vrstva.stav !== 'nesedi') {
     store.zapisKrok(postavaId, poradi, typ, krok);
   }
@@ -607,94 +641,102 @@ export async function vygenerujVrstvu(
 }
 
 /**
- * Z dvou kroků spočítá vrstvu. Bez sítě — tudy chodí i zkouška.
+ * Z obrázku od modelu vybere kus látky. Bez sítě — tudy chodí i zkouška.
+ *
+ * ## Jak se kus pozná
+ *
+ * Podle barvy, ne podle rozdílu proti podkladu. Model dostal zadání
+ * nakreslit kus v syté purpurové; purpurové body jsou ten kus. Všechno
+ * ostatní — překreslený obličej, posunutý stín, jinak vykreslená ruka —
+ * purpurové není, takže se do vrstvy nedostane. Ne proto, že by to
+ * zahodil nějaký práh, ale protože to tam nepatří.
+ *
+ * Tím odpadlo všechno, co se kolem rozdílu dvou obrázků nastavělo:
+ * srovnávání tónu, přizpůsobivý práh, dvojí zúžení masky, hlídání
+ * dosahu změny i měření, kolik vrstvy leží na postavě. Žádné z toho
+ * nefungovalo spolehlivě, protože se snažilo uhodnout, co model udělal
+ * schválně a co jen tak.
+ *
+ * Zbyly dvě věci, a obě mají důvod:
+ *
+ *  * **posun** — model obrázek občas odnese o pár bodů. Měří se mimo
+ *    pruh, kde se obléká, protože tam má být obrázek stejný.
+ *  * **pruh a postava** — purpurová se bere jen tam, kam kus patří.
+ *    Kdyby model purpurou vymaloval pozadí, není to kus látky.
  */
-export function vrstvaZKroku(
+export function vrstvaZObrazku(
   p: ZkPostava,
   typ: ZkVrstvaTyp,
   varianta: string,
-  pred: Obraz,
-  po: Obraz,
+  zaklad: Obraz,
+  /** Co přišlo od modelu — jen výřez, pokud se posílal výřez. */
+  vracene: Obraz,
   zadani: string,
-  /** Kus obrázku, který šel modelu. Mimo něj je `po` shodné s `pred`. */
   vyrez?: px.Obdelnik
 ): { vrstva: ZkVrstva; krok: Obraz } {
   const def = vrstvaDef(typ);
-  const kdePostava = okrajePostavy(pred);
-  /*
-   * Zarovnání se měří na hlavě, protože ta se při oblékání nemá měnit —
-   * ani u vlasů, kde se mění jen to, co na ní roste. U vlasů se proto
-   * bere pruh přes trup.
-   */
-  const pruh = pruhKusu(typ, kdePostava, pred.vyska);
-  /*
-   * Kotva musí ležet **ve výřezu**, který šel modelu, a mimo pruh, kde
-   * se obléká. Mimo výřez je obrázek shodný z principu, takže by se na
-   * něm nedalo nic naměřit, a v pruhu se mění látka.
-   */
-  const kotva = vyrez
-    ? (pruh.od - vyrez.y >= 12
-      ? { x: vyrez.x, y: vyrez.y, w: vyrez.w, h: pruh.od - vyrez.y }
-      : { x: vyrez.x, y: Math.min(pruh.do + 1, vyrez.y + vyrez.h - 12), w: vyrez.w, h: Math.max(12, vyrez.y + vyrez.h - pruh.do - 1) })
-    : (typ === 'vlasy' || typ === 'fousy'
-      ? { x: kdePostava.x, y: Math.round(kdePostava.y + kdePostava.h * 0.45), w: kdePostava.w, h: Math.round(kdePostava.h * 0.2) }
-      : { x: kdePostava.x, y: kdePostava.y, w: kdePostava.w, h: Math.max(8, Math.round(kdePostava.h * 0.12)) });
-  const posun = px.zarovnej(pred, po, kotva, 6);
+  const kdePostava = okrajePostavy(zaklad);
+  const pruh = pruhKusu(typ, kdePostava, zaklad.vyska);
+  const kde0 = vyrez ?? { x: 0, y: 0, w: zaklad.sirka, h: zaklad.vyska };
+  const cely = vracene.sirka === zaklad.sirka && vracene.vyska === zaklad.vyska
+    ? vracene
+    : px.vlozObdelnik(zaklad, vracene, kde0);
 
   /*
-   * Tři kroky, než se vůbec začne počítat rozdíl. Každý z nich zahazuje
-   * jeden způsob, jakým model „ujede":
-   *
-   *  1. **posun zpátky** — obrázek jako celek odnesený o pár bodů,
-   *  2. **srovnání tónu** — celek o kousek světlejší nebo teplejší,
-   *  3. **slepení** — cokoli překresleného mimo pruh, kde se obléká.
-   *
-   * Bez nich vyjde jako „kus látky" půlka postavy: krátké vlasy se
-   * naměřily na 23 % postavy místo tří procent, protože model vrátil
-   * všechno o stupeň jinak.
+   * Kotva na měření posunu leží ve výřezu a mimo pruh: tam se nic
+   * měnit nemělo, takže rozdíl je čistě posun. Když se nikam nevejde,
+   * neposouvá se — zarovnání na místě, kde se zrovna obléká, by
+   * naměřilo nesmysl.
    */
-  const srovnany = posunObraz(po, -posun.dx, -posun.dy);
-  /*
-   * Čtvrtý krok, a je to tentýž zákon jako maska pro model: kus
-   * oblečení je **na člověku**. Co přišlo zpátky mimo postavu a její
-   * těsné okolí, se zahodí a bere se původní obrázek — model totiž
-   * masku dodržet nemusí, a jednou ji nedodržel tak, že z vrstvy
-   * s vlasy leželo na postavě osm procent a zbytek vedle ní.
-   */
-  const srovnanyTon = px.srovnejTon(pred, srovnany, pruh, vyrez);
-  const dosah = dosahZmeny(pred, kdePostava, px.slep(pred, srovnanyTon, pruh));
-  const slepeny = px.slep(pred, srovnanyTon, pruh, dosah);
+  const kotva = pruh.od - kde0.y >= 24
+    ? { x: kde0.x, y: kde0.y, w: kde0.w, h: pruh.od - kde0.y }
+    : (kde0.y + kde0.h - pruh.do >= 24
+      ? { x: kde0.x, y: pruh.do, w: kde0.w, h: kde0.y + kde0.h - pruh.do }
+      : null);
+  const posun = kotva ? px.zarovnej(zaklad, cely, kotva, 4) : { dx: 0, dy: 0, chyba: 0 };
+  const srovnany = posunObraz(cely, -posun.dx, -posun.dy);
 
-  const maska = px.uklid(px.rozdil(pred, slepeny), pred.sirka, pred.vyska);
-  const kde = px.okraje(maska, pred.sirka, pred.vyska);
+  /* Purpurové body — a jen ty, co jsou tam, kde kus patří */
+  const maska = px.maskaBarvy(srovnany, signalniBarva(typ));
+  const dosah = dosahPostavy(zaklad, kdePostava);
+  for (let y = 0; y < zaklad.vyska; y++) {
+    const vPruhu = y >= pruh.od && y <= pruh.do;
+    for (let x = 0; x < zaklad.sirka; x++) {
+      const i = y * zaklad.sirka + x;
+      if (!vPruhu || !dosah[i]) maska[i] = 0;
+    }
+  }
+  /* Odlesk na látce odstín ztratí a knoflík ho nemá vůbec — díry se
+     zavřou, ať jimi na modelu neprosvítá košile */
+  const zavrena = px.zavriDiry(maska, zaklad.sirka, zaklad.vyska, 4);
+  /*
+   * A pak jen to, co leží na postavě. Kreslicí barvou vymalované
+   * pozadí vedle postavy je souvislá skvrna, která se siluety
+   * nedotkne — kus oblečení je na člověku.
+   */
+  const cista = px.jenVelke(
+    px.jenNaPostave(zavrena, siluetaPostavy(zaklad), zaklad.sirka, zaklad.vyska),
+    zaklad.sirka, zaklad.vyska
+  );
+
+  const kde = px.okraje(cista, zaklad.sirka, zaklad.vyska);
   const podilNaPostave = kdePostava.podil > 0 ? kde.podil / kdePostava.podil : 0;
   const nalez = zkontrolujVrstvu(
     typ,
     {
       okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
       podil: podilNaPostave,
-      /*
-       * Měří se proti postavě **i prostoru, kam kus smí přerůst** —
-       * účes nad holou hlavou leží z poloviny mimo původní obrys a
-       * přitom je v pořádku. Co je dál, se do vrstvy nedostane už
-       * z principu, tahle míra tedy hlídá zbytek: vrstvu, která
-       * vznikla vedle postavy, ne na ní.
-       */
-      naPostave: naPostave(maska, dosahPostavy(pred, kdePostava), pred.sirka, pred.vyska)
+      naPostave: naPostave(cista, dosah, zaklad.sirka, zaklad.vyska)
     },
     { y: kdePostava.y, h: kdePostava.h }
   );
   const potiz = nalez.potiz;
 
-  const obraz = def.barvitelna ? px.stinovaMapa(slepeny, maska) : px.vyrizni(slepeny, maska);
+  const obraz = def.barvitelna ? px.stinovaMapa(srovnany, cista) : px.vyrizni(srovnany, cista);
 
   /*
    * Vrstva se ukládá **i když neprojde kontrolou**. Používat se nebude —
    * to hlídá stav — ale v okně je pak vidět, co z toho vlastně vyšlo.
-   * Bez obrázku zbyla u nepovedené vrstvy jen věta „zabírá 11 %" a
-   * nedalo se poznat, jestli model překreslil obličej, nebo jsou to
-   * prostě vlasy i s kotletami. Rozhodnout to má člověk, ne procento,
-   * a přegenerování stojí peníze.
    */
   const soubor = store.cestaVrstvy(p.id, typ, varianta);
   fs.writeFileSync(soubor, uloz(obraz));
@@ -704,20 +746,15 @@ export function vrstvaZKroku(
       postava: p.id, typ, varianta,
       soubor,
       url: '',
-      sirka: pred.sirka, vyska: pred.vyska,
+      sirka: zaklad.sirka, vyska: zaklad.vyska,
       podil: podilNaPostave,
       okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
       stav: potiz ? 'nesedi' : 'hotovo',
-      /*
-       * U použitelné vrstvy se do stejného políčka dá upozornění. Je to
-       * věta vedle obrázku, ne verdikt: „vyšlo z toho víc, než je
-       * obvyklé" se čte jinak než „nesedí", a rozhodnout má člověk.
-       */
       potiz: potiz || nalez.varovani,
       zadani,
       kdy: new Date().toISOString()
     },
-    krok: slepeny
+    krok: srovnany
   };
 }
 
@@ -821,5 +858,5 @@ export async function vygenerujVse(
 
 export const __test = {
   maskaProKus, pruhKusu, vyrezKusu, okrajePostavy, siluetaPostavy, naPostave, dosahPostavy, kdeKrk, zapisujeKrok,
-  posunObraz, vrstvaZKroku, zkontrolujPostavu, plan
+  posunObraz, vrstvaZObrazku, podkladProKus, zkontrolujPostavu, plan
 };

@@ -355,11 +355,9 @@ console.log('\nvzhled a rady');
   const vrstvy = zk.vrstvyVzhledu(v).map(one => one.typ);
   check('vzhled se kreslí odspodu nahoru a sako je nahoře',
     [vrstvy[0], vrstvy[vrstvy.length - 1]], ['postava', 'sako']);
-  ok('bez fousů se vrstva fousů nekreslí', !vrstvy.includes('fousy'), vrstvy.join(' → '));
-
-  const sFousy = zk.vrstvyVzhledu({ ...v, fousy: 'plnovous' }).map(one => one.typ);
-  ok('s fousy se kreslí hned za vlasy',
-    sFousy[sFousy.indexOf('fousy') - 1] === 'vlasy', sFousy.join(' → '));
+  /* Vlasy a vousy mezi vrstvami nejsou — jsou součástí postavy */
+  ok('vlasy ani vousy už nejsou vrstva na prodej',
+    !vrstvy.includes('vlasy') && !vrstvy.includes('fousy'), vrstvy.join(' → '));
 
   /* Vzhled do adresy a zpátky — tudy chodí odkaz v e-mailu */
   const text = zk.vzhledDoTextu({ ...v, nazev: 'Na svatbu' });
@@ -456,7 +454,7 @@ console.log('\nřetěz oblékání');
 
   const vysledek = ukazka.postavUkazku('dospely-bezny');
   ok('celá postava se obleče bez jediné nesedící vrstvy',
-    vysledek.nesedi.length === 0 && vysledek.hotovo >= 20,
+    vysledek.nesedi.length === 0 && vysledek.hotovo >= 13,
     `${vysledek.hotovo} vrstev${vysledek.nesedi.length ? ' · ' + vysledek.nesedi[0] : ''}`);
 
   const vrstvy = store.vrstvy('dospely-bezny');
@@ -475,11 +473,11 @@ console.log('\nřetěz oblékání');
     !!kosile && kosile.okraje.y < 400 && kosile.okraje.h > 100,
     kosile ? `od ${kosile.okraje.y}, vysoká ${kosile.okraje.h}` : 'chybí');
 
-  /* Varianty jedné vrstvy vychází ze stejného kroku, ne jedna z druhé */
-  const dozadu = vrstvy.find(one => one.typ === 'vlasy' && one.varianta === 'dozadu');
-  ok('druhá varianta vlasů není prázdná',
-    !!dozadu && dozadu.stav !== 'nesedi' && dozadu.podil > 0,
-    dozadu ? `${dozadu.stav}, ${(dozadu.podil * 100).toFixed(1)} %` : 'chybí');
+  /* Varianty jedné vrstvy vychází ze stejného podkladu, ne jedna z druhé */
+  const motylek = vrstvy.find(one => one.typ === 'kravata' && one.varianta === 'motylek');
+  ok('druhá varianta kravaty není prázdná',
+    !!motylek && motylek.stav !== 'nesedi' && motylek.podil > 0,
+    motylek ? `${motylek.stav}, ${(motylek.podil * 100).toFixed(1)} %` : 'chybí');
 
   /*
    * Přegenerovaná postava zahodí, co se na ni oblékalo. Vrstva je rozdíl
@@ -700,529 +698,225 @@ console.log('\nvzhled k nákupu');
     zk.radaVelikosti({ ...KSANDY, velikostiSeznam: [{ kod: 'X', popis: 'Délka: 70 cm', skladem: true }] }, dite).kod === 'X');
 }
 
-/* ---------- 8c. ujetý krok: tón, posun a kreslení mimo pruh ---------- */
+/* ---------- 8c. jak se z obrázku vybere kus látky ---------- */
 
-console.log('\nkdyž model ujede');
+console.log('\nvrstva z obrázku od modelu');
 
 {
   /*
-   * Tohle je ta chyba z ostrého provozu: krátké vlasy vyšly na 23 %
-   * postavy místo tří procent. Model nevrátí obrázek beze změny ani tam,
-   * kam sáhnout neměl — celek je o stupeň světlejší, o dva body
-   * posunutý, a někde navíc překreslený. Rozdíl dvou kroků to pak vezme
-   * všechno jako „kus látky".
+   * Tohle je jádro celé kabiny a dřív bylo postavené špatně.
    *
-   * Zkouší se to na kresbě, ne na vygenerovaných obrázcích: každý pokus
-   * u modelu stojí peníze a tohle se musí dát proměřit zadarmo.
+   * Vrstva se počítala jako **rozdíl dvou obrázků**: postava před
+   * obléknutím a po něm. Jenže model nevrací „tentýž obrázek a navíc
+   * kravatu" — vrací nový obrázek, který je tomu starému podobný.
+   * Obličej překreslí o kousek jinak, světlo posune o stupeň, celek
+   * odnese o dva body. V rozdílu je pak vedle kravaty i ozvěna všeho
+   * ostatního: ve vrstvě s vlasy visel duch obličeje a nešlo to
+   * spravit prahem, protože duch kolem očí je silnější než hranice
+   * vlasů. Kolem toho rozdílu se nastavělo srovnávání tónu,
+   * přizpůsobivý práh, dvojí zúžení masky i hlídání dosahu změny — a
+   * pořád to na každé druhé vrstvě selhalo.
+   *
+   * Teď se kus **vybírá podle barvy**. Model má kus nakreslit ve
+   * výrazné barvě, která nikde na postavě není, a vrstva jsou body té
+   * barvy. Překreslený obličej tu barvu nemá, takže v ní nemůže
+   * skončit — ne proto, že by ho zahodil práh, ale protože tam
+   * nepatří.
+   *
+   * Zkouší se to na kresbě, ne na vygenerovaných obrázcích: každý
+   * pokus u modelu stojí peníze a tohle se musí dát proměřit zadarmo.
    */
   const vrstvy = require(path.join(DIST, 'zkusebna/vrstvy.js'));
   const P = { id: 'dospely-bezny', vek: 'dospely', telo: 'bezny', vyskaCm: 180, sirka: SIRKA, vyska: VYSKA };
-
-  /* Kravata leží v horní polovině trupu — do pruhu pro ten kus */
+  const KRAVATA = zk.hexNaRgb(zk.ZK_KRESLICI.kravata);
   const kravata = { x: 56, y: 52, w: 8, h: 40 };
-  const sKravatou = sePřidaným(pred, kravata, [120, 40, 30]);
 
-  const zdravy = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, sKravatou, 'zkouška');
-  ok('čistý krok projde a vrstva je ta kravata',
-    zdravy.vrstva.stav === 'hotovo' && Math.abs(zdravy.vrstva.okraje.x - kravata.x) <= 3,
-    `${zdravy.vrstva.stav}, ${(zdravy.vrstva.podil * 100).toFixed(1)} % postavy`);
-
-  /*
-   * 1. Celý obrázek o stupeň světlejší. Čtrnáct stupňů na složku je přes
-   * práh rozdílu, takže bez srovnání tónu se jako „kus látky" označí celá
-   * postava — tohle je ta chyba z ostrého provozu.
-   */
-  const svetlejsi = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(sKravatou.body) };
-  for (let i = 0; i < svetlejsi.body.length; i += 4) {
-    if (svetlejsi.body[i + 3] < 128) continue;
-    for (let k = 0; k < 3; k++) svetlejsi.body[i + k] = Math.min(255, svetlejsi.body[i + k] + 14);
-  }
-  /* Nejdřív se ukáže, že se samotným pevným prahem je to průšvih —
-     jinak by zkouška níž mohla projít i bez obrany proti ujetí */
-  const bezOpravy = px.okraje(
-    px.uklid(px.rozdil(pred, svetlejsi, undefined, 38, 0), SIRKA, VYSKA), SIRKA, VYSKA);
-  ok('  s pevným prahem by vrstva spolkla celou postavu',
-    bezOpravy.podil > 0.2, `${(bezOpravy.podil * 100).toFixed(1)} % plátna`);
-  const poTonu = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, svetlejsi, 'zkouška');
-  ok('celkové projasnění vrstvu nezvětší',
-    poTonu.vrstva.stav === 'hotovo' && poTonu.vrstva.podil < zdravy.vrstva.podil * 1.5,
-    `${poTonu.vrstva.stav}, ${(poTonu.vrstva.podil * 100).toFixed(1)} % místo ${(zdravy.vrstva.podil * 100).toFixed(1)} %`);
-
-  /* 2. Překreslené boty, když se obléká kravata — mimo pruh, nezajímá nás to */
-  const sBotami = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(sKravatou.body) };
-  for (let y = 160; y < 176; y++) {
-    for (let x = 40; x < 80; x++) {
-      const i = (y * SIRKA + x) * 4;
-      if (sBotami.body[i + 3] < 128) continue;
-      sBotami.body[i] = 20; sBotami.body[i + 1] = 20; sBotami.body[i + 2] = 20;
-    }
-  }
-  const poBotach = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, sBotami, 'zkouška');
-  ok('co model překreslil mimo pruh, do vrstvy nepatří',
-    poBotach.vrstva.stav === 'hotovo'
-    && poBotach.vrstva.okraje.y + poBotach.vrstva.okraje.h < 140,
-    `vrstva končí na ${poBotach.vrstva.okraje.y + poBotach.vrstva.okraje.h}, boty byly na 160+`);
-  /*
-   * A hlavně: krok, ze kterého se obléká dál, musí být mimo pruh bod po
-   * bodu ten původní. Jinak se odchylky přes dvaadvacet kroků sčítají a
-   * po deseti má postava jiný odstín pleti než na začátku.
-   */
-  let stejne = true;
-  for (let y = 150; y < VYSKA && stejne; y++) {
-    for (let x = 0; x < SIRKA; x++) {
-      const i = (y * SIRKA + x) * 4;
-      for (let k = 0; k < 4; k++) {
-        if (poBotach.krok.body[i + k] !== pred.body[i + k]) { stejne = false; break; }
-      }
-      if (!stejne) break;
-    }
-  }
-  ok('  a krok pro další oblékání zůstal mimo pruh nedotčený', stejne);
-
-  /*
-   * Výřez: modelu jde jen kus obrázku kolem toho, co se obléká.
-   *
-   * Je to tři věci naráz — levnější (obrázek se platí podle plochy),
-   * spolehlivější (mimo výřez se překreslit nedá **z principu**) a
-   * detailnější (kapesníček dostane víc bodů). Zkouší se, že výřez
-   * sedne na pruh kusu, že splňuje meze rozhraní a že se vložením
-   * zpátky nezmění nic mimo něj.
-   */
-  {
-    const okraje = px.okraje(
-      (() => {
-        const m = new Uint8Array(SIRKA * VYSKA);
-        for (let i = 0; i < m.length; i++) m[i] = pred.body[i * 4 + 3] > 24 ? 255 : 0;
-        return m;
-      })(), SIRKA, VYSKA);
-
-    /*
-     * Nejdřív to, co není naše volba: rozhraní nevezme obrázek menší
-     * než 0,65 megabodu. Plátno téhle zkoušky je 120×180, tedy menší
-     * než ta mez celé — a tam se výřez **musí** vzdát a poslat celý
-     * obrázek. Kdyby to mlčky poslalo menší, vrátí rozhraní chybu a
-     * nevznikne nic; proto se to zkouší jako první.
-     */
-    const maleP = vrstvy.__test.vyrezKusu('kravata', okraje, SIRKA, VYSKA);
-    ok('na plátně pod mezí rozhraní jde celý obrázek, ne výřez',
-      maleP.x === 0 && maleP.y === 0 && maleP.w === SIRKA && maleP.h === VYSKA,
-      `${maleP.w}×${maleP.h} z ${SIRKA}×${VYSKA}`);
-
-    /*
-     * A teď geometrie na opravdovém plátně postavy (1024×1536), kde se
-     * výřez vyplatí. Postava zabírá obvyklý sloupec doprostřed.
-     */
-    const VS = 1024, VV = 1536;
-    const velkaPostava = { x: 300, y: 90, w: 430, h: 1380 };
-    const velky = vrstvy.__test.vyrezKusu('kravata', velkaPostava, VS, VV);
-    ok('výřez pro kravatu je menší než celé plátno',
-      velky.w * velky.h < VS * VV * 0.7,
-      `${velky.w}×${velky.h} z ${VS}×${VV}, tedy ${Math.round(velky.w * velky.h / (VS * VV) * 100)} %`);
-    ok('  a drží meze rozhraní (násobek 16, poměr do 1:3, nad 0,65 Mb)',
-      velky.w % 16 === 0 && velky.h % 16 === 0
-      && velky.w * 3 >= velky.h && velky.h * 3 >= velky.w
-      && velky.w * velky.h >= 655360,
-      `${velky.w}×${velky.h} = ${velky.w * velky.h} bodů`);
-    const pruhVelky = vrstvy.__test.pruhKusu('kravata', velkaPostava, VV);
-    ok('  a pruh, kde kravata na postavě leží, je celý uvnitř',
-      velky.y <= pruhVelky.od && velky.y + velky.h >= pruhVelky.do,
-      `výřez ${velky.y}–${velky.y + velky.h}, pruh ${pruhVelky.od}–${pruhVelky.do}`);
-    /*
-     * Starší modely berou jen tři předepsané rozměry. Poslat jim výřez
-     * 752×960 znamená chybu rozhraní, takže se jim dává čtverec —
-     * pořád dvakrát levnější než plátno na výšku.
-     */
-    const pevny = vrstvy.__test.vyrezKusu('kravata', velkaPostava, VS, VV, false);
-    ok('  a modelu s pevnými rozměry jde jeden z nich',
-      [[1024, 1024], [1024, 1536], [1536, 1024]].some(([w, h]) => pevny.w === w && pevny.h === h),
-      `${pevny.w}×${pevny.h}`);
-
-    /*
-     * Zbytek zkoušky pracuje s malým plátnem, aby šel obrázek po
-     * bodech přečíst. Mez rozhraní se proto předá menší — je to
-     * vlastnost rozhraní, ne naše volba, a jinde se nemění.
-     */
-    const vyrezKravaty = vrstvy.__test.vyrezKusu('kravata', okraje, SIRKA, VYSKA, true, 1500);
-    ok('  na malém plátně s menší mezí výřez vznikne',
-      vyrezKravaty.w * vyrezKravaty.h < SIRKA * VYSKA,
-      `${vyrezKravaty.w}×${vyrezKravaty.h} z ${SIRKA}×${VYSKA}`);
-    const pruhKravaty = vrstvy.__test.pruhKusu('kravata', okraje, VYSKA);
-    ok('  a pruh, kde kravata leží, je celý uvnitř',
-      vyrezKravaty.y <= pruhKravaty.od && vyrezKravaty.y + vyrezKravaty.h >= pruhKravaty.do,
-      `výřez ${vyrezKravaty.y}–${vyrezKravaty.y + vyrezKravaty.h}, pruh ${pruhKravaty.od}–${pruhKravaty.do}`);
-
-    /* Vyříznout a vložit zpátky beze změny nesmí nic pokazit */
-    const tamZpet = px.vlozObdelnik(pred, px.vyrizniObdelnik(pred, vyrezKravaty), vyrezKravaty);
-    let shodne = true;
-    for (let i = 0; i < pred.body.length && shodne; i++) {
-      if (tamZpet.body[i] !== pred.body[i]) shodne = false;
-    }
-    ok('  vyříznutí a vložení zpátky obrázek nezmění', shodne);
-
-    /*
-     * A celý krok přes výřez: model „obleče" jen ve výřezu a vrstva
-     * z toho vyjde stejně jako kdyby dostal celý obrázek.
-     */
-    const kravata = { x: 56, y: 52, w: 8, h: 40 };
-    const vyrezObraz = px.vyrizniObdelnik(pred, vyrezKravaty);
-    for (let y = kravata.y - vyrezKravaty.y; y < kravata.y - vyrezKravaty.y + kravata.h; y++) {
-      for (let x = kravata.x - vyrezKravaty.x; x < kravata.x - vyrezKravaty.x + kravata.w; x++) {
-        if (y < 0 || x < 0 || y >= vyrezObraz.vyska || x >= vyrezObraz.sirka) continue;
-        const i = (y * vyrezObraz.sirka + x) * 4;
-        if (vyrezObraz.body[i + 3] < 128) continue;
-        vyrezObraz.body[i] = 120; vyrezObraz.body[i + 1] = 40; vyrezObraz.body[i + 2] = 30;
-      }
-    }
-    const celek = px.vlozObdelnik(pred, vyrezObraz, vyrezKravaty);
-    const zVyrezu = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, celek, 'zkouška', vyrezKravaty);
-    ok('vrstva z výřezu je ta kravata, ne nic jiného',
-      zVyrezu.vrstva.stav === 'hotovo'
-      && Math.abs(zVyrezu.vrstva.okraje.x - kravata.x) <= 3
-      && Math.abs(zVyrezu.vrstva.okraje.h - kravata.h) <= 6,
-      `${zVyrezu.vrstva.okraje.x},${zVyrezu.vrstva.okraje.y} ${zVyrezu.vrstva.okraje.w}×${zVyrezu.vrstva.okraje.h}`);
-  }
-
-  /*
-   * Duch postavy ve vrstvě. Tohle je ta chyba, která byla vidět na
-   * vrstvě s vlasy: kromě vlasů v ní visel **tenký obrys hlavy a
-   * ramen**. Model totiž celý obrázek překreslí a kolem obrysů po sobě
-   * nechá slabý rozdíl. Na modelu by z toho byl šmouhovitý stín přes
-   * obličej.
-   *
-   * Vlasy proti holé hlavě jsou rozdíl o stovky stupňů, duch o desítky —
-   * a je tenký. Proti tomu stojí dvě věci: práh odvozený od síly
-   * skutečné změny a dvojí zúžení masky, které spolkne všechno tenčí
-   * než zhruba čtyři body.
-   */
-  {
-    const hlava = { x: 48, y: 22, w: 24, h: 18 };
-    const sVlasy = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(pred.body) };
-    /* Silná změna: tmavé vlasy na světlé hlavě */
-    for (let y = hlava.y; y < hlava.y + hlava.h; y++) {
-      for (let x = hlava.x; x < hlava.x + hlava.w; x++) {
+  /** Co by mohlo přijít od modelu: postava a na ní kus v dané barvě. */
+  const odModelu = (barva, navic) => {
+    const out = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(pred.body) };
+    for (let y = kravata.y; y < kravata.y + kravata.h; y++) {
+      for (let x = kravata.x; x < kravata.x + kravata.w; x++) {
         const i = (y * SIRKA + x) * 4;
-        if (sVlasy.body[i + 3] < 128) continue;
-        sVlasy.body[i] = 48; sVlasy.body[i + 1] = 38; sVlasy.body[i + 2] = 30;
+        if (out.body[i + 3] < 128) continue;
+        /* Záhyb: polovina kusu tmavší, ať je co uložit do mapy světla */
+        const dil = x < kravata.x + kravata.w / 2 ? 1 : 0.55;
+        out.body[i] = Math.round(barva.r * dil);
+        out.body[i + 1] = Math.round(barva.g * dil);
+        out.body[i + 2] = Math.round(barva.b * dil);
       }
     }
-    /* A slabý duch: obrys postavy posunutý o dva stupně jasu */
-    for (let y = 20; y < 150; y++) {
-      for (const x of [36, 37, 38, 83, 84, 85]) {
+    if (navic) navic(out);
+    return out;
+  };
+  const vrstvaZ = obraz => vrstvy.__test.vrstvaZObrazku(P, 'kravata', 'kravata', pred, obraz, 'zkouška');
+  const sedneNaKravatu = v =>
+    Math.abs(v.okraje.x - kravata.x) <= 3 && Math.abs(v.okraje.y - kravata.y) <= 4
+    && Math.abs(v.okraje.w - kravata.w) <= 5 && Math.abs(v.okraje.h - kravata.h) <= 5;
+
+  /* 1. Čistý případ */
+  const cisty = vrstvaZ(odModelu(KRAVATA));
+  ok('kus v kreslicí barvě se z obrázku vybere celý',
+    cisty.vrstva.stav === 'hotovo' && sedneNaKravatu(cisty.vrstva),
+    `${cisty.vrstva.stav}: ${cisty.vrstva.okraje.x},${cisty.vrstva.okraje.y} `
+    + `${cisty.vrstva.okraje.w}×${cisty.vrstva.okraje.h} proti ${kravata.w}×${kravata.h}`);
+
+  {
+    const obraz = png.nacti(fs.readFileSync(cisty.vrstva.soubor));
+    const svetla = [];
+    for (let i = 0; i < obraz.sirka * obraz.vyska; i++) {
+      if (obraz.body[i * 4 + 3] > 200) svetla.push(obraz.body[i * 4]);
+    }
+    ok('  a zůstane v ní záhyb, ne placatá barva',
+      svetla.length > 100 && Math.max(...svetla) - Math.min(...svetla) > 25,
+      `jas od ${Math.min(...svetla)} do ${Math.max(...svetla)}`);
+  }
+
+  /*
+   * 2. Překreslený obličej — **ten duch**. Model při oblékání kravaty
+   * překreslí hlavu: jiná pleť, jiné světlo. Dřív z toho byl v každé
+   * vrstvě obrys obličeje.
+   */
+  const sObicejem = odModelu(KRAVATA, out => {
+    for (let y = 16; y < 48; y++) {
+      for (let x = 0; x < SIRKA; x++) {
         const i = (y * SIRKA + x) * 4;
-        if (sVlasy.body[i + 3] < 128) continue;
-        for (let k = 0; k < 3; k++) sVlasy.body[i + k] = Math.min(255, sVlasy.body[i + k] + 22);
+        if (out.body[i + 3] < 128) continue;
+        out.body[i] = 170; out.body[i + 1] = 128; out.body[i + 2] = 104;
       }
     }
+  });
+  /* Nejdřív starou cestou, ať je vidět, odkud se duch bral */
+  const starou = px.okraje(px.uklid(px.rozdil(pred, sObicejem), SIRKA, VYSKA), SIRKA, VYSKA);
+  ok('  (jako rozdíl dvou obrázků by se do vrstvy dostal i obličej)',
+    starou.y < kravata.y - 6, `vrstva by začínala na ${starou.y}, kravata je od ${kravata.y}`);
+  const bezDucha = vrstvaZ(sObicejem);
+  ok('překreslený obličej se do vrstvy nedostane — nemá tu barvu',
+    bezDucha.vrstva.stav === 'hotovo' && sedneNaKravatu(bezDucha.vrstva),
+    `${bezDucha.vrstva.okraje.x},${bezDucha.vrstva.okraje.y} `
+    + `${bezDucha.vrstva.okraje.w}×${bezDucha.vrstva.okraje.h}`);
 
-    const maska = px.uklid(px.rozdil(pred, sVlasy), SIRKA, VYSKA);
-    const kde = px.okraje(maska, SIRKA, VYSKA);
-    ok('ve vrstvě zůstanou vlasy, ne duch celé postavy',
-      kde.y >= hlava.y - 4 && kde.y + kde.h <= hlava.y + hlava.h + 6,
-      `vrstva od ${kde.y} do ${kde.y + kde.h}, vlasy jsou ${hlava.y}–${hlava.y + hlava.h}`);
-    ok('  a vlasy v ní zůstanou celé',
-      kde.w >= hlava.w - 6 && kde.h >= hlava.h - 6, `${kde.w}×${kde.h} proti ${hlava.w}×${hlava.h}`);
-    /* S pevným prahem a jedním zúžením tam duch zůstane — ať je vidět rozdíl */
-    const sDuchem = px.okraje(px.uklid(px.rozdil(pred, sVlasy, undefined, 38, 0), SIRKA, VYSKA), SIRKA, VYSKA);
-    ok('  (s pevným prahem by duch ve vrstvě zůstal)',
-      sDuchem.h > hlava.h * 2, `sahá přes ${sDuchem.h} bodů`);
-  }
+  /* 3. Celý obrázek o stupeň světlejší — dřív to vrstvu nafouklo na celou postavu */
+  const svetlejsi = odModelu(KRAVATA, out => {
+    for (let i = 0; i < out.body.length; i += 4) {
+      if (out.body[i + 3] < 128) continue;
+      for (let k = 0; k < 3; k++) out.body[i + k] = Math.min(255, out.body[i + k] + 14);
+    }
+  });
+  const poTonu = vrstvaZ(svetlejsi);
+  ok('celkové projasnění vrstvu nezvětší', sedneNaKravatu(poTonu.vrstva),
+    `${poTonu.vrstva.okraje.w}×${poTonu.vrstva.okraje.h}`);
 
-  /*
-   * Zaplněné pozadí — chyba z ostrého provozu, kde z vrstvy s krátkými
-   * vlasy leželo na postavě **osm procent**. Hlava zůstala holá a model
-   * místo vlasů zaplnil prázdno kolem krku a ramen.
-   *
-   * Příčina: pruh pro kus je vodorovný a jde přes celé plátno, takže
-   * maska otevřela i prázdno vedle postavy — a tam, kde model vidí
-   * průhledno a povolení kreslit, kreslí. Oprava je jeden zákon na
-   * dvou místech. Maska otevře jen postavu a její těsné okolí. A co
-   * přijde zpátky mimo postavu, se vezme jen tam, kde je to těsně
-   * u změny na postavě **a vypadá to stejně** — vlasy přerůstající
-   * hlavu mají barvu vlasů, zaplněné pozadí barvu pozadí.
-   *
-   * Zkouší se to na plátně 1024×1536, protože dosah se počítá
-   * z velikosti postavy: na kresbičce 120×180 by vyšel jinak a
-   * neměřilo by se to, co běží v provozu.
-   */
+  /* 4. Model obrázek odnese o pár bodů — vrstva musí sednout zpátky */
+  const posunuty = { sirka: SIRKA, vyska: VYSKA, body: new Uint8Array(SIRKA * VYSKA * 4) };
   {
-    const SV = 1024;
-    const VV = 1536;
-    const hlava = { x: 430, y: 120, w: 160, h: 200 };
-    const velka = png.novyObraz(SV, VV);
-    for (let y = 0; y < VV; y++) {
-      for (let x = 0; x < SV; x++) {
-        const vHlave = x >= hlava.x && x < hlava.x + hlava.w && y >= hlava.y && y < hlava.y + hlava.h;
-        const vTele = x >= 330 && x < 700 && y >= hlava.y + hlava.h && y < 1450;
-        if (!vHlave && !vTele) continue;
-        const i = (y * SV + x) * 4;
-        velka.body[i] = 206; velka.body[i + 1] = 170; velka.body[i + 2] = 140; velka.body[i + 3] = 255;
-      }
-    }
-    const VP = { id: 'dospely-bezny', vek: 'dospely', telo: 'bezny', vyskaCm: 180, sirka: SV, vyska: VV };
-    const pruhVlasu = vrstvy.__test.pruhKusu('vlasy', vrstvy.__test.okrajePostavy(velka), VV);
-    /** Zaplní prázdno v pruhu vlasů — to, co model udělal místo vlasů. */
-    const zaplnPozadi = obraz => {
-      for (let y = pruhVlasu.od; y <= Math.min(VV - 1, pruhVlasu.do); y++) {
-        for (let x = 0; x < SV; x++) {
-          const i = (y * SV + x) * 4;
-          if (obraz.body[i + 3] >= 24) continue;
-          obraz.body[i] = 232; obraz.body[i + 1] = 228; obraz.body[i + 2] = 220; obraz.body[i + 3] = 255;
-        }
-      }
-      return obraz;
-    };
-
-    /* a) Vlasy na hlavě a k tomu zaplněné pozadí */
-    const vlasy = { x: hlava.x, y: hlava.y, w: hlava.w, h: 70 };
-    const sVlasy = { sirka: SV, vyska: VV, body: Uint8Array.from(velka.body) };
-    for (let y = vlasy.y; y < vlasy.y + vlasy.h; y++) {
-      for (let x = vlasy.x; x < vlasy.x + vlasy.w; x++) {
-        const i = (y * SV + x) * 4;
-        if (sVlasy.body[i + 3] < 128) continue;
-        sVlasy.body[i] = 44; sVlasy.body[i + 1] = 34; sVlasy.body[i + 2] = 28;
-      }
-    }
-    zaplnPozadi(sVlasy);
-
-    /* Nejdřív bez obrany, ať je vidět, co se v provozu dělo */
-    const bezObrany = px.uklid(px.rozdil(velka, px.slep(velka, sVlasy, pruhVlasu)), SV, VV);
-    const naPostaveBez = vrstvy.__test.naPostave(
-      bezObrany, vrstvy.__test.siluetaPostavy(velka), SV, VV);
-    const kdeBez = px.okraje(bezObrany, SV, VV);
-    ok('  (bez obrany je vrstva zaplněné pozadí přes celé plátno)',
-      naPostaveBez < 0.2 && kdeBez.w > SV * 0.9,
-      `na postavě ${Math.round(naPostaveBez * 100)} % vrstvy, široká ${kdeBez.w} z ${SV}`);
-
-    const sObranou = vrstvy.__test.vrstvaZKroku(VP, 'vlasy', 'kratke', velka, sVlasy, 'zkouška');
-    const kde = sObranou.vrstva.okraje;
-    ok('zaplněné pozadí se do vrstvy nedostane',
-      sObranou.vrstva.stav === 'hotovo'
-      && Math.abs(kde.x - vlasy.x) <= 6 && Math.abs(kde.w - vlasy.w) <= 12
-      && Math.abs(kde.h - vlasy.h) <= 12,
-      `${sObranou.vrstva.stav}: ${kde.x},${kde.y} ${kde.w}×${kde.h}, vlasy ${vlasy.w}×${vlasy.h}`);
-
-    /*
-     * b) A naopak: vlasy, které hlavu opravdu přerůstají, se uříznout
-     * nesmí. Kdyby se bralo jen to, co leží na původním obrysu, byl by
-     * z každého účesu přilepený čepec.
-     */
-    const prerustajici = { sirka: SV, vyska: VV, body: Uint8Array.from(velka.body) };
-    const ucles = { x: hlava.x - 18, y: hlava.y - 30, w: hlava.w + 36, h: 100 };
-    for (let y = ucles.y; y < ucles.y + ucles.h; y++) {
-      for (let x = ucles.x; x < ucles.x + ucles.w; x++) {
-        const i = (y * SV + x) * 4;
-        prerustajici.body[i] = 44; prerustajici.body[i + 1] = 34;
-        prerustajici.body[i + 2] = 28; prerustajici.body[i + 3] = 255;
-      }
-    }
-    zaplnPozadi(prerustajici);
-    const sUcesem = vrstvy.__test.vrstvaZKroku(VP, 'vlasy', 'kratke', velka, prerustajici, 'zkouška');
-    const kdeU = sUcesem.vrstva.okraje;
-    ok('  a účes, který hlavu přerůstá, zůstane celý',
-      sUcesem.vrstva.stav === 'hotovo'
-      && Math.abs(kdeU.x - ucles.x) <= 4 && Math.abs(kdeU.w - ucles.w) <= 8
-      && Math.abs(kdeU.h - ucles.h) <= 8,
-      `${kdeU.x},${kdeU.y} ${kdeU.w}×${kdeU.h} proti ${ucles.w}×${ucles.h}`);
-
-    /*
-     * A totéž na vstupu: maska je to jediné, co modelu dopředu řekne,
-     * kam nemá sahat. Otevřená je postava a pás kolem ní, ne pruh přes
-     * celé plátno — tam, kde není co oblékat, se kreslit nedá.
-     */
-    const maskaVlasu = vrstvy.__test.maskaProKus('vlasy', velka);
-    let otevrenych = 0;
-    let naPostave = 0;
-    let uKraje = 0;
-    for (let y = 0; y < VV; y++) {
-      for (let x = 0; x < SV; x++) {
-        const i = (y * SV + x) * 4;
-        if (maskaVlasu.body[i + 3] !== 0) continue;
-        otevrenych += 1;
-        if (x < 80 || x > SV - 80) uKraje += 1;
-        if (velka.body[i + 3] >= 24) naPostave += 1;
-      }
-    }
-    ok('maska pro vlasy otevře hlavu, ne pruh přes celé plátno',
-      otevrenych > 0 && uKraje === 0,
-      `${otevrenych} otevřených bodů, u kraje plátna ${uKraje}`);
-    /* Celý pruh by byl 373 řádků přes celé plátno; otevřená je čtvrtina */
-    const celyPruh = (Math.min(VV - 1, pruhVlasu.do) - pruhVlasu.od + 1) * SV;
-    ok('  a z pruhu zůstane otevřená jen postava a pás kolem ní',
-      otevrenych < celyPruh * 0.35 && naPostave / otevrenych > 0.5,
-      `${Math.round(otevrenych / celyPruh * 100)} % pruhu, z toho ${Math.round(naPostave / otevrenych * 100)} % sama postava`);
-  }
-
-  /*
-   * Obličej. Tohle je ta chyba, kvůli které ve vrstvě se sakem visela
-   * celá hlava i s vousy a na krocích oblékání se člověk od kroku ke
-   * kroku měnil: pruhy pro kusy jsou zlomky výšky postavy a šest
-   * z jedenácti jich sahalo **na hlavu**. Sako začínalo třináct bodů
-   * pod temenem, košile čtyřicet, kravata padesát — model tedy měl
-   * obličej povolený k překreslení.
-   *
-   * Přičíst k zlomkům jiný zlomek nejde: hlava je u dospělého sedmina
-   * postavy, u dítěte pětina, u kojence ještě víc. Kde končí, se ale
-   * dá změřit — od ramen nahoru se postava zužuje do krku.
-   */
-  {
-    const SV = 1024;
-    const VV = 1536;
-    /* Postava tvaru člověka: hlava, krk, ramena, trup, nohy */
-    const clovek = png.novyObraz(SV, VV);
-    const bod = (x, y) => {
-      if (x < 0 || y < 0 || x >= SV || y >= VV) return;
-      const i = (y * SV + x) * 4;
-      clovek.body[i] = 206; clovek.body[i + 1] = 170; clovek.body[i + 2] = 140; clovek.body[i + 3] = 255;
-    };
-    const hlava = { cx: 512, cy: 230, rx: 80, ry: 105 };
-    for (let y = hlava.cy - hlava.ry; y <= hlava.cy + hlava.ry; y++) {
-      for (let x = hlava.cx - hlava.rx; x <= hlava.cx + hlava.rx; x++) {
-        const dx = (x - hlava.cx) / hlava.rx;
-        const dy = (y - hlava.cy) / hlava.ry;
-        if (dx * dx + dy * dy <= 1) bod(x, y);
-      }
-    }
-    const KRK = { od: 320, do: 375 };
-    for (let y = KRK.od; y < KRK.do; y++) for (let x = 472; x < 552; x++) bod(x, y);
-    for (let y = KRK.do; y < 430; y++) {
-      const sir = 80 + Math.round((y - KRK.do) / 55 * 210);
-      for (let x = 512 - sir / 2; x < 512 + sir / 2; x++) bod(Math.round(x), y);
-    }
-    for (let y = 430; y < 1000; y++) for (let x = 367; x < 657; x++) bod(x, y);
-    for (let y = 1000; y < 1460; y++) for (let x = 392; x < 632; x++) bod(x, y);
-
-    const kde = vrstvy.__test.okrajePostavy(clovek);
-    ok('krk se na postavě najde měřením, ne odhadem',
-      Math.abs(kde.krk - KRK.do) <= 12, `krk na ${kde.krk}, ve skutečnosti ${KRK.do}`);
-
-    const naHlave = [];
-    const bezKrku = { x: kde.x, y: kde.y, w: kde.w, h: kde.h, podil: kde.podil };
-    const drive = [];
-    for (const def of zk.ZK_VRSTVY) {
-      if (def.typ === 'postava' || def.typ === 'vlasy' || def.typ === 'fousy') continue;
-      if (vrstvy.__test.pruhKusu(def.typ, kde, VV).od < kde.krk) naHlave.push(def.typ);
-      if (vrstvy.__test.pruhKusu(def.typ, bezKrku, VV).od < kde.krk) drive.push(def.typ);
-    }
-    ok('  (dřív sahalo na hlavu šest kusů z jedenácti)',
-      drive.length >= 5, drive.join(' · '));
-    ok('žádný kus oblečení nezačíná nad krkem',
-      naHlave.length === 0, naHlave.length ? naHlave.join(' · ') : 'ani jeden');
-    ok('  ale vlasy a vousy na hlavu dosáhnou dál',
-      vrstvy.__test.pruhKusu('vlasy', kde, VV).od < kde.krk
-      && vrstvy.__test.pruhKusu('fousy', kde, VV).od < kde.krk,
-      `vlasy od ${vrstvy.__test.pruhKusu('vlasy', kde, VV).od}, krk na ${kde.krk}`);
-
-    /*
-     * A celý krok: model obleče sako a **při tom překreslí obličej**.
-     * Do vrstvy se sakem obličej patřit nesmí — a hlavně se nesmí
-     * změnit ani v kroku, ze kterého se obléká dál.
-     */
-    const sSakem = { sirka: SV, vyska: VV, body: Uint8Array.from(clovek.body) };
-    for (let y = 430; y < 980; y++) {
-      for (let x = 367; x < 657; x++) {
-        const i = (y * SV + x) * 4;
-        if (sSakem.body[i + 3] < 128) continue;
-        sSakem.body[i] = 60; sSakem.body[i + 1] = 70; sSakem.body[i + 2] = 110;
-      }
-    }
-    /* Překreslený obličej: jiná pleť, jiný člověk */
-    for (let y = kde.y; y < KRK.od; y++) {
-      for (let x = 0; x < SV; x++) {
-        const i = (y * SV + x) * 4;
-        if (sSakem.body[i + 3] < 128) continue;
-        sSakem.body[i] = 150; sSakem.body[i + 1] = 110; sSakem.body[i + 2] = 92;
-      }
-    }
-    const VP = { id: 'dospely-bezny', vek: 'dospely', telo: 'bezny', vyskaCm: 180, sirka: SV, vyska: VV };
-    const vrstvaSaka = vrstvy.__test.vrstvaZKroku(VP, 'sako', 'jednoradove', clovek, sSakem, 'zkouška');
-    ok('překreslený obličej se do vrstvy se sakem nedostane',
-      vrstvaSaka.vrstva.okraje.y >= kde.krk - 4,
-      `vrstva začíná na ${vrstvaSaka.vrstva.okraje.y}, krk je na ${kde.krk}`);
-    let hlavaStejna = true;
-    for (let y = kde.y; y < KRK.od && hlavaStejna; y++) {
-      for (let x = 0; x < SV; x++) {
-        const i = (y * SV + x) * 4;
+    const zdroj = odModelu(KRAVATA);
+    for (let y = 0; y < VYSKA; y++) {
+      for (let x = 0; x < SIRKA; x++) {
+        const zx = x - 2;
+        const zy = y - 2;
+        if (zx < 0 || zy < 0) continue;
         for (let k = 0; k < 4; k++) {
-          if (vrstvaSaka.krok.body[i + k] !== clovek.body[i + k]) { hlavaStejna = false; break; }
+          posunuty.body[(y * SIRKA + x) * 4 + k] = zdroj.body[(zy * SIRKA + zx) * 4 + k];
         }
-        if (!hlavaStejna) break;
       }
     }
-    ok('  a v kroku pro další oblékání zůstal původní obličej, bod po bodu', hlavaStejna);
-
-    /*
-     * Vlasy se do řady kroků nezapisují vůbec. Dřív se na nich
-     * oblékalo dál, takže jediný nepovedený účes otrávil všechno po
-     * sobě — na krocích měla postava od vlasů dál černou hlavu.
-     */
-    ok('na vlasech ani vousech se dál neobléká',
-      !vrstvy.__test.zapisujeKrok('vlasy', 'kratke')
-      && !vrstvy.__test.zapisujeKrok('fousy', 'plnovous')
-      && vrstvy.__test.zapisujeKrok('kosile', 'klasicka'));
   }
-
+  const poPosunu = vrstvaZ(posunuty);
+  ok('odnesený obrázek se vrátí na místo', sedneNaKravatu(poPosunu.vrstva),
+    `${poPosunu.vrstva.okraje.x},${poPosunu.vrstva.okraje.y} proti ${kravata.x},${kravata.y}`);
 
   /*
-   * Základ se kontroluje dřív, než se na něj začne oblékat. Je to ta
-   * nejlevnější kontrola v kabině: postava stojí jeden obrázek, oblečení
-   * dvaadvacet.
+   * 5. Model kreslicí barvou vymaluje pozadí. Není to kus látky — kus
+   * látky je na člověku.
    */
-  const zkontroluj = vrstvy.__test.zkontrolujPostavu;
-  check('postava, co se vejde celá, projde',
-    zkontroluj({ x: 30, y: 10, w: 60, h: 160, podil: 0.3 }, VYSKA), '');
-  ok('useknutá nahoře neprojde',
-    /nahoře/.test(zkontroluj({ x: 30, y: 0, w: 60, h: 170, podil: 0.3 }, VYSKA)));
-  ok('useknutá dole taky ne',
-    /dole/.test(zkontroluj({ x: 30, y: 8, w: 60, h: 172, podil: 0.3 }, VYSKA)));
-  ok('prázdné plátno se pozná',
-    /prázdné plátno/.test(zkontroluj({ x: 0, y: 0, w: 2, h: 2, podil: 0.001 }, VYSKA)));
-  ok('detail místo celé figury taky',
-    /detail/.test(zkontroluj({ x: 2, y: 10, w: 116, h: 160, podil: 0.8 }, VYSKA)));
-  ok('a moc malá postava se nepustí dál',
-    /moc malá/.test(zkontroluj({ x: 40, y: 40, w: 30, h: 60, podil: 0.12 }, VYSKA)));
-
-  /* 3. Skutečné přemalování uvnitř pruhu se ale zatajit nesmí */
-  const prekreslene = { sirka: SIRKA, vyska: VYSKA, body: Uint8Array.from(sKravatou.body) };
-  for (let y = 40; y < 110; y++) {
-    for (let x = 36; x < 84; x++) {
-      const i = (y * SIRKA + x) * 4;
-      if (prekreslene.body[i + 3] < 128) continue;
-      prekreslene.body[i] = 30; prekreslene.body[i + 1] = 90; prekreslene.body[i + 2] = 200;
+  const sPozadim = odModelu(KRAVATA, out => {
+    for (let y = 30; y < 110; y++) {
+      for (let x = 0; x < SIRKA; x++) {
+        const i = (y * SIRKA + x) * 4;
+        if (pred.body[i + 3] >= 24) continue;
+        out.body[i] = KRAVATA.r; out.body[i + 1] = KRAVATA.g;
+        out.body[i + 2] = KRAVATA.b; out.body[i + 3] = 255;
+      }
     }
-  }
-  const poPrekresleni = vrstvy.__test.vrstvaZKroku(P, 'kravata', 'kravata', pred, prekreslene, 'zkouška');
-  /*
-   * Velká vrstva se **neza­kazuje, upozorňuje se na ni**. Procento je
-   * odhad podle zástupné kresby a na skutečné fotce zahodilo i vrstvu,
-   * která byla v pořádku (krátké vlasy: 11 % proti mezi 10 %).
-   * Rozhodnout má člověk u obrázku, ne číslo.
-   */
-  ok('na nezvykle velkou vrstvu se upozorní, ale použít jde',
-    poPrekresleni.vrstva.stav === 'hotovo' && /okolí/.test(poPrekresleni.vrstva.potiz),
-    poPrekresleni.vrstva.potiz);
-  ok('  a obrázek u ní zůstane, ať je vidět, co vyšlo',
-    !!poPrekresleni.vrstva.soubor && fs.existsSync(poPrekresleni.vrstva.soubor));
+  });
+  ok('vymalované pozadí se do vrstvy nedostane', sedneNaKravatu(vrstvaZ(sPozadim).vrstva),
+    `${vrstvaZ(sPozadim).vrstva.okraje.w}×${vrstvaZ(sPozadim).vrstva.okraje.h}`);
 
   /*
-   * Co se zakazuje, jsou tři věci — a všechny jsou o tom, jestli kusy na
-   * sebe pasují, ne o velikosti.
+   * 6. Odlesk uprostřed kusu. Vybělený bod odstín ztratí, a kdyby
+   * zůstal průhledný, prosvítala by jím na modelu košile.
    */
-  const zk2 = zk.zkontrolujVrstvu;
-  const postavaMery = { y: 10, h: 160 };
-  check('nic se nezměnilo → nedá se použít',
-    !!zk2('kravata', { okraje: { x: 0, y: 0, w: 0, h: 0 }, podil: 0, naPostave: 0 }, postavaMery).potiz, true);
-  ok('vrstva vedle postavy → nedá se použít',
-    /vedle ní/.test(zk2('kravata',
-      { okraje: { x: 0, y: 20, w: 20, h: 20 }, podil: 0.05, naPostave: 0.3 }, postavaMery).potiz));
-  ok('vrstva přes celou postavu → nedá se použít',
-    /celý obrázek/.test(zk2('kravata',
-      { okraje: { x: 0, y: 0, w: 100, h: 160 }, podil: 0.95, naPostave: 1 }, postavaMery).potiz));
-  const vPoradku = zk2('kravata',
-    { okraje: { x: 50, y: 40, w: 10, h: 40 }, podil: 0.05, naPostave: 0.98 }, postavaMery);
-  check('a co leží na postavě a není celá, projde bez řečí', [vPoradku.potiz, vPoradku.varovani], ['', '']);
-  const velke = zk2('vlasy',
-    { okraje: { x: 30, y: 10, w: 40, h: 30 }, podil: 0.19, naPostave: 0.95 }, postavaMery);
-  ok('velké vlasy jsou upozornění, ne zákaz', !velke.potiz && !!velke.varovani, velke.varovani);
+  const sOdleskem = odModelu(KRAVATA, out => {
+    for (let y = 60; y < 66; y++) {
+      for (let x = 58; x < 62; x++) {
+        const i = (y * SIRKA + x) * 4;
+        out.body[i] = 250; out.body[i + 1] = 248; out.body[i + 2] = 250;
+      }
+    }
+  });
+  {
+    const vrstva = vrstvaZ(sOdleskem).vrstva;
+    const obraz = png.nacti(fs.readFileSync(vrstva.soubor));
+    let diry = 0;
+    for (let y = 60; y < 66; y++) {
+      for (let x = 58; x < 62; x++) if (obraz.body[(y * SIRKA + x) * 4 + 3] < 128) diry += 1;
+    }
+    ok('odlesk na látce v kusu díru neudělá', diry === 0, `${diry} průhledných bodů`);
+  }
+
+  /*
+   * 7. Model barvu nedodrží a nakreslí kravatu šedou. Nevznikne nic a
+   * v okně to stojí černé na bílém — pořád lepší než vrstva, ve které
+   * visí půl postavy a nikdo neví proč.
+   */
+  const sedivy = vrstvaZ(odModelu({ r: 150, g: 148, b: 150 }));
+  ok('když model barvu nedodrží, vrstva nevznikne a řekne se to',
+    sedivy.vrstva.stav === 'nesedi' && /nic/.test(sedivy.vrstva.potiz),
+    sedivy.vrstva.potiz.slice(0, 80));
+}
+
+/* ---------- 8d. podklad, na který se kus kreslí ---------- */
+
+{
+  /*
+   * Podklad se neskládá z obrázků od modelu, ale z vrstev, které už
+   * máme. Dřív se oblékalo postupně a jediný nepovedený krok otrávil
+   * všechno po sobě: na krocích měla postava od vlasů dál černou hlavu
+   * místo obličeje a každý další kus se kreslil na ni.
+   */
+  const vrstvy = require(path.join(DIST, 'zkusebna/vrstvy.js'));
+  const ukazka = require(path.join(DIST, 'zkusebna/ukazka.js'));
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  store.zahodOblekani('dospely-bezny');
+  ukazka.postavUkazku('dospely-bezny');
+
+  const podklad = vrstvy.__test.podkladProKus('dospely-bezny', 'kravata');
+  const kDispozici = store.vrstvy('dospely-bezny');
+  const kosileVrstva = kDispozici.find(one => one.typ === 'kosile' && one.stav !== 'nesedi');
+  ok('podklad pro kravatu je postava v kalhotách a košili',
+    !!kosileVrstva && podklad.sirka > 0 && podklad.vyska > 0,
+    `${kDispozici.length} vrstev k dispozici, plátno ${podklad.sirka}×${podklad.vyska}`);
+
+  /*
+   * V podkladu nesmí být žádná kreslicí barva — jinak by se kus, který
+   * se zrovna kreslí, spletl s tím, co už je na postavě.
+   */
+  let signalnich = 0;
+  for (const typ of ['kosile', 'kalhoty', 'kravata']) {
+    const barva = zk.hexNaRgb(zk.ZK_KRESLICI[typ]);
+    const maska = px.maskaBarvy(podklad, barva);
+    for (let i = 0; i < maska.length; i++) if (maska[i]) signalnich += 1;
+  }
+  ok('  a není v něm ani bod kreslicí barvy', signalnich === 0, `${signalnich} bodů`);
+
+  /* Doplňky do podkladu nepatří: jsou jeden místo druhého */
+  const sKsandami = vrstvy.__test.podkladProKus('dospely-bezny', 'kapesnicek');
+  const ksandyBarva = zk.hexNaRgb(zk.ZK_KRESLICI.ksandy);
+  const ksandyMaska = px.maskaBarvy(sKsandami, ksandyBarva);
+  let ksandyVPodkladu = 0;
+  for (let i = 0; i < ksandyMaska.length; i++) if (ksandyMaska[i]) ksandyVPodkladu += 1;
+  ok('  a kapesníček se nekreslí přes kšandy', ksandyVPodkladu === 0,
+    `${ksandyVPodkladu} bodů kšand v podkladu`);
 }
 
 /* ---------- 8b. zadání pro kreslení ---------- */
@@ -1248,6 +942,28 @@ console.log('\nzadání pro model');
   }
   ok('a je u toho řečeno, že jde o katalog oblečení',
     /fully clothed/i.test(zadani.__test.zadaniPostavy('dite', 'bezny')));
+  /*
+   * Postava má vlasy rovnou v zadání. Dřív se kreslila holá a vlasy
+   * byly vrstva navíc — jenže vrstva se bere z obrázku a nad obličejem
+   * tím pádem vznikal jeho duch. Vlasy jsou součást člověka.
+   */
+  ok('postava má vlasy rovnou v zadání, nejsou vrstva',
+    /hair/i.test(zadani.__test.zadaniPostavy('dospely', 'bezny'))
+    && !/bald/i.test(zadani.__test.zadaniPostavy('dospely', 'bezny')));
+
+  /*
+   * A u kusu je kreslicí barva ta nejdůležitější věta: podle ní se
+   * vrstva z obrázku vybírá. Musí tam být i to, že ji nesmí mít nic
+   * jiného — jinak model obarví i pozadí a vrstva je k ničemu.
+   */
+  for (const typ of ['kravata', 'sako', 'kapesnicek']) {
+    const def = zk.vrstvaDef(typ);
+    const text = zadani.__test.zadaniKusu(typ, def.varianty[0].id);
+    const hex = zk.ZK_KRESLICI[typ].toLowerCase();
+    ok(`zadání pro ${typ} říká barvu, podle které se vrstva pozná`,
+      text.toLowerCase().includes(hex) && /nothing else in the image may have it/.test(text),
+      hex);
+  }
   /* Základ je šedý — žádný kus oblečení se v šedé nekreslí, takže se
      rozdíl dvou kroků neztratí */
   ok('základ je šedý, aby se rozdíl vrstvy neztratil',

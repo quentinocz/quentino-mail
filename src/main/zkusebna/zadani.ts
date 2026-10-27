@@ -75,6 +75,19 @@ const SPODEK: Record<ZkVek, string> = {
   kojenec: 'a plain mid-grey long-sleeve top and plain mid-grey leggings'
 };
 
+/**
+ * Vlasy a vousy postavy.
+ *
+ * Jsou součástí člověka, ne vrstvou na prodej. Dospělý má krátký účes
+ * a pečlivě zastřižené strniště — to je ten vzhled, na jakém se pánské
+ * doplňky prodávají; dítě a kojenec hladce.
+ */
+const VLASY: Record<ZkVek, string> = {
+  dospely: 'Short neatly combed dark brown hair and very short, neatly trimmed stubble.',
+  dite: 'Short neatly combed dark brown hair, no facial hair.',
+  kojenec: 'Fine short light brown baby hair, no facial hair.'
+};
+
 /** Co platí pro každý obrázek: výřez, světlo, pozadí. */
 const SPOLECNE = [
   'Even soft frontal studio lighting, no harsh shadows.',
@@ -93,7 +106,15 @@ export function zadaniPostavy(vek: ZkVek, telo: ZkTelo): string {
     `Full-body studio photograph of a ${KDO[vek]}, ${TELA[telo]},`,
     'standing straight and facing the camera, arms relaxed at the sides,',
     'feet together, neutral friendly expression.',
-    'Completely bald with a shaved head and no facial hair at all.',
+    /*
+     * Postava má vlasy rovnou tady. Dřív se kreslila holá a vlasy byly
+     * vrstva navíc — jenže vrstva se bere z obrázku, a nad obličejem
+     * se tím pádem muselo počítat, co se změnilo. Model obličej vždycky
+     * překreslí o kousek jinak, takže ve vrstvě s vlasy visel duch
+     * obličeje. Vlasy jsou součást člověka, ne doplněk na prodej —
+     * patří do postavy.
+     */
+    VLASY[vek],
     `Wearing ${SPODEK[vek]} and plain grey socks, no shoes.`,
     SPOLECNE
   ].join(' ');
@@ -101,13 +122,6 @@ export function zadaniPostavy(vek: ZkVek, telo: ZkTelo): string {
 
 /** Co se dooblékne — jedna věta za každou variantu. */
 const KUSY: Record<string, string> = {
-  'vlasy:kratke': 'a short neat haircut in plain medium brown',
-  'vlasy:delsi': 'a longer haircut covering the ears, in plain medium brown',
-  'vlasy:dozadu': 'hair combed back from the forehead, in plain medium brown',
-  'fousy:knir': 'a trimmed moustache in plain medium brown',
-  'fousy:strniste': 'short stubble over the chin and cheeks, in plain medium brown',
-  'fousy:kozi': 'a goatee on the chin in plain medium brown',
-  'fousy:plnovous': 'a full short beard in plain medium brown',
   'boty:spolecenske': `plain lace-up formal leather shoes in ${ZK_KRESLICI_SLOVY.boty}`,
   'kalhoty:oblekove': `plain flat-front suit trousers in ${ZK_KRESLICI_SLOVY.kalhoty}, hemmed at the shoe`,
   'kosile:klasicka': `a plain long-sleeve dress shirt with a classic collar in ${ZK_KRESLICI_SLOVY.kosile}, tucked in, buttoned to the top`,
@@ -133,25 +147,30 @@ const KUSY: Record<string, string> = {
  */
 export function zadaniKusu(typ: ZkVrstvaTyp, varianta: string, naVyrezu = false): string {
   const co = KUSY[`${typ}:${varianta}`] ?? `plain ${typ} in ${ZK_KRESLICI_SLOVY[typ]}`;
-  const vlasy = typ === 'vlasy' || typ === 'fousy';
   return [
     /*
      * Když jde modelu jen výřez, musí to vědět. Bez téhle věty si
      * „celou postavu" doplní sám: domaluje chybějící nohy nebo obrázek
-     * oddálí, aby se do něj postava vešla — a z rozdílu dvou kroků je
-     * pak nesmysl.
+     * oddálí, aby se do něj postava vešla.
      */
     naVyrezu
       ? 'Image 1 is a close-up crop of the subject, not the whole figure.'
         + ' Keep exactly the same framing, scale and crop; do not zoom out and do not add'
         + ' body parts that are outside the crop.'
       : '',
-    `Image 1 is the subject. ${vlasy ? 'Give the person' : 'Dress the person in'} ${co}.`,
+    `Image 1 is the subject. Dress the person in ${co}.`,
+    /*
+     * Barva je **ta nejdůležitější věta v celém zadání**. Vrstva se
+     * z obrázku nevybírá jako rozdíl proti podkladu, ale podle téhle
+     * barvy: co je v ní, je ten kus. Když ji model nedodrží, nevznikne
+     * nic a v okně to stojí černé na bílém — což je pořád lepší než
+     * vrstva, ve které visí půl postavy.
+     */
+    `The garment must be a single flat ${ZK_KRESLICI_SLOVY[typ]} —`,
+    'that exact colour over its whole surface, nothing else in the image may have it.',
     'Keep the person completely unchanged: identical face, facial features, skin tone,',
     'body shape, pose, hands, framing, scale and lighting.',
-    vlasy
-      ? 'Change nothing else about the head.'
-      : 'Keep every garment already worn exactly as it is, and change nothing else.',
+    'Keep every garment already worn exactly as it is, and change nothing else.',
     'The fabric must have clearly visible natural folds, seams and shading,',
     'but no pattern, no stripes, no checks, no logo and no text.',
     'The background must stay fully transparent.',

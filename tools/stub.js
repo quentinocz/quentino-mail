@@ -90,20 +90,21 @@
    */
   'zk:prehled': (function () {
     var postavy = [];
-    var kombinace = [['dospely', 'hubeny'], ['dospely', 'bezny'], ['dospely', 'silny'],
-      ['dite', 'hubeny'], ['dite', 'bezny'], ['dite', 'silny'], ['kojenec', 'bezny']];
+    /* Tři postavy: dospělý, dítě, kojenec. Vlasy a vousy jsou jejich
+       součástí, ne vrstva na prodej. */
+    var kombinace = [['dospely', 'bezny'], ['dite', 'bezny'], ['kojenec', 'bezny']];
     for (var i = 0; i < kombinace.length; i++) {
       postavy.push({
         id: kombinace[i][0] + '-' + kombinace[i][1],
         vek: kombinace[i][0], telo: kombinace[i][1],
         nazev: kombinace[i].join('-'),
         hotovo: i < 3,
-        vrstev: i === 0 ? 21 : i < 3 ? 18 : 0,
-        chystanych: 22,
-        zakladnich: 14,
-        nesedi: i === 1 ? 1 : 0,
-        upozorneni: i === 0 ? 2 : 0,
-        schvalenych: i === 0 ? 12 : 0
+        vrstev: i === 0 ? 14 : i < 2 ? 11 : 0,
+        chystanych: 15,
+        zakladnich: 11,
+        nesedi: i === 0 ? 1 : 0,
+        upozorneni: 0,
+        schvalenych: i === 0 ? 3 : 0
       });
     }
     return {
@@ -124,8 +125,6 @@
     var ctverec = 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==';
     var kusy = [
       ['postava', 'zaklad', 'Postava', 'Základ', 'schvaleno', ''],
-      ['vlasy', 'kratke', 'Vlasy', 'Krátké', 'schvaleno', ''],
-      ['vlasy', 'delsi', 'Vlasy', 'Delší', 'hotovo', ''],
       ['kalhoty', 'oblekove', 'Kalhoty', 'Oblekové', 'hotovo', ''],
       ['kosile', 'klasicka', 'Košile', 'Klasický límec', 'hotovo', ''],
       ['kravata', 'kravata', 'Kravata nebo motýlek', 'Kravata', 'hotovo', ''],
@@ -136,7 +135,7 @@
          Bez nich by v okně nebylo vidět, že levnější běh vynechává
          právě tyhle, a dvojí tlačítko by se nedalo posoudit. */
       ['sako', 'dvouradove', 'Sako', 'Dvouřadové', 'ceka', ''],
-      ['fousy', 'kratke', 'Vousy', 'Krátké', 'ceka', '']
+      ['kapesnicek', 'spicka', 'Kapesníček', 'Do špičky', 'ceka', '']
     ];
     return kusy.map(function (one) {
       return {

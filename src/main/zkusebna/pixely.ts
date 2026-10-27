@@ -226,6 +226,95 @@ export function srovnejTon(
 }
 
 /**
+ * Maska bodů, které mají zadanou barvu — bez ohledu na to, jak jsou
+ * tmavé nebo světlé.
+ *
+ * ## Proč se vrstva bere podle barvy, a ne jako rozdíl dvou obrázků
+ *
+ * Model nevrací „tentýž obrázek a navíc kravatu". Vrací **nový
+ * obrázek**, který je tomu starému podobný. Obličej překreslí o kousek
+ * jinak, světlo posune o stupeň, celek odnese o dva body. Když se
+ * z dvou takových obrázků počítal rozdíl, byla v něm vedle kravaty
+ * i ozvěna všeho ostatního — ve vrstvě s vlasy visel duch obličeje a
+ * nedalo se to spravit žádným prahem, protože duch kolem očí a úst je
+ * silnější než hranice vlasů.
+ *
+ * Proto se kus kreslí ve **výrazné barvě, která nikde jinde na obrázku
+ * není** (sytá purpurová: ani pleť, ani šedé tričko, ani pozadí ji
+ * nemají), a vrstva jsou prostě body té barvy. Překreslený obličej
+ * purpurový není, takže se do vrstvy nedostane — ne proto, že by ho
+ * zahodil práh, ale protože tam nepatří.
+ *
+ * Záhyby a stíny zůstanou: látka je purpurová světlá i tmavá, mění se
+ * jas, ne odstín. Jas je přesně to, co se z vrstvy ukládá.
+ */
+export function maskaBarvy(
+  obraz: Obraz,
+  barva: { r: number; g: number; b: number },
+  /** Oč se smí odstín lišit, ve stupních barevného kruhu. */
+  tolerance = 32
+): Uint8Array {
+  const cil = odstin(barva.r, barva.g, barva.b);
+  const maska = new Uint8Array(obraz.sirka * obraz.vyska);
+  for (let i = 0; i < maska.length; i++) {
+    const k = i * 4;
+    if (obraz.body[k + 3] < 128) continue;
+    const r = obraz.body[k];
+    const g = obraz.body[k + 1];
+    const b = obraz.body[k + 2];
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    /*
+     * Sytost a jas musí být aspoň nějaké. Skoro černý nebo skoro bílý
+     * bod odstín nemá — a odlesk na látce je právě takový, ten se
+     * dolije až zavřením děr.
+     */
+    if (max < 40 || max - min < max * 0.45) continue;
+    /* Vzdálenost po barevném kruhu: purpurová 300° a 290° jsou si blíž
+       než 300° a 10°, i když čísla říkají opak */
+    const rozdilOdstinu = Math.abs(((odstin(r, g, b) - cil + 540) % 360) - 180);
+    if (rozdilOdstinu <= tolerance) maska[i] = 255;
+  }
+  return maska;
+}
+
+/** Odstín barvy ve stupních (0–360). */
+export function odstin(r: number, g: number, b: number): number {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const rozpeti = max - min;
+  if (rozpeti === 0) return 0;
+  let h: number;
+  if (max === r) h = ((g - b) / rozpeti) % 6;
+  else if (max === g) h = (b - r) / rozpeti + 2;
+  else h = (r - g) / rozpeti + 4;
+  h *= 60;
+  return h < 0 ? h + 360 : h;
+}
+
+/** Zúží masku o `r` bodů — opak `rozsir`. */
+export function zuz(maska: Uint8Array, sirka: number, vyska: number, r: number): Uint8Array {
+  if (r <= 0) return Uint8Array.from(maska);
+  const naopak = new Uint8Array(maska.length);
+  for (let i = 0; i < maska.length; i++) naopak[i] = maska[i] ? 0 : 255;
+  const siroke = rozsir(naopak, sirka, vyska, r);
+  const out = new Uint8Array(maska.length);
+  for (let i = 0; i < out.length; i++) out[i] = siroke[i] ? 0 : 255;
+  return out;
+}
+
+/**
+ * Zavře díry v masce: nejdřív rozšíří, pak zúží zpátky.
+ *
+ * Na látce bývá odleskem vybělený bod, který odstín ztratil, a knoflík
+ * nebo spona odstín nemají vůbec. Bez zavření by v kravatě zůstaly
+ * průsvitné tečky a na modelu by jimi prosvítala košile.
+ */
+export function zavriDiry(maska: Uint8Array, sirka: number, vyska: number, r = 4): Uint8Array {
+  return zuz(rozsir(maska, sirka, vyska, r), sirka, vyska, r);
+}
+
+/**
  * Rozšíří masku o `r` bodů do všech stran.
  *
  * Na rozdíl od `zmekci` to není rozostření: tady jde o dosah, ne o
@@ -403,7 +492,7 @@ export function silnyRozdil(sila: Uint16Array): number {
 }
 
 /** Jedno projetí: bod zůstane, má-li aspoň `kolik` sousedů z osmi. */
-function zuz(maska: Uint8Array, sirka: number, vyska: number, kolik: number): Uint8Array {
+function oklep(maska: Uint8Array, sirka: number, vyska: number, kolik: number): Uint8Array {
   const out = new Uint8Array(maska.length);
   for (let y = 0; y < vyska; y++) {
     for (let x = 0; x < sirka; x++) {
@@ -457,6 +546,68 @@ function dolij(maska: Uint8Array, sirka: number, vyska: number, kolik: number): 
  * Drobné kusy se proto zahodí; práh je **podíl z největšího kusu**, takže
  * to funguje stejně u saka jako u kapesníčku.
  */
+/**
+ * Nechá jen ty kusy masky, které opravdu leží na postavě.
+ *
+ * Kus oblečení je **na člověku**. Může ho o kousek přerůst — sako je
+ * širší než košile pod ním — ale vždycky se ho drží. Když model
+ * vymaluje kreslicí barvou kus prázdného pozadí vedle postavy, je to
+ * souvislá skvrna, která se siluety nedotýká ani jedním bodem, a do
+ * vrstvy nepatří. Měří se to po souvislých kusech, ne po bodech:
+ * jinak by se z přerostlého saka uřízl okraj.
+ */
+export function jenNaPostave(
+  maska: Uint8Array,
+  silueta: Uint8Array,
+  sirka: number,
+  vyska: number,
+  /** Kolik z kusu musí ležet na postavě, aby to byl kus látky. */
+  podil = 0.25
+): Uint8Array {
+  const kam = new Int32Array(maska.length).fill(-1);
+  const velikosti: number[] = [];
+  const naPostave: number[] = [];
+  const front = new Int32Array(maska.length);
+  for (let start = 0; start < maska.length; start++) {
+    if (!maska[start] || kam[start] >= 0) continue;
+    const kus = velikosti.length;
+    let hlava = 0;
+    let konec = 0;
+    front[konec++] = start;
+    kam[start] = kus;
+    let pocet = 0;
+    let na = 0;
+    while (hlava < konec) {
+      const i = front[hlava++];
+      pocet += 1;
+      if (silueta[i]) na += 1;
+      const x = i % sirka;
+      const y = (i - x) / sirka;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= sirka || ny >= vyska) continue;
+          const j = ny * sirka + nx;
+          if (!maska[j] || kam[j] >= 0) continue;
+          kam[j] = kus;
+          front[konec++] = j;
+        }
+      }
+    }
+    velikosti.push(pocet);
+    naPostave.push(na);
+  }
+  const out = new Uint8Array(maska.length);
+  for (let i = 0; i < maska.length; i++) {
+    if (!maska[i] || kam[i] < 0) continue;
+    const kus = kam[i];
+    if (naPostave[kus] >= velikosti[kus] * podil) out[i] = 255;
+  }
+  return out;
+}
+
 export function jenVelke(maska: Uint8Array, sirka: number, vyska: number, podil = 0.08): Uint8Array {
   const kam = new Int32Array(maska.length).fill(-1);
   const velikosti: number[] = [];
@@ -541,8 +692,8 @@ export function zmekci(maska: Uint8Array, sirka: number, vyska: number, sila = 1
  * původní velikosti.
  */
 export function uklid(maska: Uint8Array, sirka: number, vyska: number): Uint8Array {
-  let out = zuz(maska, sirka, vyska, 4);
-  out = zuz(out, sirka, vyska, 4);
+  let out = oklep(maska, sirka, vyska, 4);
+  out = oklep(out, sirka, vyska, 4);
   out = dolij(out, sirka, vyska, 4);
   out = dolij(out, sirka, vyska, 4);
   out = jenVelke(out, sirka, vyska);

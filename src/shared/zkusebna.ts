@@ -102,7 +102,7 @@ export function vyskaMeritko(p: Pick<ZkPostava, 'vyskaCm'>, vyskaCm: number): nu
  * a zároveň pořadí, v jakém se postava při generování dooblékává.
  */
 export type ZkVrstvaTyp =
-  | 'postava' | 'vlasy' | 'fousy' | 'boty' | 'kalhoty' | 'kosile'
+  | 'postava' | 'boty' | 'kalhoty' | 'kosile'
   | 'pasek' | 'ksandy' | 'kravata' | 'vesta' | 'sako' | 'kapesnicek';
 
 export interface ZkVrstvaDef {
@@ -197,41 +197,6 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
     zakladni: 'prvni',
     kontrola: { odY: 0, doY: 1, podilOd: 0.1, podilDo: 0.8 },
     varianty: [{ id: 'zaklad', nazev: 'Základ' }]
-  },
-  {
-    typ: 'vlasy', nazev: 'Vlasy', popis: 'Barvu si zákazník vybere přesně.',
-    barvitelna: true, nepovinna: false, zbozi: false, slova: [],
-    zakladni: 'prvni',
-    /*
-     * Horní mez byla napoprvé podle zástupné kresby, kde jsou vlasy
-     * čepička na temeni. Na vygenerované fotce k nim patří i kotlety,
-     * okraj u uší a stín na krku — krátké vlasy vyšly na 11 % postavy
-     * a kontrola je zamítla, i když byly v pořádku.
-     */
-    /*
-     * Dolní mez pruhu je u krku, ne na prsou. Vlasy nikam níž nesahají
-     * a každý bod navíc je místo, kde po sobě model může nechat ducha —
-     * ve vrstvě s vlasy pak visel obrys ramen.
-     */
-    kontrola: { odY: 0, doY: 0.14, podilOd: 0.004, podilDo: 0.16 },
-    varianty: [
-      { id: 'kratke', nazev: 'Krátké' },
-      { id: 'delsi', nazev: 'Delší' },
-      { id: 'dozadu', nazev: 'Sčesané dozadu' }
-    ]
-  },
-  {
-    typ: 'fousy', nazev: 'Fousy', popis: 'Od ničeho po plnovous.',
-    barvitelna: true, nepovinna: true, zbozi: false, slova: [], nePro: ['kojenec', 'dite'],
-    zakladni: 'zadna',
-    /* Plnovous je na fotce víc než kresba napovídá — viz vlasy výš */
-    kontrola: { odY: 0.03, doY: 0.16, podilOd: 0.001, podilDo: 0.13 },
-    varianty: [
-      { id: 'knir', nazev: 'Knír' },
-      { id: 'strniste', nazev: 'Strniště' },
-      { id: 'kozi', nazev: 'Kozí bradka' },
-      { id: 'plnovous', nazev: 'Plnovous' }
-    ]
   },
   {
     typ: 'boty', nazev: 'Boty', popis: 'Nastav přibližně podle svých bot.',
@@ -355,6 +320,21 @@ export function vrstvaDef(typ: ZkVrstvaTyp): ZkVrstvaDef {
 
 /** Pořadí odspodu nahoru. Je to totéž pořadí, v jakém se postava oblékala. */
 export const ZK_PORADI: ZkVrstvaTyp[] = ZK_VRSTVY.map(one => one.typ);
+
+/**
+ * Barvy, ve kterých se kusy skládají do podkladu pro další kus.
+ *
+ * Když model kreslí kravatu, má ji kreslit na košili — ne na tričko.
+ * Podklad se proto neskládá z obrázků od modelu, ale z vrstev, které
+ * už máme, obarvených na něco obvyklého.
+ */
+export const ZK_PODKLAD_HEX: Partial<Record<ZkVrstvaTyp, string>> = {
+  boty: '#3b2b22',
+  kalhoty: '#2f3540',
+  kosile: '#f2f2ee',
+  vesta: '#2a3142',
+  sako: '#232a3a'
+};
 
 /**
  * Jedna hotová vrstva: obrázek pro jednu postavu, jeden druh a jednu variantu.
@@ -524,9 +504,6 @@ export interface ZkVzhled {
   vek: ZkVek;
   telo: ZkTelo;
   vyskaCm: number;
-  vlasyVarianta: string;
-  vlasyHex: string;
-  fousy: string;
   /**
    * Co se sakem.
    *
@@ -548,9 +525,6 @@ export function vychoziVzhled(vek: ZkVek = 'dospely'): ZkVzhled {
     vek,
     telo: 'bezny',
     vyskaCm: stredniVyska,
-    vlasyVarianta: 'kratke',
-    vlasyHex: '#3b2a20',
-    fousy: '',
     /*
      * Kulisa se předvyplní, doplněk ne. Je to schválně: prázdné místo po
      * kravatě je to, kvůli čemu zákazník přišel, a rada mu rovnou nabídne
@@ -588,11 +562,6 @@ export function vrstvyVzhledu(v: ZkVzhled): { typ: ZkVrstvaTyp; varianta: string
   const sako = sakoVidi(v);
   for (const typ of ZK_PORADI) {
     if (typ === 'postava') { out.push({ typ, varianta: 'zaklad', hex: '' }); continue; }
-    if (typ === 'vlasy') { out.push({ typ, varianta: v.vlasyVarianta, hex: v.vlasyHex }); continue; }
-    if (typ === 'fousy') {
-      if (v.fousy) out.push({ typ, varianta: v.fousy, hex: v.vlasyHex });
-      continue;
-    }
     if (typ === 'sako' && !sako) continue;
     /* Kapesníček je v klopě saka — bez saka nemá kde být */
     if (typ === 'kapesnicek' && !sako) continue;
@@ -1115,7 +1084,7 @@ export function radaVelikosti(
  */
 export function vzhledDoTextu(v: ZkVzhled): string {
   const kusy = ZK_PORADI
-    .filter(typ => typ !== 'postava' && typ !== 'vlasy' && typ !== 'fousy')
+    .filter(typ => typ !== 'postava')
     .map(typ => {
       const kus = v.kusy[typ];
       if (!kus) return '';
@@ -1133,7 +1102,9 @@ export function vzhledDoTextu(v: ZkVzhled): string {
    */
   const hlava = [
     v.vek, v.telo, String(v.vyskaCm),
-    v.vlasyVarianta, v.vlasyHex.replace('#', ''), v.fousy || '-',
+    /* Místa po vlasech a vousech zůstávají prázdná: odkaz z loňska má
+       v hlavičce sedm dílů a čte se podle pořadí, ne podle názvů */
+    '-', '-', '-',
     v.sako ?? 'auto'
   ].join(':');
   return [hlava, ...kusy].join('|');
@@ -1149,9 +1120,6 @@ export function vzhledZTextu(text: string): ZkVzhled | null {
   const v = vychoziVzhled(vek);
   v.telo = telo;
   v.vyskaCm = Number(hlava[2]) || v.vyskaCm;
-  v.vlasyVarianta = hlava[3] || v.vlasyVarianta;
-  v.vlasyHex = `#${hlava[4]}`;
-  v.fousy = hlava[5] === '-' ? '' : hlava[5];
   v.sako = hlava[6] === 'vidi' || hlava[6] === 'skryto' ? hlava[6] : 'auto';
   v.kusy = {};
   for (const kus of casti.slice(1)) {
@@ -1256,34 +1224,58 @@ export function doKosikuPost(
  */
 export const ZK_KRESLICI: Record<ZkVrstvaTyp, string> = {
   postava: '',
-  vlasy: '#6e4e38',
-  fousy: '#6e4e38',
-  boty: '#6a4a1f',
+  boty: '#1fb8c8',
   kalhoty: '#1f7a3a',
   kosile: '#c43a8a',
-  pasek: '#c8a21f',
+  pasek: '#8a1fc8',
   ksandy: '#2f6fc8',
-  kravata: '#c8511f',
+  kravata: '#c81fc8',
   vesta: '#7a2fc8',
   sako: '#1f9ec8',
-  kapesnicek: '#c81f3a'
+  kapesnicek: '#3ac820'
 };
 
 /** Jak se barva řekne modelu, ať nehádá, co je „azurová". */
 export const ZK_KRESLICI_SLOVY: Record<ZkVrstvaTyp, string> = {
   postava: '',
-  vlasy: 'plain medium brown',
-  fousy: 'plain medium brown',
-  boty: 'plain mid-brown leather',
-  kalhoty: 'plain mid-green (#1f7a3a)',
-  kosile: 'plain mid-magenta (#c43a8a)',
-  pasek: 'plain mustard yellow (#c8a21f)',
-  ksandy: 'plain mid-blue (#2f6fc8)',
-  kravata: 'plain mid-orange (#c8511f)',
-  vesta: 'plain mid-violet (#7a2fc8)',
-  sako: 'plain mid-cyan (#1f9ec8)',
-  kapesnicek: 'plain mid-red (#c81f3a)'
+  boty: 'bright cyan (#1fb8c8)',
+  kalhoty: 'bright green (#1f7a3a)',
+  kosile: 'bright magenta pink (#c43a8a)',
+  pasek: 'bright violet (#8a1fc8)',
+  ksandy: 'bright blue (#2f6fc8)',
+  kravata: 'bright magenta (#c81fc8)',
+  vesta: 'bright violet (#7a2fc8)',
+  sako: 'bright cyan (#1f9ec8)',
+  kapesnicek: 'bright green (#3ac820)'
 };
+
+/**
+ * Barva, ve které model kreslí **právě tenhle** kus — a podle které se
+ * pak kus z obrázku vybere.
+ *
+ * Tohle je celý mechanismus v jedné větě: vrstva se nepočítá jako
+ * rozdíl proti předchozímu obrázku, ale **vybere se podle barvy**.
+ * Model nevrací „tentýž obrázek a navíc kravatu"; vrací nový obrázek,
+ * kde je obličej překreslený o kousek jinak a světlo posunuté o
+ * stupeň. Z rozdílu dvou takových obrázků vyjde vedle kravaty i ozvěna
+ * všeho ostatního — ve vrstvě s vlasy tak visel duch obličeje a nedalo
+ * se to spravit žádným prahem, protože duch kolem očí je silnější než
+ * hranice vlasů.
+ *
+ * Barvy jsou proto vybrané tak, aby **žádná nebyla v podkladu**: pleť
+ * má odstín kolem 25°, vlasy kolem 30°, tričko a kalhoty jsou šedé a
+ * košile v podkladu bílá. Kreslicí barvy leží mezi 110° a 330°, tedy
+ * daleko od všeho, co na postavě je. Z vrstvy se stejně ukládá jen
+ * jas, protože barvu si zákazník vybere sám.
+ */
+export function signalniBarva(typ: ZkVrstvaTyp): { r: number; g: number; b: number } {
+  const hex = ZK_KRESLICI[typ] || '#ff00ff';
+  return {
+    r: parseInt(hex.slice(1, 3), 16),
+    g: parseInt(hex.slice(3, 5), 16),
+    b: parseInt(hex.slice(5, 7), 16)
+  };
+}
 
 /* ------------------------------------------------------- kontrola vrstvy */
 

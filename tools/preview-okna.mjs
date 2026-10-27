@@ -2033,7 +2033,7 @@ for (const okno of OKNA) {
     kroku: document.querySelectorAll('.zk-kroky-rada figure').length
   }));
   const cena = text => Number((/([\d.,]+)\s*\$/.exec(text) ?? [])[1]?.replace(',', '.') ?? NaN);
-  say('dílna ukazuje postavy i vrstvy', dilna.postav === 7 && dilna.karet === 10,
+  say('dílna ukazuje postavy i vrstvy', dilna.postav === 3 && dilna.karet === 8,
     `${dilna.postav} postav, ${dilna.karet} vrstev`);
   say('  u nepovedené vrstvy stojí česky, co je špatně',
     dilna.nesedi.length === 1 && /zabírá/.test(dilna.nesedi[0]), dilna.nesedi[0]?.slice(0, 70) ?? 'nic');

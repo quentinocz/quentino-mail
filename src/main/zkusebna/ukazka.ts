@@ -1,10 +1,10 @@
 import fs from 'fs';
 import {
-  ZkPostava, ZkVrstvaTyp, ZK_VRSTVY, ZK_KRESLICI, hexNaRgb, vrstvaDef
+  ZkPostava, ZkVrstvaTyp, ZK_VRSTVY, ZK_KRESLICI, ZK_PODKLAD_HEX, hexNaRgb, vrstvaDef
 } from '../../shared/zkusebna';
 import { Obraz, novyObraz, uloz } from './png';
 import * as store from './store';
-import { vrstvaZKroku } from './vrstvy';
+import { vrstvaZObrazku } from './vrstvy';
 
 /**
  * Ukázková postava — nakreslená kódem, bez AI a bez klíče.
@@ -291,9 +291,18 @@ export function kresliPostavu(p: ZkPostava): Obraz {
 }
 
 /** Dokreslí do hotového kroku jeden kus — tak vzniká další krok. */
-export function kresliKus(p: ZkPostava, pred: Obraz, typ: ZkVrstvaTyp, varianta: string): Obraz {
+export function kresliKus(
+  p: ZkPostava, pred: Obraz, typ: ZkVrstvaTyp, varianta: string,
+  /**
+   * Barva látky. Kus se kreslí dvakrát: **v kreslicí barvě**, ze které
+   * se vrstva vybere, a **v obyčejné**, ze které se skládá podklad pro
+   * další kus. Kdyby podklad zůstal v kreslicích barvách, sedla by
+   * purpurová kravata na purpurovou košili a vybraly by se obě.
+   */
+  barva: Barva = kreslici(typ)
+): Obraz {
   const obraz: Obraz = { sirka: pred.sirka, vyska: pred.vyska, body: Uint8Array.from(pred.body) };
-  const latkaBarva = kreslici(typ);
+  const latkaBarva = barva;
   const m = miry(p);
   const y = (dil: number) => Math.round(m.y0 + m.h * dil);
   const hlavaCx = m.stred;
@@ -323,16 +332,8 @@ export function kresliKus(p: ZkPostava, pred: Obraz, typ: ZkVrstvaTyp, varianta:
     }
   };
 
-  if (typ === 'vlasy') {
-    const doKam = varianta === 'delsi' ? 0.66 : varianta === 'dozadu' ? 0.3 : 0.46;
-    cepice(obraz, hlavaCx, hlavaCy, rx, ry, 0, doKam, kreslici(typ), varianta === 'dozadu' ? 0 : 0.78);
-  } else if (typ === 'fousy') {
-    const od = varianta === 'knir' ? 0.56 : varianta === 'kozi' ? 0.72 : 0.58;
-    const doKam = varianta === 'knir' ? 0.64 : 0.95;
-    const uzsi = varianta === 'kozi' ? 0.4 : varianta === 'knir' ? 0.62 : 0.94;
-    cepice(obraz, hlavaCx, hlavaCy, Math.round(rx * uzsi), ry, od, doKam, kreslici(typ),
-      varianta === 'strniste' || varianta === 'plnovous' ? 0.3 : 0);
-  } else if (typ === 'boty') {
+  if (typ === 'boty') {
+
     for (const strana of [-1, 1]) {
       const stred = m.stred + strana * Math.round(m.pas * 0.26);
       kuzel(obraz, stred, kotniky - Math.round(m.h * 0.012), y(1), Math.round(nohaS * 0.78), Math.round(nohaS * 0.92), latkaBarva, 3);
@@ -459,13 +460,18 @@ export function postavUkazku(id: string): { hotovo: number; nesedi: string[] } {
     for (let i = 0; i < def.varianty.length; i++) {
       const varianta = def.varianty[i].id;
       const po = kresliKus(p, zaklad, def.typ, varianta);
-      const { vrstva } = vrstvaZKroku(p, def.typ, varianta, zaklad, po, 'ukázková kresba');
+      const { vrstva } = vrstvaZObrazku(p, def.typ, varianta, zaklad, po, 'ukázková kresba');
       store.zapisVrstvu(vrstva);
       if (vrstva.stav === 'nesedi') {
         nesedi.push(`${vrstvaDef(def.typ).nazev} (${def.varianty[i].nazev}): ${vrstva.potiz}`);
       } else {
         hotovo += 1;
-        if (i === 0) dalsi = po;
+        /* Podklad pro další kus je tentýž kus v obyčejné barvě */
+        if (i === 0) {
+          const obycejna = hexNaRgb(ZK_PODKLAD_HEX[def.typ] || '#9aa0ab');
+          dalsi = kresliKus(p, zaklad, def.typ, varianta,
+            obycejna ? [obycejna.r, obycejna.g, obycejna.b] : [154, 160, 171]);
+        }
       }
     }
     /* Z kanonické varianty se pokračuje dál v oblékání */

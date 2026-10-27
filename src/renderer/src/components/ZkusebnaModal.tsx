@@ -290,8 +290,8 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                 <div>
                   <h3>{popisPostavy(stav?.vek ?? '', stav?.telo ?? '')}</h3>
                   <p className="desc">
-                    Vrstvy se kreslí v pořadí shora dolů — postava se postupně dooblékává a každá
-                    vrstva je rozdíl dvou kroků. Proto se nedá přeskakovat.
+                    Každý kus model nakreslí ve své kreslicí barvě a vrstva jsou body té barvy.
+                    Kreslí se na postavu složenou z toho, co už je hotové — ne jedno z druhého.
                   </p>
                 </div>
                 <div className="zk-akce">
@@ -395,7 +395,8 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                 <div className="zk-kroky">
                   <h4>Kroky oblékání</h4>
                   <p className="desc">
-                    Na nich je vidět, co model opravdu udělal — vrstva je rozdíl dvou sousedních.
+                    Takhle přišel kus od modelu, v kreslicí barvě. Když je obrázek jinak než
+                    čekáš, je vidět proč.
                   </p>
                   <div className="zk-kroky-rada">
                     {kroky.map(k => (

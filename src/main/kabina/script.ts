@@ -76,8 +76,8 @@ const TEMPLATE = String.raw`
     cz: {
       kabina: "Zkušební kabina", podnadpis: "Vyberte si doplňky a podívejte se, jak sednou.",
       zavrit: "Zavřít", minimalizovat: "Nechat na později", zpet: "Zpět",
-      postava: "Upravit postavu", postavaDelsi: "Věk, postava, výška, vlasy i barva obleku",
-      vek: "Kdo to zkouší", telo: "Postava", vyska: "Výška", vlasy: "Vlasy", fousy: "Fousy",
+      postava: "Upravit postavu", postavaDelsi: "Věk, postava, výška i barva obleku",
+      vek: "Kdo to zkouší", telo: "Postava", vyska: "Výška",
       kravata: "Kravata nebo motýlek", ksandy: "Kšandy", pasek: "Pásek", kapesnicek: "Kapesníček",
       bezFousu: "Bez", kulisa: "Co má na sobě", sako: "Sako", sakoVidi: "Se sakem",
       sakoSkryto: "Bez saka", vesta: "Vesta", kosile: "Košile", kalhoty: "Kalhoty", boty: "Boty",
@@ -100,8 +100,8 @@ const TEMPLATE = String.raw`
     sk: {
       kabina: "Skúšobná kabína", podnadpis: "Vyberte si doplnky a pozrite sa, ako sadnú.",
       zavrit: "Zavrieť", minimalizovat: "Nechať na neskôr", zpet: "Späť",
-      postava: "Upraviť postavu", postavaDelsi: "Vek, postava, výška, vlasy aj farba obleku",
-      vek: "Kto to skúša", telo: "Postava", vyska: "Výška", vlasy: "Vlasy", fousy: "Fúsy",
+      postava: "Upraviť postavu", postavaDelsi: "Vek, postava, výška aj farba obleku",
+      vek: "Kto to skúša", telo: "Postava", vyska: "Výška",
       kravata: "Kravata alebo motýlik", ksandy: "Traky", pasek: "Opasok", kapesnicek: "Vreckovka",
       bezFousu: "Bez", kulisa: "Čo má na sebe", sako: "Sako", sakoVidi: "So sakom",
       sakoSkryto: "Bez saka", vesta: "Vesta", kosile: "Košeľa", kalhoty: "Nohavice", boty: "Topánky",
@@ -125,7 +125,7 @@ const TEMPLATE = String.raw`
       kabina: "Fitting room", podnadpis: "Pick the accessories and see how they look.",
       zavrit: "Close", minimalizovat: "Keep for later", zpet: "Back",
       postava: "Adjust the model", postavaDelsi: "Age, build, height, hair and suit colour",
-      vek: "Who is trying", telo: "Build", vyska: "Height", vlasy: "Hair", fousy: "Facial hair",
+      vek: "Who is trying", telo: "Build", vyska: "Height",
       kravata: "Tie or bow tie", ksandy: "Braces", pasek: "Belt", kapesnicek: "Pocket square",
       bezFousu: "None", kulisa: "What he is wearing", sako: "Jacket", sakoVidi: "With jacket",
       sakoSkryto: "No jacket", vesta: "Waistcoat", kosile: "Shirt", kalhoty: "Trousers", boty: "Shoes",
@@ -389,7 +389,7 @@ const TEMPLATE = String.raw`
     }
     return {
       vek: "dospely", telo: "bezny", vyskaCm: 180,
-      vlasyVarianta: "kratke", vlasyHex: "#3b2a20", fousy: "", sako: "auto", kusy: {}
+      sako: "auto", kusy: {}
     };
   }
 
@@ -416,11 +416,6 @@ const TEMPLATE = String.raw`
     for (var i = 0; i < poradi.length; i++) {
       var typ = poradi[i];
       if (typ === "postava") { out.push({ typ: typ, varianta: "zaklad", hex: "" }); continue; }
-      if (typ === "vlasy") { out.push({ typ: typ, varianta: v.vlasyVarianta, hex: v.vlasyHex }); continue; }
-      if (typ === "fousy") {
-        if (v.fousy) out.push({ typ: typ, varianta: v.fousy, hex: v.vlasyHex });
-        continue;
-      }
       if (typ === "sako" && !sako) continue;
       if (typ === "kapesnicek" && !sako) continue;
       var kus = v.kusy[typ];
@@ -430,12 +425,13 @@ const TEMPLATE = String.raw`
   }
 
   function doTextu(v) {
-    var casti = [[v.vek, v.telo, v.vyskaCm, v.vlasyVarianta,
-      String(v.vlasyHex).replace("#", ""), v.fousy || "-", v.sako || "auto"].join(":")];
+    /* Místa po vlasech a vousech zůstávají prázdná: odkaz z loňska má
+       v hlavičce sedm dílů a čte se podle pořadí */
+    var casti = [[v.vek, v.telo, v.vyskaCm, "-", "-", "-", v.sako || "auto"].join(":")];
     var poradi = katalog().poradi || [];
     for (var i = 0; i < poradi.length; i++) {
       var typ = poradi[i];
-      if (typ === "postava" || typ === "vlasy" || typ === "fousy") continue;
+      if (typ === "postava") continue;
       var kus = v.kusy[typ];
       if (!kus) continue;
       var radek = [typ, kus.varianta, String(kus.hex).replace("#", ""), kus.produkt || "",
@@ -453,9 +449,6 @@ const TEMPLATE = String.raw`
     v.vek = hlava[0];
     v.telo = hlava[1];
     v.vyskaCm = Number(hlava[2]) || v.vyskaCm;
-    v.vlasyVarianta = hlava[3];
-    v.vlasyHex = "#" + hlava[4];
-    v.fousy = hlava[5] === "-" ? "" : hlava[5];
     v.sako = hlava[6] === "vidi" || hlava[6] === "skryto" ? hlava[6] : "auto";
     v.kusy = {};
     for (var i = 1; i < casti.length; i++) {
@@ -1514,29 +1507,11 @@ const TEMPLATE = String.raw`
     vyskaBlok.appendChild(rozsah);
     telo.appendChild(vyskaBlok);
 
-    var vlasyBlok = el("div", "qkb-blok");
-    vlasyBlok.appendChild(el("h3", null, t("vlasy")));
-    vlasyBlok.appendChild(barvyRadek(v.vlasyHex, function (hex) { v.vlasyHex = hex; znovu(); }, katalog().vlasy || []));
-    var vlasyDef = defVrstvy("vlasy");
-    if (vlasyDef && vlasyDef.varianty) {
-      var pasV = el("div", "qkb-pas");
-      pasV.style.marginTop = "8px";
-      for (var iw = 0; iw < vlasyDef.varianty.length; iw++) {
-        var chipV = tlac("qkb-chip", vlasyDef.varianty[iw].nazev, (function (id) {
-          return function () { v.vlasyVarianta = id; znovu(); };
-        })(vlasyDef.varianty[iw].id));
-        chipV.setAttribute("aria-pressed", vlasyDef.varianty[iw].id === v.vlasyVarianta ? "true" : "false");
-        pasV.appendChild(chipV);
-      }
-      vlasyBlok.appendChild(pasV);
-    }
-    telo.appendChild(vlasyBlok);
-
-    var fousyDef = defVrstvy("fousy");
-    if (fousyDef && v.vek === "dospely") {
-      var nabidkaF = [{ id: "", nazev: t("bezFousu") }].concat(fousyDef.varianty || []);
-      telo.appendChild(chipy(t("fousy"), nabidkaF, v.fousy, function (id) { v.fousy = id; znovu(); }));
-    }
+    /*
+     * Vlasy a vousy tu nejsou. Jsou součástí postavy, ne vrstvou —
+     * zákazník si vybírá kravatu, ne účes modela, a každý další účes
+     * byl obrázek navíc, který se musel povést.
+     */
 
     /*
      * Kulisa. Zákazník si ji nastavuje **přibližně** podle toho, co má
@@ -1548,7 +1523,7 @@ const TEMPLATE = String.raw`
     for (var ik = 0; ik < poradi.length; ik++) {
       var typ = poradi[ik];
       var def = defVrstvy(typ);
-      if (!def || def.zbozi || typ === "postava" || typ === "vlasy" || typ === "fousy") continue;
+      if (!def || def.zbozi || typ === "postava") continue;
       var kus = v.kusy[typ];
       var blok = el("div", "qkb-blok");
       blok.appendChild(el("h3", null, nazevVrstvy(typ)));

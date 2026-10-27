@@ -40,19 +40,17 @@ export function cestaKroku(postava: string, poradi: number, typ: string): string
 /**
  * Postavy, které kabina má mít.
  *
- * Je jich **devět**: tři věky krát tři těla. Výška se dělá měřítkem, ne
- * vlastní kresbou — jinak by jich bylo šedesát a rozdíl mezi nimi by
- * nikdo nepoznal. Kojenec má jen jedno tělo: hubené a silné miminko je
- * rozdíl, který na obrázku v obleku nikdo neuvidí, a jsou to tři obrázky
- * k ničemu.
+ * Tři: dospělý, dítě, kojenec. Bývalo jich devět (tři věky krát tři
+ * těla) a k tomu každá ve třech účesech a čtyřech vousech — dohromady
+ * přes dvě stě obrázků, které se musely povést všechny. Rozdíl mezi
+ * „hubeným" a „silným" dospělým přitom na obrázku v obleku nikdo
+ * nepozná a zákazník si stejně vybírá kravatu, ne modela.
+ *
+ * Výška se dělá měřítkem, ne vlastní kresbou. Postava je jedna a
+ * postavy v kabině se liší jen tím, jak je vysoká.
  */
 export function chystanePostavy(): { vek: ZkVek; telo: ZkTelo }[] {
-  const out: { vek: ZkVek; telo: ZkTelo }[] = [];
-  for (const vek of ['dospely', 'dite', 'kojenec'] as ZkVek[]) {
-    const tela: ZkTelo[] = vek === 'kojenec' ? ['bezny'] : ['hubeny', 'bezny', 'silny'];
-    for (const telo of tela) out.push({ vek, telo });
-  }
-  return out;
+  return (['dospely', 'dite', 'kojenec'] as ZkVek[]).map(vek => ({ vek, telo: 'bezny' as ZkTelo }));
 }
 
 /** Rozměr plátna. Na výšku, protože postava stojí. */
