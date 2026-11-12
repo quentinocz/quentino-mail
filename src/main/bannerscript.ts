@@ -1524,9 +1524,104 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
      * a když se video nestáhne vůbec, zůstal by černý natrvalo.
      */
     vid.addEventListener("playing", function () { vid.setAttribute("data-hraje", "1"); });
+    /*
+     * Konec videa se obslouží i ručně. "loop" je prosba, ne záruka:
+     * když prohlížeč na konci nedokáže přetočit na začátek, video prostě
+     * doběhne a zůstane stát na posledním snímku.
+     */
+    vid.addEventListener("ended", function () {
+      try { vid.currentTime = 0; } catch (e) { /* nejde přetočit — hlídač ho načte znovu */ }
+      pust(vid);
+    });
+    var stav = { vid: vid, videt: true, byl: -1, pokusu: 0 };
+    /*
+     * Hraje se jen to, co je vidět. Dlaždice odrolovaná pryč nebo schovaná
+     * v posuvníku by jinak dál dekódovala video, které nikdo nevidí —
+     * na telefonu je to baterie, a když se k ní člověk vrátí, pustí se zas.
+     */
+    if (window.IntersectionObserver) {
+      new IntersectionObserver(function (zaznamy) {
+        stav.videt = zaznamy[zaznamy.length - 1].isIntersecting;
+        srovnejVidea();
+      }, { rootMargin: "120px" }).observe(node);
+    }
+    videa.push(stav);
+    hlidejVidea();
+    pust(vid);
+    node.appendChild(vid);
+  }
+
+  function pust(vid) {
     var slib = vid.play();
     if (slib && slib.catch) slib.catch(function () { /* nepustilo se: zůstane fotka */ });
-    node.appendChild(vid);
+  }
+
+  /*
+   * Má tohle video zrovna hrát? Jen když je dlaždice v okně, karta
+   * prohlížeče vidět a stránka rotace, na které leží, zrovna navrchu.
+   */
+  function maHrat(s) {
+    if (!s.videt || document.hidden) return false;
+    var strana = s.vid.closest ? s.vid.closest(".qbn-page") : null;
+    return !strana || strana.className.indexOf("qbn-now") >= 0;
+  }
+
+  function srovnejVidea() {
+    for (var i = 0; i < videa.length; i++) {
+      var vid = videa[i].vid;
+      if (!maHrat(videa[i])) { if (!vid.paused) vid.pause(); }
+      else if (vid.paused || vid.ended) pust(vid);
+    }
+  }
+
+  /**
+   * Hlídač videí: co má hrát, to se **opravdu hýbe**.
+   *
+   * Na banneru se video po prvním přehrání zastavilo, přestože mělo
+   * "loop". Prohlížeč totiž video umí zastavit i sám a nikomu to neřekne:
+   * na konci nepřetočí, uspí ho kvůli baterii nebo po návratu na kartu,
+   * a Safari ho umí nechat zamrzlé tak, že o sobě pořád tvrdí, že hraje.
+   * Žádná z těch cest nejde spravit atributem — dá se jen **změřit, že se
+   * čas videa hýbe**, a když ne, rozhýbat ho.
+   *
+   * Jednou za dvě vteřiny se proto u každého videa, které má hrát,
+   * porovná čas s minulým. Když stojí, zkusí se nejdřív to levné
+   * (přetočit, zastavit a pustit), napodruhé se video načte znovu.
+   * Po šesti marných pokusech se to vzdá a zůstane fotka: zamrzlý
+   * snímek je horší než fotka a zkoušet to donekonečna znamená
+   * donekonečna tahat soubor.
+   */
+  function hlidejVidea() {
+    if (hlidac) return;
+    document.addEventListener("visibilitychange", srovnejVidea);
+    hlidac = setInterval(function () {
+      for (var i = videa.length - 1; i >= 0; i--) {
+        var s = videa[i];
+        var vid = s.vid;
+        /* Po překreslení bloku zůstane staré video viset v seznamu */
+        if (!vid.isConnected) { videa.splice(i, 1); continue; }
+        if (!maHrat(s)) { if (!vid.paused) vid.pause(); continue; }
+        var ted = vid.currentTime;
+        var bezi = !vid.paused && !vid.ended;
+        if (bezi && ted !== s.byl) { s.byl = ted; s.pokusu = 0; continue; }
+        /* Stahuje se — to není zaseknutí, na pomalé síti to chvíli trvá */
+        if (bezi && vid.readyState < 3 && !vid.error) continue;
+        s.pokusu += 1;
+        if (vid.error || s.pokusu > 6) {
+          vid.removeAttribute("data-hraje");
+          videa.splice(i, 1);
+          continue;
+        }
+        if (s.pokusu % 2 === 0) vid.load();
+        else {
+          try {
+            if (vid.ended || (vid.duration && ted > vid.duration - 0.3)) vid.currentTime = 0;
+          } catch (e) { /* napodruhé se načte znovu */ }
+          vid.pause();
+        }
+        pust(vid);
+      }
+    }, 2000);
   }
 
   /**
@@ -1700,6 +1795,9 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   var box = null;
   var rotor = null;
   var ticker = null;
+  /* Videa, která mají hrát, a hlídač, který měří, že opravdu hrají */
+  var videa = [];
+  var hlidac = null;
   var shownId = "";
 
   /* Kam blok patří. Od nejužšího vodítka k nejširšímu, ať přežije přejmenování. */
@@ -1919,6 +2017,8 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
         pages[at].className = "qbn-page";
         at = (at + 1) % pages.length;
         pages[at].className = "qbn-page qbn-now";
+        /* Video na stránce, která právě zmizela, se zastaví; na nové se pustí */
+        srovnejVidea();
       }, Math.max(2, every) * 1000);
     }
     return true;

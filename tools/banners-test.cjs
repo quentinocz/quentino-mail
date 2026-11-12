@@ -837,6 +837,21 @@ ok('skript video pouští bez zvuku, ve smyčce a v rámci stránky',
   && kod.includes('vid.playsInline = true'));
 ok('kdo nechce pohyb, dostane jen fotku',
   /prefers-reduced-motion[\s\S]{0,200}return/.test(kod));
+/*
+ * „Ve smyčce" výš hlídá jen slovo ve zdrojáku — a přesně tak prošla
+ * chyba, kdy se video na webu po prvním přehrání zastavilo: `loop` tam
+ * byl, obraz stál. Prohlížeč video umí zastavit sám a nikomu to neřekne.
+ * Že se obraz opravdu hýbe, měří `tools/preview-banner-video.mjs`
+ * v prohlížeči; tady se jen hlídá, že hlídač ze skriptu nevypadl.
+ */
+ok('konec videa se obslouží i ručně, ne jen atributem',
+  /addEventListener\("ended"/.test(kod) && kod.includes('vid.currentTime = 0'));
+ok('a hlídač měří, že se čas videa hýbe',
+  kod.includes('function hlidejVidea') && kod.includes('ted !== s.byl') && kod.includes('vid.load()'));
+ok('hlídač se po marných pokusech vzdá a nechá fotku',
+  /s\.pokusu > 6/.test(kod) && kod.includes('removeAttribute("data-hraje")'));
+ok('hraje jen to, co je vidět',
+  kod.includes('IntersectionObserver') && kod.includes('visibilitychange') && kod.includes('document.hidden'));
 ok('a než video naběhne, je vidět fotka pod ním',
   script.includes('.qbn-video[data-hraje]') && kod.includes('poster'));
 
