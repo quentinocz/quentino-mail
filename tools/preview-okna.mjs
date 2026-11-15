@@ -28,8 +28,15 @@ const ROOT = new URL('../dist/renderer/', import.meta.url).pathname;
 let BANNER_SCRIPT = '';
 try {
   const require = createRequire(import.meta.url);
+  /*
+   * Místo záložní sady značka, kterou si stub vymění za rozepsanou sadu.
+   * Dřív stub hledal ve skriptu řádek „var FALLBACK = "";" — jenže do
+   * e-shopu teď odchází zmenšený skript, kde se proměnná jmenuje jinak,
+   * a náhled zůstal prázdný. Značka je hodnota, ne kus kódu, takže ji
+   * žádné zmenšování nepřejmenuje.
+   */
   BANNER_SCRIPT = require('../dist/ptdist/main/bannerscript.js')
-    .bannerScript({ url: '', ttl: 300, fallback: null });
+    .bannerScript({ url: '', ttl: 300, fallback: '__NAHLED_ZALOHA__' });
 } catch {
   console.log('bannerscript není přeložený — náhled bannerů bude prázdný');
 }

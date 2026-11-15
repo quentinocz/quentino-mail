@@ -2771,7 +2771,8 @@
             banners: bloky
           } : undefined
         });
-        var telo = script.replace('var FALLBACK = "";', 'var FALLBACK = ' + zaloha + ';');
+        /* Značku místo záložní sady tam dává preview-okna.mjs — viz tam */
+        var telo = script.split('"__NAHLED_ZALOHA__"').join(zaloha);
         /*
          * V aplikaci vydává stránku hlavní proces na vlastní adrese, protože
          * vložený kód by okno neposlechlo. V náhledu je CSP odstraněná, takže

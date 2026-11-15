@@ -42,7 +42,7 @@ require.cache[setPath] = { id: setPath, filename: setPath, loaded: true, exports
 } };
 
 const banners = require(path.join(DIST, 'banners.js'));
-const { bannerScript } = require(path.join(DIST, 'bannerscript.js'));
+const { bannerScript, zmensenyPlati } = require(path.join(DIST, 'bannerscript.js'));
 const T = banners.__test;
 
 void db;
@@ -217,11 +217,21 @@ check('sada, co platí pořád, se pere s každou',
 console.log('\nskript na e-shopu:\n');
 
 const zaloha = T.setRow(sada({ id: 'zaloha', name: 'Záložní' }));
+/*
+ * Skript existuje ve dvou podobách: čitelné (jak je napsaný, jen bez
+ * komentářů) a zmenšené, která odchází do e-shopu. Zkoušky níž v něm
+ * hledají kusy kódu, a ty jsou k nalezení jen v té čitelné — zmenšená má
+ * přejmenované proměnné. Že zmenšená dělá totéž, se nedá poznat čtením;
+ * to měří zkoušky v prohlížeči (preview-okna, preview-banner-video), které
+ * pouštějí právě ji. Tady se u ní hlídá to, co se spočítat dá — viz
+ * oddíl „zmenšený skript" níž.
+ */
+const CITELNY = { citelny: true };
 const script = bannerScript({
   url: 'https://xyz.supabase.co/storage/v1/object/public/web/b.json',
   ttl: 300,
   fallback: zaloha
-});
+}, CITELNY);
 const body = script.slice(script.indexOf('<script>') + 8, script.lastIndexOf('</script>'));
 
 let compiled = null;
@@ -249,8 +259,55 @@ ok('záložní sada je ve skriptu zapečená', body.includes('"id":"zaloha"'));
 ok('a nadpis banneru v ní taky', body.includes('Kšandy k obleku'));
 ok('žádná značka nezůstala nenahrazená', !script.includes('__QUENTINO_BANNERS'));
 
-const bezZalohy = bannerScript({ url: '', ttl: 300, fallback: null });
+const bezZalohy = bannerScript({ url: '', ttl: 300, fallback: null }, CITELNY);
 ok('bez vybrané sady je záloha prázdná', bezZalohy.includes('var FALLBACK = "";'));
+
+/* ---------- zmenšený skript ---------- */
+
+/*
+ * Do e-shopu odchází zmenšená podoba, vyrobená předem. Může zastarat —
+ * někdo upraví skript a nepřegeneruje ji — a pak by aplikace sáhla po
+ * čitelném skriptu: správném, ale o čtvrtinu větším, a po pár dalších
+ * funkcích by se nevešel do pole v administraci Upgates. Proto se hlídá,
+ * že je aktuální; náprava je `node scripts/banner-min.mjs`.
+ */
+ok('zmenšený skript patří k tomuhle zdroji (jinak: node scripts/banner-min.mjs)', zmensenyPlati());
+const maly = bannerScript({
+  url: 'https://xyz.supabase.co/storage/v1/object/public/web/b.json',
+  ttl: 300,
+  fallback: zaloha
+});
+const malyBezZalohy = bannerScript({ url: '', ttl: 300, fallback: null });
+ok(`do e-shopu jde zmenšený (${malyBezZalohy.length} znaků místo ${bezZalohy.length})`,
+  malyBezZalohy.length < bezZalohy.length * 0.85);
+{
+  const malyBody = maly.slice(maly.indexOf('<script>') + 8, maly.lastIndexOf('</script>'));
+  let prelozi = '';
+  try {
+    // eslint-disable-next-line no-new-func
+    void new Function('window', 'document', 'location', 'fetch', 'setInterval', 'setTimeout',
+      'localStorage', 'navigator', 'MutationObserver', malyBody);
+  } catch (e) { prelozi = e.message; }
+  ok('  dá se přeložit', prelozi === '', prelozi);
+  ok('  adresa plánu, platnost kopie i záložní sada jsou v něm doplněné',
+    maly.includes('https://xyz.supabase.co/storage/v1/object/public/web/b.json')
+    && /300\s*\*\s*1e3|300\s*\*\s*1000/.test(malyBody)
+    && malyBody.includes('"id":"zaloha"') && !maly.includes('__QUENTINO_BANNERS')
+    && !maly.includes('__QBN_'));
+  /*
+   * Zmenšovač smí výraz, o kterém ví, že je vždycky pravdivý, vyhodnotit
+   * předem a druhou větev zahodit. Značka záložní sady je řetězec, tedy
+   * pravdivá — a bez zálohy se za běhu mění na prázdný. Kdyby se větev
+   * „bez zálohy" ztratila, skript by bez záložní sady nenakreslil nic.
+   * Dosazená záloha proto musí být ve skriptu jako hodnota proměnné, ne
+   * rozpuštěná v podmínce.
+   */
+  const bezBody = malyBezZalohy.slice(malyBezZalohy.indexOf('<script>') + 8);
+  ok('  bez zálohy v něm zůstane prázdná záloha, ne natvrdo „pravda"',
+    /=""[,;]/.test(bezBody) && !malyBezZalohy.includes('__QUENTINO_BANNERS'));
+  ok('  styly i konec jsou celé',
+    malyBezZalohy.includes('.qbn-page') && malyBezZalohy.trim().endsWith('</script>'));
+}
 
 /*
  * Velikost skriptu. Pole v administraci Upgates má strop — se všemi
@@ -258,7 +315,12 @@ ok('bez vybrané sady je záloha prázdná', bezZalohy.includes('var FALLBACK = 
  * vypadalo, že se uložení prostě neprovedlo. Komentáře proto do e-shopu
  * neodcházejí (ve zdroji zůstávají) a tady se hlídá, že se to nevrátí.
  */
-ok(`samotný skript je pod 45 000 znaků (má ${bezZalohy.length})`, bezZalohy.length < 45_000);
+ok(`skript pro e-shop je pod 45 000 znaků (má ${malyBezZalohy.length})`, malyBezZalohy.length < 45_000);
+/*
+ * A čitelný se hlídá taky, o něco výš: je to záloha pro případ, že
+ * zmenšená podoba zastará, a i ta se musí dát uložit.
+ */
+ok(`čitelný skript se do pole taky ještě vejde (má ${bezZalohy.length})`, bezZalohy.length < 56_000);
 ok('komentáře se do e-shopu neposílají', !bezZalohy.includes('Otočení telefonu mění rozvržení'));
 /*
  * Ořezávání se nesmí dotknout obsahu. Kdyby spolklo řádek s kódem,

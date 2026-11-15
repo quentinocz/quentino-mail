@@ -26,6 +26,9 @@
  * do strany: všechny stránky bannerů leží v téže buňce mřížky, takže výška
  * je pořád ta nejvyšší z nich.
  */
+import crypto from 'crypto';
+import { MIN, MIN_OF } from './bannerscript.min';
+
 /** Kam se ve skriptu doplní adresa plánu, platnost kopie a záložní sada. */
 const URL_MARK = '__QUENTINO_BANNERS_URL__';
 const TTL_MARK = '__QUENTINO_BANNERS_TTL__';
@@ -2140,7 +2143,60 @@ function bezKomentaru(script: string): string {
   return out.join('\n');
 }
 
-export function bannerScript(input: { url: string; ttl: number; fallback: any }): string {
+/** Skript bez komentářů, ale jinak tak, jak je napsaný — ke čtení a ke zkouškám. */
+export function citelnySkript(): string {
+  return bezKomentaru(TEMPLATE);
+}
+
+/** Otisk textu skriptu. Podle něj se pozná, ke kterému zdroji zmenšená podoba patří. */
+export function otiskSkriptu(text: string): string {
+  return crypto.createHash('sha1').update(text, 'utf8').digest('hex');
+}
+
+/**
+ * Skript, jak odejde do e-shopu: zmenšený, pokud zmenšená podoba patří
+ * k tomuhle zdroji, jinak čitelný.
+ *
+ * ## Proč se zmenšuje
+ *
+ * Pole v administraci Upgates má strop. Bez komentářů měl skript skoro
+ * 43 000 znaků ze 45 000, které se tam i se záložní sadou bezpečně
+ * vejdou — a každá další funkce bannerů by ho přes ten strop přetlačila.
+ * Zmenšená podoba (přejmenované proměnné, stažené mezery) má o čtvrtinu
+ * míň a navíc je to čtvrtina, kterou si nestahuje každý návštěvník
+ * úvodní stránky.
+ *
+ * ## Proč se nezmenšuje za běhu
+ *
+ * Zmenšuje to esbuild a ten v zabalené aplikaci není — je to nástroj
+ * pro stavění, ne součást programu. Zmenšená podoba se proto vyrábí
+ * předem (`node scripts/banner-min.mjs`) a leží v `bannerscript.min.ts`.
+ *
+ * ## Proč se ověřuje otiskem
+ *
+ * Soubor vyrobený předem může zastarat: někdo upraví skript a zmenšenou
+ * podobu nepřegeneruje. Kdyby se pak použila naslepo, odešel by do
+ * e-shopu **starý skript** a nikdo by nepoznal proč — oprava by byla
+ * v kódu, na webu ne. U zmenšené podoby je proto zapsaný otisk zdroje,
+ * ze kterého vznikla, a když nesedí, použije se čitelný skript. Je
+ * větší, ale je to ten správný. Zastaralost navíc hlídá zkouška.
+ */
+function sablona(citelny: boolean): string {
+  const zdroj = citelnySkript();
+  if (citelny) return zdroj;
+  return MIN && MIN_OF === otiskSkriptu(zdroj) ? MIN : zdroj;
+}
+
+/** Je zmenšená podoba aktuální? Když ne, odchází do e-shopu čitelný skript. */
+export function zmensenyPlati(): boolean {
+  return !!MIN && MIN_OF === otiskSkriptu(citelnySkript());
+}
+
+export function bannerScript(
+  input: { url: string; ttl: number; fallback: any },
+  /** `citelny` vrátí nezmenšený skript — pro zkoušky, které v něm hledají kód. */
+  jak: { citelny?: boolean } = {}
+): string {
   const url = String(input.url ?? '').trim();
   const ttl = Math.max(5, Math.min(3600, Math.round(Number(input.ttl)) || 300));
   /*
@@ -2150,14 +2206,12 @@ export function bannerScript(input: { url: string; ttl: number; fallback: any })
    */
   const fallback = input.fallback ? JSON.stringify(input.fallback) : '""';
   /*
-   * Komentáře se zahazují až tady, po dosazení. Kdyby se čistilo dřív,
-   * musela by se zvlášť ohlídat i záložní sada — a v té jsou uživatelské
-   * texty, kde dvě lomítka na začátku řádku klidně být můžou.
+   * Komentáře se zahazují před dosazením, ne po něm: v záložní sadě jsou
+   * uživatelské texty, kde dvě lomítka na začátku řádku klidně být můžou.
    */
-  return bezKomentaru(TEMPLATE)
+  return sablona(!!jak.citelny)
       .split(FALLBACK_MARK).join(fallback)
       .split(URL_MARK).join(url)
       .split(TTL_MARK).join(String(ttl))
       .trim();
 }
-export const __test = { URL_MARK, TTL_MARK, FALLBACK_MARK };
