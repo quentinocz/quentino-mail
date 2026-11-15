@@ -917,6 +917,65 @@ ok('hraje jen to, co je vidět',
 ok('a než video naběhne, je vidět fotka pod ním',
   script.includes('.qbn-video[data-hraje]') && kod.includes('poster'));
 
+/* ---------- fotka jako obrázek: popis, přednost, menší podoba ---------- */
+
+console.log('\nfotka pro Google a pro telefon:\n');
+
+/*
+ * Fotka banneru byla pozadí ve stylu — Google ji neindexoval a prohlížeč
+ * se o ní dozvěděl pozdě. Teď je to obrázek s popisem a s menší podobou
+ * pro telefon. Jestli si telefon opravdu vezme tu menší, měří
+ * `tools/preview-banner-foto.mjs` v prohlížeči; tady se hlídá, co se dá
+ * spočítat: co se uloží, co odejde na web a co se vrátí zpátky.
+ */
+{
+  const sFotkou = banner({
+    copy: { ...banner().copy, alt: { cz: '  Muž v obleku\n s kšandami  ', sk: '', en: '' } },
+    look: {
+      ...banner().look, image: 'https://cdn.upgates.com/x/a.webp', imageW: 1800,
+      imageSmall: 'https://cdn.upgates.com/x/a-m.webp', imageSmallW: 900
+    }
+  });
+  const n = T.normalizeBanner(sFotkou);
+  check('popis fotky se uloží jako jedna věta', n.copy.alt.cz, 'Muž v obleku s kšandami');
+  check('menší podoba a šířky se drží u fotky',
+    [n.look.imageSmall.endsWith('a-m.webp'), n.look.imageW, n.look.imageSmallW], [true, 1800, 900]);
+
+  /*
+   * Menší podoba bez velké nedává smysl. Kdyby po smazané fotce zůstala,
+   * telefon by ji tahal dál, i když na počítači už fotka není.
+   */
+  const bezVelke = T.normalizeBanner({ ...sFotkou, look: { ...sFotkou.look, image: '' } });
+  check('bez fotky nezůstane ani její menší podoba',
+    [bezVelke.look.imageSmall, bezVelke.look.imageW, bezVelke.look.imageSmallW], ['', 0, 0]);
+  check('nebezpečná adresa menší podoby se zahodí',
+    T.normalizeBanner({ ...sFotkou, look: { ...sFotkou.look, imageSmall: 'javascript:alert(1)' } }).look.imageSmall, '');
+
+  const s = sada({ banners: [sFotkou] });
+  const row = T.setRow(s).banners[0];
+  check('na web jde popis i obě podoby fotky',
+    [row.alt.cz, row.look.imageSmall.endsWith('a-m.webp'), row.look.imageW, row.look.imageSmallW],
+    ['Muž v obleku s kšandami', true, 1800, 900]);
+  /*
+   * Společný vzhled sady nesmí fotce menší podobu přepsat: banner si ze
+   * sady bere písmo a tlačítko, fotku má svoji.
+   */
+  const sdileny = T.setRow(sada({ banners: [{ ...sFotkou, ownLook: false }] })).banners[0];
+  ok('a společný vzhled sady ji nepřepíše', sdileny.look.imageSmall.endsWith('a-m.webp')
+    && sdileny.look.imageSmallW === 900);
+
+  /* Cesta tam a zpátky: plán stažený na druhém počítači popis neztratí */
+  const zpet = banners.mergePlan([T.setRow(s)], [])[0];
+  check('popis fotky přežije stažení plánu na jiném počítači', zpet.banners[0].copy.alt.cz, 'Muž v obleku s kšandami');
+}
+ok('skript kreslí fotku jako obrázek s popisem',
+  kod.includes('el("img", "qbn-img")') && kod.includes('pick(one.alt) || pick(one.title)'));
+ok('  výběr velikostí nastavuje dřív než adresu',
+  kod.indexOf('img.srcset = sada') > 0 && kod.indexOf('img.srcset = sada') < kod.indexOf('img.src = image'));
+ok('  a první fotku přednačítá z hlavičky jen na úvodní stránce',
+  /jeUvodni\(\) \? activeSet\(\) : null/.test(kod) && kod.includes('"imagesrcset"'));
+ok('pozadí ve stylu už fotku nenese', !script.includes('--qbn-img'));
+
 /* ---------- vkládání souborů do správce ---------- */
 
 console.log('\nnahrávání do správce souborů:\n');

@@ -165,12 +165,35 @@ const TEMPLATE = String.raw`
   position: absolute;
   inset: 0;
   z-index: 0;
-  background-image: var(--qbn-img, none);
-  background-size: cover;
-  background-position: var(--qbn-focus, 50% 50%);
-  background-repeat: no-repeat;
+  overflow: hidden;
   transition: transform .7s cubic-bezier(.2, .7, .3, 1);
   will-change: transform;
+}
+/*
+ * Fotka je skutečný obrázek, ne pozadí ve stylu.
+ *
+ * Pozadí ve stylu mělo dvě vady, které nejsou vidět. Google obrázky ze
+ * stylů neindexuje, takže fotky z bannerů ve vyhledávání obrázků nebyly
+ * a neměly ani popis. A prohlížeč se o pozadí dozví, až když spočítá
+ * styly — přitom je to největší věc na úvodní stránce a podle toho, kdy
+ * se dokreslí, Google měří rychlost načtení. Obrázku jde říct, že má
+ * přednost, a dát mu na výběr menší soubor pro telefon.
+ *
+ * Dva selektory za sebou jsou schválně: šablona e-shopu má na obrázky
+ * vlastní pravidla (šířka sto procent, výška sama) a jednoduchý selektor
+ * by s nimi prohrál — fotka by pak nevyplnila dlaždici.
+ */
+.qbn-photo .qbn-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  border: 0;
+  display: block;
+  object-fit: cover;
+  object-position: var(--qbn-focus, 50% 50%);
 }
 /*
  * Video leží na fotce a naběhne, teprve až hraje. Fotka pod ním je první
@@ -1262,8 +1285,49 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     }
   }
 
-  /** Jedna dlaždice. Vrací i funkci pro odpočet, když ho banner má. */
-  function card(one) {
+  /*
+   * Adresa fotky, která smí do stránky: žádná uvozovka, závorka ani
+   * mezera. Aplikace to hlídá taky, ale plán je veřejný soubor a tohle
+   * je místo, kde by se z něj dal spustit cizí kód.
+   */
+  function fotkaOk(a) {
+    return !!a && !/["'()\\\s]/.test(a) && (a.indexOf("http") === 0 || a.indexOf("data:image/") === 0);
+  }
+
+  /*
+   * Dvojice velikostí téže fotky, ze které si prohlížeč vybere — nebo
+   * nic, když je fotka jen jedna. Šířky musí být skutečné: prohlížeč
+   * podle nich počítá, která podoba dlaždici stačí.
+   */
+  function sadaFotek(look) {
+    var mala = String(look.imageSmall || "");
+    var w = Number(look.imageW) || 0;
+    var mw = Number(look.imageSmallW) || 0;
+    if (!fotkaOk(mala) || mala.indexOf("http") !== 0 || !w || !mw || mw >= w) return "";
+    if (mala.indexOf(",") >= 0 || String(look.image).indexOf(",") >= 0) return "";
+    return mala + " " + mw + "w, " + look.image + " " + w + "w";
+  }
+
+  /*
+   * Jak široká dlaždice na obrazovce je — díl šířky okna. Bez toho by
+   * prohlížeč počítal s fotkou přes celé okno a vzal by vždycky tu velkou.
+   */
+  function sirkyDlazdic(set) {
+    if (set.layout === "wide") return "100vw";
+    if (set.phone === "carousel" && window.innerWidth <= 760) return "85vw";
+    return (set.phone === "wide" ? "(max-width: 620px) 100vw, " : "")
+      + "(max-width: 1000px) 50vw, 25vw";
+  }
+
+  /**
+   * Jedna dlaždice. Vrací i funkci pro odpočet, když ho banner má.
+   *
+   * "prednost" říká, jak moc na fotce záleží: "high" má první dlaždice
+   * (je to největší věc na stránce), "low" stránky rotace, které zatím
+   * nejsou vidět, a "lazy" bloky pod bannerem — ty se stáhnou, až
+   * k nim člověk doroluje.
+   */
+  function card(one, prednost, sirky) {
     var href = pick(one.href);
     var node = el(href ? "a" : "div", "qbn-card");
     if (href) {
@@ -1298,10 +1362,26 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
      */
     var photo = el("div", "qbn-photo");
     var image = String(look.image || "");
-    if (image && !/["'()\\\s]/.test(image)
-      && (image.indexOf("http") === 0 || image.indexOf("data:image/") === 0)) {
-      node.style.setProperty("--qbn-img", "url(" + image + ")");
-    }
+    if (fotkaOk(image)) {
+      var img = el("img", "qbn-img");
+      /*
+       * Popis fotky pro Google a pro čtečky. Když ho nikdo nenapsal,
+       * poslouží nadpis: je to slabší, ale Google aspoň ví, k čemu
+       * fotka patří.
+       */
+      img.alt = pick(one.alt) || pick(one.title) || "";
+      img.decoding = "async";
+      if (prednost === "lazy") img.loading = "lazy";
+      img.setAttribute("fetchpriority", prednost === "high" ? "high" : prednost ? "low" : "auto");
+      /* Výběr velikostí se nastavuje před adresou, jinak se stáhne ta velká */
+      var sada = sadaFotek(look);
+      if (sada) {
+        img.sizes = sirky || "100vw";
+        img.srcset = sada;
+      }
+      img.src = image;
+      photo.appendChild(img);
+    } else image = "";
     node.appendChild(photo);
     video(node, look, image);
     node.appendChild(el("div", "qbn-shade"));
@@ -1892,7 +1972,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     var karty = [];
     var ticks = [];
     for (var i = 0; i < data.banners.length; i++) {
-      var built = card(data.banners[i]);
+      var built = card(data.banners[i], "lazy", "(max-width: 760px) 90vw, 50vw");
       karty.push(built.node);
       if (built.tick) ticks.push(built.tick);
     }
@@ -1962,7 +2042,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     if (posuvnik) {
       var karty = [];
       for (var c = 0; c < banners.length; c++) {
-        var jedna = card(banners[c]);
+        var jedna = card(banners[c], c === 0 ? "high" : "low", sirkyDlazdic(set));
         karty.push(jedna.node);
         if (jedna.tick) ticks.push(jedna.tick);
       }
@@ -1980,7 +2060,13 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     for (var i = 0; i < banners.length; i += perPage) {
       var page = el("div", "qbn-page");
       for (var j = i; j < Math.min(i + perPage, banners.length); j++) {
-        var built = card(banners[j]);
+        /*
+         * První dlaždice má přednost, zbytek první stránky jde běžně a
+         * stránky rotace, které ještě nejsou vidět, počkají — jinak by
+         * se s první fotkou praly o připojení fotky, na které přijde
+         * řada za deset vteřin.
+         */
+        var built = card(banners[j], j === 0 ? "high" : i > 0 ? "low" : "", sirkyDlazdic(set));
         page.appendChild(built.node);
         if (built.tick) ticks.push(built.tick);
       }
@@ -2079,6 +2165,32 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     /* Po deseti vteřinách je jasné, že na téhle stránce banner není */
     setTimeout(function () { seen.disconnect(); }, 10000);
   }
+
+  /*
+   * Fotka prvního banneru se začne stahovat už z hlavičky.
+   *
+   * Dlaždice vznikne, až když prohlížeč dojde k místu banneru ve
+   * stránce — do té doby o fotce neví. Tady se o ní dozví hned, a protože
+   * je to největší věc na úvodní stránce, ušetřený čas jde přímo do
+   * toho, jak rychlou ji Google naměří. Adresa i výběr velikostí musí
+   * být do písmene stejné jako u dlaždice, jinak se fotka stáhne dvakrát.
+   * Jen na úvodní stránce: jinde banner není a stahovalo by se nadarmo.
+   */
+  (function () {
+    var set = jeUvodni() ? activeSet() : null;
+    var look = set && set.banners && set.banners[0] && set.banners[0].look;
+    if (!look || !fotkaOk(look.image) || String(look.image).indexOf("http") !== 0) return;
+    var link = el("link");
+    link.rel = "preload";
+    link.as = "image";
+    link.setAttribute("fetchpriority", "high");
+    var sada = sadaFotek(look);
+    if (sada) {
+      link.setAttribute("imagesrcset", sada);
+      link.setAttribute("imagesizes", sirkyDlazdic(set));
+    } else link.href = look.image;
+    (document.head || document.documentElement).appendChild(link);
+  })();
 
   watch();
   document.addEventListener("DOMContentLoaded", render);

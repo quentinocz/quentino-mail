@@ -182,7 +182,7 @@ function blankBanner(): Banner {
     off: false,
     copy: {
       kicker: emptyText(), title: emptyText(), text: emptyText(),
-      button: emptyText(), href: emptyText()
+      button: emptyText(), href: emptyText(), alt: emptyText()
     },
     /*
      * Výchozí vzhled je opsaný z e-shopu (quentino.cz, změřeno 22. 9. 2026):
@@ -192,7 +192,8 @@ function blankBanner(): Banner {
      */
     look: {
       style: 'overlay',
-      image: '', video: '', bg: '#000000', fg: '#ffffff', overlay: 40,
+      image: '', imageSmall: '', imageW: 0, imageSmallW: 0,
+      video: '', bg: '#000000', fg: '#ffffff', overlay: 40,
       align: 'center', pos: 'middle', focus: '50% 50%',
       font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
       textWeight: 400, button: 'shop', radius: 0
@@ -203,10 +204,17 @@ function blankBanner(): Banner {
   };
 }
 
+/**
+ * Šířka menší podoby fotky. Telefon má na šířku kolem čtyř set bodů a
+ * třikrát hustší displej, dlaždice ve čtveřici na počítači má na
+ * dvojnásobně hustém displeji kolem sedmi set — devět set pokryje obojí.
+ */
+const MALA_FOTKA = 900;
+
 /** Společný vzhled nové sady — tytéž hodnoty, co má prázdný banner. */
 const blankShared = (): BannerSharedLook => {
-  const { image, video, bg, focus, ...shared } = blankBanner().look;
-  void image; void video; void bg; void focus;
+  const { image, imageSmall, imageW, imageSmallW, video, bg, focus, ...shared } = blankBanner().look;
+  void image; void imageSmall; void imageW; void imageSmallW; void video; void bg; void focus;
   return shared;
 };
 
@@ -547,9 +555,35 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
         exactWidth: 0, exactHeight: 0, percent: 100, keepSmaller: true
       });
       const url = await api.banners.upload(file.name, Array.from(done.bytes));
-      setLook({ image: url });
+      /*
+       * A k ní poloviční. Velkou potřebuje široký banner na monitoru;
+       * telefon a dlaždice ve čtveřici z ní ukážou sotva půlku bodů a
+       * zbytek by jen platili daty. Prohlížeč si z dvojice vybere sám
+       * podle toho, jak velká dlaždice doopravdy je.
+       *
+       * Dělá se jen tehdy, když je co ušetřit: z fotky, která je sama
+       * úzká, by „menší" podoba byla skoro táž fotka podruhé.
+       */
+      let small = '';
+      let smallW = 0;
+      let smallKb = 0;
+      if (done.width >= MALA_FOTKA * 1.25) {
+        const mensi = await toWebp(raw, {
+          quality: 80, resize: 'max', maxWidth: MALA_FOTKA, maxHeight: MALA_FOTKA * 2,
+          exactWidth: 0, exactHeight: 0, percent: 100, keepSmaller: true
+        });
+        try {
+          small = await api.banners.upload(file.name.replace(/(\.[^.]+)?$/, '-m$1'), Array.from(mensi.bytes));
+          smallW = mensi.width;
+          smallKb = Math.round(mensi.bytes.length / 1024);
+        } catch {
+          /* Velká fotka je nahraná a stačí sama — menší je jen úspora */
+        }
+      }
+      setLook({ image: url, imageW: done.width, imageSmall: small, imageSmallW: smallW });
       const saved = Math.max(0, Math.round((1 - done.bytes.length / Math.max(1, raw.length)) * 100));
-      toast(`Fotka je na e-shopu · ${Math.round(done.bytes.length / 1024)} kB (o ${saved} % míň)`);
+      toast(`Fotka je na e-shopu · ${Math.round(done.bytes.length / 1024)} kB (o ${saved} % míň)`
+        + (small ? ` · pro telefon ${smallKb} kB` : ''));
     } catch (e: any) {
       toast(String(e?.message ?? e), 'error');
     } finally {
@@ -1462,7 +1496,8 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                   {banner.look.image || banner.look.video ? ' Vyměnit' : ' Vybrat soubor'}
                                 </button>
                                 {banner.look.image && (
-                                  <button className="btn ghost" onClick={() => setLook({ image: '' })}>
+                                  <button className="btn ghost"
+                                    onClick={() => setLook({ image: '', imageSmall: '', imageW: 0, imageSmallW: 0 })}>
                                     <Icon name="x" size={12} /> Fotka pryč
                                   </button>
                                 )}
@@ -1520,7 +1555,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             Fotka se převede na WebP a nahraje <b>do správce souborů e-shopu</b>
                             {' '}— použije se adresa z jeho CDN, stejná jako u ostatních fotek na
                             webu. Otevře se k tomu okno administrace. Fotka z foťáku je v pohodě,
-                            zmenší se na 1800 px. Video hraje samo, bez zvuku a ve smyčce, do 12 MB
+                            zmenší se na 1800 px a pro telefon se k ní udělá poloviční. Video hraje samo, bez zvuku a ve smyčce, do 12 MB
                             {' '}— zmenšit jde v Konvertoru médií.
                             {banner.look.video && !banner.look.image && (
                               <> <b>Doplň ještě fotku</b> — bez ní je dlaždice do stažení videa
@@ -1563,6 +1598,20 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               placeholder={lang === 'cz' ? 'Ručně šité, **skladem**' : banner.copy.text.cz}
                               onChange={e => setCopy('text', e.target.value)} />
                           </div>
+                          {banner.look.image && (
+                            <div className="field">
+                              <label>
+                                Popis fotky pro Google
+                                {' '}<small>(není vidět — co na fotce je, jednou větou)</small>
+                              </label>
+                              {/* Sada uložená před touhle verzí popis nemá — proto ty otazníky */}
+                              <input value={banner.copy.alt?.[lang] ?? ''} maxLength={140}
+                                placeholder={lang === 'cz'
+                                  ? 'Muž v tmavě modrém obleku s vínovými kšandami'
+                                  : (banner.copy.alt?.cz ?? '')}
+                                onChange={e => setCopy('alt', e.target.value)} />
+                            </div>
+                          )}
                           <div className="bn-two">
                             <div className="field">
                               <label>Tlačítko</label>

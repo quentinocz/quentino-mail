@@ -26,104 +26,18 @@
  *   npm run build:main -- --outDir dist/ptdist   (nebo npm run typecheck)
  *   node tools/preview-banner-video.mjs
  */
-import http from 'http';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { execFileSync } from 'child_process';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const { DIST } = require('./ptrans/harness.cjs');
-for (const [mod, exp] of [
-  ['secure.js', { encrypt: v => v, decrypt: v => v }],
-  ['ai.js', { ask: async () => '[]' }],
-  ['settings.js', { getSettings: () => ({ draftModel: 'zkousky-model', fastModel: 'zkousky-model' }) }]
-]) {
-  const cesta = require.resolve(path.join(DIST, mod));
-  require.cache[cesta] = { id: cesta, filename: cesta, loaded: true, exports: exp };
-}
-const banners = require(path.join(DIST, 'banners.js'));
-const { bannerScript } = require(path.join(DIST, 'bannerscript.js'));
-/*
- * Playwright je jen v sandboxu, ne v repozitáři. Na počítači, kde chybí,
- * se zkouška přeskočí — spadnout kvůli tomu nesmí.
- */
-let pw;
-try { pw = (await import('playwright')).default; }
-catch { console.log('playwright není — zkouška videa v banneru se přeskakuje'); process.exit(0); }
-
-let chyb = 0;
-function say(label, ok, note = '') {
-  if (!ok) chyb += 1;
-  console.log(`  ${ok ? '✓' : '✗'} ${label}${note ? `   ${note}` : ''}`);
-}
-
-/* ---------- zkušební video ---------- */
+import { banner as dlazdice, pocetChyb, prohlizec, say, server, stranka, uklid, vyrob } from './banner-web.mjs';
 
 /*
- * Dvě vteřiny, ať je konec videa vidět několikrát za zkoušku. Vyrábí se
- * na místě: čtyřicet kilobajtů v repozitáři kvůli zkoušce by nafouklo
- * každý balíček, a ffmpeg tu je tak jako tak kvůli konvertoru médií.
+ * Dvě vteřiny, ať je konec videa vidět několikrát za zkoušku.
  */
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'qbn-video-'));
-const SOUBOR = path.join(TMP, 'kratke.webm');
-try {
-  execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi',
-    '-i', 'testsrc2=size=320x240:rate=25:duration=2',
-    '-c:v', 'libvpx-vp9', '-b:v', '200k', '-an', SOUBOR]);
-} catch (e) {
-  console.log('✗ zkušební video se nepodařilo vyrobit — je v počítači ffmpeg?');
-  console.log('  ' + String(e?.message ?? e).split('\n')[0]);
-  process.exit(1);
-}
-const VIDEO = fs.readFileSync(SOUBOR);
+const VIDEO = vyrob('kratke.webm', ['-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=25:duration=2',
+  '-c:v', 'libvpx-vp9', '-b:v', '200k', '-an']);
+const web = await server({ '*.webm': { typ: 'video/webm', data: VIDEO } });
+const ZAKLAD = web.zaklad;
+const pozadavky = web.pozadavky;
 
-/* ---------- místní server ---------- */
-
-const pozadavky = new Map();
-let stranka = '';
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://x');
-  pozadavky.set(url.pathname, (pozadavky.get(url.pathname) ?? 0) + 1);
-  if (url.pathname.startsWith('/zadne')) {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('není');
-    return;
-  }
-  if (url.pathname.endsWith('.webm')) {
-    const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
-    if (range) {
-      const od = Number(range[1]);
-      const po = range[2] ? Number(range[2]) : VIDEO.length - 1;
-      res.writeHead(206, {
-        'content-type': 'video/webm', 'accept-ranges': 'bytes',
-        'content-range': `bytes ${od}-${po}/${VIDEO.length}`, 'content-length': po - od + 1
-      });
-      res.end(VIDEO.subarray(od, po + 1));
-    } else {
-      res.writeHead(200, { 'content-type': 'video/webm', 'accept-ranges': 'bytes', 'content-length': VIDEO.length });
-      res.end(VIDEO);
-    }
-    return;
-  }
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(stranka);
-});
-await new Promise(r => server.listen(0, '127.0.0.1', r));
-const ZAKLAD = `http://127.0.0.1:${server.address().port}`;
-
-/* ---------- stránka ---------- */
-
-const banner = (id, video) => ({
-  id, name: id,
-  copy: {
-    kicker: { cz: '', sk: '', en: '' }, title: { cz: `Banner ${id}`, sk: '', en: '' },
-    text: { cz: '', sk: '', en: '' }, button: { cz: 'Zobrazit', sk: '', en: '' },
-    href: { cz: '/x', sk: '', en: '' }
-  },
-  look: { image: '', video, bg: '#123456', fg: '#ffffff', overlay: 40, align: 'left', pos: 'bottom', focus: '50% 50%' }
-});
+const banner = (id, video) => dlazdice(id, { video });
 
 /**
  * Stránka s bannerem a s holým videem vedle něj.
@@ -132,18 +46,8 @@ const banner = (id, video) => ({
  * to, co by na webu běželo, kdyby se nic nezměnilo.
  */
 function postavStranku(sada, kontrola = true) {
-  const row = banners.__test.setRow(banners.__test.normalizeSet(sada));
-  const script = bannerScript({ url: '', ttl: 300, fallback: row });
-  return [
-    '<!doctype html><html><head><meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<style>body{margin:0}</style>',
-    '<script>window.__quentinoLang="cz"</script>', script, '</head><body>',
-    '<div class="section bic-bnr"><div class="container"><div class="max">',
-    '<div id="banner1">původní karusel</div></div></div></div>',
-    '<div id="kontrola" style="width:160px;height:120px"></div>',
-    '<div style="height:2600px">další obsah stránky</div>',
-    kontrola ? `<script>(function () {
+  return stranka(sada, {
+    telo: '<div id="kontrola" style="width:160px;height:120px"></div>' + (kontrola ? `<script>(function () {
       var vid = document.createElement("video");
       vid.muted = true; vid.defaultMuted = true; vid.autoplay = true; vid.loop = true; vid.playsInline = true;
       vid.setAttribute("muted", ""); vid.setAttribute("playsinline", ""); vid.setAttribute("preload", "metadata");
@@ -151,9 +55,8 @@ function postavStranku(sada, kontrola = true) {
       vid.src = "${ZAKLAD}/kontrola.webm";
       var slib = vid.play(); if (slib && slib.catch) slib.catch(function () {});
       document.getElementById("kontrola").appendChild(vid);
-    })();</script>` : '',
-    '</body></html>'
-  ].join('');
+    })();</script>` : '')
+  });
 }
 
 const SIROKY = (videa, extra = {}) => ({
@@ -162,19 +65,11 @@ const SIROKY = (videa, extra = {}) => ({
   ...extra
 });
 
-const preinstalled = ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome', '/opt/pw-browsers/chromium/chrome-linux/chrome']
-  .find(one => fs.existsSync(one));
-let browser;
-try { browser = await pw.chromium.launch(preinstalled ? { executablePath: preinstalled } : {}); }
-catch (e) {
-  console.log('prohlížeč se nespustil — zkouška videa v banneru se přeskakuje:', e.message.split('\n')[0]);
-  server.close();
-  process.exit(0);
-}
+const browser = await prohlizec('zkouška videa v banneru');
 const chybyStranky = [];
 
 async function otevri(sada, { sirka = 1240, kontrola = true } = {}) {
-  stranka = postavStranku(sada, kontrola);
+  web.nastav(postavStranku(sada, kontrola));
   const page = await browser.newPage({ viewport: { width: sirka, height: 800 } });
   page.on('pageerror', e => chybyStranky.push(String(e?.message ?? e)));
   await page.goto(`${ZAKLAD}/`);
@@ -372,7 +267,7 @@ console.log('\nvideo v banneru — v prohlížeči:\n');
 say('skript při tom nikde nespadl', chybyStranky.length === 0, chybyStranky.slice(0, 2).join(' · '));
 
 await browser.close();
-server.close();
-try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* uklidí systém */ }
-console.log(chyb ? `\n✗ ${chyb} chyb` : '\n✓ video v banneru sedí');
-process.exit(chyb ? 1 : 0);
+web.zavri();
+uklid();
+console.log(pocetChyb() ? `\n✗ ${pocetChyb()} chyb` : '\n✓ video v banneru sedí');
+process.exit(pocetChyb() ? 1 : 0);

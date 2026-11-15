@@ -234,6 +234,14 @@ function look(value: any): BannerLook {
      */
     style: oneOf(value?.style, STYLES, 'overlay'),
     image,
+    /*
+     * Menší podoba bez velké nedává smysl — a kdyby zůstala po smazané
+     * fotce, tahal by ji telefon dál, i když na počítači už fotka není.
+     * Šířky jdou jen s ní: bez nich prohlížeč neví, kterou si vybrat.
+     */
+    imageSmall: image ? safeImage(value?.imageSmall) : '',
+    imageW: image ? clamp(value?.imageW, 0, 6000, 0) : 0,
+    imageSmallW: image && safeImage(value?.imageSmall) ? clamp(value?.imageSmallW, 0, 6000, 0) : 0,
     video: safeVideo(value?.video),
     // Primární barva e-shopu je černá (`--pr: #000`), tak z ní vychází i dlaždice
     bg: color(value?.bg, '#000000'),
@@ -291,7 +299,9 @@ export function resolveLook(one: Banner, set: BannerSet): BannerLook {
   if (one.ownLook) return one.look;
   const merged: BannerLook = {
     ...one.look, ...set.look,
-    image: one.look.image, video: one.look.video, bg: one.look.bg, focus: one.look.focus
+    image: one.look.image, video: one.look.video, bg: one.look.bg, focus: one.look.focus,
+    /* Menší podoba fotky a šířky patří k fotce, ne ke vzhledu sady */
+    imageSmall: one.look.imageSmall, imageW: one.look.imageW, imageSmallW: one.look.imageSmallW
   };
   /*
    * Čitelnost se dorovnává až po sloučení: ztmavení může přijít ze sady,
@@ -336,8 +346,19 @@ function copy(value: any): BannerCopy {
       cz: safeHref(value?.href?.cz ?? (typeof value?.href === 'string' ? value.href : '')),
       sk: safeHref(value?.href?.sk),
       en: safeHref(value?.href?.en)
-    }
+    },
+    alt: altText(value?.alt)
   };
+}
+
+/**
+ * Popis fotky. Jedna věta, žádné zalomení — jde do atributu a Google
+ * z dlouhého výčtu slov nepozná nic, jen že se někdo snažil.
+ */
+function altText(value: any): WebText {
+  const one = text(value);
+  const cista = (t: string) => t.replace(/\s+/g, ' ').trim().slice(0, 140);
+  return { cz: cista(one.cz), sk: cista(one.sk), en: cista(one.en) };
 }
 
 export function normalizeBanner(value: any): Banner {
@@ -560,6 +581,7 @@ export function bannerRow(one: Banner, set?: BannerSet): any {
     text: one.copy.text,
     button: one.copy.button,
     href: one.copy.href,
+    alt: one.copy.alt,
     // Na web jde hotový vzhled, ne „vezmi si to ze sady" — skript o sdílení neví
     look: set ? resolveLook(one, set) : one.look,
     /*
@@ -822,7 +844,10 @@ function bannerFromRow(row: any, names: Map<string, string>): any {
   return {
     ...row,
     name: names.get(String(row?.id)) ?? '',
-    copy: { kicker: row?.kicker, title: row?.title, text: row?.text, button: row?.button, href: row?.href },
+    copy: {
+      kicker: row?.kicker, title: row?.title, text: row?.text, button: row?.button, href: row?.href,
+      alt: row?.alt
+    },
     /*
      * Datum odpočtu jde do plánu jen jako číslo (`untilMs`) — na webu se
      * s ním jinak nepočítá. V aplikaci se ale zadává do políčka, a to
@@ -951,7 +976,7 @@ export async function pull(): Promise<string> {
 export async function translateSet(value: any): Promise<BannerSet> {
   const set = normalizeSet(value);
   const source: string[] = [];
-  const slots: { banner: Banner; field: 'kicker' | 'title' | 'text' | 'button' }[] = [];
+  const slots: { banner: Banner; field: 'kicker' | 'title' | 'text' | 'button' | 'alt' }[] = [];
 
   /*
    * Bloky pod bannerem („highlights") mají stejná políčka jako banner a
@@ -961,7 +986,8 @@ export async function translateSet(value: any): Promise<BannerSet> {
   const vsechny = [...set.banners, ...set.highlights.banners];
 
   for (const one of vsechny) {
-    for (const field of ['kicker', 'title', 'text', 'button'] as const) {
+    /* Popis fotky se překládá s ostatními texty — Google čte každý trh zvlášť */
+    for (const field of ['kicker', 'title', 'text', 'button', 'alt'] as const) {
       if (one.copy[field].cz) { source.push(one.copy[field].cz); slots.push({ banner: one, field }); }
     }
   }

@@ -3278,6 +3278,20 @@ export interface BannerLook {
   /** Adresa fotky na pozadí; prázdné = jen barva */
   image: string;
   /**
+   * Táž fotka zmenšená pro telefon a pro dlaždice ve čtveřici.
+   *
+   * Fotka banneru má 1800 bodů na šířku, protože ji potřebuje široký
+   * banner na velkém monitoru. Telefon a čtvrtinová dlaždice z ní
+   * ale ukážou sotva polovinu — a stahovat ji celou znamená platit daty
+   * za body, které nikdo neuvidí. Prohlížeč si z dvojice vybere sám.
+   * Prázdné znamená, že menší podoba není (fotka je sama malá, nebo
+   * byla nahraná dřív).
+   */
+  imageSmall: string;
+  /** Skutečná šířka obou podob v bodech — prohlížeč se podle ní rozhoduje. Nula = neznámá. */
+  imageW: number;
+  imageSmallW: number;
+  /**
    * Video na pozadí (webm nebo mp4); prázdné = jen fotka.
    *
    * Hraje bez zvuku, ve smyčce a samo od sebe — jinak by ho prohlížeč na
@@ -3349,6 +3363,15 @@ export interface BannerCopy {
    * je jde, kdyby se produkt v jiném trhu jmenoval jinak.
    */
   href: WebText;
+  /**
+   * Popis fotky slovy — pro Google a pro čtečky obrazovky.
+   *
+   * Na webu není vidět. Google z něj pozná, co na fotce je (sám to
+   * z obrázku hádá hůř), a podle něj fotku nabízí ve vyhledávání
+   * obrázků. Prázdný popis nahradí nadpis banneru: je to slabší, ale
+   * lepší než nic.
+   */
+  alt: WebText;
 }
 
 export interface Banner {
