@@ -68,6 +68,19 @@ const SPECS: Record<string, FieldSpec> = {
   google_identifier: { scope: 'meta', tag: 'META_VALUE', metaKey: 'identifier_exists_google_merchant' }
 };
 
+/**
+ * Kde v bloku produktu pole leží — část, do které patří, a u metadat klíč.
+ *
+ * Potřebuje to export: v úsporném režimu má v souboru zůstat jen to, co
+ * se opravdu zapisovalo, a k tomu musí vědět, kam které pole padlo.
+ */
+export function fieldPlace(field: FieldKey):
+  { scope: 'description' | 'seo' | 'meta' | 'param'; metaKey?: string } | null {
+  if (parseParamKey(field)) return { scope: 'param' };
+  const spec = SPECS[field];
+  return spec ? { scope: spec.scope, metaKey: spec.metaKey } : null;
+}
+
 /* ---------- základní pomůcky ---------- */
 
 export function unwrapCdata(raw: string): string {
@@ -233,6 +246,13 @@ export function setField(block: string, lang: string, field: FieldKey, value: st
   let out = block;
   if (!scopeRange(out, spec.scope, lang)) {
     out = cloneScope(out, spec.scope, sourceLang, lang);
+    /*
+     * Není podle čeho kopírovat — produkt ve feedu nemá ani zdrojovou
+     * část (typicky SEO u zboží, kterému ho nikdo nevyplnil). Dřív se
+     * tady zápis **mlčky vzdal** a hodnota se do exportu nedostala, ač
+     * ji export započítal. Část se proto založí prázdná.
+     */
+    if (!scopeRange(out, spec.scope, lang)) out = emptyScope(out, spec.scope, lang);
     if (!scopeRange(out, spec.scope, lang)) return block;
   }
   const range = scopeRange(out, spec.scope, lang)!;
@@ -272,8 +292,51 @@ function cloneScope(block: string, scope: 'description' | 'seo', from: string, t
   return block.slice(0, at) + copy + block.slice(at);
 }
 
+/** Založí prázdnou jazykovou část (popis nebo SEO), když ji produkt nemá vůbec. */
+function emptyScope(block: string, scope: 'description' | 'seo', lang: string): string {
+  const tag = scope === 'description' ? 'DESCRIPTION' : 'SEO';
+  const obal = scope === 'description' ? 'DESCRIPTIONS' : 'SEO_OPTIMALIZATION';
+  const cast = `\n\t\t\t<${tag} language="${lang}">\n\t\t\t</${tag}>`;
+  const konec = block.indexOf(`</${obal}>`);
+  if (konec !== -1) return block.slice(0, konec).replace(/\s*$/, '') + cast + '\n\t\t' + block.slice(konec);
+  const prazdny = new RegExp(`<${obal}\\s*/>`).exec(block);
+  const cely = `<${obal}>${cast}\n\t\t</${obal}>`;
+  if (prazdny) return block.slice(0, prazdny.index) + cely + block.slice(prazdny.index + prazdny[0].length);
+  return `${block.replace(/\s*$/, '')}\n\t\t${cely}\n\t`;
+}
+
+const metaBlock = (metaKey: string) =>
+  new RegExp(`<META\\b[^>]*>\\s*<META_KEY>${metaKey}</META_KEY>[\\s\\S]*?</META>`);
+
+/**
+ * Založí v produktu záznam metadat pro daný klíč.
+ *
+ * Feed ho mít nemusí: Upgates vypisuje jen klíče, které u produktu
+ * někdy někdo vyplnil nebo které má e-shop založené. Otevírací značka
+ * se opíše od sousedního záznamu, aby nový vypadal jako ostatní.
+ */
+function addMeta(block: string, metaKey: string): string {
+  const vzor = /<META\b[^>]*>/.exec(block)?.[0] ?? '<META>';
+  const zaznam = `${vzor}\n\t\t\t\t<META_KEY>${metaKey}</META_KEY>\n\t\t\t\t<META_VALUES>\n\t\t\t\t</META_VALUES>\n\t\t\t</META>`;
+  const konec = block.indexOf('</METAS>');
+  if (konec !== -1) {
+    return block.slice(0, konec).replace(/\s*$/, '') + `\n\t\t\t${zaznam}\n\t\t` + block.slice(konec);
+  }
+  const prazdny = /<METAS\s*\/>/.exec(block);
+  const cely = `<METAS>\n\t\t\t${zaznam}\n\t\t</METAS>`;
+  if (prazdny) return block.slice(0, prazdny.index) + cely + block.slice(prazdny.index + prazdny[0].length);
+  return `${block.replace(/\s*$/, '')}\n\t\t${cely}\n\t`;
+}
+
 function setMetaValue(block: string, metaKey: string, lang: string, value: string, sourceLang: string): string {
-  const meta = new RegExp(`<META\\b[^>]*>\\s*<META_KEY>${metaKey}</META_KEY>[\\s\\S]*?</META>`).exec(block);
+  /*
+   * Chybějící záznam se založí. Dřív se tady zápis **mlčky vzdal**:
+   * hodnota zůstala jen v aplikaci, export ji započítal mezi zapsaná
+   * pole a v souboru nebyla. Přesně takhle se ztrácely atributy pro
+   * Google u produktů, kterým je ve feedu ještě nikdo nevyplnil.
+   */
+  if (!metaBlock(metaKey).test(block)) block = addMeta(block, metaKey);
+  const meta = metaBlock(metaKey).exec(block);
   if (!meta) return block;
   let inner = meta[0];
 
@@ -290,11 +353,21 @@ function setMetaValue(block: string, metaKey: string, lang: string, value: strin
     const source = new RegExp(
       `(\\s*)(<META_VALUE language="${sourceLang}"[^>]*(?:/>|>[\\s\\S]*?</META_VALUE>))`
     ).exec(inner);
-    if (!source) return block;
-    const at = source.index + source[0].length;
-    inner = inner.slice(0, at)
-      + `${source[1]}<META_VALUE language="${lang}">${encoded}</META_VALUE>`
-      + inner.slice(at);
+    const nova = `<META_VALUE language="${lang}">${encoded}</META_VALUE>`;
+    if (source) {
+      const at = source.index + source[0].length;
+      inner = inner.slice(0, at) + `${source[1]}${nova}` + inner.slice(at);
+    } else if (inner.includes('</META_VALUES>')) {
+      /* Záznam nemá hodnotu ani ve zdrojovém jazyce — přidá se na konec seznamu */
+      const at = inner.indexOf('</META_VALUES>');
+      inner = inner.slice(0, at).replace(/\s*$/, '') + `\n\t\t\t\t\t${nova}\n\t\t\t\t` + inner.slice(at);
+    } else if (/<META_VALUES\s*\/>/.test(inner)) {
+      inner = inner.replace(/<META_VALUES\s*\/>/, `<META_VALUES>\n\t\t\t\t\t${nova}\n\t\t\t\t</META_VALUES>`);
+    } else {
+      const at = inner.lastIndexOf('</META>');
+      inner = inner.slice(0, at).replace(/\s*$/, '')
+        + `\n\t\t\t\t<META_VALUES>\n\t\t\t\t\t${nova}\n\t\t\t\t</META_VALUES>\n\t\t\t` + inner.slice(at);
+    }
   }
   return block.slice(0, meta.index) + inner + block.slice(meta.index + meta[0].length);
 }

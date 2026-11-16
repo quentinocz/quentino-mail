@@ -429,7 +429,16 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
         return;
       }
       const result = await api.ptrans.export({ codes, state });
-      if (result) toast(`Uloženo: ${result.products} produktů, ${result.fields} textů`);
+      if (result) {
+        /*
+         * Počet je to, co v souboru opravdu je. Co se zapsat nepodařilo,
+         * se řekne taky — dřív export hlásil i pole, která v souboru
+         * nebyla, a nikdo neměl jak poznat, že chybí.
+         */
+        toast(`Uloženo: ${result.products} produktů, ${result.fields} textů`
+          + (result.missed ? ` · ${result.missed} se zapsat nepodařilo` : ''),
+          result.missed ? 'error' : undefined);
+      }
     } catch (e: any) {
       toast(e.message, 'error');
     }
@@ -451,8 +460,9 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
         return;
       }
       const out = await api.ptrans.exportToAdmin({ codes, state });
-      toast(out.note || `Vloženo: ${out.products} produktů, ${out.fields} textů`,
-        out.filled ? undefined : 'error');
+      toast((out.note || `Vloženo: ${out.products} produktů, ${out.fields} textů`)
+        + (out.missed ? ` · ${out.missed} polí se zapsat nepodařilo` : ''),
+        out.filled && !out.missed ? undefined : 'error');
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {

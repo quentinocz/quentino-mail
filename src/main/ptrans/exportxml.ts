@@ -1,6 +1,6 @@
 import { getDb } from '../db';
 import { getPtransSettings, targetLangs } from './store';
-import { setField, feedHeader, FieldKey } from './xml';
+import { setField, getField, fieldPlace, feedHeader, FieldKey } from './xml';
 
 /**
  * Export přeložených produktů zpátky do XML pro import do Upgates.
@@ -13,6 +13,28 @@ import { setField, feedHeader, FieldKey } from './xml';
  * jazykové části, které se opravdu překládaly. Import v Upgates aktualizuje jen
  * to, co v souboru je, takže se takhle nedá omylem přepsat sklad, cena nebo
  * čeština. Plný režim (celý produkt) je pro případ, že by import vyžadoval víc.
+ *
+ * ## Co tu bylo špatně
+ *
+ * Úsporný režim se řídil **seznamem jazyků a napevno vypsaných klíčů**,
+ * ne tím, co se opravdu zapsalo. Z toho vyšly tři tiché chyby:
+ *
+ *  * atributy pro Google (barva, pohlaví, věk, stav, set, čárový kód) na
+ *    tom seznamu klíčů nebyly. Zapsaly se do bloku, export je započítal
+ *    — a při zeštíhlení se zahodily. Kdo doplnil jen je, dostal soubor,
+ *    ve kterém nebyly;
+ *  * záznamy metadat se hledaly podle „<META " s mezerou. Feed, který
+ *    je píše bez atributů, tedy „<META>", přišel o metadata všechna;
+ *  * v souboru naopak zůstávaly celé jazykové části včetně češtiny a
+ *    parametrů, na které nikdo nesáhl — tedy stav z posledního stažení
+ *    feedu, kterým by import přepsal cokoli, co se mezitím v e-shopu
+ *    změnilo.
+ *
+ * Teď rozhoduje to, **co se zapsalo**: jazyková část popisu nebo SEO
+ * zůstane jen tam, kde se do ní psalo, z metadat jen zapsané klíče a
+ * jazyky a parametry jen tehdy, když se psalo do nich. A po každém
+ * zápisu se hodnota z bloku přečte zpátky — co tam není, se nepočítá
+ * mezi zapsaná pole, ale vypíše mezi nezapsaná.
  */
 
 export interface ExportOptions {
@@ -44,12 +66,15 @@ export interface ExportOptions {
 export interface ExportResult {
   xml: string;
   products: number;
+  /** Kolik polí v souboru opravdu je — ověřeno přečtením zpátky. */
   fields: number;
   langs: string[];
+  /** Pole, která se zapsat nepodařila: „kód/jazyk/pole". Má být prázdné. */
+  missed: string[];
 }
 
-/** Sekce, které v „slim" režimu zůstávají — všechno ostatní se vyhodí. */
-const KEEP_SECTIONS = ['CODE', 'DESCRIPTIONS', 'SEO_OPTIMALIZATION', 'METAS', 'PARAMETERS'];
+const stejne = (a: string | null, b: string) =>
+  String(a ?? '').replace(/\s+/g, ' ').trim() === String(b ?? '').replace(/\s+/g, ' ').trim();
 
 export function buildExport(options: ExportOptions = {}): ExportResult {
   const d = getDb();
@@ -96,6 +121,7 @@ export function buildExport(options: ExportOptions = {}): ExportResult {
 
   const readRaw = d.prepare('SELECT raw_xml FROM ptrans_products WHERE code = ?');
   const parts: string[] = [];
+  const missed: string[] = [];
   let fields = 0;
 
   for (const [code, list] of byProduct) {
@@ -103,13 +129,26 @@ export function buildExport(options: ExportOptions = {}): ExportResult {
     if (!raw) continue;
 
     let block = raw;
+    const zapsane: typeof list = [];
     for (const row of list) {
       block = setField(block, row.lang, row.field, row.translated, s.sourceLang);
-      fields++;
+      /*
+       * Počítá se jen to, co v bloku opravdu je. Zápis umí selhat potichu
+       * (parametr, který produkt nemá) a číslo „zapsáno 12 polí" nad
+       * souborem, kde nejsou, je horší než žádné číslo.
+       */
+      if (stejne(getField(block, row.lang, row.field), row.translated)) zapsane.push(row);
+      else missed.push(`${code}/${row.lang}/${row.field}`);
     }
+    if (zapsane.length === 0) continue;
     if (mode === 'slim') {
-      block = slim(block, langs, options.includeSource ? s.sourceLang : null);
-    }
+      block = slim(block, zapsane);
+      /* A ještě jednou po zeštíhlení — právě tam se dřív pole ztrácela */
+      for (const row of zapsane) {
+        if (stejne(getField(block, row.lang, row.field), row.translated)) fields++;
+        else missed.push(`${code}/${row.lang}/${row.field}`);
+      }
+    } else fields += zapsane.length;
     parts.push(`\t<PRODUCT>${block}</PRODUCT>`);
   }
 
@@ -120,28 +159,46 @@ export function buildExport(options: ExportOptions = {}): ExportResult {
     xml: `${head}${parts.join('\n')}\n</PRODUCTS>\n`,
     products: parts.length,
     fields,
-    langs
+    langs,
+    missed
   };
 }
 
-/** Ponechá jen kód produktu a jazykové části vybraných jazyků. */
-function slim(block: string, langs: string[], sourceLang: string | null): string {
-  const keep = new Set(langs);
-  if (sourceLang) keep.add(sourceLang);
-
-  const sections: string[] = [];
-  for (const name of KEEP_SECTIONS) {
-    const found = new RegExp(`(\\s*)<${name}(?:\\s[^>]*)?>[\\s\\S]*?</${name}>`).exec(block);
-    if (!found) continue;
-    let piece = found[0];
-    if (name === 'DESCRIPTIONS') piece = keepLangs(piece, 'DESCRIPTION', keep);
-    if (name === 'SEO_OPTIMALIZATION') piece = keepLangs(piece, 'SEO', keep);
-    if (name === 'METAS') piece = slimMetas(piece, keep);
-    if (name === 'PARAMETERS') piece = keepLangs(piece, 'NAME', keep, ['VALUE']);
-    sections.push(piece);
+/**
+ * Ponechá jen kód produktu a to, do čeho se opravdu psalo.
+ *
+ * Řídí se zapsanými poli, ne seznamem jazyků: jazyková část popisu nebo
+ * SEO zůstane jen tam, kde se do ní psalo, z metadat jen zapsané klíče
+ * a jazyky, parametry jen když se psalo do nich.
+ */
+function slim(block: string, rows: { lang: string; field: string }[]): string {
+  const popisy = new Set<string>();
+  const seo = new Set<string>();
+  const parametry = new Set<string>();
+  const metas = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const kde = fieldPlace(row.field);
+    if (!kde) continue;
+    if (kde.scope === 'description') popisy.add(row.lang);
+    else if (kde.scope === 'seo') seo.add(row.lang);
+    else if (kde.scope === 'param') parametry.add(row.lang);
+    else if (kde.metaKey) {
+      const jazyky = metas.get(kde.metaKey) ?? new Set<string>();
+      jazyky.add(row.lang);
+      metas.set(kde.metaKey, jazyky);
+    }
   }
+
+  const sekce = (name: string) =>
+    new RegExp(`(\\s*)<${name}(?:\\s[^>]*)?>[\\s\\S]*?</${name}>`).exec(block)?.[0] ?? '';
+  const sections: string[] = [];
   // `<CODE>` je klíč importu — bez něj by Upgates produkt nepoznal
-  return `${sections.join('')}\n\t`;
+  sections.push(sekce('CODE'));
+  if (popisy.size > 0) sections.push(keepLangs(sekce('DESCRIPTIONS'), 'DESCRIPTION', popisy));
+  if (seo.size > 0) sections.push(keepLangs(sekce('SEO_OPTIMALIZATION'), 'SEO', seo));
+  if (metas.size > 0) sections.push(slimMetas(sekce('METAS'), metas));
+  if (parametry.size > 0) sections.push(keepLangs(sekce('PARAMETERS'), 'NAME', parametry, ['VALUE']));
+  return `${sections.filter(Boolean).join('')}\n\t`;
 }
 
 /** Z bloku odstraní jazykové části, které se neexportují. */
@@ -155,17 +212,23 @@ function keepLangs(piece: string, tag: string, keep: Set<string>, alsoTags: stri
   return out;
 }
 
-/** V METAS zůstanou jen klíče, které aplikace plní, a jen vybrané jazyky. */
-function slimMetas(piece: string, keep: Set<string>): string {
-  // `redirect_301` je tu podstatný: bez něj by se změněná adresa naimportovala
-  // bez přesměrování a stará by začala vracet chybu
-  const wanted = ['title_google_merchant', 'description_google_merchant', 'redirect_301'];
+/**
+ * V METAS zůstanou jen klíče, do kterých se psalo, a u každého jen
+ * jazyky, které se psaly.
+ *
+ * Záznamy se hledají značkou `<META` **s atributy i bez nich**. Dřív se
+ * tu dělilo podle „<META " s mezerou, takže z feedu, který záznamy píše
+ * jako holé „<META>", nezbylo po zeštíhlení nic.
+ */
+function slimMetas(piece: string, psane: Map<string, Set<string>>): string {
   const kept: string[] = [];
-  for (const part of piece.split('<META ').slice(1)) {
-    const body = `<META ${part.split('</META>')[0]}</META>`;
-    const key = /<META_KEY>([^<]*)<\/META_KEY>/.exec(body)?.[1] ?? '';
-    if (!wanted.includes(key)) continue;
-    kept.push(keepLangs(body, 'META_VALUE', keep));
+  const re = /<META\b[^>]*>[\s\S]*?<\/META>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(piece))) {
+    const key = /<META_KEY>([^<]*)<\/META_KEY>/.exec(m[0])?.[1]?.trim() ?? '';
+    const jazyky = psane.get(key);
+    if (!jazyky) continue;
+    kept.push(keepLangs(m[0], 'META_VALUE', jazyky));
   }
   if (kept.length === 0) return '';
   return `\n\t\t<METAS>\n\t\t\t${kept.join('\n\t\t\t')}\n\t\t</METAS>`;

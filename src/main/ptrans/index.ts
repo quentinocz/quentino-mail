@@ -441,9 +441,10 @@ export async function retranslateField(code: string, lang: string, field: string
 }
 
 /** Uloží export do souboru, který si uživatel vybere. */
-export async function exportToFile(options: ExportOptions = {}): Promise<{ path: string; products: number; fields: number } | null> {
+export async function exportToFile(options: ExportOptions = {}):
+  Promise<{ path: string; products: number; fields: number; missed: number } | null> {
   const built = buildExport(options);
-  if (built.products === 0) throw new Error('Není co exportovat — zatím není žádný uložený překlad.');
+  if (built.products === 0) throw new Error('Není co exportovat — u těchhle produktů aplikace zatím nic nenapsala ani nepřeložila.');
 
   const win = callerWindow();
   const stamp = new Date().toISOString().slice(0, 10);
@@ -453,7 +454,7 @@ export async function exportToFile(options: ExportOptions = {}): Promise<{ path:
   });
   if (res.canceled || !res.filePath) return null;
   fs.writeFileSync(res.filePath, built.xml, 'utf8');
-  return { path: res.filePath, products: built.products, fields: built.fields };
+  return { path: res.filePath, products: built.products, fields: built.fields, missed: built.missed.length };
 }
 
 /**
@@ -465,9 +466,9 @@ export async function exportToFile(options: ExportOptions = {}): Promise<{ path:
  * zůstává na člověku**, protože od té chvíle se produkty v e-shopu mění.
  */
 export async function exportToAdmin(options: ExportOptions = {}):
-  Promise<{ filled: boolean; note: string; products: number; fields: number }> {
+  Promise<{ filled: boolean; note: string; products: number; fields: number; missed: number }> {
   const built = buildExport(options);
-  if (built.products === 0) throw new Error('Není co exportovat — zatím není žádný uložený překlad.');
+  if (built.products === 0) throw new Error('Není co exportovat — u těchhle produktů aplikace zatím nic nenapsala ani nepřeložila.');
 
   const stamp = new Date().toISOString().slice(0, 10);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quentino-import-'));
@@ -476,7 +477,10 @@ export async function exportToAdmin(options: ExportOptions = {}):
 
   // Bez kódu produktu: víc produktů najednou je vždycky oprava stávajících
   const out = await newproduct.openImportFile(file);
-  return { filled: out.filled, note: out.note, products: built.products, fields: built.fields };
+  return {
+    filled: out.filled, note: out.note, products: built.products, fields: built.fields,
+    missed: built.missed.length
+  };
 }
 
 export {
