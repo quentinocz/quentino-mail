@@ -181,9 +181,10 @@ function blankBanner(): Banner {
     id: '',
     name: '',
     off: false,
+    from: '', to: '', fromMs: 0, toMs: Number.MAX_SAFE_INTEGER,
     copy: {
       kicker: emptyText(), title: emptyText(), text: emptyText(),
-      button: emptyText(), href: emptyText(), alt: emptyText()
+      button: emptyText(), href: emptyText(), alt: emptyText(), badge: emptyText()
     },
     /*
      * Výchozí vzhled je opsaný z e-shopu (quentino.cz, změřeno 22. 9. 2026):
@@ -195,7 +196,7 @@ function blankBanner(): Banner {
       style: 'overlay',
       image: '', imageSmall: '', imageW: 0, imageSmallW: 0,
       video: '', videoAlt: '', videoNoPhone: false, bg: '#000000', fg: '#ffffff', overlay: 40,
-      align: 'center', pos: 'middle', focus: '50% 50%',
+      align: 'center', pos: 'middle', focus: '50% 50%', focusPhone: '',
       font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
       textWeight: 400, button: 'shop', radius: 0
     },
@@ -218,8 +219,9 @@ const JE_VIDEO = new RegExp(`\\.(${VSTUPNI_PRIPONY.join('|')})$`, 'i');
 /** Společný vzhled nové sady — tytéž hodnoty, co má prázdný banner. */
 const blankShared = (): BannerSharedLook => {
   const {
-    image, imageSmall, imageW, imageSmallW, video, videoAlt, videoNoPhone, bg, focus, ...shared
+    image, imageSmall, imageW, imageSmallW, video, videoAlt, videoNoPhone, bg, focus, focusPhone, ...shared
   } = blankBanner().look;
+  void focusPhone;
   void image; void imageSmall; void imageW; void imageSmallW;
   void video; void videoAlt; void videoNoPhone; void bg; void focus;
   return shared;
@@ -1619,6 +1621,36 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                 </div>
                               </div>
 
+                              {/*
+                                * Výřez zvlášť pro telefon. Dlaždice je tam skoro
+                                * čtverec, na počítači široký pruh — z téže fotky
+                                * je vidět jiná část.
+                                */}
+                              <div className="field">
+                                <label>
+                                  Výřez na telefonu
+                                  {' '}<small>{banner.look.focusPhone ? '(vlastní)' : '(stejný jako na počítači)'}</small>
+                                </label>
+                                <div className="bn-focus">
+                                  {['0%', '50%', '100%'].map(x => (
+                                    <div key={x} className="bn-focus-row">
+                                      {['0%', '50%', '100%'].map(y => {
+                                        const value = `${y} ${x}`;
+                                        return (
+                                          <button key={value}
+                                            className={`bn-dot ${banner.look.focusPhone === value ? 'sel' : ''}`}
+                                            title={banner.look.focusPhone === value
+                                              ? 'Zrušit — vzít výřez z počítače' : `Na telefonu nechat vidět ${value}`}
+                                            onClick={() => setLook({
+                                              focusPhone: banner.look.focusPhone === value ? '' : value
+                                            })} />
+                                        );
+                                      })}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
                               <div className="field bn-slider">
                                 <label>
                                   Ztmavení {vzhled().overlay} %
@@ -1686,6 +1718,12 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               placeholder={lang === 'cz' ? 'Ručně šité, **skladem**' : banner.copy.text.cz}
                               onChange={e => setCopy('text', e.target.value)} />
                           </div>
+                          <div className="field">
+                            <label>Štítek v rohu <small>(pár znaků — „−20 %", „Novinka"; nepovinné)</small></label>
+                            <input value={banner.copy.badge?.[lang] ?? ''} maxLength={18}
+                              placeholder={lang === 'cz' ? '−20 %' : (banner.copy.badge?.cz ?? '')}
+                              onChange={e => setCopy('badge', e.target.value)} />
+                          </div>
                           {banner.look.image && (
                             <div className="field">
                               <label>
@@ -1722,6 +1760,23 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               {hrefHint && <> — {hrefHint}</>}
                             </p>
                           )}
+                          {/*
+                            * Vlastní termín banneru. Kvůli jedné dlaždici
+                            * („doprava zdarma jen tenhle víkend") se dřív
+                            * musela zakládat celá druhá sada.
+                            */}
+                          <div className="bn-two">
+                            <div className="field">
+                              <label>Ukazovat od <small>(prázdné = hned)</small></label>
+                              <input type="datetime-local" value={banner.from ?? ''}
+                                onChange={e => setBanner({ from: e.target.value })} />
+                            </div>
+                            <div className="field">
+                              <label>Ukazovat do <small>(prázdné = pořád)</small></label>
+                              <input type="datetime-local" value={banner.to ?? ''}
+                                onChange={e => setBanner({ to: e.target.value })} />
+                            </div>
+                          </div>
                           <p className="desc">
                             Prázdné tlačítko nevadí: odkaz má celá dlaždice, takže se dá kliknout
                             kamkoli. Slovo mezi dvěma hvězdičkami — <code>**takhle**</code> — bude

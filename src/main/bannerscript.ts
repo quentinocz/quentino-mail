@@ -296,7 +296,65 @@ a.qbn-card:focus-visible {
 }
 .qbn-card[data-pos="top"] .qbn-shade { transform: scaleY(-1); }
 .qbn-card[data-pos="middle"] .qbn-shade {
-  background: rgba(0, 0, 0, var(--qbn-shade, .4));
+  /*
+   * Text uprostřed: tma je pod ním a ke krajům slábne. Dřív se tu
+   * ztmavila celá fotka naplocho — text byl čitelný, ale z fotky zbyl
+   * šedý obdélník i tam, kde žádný text není.
+   */
+  background: radial-gradient(ellipse 75% 70% at 50% 50%,
+    rgba(0, 0, 0, var(--qbn-shade, .4)) 0%,
+    rgba(0, 0, 0, calc(var(--qbn-shade, .4) * .8)) 38%,
+    rgba(0, 0, 0, calc(var(--qbn-shade, .4) * .42)) 70%,
+    rgba(0, 0, 0, calc(var(--qbn-shade, .4) * .22)) 100%);
+}
+/*
+ * Štítek v rohu. Barvy má obrácené proti dlaždici, takže je vidět na
+ * tmavé i světlé fotce a nemusí se mu vybírat barva zvlášť.
+ */
+.qbn-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  padding: 4px 9px;
+  background: var(--qbn-fg, #fff);
+  color: var(--qbn-bg, #000);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: .02em;
+  border-radius: var(--qbn-radius, 0);
+  pointer-events: none;
+}
+/*
+ * Ukazatel rotace: tenká linka, která doběhne, než se stránka otočí.
+ * Není to jen ozdoba — rotaci **řídí**. Stránka se otočí, když linka
+ * doběhne, takže když se linka najetím myší zastaví, zastaví se i
+ * rotace a nemůže se s ní rozejít.
+ */
+.qbn-prog {
+  position: absolute;
+  left: 0;
+  bottom: -6px;
+  height: 2px;
+  width: 100%;
+  background: var(--gr, #acc2ab);
+  transform-origin: 0 50%;
+  animation: qbn-prog linear infinite;
+  z-index: 2;
+}
+/*
+ * Jen kde je opravdová myš. Na telefonu zůstává „najetí" viset po
+ * klepnutí, dokud se neklepne jinam — rotace by se po prvním dotyku
+ * zastavila natrvalo.
+ */
+@media (hover: hover) {
+  .qbn:hover .qbn-prog { animation-play-state: paused; }
+}
+.qbn:focus-within .qbn-prog { animation-play-state: paused; }
+@keyframes qbn-prog {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 
 .qbn-body {
@@ -720,6 +778,10 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   .qbn[data-layout="wide"] .qbn-card { aspect-ratio: var(--qbn-ar, 2 / 1); }
 }
 @media (max-width: 620px) {
+  /* Na telefonu je dlaždice jiného tvaru, takže může mít i jiný výřez fotky */
+  .qbn-photo .qbn-img, .qbn-video {
+    object-position: var(--qbn-focus-phone, var(--qbn-focus, 50% 50%));
+  }
   .qbn { gap: 10px; }
   .qbn-page { gap: 10px; }
   .qbn[data-phone="grid"] .qbn-page { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1391,6 +1453,9 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     node.style.setProperty("--qbn-bg", look.bg || "#000000");
     node.style.setProperty("--qbn-fg", look.fg || "#ffffff");
     node.style.setProperty("--qbn-focus", look.focus || "50% 50%");
+    if (/^\d{1,3}% \d{1,3}%$/.test(String(look.focusPhone || ""))) {
+      node.style.setProperty("--qbn-focus-phone", look.focusPhone);
+    }
     node.style.setProperty("--qbn-shade", String((Number(look.overlay) || 0) / 100));
     node.style.setProperty("--qbn-radius", (Number(look.radius) >= 0 ? Number(look.radius) : 0) + "px");
     node.style.setProperty("--qbn-tw", String(Number(look.titleWeight) || 400));
@@ -1466,6 +1531,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
 
     button(body, pick(one.button), look.button || "shop");
     node.appendChild(body);
+    put(node, "span", "qbn-badge", pick(one.badge));
     if (pauza) node.appendChild(pauza);
     return { node: node, tick: tick };
   }
@@ -2185,6 +2251,31 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     return true;
   }
 
+  /*
+   * Bannery, které zrovna platí. Banner může mít vlastní termín uvnitř
+   * sady — a o tom, jestli už začal nebo skončil, rozhodují hodiny
+   * návštěvníka, stejně jako u sady.
+   */
+  function platne(banners) {
+    var now = Date.now();
+    var out = [];
+    for (var i = 0; i < (banners || []).length; i++) {
+      var one = banners[i];
+      if (!one) continue;
+      if (Number(one.fromMs) > now) continue;
+      if (Number(one.toMs) > 0 && Number(one.toMs) < now) continue;
+      out.push(one);
+    }
+    return out;
+  }
+
+  function idPlatnych(banners) {
+    var ok = platne(banners);
+    var out = [];
+    for (var i = 0; i < ok.length; i++) out.push(String(ok[i].id));
+    return out.join(",");
+  }
+
   function draw(set) {
     /*
      * Místo se hledá **jen napoprvé**. Původní karusel se totiž hned nato
@@ -2224,7 +2315,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
      * stránka znamená rotaci, míň znamená, že se nic nepřetáčí.
      */
     var perPage = set.layout === "wide" ? 1 : 4;
-    var banners = set.banners || [];
+    var banners = platne(set.banners);
     var ticks = [];
     var pages = [];
 
@@ -2298,7 +2389,14 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (pages.length > 1 && every > 0 && !still) {
       var at = 0;
-      rotor = setInterval(function () {
+      /*
+       * Stránku otáčí ukazatel: když linka doběhne, je čas. Najetím myší
+       * nebo klávesnicí se linka zastaví, a s ní i rotace — banner, na
+       * který se člověk chystá kliknout, mu pod rukou nezmizí.
+       */
+      var prog = el("div", "qbn-prog");
+      prog.style.animationDuration = Math.max(2, every) + "s";
+      prog.addEventListener("animationiteration", function () {
         pages[at].className = "qbn-page";
         at = (at + 1) % pages.length;
         pages[at].className = "qbn-page qbn-now";
@@ -2306,7 +2404,8 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
         srovnejVidea();
         /* A banner, který se právě ukázal, se započítá jako viděný */
         spoctiVidene();
-      }, Math.max(2, every) * 1000);
+      });
+      box.appendChild(prog);
     }
     return true;
   }
@@ -2322,7 +2421,12 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       + "|" + String(set.phone) + "|" + String(set.ratio) + "|" + String(set.phoneRatio)
       // Otočení telefonu mění rozvržení, takže se musí překreslit
       + "|" + (window.innerWidth <= 760 ? "t" : "p")
-      + "|" + (set.banners || []).length
+      /*
+       * Které právě platí — ne kolik. Počet nestačí: když jednomu termín
+       * začne a druhému ve stejnou chvíli skončí (střídání akcí o půlnoci),
+       * je jich pořád stejně a blok by zůstal u starého.
+       */
+      + "|" + idPlatnych(set.banners)
       + "|" + ((set.links && set.links.items) ? set.links.items.length : 0)
       + "|" + ((set.links && set.links.shape) || "");
     /*

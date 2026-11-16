@@ -3332,6 +3332,13 @@ export interface BannerLook {
    * špatně.
    */
   focus: string;
+  /**
+   * Výřez na telefonu, když má být jiný než na počítači. Dlaždice je tam
+   * skoro čtverec, na počítači široký pruh — z téže fotky je vidět jiná
+   * část a obličej, který na monitoru sedí, bývá na telefonu uříznutý.
+   * Prázdné = stejný jako na počítači.
+   */
+  focusPhone: string;
   font: BannerFont;
   /**
    * Tučnost nadpisu, 300–900.
@@ -3382,6 +3389,8 @@ export interface BannerCopy {
    * lepší než nic.
    */
   alt: WebText;
+  /** Štítek v rohu dlaždice — „−20 %", „Novinka". Pár znaků, je vidět na první pohled. */
+  badge: WebText;
 }
 
 export interface Banner {
@@ -3389,6 +3398,15 @@ export interface Banner {
   /** Jméno v seznamu; na web se neposílá */
   name: string;
   off: boolean;
+  /**
+   * Vlastní termín banneru uvnitř sady. Prázdné = celou dobu, co platí
+   * sada. Je k tomu, aby se kvůli jedné dlaždici („doprava zdarma jen
+   * tenhle víkend") nemusela zakládat celá druhá sada.
+   */
+  from: string;
+  to: string;
+  fromMs: number;
+  toMs: number;
   /**
    * Tenhle banner se řídí sám, ne sadou.
    *

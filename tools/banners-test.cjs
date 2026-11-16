@@ -1022,6 +1022,55 @@ ok('  a první fotku přednačítá z hlavičky jen na úvodní stránce',
   /jeUvodni\(\) \? activeSet\(\) : null/.test(kod) && kod.includes('"imagesrcset"'));
 ok('pozadí ve stylu už fotku nenese', !script.includes('--qbn-img'));
 
+/* ---------- štítek, výřez na telefonu, termín banneru ---------- */
+console.log('\nvzhled a termín jednotlivého banneru:\n');
+
+/*
+ * Jak to vypadá a kdy se co ukáže, měří `tools/preview-banner-vzhled.mjs`
+ * v prohlížeči. Tady se hlídá cesta dat: co se uloží, co odejde na web
+ * a co se vrátí zpátky na druhém počítači.
+ */
+{
+  const d = banner({
+    from: '2026-12-01T00:00', to: '2026-12-24T23:59',
+    copy: { ...banner().copy, badge: { cz: '  −20 %\n dnes a ještě něco hodně dlouhého navíc ', sk: '', en: '' } },
+    look: { ...banner().look, image: 'https://cdn.upgates.com/x/a.webp', focus: '20% 50%', focusPhone: '80% 10%' }
+  });
+  const n = T.normalizeBanner(d);
+  ok('štítek je jeden krátký řádek', !/\n/.test(n.copy.badge.cz) && n.copy.badge.cz.startsWith('−20 %')
+    && n.copy.badge.cz.length <= 24, JSON.stringify(n.copy.badge.cz));
+  check('výřez pro telefon se uloží vedle výřezu pro počítač', [n.look.focus, n.look.focusPhone], ['20% 50%', '80% 10%']);
+  check('  a nesmysl místo výřezu se zahodí',
+    T.normalizeBanner({ ...d, look: { ...d.look, focusPhone: 'url(x)' } }).look.focusPhone, '');
+  ok('termín banneru se přepočítá na čas', n.fromMs > 0 && n.toMs > n.fromMs);
+  {
+    const bez = T.normalizeBanner(banner());
+    ok('banner bez termínu platí pořád', bez.fromMs === 0 && bez.toMs > Date.now() + 1e12);
+  }
+
+  const s = sada({ banners: [d] });
+  const radek = T.setRow(s).banners[0];
+  ok('na web jde štítek, výřez i termín', radek.badge.cz.startsWith('−20 %') && radek.look.focusPhone === '80% 10%'
+    && radek.fromMs === n.fromMs && radek.toMs === n.toMs);
+  const sdileny = T.setRow(sada({ banners: [{ ...d, ownLook: false }] })).banners[0];
+  check('společný vzhled sady výřez pro telefon nepřepíše', sdileny.look.focusPhone, '80% 10%');
+
+  const zpet = banners.mergePlan([T.setRow(s)], [])[0].banners[0];
+  ok('štítek, výřez i termín přežijí stažení plánu na jiném počítači',
+    zpet.copy.badge.cz === n.copy.badge.cz && zpet.look.focusPhone === '80% 10%'
+    && zpet.fromMs === n.fromMs && zpet.toMs === n.toMs, JSON.stringify([zpet.from, zpet.to]));
+
+  const obracene = T.validateSet(sada({ banners: [{ ...d, from: '2026-12-24T00:00', to: '2026-12-01T00:00' }] }));
+  ok('banner, který má skončit dřív, než začne, se nepustí ven', /termín/.test(String(obracene || '')), String(obracene));
+  ok('  a správný termín projde', !/termín/.test(String(T.validateSet(s) || '')));
+}
+ok('skript kreslí jen bannery ve svém termínu', kod.includes('var banners = platne(set.banners)'));
+ok('  a hlídá, které platí, ne kolik — střídání akcí o půlnoci počet nezmění',
+  kod.includes('idPlatnych(set.banners)') && !kod.includes('platne(set.banners).length'));
+ok('rotaci zastavuje najetí jen tam, kde je myš',
+  /@media \(hover: hover\) \{\s*\.qbn:hover \.qbn-prog/.test(script));
+ok('štítek i výřez pro telefon skript zná', kod.includes('qbn-badge') && kod.includes('--qbn-focus-phone'));
+
 /* ---------- vkládání souborů do správce ---------- */
 
 console.log('\nnahrávání do správce souborů:\n');

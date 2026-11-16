@@ -260,6 +260,8 @@ function look(value: any): BannerLook {
     align: oneOf(value?.align, ALIGNS, 'center'),
     pos: oneOf(value?.pos, POSITIONS, 'middle'),
     focus: focus(value?.focus),
+    focusPhone: /^\d{1,3}% \d{1,3}%$/.test(String(value?.focusPhone ?? '').trim())
+      ? String(value.focusPhone).trim() : '',
     /*
      * Výchozí je pokaždé to, co se nejvíc drží e-shopu: jeho písmo a jeho
      * tlačítko. Kdo chce banner odlišit, udělá to vědomě — opačné pořadí
@@ -307,7 +309,8 @@ export function resolveLook(one: Banner, set: BannerSet): BannerLook {
     image: one.look.image, video: one.look.video, bg: one.look.bg, focus: one.look.focus,
     /* Menší podoba fotky a šířky patří k fotce, ne ke vzhledu sady */
     imageSmall: one.look.imageSmall, imageW: one.look.imageW, imageSmallW: one.look.imageSmallW,
-    videoAlt: one.look.videoAlt, videoNoPhone: one.look.videoNoPhone
+    videoAlt: one.look.videoAlt, videoNoPhone: one.look.videoNoPhone,
+    focusPhone: one.look.focusPhone
   };
   /*
    * Čitelnost se dorovnává až po sloučení: ztmavení může přijít ze sady,
@@ -353,7 +356,8 @@ function copy(value: any): BannerCopy {
       sk: safeHref(value?.href?.sk),
       en: safeHref(value?.href?.en)
     },
-    alt: altText(value?.alt)
+    alt: altText(value?.alt),
+    badge: badgeText(value?.badge)
   };
 }
 
@@ -367,11 +371,24 @@ function altText(value: any): WebText {
   return { cz: cista(one.cz), sk: cista(one.sk), en: cista(one.en) };
 }
 
+/** Štítek v rohu: pár znaků na jeden řádek. Delší text patří do nadpisu. */
+function badgeText(value: any): WebText {
+  const one = text(value);
+  const kratce = (t: string) => t.replace(/\s+/g, ' ').trim().slice(0, 18);
+  return { cz: kratce(one.cz), sk: kratce(one.sk), en: kratce(one.en) };
+}
+
 export function normalizeBanner(value: any): Banner {
+  const od = String(value?.from ?? '').trim();
+  const doKdy = String(value?.to ?? '').trim();
   const one: Banner = {
     id: String(value?.id ?? '') || crypto.randomUUID(),
     name: String(value?.name ?? '').trim().slice(0, 60),
     off: !!value?.off,
+    /* Vlastní termín banneru — prázdný znamená „celou dobu sady" */
+    from: od, to: doKdy,
+    fromMs: od ? czMs(od) : 0,
+    toMs: doKdy ? czMs(doKdy, true) : Number.MAX_SAFE_INTEGER,
     ownLook: !!value?.ownLook,
     copy: copy(value?.copy ?? value),
     look: look(value?.look ?? value),
@@ -518,6 +535,13 @@ export function validateSet(set: BannerSet): string {
    * nic — odpočet by prostě chyběl a banner by vypadal jako obyčejná
    * dlaždice, takže by se na to přišlo až tím, že akci nikdo nezaznamenal.
    */
+  const spatnyTermin = live.find(one => (one.from && !Number.isFinite(one.fromMs))
+    || (one.to && !Number.isFinite(one.toMs))
+    || (one.from && one.to && !(one.toMs > one.fromMs)));
+  if (spatnyTermin) {
+    return `Banner „${spatnyTermin.name || spatnyTermin.copy.title.cz || 'beze jména'}" má termín, `
+      + 'který nedává smysl — konec musí být po začátku.';
+  }
   const bad = live.find(one => (one.smart.kind === 'countdown' || one.smart.kind === 'delivery')
     && !(Number.isFinite(one.smart.untilMs) && one.smart.untilMs > 0));
   if (bad) return `Banner „${bad.name || 'beze jména'}" má odpočet bez data, do kdy běží.`;
@@ -588,6 +612,7 @@ export function bannerRow(one: Banner, set?: BannerSet): any {
     button: one.copy.button,
     href: one.copy.href,
     alt: one.copy.alt,
+    badge: one.copy.badge,
     // Na web jde hotový vzhled, ne „vezmi si to ze sady" — skript o sdílení neví
     look: set ? resolveLook(one, set) : one.look,
     /*
@@ -599,6 +624,13 @@ export function bannerRow(one: Banner, set?: BannerSet): any {
      */
     ownLook: one.ownLook
   };
+  /*
+   * Termín banneru jde na web jako čísla a jen když nějaký je: o tom,
+   * jestli se dlaždice zrovna kreslí, rozhoduje prohlížeč návštěvníka
+   * podle svých hodin, stejně jako u sady.
+   */
+  if (one.from && Number.isFinite(one.fromMs)) row.fromMs = one.fromMs;
+  if (one.to && Number.isFinite(one.toMs)) row.toMs = one.toMs;
   if (one.smart.kind !== 'none' || one.smart.emoji || one.smart.effect !== 'none') {
     row.smart = {
       kind: one.smart.kind,
@@ -924,8 +956,11 @@ function bannerFromRow(row: any, names: Map<string, string>): any {
     name: names.get(String(row?.id)) ?? '',
     copy: {
       kicker: row?.kicker, title: row?.title, text: row?.text, button: row?.button, href: row?.href,
-      alt: row?.alt
+      alt: row?.alt, badge: row?.badge
     },
+    /* Termín je v plánu jen jako číslo; okno ho čte jako text v políčku */
+    from: Number(row?.fromMs) > 0 ? czLocal(Number(row.fromMs)) : '',
+    to: Number(row?.toMs) > 0 ? czLocal(Number(row.toMs)) : '',
     /*
      * Datum odpočtu jde do plánu jen jako číslo (`untilMs`) — na webu se
      * s ním jinak nepočítá. V aplikaci se ale zadává do políčka, a to
@@ -1054,7 +1089,7 @@ export async function pull(): Promise<string> {
 export async function translateSet(value: any): Promise<BannerSet> {
   const set = normalizeSet(value);
   const source: string[] = [];
-  const slots: { banner: Banner; field: 'kicker' | 'title' | 'text' | 'button' | 'alt' }[] = [];
+  const slots: { banner: Banner; field: 'kicker' | 'title' | 'text' | 'button' | 'alt' | 'badge' }[] = [];
 
   /*
    * Bloky pod bannerem („highlights") mají stejná políčka jako banner a
@@ -1065,7 +1100,7 @@ export async function translateSet(value: any): Promise<BannerSet> {
 
   for (const one of vsechny) {
     /* Popis fotky se překládá s ostatními texty — Google čte každý trh zvlášť */
-    for (const field of ['kicker', 'title', 'text', 'button', 'alt'] as const) {
+    for (const field of ['kicker', 'title', 'text', 'button', 'alt', 'badge'] as const) {
       if (one.copy[field].cz) { source.push(one.copy[field].cz); slots.push({ banner: one, field }); }
     }
   }
