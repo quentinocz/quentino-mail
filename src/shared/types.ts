@@ -3300,6 +3300,16 @@ export interface BannerLook {
    * nemá (úsporný režim, vypnuté animace v systému).
    */
   video: string;
+  /**
+   * Totéž video v druhém formátu (WebM vedle MP4). Prohlížeč, který ho
+   * umí, si vezme to menší; ostatní hrají MP4. Prázdné = jen jeden formát.
+   */
+  videoAlt: string;
+  /**
+   * Na telefonu jen fotka. Video na mobilních datech stojí návštěvníka
+   * megabajty a baterii kvůli pozadí, na kterém je stejně vidět půl dlaždice.
+   */
+  videoNoPhone: boolean;
   /** Barva pozadí pod fotkou i místo ní */
   bg: string;
   /** Barva textu */

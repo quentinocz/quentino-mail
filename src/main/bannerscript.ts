@@ -213,6 +213,51 @@ const TEMPLATE = String.raw`
   pointer-events: none;
 }
 .qbn-video[data-hraje] { opacity: 1; }
+/*
+ * Tlačítko pauzy v rohu. Je vidět jen vedle videa, které opravdu hraje:
+ * u dlaždice, kde zůstala fotka, by nemělo co zastavit.
+ */
+.qbn-card .qbn-vbtn {
+  display: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .45);
+  cursor: pointer;
+  opacity: .7;
+  transition: opacity .2s ease;
+}
+.qbn-video[data-hraje] ~ .qbn-vbtn { display: block; }
+.qbn-card .qbn-vbtn:hover, .qbn-card .qbn-vbtn:focus-visible { opacity: 1; }
+.qbn-vbtn::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 9px;
+  width: 3px;
+  height: 10px;
+  background: #fff;
+  box-shadow: 5px 0 0 #fff;
+}
+.qbn-vbtn[aria-pressed="true"]::before {
+  left: 11px;
+  top: 8px;
+  width: 0;
+  height: 0;
+  background: none;
+  box-shadow: none;
+  border-style: solid;
+  border-width: 6px 0 6px 9px;
+  border-color: transparent transparent transparent #fff;
+}
 a.qbn-card { cursor: pointer; }
 a.qbn-card:hover .qbn-photo { transform: scale(1.045); }
 a.qbn-card:hover .qbn-btn { transform: translateY(-1px); }
@@ -989,17 +1034,20 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     cz: {
       day: ["den", "dny", "dní"], hour: ["hodina", "hodiny", "hodin"],
       min: ["minuta", "minuty", "minut"], sec: ["vteřina", "vteřiny", "vteřin"],
-      copied: "Zkopírováno", order: "Objednej do"
+      copied: "Zkopírováno", order: "Objednej do",
+      pause: "Zastavit video", play: "Pustit video"
     },
     sk: {
       day: ["deň", "dni", "dní"], hour: ["hodina", "hodiny", "hodín"],
       min: ["minúta", "minúty", "minút"], sec: ["sekunda", "sekundy", "sekúnd"],
-      copied: "Skopírované", order: "Objednaj do"
+      copied: "Skopírované", order: "Objednaj do",
+      pause: "Zastaviť video", play: "Pustiť video"
     },
     en: {
       day: ["day", "days", "days"], hour: ["hour", "hours", "hours"],
       min: ["minute", "minutes", "minutes"], sec: ["second", "seconds", "seconds"],
-      copied: "Copied", order: "Order by"
+      copied: "Copied", order: "Order by",
+      pause: "Pause video", play: "Play video"
     }
   };
   var W = WORDS[LANG] || WORDS.cz;
@@ -1383,7 +1431,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       photo.appendChild(img);
     } else image = "";
     node.appendChild(photo);
-    video(node, look, image);
+    var pauza = video(node, look, image);
     node.appendChild(el("div", "qbn-shade"));
 
     var smart = one.smart || {};
@@ -1418,6 +1466,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
 
     button(body, pick(one.button), look.button || "shop");
     node.appendChild(body);
+    if (pauza) node.appendChild(pauza);
     return { node: node, tick: tick };
   }
 
@@ -1580,12 +1629,32 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
    * přístupnosti pro pár lidí: na tom nastavení bývá i úsporný režim.
    */
   function video(node, look, image) {
-    var src = String(look.video || "");
-    if (!src || /["'()\\\s<>]/.test(src) || src.indexOf("http") !== 0) return;
-    if (!/\.(webm|mp4)(\?|#|$)/i.test(src)) return;
+    /*
+     * Video může být ve dvou formátech. WebM jde první: kdo ho umí,
+     * vezme menší soubor; kdo ne, přejde na MP4, které hraje všude.
+     */
+    var adresy = [look.videoAlt, look.video];
+    var zdroje = [];
+    for (var i = 0; i < adresy.length; i++) {
+      var adresa = String(adresy[i] || "");
+      if (!adresa || /["'()\\\s<>]/.test(adresa) || adresa.indexOf("http") !== 0) continue;
+      var typ = /\.webm(\?|#|$)/i.test(adresa) ? "webm" : /\.mp4(\?|#|$)/i.test(adresa) ? "mp4" : "";
+      if (typ) zdroje.push({ src: adresa, typ: typ });
+    }
+    if (!zdroje.length) return;
+    zdroje.sort(function (a, b) { return (a.typ === "webm" ? 0 : 1) - (b.typ === "webm" ? 0 : 1); });
     try {
       if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     } catch (e) { /* stará prohlížečka to nezná — video se pustí */ }
+    /*
+     * Kdo šetří data nebo je na pomalé síti, dostane jen fotku. Video na
+     * pozadí je ozdoba; platit za ni megabajty z předplaceného balíčku
+     * si návštěvník nevybral.
+     */
+    var sit = navigator.connection;
+    if (sit && (sit.saveData || /2g/.test(String(sit.effectiveType || "")))) return;
+    /* A na telefonu jen fotka, když si to u banneru někdo zaškrtl */
+    if (look.videoNoPhone && window.innerWidth <= 760) return;
 
     var vid = document.createElement("video");
     vid.className = "qbn-video";
@@ -1600,7 +1669,13 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     vid.setAttribute("aria-hidden", "true");
     vid.setAttribute("tabindex", "-1");
     if (image && image.indexOf("http") === 0) vid.setAttribute("poster", image);
-    vid.src = src;
+    for (var z = 0; z < zdroje.length; z++) {
+      var zdroj = el("source");
+      /* Typ je tu proto, aby prohlížeč formát, který neumí, ani nestahoval */
+      zdroj.type = "video/" + zdroje[z].typ;
+      zdroj.src = zdroje[z].src;
+      vid.appendChild(zdroj);
+    }
     /*
      * Dokud video nehraje, je průhledné a je vidět fotka pod ním. Bez toho
      * problikne černý obdélník mezi prvním vykreslením a prvním snímkem —
@@ -1616,7 +1691,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       try { vid.currentTime = 0; } catch (e) { /* nejde přetočit — hlídač ho načte znovu */ }
       pust(vid);
     });
-    var stav = { vid: vid, videt: true, byl: -1, pokusu: 0 };
+    var stav = { vid: vid, videt: true, byl: -1, pokusu: 0, stop: false };
     /*
      * Hraje se jen to, co je vidět. Dlaždice odrolovaná pryč nebo schovaná
      * v posuvníku by jinak dál dekódovala video, které nikdo nevidí —
@@ -1632,6 +1707,25 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     hlidejVidea();
     pust(vid);
     node.appendChild(vid);
+
+    /*
+     * Tlačítko pauzy. Pohyb, který se pustí sám a trvá déle než pár
+     * vteřin, má jít zastavit — někoho ruší při čtení, někomu vadí
+     * doopravdy. Je vidět, jen když video hraje (to zařizuje styl), a
+     * klepnutí na něj nesmí otevřít odkaz, ve kterém dlaždice leží.
+     */
+    var knoflik = el("button", "qbn-vbtn");
+    knoflik.type = "button";
+    knoflik.setAttribute("aria-label", W.pause);
+    knoflik.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      stav.stop = !stav.stop;
+      knoflik.setAttribute("aria-pressed", stav.stop ? "true" : "false");
+      knoflik.setAttribute("aria-label", stav.stop ? W.play : W.pause);
+      srovnejVidea();
+    });
+    return knoflik;
   }
 
   function pust(vid) {
@@ -1644,7 +1738,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
    * prohlížeče vidět a stránka rotace, na které leží, zrovna navrchu.
    */
   function maHrat(s) {
-    if (!s.videt || document.hidden) return false;
+    if (s.stop || !s.videt || document.hidden) return false;
     var strana = s.vid.closest ? s.vid.closest(".qbn-page") : null;
     return !strana || strana.className.indexOf("qbn-now") >= 0;
   }
@@ -1688,9 +1782,14 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
         var bezi = !vid.paused && !vid.ended;
         if (bezi && ted !== s.byl) { s.byl = ted; s.pokusu = 0; continue; }
         /* Stahuje se — to není zaseknutí, na pomalé síti to chvíli trvá */
-        if (bezi && vid.readyState < 3 && !vid.error) continue;
+        if (bezi && vid.readyState < 3 && !vid.error && vid.networkState !== 3) continue;
         s.pokusu += 1;
-        if (vid.error || s.pokusu > 6) {
+        /*
+         * Stav 3 znamená, že prohlížeč neumí ani jeden z nabídnutých
+         * formátů nebo se žádný nestáhl — u videa složeného ze zdrojů
+         * se to jinak nedozvíme, "error" zůstává prázdný.
+         */
+        if (vid.error || vid.networkState === 3 || s.pokusu > 6) {
           vid.removeAttribute("data-hraje");
           videa.splice(i, 1);
           continue;

@@ -264,6 +264,99 @@ console.log('\nvideo v banneru — v prohlížeči:\n');
   await page.close();
 }
 
+/* ---------- 9. dva formáty: hraje se ten, který jde ---------- */
+{
+  /*
+   * Video se při nahrání převádí na MP4 a k němu WebM. Prohlížeč má
+   * dostat WebM první (je menší) a na MP4 přejít sám, když WebM nejde.
+   * Tady se první formát schválně nedá stáhnout — hrát se má druhý.
+   */
+  pozadavky.clear();
+  const page = await otevri({
+    id: 's', name: 's', layout: 'wide', phone: 'wide', rotate: 0,
+    banners: [dlazdice('a', { video: V(1), videoAlt: `${ZAKLAD}/zadne-alt.webm` })]
+  }, { kontrola: false });
+  const zdroje = await page.evaluate(() => [...document.querySelectorAll('.qbn video source')]
+    .map(one => `${one.type}:${one.src.split('/').pop()}`));
+  say('video nabízí oba formáty, menší první',
+    zdroje.join(' ') === 'video/webm:zadne-alt.webm video/webm:v1.webm', zdroje.join(' · '));
+  const za = await rozhybeSe(page, BANNER, 5000);
+  say('  a když první nejde, hraje se druhý', za >= 0, za >= 0 ? `za ${(za / 1000).toFixed(1)} s` : 'stojí');
+  await page.close();
+
+  const poradi = await otevri({
+    id: 's', name: 's', layout: 'wide', phone: 'wide', rotate: 0,
+    banners: [dlazdice('a', { video: `${ZAKLAD}/film.mp4`, videoAlt: V(2) })]
+  }, { kontrola: false });
+  const typy = await poradi.evaluate(() => [...document.querySelectorAll('.qbn video source')].map(one => one.type));
+  say('  WebM je před MP4, ať se zapíše do banneru jakkoli', typy.join(' ') === 'video/webm video/mp4', typy.join(' · '));
+  await poradi.close();
+}
+
+/* ---------- 10. tlačítko pauzy ---------- */
+{
+  const page = await otevri(SIROKY([V(1)]), { kontrola: false });
+  await page.waitForFunction(() => document.querySelector('.qbn video')?.hasAttribute('data-hraje'), null, { timeout: 5000 })
+    .catch(() => undefined);
+  const knoflik = page.locator('.qbn .qbn-vbtn');
+  const videt = await knoflik.isVisible().catch(() => false);
+  say('u hrajícího videa je tlačítko pauzy', videt,
+    videt ? await knoflik.getAttribute('aria-label') : 'není vidět');
+  const adresaPred = page.url();
+  await knoflik.click();
+  /*
+   * Zastavené zůstane zastavené. Hlídač, který video rozhýbává, nesmí
+   * přebít člověka, který ho zastavil schválně — proto se čeká déle,
+   * než kolik hlídači stačí na oživení.
+   */
+  await page.waitForTimeout(5200);
+  say('po klepnutí video stojí — a hlídač ho neoživí', !(await hybeSe(page, BANNER)),
+    `tlačítko: ${await knoflik.getAttribute('aria-label')}`);
+  say('  klepnutí neotevřelo odkaz, ve kterém dlaždice leží', page.url() === adresaPred, page.url());
+  await knoflik.click();
+  const za = await rozhybeSe(page, BANNER, 4000);
+  say('  a druhé klepnutí ho zase pustí', za >= 0);
+  await page.close();
+
+  /* Kde zůstala fotka, nemá tlačítko co zastavit */
+  const bez = await otevri(SIROKY([`${ZAKLAD}/zadne.webm`]), { kontrola: false });
+  await bez.waitForTimeout(3000);
+  say('u dlaždice, kde video nehraje, tlačítko není', !(await bez.locator('.qbn .qbn-vbtn').isVisible().catch(() => false)));
+  await bez.close();
+}
+
+/* ---------- 11. kdo šetří data, dostane fotku ---------- */
+{
+  const setrim = async (sada, { sirka = 1240, setri = false } = {}) => {
+    web.nastav(postavStranku(sada, false));
+    pozadavky.clear();
+    const page = await browser.newPage({ viewport: { width: sirka, height: 800 } });
+    if (setri) {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'connection', { configurable: true, get: () => ({ saveData: true }) });
+      });
+    }
+    await page.goto(`${ZAKLAD}/`);
+    await page.waitForFunction(() => !!document.querySelector('.qbn .qbn-card'), null, { timeout: 5000 })
+      .catch(() => undefined);
+    await page.waitForTimeout(900);
+    const videi = await page.evaluate(() => document.querySelectorAll('.qbn video').length);
+    await page.close();
+    return { videi, stazeni: pozadavky.get('/v1.webm') ?? 0 };
+  };
+  const usporne = await setrim(SIROKY([V(1)]), { setri: true });
+  say('v úsporném režimu dat se video ani nezačne stahovat', usporne.videi === 0 && usporne.stazeni === 0,
+    `${usporne.videi} videí, ${usporne.stazeni} požadavků`);
+
+  const jenPc = { ...SIROKY([V(1)]) };
+  jenPc.banners[0].look.videoNoPhone = true;
+  const telefon = await setrim(jenPc, { sirka: 390 });
+  const pocitac = await setrim(jenPc, { sirka: 1240 });
+  say('„na telefonu jen fotka" video na telefonu nepustí', telefon.videi === 0 && telefon.stazeni === 0,
+    `${telefon.videi} videí, ${telefon.stazeni} požadavků`);
+  say('  ale na počítači hraje dál', pocitac.videi === 1 && pocitac.stazeni >= 1);
+}
+
 say('skript při tom nikde nespadl', chybyStranky.length === 0, chybyStranky.slice(0, 2).join(' · '));
 
 await browser.close();

@@ -928,7 +928,13 @@
       { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTAgMyBMMTQgMyBMMTMgOSBMMTYgMTggTDEyIDIxIEw4IDE4IEwxMSA5IFoiLz48L3N2Zz4=', note: 'kravata' },
       { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjEuNSI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iNyIvPjxwYXRoIGQ9Ik01IDEyIEwxOSAxMiIvPjwvc3ZnPg==', note: 'kolečko' }
     ],
-    'banners:video': 'https://cdn.example.test/quentino/nahrane.webm',
+    /* Video se při nahrání převádí: zpátky jde MP4, WebM a co se s ním stalo */
+    'banners:video': {
+      video: 'https://cdn.example.test/quentino/nahrane.mp4',
+      videoAlt: 'https://cdn.example.test/quentino/nahrane.webm',
+      poster: null,
+      note: 'Video je na e-shopu · 1,8 MB místo 97,3 MB, 20 s, 1280×720, bez zvuku'
+    },
     // Překryv počítá náhled sám z plánů výše — jinak by se varování nedalo ukázat
     'webtexts:clashes': [],
     // Překlad v náhledu nic nevolá — vrací se prázdno, aby šlo tlačítko zmáčknout

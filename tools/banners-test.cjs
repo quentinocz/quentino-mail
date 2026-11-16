@@ -917,6 +917,26 @@ ok('hraje jen to, co je vidět',
 ok('a než video naběhne, je vidět fotka pod ním',
   script.includes('.qbn-video[data-hraje]') && kod.includes('poster'));
 
+/* Druhý formát a přepínač pro telefon patří k videu — bez něj nemají co dělat */
+{
+  const v = T.normalizeBanner(banner({ look: {
+    ...banner().look, video: 'https://cdn.upgates.com/x/a.mp4',
+    videoAlt: 'https://cdn.upgates.com/x/a.webm', videoNoPhone: true
+  } }));
+  check('k videu se drží druhý formát i volba „na telefonu jen fotka"',
+    [v.look.videoAlt.endsWith('a.webm'), v.look.videoNoPhone], [true, true]);
+  const bez = T.normalizeBanner({ ...v, look: { ...v.look, video: '' } });
+  check('bez videa nezůstane ani jedno', [bez.look.videoAlt, bez.look.videoNoPhone], ['', false]);
+  const row = T.setRow(sada({ banners: [v] })).banners[0];
+  ok('a na web jde obojí, i když se banner řídí vzhledem sady',
+    row.look.videoAlt.endsWith('a.webm') && row.look.videoNoPhone === true);
+}
+ok('skript nabízí oba formáty a WebM dává první',
+  kod.includes('look.videoAlt, look.video') && kod.includes('"video/" + zdroje[z].typ'));
+ok('kdo šetří data, dostane jen fotku', kod.includes('sit.saveData'));
+ok('a u videa je tlačítko pauzy, které neotevře odkaz',
+  kod.includes('"qbn-vbtn"') && kod.includes('e.preventDefault()') && kod.includes('s.stop ||'));
+
 /* ---------- fotka jako obrázek: popis, přednost, menší podoba ---------- */
 
 console.log('\nfotka pro Google a pro telefon:\n');

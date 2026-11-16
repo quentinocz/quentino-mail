@@ -3,6 +3,7 @@ import type {
   Banner, BannerClash, BannerLink, BannerLinks, BannerSet, BannerSharedLook,
   BannerHighlights, BannerTemplate, BannersState, WebText
 } from '@shared/types';
+import { VSTUPNI_PRIPONY } from '@shared/videoedit';
 import { api } from '../api';
 import { toWebp } from '../media';
 import { useToast } from '../toast';
@@ -193,7 +194,7 @@ function blankBanner(): Banner {
     look: {
       style: 'overlay',
       image: '', imageSmall: '', imageW: 0, imageSmallW: 0,
-      video: '', bg: '#000000', fg: '#ffffff', overlay: 40,
+      video: '', videoAlt: '', videoNoPhone: false, bg: '#000000', fg: '#ffffff', overlay: 40,
       align: 'center', pos: 'middle', focus: '50% 50%',
       font: 'shop', titleWeight: 400, titleSize: 100, caps: false,
       textWeight: 400, button: 'shop', radius: 0
@@ -211,10 +212,16 @@ function blankBanner(): Banner {
  */
 const MALA_FOTKA = 900;
 
+/** Co se pozná jako video podle přípony — tytéž formáty, jaké bere editor videa. */
+const JE_VIDEO = new RegExp(`\\.(${VSTUPNI_PRIPONY.join('|')})$`, 'i');
+
 /** Společný vzhled nové sady — tytéž hodnoty, co má prázdný banner. */
 const blankShared = (): BannerSharedLook => {
-  const { image, imageSmall, imageW, imageSmallW, video, bg, focus, ...shared } = blankBanner().look;
-  void image; void imageSmall; void imageW; void imageSmallW; void video; void bg; void focus;
+  const {
+    image, imageSmall, imageW, imageSmallW, video, videoAlt, videoNoPhone, bg, focus, ...shared
+  } = blankBanner().look;
+  void image; void imageSmall; void imageW; void imageSmallW;
+  void video; void videoAlt; void videoNoPhone; void bg; void focus;
   return shared;
 };
 
@@ -536,6 +543,55 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /**
+   * Fotka na e-shop: velká, k ní poloviční pro telefon, a co z toho
+   * zapsat do banneru. Tudy jde nahraná fotka i první snímek z videa —
+   * obojí je fotka pod dlaždicí a obojí má dostat tutéž péči.
+   */
+  const fotkaNaEshop = async (name: string, raw: Uint8Array) => {
+    /*
+     * Zmenšuje se na 1800 px: širší banner než dva tisíce bodů na
+     * e-shopu není a fotka z foťáku by do úvodní stránky přinesla
+     * pár megabajtů, které Google počítá do hodnocení.
+     */
+    const done = await toWebp(raw, {
+      quality: 82, resize: 'max', maxWidth: 1800, maxHeight: 1800,
+      exactWidth: 0, exactHeight: 0, percent: 100, keepSmaller: true
+    });
+    const url = await api.banners.upload(name, Array.from(done.bytes));
+    /*
+     * A k ní poloviční. Velkou potřebuje široký banner na monitoru;
+     * telefon a dlaždice ve čtveřici z ní ukážou sotva půlku bodů a
+     * zbytek by jen platili daty. Prohlížeč si z dvojice vybere sám
+     * podle toho, jak velká dlaždice doopravdy je.
+     *
+     * Dělá se jen tehdy, když je co ušetřit: z fotky, která je sama
+     * úzká, by „menší" podoba byla skoro táž fotka podruhé.
+     */
+    let small = '';
+    let smallW = 0;
+    let smallKb = 0;
+    if (done.width >= MALA_FOTKA * 1.25) {
+      const mensi = await toWebp(raw, {
+        quality: 80, resize: 'max', maxWidth: MALA_FOTKA, maxHeight: MALA_FOTKA * 2,
+        exactWidth: 0, exactHeight: 0, percent: 100, keepSmaller: true
+      });
+      try {
+        small = await api.banners.upload(name.replace(/(\.[^.]+)?$/, '-m$1'), Array.from(mensi.bytes));
+        smallW = mensi.width;
+        smallKb = Math.round(mensi.bytes.length / 1024);
+      } catch {
+        /* Velká fotka je nahraná a stačí sama — menší je jen úspora */
+      }
+    }
+    const saved = Math.max(0, Math.round((1 - done.bytes.length / Math.max(1, raw.length)) * 100));
+    return {
+      patch: { image: url, imageW: done.width, imageSmall: small, imageSmallW: smallW },
+      text: `${Math.round(done.bytes.length / 1024)} kB (o ${saved} % míň)`
+        + (small ? ` · pro telefon ${smallKb} kB` : '')
+    };
+  };
+
   const uploadImage = async (file: File) => {
     if (!state?.uploadReady) {
       toast('Aplikace nezná adresu administrace e-shopu — doplň ji v Nastavení → AI → Upgates.',
@@ -545,45 +601,9 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     setBusy('Převádím a nahrávám');
     try {
       const raw = new Uint8Array(await file.arrayBuffer());
-      /*
-       * Zmenšuje se na 1800 px: širší banner než dva tisíce bodů na
-       * e-shopu není a fotka z foťáku by do úvodní stránky přinesla
-       * pár megabajtů, které Google počítá do hodnocení.
-       */
-      const done = await toWebp(raw, {
-        quality: 82, resize: 'max', maxWidth: 1800, maxHeight: 1800,
-        exactWidth: 0, exactHeight: 0, percent: 100, keepSmaller: true
-      });
-      const url = await api.banners.upload(file.name, Array.from(done.bytes));
-      /*
-       * A k ní poloviční. Velkou potřebuje široký banner na monitoru;
-       * telefon a dlaždice ve čtveřici z ní ukážou sotva půlku bodů a
-       * zbytek by jen platili daty. Prohlížeč si z dvojice vybere sám
-       * podle toho, jak velká dlaždice doopravdy je.
-       *
-       * Dělá se jen tehdy, když je co ušetřit: z fotky, která je sama
-       * úzká, by „menší" podoba byla skoro táž fotka podruhé.
-       */
-      let small = '';
-      let smallW = 0;
-      let smallKb = 0;
-      if (done.width >= MALA_FOTKA * 1.25) {
-        const mensi = await toWebp(raw, {
-          quality: 80, resize: 'max', maxWidth: MALA_FOTKA, maxHeight: MALA_FOTKA * 2,
-          exactWidth: 0, exactHeight: 0, percent: 100, keepSmaller: true
-        });
-        try {
-          small = await api.banners.upload(file.name.replace(/(\.[^.]+)?$/, '-m$1'), Array.from(mensi.bytes));
-          smallW = mensi.width;
-          smallKb = Math.round(mensi.bytes.length / 1024);
-        } catch {
-          /* Velká fotka je nahraná a stačí sama — menší je jen úspora */
-        }
-      }
-      setLook({ image: url, imageW: done.width, imageSmall: small, imageSmallW: smallW });
-      const saved = Math.max(0, Math.round((1 - done.bytes.length / Math.max(1, raw.length)) * 100));
-      toast(`Fotka je na e-shopu · ${Math.round(done.bytes.length / 1024)} kB (o ${saved} % míň)`
-        + (small ? ` · pro telefon ${smallKb} kB` : ''));
+      const hotovo = await fotkaNaEshop(file.name, raw);
+      setLook(hotovo.patch);
+      toast(`Fotka je na e-shopu · ${hotovo.text}`);
     } catch (e: any) {
       toast(String(e?.message ?? e), 'error');
     } finally {
@@ -599,7 +619,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
    * jen dvě příležitosti trefit to špatné.
    */
   const vlozMedium = async (file: File) => {
-    if (/\.(webm|mp4)$/i.test(file.name) || /^video\//i.test(file.type)) {
+    if (JE_VIDEO.test(file.name) || /^video\//i.test(file.type)) {
       await uploadVideo(file);
       return;
     }
@@ -609,10 +629,11 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
   /**
    * Video na pozadí dlaždice.
    *
-   * Nepřevádí se: webm už komprimovaný je a překódovat ho v aplikaci
-   * nejde. Hlídá se proto aspoň velikost, protože video na úvodní stránce
-   * stahuje každý návštěvník — a na telefonu v mobilní síti to znamená
-   * prázdnou dlaždici, dokud se to nestáhne.
+   * Převádí ho hlavní proces (ffmpeg): MP4 pro každý prohlížeč, bez
+   * zvuku, zmenšené a nejvýš dvacet vteřin; k němu WebM, když vyjde
+   * menší. Jde sem proto i záběr rovnou z telefonu. Zpátky přijde i
+   * první snímek — a když banner fotku nemá, stane se jí on: bez fotky
+   * je dlaždice do rozběhnutí videa jen barevná plocha.
    */
   const uploadVideo = async (file: File) => {
     if (!state?.uploadReady) {
@@ -620,16 +641,29 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
         'error');
       return;
     }
-    if (!/\.(webm|mp4)$/i.test(file.name)) {
-      toast('Na pozadí banneru jde webm nebo mp4. Převod má Konvertor médií.', 'error');
-      return;
-    }
-    setBusy('Nahrávám video');
+    setBusy('Převádím video — chvíli to potrvá');
     try {
       const raw = new Uint8Array(await file.arrayBuffer());
-      const url = await api.banners.uploadVideo(file.name, Array.from(raw));
-      setLook({ video: url });
-      toast(`Video je na e-shopu · ${Math.round(raw.length / 1024)} kB`);
+      const hotovo = await api.banners.uploadVideo(file.name, raw);
+      let patch: Partial<Banner['look']> = { video: hotovo.video, videoAlt: hotovo.videoAlt };
+      let dovetek = '';
+      if (hotovo.poster && !banner?.look.image) {
+        setBusy('Nahrávám úvodní snímek');
+        try {
+          const snimek = await fotkaNaEshop(
+            file.name.replace(/\.[^.]+$/, '') + '-snimek.jpg', Uint8Array.from(hotovo.poster));
+          /*
+           * Jedním zápisem s videem. Dva zápisy po sobě by si navzájem
+           * přepsaly výsledek — druhý by vycházel ze stavu před prvním.
+           */
+          patch = { ...patch, ...snimek.patch };
+          dovetek = ' · první snímek je nastavený jako fotka';
+        } catch {
+          dovetek = ' · úvodní snímek se nahrát nepodařilo, doplň fotku ručně';
+        }
+      }
+      setLook(patch);
+      toast(hotovo.note + dovetek);
     } catch (e: any) {
       toast(String(e?.message ?? e), 'error');
     } finally {
@@ -1470,7 +1504,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                 backgroundPosition: banner.look.focus
                               }}>
                               <input ref={souborRef} type="file" hidden disabled={!!busy}
-                                accept="image/*,video/webm,video/mp4"
+                                accept={`image/*,video/*,${VSTUPNI_PRIPONY.map(one => `.${one}`).join(',')}`}
                                 onChange={e => {
                                   const file = e.target.files?.[0];
                                   e.target.value = '';
@@ -1480,7 +1514,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                 <div className="bn-drop-empty">
                                   <Icon name="image" size={24} />
                                   <b>Přetáhni sem fotku</b>
-                                  <span>nebo klikni a vyber — video webm/mp4 taky</span>
+                                  <span>nebo klikni a vyber — video taky, i z telefonu</span>
                                 </div>
                               )}
                               {banner.look.video && (
@@ -1502,11 +1536,20 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                   </button>
                                 )}
                                 {banner.look.video && (
-                                  <button className="btn ghost" onClick={() => setLook({ video: '' })}>
+                                  <button className="btn ghost"
+                                    onClick={() => setLook({ video: '', videoAlt: '', videoNoPhone: false })}>
                                     <Icon name="x" size={12} /> Video pryč
                                   </button>
                                 )}
                               </div>
+                              {banner.look.video && (
+                                <label className="bn-check"
+                                  title="Na mobilních datech stojí video megabajty a baterii kvůli pozadí, ze kterého je na telefonu vidět půlka.">
+                                  <input type="checkbox" checked={!!banner.look.videoNoPhone}
+                                    onChange={e => setLook({ videoNoPhone: e.target.checked })} />
+                                  {' '}Na telefonu jen fotka
+                                </label>
+                              )}
 
                               {/*
                                 * Výřez a ztmavení patří k fotce, ne k typografii:
@@ -1555,11 +1598,12 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             Fotka se převede na WebP a nahraje <b>do správce souborů e-shopu</b>
                             {' '}— použije se adresa z jeho CDN, stejná jako u ostatních fotek na
                             webu. Otevře se k tomu okno administrace. Fotka z foťáku je v pohodě,
-                            zmenší se na 1800 px a pro telefon se k ní udělá poloviční. Video hraje samo, bez zvuku a ve smyčce, do 12 MB
-                            {' '}— zmenšit jde v Konvertoru médií.
+                            zmenší se na 1800 px a pro telefon se k ní udělá poloviční. Video
+                            {' '}může být rovnou z telefonu: převede se na MP4 bez zvuku, zmenší a
+                            {' '}zkrátí na 20 vteřin; hraje samo a dokola.
                             {banner.look.video && !banner.look.image && (
-                              <> <b>Doplň ještě fotku</b> — bez ní je dlaždice do stažení videa
-                                černá.</>
+                              <> <b>Doplň ještě fotku</b> — bez ní je dlaždice do rozběhnutí videa
+                                jen barevná plocha.</>
                             )}
                             {(banner.look.image || banner.look.video) && (
                               <> Ztmavení pod textem nejde stáhnout pod 18 %: bílý nadpis na světlé

@@ -1014,7 +1014,13 @@ export const api = {
     /** Hotové WebP bajty do úložiště; vrací veřejnou adresu fotky */
     upload: (name: string, bytes: number[]) => call<string>('banners:upload', name, bytes),
     /** Video k banneru (webm/mp4) na e-shop tak, jak je — nepřevádí se */
-    uploadVideo: (name: string, bytes: number[]) => call<string>('banners:video', name, bytes),
+    /*
+     * Bajty jdou jako Uint8Array, ne jako pole čísel: záběr z telefonu má
+     * desítky megabajtů a pole čísel z něj by v paměti zabralo osminásobek.
+     */
+    uploadVideo: (name: string, bytes: Uint8Array) => call<{
+      video: string; videoAlt: string; poster: number[] | null; note: string;
+    }>('banners:video', name, bytes),
     /** Návrhy jednoduché černé ikonky podle názvu odkazu; vybírá se z variant */
     icons: (label: string, hint: string) =>
       call<{ url: string; note: string }[]>('banners:icon', label, hint),

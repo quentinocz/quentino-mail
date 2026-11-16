@@ -7,6 +7,8 @@ import { czMs, czLocal, shiftMinutes, translateWeb, webStorage, webTextsConfig }
 import { translateUrl, alternatesOf, shopOrigins } from './articles/urlmap';
 import { uploadArticleFiles, filesReady } from './articles/files';
 import { bannerScript } from './bannerscript';
+import { prevedVideo, MAX_SEKUND } from './bannervideo';
+import { findFfmpeg } from './media';
 import { stashPreview } from './bannerpreview';
 import { eventFromWeb, dropEventOfSource } from './events';
 import type {
@@ -243,6 +245,9 @@ function look(value: any): BannerLook {
     imageW: image ? clamp(value?.imageW, 0, 6000, 0) : 0,
     imageSmallW: image && safeImage(value?.imageSmall) ? clamp(value?.imageSmallW, 0, 6000, 0) : 0,
     video: safeVideo(value?.video),
+    /* Druhý formát téhož videa a přepínač pro telefon dávají smysl jen s videem */
+    videoAlt: safeVideo(value?.video) ? safeVideo(value?.videoAlt) : '',
+    videoNoPhone: !!safeVideo(value?.video) && !!value?.videoNoPhone,
     // Primární barva e-shopu je černá (`--pr: #000`), tak z ní vychází i dlaždice
     bg: color(value?.bg, '#000000'),
     fg: color(value?.fg, '#ffffff'),
@@ -301,7 +306,8 @@ export function resolveLook(one: Banner, set: BannerSet): BannerLook {
     ...one.look, ...set.look,
     image: one.look.image, video: one.look.video, bg: one.look.bg, focus: one.look.focus,
     /* Menší podoba fotky a šířky patří k fotce, ne ke vzhledu sady */
-    imageSmall: one.look.imageSmall, imageW: one.look.imageW, imageSmallW: one.look.imageSmallW
+    imageSmall: one.look.imageSmall, imageW: one.look.imageW, imageSmallW: one.look.imageSmallW,
+    videoAlt: one.look.videoAlt, videoNoPhone: one.look.videoNoPhone
   };
   /*
    * Čitelnost se dorovnává až po sloučení: ztmavení může přijít ze sady,
@@ -785,51 +791,123 @@ export async function uploadImage(name: string, bytes: number[] | Uint8Array): P
 
 /** Nejvíc, co má smysl pouštět na úvodní stránce jako pozadí banneru. */
 const MAX_VIDEO_MB = 12;
+/** Co se ještě vyplatí načítat k převodu — nad tím je to střih, ne banner. */
+const MAX_VSTUP_MB = 400;
+
+export interface BannerVideoUpload {
+  /** MP4, nebo to, co se nahrálo beze změny, když v počítači není ffmpeg. */
+  video: string;
+  /** WebM vedle MP4 — jen když vyšlo znatelně menší. */
+  videoAlt: string;
+  /** První snímek videa (JPEG) — okno z něj udělá fotku, když banner žádnou nemá. */
+  poster: number[] | null;
+  /** Co se s videem stalo, jednou větou pro hlášku v okně. */
+  note: string;
+}
+
+function videoBase(name: string): string {
+  return String(name ?? 'video')
+    .replace(/\.[^.]+$/, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'video';
+}
+
+const mb = (bajtu: number) => `${(bajtu / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
 
 /**
  * Video na pozadí banneru.
  *
- * Nahrává se **tak, jak je** — na rozdíl od fotky se nepřevádí. WebP na
- * video nestačí a překódovat webm v aplikaci by znamenalo tahat s sebou
- * ffmpeg kvůli jedné funkci; převod patří do Konvertoru médií, kde už je.
+ * Když je v počítači ffmpeg, video se **převede** (viz `bannervideo.ts`):
+ * MP4 pro každý prohlížeč, bez zvuku, zmenšené a nejvýš dvacet vteřin;
+ * k němu WebM, když vyjde menší, a první snímek jako fotka. Přijme se
+ * tak i záběr rovnou z telefonu.
  *
- * Strop velikosti není opatrnost: video na pozadí se stahuje každému
+ * Bez ffmpegu zůstává to, co bylo: webm nebo mp4 se nahraje, jak je, a
+ * hlídá se jen velikost. Video na pozadí se totiž stahuje každému
  * návštěvníkovi úvodní stránky, takže deset megabajtů znamená deset
- * megabajtů na každého — a na telefonu v mobilní síti prázdnou dlaždici,
- * než se to stáhne.
+ * megabajtů na každého.
  */
-export async function uploadVideo(name: string, bytes: number[] | Uint8Array): Promise<string> {
+export async function uploadVideo(name: string, bytes: number[] | Uint8Array): Promise<BannerVideoUpload> {
   const data = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes ?? []);
   if (data.length === 0) throw new Error('Video je prázdné.');
-  if (data.length > MAX_VIDEO_MB * 1024 * 1024) {
-    throw new Error(`Video má ${(data.length / 1024 / 1024).toFixed(1)} MB. `
-      + `Na pozadí banneru se vejde do ${MAX_VIDEO_MB} MB — zmenši ho v Konvertoru médií.`);
+  if (data.length > MAX_VSTUP_MB * 1024 * 1024) {
+    throw new Error(`Video má ${mb(data.length)} — to je na pozadí banneru moc. Vystřihni z něj pár vteřin.`);
   }
 
-  const ext = /\.(webm|mp4)$/i.exec(String(name ?? ''))?.[1]?.toLowerCase() ?? '';
-  if (!ext) throw new Error('Na pozadí banneru jde webm nebo mp4.');
-
-  const base = String(name ?? 'video')
-    .replace(/\.[^.]+$/, '')
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '')
-    .slice(0, 40) || 'video';
-  const stamp = crypto.createHash('sha1').update(Buffer.from(data)).digest('hex').slice(0, 10);
+  const ext = /\.([a-z0-9]{2,5})$/i.exec(String(name ?? ''))?.[1]?.toLowerCase() ?? '';
+  const base = videoBase(name);
   const dir = path.join(app.getPath('temp'), 'quentino-bannery');
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `banner-${base}-${stamp}.${ext}`);
-  fs.writeFileSync(file, Buffer.from(data));
+  const stamp = crypto.createHash('sha1').update(Buffer.from(data)).digest('hex').slice(0, 10);
+  const vstup = path.join(dir, `vstup-${stamp}.${ext || 'mp4'}`);
+  fs.writeFileSync(vstup, Buffer.from(data));
+  const uklid: string[] = [vstup];
 
-  const [done] = await uploadArticleFiles([file]);
-  try { fs.rmSync(file, { force: true }); } catch { /* uklidí ho systém */ }
+  try {
+    const tool = await findFfmpeg();
+    if (!tool.ok) {
+      /* Bez ffmpegu jako dřív: jen formát, který prohlížeč umí, a jen do stropu */
+      if (ext !== 'webm' && ext !== 'mp4') {
+        throw new Error(`Tenhle formát (.${ext || '?'}) se musí převést a ${tool.note}`);
+      }
+      if (data.length > MAX_VIDEO_MB * 1024 * 1024) {
+        throw new Error(`Video má ${mb(data.length)} a na pozadí banneru se vejde do ${MAX_VIDEO_MB} MB. `
+          + `Zmenšilo by se samo, ale ${tool.note}`);
+      }
+      const file = path.join(dir, `banner-${base}-${stamp}.${ext}`);
+      fs.copyFileSync(vstup, file);
+      uklid.push(file);
+      const [done] = await uploadArticleFiles([file]);
+      const url = safeVideo(done?.url);
+      if (!url) {
+        throw new Error(done?.note || 'Video se nahrálo, ale adresu se ve správci souborů nepodařilo přečíst.');
+      }
+      return {
+        video: url, videoAlt: '', poster: null,
+        note: `Video je na e-shopu tak, jak bylo (${mb(data.length)}) — bez ffmpegu se nepřevádí.`
+      };
+    }
 
-  if (!done?.url) {
-    throw new Error(done?.note
-      || 'Video se nahrálo, ale adresu se ve správci souborů nepodařilo přečíst.');
+    const pracovni = path.join(dir, `prevod-${stamp}`);
+    const hotove = await prevedVideo(tool.path, vstup, pracovni);
+    /*
+     * Otisk **výsledku** v názvu: totéž video nahrané podruhé skončí pod
+     * týmž jménem, kdežto po změně nastavení převodu dostane nové — a
+     * tím i novou adresu, takže se nečeká, až vyprší CDN.
+     */
+    const otisk = crypto.createHash('sha1').update(fs.readFileSync(hotove.mp4)).digest('hex').slice(0, 10);
+    const mp4 = path.join(dir, `banner-${base}-${otisk}.mp4`);
+    fs.copyFileSync(hotove.mp4, mp4);
+    uklid.push(mp4);
+    const soubory = [mp4];
+    if (hotove.webm) {
+      const webm = path.join(dir, `banner-${base}-${otisk}.webm`);
+      fs.copyFileSync(hotove.webm, webm);
+      uklid.push(webm);
+      soubory.push(webm);
+    }
+    const poster = hotove.snimek ? Array.from(fs.readFileSync(hotove.snimek)) : null;
+    try { fs.rmSync(pracovni, { recursive: true, force: true }); } catch { /* uklidí systém */ }
+
+    /* Oba soubory jedním nahráním — okno administrace se otevírá jen jednou */
+    const nahrane = await uploadArticleFiles(soubory);
+    const video = safeVideo(nahrane[0]?.url);
+    if (!video) {
+      throw new Error(nahrane[0]?.note || 'Video se nahrálo, ale adresu se ve správci souborů nepodařilo přečíst.');
+    }
+    /* WebM je jen úspora: když se jeho adresa nepřečte, banner běží na MP4 */
+    const videoAlt = hotove.webm ? safeVideo(nahrane[1]?.url) : '';
+    return {
+      video, videoAlt, poster,
+      note: `Video je na e-shopu · ${mb(hotove.mp4Bajtu)} místo ${mb(data.length)}`
+        + `, ${Math.round(hotove.sekund)} s, ${hotove.sirka}×${hotove.vyska}, bez zvuku`
+        + (videoAlt ? ` · k tomu WebM ${mb(hotove.webmBajtu)}` : '')
+        + (hotove.zkraceno ? ` · vzalo se prvních ${MAX_SEKUND} vteřin` : '')
+    };
+  } finally {
+    for (const one of uklid) { try { fs.rmSync(one, { force: true }); } catch { /* uklidí systém */ } }
   }
-  const url = safeVideo(done.url);
-  if (!url) throw new Error(`Adresa z administrace se nedá použít: ${done.url}`);
-  return url;
 }
 
 /**

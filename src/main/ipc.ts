@@ -787,7 +787,7 @@ export function registerIpc() {
   handle('banners:fallback', (id: string) => banners.setFallback(String(id ?? '')));
   handle('banners:upload', (name: string, bytes: number[]) =>
     banners.uploadImage(String(name ?? ''), bytes ?? []));
-  handle('banners:video', (name: string, bytes: number[]) =>
+  handle('banners:video', (name: string, bytes: number[] | Uint8Array) =>
     banners.uploadVideo(String(name ?? ''), bytes ?? []));
   handle('banners:icon', (label: string, hint: string) =>
     iconIdeas(String(label ?? ''), String(hint ?? '')));
