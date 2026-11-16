@@ -928,6 +928,11 @@
       { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNMTAgMyBMMTQgMyBMMTMgOSBMMTYgMTggTDEyIDIxIEw4IDE4IEwxMSA5IFoiLz48L3N2Zz4=', note: 'kravata' },
       { url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjEuNSI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iNyIvPjxwYXRoIGQ9Ik01IDEyIEwxOSAxMiIvPjwvc3ZnPg==', note: 'kolečko' }
     ],
+    /* Zobrazení a prokliky z Analytics — první banner má čísla, ostatní ještě ne */
+    'banners:stats': {
+      at: '2026-11-16T08:00:00.000Z', days: 28, error: null,
+      rows: [{ id: 'b1', name: 'Kšandy k obleku', views: 4820, clicks: 163, ctr: 3.4 }]
+    },
     /* Video se při nahrání převádí: zpátky jde MP4, WebM a co se s ním stalo */
     'banners:video': {
       video: 'https://cdn.example.test/quentino/nahrane.mp4',

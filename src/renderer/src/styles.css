@@ -8194,6 +8194,13 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 }
 .bn-tile.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .bn-tile.off { opacity: .45; }
+/* Proklikovost v rohu dlaždice — protějšek pořadového čísla */
+.bn-tile-ctr {
+  position: absolute; top: 4px; right: 5px;
+  font-size: 10.5px; font-weight: 700; padding: 0 5px; border-radius: 999px;
+  background: rgba(255, 255, 255, .9); color: #111;
+}
+.bn-cisla { margin: 2px 0 8px; }
 .bn-tile-n {
   position: absolute; top: 4px; left: 5px;
   font-size: 10.5px; font-weight: 700; padding: 0 5px; border-radius: 999px;

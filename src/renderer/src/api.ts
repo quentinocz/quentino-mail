@@ -1013,6 +1013,11 @@ export const api = {
     fallback: (id: string) => call<BannersState>('banners:fallback', id),
     /** Hotové WebP bajty do úložiště; vrací veřejnou adresu fotky */
     upload: (name: string, bytes: number[]) => call<string>('banners:upload', name, bytes),
+    /** Zobrazení a prokliky bannerů z Google Analytics; `null`, když Analytics není napojené. */
+    stats: (days = 28, force = false) => call<{
+      at: string; days: number; error: string | null;
+      rows: { id: string; name: string; views: number; clicks: number; ctr: number | null }[];
+    } | null>('banners:stats', days, force),
     /** Video k banneru (webm/mp4) na e-shop tak, jak je — nepřevádí se */
     /*
      * Bajty jdou jako Uint8Array, ne jako pole čísel: záběr z telefonu má

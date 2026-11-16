@@ -1751,6 +1751,97 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     }
   }
 
+  /* ================= měření ================= */
+
+  /**
+   * Pošle událost do Google Analytics.
+   *
+   * Dosud se nedalo říct, jestli z banneru někdo kliká — a tedy ani
+   * který banner funguje. Posílají se dvě události, které Analytics zná
+   * a umí je rovnou sečíst (v přehledu Propagace): view_promotion, když
+   * je banner vidět, a select_promotion, když se na něj klepne.
+   *
+   * Číslo banneru je stejné ve všech jazycích, takže se dá sečíst přes
+   * trhy; jméno je český nadpis, ať se v přehledu dá číst. Položka
+   * v "items" tam je proto, že Analytics počítá zobrazení a prokliky
+   * propagace po položkách — bez ní by události přišly, ale součty ne.
+   *
+   * Když na stránce Analytics není (nebo je to náhled v aplikaci),
+   * neposílá se nic a nic se nerozbije.
+   */
+  function hlas(udalost, m) {
+    var jmeno = (m.one.title && m.one.title.cz) || pick(m.one.title) || String(m.one.id);
+    var data = {
+      promotion_id: String(m.one.id),
+      promotion_name: jmeno,
+      creative_name: String(m.set.name || m.set.id || "") + (m.blok ? " / bloky" : ""),
+      creative_slot: String(m.misto + 1)
+    };
+    data.items = [{
+      item_id: data.promotion_id, item_name: jmeno,
+      promotion_id: data.promotion_id, promotion_name: jmeno,
+      creative_name: data.creative_name, creative_slot: data.creative_slot
+    }];
+    try {
+      if (typeof window.gtag === "function") window.gtag("event", udalost, data);
+      else if (window.dataLayer && window.dataLayer.push) {
+        window.dataLayer.push({ ecommerce: null });
+        window.dataLayer.push({ event: udalost, ecommerce: data });
+      }
+    } catch (e) { /* měření nesmí shodit banner */ }
+  }
+
+  /*
+   * Zapíše dlaždici k měření. Číslo banneru jde i do stránky: klepnutí
+   * se chytá jedním posluchačem na celém dokumentu, takže se počítá
+   * i na kopiích dlaždic v posuvníku, které vlastní posluchače nemají.
+   */
+  function sleduj(node, one, misto, set, blok) {
+    if (!one || !one.id) return;
+    var klic = (blok ? "h" : "b") + String(one.id);
+    node.setAttribute("data-qid", klic);
+    /*
+     * Co už se jednou započítalo, se po překreslení nepočítá znovu —
+     * blok se přestavuje při otočení telefonu i při výměně sady.
+     */
+    var uz = !!(merene[klic] && merene[klic].videno);
+    merene[klic] = { node: node, one: one, misto: misto, set: set, blok: blok, videt: false, videno: uz };
+    if (!okoMereni) {
+      if (!window.IntersectionObserver) return;
+      okoMereni = new IntersectionObserver(function (zaznamy) {
+        for (var i = 0; i < zaznamy.length; i++) {
+          var m = merene[zaznamy[i].target.getAttribute("data-qid")];
+          if (m && m.node === zaznamy[i].target) m.videt = zaznamy[i].isIntersecting;
+        }
+        spoctiVidene();
+      }, { threshold: 0.5 });
+      document.addEventListener("click", function (e) {
+        var karta = e.target && e.target.closest ? e.target.closest("[data-qid]") : null;
+        /* Tlačítko pauzy u videa není proklik */
+        if (!karta || (e.target.closest && e.target.closest(".qbn-vbtn"))) return;
+        var m = merene[karta.getAttribute("data-qid")];
+        if (m && karta.getAttribute("href")) hlas("select_promotion", m);
+      }, true);
+    }
+    okoMereni.observe(node);
+  }
+
+  /*
+   * Banner je viděný, když je z půlky v okně **a** jeho stránka rotace
+   * je navrchu. Počítá se jednou za načtení stránky — jinak by rotace
+   * každých pár vteřin přičítala zobrazení člověku, který jen čte.
+   */
+  function spoctiVidene() {
+    for (var klic in merene) {
+      var m = merene[klic];
+      if (m.videno || !m.videt || !m.node.isConnected) continue;
+      var strana = m.node.closest ? m.node.closest(".qbn-page") : null;
+      if (strana && strana.className.indexOf("qbn-now") < 0) continue;
+      m.videno = true;
+      hlas("view_promotion", m);
+    }
+  }
+
   /**
    * Hlídač videí: co má hrát, to se **opravdu hýbe**.
    *
@@ -1980,6 +2071,9 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
   /* Videa, která mají hrát, a hlídač, který měří, že opravdu hrají */
   var videa = [];
   var hlidac = null;
+  /* Dlaždice, u kterých se měří zobrazení a prokliky — podle čísla banneru */
+  var merene = {};
+  var okoMereni = null;
   var shownId = "";
 
   /* Kam blok patří. Od nejužšího vodítka k nejširšímu, ať přežije přejmenování. */
@@ -2072,6 +2166,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
     var ticks = [];
     for (var i = 0; i < data.banners.length; i++) {
       var built = card(data.banners[i], "lazy", "(max-width: 760px) 90vw, 50vw");
+      sleduj(built.node, data.banners[i], i, set, true);
       karty.push(built.node);
       if (built.tick) ticks.push(built.tick);
     }
@@ -2142,6 +2237,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
       var karty = [];
       for (var c = 0; c < banners.length; c++) {
         var jedna = card(banners[c], c === 0 ? "high" : "low", sirkyDlazdic(set));
+        sleduj(jedna.node, banners[c], c, set, false);
         karty.push(jedna.node);
         if (jedna.tick) ticks.push(jedna.tick);
       }
@@ -2166,6 +2262,7 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
          * řada za deset vteřin.
          */
         var built = card(banners[j], j === 0 ? "high" : i > 0 ? "low" : "", sirkyDlazdic(set));
+        sleduj(built.node, banners[j], j, set, false);
         page.appendChild(built.node);
         if (built.tick) ticks.push(built.tick);
       }
@@ -2207,6 +2304,8 @@ a.qbn-link:hover .qbn-link-ico { transform: translateY(-3px); }
         pages[at].className = "qbn-page qbn-now";
         /* Video na stránce, která právě zmizela, se zastaví; na nové se pustí */
         srovnejVidea();
+        /* A banner, který se právě ukázal, se započítá jako viděný */
+        spoctiVidene();
       }, Math.max(2, every) * 1000);
     }
     return true;

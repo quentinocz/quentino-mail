@@ -38,7 +38,7 @@ import { digestReport, digestAsk, digestArchive, digestFromArchive, digestFacts 
 import { eventsWithImpact, saveEvent, deleteEvent } from './events';
 import { digestToPdf } from './digestpdf';
 import {
-  getGa4Config, saveGa4Config, ga4Test, ga4Apps, ga4Diagnostics, ga4LastDetail, ga4Deep
+  getGa4Config, saveGa4Config, ga4Test, ga4Apps, ga4Diagnostics, ga4LastDetail, ga4Deep, ga4Banners
 } from './ga4';
 import { clearTrackingCache } from './ordertrack';
 import {
@@ -789,6 +789,8 @@ export function registerIpc() {
     banners.uploadImage(String(name ?? ''), bytes ?? []));
   handle('banners:video', (name: string, bytes: number[] | Uint8Array) =>
     banners.uploadVideo(String(name ?? ''), bytes ?? []));
+  // Kolikrát byl který banner vidět a kolikrát se z něj kliklo — z Google Analytics
+  handle('banners:stats', (days?: number, force?: boolean) => ga4Banners(Number(days) || 28, force === true));
   handle('banners:icon', (label: string, hint: string) =>
     iconIdeas(String(label ?? ''), String(hint ?? '')));
   // Náhled spouští tentýž skript jako e-shop, jen s rozepsanou sadou uvnitř

@@ -1559,6 +1559,111 @@ export async function ga4Pages(days = 365, force = false): Promise<Ga4Pages | nu
   }
 }
 
+/* ---------- bannery: kolikrát byly vidět a kolikrát se z nich kliklo ---------- */
+
+export interface BannerStat {
+  /** Číslo banneru — totéž, co skript posílá jako `promotion_id`. */
+  id: string;
+  name: string;
+  views: number;
+  clicks: number;
+  /** Proklikovost v procentech; `null`, dokud je zobrazení málo na to, aby číslo něco říkalo. */
+  ctr: number | null;
+}
+
+export interface BannerStats {
+  at: string;
+  days: number;
+  rows: BannerStat[];
+  error: string | null;
+}
+
+/**
+ * Řádky z Analytics na čísla po bannerech.
+ *
+ * Jeden banner přijde ve víc řádcích — má v každém jazyce jiné jméno
+ * a blok pod bannerem má vlastní umístění — takže se sčítá podle čísla.
+ * Proklikovost se píše až od sta zobrazení: „jeden klik z pěti zobrazení"
+ * je dvacet procent, které nic neznamenají.
+ */
+export function bannerStatsFromRows(rows: any[]): BannerStat[] {
+  const podle = new Map<string, BannerStat>();
+  for (const row of rows ?? []) {
+    const id = String(row?.itemPromotionId ?? '').trim();
+    if (!id || id === '(not set)') continue;
+    const one = podle.get(id) ?? { id, name: '', views: 0, clicks: 0, ctr: null };
+    const name = String(row?.itemPromotionName ?? '').trim();
+    if (name && name !== '(not set)' && !one.name) one.name = name;
+    one.views += num(row?.itemsViewedInPromotion) ?? 0;
+    one.clicks += num(row?.itemsClickedInPromotion) ?? 0;
+    podle.set(id, one);
+  }
+  return [...podle.values()]
+    .map(one => ({
+      ...one,
+      ctr: one.views >= 100 ? Math.round((one.clicks / one.views) * 1000) / 10 : null
+    }))
+    .sort((a, b) => b.views - a.views);
+}
+
+/**
+ * Zobrazení a prokliky bannerů za poslední dny.
+ *
+ * Skript na e-shopu posílá `view_promotion` a `select_promotion`;
+ * Analytics z nich počítá zobrazení a prokliky propagace. Drží se den,
+ * stejně jako ostatní rozbory.
+ */
+export async function ga4Banners(days = 28, force = false): Promise<BannerStats | null> {
+  const cfg = getGa4Config();
+  if (!cfg.ready) return null;
+
+  const span = Math.max(7, Math.min(365, Math.round(days) || 28));
+  const key = `ga4Banners${span}`;
+  const last = ((): BannerStats | null => {
+    try { return JSON.parse(getSetting(key, '') || 'null'); } catch { return null; }
+  })();
+  const age = last?.at ? Date.now() - new Date(last.at).getTime() : Number.POSITIVE_INFINITY;
+  if (!force && last && !last.error && age < EVERY_MS) return last;
+
+  try {
+    await connect();
+    const tools = await listTools();
+    const plan = await planReport(
+      tools, queryTool(tools), getSetting('ga4AppId', '')!,
+      `Zobrazení a prokliky bannerů (propagací) na e-shopu Quentino za ${span} dní.`, 9
+    );
+    if (!plan) return last;
+
+    const dimensions = plan.pick(['itemPromotionId', 'itemPromotionName'], 'dimensions');
+    const metrics = plan.pick(['itemsViewedInPromotion', 'itemsClickedInPromotion'], 'metrics');
+    /*
+     * Když napojení tyhle sloupce nenabízí, nemá smysl se ptát na jiné —
+     * vyšla by čísla, která vypadají jako odpověď a nejsou jí.
+     */
+    if (!dimensions.includes('itemPromotionId') || metrics.length < 2) {
+      throw new Error('Napojení na Analytics nenabízí zobrazení a prokliky propagací. '
+        + 'Čísla jsou vidět přímo v Google Analytics (Přehledy → Zpeněžení → Propagace).');
+    }
+    const { tables } = await runCalls(plan, [{
+      id: 'bannery',
+      input: {
+        startDate: dayKey(span - 1), endDate: dayKey(0), dimensions, metrics,
+        limit: 200, orderBy: [{ metric: 'itemsViewedInPromotion', desc: true }]
+      }
+    }], 91);
+
+    const out: BannerStats = {
+      at: new Date().toISOString(), days: span,
+      rows: bannerStatsFromRows(tables[0] ?? []), error: null
+    };
+    setSetting(key, JSON.stringify(out));
+    return out;
+  } catch (e: any) {
+    const message = String(e?.message ?? e);
+    return last ? { ...last, error: message } : { at: '', days: span, rows: [], error: message };
+  }
+}
+
 /**
  * Rozbor do zadání pro AI.
  *
@@ -1614,4 +1719,4 @@ export async function ga4Test(): Promise<string> {
 }
 
 /** Jen pro zkoušky — vnitřní rozhodování, které se jinak nedá zvenku vidět */
-export const __test = { pickQueryAction, needsReconnect, looksLikeListing };
+export const __test = { pickQueryAction, needsReconnect, looksLikeListing, bannerStatsFromRows };

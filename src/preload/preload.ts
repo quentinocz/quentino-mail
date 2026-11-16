@@ -124,7 +124,7 @@ const ALLOWED_INVOKE = [
   'zk:nahled', 'zk:vzhledy', 'zk:vzhled-uloz', 'zk:vzhled-smaz', 'zk:vystav', 'zk:zavadec',
   'banners:state', 'banners:load', 'banners:save', 'banners:delete', 'banners:copy', 'banners:toggle',
   'banners:clashes', 'banners:shorten', 'banners:translate', 'banners:href',
-  'banners:fallback', 'banners:upload', 'banners:video', 'banners:icon',
+  'banners:fallback', 'banners:upload', 'banners:video', 'banners:icon', 'banners:stats',
   'banners:preview', 'banners:publish',
   'banners:templates', 'banners:template-save', 'banners:template-drop',
   'banners:template-use', 'banners:template-export', 'banners:template-import',

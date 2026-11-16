@@ -389,6 +389,18 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
    * vánoční kampaň se přitom příští rok hodí celá, i s texty a efekty.
    */
   const [templates, setTemplates] = useState<BannerTemplate[]>([]);
+  /*
+   * Čísla z Google Analytics — kolikrát byl banner vidět a kolikrát se
+   * z něj kliklo. Načítají se vedle, okno na ně nečeká: je to údaj pro
+   * rozhodování, ne podmínka práce. `null` = Analytics není napojené.
+   */
+  const [cisla, setCisla] = useState<Awaited<ReturnType<typeof api.banners.stats>>>(null);
+  useEffect(() => {
+    let alive = true;
+    api.banners.stats(28).then(next => { if (alive) setCisla(next); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
+  const cisloBanneru = (id: string) => cisla?.rows.find(one => one.id === id) ?? null;
   const [showTemplates, setShowTemplates] = useState(false);
 
   const apply = useCallback((next: BannersState, message?: string) => {
@@ -1362,6 +1374,11 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                             }}
                           >
                             <span className="bn-tile-n">{i + 1}</span>
+                            {cisloBanneru(one.id)?.ctr != null && (
+                              <span className="bn-tile-ctr" title="Proklikovost za 28 dní">
+                                {String(cisloBanneru(one.id)!.ctr).replace('.', ',')} %
+                              </span>
+                            )}
                             <span className="bn-tile-name">
                               {one.copy.title.cz || one.name || 'bez nadpisu'}
                             </span>
@@ -1415,6 +1432,33 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                         * do dvou řádků a odsouvalo dolů to, kvůli čemu je
                         * okno otevřené — fotku a nadpis.
                         */}
+                      {/*
+                        * Jak banner funguje. Číslo je tu, u banneru, ne
+                        * v přehledu jinde: rozhoduje se podle něj, jestli
+                        * dlaždici nechat, přepsat nebo posunout dopředu.
+                        */}
+                      {cisla && (() => {
+                        const c = cisloBanneru(banner.id);
+                        if (!c) {
+                          return (
+                            <p className="desc bn-cisla">
+                              {cisla.error
+                                ? `Čísla z Analytics se nenačetla: ${cisla.error}`
+                                : 'Za posledních 28 dní o tomhle banneru Analytics nic nemá — '
+                                  + 'měří se od chvíle, kdy je v e-shopu nový skript.'}
+                            </p>
+                          );
+                        }
+                        return (
+                          <p className="desc bn-cisla">
+                            Za 28 dní: viděn <b>{c.views.toLocaleString('cs-CZ')}×</b>,
+                            {' '}kliknuto <b>{c.clicks.toLocaleString('cs-CZ')}×</b>
+                            {c.ctr != null
+                              ? <> — proklikovost <b>{String(c.ctr).replace('.', ',')} %</b></>
+                              : <> — na proklikovost je zobrazení zatím málo</>}
+                          </p>
+                        );
+                      })()}
                       <div className="bn-tools">
                         <button className="icon-btn" onClick={() => moveBanner(-1)} disabled={pick === 0}
                           data-tip="Posunout dřív" aria-label="Posunout dřív">

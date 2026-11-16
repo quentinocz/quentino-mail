@@ -937,6 +937,32 @@ ok('kdo šetří data, dostane jen fotku', kod.includes('sit.saveData'));
 ok('a u videa je tlačítko pauzy, které neotevře odkaz',
   kod.includes('"qbn-vbtn"') && kod.includes('e.preventDefault()') && kod.includes('s.stop ||'));
 
+/* ---------- měření: zobrazení a prokliky ---------- */
+
+console.log('\nměření bannerů:\n');
+{
+  /*
+   * Co skript do Analytics posílá, měří `tools/preview-banner-mereni.mjs`
+   * v prohlížeči. Tady druhá půlka: jak se z řádků, které Analytics
+   * vrátí, stanou čísla u banneru.
+   */
+  const ga4 = require(path.join(DIST, 'ga4.js'));
+  const cisla = ga4.__test.bannerStatsFromRows([
+    /* Tentýž banner třikrát: v každém jazyce má jiné jméno */
+    { itemPromotionId: 'b1', itemPromotionName: 'Kšandy k obleku', itemsViewedInPromotion: '900', itemsClickedInPromotion: '30' },
+    { itemPromotionId: 'b1', itemPromotionName: 'Traky k obleku', itemsViewedInPromotion: 300, itemsClickedInPromotion: 6 },
+    { itemPromotionId: 'b2', itemPromotionName: 'Motýlky', itemsViewedInPromotion: 40, itemsClickedInPromotion: 8 },
+    { itemPromotionId: '(not set)', itemPromotionName: '(not set)', itemsViewedInPromotion: 5000, itemsClickedInPromotion: 0 }
+  ]);
+  check('zobrazení a prokliky se sčítají podle čísla banneru přes jazyky',
+    cisla.map(one => [one.id, one.views, one.clicks]), [['b1', 1200, 36], ['b2', 40, 8]]);
+  check('proklikovost se píše až od sta zobrazení', cisla.map(one => one.ctr), [3, null]);
+  check('a řádek bez čísla banneru se nepočítá nikomu', cisla.some(one => one.id === '(not set)'), false);
+}
+ok('skript hlásí zobrazení a proklik tak, jak je Analytics zná',
+  kod.includes('"view_promotion"') && kod.includes('"select_promotion"') && kod.includes('data.items = [{'));
+ok('  a měření nesmí shodit banner', /catch \(e\) \{ \/\* měření nesmí shodit banner \*\/ \}/.test(body));
+
 /* ---------- fotka jako obrázek: popis, přednost, menší podoba ---------- */
 
 console.log('\nfotka pro Google a pro telefon:\n');
