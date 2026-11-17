@@ -4,7 +4,7 @@ const fs = require('fs');
 const { store, DIST } = require('./harness.cjs');
 const memory = require(path.join(DIST, 'ptrans/memory.js'));
 
-store.syncFromFeed(fs.readFileSync('/home/claude/feed.xml', 'utf8'));
+store.syncFromFeed(require('./harness.cjs').nactiFeed(process.argv[2]));
 
 console.time('učení');
 const result = memory.learnFromFeed(['sk', 'en']);

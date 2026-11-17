@@ -2,7 +2,7 @@
 const { db, store, xml } = require('./harness.cjs');
 const fs = require('fs');
 
-const feed = fs.readFileSync(process.argv[2] || '/home/claude/feed.xml', 'utf8');
+const feed = require('./harness.cjs').nactiFeed(process.argv[2]);
 const products = xml.splitProducts(feed);
 const one = products.find(p => p.code === 'PS00SM') || products[0];
 

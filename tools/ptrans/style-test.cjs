@@ -7,7 +7,7 @@
 const path = require('path');
 const fs = require('fs');
 const { store, DIST } = require('./harness.cjs');
-store.syncFromFeed(fs.readFileSync(process.argv[2] || '/home/claude/feed.xml', 'utf8'));
+store.syncFromFeed(require('./harness.cjs').nactiFeed(process.argv[2]));
 
 const style = require(path.join(DIST, 'ptrans/style.js'));
 

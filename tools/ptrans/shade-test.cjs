@@ -13,7 +13,7 @@ const path = require('path');
 const { db, store, DIST } = require('./harness.cjs');
 const colors = require(path.join(DIST, 'ptrans/colors.js'));
 
-store.syncFromFeed(fs.readFileSync(process.argv[2] || '/home/claude/feed.xml', 'utf8'));
+store.syncFromFeed(require('./harness.cjs').nactiFeed(process.argv[2]));
 colors.learnColors();
 
 console.log('=== ruční příklady ===');

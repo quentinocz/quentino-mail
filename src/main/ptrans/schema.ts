@@ -167,6 +167,25 @@ CREATE TABLE IF NOT EXISTS ptrans_params (
 );
 CREATE INDEX IF NOT EXISTS idx_ptrans_params_use ON ptrans_params(kind, name_key, hits);
 
+-- Přeložené odstavce (viz ptrans/reuse.ts).
+--
+-- Sourozenci v e-shopu (kravata v deseti barvách) mají popisy shodné až na
+-- větu o barvě. Co už jednou přeložené je, dosadí se odsud a model dostane
+-- jen to, čím se produkt liší. skey je otisk jazyka, rozsahu a textu;
+-- source se drží kvůli kontrole, že otisk opravdu sedí.
+CREATE TABLE IF NOT EXISTS ptrans_segments (
+  lang TEXT NOT NULL,
+  skey TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL,
+  target TEXT NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 1,
+  -- 1 = opravil člověk; překladač to nepřepíše
+  manual INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (lang, skey)
+);
+
 CREATE TABLE IF NOT EXISTS ptrans_drafts (
   id TEXT PRIMARY KEY,
   code TEXT NOT NULL DEFAULT '',

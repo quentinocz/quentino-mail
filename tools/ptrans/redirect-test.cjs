@@ -5,7 +5,7 @@ const { store, xml, DIST } = require('./harness.cjs');
 const redirects = require(path.join(DIST, 'ptrans/redirects.js'));
 const exportxml = require(path.join(DIST, 'ptrans/exportxml.js'));
 
-store.syncFromFeed(fs.readFileSync('/home/claude/feed.xml', 'utf8'));
+store.syncFromFeed(require('./harness.cjs').nactiFeed(process.argv[2]));
 
 const code = 'PS00SM';
 const lang = 'en';

@@ -1247,6 +1247,7 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
           + (result.errors[0] ? ` — ${result.errors[0]}` : ''), 'error');
       } else {
         toast(`Hotovo: ${result.done} položek za ${humanTime(result.seconds)}`
+          + (result.reused ? ` · ${result.reused} polí z paměti, bez modelu` : '')
           + (result.tidied ? ` · cestou uklizeno ${result.tidied} popisů` : '')
           + (result.aligned ? ` · srovnáno ${result.aligned} zdrojů` : ''));
       }

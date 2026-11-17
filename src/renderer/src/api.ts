@@ -190,6 +190,8 @@ export const api = {
         stuck: string[];
         /** Kolik polí mělo český text, o kterém cílové jazyky nevěděly */
         aligned: number;
+        /** Kolik polí se přeložilo z paměti odstavců, bez modelu */
+        reused: number;
       }>('ptrans:run', input),
     stop: () => call<boolean>('ptrans:stop'),
     progress: () => call<PtransProgress | null>('ptrans:progress'),

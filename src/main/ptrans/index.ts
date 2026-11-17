@@ -26,6 +26,7 @@ import { runAudit, auditFor, worstProducts, auditProduct, storedSummary, AuditOp
 import { planSourceFill, fillSourceOne, missingByField, SOURCE_FIELDS, SOURCE_LABELS,
   SourceField, SourceFillOptions } from './source';
 import * as newproduct from './newproduct';
+import { learn as learnSegments } from './reuse';
 import { callerWindow } from '../caller';
 
 /**
@@ -422,6 +423,15 @@ export function editField(code: string, lang: string, field: string, value: stri
     setSeoUrl(code, lang, value, 'ruční', true);
   } else {
     saveTranslation(code, lang, field, value, 'ruční', true);
+    /*
+     * Oprava se zapamatuje i pro sourozence. Když člověk opraví větu
+     * o materiálu u modré kravaty, má stejně znít i u červené — jinak by
+     * paměť odstavců dál rozdávala tu původní, špatnou.
+     */
+    const source = productFields(code, [lang]).find(row => row.field === field)?.source ?? '';
+    if (source.trim()) {
+      try { learnSegments(lang, field, source, value, true); } catch { /* pomůcka, ne podmínka */ }
+    }
   }
   emit('ptrans:changed', {});
 }

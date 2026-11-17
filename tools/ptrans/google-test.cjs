@@ -14,9 +14,9 @@ const bundle = require(path.join(DIST, 'ptrans/bundle.js'));
 const google = require(path.join(DIST, 'ptrans/google.js'));
 const audit = require(path.join(DIST, 'ptrans/audit.js'));
 
-const file = process.argv[2] || '/home/claude/feed.xml';
+const file = process.argv[2];
 console.time('feed');
-const sync = store.syncFromFeed(fs.readFileSync(file, 'utf8'));
+const sync = store.syncFromFeed(base.nactiFeed(file));
 console.timeEnd('feed');
 console.log('produktů:', sync.products, '· polí:', sync.fields);
 

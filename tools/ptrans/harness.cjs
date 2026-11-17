@@ -101,7 +101,24 @@ const xml = require(path.join(DIST, 'ptrans/xml.js'));
 const detect = require(path.join(DIST, 'ptrans/detect.js'));
 db.exec(store.SCHEMA);
 
-module.exports = { db, store, xml, detect, DIST, dbFile };
+/**
+ * Skutečný feed pro zkoušky nad reálnými daty.
+ *
+ * V repozitáři není (je to celý katalog e-shopu), takže kde chybí, zkouška
+ * se slušně přeskočí — dřív spadla na „ENOENT" a vypadalo to jako chyba
+ * v kódu. Cesta jde zadat parametrem nebo v PTRANS_FEED.
+ */
+function nactiFeed(cesta) {
+  const file = cesta || process.env.PTRANS_FEED || '/home/claude/feed.xml';
+  if (!fs.existsSync(file)) {
+    console.log(`Feed ${file} není k dispozici — zkouška nad reálnými daty se přeskakuje.`);
+    console.log('Spusť ji s cestou k feedu:  node ' + path.relative(process.cwd(), require.main?.filename ?? '') + ' feed.xml');
+    process.exit(0);
+  }
+  return fs.readFileSync(file, 'utf8');
+}
+
+module.exports = { db, store, xml, detect, DIST, dbFile, nactiFeed };
 
 if (require.main === module) {
   const file = process.argv[2] || '/home/claude/feed.xml';

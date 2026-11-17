@@ -14,6 +14,7 @@ import { setSeoUrl } from './redirects';
 import { memoryHint, memoryStats, learnFromFeed } from './memory';
 import { planSourceFill, fillSourceOne, SourceField, SourceTarget, SOURCE_LABELS } from './source';
 import { applyAttributes } from './google';
+import { lookup, unmask, learn, slotHint, learnFromStore } from './reuse';
 
 /**
  * Překlad produktových textů.
@@ -250,6 +251,8 @@ function buildSystem(s: PtransSettings, targetLangs: string[]): string {
     '- Emodži i další symboly zachovej přesně tak, jak jsou, a na stejném místě.',
     '- Piš přirozeně v cílovém jazyce, ne doslovně. Text má znít, jako by ho psal rodilý mluvčí.',
     '- Nepřekládej do češtiny ani nenech nic v češtině.',
+    // Hotové odstavce z paměti (viz reuse.ts) — model je nesmí přepsat ani vynechat
+    '- Značky jako ⟦3⟧ jsou hotové odstavce: nech je beze změny na jejich místě.',
     // Psaní velkých písmen se mezi jazyky liší a model má sklon přenést
     // zvyk zdrojového jazyka. V názvech je to hned vidět.
     targetLangs.map(lang => (many ? `- ${lang}: ${languageNote(lang)}` : languageNote(lang)))
@@ -302,6 +305,105 @@ export function slugify(value: string): string {
     .slice(0, 120);
 }
 
+/* ---------- příprava zadání a paměť odstavců ---------- */
+
+/** Kdo pole „přeložil", když se vzalo z paměti — ať je v kartě vidět odkud. */
+export const REUSE_MODEL = 'paměť odstavců';
+
+/**
+ * Pole, u kterých model značky nedodržel.
+ *
+ * Další pokus o totéž pole jde bez značek — celý text. Jinak by se stejná
+ * chyba opakovala, dokud nedojdou pokusy.
+ */
+const noMask = new Set<string>();
+
+interface Prepared {
+  /** Co jde modelu (se značkami, kde je co dosadit) */
+  payload: Record<string, string>;
+  /** Zdroj tak, jak ho vidí model, ale bez značek — na učení paměti */
+  sources: Record<string, string>;
+  masks: Record<string, Map<string, string>>;
+  noSource: string[];
+  /** Kolik polí se přeložilo rovnou z paměti */
+  reused: number;
+  /** Název, když se vzal z paměti — adresa se z něj odvodí stejně */
+  reusedTitle?: string;
+}
+
+/**
+ * Zadání pro jeden jazyk.
+ *
+ * Co celé známe, se rovnou uloží a do zadání nejde. Co známe z velké
+ * části, jde se značkami. `force` („přeložit znovu i hotové") paměť
+ * obchází: kdo chce nový překlad, nechce dostat ten starý.
+ */
+function prepare(target: TranslateTarget, rows: FieldRow[], model: string, slot = { next: 1 }): Prepared {
+  const wanted = (target.fields?.length ? target.fields : rows.map(r => r.field))
+    .filter(field => !DERIVED_FIELDS.has(field));
+  const out: Prepared = { payload: {}, sources: {}, masks: {}, noSource: [], reused: 0 };
+  for (const field of wanted) {
+    const source = rows.find(r => r.field === field)?.source ?? '';
+    if (!source.trim()) { out.noSource.push(field); continue; }
+    const text = forModel(field, source);
+    const marker = `${target.code}|${target.lang}|${field}`;
+    const known = target.force || noMask.has(marker) ? null : safeLookup(target.lang, field, text, slot.next);
+    if (known?.full !== undefined) {
+      saveTranslation(target.code, target.lang, field, finalValue(field, known.full), REUSE_MODEL);
+      out.reused++;
+      if (field === 'title') out.reusedTitle = known.full;
+      continue;
+    }
+    out.sources[field] = text;
+    if (known?.masked !== undefined && known.slots) {
+      out.payload[field] = known.masked;
+      out.masks[field] = known.slots;
+      slot.next += known.slots.size;
+    } else {
+      out.payload[field] = text;
+    }
+  }
+  return out;
+}
+
+/** Paměť je zrychlení, ne podmínka — její chyba nesmí zastavit překlad. */
+function safeLookup(lang: string, field: string, text: string, start: number) {
+  try { return lookup(lang, field, text, start); } catch { return null; }
+}
+
+/** Úprava hodnoty před uložením: úklid HTML a délkové limity SEO polí. */
+function finalValue(field: string, raw: string): string {
+  const s = getPtransSettings();
+  let value = fromModel(field, raw);
+  if (field === 'seo_title') value = clamp(value, s.limits.seoTitle);
+  if (field === 'seo_desc') value = clamp(value, s.limits.seoDesc);
+  return value;
+}
+
+/**
+ * Hodnota z odpovědi modelu, se značkami nahrazenými hotovými odstavci.
+ * `null` = značky nesedí, pole zůstane na další pokus (už bez nich).
+ */
+function fromAnswer(target: TranslateTarget, field: string, raw: string,
+                    masks: Record<string, Map<string, string>>): string | null {
+  const slots = masks[field];
+  if (!slots) return raw;
+  const whole = unmask(raw, slots);
+  if (whole === null) noMask.add(`${target.code}|${target.lang}|${field}`);
+  return whole;
+}
+
+/** Zapamatuje si nový překlad po odstavcích — pro sourozence, kteří přijdou. */
+function remember(lang: string, field: string, source: string | undefined, value: string) {
+  if (!source) return;
+  try { learn(lang, field, source, value); } catch { /* paměť je pomůcka */ }
+}
+
+/** Vysvětlivka ke značkám pro jeden nebo víc jazyků. */
+function maskHint(parts: { lang?: string; masks: Record<string, Map<string, string>> }[]): string {
+  return slotHint(parts.flatMap(part => Object.values(part.masks).map(slots => ({ lang: part.lang, slots }))));
+}
+
 /**
  * Přeloží jeden produkt do jednoho jazyka.
  *
@@ -309,7 +411,7 @@ export function slugify(value: string): string {
  * nepovedený produkt nesmí zastavit dávku o tisíci kusech.
  */
 export async function translateOne(target: TranslateTarget, signal?: AbortSignal):
-  Promise<{ saved: number; error?: string; noSource?: string[] }> {
+  Promise<{ saved: number; error?: string; noSource?: string[]; reused?: number }> {
   return runTranslate(target, signal, 1);
 }
 
@@ -321,13 +423,10 @@ export async function translateOne(target: TranslateTarget, signal?: AbortSignal
  * překlad se zkusí znovu s větším stropem, a když je pole víc, rozdělí se.
  */
 async function runTranslate(target: TranslateTarget, signal: AbortSignal | undefined,
-                            factor: number): Promise<{ saved: number; error?: string; noSource?: string[] }> {
+                            factor: number): Promise<{ saved: number; error?: string; noSource?: string[]; reused?: number }> {
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
   const rows = productFields(target.code, [target.lang]);
-  // Adresa a přesměrování se neposílají modelu — skládá je kód
-  const wanted = (target.fields?.length ? target.fields : rows.map(r => r.field))
-    .filter(field => !DERIVED_FIELDS.has(field));
 
   /*
    * Přeložit jde jen to, co ve zdrojovém jazyce existuje.
@@ -338,15 +437,19 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
    * případ je chybějící český SEO titulek: v seznamu svítí „čeká na překlad",
    * překlad proběhne, a je to pořád stejné. Proto se to teď počítá a nahlásí.
    */
-  const payload: Record<string, string> = {};
-  const noSource: string[] = [];
-  for (const field of wanted) {
-    const row = rows.find(r => r.field === field);
-    const source = row?.source ?? '';
-    if (source.trim()) payload[field] = forModel(field, source);
-    else noSource.push(field);
+  const prepared = prepare(target, rows, model);
+  const { payload, noSource, masks, sources } = prepared;
+  const wanted = Object.keys(payload);
+  if (wanted.length === 0 && prepared.reused > 0) {
+    // Všechno se našlo v paměti — model není potřeba vůbec
+    let saved = prepared.reused;
+    if (s.fields.seo_url !== false && prepared.reusedTitle) {
+      const result = applySlug(target.code, target.lang, rows, REUSE_MODEL, prepared.reusedTitle);
+      if (result) saved += result.redirect ? 2 : 1;
+    }
+    return { saved, noSource, reused: prepared.reused };
   }
-  if (Object.keys(payload).length === 0) {
+  if (wanted.length === 0) {
     return {
       saved: 0,
       noSource,
@@ -374,7 +477,8 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
     s.limits.seoTitle && payload.seo_title ? `- seo_title nejvýš ${s.limits.seoTitle} znaků` : '',
     s.limits.seoDesc && payload.seo_desc ? `- seo_desc nejvýš ${s.limits.seoDesc} znaků` : '',
     consistency,
-    memory
+    memory,
+    maskHint([{ masks }])
   ].filter(Boolean).join('\n');
 
   try {
@@ -391,16 +495,16 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
     if (estimate(chars) > OUTPUT_BUDGET && Object.keys(payload).length > 1) {
       const big = Object.entries(payload).sort((a, b) => b[1].length - a[1].length)[0][0];
       const rest = Object.fromEntries(Object.entries(payload).filter(([field]) => field !== big));
-      let saved = 0;
+      let saved = prepared.reused;
       for (const piece of [rest, { [big]: payload[big] }]) {
         if (Object.keys(piece).length === 0) continue;
         const part = await translateOne(
           { ...target, fields: Object.keys(piece) }, signal
         );
         saved += part.saved;
-        if (part.error) return { saved, error: part.error, noSource };
+        if (part.error) return { saved, error: part.error, noSource, reused: prepared.reused };
       }
-      return { saved, noSource };
+      return { saved, noSource, reused: prepared.reused };
     }
 
     const answer = await ask(
@@ -414,14 +518,16 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
     );
     const translated = parseJson(answer);
 
-    let saved = 0;
+    let saved = prepared.reused;
+    let broken = 0;
     for (const field of wanted) {
-      let value = translated[field];
-      if (typeof value !== 'string' || !value.trim()) continue;
-      value = fromModel(field, value);
-      if (field === 'seo_title') value = clamp(value, s.limits.seoTitle);
-      if (field === 'seo_desc') value = clamp(value, s.limits.seoDesc);
+      const raw = translated[field];
+      if (typeof raw !== 'string' || !raw.trim()) continue;
+      const whole = fromAnswer(target, field, raw, masks);
+      if (whole === null) { broken++; continue; }
+      const value = finalValue(field, whole);
       saveTranslation(target.code, target.lang, field, value, model);
+      remember(target.lang, field, sources[field], value);
       saved++;
     }
 
@@ -429,10 +535,14 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
     // Zároveň se stará adresa uloží do přesměrování (301), aby odkazy na ni
     // nekončily na chybové stránce.
     if (s.fields.seo_url !== false) {
-      const result = applySlug(target.code, target.lang, rows, model, translated.title);
+      const result = applySlug(target.code, target.lang, rows, model, translated.title ?? prepared.reusedTitle);
       if (result) saved += result.redirect ? 2 : 1;
     }
-    return { saved, noSource };
+    if (broken) {
+      return { saved, noSource, reused: prepared.reused,
+        error: `${target.code} (${target.lang}): model nedodržel značky hotových odstavců — přeloží se znovu celé` };
+    }
+    return { saved, noSource, reused: prepared.reused };
   } catch (e: any) {
     /*
      * Useknutá odpověď se dá spravit, ne jen nahlásit.
@@ -444,7 +554,7 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
      */
     if (e?.truncated && Object.keys(payload).length > 1) {
       const big = Object.entries(payload).sort((a, b) => b[1].length - a[1].length)[0][0];
-      let saved = 0;
+      let saved = prepared.reused;
       for (const fields of [Object.keys(payload).filter(one => one !== big), [big]]) {
         if (fields.length === 0) continue;
         const part = await runTranslate({ ...target, fields }, signal, factor);
@@ -464,13 +574,14 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
     if (e?.truncated && Object.keys(payload).length === 1) {
       const field = Object.keys(payload)[0];
       return {
-        saved: 0,
+        saved: prepared.reused,
+        reused: prepared.reused,
         error: `${target.code} (${target.lang}): ${FIELD_LABELS[field] ?? field} má `
           + `${Object.values(payload)[0].length} znaků a překlad se nevejde do jedné odpovědi. `
           + `Zkrať text v e-shopu, nebo zvol model s vyšším stropem odpovědi.`
       };
     }
-    return { saved: 0, error: `${target.code} (${target.lang}): ${e.message}` };
+    return { saved: prepared.reused, reused: prepared.reused, error: `${target.code} (${target.lang}): ${e.message}` };
   }
 }
 
@@ -586,8 +697,8 @@ function packLangs(langs: string[], charsOf: (lang: string) => number): string[]
  * ne podmínka.
  */
 export async function translateProduct(code: string, targets: TranslateTarget[], signal?: AbortSignal):
-  Promise<{ saved: number; errors: string[]; noSource: string[]; failed: string[] }> {
-  if (targets.length === 0) return { saved: 0, errors: [], noSource: [], failed: [] };
+  Promise<{ saved: number; errors: string[]; noSource: string[]; failed: string[]; reused: number }> {
+  if (targets.length === 0) return { saved: 0, errors: [], noSource: [], failed: [], reused: 0 };
 
   const s = getPtransSettings();
   const model = s.model || getSettings().draftModel;
@@ -597,25 +708,31 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
   const payload: Record<string, Record<string, string>> = {};
   const rowsByLang = new Map<string, FieldRow[]>();
   const byLangTarget = new Map<string, TranslateTarget>();
+  const prepared = new Map<string, Prepared>();
   const noSource: string[] = [];
+  let reused = 0;
+  let saved = 0;
+  // Značky se v jednom dotazu nesmějí opakovat ani mezi jazyky
+  const slot = { next: 1 };
   for (const target of targets) {
     const rows = productFields(code, [target.lang]);
     rowsByLang.set(target.lang, rows);
-    byLangTarget.set(target.lang, target);
-    const wanted = (target.fields?.length ? target.fields : rows.map(r => r.field))
-      .filter(field => !DERIVED_FIELDS.has(field));
-    const part: Record<string, string> = {};
-    for (const field of wanted) {
-      const source = rows.find(r => r.field === field)?.source ?? '';
-      if (source.trim()) part[field] = forModel(field, source);
-      else noSource.push(field);
+    const ready = prepare(target, rows, model, slot);
+    prepared.set(target.lang, ready);
+    noSource.push(...ready.noSource);
+    reused += ready.reused;
+    saved += ready.reused;
+    // Co se vzalo z paměti, se už nepřekládá — ani v náhradním dotazu po jednom
+    byLangTarget.set(target.lang, { ...target, fields: Object.keys(ready.payload) });
+    if (Object.keys(ready.payload).length) payload[target.lang] = ready.payload;
+    else if (ready.reusedTitle && s.fields.seo_url !== false) {
+      const result = applySlug(code, target.lang, rows, REUSE_MODEL, ready.reusedTitle);
+      if (result) saved += result.redirect ? 2 : 1;
     }
-    if (Object.keys(part).length) payload[target.lang] = part;
   }
   const langs = Object.keys(payload);
-  if (langs.length === 0) return { saved: 0, errors: [], noSource, failed: [] };
+  if (langs.length === 0) return { saved, errors: [], noSource, failed: [], reused };
 
-  let saved = 0;
   const errors: string[] = [];
   /*
    * Které trhy to opravdu neprošly.
@@ -633,6 +750,7 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
       // Sám jazyk: běžná cesta, která si umí poradit i s dělením polí
       const one = await translateOne(byLangTarget.get(batch[0])!, signal);
       saved += one.saved;
+      reused += one.reused ?? 0;
       if (one.error) { errors.push(one.error); failed.push(batch[0]); }
       continue;
     }
@@ -641,7 +759,7 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
     for (const lang of batch) part[lang] = payload[lang];
     const done = new Set<string>();
     try {
-      saved += await askBatch(code, part, batch, rowsByLang, byLangTarget, model, s, done, signal);
+      saved += await askBatch(code, part, batch, rowsByLang, byLangTarget, prepared, model, s, done, signal);
     } catch (e: any) {
       if (isAborted(e)) throw e;
       // Pád společného dotazu ještě není chyba překladu — každý trh dostane
@@ -653,6 +771,7 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
       if (done.has(lang)) continue;
       const one = await translateOne(byLangTarget.get(lang)!, signal);
       saved += one.saved;
+      reused += one.reused ?? 0;
       if (one.error) { errors.push(one.error); failed.push(lang); }
     }
     // Když se to po jednom nakonec povedlo, hláška o pádu dávky jen mate
@@ -662,7 +781,7 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
     }
   }
 
-  return { saved, errors: errors.slice(0, 4), noSource, failed };
+  return { saved, errors: errors.slice(0, 4), noSource, failed, reused };
 }
 
 /** Jeden společný dotaz na několik jazyků. Vrací, kolik polí se uložilo. */
@@ -672,6 +791,7 @@ async function askBatch(
   langs: string[],
   rowsByLang: Map<string, FieldRow[]>,
   byLangTarget: Map<string, TranslateTarget>,
+  prepared: Map<string, Prepared>,
   model: string,
   s: PtransSettings,
   done: Set<string>,
@@ -690,8 +810,18 @@ async function askBatch(
     ...everyField.filter(f => FIELD_LABELS[f]).map(f => `- ${f}: ${FIELD_LABELS[f]}`),
     s.limits.seoTitle && everyField.includes('seo_title') ? `- seo_title nejvýš ${s.limits.seoTitle} znaků` : '',
     s.limits.seoDesc && everyField.includes('seo_desc') ? `- seo_desc nejvýš ${s.limits.seoDesc} znaků` : '',
-    everyField.includes('title') ? consistencyHint(product?.category ?? '', langs[0]) : '',
-    memoryHint(flat, langs[0], product?.category ?? '')
+    /*
+     * Názvosloví a tvar názvů **pro každý jazyk zvlášť**.
+     *
+     * Dřív šly jen pro první jazyk dávky — v dotazu „sk + en" tak angličtina
+     * dostala slovenské vzory („kšandy → traky") a svoje vlastní žádné.
+     * Model si pak tvar anglického názvu pokaždé vymýšlel znovu.
+     */
+    ...langs.map(lang => perLanguage(lang, [
+      everyField.includes('title') ? consistencyHint(product?.category ?? '', lang) : '',
+      memoryHint(flat, lang, product?.category ?? '')
+    ])),
+    maskHint(langs.map(lang => ({ lang, masks: prepared.get(lang)?.masks ?? {} })))
   ].filter(Boolean).join('\n');
 
   const answer = await ask(
@@ -708,8 +838,12 @@ async function askBatch(
   for (const lang of langs) {
     const translated = byLang[lang];
     if (!translated || Object.keys(translated).length === 0) continue;
-    saved += saveTranslated(byLangTarget.get(lang)!, rowsByLang.get(lang) ?? [], translated, model);
-    done.add(lang);
+    const ready = prepared.get(lang);
+    const result = saveTranslated(byLangTarget.get(lang)!, rowsByLang.get(lang) ?? [], translated, model,
+      ready?.masks ?? {}, ready?.sources ?? {}, ready?.reusedTitle);
+    saved += result.saved;
+    // Jazyk s porušenými značkami se dotáhne po jednom (už bez nich)
+    if (!result.broken) done.add(lang);
   }
   return saved;
 }
@@ -736,26 +870,38 @@ function parseByLang(raw: string, langs: string[]): Record<string, Record<string
   return out;
 }
 
+/** Nápovědy pro jeden jazyk dávky, s jazykem v nadpisu — ať je jasné, ke kterému patří. */
+function perLanguage(lang: string, parts: string[]): string {
+  const body = parts.filter(Boolean).join('\n').trim();
+  return body ? `\n[${lang}]\n${body}` : '';
+}
+
 /** Uloží přeložená pole jednoho jazyka a odvodí z názvu adresu. */
 function saveTranslated(target: TranslateTarget, rows: FieldRow[],
-                        translated: Record<string, string>, model: string): number {
+                        translated: Record<string, string>, model: string,
+                        masks: Record<string, Map<string, string>> = {},
+                        sources: Record<string, string> = {},
+                        reusedTitle?: string): { saved: number; broken: number } {
   const s = getPtransSettings();
+  // Jen pole, o která se žádalo — model občas přidá něco navíc
+  const asked = new Set(target.fields ?? Object.keys(translated));
   let saved = 0;
+  let broken = 0;
   for (const [field, raw] of Object.entries(translated)) {
-    if (DERIVED_FIELDS.has(field)) continue;
-    let value = typeof raw === 'string' ? raw : '';
-    if (!value.trim()) continue;
-    value = fromModel(field, value);
-    if (field === 'seo_title') value = clamp(value, s.limits.seoTitle);
-    if (field === 'seo_desc') value = clamp(value, s.limits.seoDesc);
+    if (DERIVED_FIELDS.has(field) || !asked.has(field)) continue;
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const whole = fromAnswer(target, field, raw, masks);
+    if (whole === null) { broken++; continue; }
+    const value = finalValue(field, whole);
     saveTranslation(target.code, target.lang, field, value, model);
+    remember(target.lang, field, sources[field], value);
     saved++;
   }
   if (s.fields.seo_url !== false) {
-    const result = applySlug(target.code, target.lang, rows, model, translated.title);
+    const result = applySlug(target.code, target.lang, rows, model, translated.title ?? reusedTitle);
     if (result) saved += result.redirect ? 2 : 1;
   }
-  return saved;
+  return { saved, broken };
 }
 
 /* ---------- dávkový běh ---------- */
@@ -800,6 +946,8 @@ export interface RunResult {
   stuck: string[];
   /** Kolik polí mělo český text, o kterém cílové jazyky nevěděly */
   aligned: number;
+  /** Kolik polí se přeložilo z paměti odstavců, bez modelu */
+  reused: number;
 }
 
 /**
@@ -838,6 +986,11 @@ export interface RunResult {
   if (memoryStats().every(row => row.terms === 0)) {
     try { learnFromFeed(langs); } catch { /* paměť je pomůcka, ne podmínka */ }
   }
+  /*
+   * Paměť odstavců se poprvé naplní z toho, co už přeložené je — jednou,
+   * napoprvé. Dál se plní sama každým překladem.
+   */
+  try { learnFromStore(langs, s.sourceLang); } catch { /* pomůcka, ne podmínka */ }
 
   /*
    * Práce se vede po produktech, ne po dvojicích produkt–jazyk.
@@ -867,6 +1020,7 @@ export interface RunResult {
   let done = 0;
   let failed = 0;
   let noSource = 0;
+  let reused = 0;
   let total = [...plan.values()].reduce((sum, item) => sum + item.source.length + item.work.length, 0);
 
   /*
@@ -885,7 +1039,7 @@ export interface RunResult {
    * Dřív se startovalo naplno a počet se srážel, teprve když něco spadlo —
    * takže se na limit spolehlivě narazilo hned na začátku každého běhu a
    * první produkty to odnesly. Teď se jede produkt po produktu a přidá se
-   * až poté, co osm produktů po sobě proběhne bez zádrhelu. Nastavení
+   * až poté, co tři produkty po sobě proběhne bez zádrhelu. Nastavení
    * „souběžných překladů" je od téhle chvíle strop, ne výchozí tempo.
    */
   let lanes = 1;
@@ -1037,12 +1191,13 @@ export interface RunResult {
         + (attempt > 1 ? ` (${attempt}. pokus)` : ''));
 
       const result = await translateProduct(code, targets, abort?.signal).catch(e => {
-        if (isAborted(e)) return { saved: 0, errors: [], noSource: [], failed: [] };
+        if (isAborted(e)) return { saved: 0, errors: [], noSource: [], failed: [], reused: 0 };
         return {
           saved: 0, errors: [`${code}: ${e.message}`], noSource: [],
-          failed: targets.map(t => t.lang)
+          failed: targets.map(t => t.lang), reused: 0
         };
       });
+      reused += result.reused;
       speed.add((Date.now() - at) / 1000 / Math.max(1, targets.length));
       inFlight.delete(id);
       if (attempt === 1) done += targets.length;
@@ -1055,7 +1210,13 @@ export interface RunResult {
       if (result.failed.length) {
         goodRun = 0;
         if (rateLimitedRecently()) lanes = Math.max(1, Math.floor(lanes / 2));
-      } else if (++goodRun >= 8 && lanes < maxLanes && !rateLimitedRecently()) {
+      /*
+       * Přidává se po třech produktech bez zádrhelu, ne po osmi. S osmi se
+       * u běžné dávky (dvacet, třicet produktů) druhý pruh rozjel až
+       * v poslední třetině a nastavení souběžnosti skoro nic neznamenalo.
+       * Při prvním náznaku limitu se pořád ubírá na polovinu.
+       */
+      } else if (++goodRun >= 3 && lanes < maxLanes && !rateLimitedRecently()) {
         lanes++;
         goodRun = 0;
       }
@@ -1134,6 +1295,7 @@ export interface RunResult {
     noSourceFields: noSourceFields.map(field => FIELD_LABELS[field] ?? field),
     tidied: tidied.fields,
     aligned,
+    reused,
     stuck: leftover.map(target => `${target.code} (${target.lang.toUpperCase()})`).slice(0, 20)
   };
 }

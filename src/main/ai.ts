@@ -115,6 +115,9 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** Od jakého stropu odpovědi se ptá proudem (viz `ask`). */
+const STREAM_FROM = 8192;
+
 export async function ask(model: string, system: string, user: string, maxTokens = 1024,
                           options: AskOptions = {}): Promise<string> {
   // Pozn.: `temperature` novější Claude modely již nepodporují — přesnost řešíme
@@ -141,12 +144,21 @@ export async function ask(model: string, system: string, user: string, maxTokens
   let ceiling = maxTokens;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const res = await client().messages.create({
-        model,
-        max_tokens: ceiling,
-        system,
-        messages: [{ role: 'user', content: user }]
-      }, { signal: options.signal });
+      const body = { model, max_tokens: ceiling, system, messages: [{ role: 'user' as const, content: user }] };
+      /*
+       * Dlouhá odpověď jde proudem.
+       *
+       * Knihovna odmítne obyčejný dotaz, u kterého by odpověď mohla trvat
+       * přes deset minut — počítá to jen ze stropu, a hranice vychází zhruba
+       * na 21 tisíc tokenů. Překlad dlouhého popisu (a hlavně jeho opakování
+       * se zdvojeným stropem po useknuté odpovědi) přes ni šel, a místo
+       * překladu skončil hláškou „Streaming is strongly recommended", kterou
+       * nikdo nečekal a opakování nespravilo. Proudem to omezení neplatí a
+       * spojení se cestou nepřeruší jako dlouho mlčící dotaz.
+       */
+      const res = ceiling > STREAM_FROM
+        ? await client().messages.stream(body, { signal: options.signal }).finalMessage()
+        : await client().messages.create(body, { signal: options.signal });
       recordUsage(model, res.usage as any);
       const block = res.content.find(b => b.type === 'text');
       const text = block && block.type === 'text' ? block.text.trim() : '';

@@ -4,7 +4,7 @@ const fs = require('fs');
 const { store, DIST } = require('./harness.cjs');
 const consistency = require(path.join(DIST, 'ptrans/consistency.js'));
 
-store.syncFromFeed(fs.readFileSync('/home/claude/feed.xml', 'utf8'));
+store.syncFromFeed(require('./harness.cjs').nactiFeed(process.argv[2]));
 
 for (const lang of ['en', 'sk']) {
   console.log(`\n=== ${lang.toUpperCase()} ===`);
