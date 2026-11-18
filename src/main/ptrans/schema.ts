@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS ptrans_fields (
   -- Co v poli přišlo z paměti odstavců: JSON [{b, s}] (viz ptrans/reuse.ts).
   -- Prázdné = celé napsal model nebo člověk.
   reuse_marks TEXT NOT NULL DEFAULT '',
+  -- Otisk textu, který byl v e-shopu ve chvíli překladu. Když je v e-shopu
+  -- při exportu jiný (někdo ho mezitím přepsal), export ho nepřepíše.
+  base_hash TEXT,
   PRIMARY KEY (code, lang, field)
 );
 CREATE INDEX IF NOT EXISTS idx_ptrans_fields_state ON ptrans_fields(lang, state);
@@ -233,5 +236,7 @@ export const ALTERS = [
   `ALTER TABLE ptrans_products ADD COLUMN added_at TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE ptrans_fields ADD COLUMN messy INTEGER NOT NULL DEFAULT 0`,
   // Co v poli přišlo z paměti odstavců (JSON) — na zvýraznění v náhledu
-  `ALTER TABLE ptrans_fields ADD COLUMN reuse_marks TEXT NOT NULL DEFAULT ''`
+  `ALTER TABLE ptrans_fields ADD COLUMN reuse_marks TEXT NOT NULL DEFAULT ''`,
+  // Otisk textu, který byl v e-shopu, když aplikace pole přeložila (viz exportxml)
+  `ALTER TABLE ptrans_fields ADD COLUMN base_hash TEXT`
 ];

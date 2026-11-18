@@ -150,7 +150,9 @@ for (const [tvar, atribut] of [['záznam metadat bez atributů (<META>)', ''], [
     for (const lang of ['cz', 'sk']) {
       for (const [pole, hodnota] of Object.entries(hodnoty)) {
         const zpet = String(xml.getField(b3, lang, pole) ?? '').replace(/\s+/g, ' ').trim();
-        if (zpet !== hodnota.replace(/\s+/g, ' ').trim()) nesedi.push(`${lang}.${pole}: „${zpet.slice(0, 30)}"`);
+        // Zaškrtávací pole Upgates čte jako 1/0 — „no" se zapisuje jako 0
+        const cekam = pole === 'google_bundle' ? xml.checkboxValue(hodnota) : hodnota;
+        if (zpet !== cekam.replace(/\s+/g, ' ').trim()) nesedi.push(`${lang}.${pole}: „${zpet.slice(0, 30)}"`);
       }
     }
     ok(`všech ${Object.keys(hodnoty).length} druhů polí se ze souboru přečte zpátky beze změny (${rezim === 'slim' ? 'úsporný' : 'plný'} režim)`,
@@ -245,6 +247,74 @@ const sDirou = exportxml.buildExport({ codes: ['KR01'] });
 ok('pole, které se do produktu zapsat nedá, se nepočítá mezi zapsaná — a je vyjmenované',
   sDirou.fields === 1 && sDirou.missed.length === 1 && sDirou.missed[0] === 'KR01/sk/param:7:value',
   `zapsáno ${sDirou.fields}, nezapsáno: ${sDirou.missed.join(', ')}`);
+
+/*
+ * ---------- co export nesmí přepsat ----------
+ *
+ * Export z 18. 11. (preklady_test.xml) by v e-shopu vrátil 20 českých
+ * popisů a čtyři názvy do starší podoby: aplikace je měla uložené z dřívějška
+ * a v e-shopu se mezitím upravily. Do úsporného exportu šlo i všechno,
+ * co v e-shopu už bylo (opis feedu), zaškrtávací „sada" jako yes/no
+ * (Upgates čte 1/0 a označil 1369 produktů jako sady) a zkušební produkt,
+ * který v e-shopu není — import by ho založil.
+ */
+console.log('\nco export nesmí přepsat:\n');
+/** Feed, ve kterém někdo v e-shopu upravil slovenský název KR01. */
+const sUpravou = (nazev) => feed({}).replace(
+  /(<CODE>KR01<\/CODE>[\s\S]*?<DESCRIPTION language="sk">\s*<TITLE>)[^<]*/, `$1${nazev}`);
+
+cisto({});
+store.saveTranslation('KR01', 'sk', 'title', 'Modrá pánska kravata', 'zkouška');
+store.syncFromFeed(sUpravou('Modrá pánska kravata z hodvábu'));
+const poUprave = exportxml.buildExport({ codes: ['KR01'] });
+ok('text upravený v e-shopu po překladu se nepřepíše — a je vyjmenovaný',
+  poUprave.fields === 0 && poUprave.kept.includes('KR01/sk/title'),
+  `zapsáno ${poUprave.fields}, ponecháno: ${poUprave.kept.join(', ')}`);
+
+cisto({});
+store.saveTranslation('KR01', 'sk', 'title', 'Modrá pánska kravata', 'zkouška');
+const bezUpravy = exportxml.buildExport({ codes: ['KR01'] });
+ok('  bez úpravy v e-shopu se překlad zapíše', bezUpravy.fields === 1 && bezUpravy.kept.length === 0);
+
+cisto({});
+store.saveTranslation('KR01', 'sk', 'title', 'Modrá pánska kravata', 'zkouška', true);
+store.syncFromFeed(sUpravou('Modrá pánska kravata z hodvábu'));
+ok('  ruční úprava v aplikaci má přednost i tak', exportxml.buildExport({ codes: ['KR01'] }).fields === 1);
+
+/* Starší překlady otisk nemají — rozhoduje text */
+cisto({});
+store.saveTranslation('KR01', 'cz', 'long', '<p>Dlouhý popis z hedvábí.</p>\n', 'úklid');
+store.saveTranslation('KR02', 'cz', 'long', '<p>Starý popis, který v e-shopu už není.</p>', 'úklid');
+db.exec("UPDATE ptrans_fields SET base_hash = NULL, state = 'same'");
+const stare = exportxml.buildExport({ codes: ['KR01', 'KR02'] });
+ok('starší český text bez otisku, který se v e-shopu mezitím změnil, se nepřepíše',
+  stare.kept.includes('KR02/cz/long') && !blok(stare.xml, 'KR02'),
+  `ponecháno: ${stare.kept.join(', ')}`);
+
+cisto({});
+store.saveTranslation('KR01', 'cz', 'title', 'Modrá pánská kravata', 'zkouška');
+const stejny = exportxml.buildExport({ codes: ['KR01'] });
+ok('co v e-shopu už je, se znovu nezapisuje', stejny.fields === 0 && stejny.unchanged === 1 && stejny.products === 0);
+
+cisto({});
+store.saveTranslation('KR01', 'sk', 'google_bundle', 'yes', 'zkouška');
+store.saveTranslation('KR02', 'sk', 'google_bundle', 'no', 'zkouška');
+const sady = exportxml.buildExport({ codes: ['KR01', 'KR02'] });
+const sada = (code) => (blok(sady.xml, code).match(/is_bundle_google_merchant[\s\S]*?<META_VALUE language="sk">([^<]*)</) ?? [])[1];
+ok('„sada" (zaškrtávací pole) jde do souboru jako 1/0, ne yes/no',
+  sada('KR01') === '1' && sada('KR02') === '0' && sady.missed.length === 0,
+  `KR01 ${sada('KR01')}, KR02 ${sada('KR02')}, nezapsáno ${sady.missed.length}`);
+/*
+ * Ve feedu má čeština prázdnou hodnotu (`<META_VALUE language="cz"/>`).
+ * Zeštíhlení ji dřív vyhazovalo i se slovenštinou, která za ní stála.
+ */
+
+cisto({});
+store.ingestFile(feed({}).replace(/KR01/g, 'ZKUSEBNI').replace(/kr01/g, 'zkusebni'));
+store.saveTranslation('ZKUSEBNI', 'sk', 'title', 'Skúšobná kravata', 'zkouška');
+const novy = exportxml.buildExport({ codes: ['ZKUSEBNI'] });
+ok('produkt, který v e-shopu není, úsporný export nezaloží',
+  novy.products === 0 && novy.skippedNew.includes('ZKUSEBNI'), `přeskočeno: ${novy.skippedNew.join(', ')}`);
 
 console.log(bad ? `\n✗ ${bad} chyb` : '\n✓ export do XML sedí');
 process.exit(bad ? 1 : 0);

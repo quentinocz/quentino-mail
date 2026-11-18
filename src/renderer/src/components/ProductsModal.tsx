@@ -62,6 +62,17 @@ function fieldLabel(field: string): string {
 }
 
 /** „2 min 30 s" — u odhadů je vteřinová přesnost k ničemu. */
+/**
+ * Co export schválně vynechal: pole, která v e-shopu mezitím někdo upravil
+ * (aplikace je nepřepíše), a produkty, které v e-shopu ještě nejsou.
+ */
+function exportNotes(out: { kept?: number; keptList?: string[]; skippedNew?: string[] }): string {
+  return (out.kept ? ` · ${out.kept} polí se v e-shopu mezitím změnilo, nepřepisují se`
+    + ` (${(out.keptList ?? []).slice(0, 3).join(', ')}${out.kept > 3 ? '…' : ''})` : '')
+    + (out.skippedNew?.length ? ` · vynecháno ${out.skippedNew.length} produktů, které v e-shopu nejsou`
+      + ` (${out.skippedNew.slice(0, 3).join(', ')})` : '');
+}
+
 function humanTime(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds)) return '—';
   if (seconds < 60) return `${Math.max(1, Math.round(seconds))} s`;
@@ -482,7 +493,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
          * nebyla, a nikdo neměl jak poznat, že chybí.
          */
         toast(`Uloženo: ${result.products} produktů, ${result.fields} textů`
-          + (result.missed ? ` · ${result.missed} se zapsat nepodařilo` : ''),
+          + (result.missed ? ` · ${result.missed} se zapsat nepodařilo` : '')
+          + exportNotes(result),
           result.missed ? 'error' : undefined);
       }
     } catch (e: any) {
@@ -507,7 +519,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
       }
       const out = await api.ptrans.exportToAdmin({ codes, state });
       toast((out.note || `Vloženo: ${out.products} produktů, ${out.fields} textů`)
-        + (out.missed ? ` · ${out.missed} polí se zapsat nepodařilo` : ''),
+        + (out.missed ? ` · ${out.missed} polí se zapsat nepodařilo` : '')
+        + exportNotes(out),
         out.filled && !out.missed ? undefined : 'error');
     } catch (e: any) {
       toast(e.message, 'error');

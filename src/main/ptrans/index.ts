@@ -459,11 +459,51 @@ export async function retranslateField(code: string, lang: string, field: string
   return row?.translated ?? '';
 }
 
+/**
+ * Export vždy nad čerstvým feedem.
+ *
+ * Export staví na posledním staženém feedu. Když se mezitím v e-shopu
+ * něco změnilo (přejmenovaný produkt, upravený popis), nesl soubor starou
+ * podobu a import ji vrátil zpátky. Na skutečných datech 18. 11. tak měl
+ * export přepsat 20 českých popisů a 4 názvy, které se v e-shopu upravily
+ * po posledním stažení. Proto se feed stáhne těsně před exportem; když to
+ * nejde, export se neudělá.
+ */
+async function freshExport(options: ExportOptions) {
+  try {
+    await refreshFromUrl();
+  } catch (e: any) {
+    throw new Error(`Před exportem se nepodařilo stáhnout aktuální feed (${e?.message ?? e}). `
+      + 'Bez něj by export mohl přepsat novější úpravy z e-shopu — zkus to za chvíli znovu.');
+  }
+  return buildExport(options);
+}
+
+/** Proč je export prázdný — ať je jasné, že to není chyba. */
+function nothingToExport(built: ReturnType<typeof buildExport>): string {
+  if (built.kept.length) {
+    return `Není co exportovat — ${built.kept.length} polí se v e-shopu mezitím změnilo a aplikace je nepřepíše `
+      + `(např. ${built.kept.slice(0, 3).join(', ')}). Když je chceš přepsat, uprav je v aplikaci ručně.`;
+  }
+  if (built.unchanged) return 'Není co exportovat — v e-shopu je už všechno tak, jak to má aplikace.';
+  if (built.skippedNew.length) {
+    return `Není co exportovat — vybrané produkty (${built.skippedNew.slice(0, 3).join(', ')}) v e-shopu ještě nejsou. `
+      + 'Nový produkt se exportuje celý ze záložky Nový produkt.';
+  }
+  return 'Není co exportovat — u těchhle produktů aplikace zatím nic nenapsala ani nepřeložila.';
+}
+
+/** Co se do souboru schválně nedostalo — do hlášky. */
+function exportNotes(built: ReturnType<typeof buildExport>) {
+  return { kept: built.kept.length, keptList: built.kept.slice(0, 20), skippedNew: built.skippedNew };
+}
+
 /** Uloží export do souboru, který si uživatel vybere. */
 export async function exportToFile(options: ExportOptions = {}):
-  Promise<{ path: string; products: number; fields: number; missed: number } | null> {
-  const built = buildExport(options);
-  if (built.products === 0) throw new Error('Není co exportovat — u těchhle produktů aplikace zatím nic nenapsala ani nepřeložila.');
+  Promise<{ path: string; products: number; fields: number; missed: number;
+    kept: number; keptList: string[]; skippedNew: string[] } | null> {
+  const built = await freshExport(options);
+  if (built.products === 0) throw new Error(nothingToExport(built));
 
   const win = callerWindow();
   const stamp = new Date().toISOString().slice(0, 10);
@@ -473,7 +513,8 @@ export async function exportToFile(options: ExportOptions = {}):
   });
   if (res.canceled || !res.filePath) return null;
   fs.writeFileSync(res.filePath, built.xml, 'utf8');
-  return { path: res.filePath, products: built.products, fields: built.fields, missed: built.missed.length };
+  return { path: res.filePath, products: built.products, fields: built.fields, missed: built.missed.length,
+    ...exportNotes(built) };
 }
 
 /**
@@ -485,9 +526,10 @@ export async function exportToFile(options: ExportOptions = {}):
  * zůstává na člověku**, protože od té chvíle se produkty v e-shopu mění.
  */
 export async function exportToAdmin(options: ExportOptions = {}):
-  Promise<{ filled: boolean; note: string; products: number; fields: number; missed: number }> {
-  const built = buildExport(options);
-  if (built.products === 0) throw new Error('Není co exportovat — u těchhle produktů aplikace zatím nic nenapsala ani nepřeložila.');
+  Promise<{ filled: boolean; note: string; products: number; fields: number; missed: number;
+    kept: number; keptList: string[]; skippedNew: string[] }> {
+  const built = await freshExport(options);
+  if (built.products === 0) throw new Error(nothingToExport(built));
 
   const stamp = new Date().toISOString().slice(0, 10);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quentino-import-'));
@@ -498,7 +540,7 @@ export async function exportToAdmin(options: ExportOptions = {}):
   const out = await newproduct.openImportFile(file);
   return {
     filled: out.filled, note: out.note, products: built.products, fields: built.fields,
-    missed: built.missed.length
+    missed: built.missed.length, ...exportNotes(built)
   };
 }
 

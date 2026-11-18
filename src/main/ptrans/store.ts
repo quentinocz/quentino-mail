@@ -864,21 +864,42 @@ export function propagateSource(code: string, field: string, source: string): vo
  * `marks` = co z textu přišlo z paměti odstavců. Ruční úprava je smaže:
  * od té chvíle je text člověka, ne paměti.
  */
+/** Hodnota pole tak, jak je ve feedu z e-shopu. */
+function shopValue(code: string, lang: string, field: string): string {
+  const product = getDb().prepare('SELECT raw_xml FROM ptrans_products WHERE code = ?')
+    .get(code) as { raw_xml: string } | undefined;
+  return product ? (getField(product.raw_xml, lang, field) ?? '') : '';
+}
+
 export function saveTranslation(code: string, lang: string, field: string, value: string,
                                 model: string, manual = false, marks: { b: number; s: string }[] = []): void {
   const d = getDb();
-  const row = d.prepare('SELECT source_value FROM ptrans_fields WHERE code = ? AND lang = ? AND field = ?')
-    .get(code, lang, field) as { source_value: string } | undefined;
+  const row = d.prepare(
+    'SELECT source_value, value, translated, base_hash FROM ptrans_fields WHERE code = ? AND lang = ? AND field = ?'
+  ).get(code, lang, field) as
+    { source_value: string; value: string; translated: string | null; base_hash: string | null } | undefined;
   const source = row?.source_value ?? '';
+  /*
+   * Co bylo v e-shopu, když se pole překládalo. `value` je text z feedu,
+   * dokud ho nepřepíše náš vlastní překlad — pak platí otisk z minula.
+   * Export podle toho pozná, že v e-shopu mezitím někdo text změnil.
+   */
+  const base = !row
+    // Zdrojový jazyk aplikace po polích nevede — řádek vzniká až prvním
+    // vlastním textem (úklid, SEO titulek). V e-shopu je to, co ve feedu.
+    ? hashText(shopValue(code, lang, field))
+    : row.translated !== null && row.value === row.translated
+      ? (row.base_hash ?? null)
+      : hashText(row.value ?? '');
   d.prepare(`
     INSERT INTO ptrans_fields (code, lang, field, value, source_value, state, translated, translated_at,
-      translated_hash, model, manual, messy, reuse_marks)
-    VALUES (@code, @lang, @field, @value, @source, @state, @value, @at, @hash, @model, @manual, @messy, @marks)
+      translated_hash, model, manual, messy, reuse_marks, base_hash)
+    VALUES (@code, @lang, @field, @value, @source, @state, @value, @at, @hash, @model, @manual, @messy, @marks, @base)
     ON CONFLICT(code, lang, field) DO UPDATE SET
       value = excluded.value, state = excluded.state, translated = excluded.translated,
       translated_at = excluded.translated_at, translated_hash = excluded.translated_hash,
       model = excluded.model, manual = excluded.manual, messy = excluded.messy,
-      reuse_marks = excluded.reuse_marks
+      reuse_marks = excluded.reuse_marks, base_hash = excluded.base_hash
   `).run({
     code, lang, field, value, source,
     state: manual ? 'manual' : 'ok',
@@ -889,7 +910,8 @@ export function saveTranslation(code: string, lang: string, field: string, value
     // Po úklidu musí příznak zhasnout hned, ne až po dalším přepočtu stavů —
     // jinak by uklizený produkt zůstal ve filtru „nepořádek v HTML" viset
     messy: messyFlag({ translated: value, value, source_value: source }) ? 1 : 0,
-    marks: !manual && marks.length ? JSON.stringify(marks) : ''
+    marks: !manual && marks.length ? JSON.stringify(marks) : '',
+    base
   });
 }
 

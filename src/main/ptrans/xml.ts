@@ -315,8 +315,45 @@ const metaBlock = (metaKey: string) =>
  * někdy někdo vyplnil nebo které má e-shop založené. Otevírací značka
  * se opíše od sousedního záznamu, aby nový vypadal jako ostatní.
  */
+/**
+ * Typ záznamu metadat, jak ho má e-shop založený.
+ *
+ * Nový záznam dřív opsal otevírací značku od prvního souseda — a ten bývá
+ * `type="select"` (věková skupina). Text pro Google by se tak naimportoval
+ * jako výběr z číselníku. Typy jsou opsané z feedu e-shopu.
+ */
+const META_TYPES: Record<string, string> = {
+  is_bundle_google_merchant: 'checkbox',
+  gender_google_merchant: 'select',
+  age_group_google_merchant: 'select',
+  condition_google_merchant: 'input',
+  identifier_exists_google_merchant: 'input',
+  color_google_merchant: 'input',
+  title_google_merchant: 'input',
+  description_google_merchant: 'textarea',
+  redirect_301: 'textarea'
+};
+
+/**
+ * Hodnota zaškrtávacího pole.
+ *
+ * Upgates u typu `checkbox` čte „1" a „0". Aplikace ale u „setu" psala
+ * `yes`/`no` (tak to chce Google) — a e-shop každý neprázdný text vzal
+ * jako zaškrtnuto. Ve feedu proto mělo „je to set" zaškrtnuté 1369
+ * produktů z 1375, i jednotlivé kravaty. Google je pak bral jako sady.
+ */
+export function isCheckboxField(field: string): boolean {
+  const spec = fieldPlace(field);
+  return !!spec?.metaKey && META_TYPES[spec.metaKey] === 'checkbox';
+}
+
+export function checkboxValue(value: string): string {
+  return /^(1|yes|true|ano)$/i.test(String(value ?? '').trim()) ? '1' : '0';
+}
+
 function addMeta(block: string, metaKey: string): string {
-  const vzor = /<META\b[^>]*>/.exec(block)?.[0] ?? '<META>';
+  const typ = META_TYPES[metaKey];
+  const vzor = typ ? `<META type="${typ}">` : '<META>';
   const zaznam = `${vzor}\n\t\t\t\t<META_KEY>${metaKey}</META_KEY>\n\t\t\t\t<META_VALUES>\n\t\t\t\t</META_VALUES>\n\t\t\t</META>`;
   const konec = block.indexOf('</METAS>');
   if (konec !== -1) {
@@ -340,7 +377,8 @@ function setMetaValue(block: string, metaKey: string, lang: string, value: strin
   if (!meta) return block;
   let inner = meta[0];
 
-  const encoded = encodeValue(value, false);
+  const checkbox = /^<META\b[^>]*type="checkbox"/.test(inner) || META_TYPES[metaKey] === 'checkbox';
+  const encoded = encodeValue(checkbox ? checkboxValue(value) : value, false);
   const pair = new RegExp(`(<META_VALUE language="${lang}"[^>]*>)([\\s\\S]*?)(</META_VALUE>)`);
   const empty = new RegExp(`<META_VALUE language="${lang}"[^>]*/>`);
 
