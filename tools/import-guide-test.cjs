@@ -130,6 +130,55 @@ function ok(label, condition, detail = '') {
   check('u opravy se vybere aktualizace',
     [oprava.processing, oprava.fileStep], ['update', true]);
 
+  /*
+   * Okno nastavení po „Vytvořit import". Upgates v něm má předvybranou
+   * „Úpravu" u všech údajů — cen, skladu, kategorií, obrázků, variant.
+   * Patrik se ptal (18. 11.), jestli se to, co v souboru chybí, nepřenastaví
+   * na prázdno. Aplikace proto nechá „Úpravu" jen u toho, co soubor nese.
+   */
+  console.log('\nnastavení importu:\n');
+  const exportxml = require(path.join(DIST, 'ptrans/exportxml.js'));
+  const soubor = '<PRODUCTS><PRODUCT><CODE>A</CODE><DESCRIPTIONS><DESCRIPTION language="sk"><TITLE>x</TITLE>'
+    + '<SHORT_DESCRIPTION>y</SHORT_DESCRIPTION><LONG_DESCRIPTION>z</LONG_DESCRIPTION></DESCRIPTION></DESCRIPTIONS>'
+    + '<SEO_OPTIMALIZATION><SEO language="sk"><SEO_URL>u</SEO_URL><SEO_TITLE>t</SEO_TITLE>'
+    + '<SEO_META_DESCRIPTION>d</SEO_META_DESCRIPTION></SEO></SEO_OPTIMALIZATION>'
+    + '<METAS><META type="checkbox"><META_KEY>k</META_KEY></META></METAS></PRODUCT></PRODUCTS>';
+  const sloupce = exportxml.importColumns(soubor);
+  check('ze souboru se pozná, co nese', sloupce,
+    ['title', 'shortDescription', 'longDescription', 'seoURL', 'seoTitle', 'seoDescription', 'meta_key', 'meta_value']);
+  check('  soubor jen s metadaty nenechá ani název', exportxml.importColumns(
+    '<PRODUCT><CODE>A</CODE><METAS><META><META_KEY>k</META_KEY></META></METAS></PRODUCT>'), ['meta_key', 'meta_value']);
+
+  await page.goto('file://' + path.join(__dirname, 'fixtures/upgates-import-nastaveni.html'));
+  const nastaveni = await page.evaluate(guide.__test.settingsScript(sloupce));
+  const stav = await page.evaluate(() => {
+    const out = {};
+    document.querySelectorAll('#frm-editImportForm input[type=radio]:checked').forEach(el => { out[el.name] = el.value; });
+    return out;
+  });
+  const naUprave = Object.keys(stav).filter(name => name.startsWith('columns-') && stav[name] === 'update')
+    .map(name => name.slice(8)).sort();
+  check('„Úprava" zůstala jen u toho, co soubor nese', naUprave, [...sloupce].sort());
+  const vsech = Object.keys(stav).filter(name => name.startsWith('columns-')).length;
+  ok('  všechno ostatní je „Nezpracovávat" — ceny, sklad, kategorie, obrázky, varianty',
+    ['columns-normalPrice', 'columns-stock', 'columns-category', 'columns-imageURL', 'columns-variantStock',
+      'columns-active', 'columns-availability', 'columns-parameter']
+      .every(name => stav[name] === 'notProcess') && nastaveni.off === vsech - sloupce.length,
+    `vypnuto ${nastaveni.off} z ${vsech}`);
+  check('  nové položky se nezakládají, existující aktualizují, chybějící neoznačují',
+    [stav['settings[insert_yn]'], stav['settings[update_yn]'], stav['settings[mark_missing_yn]']], ['0', '1', '0']);
+  check('  žádný sloupec z exportu ve formuláři nechybí', nastaveni.missing, []);
+  ok('  do okna se připíše, co a proč se nastavilo',
+    await page.evaluate(() => !!document.querySelector('[data-quentino-note]')));
+  /* Co člověk potom přepne, se znovu nepřenastaví */
+  await page.evaluate(() => { document.querySelector('#columns-stock-2').checked = true; });
+  const znovu = await page.evaluate(guide.__test.settingsScript(sloupce));
+  ok('  podruhé se okno nepřenastavuje — volba člověka zůstane',
+    znovu.again === true && await page.evaluate(() => document.querySelector('#columns-stock-2').checked));
+  ok('  a nic se neuložilo', await page.evaluate(() => location.protocol === 'file:'));
+  check('bez okna nastavení skript nic nedělá', await page.evaluate(
+    'document.querySelector("#frm-editImportForm").remove(); ' + guide.__test.settingsScript(sloupce)), null);
+
   ok('na stránce nevznikla chyba', errors.length === 0, errors.join(' | '));
 
   await browser.close();

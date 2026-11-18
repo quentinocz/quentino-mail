@@ -8,7 +8,7 @@ import { syncFromFeed, ingestFile, ingestNewOnly, revertToFeed, recomputeStates,
   saveTranslation, summary, feedInfo, targetLangs, alignSources, SyncResult } from './store';
 import { run, stop, progress, planWork, translateOne, estimateRun } from './translate';
 import { applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl, SeoKind } from './seo';
-import { buildExport, exportPreview, ExportOptions } from './exportxml';
+import { buildExport, exportPreview, ExportOptions, importColumns, IMPORT_COLUMN_LABELS } from './exportxml';
 import { findDeviations, patternOverview, patternFor, derivePattern,
   suggestFix, applyFix, FixProposal } from './consistency';
 import { listStyles, forgetStyle, caseStyleFor, feedExamples, LearnedStyle } from './style';
@@ -18,7 +18,7 @@ import { tidyProduct, tidyProducts, messyFields } from './tidy';
 import { listMemory, saveMemory, deleteMemory, learnFromFeed, memoryStats, MemoryEntry, MemoryKind, LearnResult } from './memory';
 import { listColorRules, saveColorRule, deleteColorRule, learnColors, colorCoverage,
   BASE_COLORS, baseColorOf, ColorRule } from './colors';
-import { listBundleRules, saveBundleRule, deleteBundleRule, teachBundle, detectBundle,
+import { listBundleRules, saveBundleRule, deleteBundleRule, teachBundle, detectBundle, refreshBundles,
   bundlePreview, BundleRule } from './bundle';
 import { writeGoogleText, writeGoogleTexts, applyAttributes, googleView,
   getAttributeRules, saveAttributeRules, GOOGLE_LABELS, AttributeRules, GoogleField } from './google';
@@ -476,6 +476,7 @@ async function freshExport(options: ExportOptions) {
     throw new Error(`Před exportem se nepodařilo stáhnout aktuální feed (${e?.message ?? e}). `
       + 'Bez něj by export mohl přepsat novější úpravy z e-shopu — zkus to za chvíli znovu.');
   }
+  refreshBundles();
   return buildExport(options);
 }
 
@@ -495,13 +496,17 @@ function nothingToExport(built: ReturnType<typeof buildExport>): string {
 
 /** Co se do souboru schválně nedostalo — do hlášky. */
 function exportNotes(built: ReturnType<typeof buildExport>) {
-  return { kept: built.kept.length, keptList: built.kept.slice(0, 20), skippedNew: built.skippedNew };
+  return {
+    kept: built.kept.length, keptList: built.kept.slice(0, 20), skippedNew: built.skippedNew,
+    // Co nechat v nastavení importu na „Úprava" — zbytek „Nezpracovávat"
+    columns: importColumns(built.xml).map(one => IMPORT_COLUMN_LABELS[one] ?? one)
+  };
 }
 
 /** Uloží export do souboru, který si uživatel vybere. */
 export async function exportToFile(options: ExportOptions = {}):
   Promise<{ path: string; products: number; fields: number; missed: number;
-    kept: number; keptList: string[]; skippedNew: string[] } | null> {
+    kept: number; keptList: string[]; skippedNew: string[]; columns: string[] } | null> {
   const built = await freshExport(options);
   if (built.products === 0) throw new Error(nothingToExport(built));
 
@@ -527,7 +532,7 @@ export async function exportToFile(options: ExportOptions = {}):
  */
 export async function exportToAdmin(options: ExportOptions = {}):
   Promise<{ filled: boolean; note: string; products: number; fields: number; missed: number;
-    kept: number; keptList: string[]; skippedNew: string[] }> {
+    kept: number; keptList: string[]; skippedNew: string[]; columns: string[] }> {
   const built = await freshExport(options);
   if (built.products === 0) throw new Error(nothingToExport(built));
 
@@ -537,7 +542,7 @@ export async function exportToAdmin(options: ExportOptions = {}):
   fs.writeFileSync(file, built.xml, 'utf8');
 
   // Bez kódu produktu: víc produktů najednou je vždycky oprava stávajících
-  const out = await newproduct.openImportFile(file);
+  const out = await newproduct.openImportFile(file, '', importColumns(built.xml));
   return {
     filled: out.filled, note: out.note, products: built.products, fields: built.fields,
     missed: built.missed.length, ...exportNotes(built)

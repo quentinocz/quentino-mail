@@ -220,14 +220,14 @@ export const api = {
       includeSource?: boolean; state?: 'translated' | 'current';
     } = {}) =>
       call<{ path: string; products: number; fields: number; missed?: number;
-        kept?: number; keptList?: string[]; skippedNew?: string[] } | null>('ptrans:export', options),
+        kept?: number; keptList?: string[]; skippedNew?: string[]; columns?: string[] } | null>('ptrans:export', options),
     /** Totéž, ale rovnou do průvodce importem v administraci — bez ukládání na disk */
     exportToAdmin: (options: {
       langs?: string[]; codes?: string[]; mode?: 'slim' | 'full'; fields?: string[];
       includeSource?: boolean; state?: 'translated' | 'current';
     } = {}) =>
       call<{ filled: boolean; note: string; products: number; fields: number; missed?: number;
-        kept?: number; keptList?: string[]; skippedNew?: string[] }>(
+        kept?: number; keptList?: string[]; skippedNew?: string[]; columns?: string[] }>(
         'ptrans:exportToAdmin', options),
     /** Přidá produkty z ručně vybraného XML (novinky, které ještě nejsou ve feedu) */
     importFile: () => call<{ products: number; fields: number; paired: number; file: string } | null>('ptrans:importFile'),

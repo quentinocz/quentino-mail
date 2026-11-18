@@ -343,3 +343,36 @@ export function exportPreview(options: ExportOptions = {}): { products: number; 
 }
 
 export { feedHeader };
+
+/**
+ * Které sloupce importu soubor opravdu potřebuje.
+ *
+ * Upgates má v nastavení importu u každého údaje volbu „Nezpracovávat" /
+ * „Úprava" a výchozí je „Úprava" u všeho — ceny, sklad, kategorie, obrázky,
+ * varianty. Úsporný export ty části v souboru nemá, ale spoléhat na to, jak
+ * Upgates naloží s chybějícím prvkem, je zbytečné riziko. Proto se v okně
+ * importu nechá „Úprava" jen u toho, co v souboru je, a všechno ostatní se
+ * přepne na „Nezpracovávat" — chybějící údaj se pak nemůže vynulovat.
+ *
+ * Názvy jsou hodnoty `name="columns-…"` z formuláře importu.
+ */
+export function importColumns(xml: string): string[] {
+  const out: string[] = [];
+  const has = (tag: string) => new RegExp(`<${tag}[\\s>]`).test(xml);
+  if (has('TITLE')) out.push('title');
+  if (has('SHORT_DESCRIPTION')) out.push('shortDescription');
+  if (has('LONG_DESCRIPTION')) out.push('longDescription');
+  if (has('SEO_URL')) out.push('seoURL');
+  if (has('SEO_TITLE')) out.push('seoTitle');
+  if (has('SEO_META_DESCRIPTION')) out.push('seoDescription');
+  if (has('PARAMETER')) out.push('parameter');
+  if (has('META')) out.push('meta_key', 'meta_value');
+  return out;
+}
+
+/** Popisky sloupců tak, jak je ukazuje administrace — do hlášky. */
+export const IMPORT_COLUMN_LABELS: Record<string, string> = {
+  title: 'Název produktu', shortDescription: 'Krátký popis', longDescription: 'Dlouhý popis',
+  seoURL: 'URL adresa', seoTitle: 'SEO titulek', seoDescription: 'META popis',
+  parameter: 'Parametry', meta_key: 'Vlastní pole - klíč', meta_value: 'Vlastní pole - hodnota'
+};

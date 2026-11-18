@@ -20,7 +20,7 @@ import { rewriteSelection, proposeByTitle, TextChange } from './rewrite';
 import { buildProductXml } from './build';
 import { swapLinks } from './links';
 import { eurRate, EurRate } from './rate';
-import { runGuide, FILE_TAKEN } from './guide';
+import { runGuide, FILE_TAKEN, watchImportSettings } from './guide';
 import { learnParams, paramNames, paramValues, lookupParam, resolveParams, suggestParams,
   ParamEntry, ParamProposal } from './params';
 
@@ -494,7 +494,7 @@ export async function openProductImport(code: string):
  * `code` slouží jen k odvození, jestli jde o nový produkt nebo opravu —
  * prázdný znamená „víc produktů", a to je vždycky oprava.
  */
-export async function openImportFile(file: string, code = ''):
+export async function openImportFile(file: string, code = '', columns: string[] = []):
   Promise<{ filled: boolean; note: string; file: string }> {
   const win = importWin && !importWin.isDestroyed() ? importWin : new BrowserWindow({
     width: 1200, height: 860,
@@ -566,10 +566,20 @@ export async function openImportFile(file: string, code = ''):
 
   if (out.filled && out.url && looksLikeGuide(out.url)) setSetting(IMPORT_URL_KEY, out.url);
 
+  /*
+   * Po „Vytvořit import" přijde okno s nastavením, kde je „Úprava" u všeho.
+   * U opravy překladů (`columns`) se přepne na „Nezpracovávat" vše, co soubor
+   * nenese — hlídá se na pozadí, protože okno přijde až po kliknutí člověka.
+   */
+  const watching = (taken.saveShown || taken.name) && columns.length > 0;
+  if (watching) void watchImportSettings(win, columns).catch(() => null);
+
   const note = taken.saveShown || taken.name
     ? `Nastaveno: Upgates XML · ${processing === 'update' ? 'aktualizovat stávající' : 'pouze nové položky'}`
       + ' · jednorázově, soubor vložený. Zkontroluj to a dej „Vytvořit import" — '
       + 'spouštět ho za tebe nebudu.'
+      + (watching ? ' V dalším okně nechám „Úprava" jen u toho, co soubor nese, a zbytek přepnu'
+        + ' na „Nezpracovávat"; „Uložit" je zase na tobě.' : '')
     : (out.filled
       ? 'Soubor jsem vložil, ale stránka ho nepotvrdila — zkontroluj poslední krok průvodce.'
       : out.note);

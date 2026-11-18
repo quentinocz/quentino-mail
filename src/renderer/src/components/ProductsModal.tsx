@@ -492,9 +492,15 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
          * se řekne taky — dřív export hlásil i pole, která v souboru
          * nebyla, a nikdo neměl jak poznat, že chybí.
          */
+        /*
+         * Soubor se importuje ručně, a Upgates má v nastavení importu
+         * předvybranou „Úpravu" u všeho. Řekne se, co v něm nechat.
+         */
         toast(`Uloženo: ${result.products} produktů, ${result.fields} textů`
           + (result.missed ? ` · ${result.missed} se zapsat nepodařilo` : '')
-          + exportNotes(result),
+          + exportNotes(result)
+          + (result.columns?.length ? ` · V nastavení importu nech „Úprava" jen u: ${result.columns.join(', ')};`
+            + ' vše ostatní „Nezpracovávat"' : ''),
           result.missed ? 'error' : undefined);
       }
     } catch (e: any) {

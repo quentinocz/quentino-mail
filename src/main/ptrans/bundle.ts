@@ -1,5 +1,5 @@
 import { getDb } from '../db';
-import { getPtransSettings } from './store';
+import { getPtransSettings, saveTranslation } from './store';
 import { plain } from './detect';
 import { normalize } from './colors';
 
@@ -22,7 +22,7 @@ import { normalize } from './colors';
 const STRONG = ['set', 'sada', 'souprava', 'balicek', 'duo', 'trio', 'kit', 'bundle'];
 
 /** Slova, která set naznačují až ve spojení s druhým výrobkem. */
-const JOINERS = ['a', 's', 'se', 'and', 'with', '+', '&'];
+const JOINERS = ['a', 's', 'se', 'and', 'with', '+', '&', 'vcetne', 'vratane', 'plus', 'including'];
 
 /**
  * Druhy výrobků, seskupené podle toho, co to ve skutečnosti je.
@@ -39,7 +39,14 @@ const KINDS: { id: string; words: string[] }[] = [
   { id: 'kravata', words: ['kravata', 'kravatu', 'kravatou', 'kravaty', 'necktie', 'tie'] },
   { id: 'motylek', words: ['motylek', 'motylka', 'motylkem', 'motylik', 'motylikom', 'bow'] },
   { id: 'ksandy', words: ['ksandy', 'ksandami', 'sle', 'slemi', 'traky', 'trakmi', 'suspenders', 'braces'] },
-  { id: 'kapesnicek', words: ['kapesnicek', 'kapesnickem', 'kapesnik', 'vreckovka', 'vreckovkou'] },
+  /*
+   * I 2. pád: „motýlek **včetně kapesníčku**". Bez něj vyšel celý ten tvar
+   * názvu (40 motýlků PMKV a PMSKV) jako jeden výrobek, zatímco stejné zboží
+   * pojmenované „motýlek s kapesníčkem" jako set. Totéž svatební regaty
+   * s kapesníčkem — regata mezi druhy chyběla úplně.
+   */
+  { id: 'kapesnicek', words: ['kapesnicek', 'kapesnickem', 'kapesnicku', 'kapesnik', 'vreckovka', 'vreckovkou', 'vreckovky'] },
+  { id: 'regata', words: ['regata', 'regatou', 'regatu', 'regaty', 'ascot'] },
   { id: 'ponozky', words: ['ponozky', 'ponozkami', 'socks'] },
   { id: 'knofliky', words: ['knoflicky', 'knoflickami', 'knofliky', 'cufflinks'] },
   { id: 'kvetinka', words: ['kvetinka', 'kvetinkou', 'boutonniere'] },
@@ -232,4 +239,32 @@ export function bundlePreview(): { total: number; bundles: number; samples: { co
     if (samples.length < 30) samples.push({ code: row.code, title: row.title, reason: verdict.reason });
   }
   return { total: rows.length, bundles, samples };
+}
+
+/**
+ * Přepočítá „set" u produktů, kde ho určila pravidla.
+ *
+ * Hodnota se ukládá ve chvíli doplnění atributů. Když se pravidla zlepší
+ * (18. 11.: „motýlek včetně kapesníčku" a regaty s kapesníčkem — 58 setů),
+ * uložené „ne" by zůstalo a export by ho poslal do e-shopu. Proto se před
+ * exportem přepočítá. Ruční volba a naučená pravidla se nepřepisují —
+ * naučené pravidlo detekce sama respektuje.
+ */
+export function refreshBundles(): number {
+  const d = getDb();
+  const rows = d.prepare(
+    // `translated`, ne `value`: to druhé po stažení feedu nese hodnotu z e-shopu
+    `SELECT code, lang, translated AS value FROM ptrans_fields
+     WHERE field = 'google_bundle' AND manual = 0 AND model = 'pravidla'`
+  ).all() as { code: string; lang: string; value: string }[];
+  const verdicts = new Map<string, boolean>();
+  let changed = 0;
+  for (const row of rows) {
+    if (!verdicts.has(row.code)) verdicts.set(row.code, detectBundle(row.code).isBundle);
+    const want = verdicts.get(row.code) ? 'yes' : 'no';
+    if (row.value === want) continue;
+    saveTranslation(row.code, row.lang, 'google_bundle', want, 'pravidla');
+    changed++;
+  }
+  return changed;
 }

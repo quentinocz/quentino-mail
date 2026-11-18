@@ -102,4 +102,90 @@ export async function runGuide(win: BrowserWindow, processing: string = CHOICE.p
   return (out ?? null) as GuideResult | null;
 }
 
-export const __test = { guideScript, CHOICE };
+/* ---------- nastavení importu ---------- */
+
+/**
+ * Nastaví v okně „Před prvním importem si prosím zkontrolujte nastavení"
+ * jen to, co soubor nese.
+ *
+ * Po „Vytvořit import" Upgates otevře nastavení, kde je u **všech** údajů
+ * (ceny, sklad, kategorie, obrázky, varianty…) předvybraná „Úprava".
+ * Skript tu přepne na „Nezpracovávat" všechno kromě `columns`, nové položky
+ * nezakládá a chybějící neoznačuje (jinak by se 1000 produktů, které soubor
+ * nemá, označilo jako chybějící). **Neukládá** — „Uložit" je na člověku;
+ * do okna jen připíše, co a proč nastavil.
+ *
+ * Vrací `null`, když okno na stránce není; jednou nastavené okno se znovu
+ * nepřenastavuje (`data-quentino`), aby nepřepsalo, co člověk změnil.
+ */
+export function settingsScript(columns: string[]): string {
+  return `
+    (function () {
+      var form = document.querySelector('#frm-editImportForm');
+      if (!form) return null;
+      if (form.getAttribute('data-quentino') === '1') return { again: true };
+      var keep = ${JSON.stringify(columns)};
+      function radio(name, value) {
+        var el = form.querySelector('input[type=radio][name="' + name + '"][value="' + value + '"]');
+        if (!el) return false;
+        if (!el.checked) {
+          el.checked = true;
+          el.dispatchEvent(new Event('click', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return true;
+      }
+      var names = {};
+      form.querySelectorAll('input[type=radio][name^="columns-"]').forEach(function (el) { names[el.name] = true; });
+      var update = [], off = [], missing = [];
+      Object.keys(names).forEach(function (name) {
+        var column = name.slice('columns-'.length);
+        if (keep.indexOf(column) >= 0) { if (radio(name, 'update')) update.push(column); }
+        else if (radio(name, 'notProcess')) off.push(column);
+      });
+      keep.forEach(function (column) { if (!names['columns-' + column]) missing.push(column); });
+      var general = {
+        insert: radio('settings[insert_yn]', '0'),
+        update: radio('settings[update_yn]', '1'),
+        missing: radio('settings[mark_missing_yn]', '0')
+      };
+      form.setAttribute('data-quentino', '1');
+      var note = document.createElement('div');
+      note.className = 'alert alert-info';
+      note.setAttribute('data-quentino-note', '1');
+      note.textContent = 'Quentino App: „Úprava" zůstala jen u toho, co soubor nese ('
+        + update.length + ' údajů), ostatních ' + off.length + ' je „Nezpracovávat" — ceny, sklad, '
+        + 'kategorie ani obrázky se nezmění. Nové položky se nezakládají, chybějící se neoznačují. '
+        + 'Zkontroluj a ulož.';
+      form.insertBefore(note, form.firstChild);
+      return { update: update, off: off.length, missing: missing, general: general };
+    })()
+  `;
+}
+
+export interface SettingsResult {
+  update: string[];
+  off: number;
+  missing: string[];
+  general: { insert: boolean; update: boolean; missing: boolean };
+}
+
+/**
+ * Hlídá okno importu, až člověk klikne na „Vytvořit import", a nastaví ho.
+ *
+ * Okno se objeví až po jeho kliknutí a po načtení další stránky, takže se
+ * čeká — nejdéle `timeoutMs`, a skončí se i se zavřeným oknem.
+ */
+export async function watchImportSettings(win: BrowserWindow, columns: string[],
+                                          timeoutMs = 20 * 60_000): Promise<SettingsResult | null> {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    if (win.isDestroyed()) return null;
+    const out = await win.webContents.executeJavaScript(settingsScript(columns), true).catch(() => null);
+    if (out && !out.again) return out as SettingsResult;
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  }
+  return null;
+}
+
+export const __test = { guideScript, CHOICE, settingsScript };

@@ -1,0 +1,2328 @@
+<!doctype html>
+<!--
+  Okno „nastavení importu" z administrace Upgates (#64 · Upgates #9), jak ho
+  Patrik zkopíroval 18. 11. 2026. Token formuláře je nahrazený nulami.
+-->
+<html lang="cs"><head><meta charset="utf-8"><title>Nastavení importu</title></head><body>
+<div style="display: block; z-index: 1004; outline: 0px; height: auto; width: 700px; top: 463px; left: 805px;" class="ui-dialog ui-widget ui-widget-content ui-corner-all modal-cont-scroll" tabindex="-1" role="dialog" aria-labelledby="ui-dialog-title-dialogEditImport"><div class="ui-dialog-titlebar ui-widget-header ui-corner-all ui-helper-clearfix"><span class="ui-dialog-title" id="ui-dialog-title-dialogEditImport">#64 - Upgates #9</span><a href="#" class="ui-dialog-titlebar-close ui-corner-all" role="button"><span class="ui-icon ui-icon-closethick">close</span></a></div><div id="dialogEditImport" class="Dialog ui-dialog-content ui-widget-content" style="width: auto; min-height: 150px; height: auto;">
+
+	<div class="modal-cont">
+		<form action="/setup/export-import/default/default/64/?do=editImportForm-submit" method="post" id="frm-editImportForm" enctype="multipart/form-data" onsubmit="return nette.validateForm(this)">
+			<div class="alert alert-warning">Před prvním importem si prosím zkontrolujte nastavení!</div>
+
+				<h2 class="heading pt-0">Obecné</h2>
+				<div class="row form-row">
+					<div class="col-md-6">
+						<div class="form-group"><input type="checkbox" name="active_yn" id="frmeditImportForm-active_yn" checked="checked"><label for="frmeditImportForm-active_yn">Aktivní<i class="tip hlp" data-tip="&lt;p&gt;Povolit / dočasně zakázat daný import. Je možné rovněž aktivovat jednorázový import, který již proběhl.&lt;/p&gt;"></i></label></div>
+					</div>
+					<div class="col-md-6">
+						<div class="form-group form-group-text">
+							<span class="label">Typ</span>
+							<span>Upgates (XML)</span>
+						</div>
+					</div>
+					<div class="col-md-6">
+						<div class="md-form required"><input type="text" size="50" maxlength="50" class="text" name="name" id="frmeditImportForm-name" value="Upgates #9"><label class="required" for="frmeditImportForm-name">Název</label></div>
+					</div>
+					<div class="col-md-6">
+								<div class="form-group form-group-text">
+									<label>Soubor<i class="tip hlp" data-tip="&lt;p&gt;Nahrání datového souboru z vašeho počítače.&lt;/p&gt;"></i></label>
+									<span>										<a href="/setup/export-import/default/default/64/?file=quentino-preklady-cz-sk-en-2026-11-18.xml&amp;do=DownloadFile" title="quentino-preklady-cz-sk-en-2026-11-18.xml" target="_blank">quentino-preklady-cz...</a>
+										<a title="Upravit" href="#" class="ml-1" onclick="$('#FileEdit').toggle();"><i class="fa fa-pencil"></i></a>
+										<div id="FileEdit" style="display:none">
+											<div class="btn btn-primary btn-sm mt-1" style="overflow: hidden;" onclick="$('#frmeditImportForm-file').click();">Procházet ...</div>
+											<div id="GuideFileInfo" class="none"></div>
+											<div class="none"><input type="file" accept=".xml, .zip" class="text" name="file" id="frmeditImportForm-file"></div>
+										</div>
+									</span>
+								</div>
+					</div>
+				</div>
+
+
+				<h2 class="heading">Zakládání položek</h2>
+				<div class="row form-row">
+					<div class="col-md-6">
+						<div class="form-container radiolist">
+							<div class="label">Zakládat nové položky<i class="tip hlp" data-tip="&lt;p&gt;Nově importované položky se založí / nezaloží v e-shopu.&lt;/p&gt;
+&lt;a href='https://www.upgates.cz/a/import-dat-do-e-shopu#zakladani-polozek' class='chip'&gt;&lt;/a&gt;"></i></div>
+							<div class="form-group"><input type="radio" name="settings[insert_yn]" id="frmeditImportForm-settings-insert_yn-0" value="1" class="1"><label for="frmeditImportForm-settings-insert_yn-0">Ano</label><input type="radio" name="settings[insert_yn]" id="frmeditImportForm-settings-insert_yn-1" checked="checked" value="0" class="0"><label for="frmeditImportForm-settings-insert_yn-1">Ne</label></div>
+						</div>
+					</div>
+					<div class="col-md-6 InsertOption" style="display: none;">
+						<div class="form-container radiolist">
+							<div class="label">Zakládat položky bez kódu<i class="tip hlp" data-tip="&lt;p&gt;Povolit / nepovolit vytváření položek, které nemají v importu definovaný kód. V případě nepovolení se v budoucnu nezaloží duplicitní položka, která nemá žádný kód pro párování.&lt;/p&gt;
+&lt;a href='https://www.upgates.cz/a/import-dat-do-e-shopu#zakladani-polozek' class='chip'&gt;&lt;/a&gt;"></i></div>
+							<div class="form-group"><input type="radio" name="settings[insert_without_code_yn]" id="frmeditImportForm-settings-insert_without_code_yn-0" checked="checked" value="1" class="1"><label for="frmeditImportForm-settings-insert_without_code_yn-0">Ano</label><input type="radio" name="settings[insert_without_code_yn]" id="frmeditImportForm-settings-insert_without_code_yn-1" value="0" class="0"><label for="frmeditImportForm-settings-insert_without_code_yn-1">Ne</label></div>
+						</div>
+					</div>
+				</div>
+				<div class="row form-row">
+					<div class="col-md-6 InsertOption" style="display: none;">
+						<div class="md-form select-wrap">
+							<select onfocus="this.onmousewheel=function(){return false}" name="settings[new_items_active_yn]" id="frmeditImportForm-settings-new_items_active_yn"><option value="" selected="selected"></option><option value="1">aktivní</option><option value="0">neaktivní</option></select><label for="frmeditImportForm-settings-new_items_active_yn">Nové položky zobrazovat<i class="tip hlp" data-tip="&lt;p&gt;Vždy zakládat nové položky jako aktivní (zaškrtne se &lt;strong&gt;zobrazit na e-shopu&lt;/strong&gt;) / neaktivní (odškrtne se &lt;strong&gt;zobrazit na e-shopu&lt;/strong&gt;). Má nejvyšší prioritu.&lt;/p&gt;"></i></label>
+						</div>
+					</div>
+					<div class="col-md-6 InsertOption" style="display: none;">
+						<div class="md-form">
+							<input type="text" placeholder="Kód kategorie" class="text" name="settings[new_products_into_category]" id="frmeditImportForm-settings-new_products_into_category" value=""><label for="frmeditImportForm-settings-new_products_into_category">Nové produkty do kategorie<i class="tip hlp" data-tip="&lt;p&gt;Vložte kód kategorie, do které se mají vkládat nové produkty.&lt;/p&gt;"></i></label>
+						</div>
+					</div>
+				</div>
+				<div class="row form-row">
+					<div class="col-md-6 InsertOption" style="display: none;">
+	<div class="md-form select-wrap select-wrap-list SmartSelectContainer   ">
+	
+			<div id="SmartSelect-newProductsNotAvailabilitiesSmartSelect" class="select SmartSelect dropdown CustomDropdown IgnoreMouseOver" data-id="SmartSelectDropdownContainer-newProductsNotAvailabilitiesSmartSelect" data-text="--" data-default-text="--" data-name="new_products_not_available_availability" data-for="frmeditImportForm-settings-new_products_not_available_availability">
+				--
+		</div>		<label for="frmeditImportForm-settings-new_products_not_available_availability">
+
+			Nedostupnost u nových produktů<i class="tip hlp" data-tip="&lt;p&gt;U všech nově importovaných produktů se nastaví následující Nedostupnost.&lt;/p&gt;"></i>		</label>
+	
+	</div>
+					</div>
+				</div>
+
+				<h2 class="heading">Aktualizace položek</h2>
+				<div class="row form-row">
+					<div class="col-md-6">
+						<div class="form-container radiolist">
+							<div class="label">Aktualizovat existující položky<i class="tip hlp" data-tip="&lt;p&gt;Existující položky v e-shopu se upravují / neupravují prostřednictvím importu.&lt;/p&gt;
+&lt;a href='https://www.upgates.cz/a/import-dat-do-e-shopu#aktualizace-polozek' class='chip'&gt;&lt;/a&gt;"></i></div>
+							<div class="form-group"><input type="radio" name="settings[update_yn]" id="frmeditImportForm-settings-update_yn-0" checked="checked" value="1" class="1"><label for="frmeditImportForm-settings-update_yn-0">Ano</label><input type="radio" name="settings[update_yn]" id="frmeditImportForm-settings-update_yn-1" value="0" class="0"><label for="frmeditImportForm-settings-update_yn-1">Ne</label></div>
+						</div>
+					</div>
+						<div class="col-md-6 UpdateOption">
+							<div class="form-container radiolist">
+								<div class="label">Označovat chybějící položky<i class="tip hlp" data-tip="&lt;p&gt;Položky, které se nevyskytují v importu (ve kterém byly založeny) se označí jako Chybí v importu. Je třeba mít definován kód položky.&lt;/p&gt;
+&lt;a href='https://www.upgates.cz/a/import-dat-do-e-shopu#chybejici-polozky-v-importu' class='chip'&gt;&lt;/a&gt;"></i></div>
+								<div class="form-group"><input type="radio" name="settings[mark_missing_yn]" id="frmeditImportForm-settings-mark_missing_yn-0" value="1" class="1"><label for="frmeditImportForm-settings-mark_missing_yn-0">Ano</label><input type="radio" name="settings[mark_missing_yn]" id="frmeditImportForm-settings-mark_missing_yn-1" checked="checked" value="0" class="0"><label for="frmeditImportForm-settings-mark_missing_yn-1">Ne</label></div>
+							</div>
+						</div>
+						<div class="col-md-6 UpdateOption MarkMissingYn" style="overflow: hidden; display: none;">
+	<div class="md-form select-wrap select-wrap-list SmartSelectContainer   ">
+	
+			<div id="SmartSelect-missingProductsAvailabilitiesSmartSelect" class="select SmartSelect dropdown CustomDropdown IgnoreMouseOver" data-id="SmartSelectDropdownContainer-missingProductsAvailabilitiesSmartSelect" data-text="" data-default-text="--" data-name="missing_products" data-for="frmeditImportForm-settings-missing_products">
+				
+		</div>		<label for="frmeditImportForm-settings-missing_products">
+
+			Chybějící produkty<i class="tip hlp" data-tip="&lt;ul&gt;
+  &lt;li&gt;&lt;strong&gt;Ignorovat&lt;/strong&gt; - pokud v importu produkt chybí, na e-shopu se neprovede žádná akce.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Deaktivovat&lt;/strong&gt; - pokud v importu produkt chybí, na e-shopu se deaktivuje.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Odstranit&lt;/strong&gt; - pokud v importu produkt chybí, na e-shopu se odstraní z databáze.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Nastavit &lt;a href='/setup/shop/availability/'&gt;dostupnost&lt;/a&gt; na Není dostupný&lt;/strong&gt; - pokud v importu produkt chybí, na e-shopu se nastaví dostupnost Není dostupný (předdefinovaná dostupnost).&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Nastavit sklad na nulu&lt;/strong&gt; - pokud v importu produkt chybí, na e-shopu se nastaví počet produktů na skladě &lt;strong&gt;0&lt;/strong&gt;.&lt;/li&gt;
+&lt;/ul&gt;"></i>		</label>
+	
+	</div>
+						</div>						<div class="col-md-6 UpdateOption MarkMissingYn MarkMissingVariantsYn" style="overflow: hidden; display: block;">
+
+	<div class="md-form select-wrap select-wrap-list SmartSelectContainer   ">
+	
+			<div id="SmartSelect-missingVariantsAvailabilitiesSmartSelect" class="select SmartSelect dropdown CustomDropdown IgnoreMouseOver" data-id="SmartSelectDropdownContainer-missingVariantsAvailabilitiesSmartSelect" data-text="" data-default-text="--" data-name="missing_variants" data-for="frmeditImportForm-settings-missing_variants">
+				
+		</div>		<label for="frmeditImportForm-settings-missing_variants">
+
+			Chybějící varianty<i class="tip hlp" data-tip="&lt;p&gt;Obdobná logika jako v případě chybějících produktů výše.&lt;/p&gt;"></i>		</label>
+	
+	</div>
+						</div>
+				</div>
+
+				<h2 class="heading">Ostatní</h2>
+				<div class="row form-row">
+					<div class="col-md-6">
+						<div class="md-form reset-width-in">
+							<input type="text" size="3" maxlength="10" class="text" name="settings[prefix]" id="frmeditImportForm-settings-prefix" value=""><label for="frmeditImportForm-settings-prefix">Prefix před kódy<i class="tip hlp" data-tip="&lt;p&gt;Kód položky se naimportuje s prefixem. V případě více importů se tím zabezpečí unikátnost kódů.&lt;/p&gt;
+&lt;a href='https://www.upgates.cz/a/import-dat-do-e-shopu#parovani-polozek' class='chip'&gt;&lt;/a&gt;"></i></label>
+						</div>
+						<span class="form-text">maximálně 10 znaků</span>
+					</div>
+					<div class="col-md-6">
+						<div class="md-form reset-width-in">
+							<input type="number" inputmode="decimal" step="0.1" class="text" name="settings[margin]" id="frmeditImportForm-settings-margin" value="0"><label for="frmeditImportForm-settings-margin">Marže <small>%</small><i class="tip hlp" data-tip="&lt;p&gt;Procento, o které se zvýší importovaná základní cena. V případě záporné hodnoty se základní cena snižuje.&lt;/p&gt;
+&lt;a href='https://www.upgates.cz/a/prace-s-daty-v-importu#prices' class='chip'&gt;&lt;/a&gt;"></i></label>
+						</div>
+					</div>					<div class="col-md-6">
+
+						<div class="md-form select-wrap">
+							<select onfocus="this.onmousewheel=function(){return false}" name="settings[product_to_variant_yn]" id="frmeditImportForm-settings-product_to_variant_yn"><option value="0">Standardní</option><option value="1">Párovat produkt s variantou</option></select><label for="frmeditImportForm-settings-product_to_variant_yn">Zpracovávání variant<i class="tip hlp" data-tip="&lt;a href='https://www.upgates.cz/a/varianty#parovani-variant' class='chip'&gt;&lt;/a&gt;"></i></label>
+						</div>
+					</div>
+				</div>
+
+			<h2 class="heading mb-n15">Nastavení dat</h2>
+						<div class="table-responsive table-responsive-scroll ScrollTableContainer">
+
+				<table class="table table-nohover text-center border-top border-bottom ScrollTable" style="min-width: 34rem;">
+										<thead>
+						<tr>
+							<th class="text-left pl-0 heading">Hlavní</th>
+							<th class="nowrap w-0 pr-0"><a href="#" id="a-notProgress" onclick="selectRadio('notProcess');return false;">Nezpracovávat</a><i class="tip hlp" data-tip="&lt;p&gt;Daná informace se nebude do systému nikdy importovat.&lt;/p&gt;"></i></th>							<th class="nowrap w-0 pr-0 insert" style="display: none;"><a href="#" id="a-insert" onclick="selectRadio('insert');return false;" style="display: none;">Nový</a><i class="tip hlp insert" data-tip="&lt;p&gt;Daná informace se do systému importuje pouze poprvé, když se položka zakládá.&lt;/p&gt;" style="display: none;"></i></th>
+							<th class="nowrap w-0 pr-0 update"><a href="#" id="a-update" onclick="selectRadio('update');return false;">Úprava</a><i class="tip hlp update" data-tip="&lt;p&gt;Daná informace se do systému importuje pouze tehdy, pokud už položka v systému existuje. Dochází k její aktualizaci.&lt;/p&gt;"></i></th>
+							<th class="nowrap w-0 pr-0 both" style="display: none;"><a href="#" id="a-both" onclick="selectRadio('both');return false;" style="display: none;">Oba</a><i class="tip hlp both" data-tip="&lt;p&gt;Daná informace se do systému importuje při zakládání nové položky a také při její aktualizaci.&lt;/p&gt;" style="display: none;"></i></th>
+						</tr>
+					</thead>
+					<tbody class="border-bottom-0">
+
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Zobrazit na e-shopu</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-active" id="columns-active-0" value="notProcess" class="notProcess"><label for="columns-active-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-active" id="columns-active-1" value="insert" class="insert" style="display: none;"><label for="columns-active-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-active" id="columns-active-2" checked="" value="update" class="update"><label for="columns-active-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-active" id="columns-active-3" value="both" class="both" style="display: none;"><label for="columns-active-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Archivovaný</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-archived" id="columns-archived-0" value="notProcess" class="notProcess"><label for="columns-archived-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-archived" id="columns-archived-1" value="insert" class="insert" style="display: none;"><label for="columns-archived-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-archived" id="columns-archived-2" checked="" value="update" class="update"><label for="columns-archived-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-archived" id="columns-archived-3" value="both" class="both" style="display: none;"><label for="columns-archived-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Lze vložit do košíku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-canAddToBasket" id="columns-canAddToBasket-0" value="notProcess" class="notProcess"><label for="columns-canAddToBasket-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-canAddToBasket" id="columns-canAddToBasket-1" value="insert" class="insert" style="display: none;"><label for="columns-canAddToBasket-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-canAddToBasket" id="columns-canAddToBasket-2" checked="" value="update" class="update"><label for="columns-canAddToBasket-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-canAddToBasket" id="columns-canAddToBasket-3" value="both" class="both" style="display: none;"><label for="columns-canAddToBasket-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Název produktu</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-title" id="columns-title-0" value="notProcess" class="notProcess"><label for="columns-title-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-title" id="columns-title-1" value="insert" class="insert" style="display: none;"><label for="columns-title-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-title" id="columns-title-2" checked="" value="update" class="update"><label for="columns-title-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-title" id="columns-title-3" value="both" class="both" style="display: none;"><label for="columns-title-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="5">
+																<td class="text-left pl-0">
+									<span class="font-weight">Kód dodavatele</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-supplierCode" id="columns-supplierCode-0" value="notProcess" class="notProcess"><label for="columns-supplierCode-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-supplierCode" id="columns-supplierCode-1" value="insert" class="insert" style="display: none;"><label for="columns-supplierCode-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-supplierCode" id="columns-supplierCode-2" checked="" value="update" class="update"><label for="columns-supplierCode-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-supplierCode" id="columns-supplierCode-3" value="both" class="both" style="display: none;"><label for="columns-supplierCode-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="6">
+																<td class="text-left pl-0">
+									<span class="font-weight">EAN</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-ean" id="columns-ean-0" value="notProcess" class="notProcess"><label for="columns-ean-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-ean" id="columns-ean-1" value="insert" class="insert" style="display: none;"><label for="columns-ean-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-ean" id="columns-ean-2" checked="" value="update" class="update"><label for="columns-ean-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-ean" id="columns-ean-3" value="both" class="both" style="display: none;"><label for="columns-ean-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="7">
+																<td class="text-left pl-0">
+									<span class="font-weight">Výrobce</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-manufacturer" id="columns-manufacturer-0" value="notProcess" class="notProcess"><label for="columns-manufacturer-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-manufacturer" id="columns-manufacturer-1" value="insert" class="insert" style="display: none;"><label for="columns-manufacturer-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-manufacturer" id="columns-manufacturer-2" checked="" value="update" class="update"><label for="columns-manufacturer-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-manufacturer" id="columns-manufacturer-3" value="both" class="both" style="display: none;"><label for="columns-manufacturer-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="8">
+																<td class="text-left pl-0">
+									<span class="font-weight">Popis výrobce</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-manufacturerDescription" id="columns-manufacturerDescription-0" value="notProcess" class="notProcess"><label for="columns-manufacturerDescription-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-manufacturerDescription" id="columns-manufacturerDescription-1" value="insert" class="insert" style="display: none;"><label for="columns-manufacturerDescription-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-manufacturerDescription" id="columns-manufacturerDescription-2" checked="" value="update" class="update"><label for="columns-manufacturerDescription-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-manufacturerDescription" id="columns-manufacturerDescription-3" value="both" class="both" style="display: none;"><label for="columns-manufacturerDescription-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="9">
+																<td class="text-left pl-0">
+									<span class="font-weight">Obrázek výrobce</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-manufacturerImage" id="columns-manufacturerImage-0" value="notProcess" class="notProcess"><label for="columns-manufacturerImage-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-manufacturerImage" id="columns-manufacturerImage-1" value="insert" class="insert" style="display: none;"><label for="columns-manufacturerImage-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-manufacturerImage" id="columns-manufacturerImage-2" checked="" value="update" class="update"><label for="columns-manufacturerImage-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-manufacturerImage" id="columns-manufacturerImage-3" value="both" class="both" style="display: none;"><label for="columns-manufacturerImage-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="10">
+																<td class="text-left pl-0">
+									<span class="font-weight">Dostupnost</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-availability" id="columns-availability-0" value="notProcess" class="notProcess"><label for="columns-availability-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-availability" id="columns-availability-1" value="insert" class="insert" style="display: none;"><label for="columns-availability-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-availability" id="columns-availability-2" checked="" value="update" class="update"><label for="columns-availability-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-availability" id="columns-availability-3" value="both" class="both" style="display: none;"><label for="columns-availability-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="11">
+																<td class="text-left pl-0">
+									<span class="font-weight">Stav zásob</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-stock" id="columns-stock-0" value="notProcess" class="notProcess"><label for="columns-stock-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-stock" id="columns-stock-1" value="insert" class="insert" style="display: none;"><label for="columns-stock-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-stock" id="columns-stock-2" checked="" value="update" class="update"><label for="columns-stock-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-stock" id="columns-stock-3" value="both" class="both" style="display: none;"><label for="columns-stock-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="12">
+																<td class="text-left pl-0">
+									<span class="font-weight">Pozice na skladě</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-stockPosition" id="columns-stockPosition-0" value="notProcess" class="notProcess"><label for="columns-stockPosition-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-stockPosition" id="columns-stockPosition-1" value="insert" class="insert" style="display: none;"><label for="columns-stockPosition-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-stockPosition" id="columns-stockPosition-2" checked="" value="update" class="update"><label for="columns-stockPosition-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-stockPosition" id="columns-stockPosition-3" value="both" class="both" style="display: none;"><label for="columns-stockPosition-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="13">
+																<td class="text-left pl-0">
+									<span class="font-weight">Omezení objednání</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-limitOrders" id="columns-limitOrders-0" value="notProcess" class="notProcess"><label for="columns-limitOrders-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-limitOrders" id="columns-limitOrders-1" value="insert" class="insert" style="display: none;"><label for="columns-limitOrders-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-limitOrders" id="columns-limitOrders-2" checked="" value="update" class="update"><label for="columns-limitOrders-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-limitOrders" id="columns-limitOrders-3" value="both" class="both" style="display: none;"><label for="columns-limitOrders-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="14">
+																<td class="text-left pl-0">
+									<span class="font-weight">Hmotnost</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-weight" id="columns-weight-0" value="notProcess" class="notProcess"><label for="columns-weight-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-weight" id="columns-weight-1" value="insert" class="insert" style="display: none;"><label for="columns-weight-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-weight" id="columns-weight-2" checked="" value="update" class="update"><label for="columns-weight-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-weight" id="columns-weight-3" value="both" class="both" style="display: none;"><label for="columns-weight-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="15">
+																<td class="text-left pl-0">
+									<span class="font-weight">Jednotka</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-unit" id="columns-unit-0" value="notProcess" class="notProcess"><label for="columns-unit-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-unit" id="columns-unit-1" value="insert" class="insert" style="display: none;"><label for="columns-unit-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-unit" id="columns-unit-2" checked="" value="update" class="update"><label for="columns-unit-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-unit" id="columns-unit-3" value="both" class="both" style="display: none;"><label for="columns-unit-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="16">
+																<td class="text-left pl-0">
+									<span class="font-weight">Skupina doprav</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-shipmentGroup" id="columns-shipmentGroup-0" value="notProcess" class="notProcess"><label for="columns-shipmentGroup-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-shipmentGroup" id="columns-shipmentGroup-1" value="insert" class="insert" style="display: none;"><label for="columns-shipmentGroup-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-shipmentGroup" id="columns-shipmentGroup-2" checked="" value="update" class="update"><label for="columns-shipmentGroup-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-shipmentGroup" id="columns-shipmentGroup-3" value="both" class="both" style="display: none;"><label for="columns-shipmentGroup-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="17">
+																<td class="text-left pl-0">
+									<span class="font-weight">Zobrazit vybraným zákazníkům</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-showOnlyVisitors" id="columns-showOnlyVisitors-0" value="notProcess" class="notProcess"><label for="columns-showOnlyVisitors-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-showOnlyVisitors" id="columns-showOnlyVisitors-1" value="insert" class="insert" style="display: none;"><label for="columns-showOnlyVisitors-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-showOnlyVisitors" id="columns-showOnlyVisitors-2" checked="" value="update" class="update"><label for="columns-showOnlyVisitors-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-showOnlyVisitors" id="columns-showOnlyVisitors-3" value="both" class="both" style="display: none;"><label for="columns-showOnlyVisitors-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="18">
+																<td class="text-left pl-0">
+									<span class="font-weight">Omezení jednotky</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-length" id="columns-length-0" value="notProcess" class="notProcess"><label for="columns-length-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-length" id="columns-length-1" value="insert" class="insert" style="display: none;"><label for="columns-length-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-length" id="columns-length-2" checked="" value="update" class="update"><label for="columns-length-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-length" id="columns-length-3" value="both" class="both" style="display: none;"><label for="columns-length-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="19">
+																<td class="text-left pl-0">
+									<span class="font-weight">Pouze pro dospělé</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-adult" id="columns-adult-0" value="notProcess" class="notProcess"><label for="columns-adult-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-adult" id="columns-adult-1" value="insert" class="insert" style="display: none;"><label for="columns-adult-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-adult" id="columns-adult-2" checked="" value="update" class="update"><label for="columns-adult-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-adult" id="columns-adult-3" value="both" class="both" style="display: none;"><label for="columns-adult-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Štítky</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Novinka</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-new" id="columns-new-0" value="notProcess" class="notProcess"><label for="columns-new-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-new" id="columns-new-1" value="insert" class="insert" style="display: none;"><label for="columns-new-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-new" id="columns-new-2" checked="" value="update" class="update"><label for="columns-new-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-new" id="columns-new-3" value="both" class="both" style="display: none;"><label for="columns-new-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Novinka (od)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-newFrom" id="columns-newFrom-0" value="notProcess" class="notProcess"><label for="columns-newFrom-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-newFrom" id="columns-newFrom-1" value="insert" class="insert" style="display: none;"><label for="columns-newFrom-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-newFrom" id="columns-newFrom-2" checked="" value="update" class="update"><label for="columns-newFrom-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-newFrom" id="columns-newFrom-3" value="both" class="both" style="display: none;"><label for="columns-newFrom-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Novinka (do)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-newTo" id="columns-newTo-0" value="notProcess" class="notProcess"><label for="columns-newTo-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-newTo" id="columns-newTo-1" value="insert" class="insert" style="display: none;"><label for="columns-newTo-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-newTo" id="columns-newTo-2" checked="" value="update" class="update"><label for="columns-newTo-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-newTo" id="columns-newTo-3" value="both" class="both" style="display: none;"><label for="columns-newTo-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Akce</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-special" id="columns-special-0" value="notProcess" class="notProcess"><label for="columns-special-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-special" id="columns-special-1" value="insert" class="insert" style="display: none;"><label for="columns-special-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-special" id="columns-special-2" checked="" value="update" class="update"><label for="columns-special-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-special" id="columns-special-3" value="both" class="both" style="display: none;"><label for="columns-special-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="5">
+																<td class="text-left pl-0">
+									<span class="font-weight">Akce (od)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-specialFrom" id="columns-specialFrom-0" value="notProcess" class="notProcess"><label for="columns-specialFrom-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-specialFrom" id="columns-specialFrom-1" value="insert" class="insert" style="display: none;"><label for="columns-specialFrom-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-specialFrom" id="columns-specialFrom-2" checked="" value="update" class="update"><label for="columns-specialFrom-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-specialFrom" id="columns-specialFrom-3" value="both" class="both" style="display: none;"><label for="columns-specialFrom-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="6">
+																<td class="text-left pl-0">
+									<span class="font-weight">Akce (do)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-specialTo" id="columns-specialTo-0" value="notProcess" class="notProcess"><label for="columns-specialTo-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-specialTo" id="columns-specialTo-1" value="insert" class="insert" style="display: none;"><label for="columns-specialTo-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-specialTo" id="columns-specialTo-2" checked="" value="update" class="update"><label for="columns-specialTo-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-specialTo" id="columns-specialTo-3" value="both" class="both" style="display: none;"><label for="columns-specialTo-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="7">
+																<td class="text-left pl-0">
+									<span class="font-weight">Výprodej</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-sellout" id="columns-sellout-0" value="notProcess" class="notProcess"><label for="columns-sellout-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-sellout" id="columns-sellout-1" value="insert" class="insert" style="display: none;"><label for="columns-sellout-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-sellout" id="columns-sellout-2" checked="" value="update" class="update"><label for="columns-sellout-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-sellout" id="columns-sellout-3" value="both" class="both" style="display: none;"><label for="columns-sellout-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="8">
+																<td class="text-left pl-0">
+									<span class="font-weight">Výprodej (od)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-selloutFrom" id="columns-selloutFrom-0" value="notProcess" class="notProcess"><label for="columns-selloutFrom-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-selloutFrom" id="columns-selloutFrom-1" value="insert" class="insert" style="display: none;"><label for="columns-selloutFrom-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-selloutFrom" id="columns-selloutFrom-2" checked="" value="update" class="update"><label for="columns-selloutFrom-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-selloutFrom" id="columns-selloutFrom-3" value="both" class="both" style="display: none;"><label for="columns-selloutFrom-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="9">
+																<td class="text-left pl-0">
+									<span class="font-weight">Výprodej (do)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-selloutTo" id="columns-selloutTo-0" value="notProcess" class="notProcess"><label for="columns-selloutTo-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-selloutTo" id="columns-selloutTo-1" value="insert" class="insert" style="display: none;"><label for="columns-selloutTo-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-selloutTo" id="columns-selloutTo-2" checked="" value="update" class="update"><label for="columns-selloutTo-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-selloutTo" id="columns-selloutTo-3" value="both" class="both" style="display: none;"><label for="columns-selloutTo-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="10">
+																<td class="text-left pl-0">
+									<span class="font-weight">Štítky aktivní</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-labelActive" id="columns-labelActive-0" value="notProcess" class="notProcess"><label for="columns-labelActive-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-labelActive" id="columns-labelActive-1" value="insert" class="insert" style="display: none;"><label for="columns-labelActive-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-labelActive" id="columns-labelActive-2" checked="" value="update" class="update"><label for="columns-labelActive-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-labelActive" id="columns-labelActive-3" value="both" class="both" style="display: none;"><label for="columns-labelActive-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="11">
+																<td class="text-left pl-0">
+									<span class="font-weight">Štítky aktivní od</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-labelActiveFrom" id="columns-labelActiveFrom-0" value="notProcess" class="notProcess"><label for="columns-labelActiveFrom-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-labelActiveFrom" id="columns-labelActiveFrom-1" value="insert" class="insert" style="display: none;"><label for="columns-labelActiveFrom-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-labelActiveFrom" id="columns-labelActiveFrom-2" checked="" value="update" class="update"><label for="columns-labelActiveFrom-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-labelActiveFrom" id="columns-labelActiveFrom-3" value="both" class="both" style="display: none;"><label for="columns-labelActiveFrom-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="12">
+																<td class="text-left pl-0">
+									<span class="font-weight">Štítky aktivní do</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-labelActiveTo" id="columns-labelActiveTo-0" value="notProcess" class="notProcess"><label for="columns-labelActiveTo-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-labelActiveTo" id="columns-labelActiveTo-1" value="insert" class="insert" style="display: none;"><label for="columns-labelActiveTo-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-labelActiveTo" id="columns-labelActiveTo-2" checked="" value="update" class="update"><label for="columns-labelActiveTo-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-labelActiveTo" id="columns-labelActiveTo-3" value="both" class="both" style="display: none;"><label for="columns-labelActiveTo-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">SEO</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">URL adresa</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-seoURL" id="columns-seoURL-0" value="notProcess" class="notProcess"><label for="columns-seoURL-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-seoURL" id="columns-seoURL-1" value="insert" class="insert" style="display: none;"><label for="columns-seoURL-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-seoURL" id="columns-seoURL-2" checked="" value="update" class="update"><label for="columns-seoURL-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-seoURL" id="columns-seoURL-3" value="both" class="both" style="display: none;"><label for="columns-seoURL-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">SEO titulek</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-seoTitle" id="columns-seoTitle-0" value="notProcess" class="notProcess"><label for="columns-seoTitle-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-seoTitle" id="columns-seoTitle-1" value="insert" class="insert" style="display: none;"><label for="columns-seoTitle-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-seoTitle" id="columns-seoTitle-2" checked="" value="update" class="update"><label for="columns-seoTitle-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-seoTitle" id="columns-seoTitle-3" value="both" class="both" style="display: none;"><label for="columns-seoTitle-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">META popis</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-seoDescription" id="columns-seoDescription-0" value="notProcess" class="notProcess"><label for="columns-seoDescription-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-seoDescription" id="columns-seoDescription-1" value="insert" class="insert" style="display: none;"><label for="columns-seoDescription-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-seoDescription" id="columns-seoDescription-2" checked="" value="update" class="update"><label for="columns-seoDescription-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-seoDescription" id="columns-seoDescription-3" value="both" class="both" style="display: none;"><label for="columns-seoDescription-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Kategorie</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Kategorie</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-category" id="columns-category-0" value="notProcess" class="notProcess"><label for="columns-category-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-category" id="columns-category-1" value="insert" class="insert" style="display: none;"><label for="columns-category-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-category" id="columns-category-2" checked="" value="update" class="update"><label for="columns-category-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-category" id="columns-category-3" value="both" class="both" style="display: none;"><label for="columns-category-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Primární kategorie</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-categoryPrimary" id="columns-categoryPrimary-0" value="notProcess" class="notProcess"><label for="columns-categoryPrimary-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-categoryPrimary" id="columns-categoryPrimary-1" value="insert" class="insert" style="display: none;"><label for="columns-categoryPrimary-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-categoryPrimary" id="columns-categoryPrimary-2" checked="" value="update" class="update"><label for="columns-categoryPrimary-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-categoryPrimary" id="columns-categoryPrimary-3" value="both" class="both" style="display: none;"><label for="columns-categoryPrimary-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Pozice v kategorii</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-categoryPosition" id="columns-categoryPosition-0" value="notProcess" class="notProcess"><label for="columns-categoryPosition-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-categoryPosition" id="columns-categoryPosition-1" value="insert" class="insert" style="display: none;"><label for="columns-categoryPosition-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-categoryPosition" id="columns-categoryPosition-2" checked="" value="update" class="update"><label for="columns-categoryPosition-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-categoryPosition" id="columns-categoryPosition-3" value="both" class="both" style="display: none;"><label for="columns-categoryPosition-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Ceny</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Cena</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-normalPrice" id="columns-normalPrice-0" value="notProcess" class="notProcess"><label for="columns-normalPrice-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-normalPrice" id="columns-normalPrice-1" value="insert" class="insert" style="display: none;"><label for="columns-normalPrice-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-normalPrice" id="columns-normalPrice-2" checked="" value="update" class="update"><label for="columns-normalPrice-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-normalPrice" id="columns-normalPrice-3" value="both" class="both" style="display: none;"><label for="columns-normalPrice-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Sleva</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-discount" id="columns-discount-0" value="notProcess" class="notProcess"><label for="columns-discount-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-discount" id="columns-discount-1" value="insert" class="insert" style="display: none;"><label for="columns-discount-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-discount" id="columns-discount-2" checked="" value="update" class="update"><label for="columns-discount-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-discount" id="columns-discount-3" value="both" class="both" style="display: none;"><label for="columns-discount-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Akční cena</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-actionPrice" id="columns-actionPrice-0" value="notProcess" class="notProcess"><label for="columns-actionPrice-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-actionPrice" id="columns-actionPrice-1" value="insert" class="insert" style="display: none;"><label for="columns-actionPrice-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-actionPrice" id="columns-actionPrice-2" checked="" value="update" class="update"><label for="columns-actionPrice-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-actionPrice" id="columns-actionPrice-3" value="both" class="both" style="display: none;"><label for="columns-actionPrice-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Nákupní cena</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-buyPrice" id="columns-buyPrice-0" value="notProcess" class="notProcess"><label for="columns-buyPrice-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-buyPrice" id="columns-buyPrice-1" value="insert" class="insert" style="display: none;"><label for="columns-buyPrice-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-buyPrice" id="columns-buyPrice-2" checked="" value="update" class="update"><label for="columns-buyPrice-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-buyPrice" id="columns-buyPrice-3" value="both" class="both" style="display: none;"><label for="columns-buyPrice-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="5">
+																<td class="text-left pl-0">
+									<span class="font-weight">Běžná cena</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-commonPrice" id="columns-commonPrice-0" value="notProcess" class="notProcess"><label for="columns-commonPrice-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-commonPrice" id="columns-commonPrice-1" value="insert" class="insert" style="display: none;"><label for="columns-commonPrice-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-commonPrice" id="columns-commonPrice-2" checked="" value="update" class="update"><label for="columns-commonPrice-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-commonPrice" id="columns-commonPrice-3" value="both" class="both" style="display: none;"><label for="columns-commonPrice-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="6">
+																<td class="text-left pl-0">
+									<span class="font-weight">DPH</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-vatAmount" id="columns-vatAmount-0" value="notProcess" class="notProcess"><label for="columns-vatAmount-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-vatAmount" id="columns-vatAmount-1" value="insert" class="insert" style="display: none;"><label for="columns-vatAmount-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-vatAmount" id="columns-vatAmount-2" checked="" value="update" class="update"><label for="columns-vatAmount-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-vatAmount" id="columns-vatAmount-3" value="both" class="both" style="display: none;"><label for="columns-vatAmount-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="7">
+																<td class="text-left pl-0">
+									<span class="font-weight">Cenový vzorec</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-pricesFormula" id="columns-pricesFormula-0" value="notProcess" class="notProcess"><label for="columns-pricesFormula-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-pricesFormula" id="columns-pricesFormula-1" value="insert" class="insert" style="display: none;"><label for="columns-pricesFormula-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-pricesFormula" id="columns-pricesFormula-2" checked="" value="update" class="update"><label for="columns-pricesFormula-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-pricesFormula" id="columns-pricesFormula-3" value="both" class="both" style="display: none;"><label for="columns-pricesFormula-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="8">
+																<td class="text-left pl-0">
+									<span class="font-weight">Recyklační poplatek</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-recyclingFee" id="columns-recyclingFee-0" value="notProcess" class="notProcess"><label for="columns-recyclingFee-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-recyclingFee" id="columns-recyclingFee-1" value="insert" class="insert" style="display: none;"><label for="columns-recyclingFee-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-recyclingFee" id="columns-recyclingFee-2" checked="" value="update" class="update"><label for="columns-recyclingFee-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-recyclingFee" id="columns-recyclingFee-3" value="both" class="both" style="display: none;"><label for="columns-recyclingFee-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Text</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Dlouhý popis</span>
+																																				<div class="form-left pt-2 ml-1"><input type="checkbox" name="settings[nl2br_yn]" id="frmeditImportForm-settings-nl2br_yn"><label for="frmeditImportForm-settings-nl2br_yn">Převést nový řádek na &lt;br&gt;
+</label></div>
+								</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-longDescription" id="columns-longDescription-0" value="notProcess" class="notProcess"><label for="columns-longDescription-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-longDescription" id="columns-longDescription-1" value="insert" class="insert" style="display: none;"><label for="columns-longDescription-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-longDescription" id="columns-longDescription-2" checked="" value="update" class="update"><label for="columns-longDescription-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-longDescription" id="columns-longDescription-3" value="both" class="both" style="display: none;"><label for="columns-longDescription-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Krátký popis</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-shortDescription" id="columns-shortDescription-0" value="notProcess" class="notProcess"><label for="columns-shortDescription-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-shortDescription" id="columns-shortDescription-1" value="insert" class="insert" style="display: none;"><label for="columns-shortDescription-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-shortDescription" id="columns-shortDescription-2" checked="" value="update" class="update"><label for="columns-shortDescription-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-shortDescription" id="columns-shortDescription-3" value="both" class="both" style="display: none;"><label for="columns-shortDescription-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Obrázky</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">URL obrázku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-imageURL" id="columns-imageURL-0" value="notProcess" class="notProcess"><label for="columns-imageURL-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-imageURL" id="columns-imageURL-1" value="insert" class="insert" style="display: none;"><label for="columns-imageURL-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-imageURL" id="columns-imageURL-2" checked="" value="update" class="update"><label for="columns-imageURL-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-imageURL" id="columns-imageURL-3" value="both" class="both" style="display: none;"><label for="columns-imageURL-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Titulek obrázku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-imageTitle" id="columns-imageTitle-0" value="notProcess" class="notProcess"><label for="columns-imageTitle-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-imageTitle" id="columns-imageTitle-1" value="insert" class="insert" style="display: none;"><label for="columns-imageTitle-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-imageTitle" id="columns-imageTitle-2" checked="" value="update" class="update"><label for="columns-imageTitle-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-imageTitle" id="columns-imageTitle-3" value="both" class="both" style="display: none;"><label for="columns-imageTitle-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Hlavní obrázek</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-imageMain" id="columns-imageMain-0" value="notProcess" class="notProcess"><label for="columns-imageMain-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-imageMain" id="columns-imageMain-1" value="insert" class="insert" style="display: none;"><label for="columns-imageMain-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-imageMain" id="columns-imageMain-2" checked="" value="update" class="update"><label for="columns-imageMain-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-imageMain" id="columns-imageMain-3" value="both" class="both" style="display: none;"><label for="columns-imageMain-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Seznamový obrázek</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-imageList" id="columns-imageList-0" value="notProcess" class="notProcess"><label for="columns-imageList-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-imageList" id="columns-imageList-1" value="insert" class="insert" style="display: none;"><label for="columns-imageList-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-imageList" id="columns-imageList-2" checked="" value="update" class="update"><label for="columns-imageList-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-imageList" id="columns-imageList-3" value="both" class="both" style="display: none;"><label for="columns-imageList-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="5">
+																<td class="text-left pl-0">
+									<span class="font-weight">Pozice obrázku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-imagePosition" id="columns-imagePosition-0" value="notProcess" class="notProcess"><label for="columns-imagePosition-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-imagePosition" id="columns-imagePosition-1" value="insert" class="insert" style="display: none;"><label for="columns-imagePosition-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-imagePosition" id="columns-imagePosition-2" checked="" value="update" class="update"><label for="columns-imagePosition-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-imagePosition" id="columns-imagePosition-3" value="both" class="both" style="display: none;"><label for="columns-imagePosition-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="6">
+																<td class="text-left pl-0">
+									<span class="font-weight">Zobrazit v jazyku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-imageLanguage" id="columns-imageLanguage-0" value="notProcess" class="notProcess"><label for="columns-imageLanguage-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-imageLanguage" id="columns-imageLanguage-1" value="insert" class="insert" style="display: none;"><label for="columns-imageLanguage-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-imageLanguage" id="columns-imageLanguage-2" checked="" value="update" class="update"><label for="columns-imageLanguage-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-imageLanguage" id="columns-imageLanguage-3" value="both" class="both" style="display: none;"><label for="columns-imageLanguage-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Soubory</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">URL souboru</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-fileURL" id="columns-fileURL-0" value="notProcess" class="notProcess"><label for="columns-fileURL-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-fileURL" id="columns-fileURL-1" value="insert" class="insert" style="display: none;"><label for="columns-fileURL-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-fileURL" id="columns-fileURL-2" checked="" value="update" class="update"><label for="columns-fileURL-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-fileURL" id="columns-fileURL-3" value="both" class="both" style="display: none;"><label for="columns-fileURL-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Titulek obrázku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-fileTitle" id="columns-fileTitle-0" value="notProcess" class="notProcess"><label for="columns-fileTitle-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-fileTitle" id="columns-fileTitle-1" value="insert" class="insert" style="display: none;"><label for="columns-fileTitle-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-fileTitle" id="columns-fileTitle-2" checked="" value="update" class="update"><label for="columns-fileTitle-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-fileTitle" id="columns-fileTitle-3" value="both" class="both" style="display: none;"><label for="columns-fileTitle-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Pozice souboru</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-filePosition" id="columns-filePosition-0" value="notProcess" class="notProcess"><label for="columns-filePosition-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-filePosition" id="columns-filePosition-1" value="insert" class="insert" style="display: none;"><label for="columns-filePosition-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-filePosition" id="columns-filePosition-2" checked="" value="update" class="update"><label for="columns-filePosition-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-filePosition" id="columns-filePosition-3" value="both" class="both" style="display: none;"><label for="columns-filePosition-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Zobrazit v jazyku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-fileLanguage" id="columns-fileLanguage-0" value="notProcess" class="notProcess"><label for="columns-fileLanguage-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-fileLanguage" id="columns-fileLanguage-1" value="insert" class="insert" style="display: none;"><label for="columns-fileLanguage-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-fileLanguage" id="columns-fileLanguage-2" checked="" value="update" class="update"><label for="columns-fileLanguage-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-fileLanguage" id="columns-fileLanguage-3" value="both" class="both" style="display: none;"><label for="columns-fileLanguage-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Benefity</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Benefity</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-benefit" id="columns-benefit-0" value="notProcess" class="notProcess"><label for="columns-benefit-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-benefit" id="columns-benefit-1" value="insert" class="insert" style="display: none;"><label for="columns-benefit-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-benefit" id="columns-benefit-2" checked="" value="update" class="update"><label for="columns-benefit-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-benefit" id="columns-benefit-3" value="both" class="both" style="display: none;"><label for="columns-benefit-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Parametry</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Parametry</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-parameter" id="columns-parameter-0" value="notProcess" class="notProcess"><label for="columns-parameter-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-parameter" id="columns-parameter-1" value="insert" class="insert" style="display: none;"><label for="columns-parameter-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-parameter" id="columns-parameter-2" checked="" value="update" class="update"><label for="columns-parameter-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-parameter" id="columns-parameter-3" value="both" class="both" style="display: none;"><label for="columns-parameter-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Konfigurace</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-configuration" id="columns-configuration-0" value="notProcess" class="notProcess"><label for="columns-configuration-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-configuration" id="columns-configuration-1" value="insert" class="insert" style="display: none;"><label for="columns-configuration-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-configuration" id="columns-configuration-2" checked="" value="update" class="update"><label for="columns-configuration-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-configuration" id="columns-configuration-3" value="both" class="both" style="display: none;"><label for="columns-configuration-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Varianty</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Hlavní varianta</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantMain" id="columns-variantMain-0" value="notProcess" class="notProcess"><label for="columns-variantMain-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantMain" id="columns-variantMain-1" value="insert" class="insert" style="display: none;"><label for="columns-variantMain-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantMain" id="columns-variantMain-2" checked="" value="update" class="update"><label for="columns-variantMain-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantMain" id="columns-variantMain-3" value="both" class="both" style="display: none;"><label for="columns-variantMain-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Varianta - aktivní</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantActive" id="columns-variantActive-0" value="notProcess" class="notProcess"><label for="columns-variantActive-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantActive" id="columns-variantActive-1" value="insert" class="insert" style="display: none;"><label for="columns-variantActive-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantActive" id="columns-variantActive-2" checked="" value="update" class="update"><label for="columns-variantActive-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantActive" id="columns-variantActive-3" value="both" class="both" style="display: none;"><label for="columns-variantActive-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Lze vložit do košíku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantCanAddToBasket" id="columns-variantCanAddToBasket-0" value="notProcess" class="notProcess"><label for="columns-variantCanAddToBasket-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantCanAddToBasket" id="columns-variantCanAddToBasket-1" value="insert" class="insert" style="display: none;"><label for="columns-variantCanAddToBasket-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantCanAddToBasket" id="columns-variantCanAddToBasket-2" checked="" value="update" class="update"><label for="columns-variantCanAddToBasket-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantCanAddToBasket" id="columns-variantCanAddToBasket-3" value="both" class="both" style="display: none;"><label for="columns-variantCanAddToBasket-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Kód dodavatele</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantSupplierCode" id="columns-variantSupplierCode-0" value="notProcess" class="notProcess"><label for="columns-variantSupplierCode-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantSupplierCode" id="columns-variantSupplierCode-1" value="insert" class="insert" style="display: none;"><label for="columns-variantSupplierCode-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantSupplierCode" id="columns-variantSupplierCode-2" checked="" value="update" class="update"><label for="columns-variantSupplierCode-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantSupplierCode" id="columns-variantSupplierCode-3" value="both" class="both" style="display: none;"><label for="columns-variantSupplierCode-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="5">
+																<td class="text-left pl-0">
+									<span class="font-weight">EAN</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantEan" id="columns-variantEan-0" value="notProcess" class="notProcess"><label for="columns-variantEan-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantEan" id="columns-variantEan-1" value="insert" class="insert" style="display: none;"><label for="columns-variantEan-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantEan" id="columns-variantEan-2" checked="" value="update" class="update"><label for="columns-variantEan-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantEan" id="columns-variantEan-3" value="both" class="both" style="display: none;"><label for="columns-variantEan-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="6">
+																<td class="text-left pl-0">
+									<span class="font-weight">Poznámka k dostupnosti</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantAvailabilityNote" id="columns-variantAvailabilityNote-0" value="notProcess" class="notProcess"><label for="columns-variantAvailabilityNote-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantAvailabilityNote" id="columns-variantAvailabilityNote-1" value="insert" class="insert" style="display: none;"><label for="columns-variantAvailabilityNote-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantAvailabilityNote" id="columns-variantAvailabilityNote-2" checked="" value="update" class="update"><label for="columns-variantAvailabilityNote-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantAvailabilityNote" id="columns-variantAvailabilityNote-3" value="both" class="both" style="display: none;"><label for="columns-variantAvailabilityNote-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="7">
+																<td class="text-left pl-0">
+									<span class="font-weight">Dostupnost</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantAvailability" id="columns-variantAvailability-0" value="notProcess" class="notProcess"><label for="columns-variantAvailability-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantAvailability" id="columns-variantAvailability-1" value="insert" class="insert" style="display: none;"><label for="columns-variantAvailability-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantAvailability" id="columns-variantAvailability-2" checked="" value="update" class="update"><label for="columns-variantAvailability-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantAvailability" id="columns-variantAvailability-3" value="both" class="both" style="display: none;"><label for="columns-variantAvailability-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="8">
+																<td class="text-left pl-0">
+									<span class="font-weight">Stav zásob</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantStock" id="columns-variantStock-0" value="notProcess" class="notProcess"><label for="columns-variantStock-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantStock" id="columns-variantStock-1" value="insert" class="insert" style="display: none;"><label for="columns-variantStock-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantStock" id="columns-variantStock-2" checked="" value="update" class="update"><label for="columns-variantStock-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantStock" id="columns-variantStock-3" value="both" class="both" style="display: none;"><label for="columns-variantStock-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="9">
+																<td class="text-left pl-0">
+									<span class="font-weight">Pozice na skladě</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantStockPosition" id="columns-variantStockPosition-0" value="notProcess" class="notProcess"><label for="columns-variantStockPosition-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantStockPosition" id="columns-variantStockPosition-1" value="insert" class="insert" style="display: none;"><label for="columns-variantStockPosition-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantStockPosition" id="columns-variantStockPosition-2" checked="" value="update" class="update"><label for="columns-variantStockPosition-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantStockPosition" id="columns-variantStockPosition-3" value="both" class="both" style="display: none;"><label for="columns-variantStockPosition-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="10">
+																<td class="text-left pl-0">
+									<span class="font-weight">Hmotnost</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantWeight" id="columns-variantWeight-0" value="notProcess" class="notProcess"><label for="columns-variantWeight-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantWeight" id="columns-variantWeight-1" value="insert" class="insert" style="display: none;"><label for="columns-variantWeight-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantWeight" id="columns-variantWeight-2" checked="" value="update" class="update"><label for="columns-variantWeight-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantWeight" id="columns-variantWeight-3" value="both" class="both" style="display: none;"><label for="columns-variantWeight-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="11">
+																<td class="text-left pl-0">
+									<span class="font-weight">Parametry</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantParameter" id="columns-variantParameter-0" value="notProcess" class="notProcess"><label for="columns-variantParameter-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantParameter" id="columns-variantParameter-1" value="insert" class="insert" style="display: none;"><label for="columns-variantParameter-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantParameter" id="columns-variantParameter-2" checked="" value="update" class="update"><label for="columns-variantParameter-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantParameter" id="columns-variantParameter-3" value="both" class="both" style="display: none;"><label for="columns-variantParameter-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Štítky variant</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Novinka</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantNew" id="columns-variantNew-0" value="notProcess" class="notProcess"><label for="columns-variantNew-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantNew" id="columns-variantNew-1" value="insert" class="insert" style="display: none;"><label for="columns-variantNew-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantNew" id="columns-variantNew-2" checked="" value="update" class="update"><label for="columns-variantNew-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantNew" id="columns-variantNew-3" value="both" class="both" style="display: none;"><label for="columns-variantNew-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Novinka (od)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantNewFrom" id="columns-variantNewFrom-0" value="notProcess" class="notProcess"><label for="columns-variantNewFrom-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantNewFrom" id="columns-variantNewFrom-1" value="insert" class="insert" style="display: none;"><label for="columns-variantNewFrom-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantNewFrom" id="columns-variantNewFrom-2" checked="" value="update" class="update"><label for="columns-variantNewFrom-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantNewFrom" id="columns-variantNewFrom-3" value="both" class="both" style="display: none;"><label for="columns-variantNewFrom-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Novinka (do)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantNewTo" id="columns-variantNewTo-0" value="notProcess" class="notProcess"><label for="columns-variantNewTo-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantNewTo" id="columns-variantNewTo-1" value="insert" class="insert" style="display: none;"><label for="columns-variantNewTo-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantNewTo" id="columns-variantNewTo-2" checked="" value="update" class="update"><label for="columns-variantNewTo-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantNewTo" id="columns-variantNewTo-3" value="both" class="both" style="display: none;"><label for="columns-variantNewTo-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Akce</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantSpecial" id="columns-variantSpecial-0" value="notProcess" class="notProcess"><label for="columns-variantSpecial-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantSpecial" id="columns-variantSpecial-1" value="insert" class="insert" style="display: none;"><label for="columns-variantSpecial-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantSpecial" id="columns-variantSpecial-2" checked="" value="update" class="update"><label for="columns-variantSpecial-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantSpecial" id="columns-variantSpecial-3" value="both" class="both" style="display: none;"><label for="columns-variantSpecial-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="5">
+																<td class="text-left pl-0">
+									<span class="font-weight">Akce (od)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantSpecialFrom" id="columns-variantSpecialFrom-0" value="notProcess" class="notProcess"><label for="columns-variantSpecialFrom-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantSpecialFrom" id="columns-variantSpecialFrom-1" value="insert" class="insert" style="display: none;"><label for="columns-variantSpecialFrom-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantSpecialFrom" id="columns-variantSpecialFrom-2" checked="" value="update" class="update"><label for="columns-variantSpecialFrom-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantSpecialFrom" id="columns-variantSpecialFrom-3" value="both" class="both" style="display: none;"><label for="columns-variantSpecialFrom-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="6">
+																<td class="text-left pl-0">
+									<span class="font-weight">Akce (do)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantSpecialTo" id="columns-variantSpecialTo-0" value="notProcess" class="notProcess"><label for="columns-variantSpecialTo-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantSpecialTo" id="columns-variantSpecialTo-1" value="insert" class="insert" style="display: none;"><label for="columns-variantSpecialTo-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantSpecialTo" id="columns-variantSpecialTo-2" checked="" value="update" class="update"><label for="columns-variantSpecialTo-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantSpecialTo" id="columns-variantSpecialTo-3" value="both" class="both" style="display: none;"><label for="columns-variantSpecialTo-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="7">
+																<td class="text-left pl-0">
+									<span class="font-weight">Výprodej</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantSellout" id="columns-variantSellout-0" value="notProcess" class="notProcess"><label for="columns-variantSellout-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantSellout" id="columns-variantSellout-1" value="insert" class="insert" style="display: none;"><label for="columns-variantSellout-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantSellout" id="columns-variantSellout-2" checked="" value="update" class="update"><label for="columns-variantSellout-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantSellout" id="columns-variantSellout-3" value="both" class="both" style="display: none;"><label for="columns-variantSellout-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="8">
+																<td class="text-left pl-0">
+									<span class="font-weight">Výprodej (od)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantSelloutFrom" id="columns-variantSelloutFrom-0" value="notProcess" class="notProcess"><label for="columns-variantSelloutFrom-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantSelloutFrom" id="columns-variantSelloutFrom-1" value="insert" class="insert" style="display: none;"><label for="columns-variantSelloutFrom-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantSelloutFrom" id="columns-variantSelloutFrom-2" checked="" value="update" class="update"><label for="columns-variantSelloutFrom-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantSelloutFrom" id="columns-variantSelloutFrom-3" value="both" class="both" style="display: none;"><label for="columns-variantSelloutFrom-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="9">
+																<td class="text-left pl-0">
+									<span class="font-weight">Výprodej (do)</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantSelloutTo" id="columns-variantSelloutTo-0" value="notProcess" class="notProcess"><label for="columns-variantSelloutTo-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantSelloutTo" id="columns-variantSelloutTo-1" value="insert" class="insert" style="display: none;"><label for="columns-variantSelloutTo-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantSelloutTo" id="columns-variantSelloutTo-2" checked="" value="update" class="update"><label for="columns-variantSelloutTo-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantSelloutTo" id="columns-variantSelloutTo-3" value="both" class="both" style="display: none;"><label for="columns-variantSelloutTo-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="10">
+																<td class="text-left pl-0">
+									<span class="font-weight">Štítky aktivní</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantLabelActive" id="columns-variantLabelActive-0" value="notProcess" class="notProcess"><label for="columns-variantLabelActive-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantLabelActive" id="columns-variantLabelActive-1" value="insert" class="insert" style="display: none;"><label for="columns-variantLabelActive-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantLabelActive" id="columns-variantLabelActive-2" checked="" value="update" class="update"><label for="columns-variantLabelActive-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantLabelActive" id="columns-variantLabelActive-3" value="both" class="both" style="display: none;"><label for="columns-variantLabelActive-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="11">
+																<td class="text-left pl-0">
+									<span class="font-weight">Štítky aktivní od</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantLabelActiveFrom" id="columns-variantLabelActiveFrom-0" value="notProcess" class="notProcess"><label for="columns-variantLabelActiveFrom-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantLabelActiveFrom" id="columns-variantLabelActiveFrom-1" value="insert" class="insert" style="display: none;"><label for="columns-variantLabelActiveFrom-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantLabelActiveFrom" id="columns-variantLabelActiveFrom-2" checked="" value="update" class="update"><label for="columns-variantLabelActiveFrom-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantLabelActiveFrom" id="columns-variantLabelActiveFrom-3" value="both" class="both" style="display: none;"><label for="columns-variantLabelActiveFrom-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="12">
+																<td class="text-left pl-0">
+									<span class="font-weight">Štítky aktivní do</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantLabelActiveTo" id="columns-variantLabelActiveTo-0" value="notProcess" class="notProcess"><label for="columns-variantLabelActiveTo-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantLabelActiveTo" id="columns-variantLabelActiveTo-1" value="insert" class="insert" style="display: none;"><label for="columns-variantLabelActiveTo-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantLabelActiveTo" id="columns-variantLabelActiveTo-2" checked="" value="update" class="update"><label for="columns-variantLabelActiveTo-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantLabelActiveTo" id="columns-variantLabelActiveTo-3" value="both" class="both" style="display: none;"><label for="columns-variantLabelActiveTo-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Ceny variant</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Cena</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantNormalPrice" id="columns-variantNormalPrice-0" value="notProcess" class="notProcess"><label for="columns-variantNormalPrice-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantNormalPrice" id="columns-variantNormalPrice-1" value="insert" class="insert" style="display: none;"><label for="columns-variantNormalPrice-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantNormalPrice" id="columns-variantNormalPrice-2" checked="" value="update" class="update"><label for="columns-variantNormalPrice-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantNormalPrice" id="columns-variantNormalPrice-3" value="both" class="both" style="display: none;"><label for="columns-variantNormalPrice-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Sleva</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantDiscount" id="columns-variantDiscount-0" value="notProcess" class="notProcess"><label for="columns-variantDiscount-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantDiscount" id="columns-variantDiscount-1" value="insert" class="insert" style="display: none;"><label for="columns-variantDiscount-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantDiscount" id="columns-variantDiscount-2" checked="" value="update" class="update"><label for="columns-variantDiscount-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantDiscount" id="columns-variantDiscount-3" value="both" class="both" style="display: none;"><label for="columns-variantDiscount-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Akční cena</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantActionPrice" id="columns-variantActionPrice-0" value="notProcess" class="notProcess"><label for="columns-variantActionPrice-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantActionPrice" id="columns-variantActionPrice-1" value="insert" class="insert" style="display: none;"><label for="columns-variantActionPrice-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantActionPrice" id="columns-variantActionPrice-2" checked="" value="update" class="update"><label for="columns-variantActionPrice-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantActionPrice" id="columns-variantActionPrice-3" value="both" class="both" style="display: none;"><label for="columns-variantActionPrice-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Nákupní cena</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantBuyPrice" id="columns-variantBuyPrice-0" value="notProcess" class="notProcess"><label for="columns-variantBuyPrice-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantBuyPrice" id="columns-variantBuyPrice-1" value="insert" class="insert" style="display: none;"><label for="columns-variantBuyPrice-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantBuyPrice" id="columns-variantBuyPrice-2" checked="" value="update" class="update"><label for="columns-variantBuyPrice-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantBuyPrice" id="columns-variantBuyPrice-3" value="both" class="both" style="display: none;"><label for="columns-variantBuyPrice-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="5">
+																<td class="text-left pl-0">
+									<span class="font-weight">Běžná cena</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantCommonPrice" id="columns-variantCommonPrice-0" value="notProcess" class="notProcess"><label for="columns-variantCommonPrice-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantCommonPrice" id="columns-variantCommonPrice-1" value="insert" class="insert" style="display: none;"><label for="columns-variantCommonPrice-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantCommonPrice" id="columns-variantCommonPrice-2" checked="" value="update" class="update"><label for="columns-variantCommonPrice-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantCommonPrice" id="columns-variantCommonPrice-3" value="both" class="both" style="display: none;"><label for="columns-variantCommonPrice-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Obrázky variant</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Obrázek varianty</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantImageURL" id="columns-variantImageURL-0" value="notProcess" class="notProcess"><label for="columns-variantImageURL-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantImageURL" id="columns-variantImageURL-1" value="insert" class="insert" style="display: none;"><label for="columns-variantImageURL-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantImageURL" id="columns-variantImageURL-2" checked="" value="update" class="update"><label for="columns-variantImageURL-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantImageURL" id="columns-variantImageURL-3" value="both" class="both" style="display: none;"><label for="columns-variantImageURL-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Titulek obrázku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantImageTitle" id="columns-variantImageTitle-0" value="notProcess" class="notProcess"><label for="columns-variantImageTitle-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantImageTitle" id="columns-variantImageTitle-1" value="insert" class="insert" style="display: none;"><label for="columns-variantImageTitle-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantImageTitle" id="columns-variantImageTitle-2" checked="" value="update" class="update"><label for="columns-variantImageTitle-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantImageTitle" id="columns-variantImageTitle-3" value="both" class="both" style="display: none;"><label for="columns-variantImageTitle-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="3">
+																<td class="text-left pl-0">
+									<span class="font-weight">Hlavní obrázek</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantImageMain" id="columns-variantImageMain-0" value="notProcess" class="notProcess"><label for="columns-variantImageMain-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantImageMain" id="columns-variantImageMain-1" value="insert" class="insert" style="display: none;"><label for="columns-variantImageMain-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantImageMain" id="columns-variantImageMain-2" checked="" value="update" class="update"><label for="columns-variantImageMain-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantImageMain" id="columns-variantImageMain-3" value="both" class="both" style="display: none;"><label for="columns-variantImageMain-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="4">
+																<td class="text-left pl-0">
+									<span class="font-weight">Seznamový obrázek</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantImageList" id="columns-variantImageList-0" value="notProcess" class="notProcess"><label for="columns-variantImageList-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantImageList" id="columns-variantImageList-1" value="insert" class="insert" style="display: none;"><label for="columns-variantImageList-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantImageList" id="columns-variantImageList-2" checked="" value="update" class="update"><label for="columns-variantImageList-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantImageList" id="columns-variantImageList-3" value="both" class="both" style="display: none;"><label for="columns-variantImageList-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="5">
+																<td class="text-left pl-0">
+									<span class="font-weight">Pozice obrázku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantImagePosition" id="columns-variantImagePosition-0" value="notProcess" class="notProcess"><label for="columns-variantImagePosition-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantImagePosition" id="columns-variantImagePosition-1" value="insert" class="insert" style="display: none;"><label for="columns-variantImagePosition-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantImagePosition" id="columns-variantImagePosition-2" checked="" value="update" class="update"><label for="columns-variantImagePosition-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantImagePosition" id="columns-variantImagePosition-3" value="both" class="both" style="display: none;"><label for="columns-variantImagePosition-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="6">
+																<td class="text-left pl-0">
+									<span class="font-weight">Zobrazit v jazyku</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-variantImageLanguage" id="columns-variantImageLanguage-0" value="notProcess" class="notProcess"><label for="columns-variantImageLanguage-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-variantImageLanguage" id="columns-variantImageLanguage-1" value="insert" class="insert" style="display: none;"><label for="columns-variantImageLanguage-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-variantImageLanguage" id="columns-variantImageLanguage-2" checked="" value="update" class="update"><label for="columns-variantImageLanguage-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-variantImageLanguage" id="columns-variantImageLanguage-3" value="both" class="both" style="display: none;"><label for="columns-variantImageLanguage-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Související produkty</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Související produkty</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-related" id="columns-related-0" value="notProcess" class="notProcess"><label for="columns-related-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-related" id="columns-related-1" value="insert" class="insert" style="display: none;"><label for="columns-related-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-related" id="columns-related-2" checked="" value="update" class="update"><label for="columns-related-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-related" id="columns-related-3" value="both" class="both" style="display: none;"><label for="columns-related-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Alternativní produkty</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Alternativní produkty</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-alternative" id="columns-alternative-0" value="notProcess" class="notProcess"><label for="columns-alternative-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-alternative" id="columns-alternative-1" value="insert" class="insert" style="display: none;"><label for="columns-alternative-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-alternative" id="columns-alternative-2" checked="" value="update" class="update"><label for="columns-alternative-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-alternative" id="columns-alternative-3" value="both" class="both" style="display: none;"><label for="columns-alternative-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Příslušenství</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Příslušenství</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-accessories" id="columns-accessories-0" value="notProcess" class="notProcess"><label for="columns-accessories-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-accessories" id="columns-accessories-1" value="insert" class="insert" style="display: none;"><label for="columns-accessories-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-accessories" id="columns-accessories-2" checked="" value="update" class="update"><label for="columns-accessories-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-accessories" id="columns-accessories-3" value="both" class="both" style="display: none;"><label for="columns-accessories-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Dárky</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Dárky</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-gifts" id="columns-gifts-0" value="notProcess" class="notProcess"><label for="columns-gifts-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-gifts" id="columns-gifts-1" value="insert" class="insert" style="display: none;"><label for="columns-gifts-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-gifts" id="columns-gifts-2" checked="" value="update" class="update"><label for="columns-gifts-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-gifts" id="columns-gifts-3" value="both" class="both" style="display: none;"><label for="columns-gifts-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Sada</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Sada</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-sets" id="columns-sets-0" value="notProcess" class="notProcess"><label for="columns-sets-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-sets" id="columns-sets-1" value="insert" class="insert" style="display: none;"><label for="columns-sets-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-sets" id="columns-sets-2" checked="" value="update" class="update"><label for="columns-sets-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-sets" id="columns-sets-3" value="both" class="both" style="display: none;"><label for="columns-sets-3" class="d-inline"></label>
+								</td>
+							</tr>
+
+							</tbody>
+							<thead>
+								<tr class="header">
+									<th class="text-left pl-0 heading">Vlastní pole</th>
+									<th class="nowrap w-0 pr-0">Nezpracovávat</th>									<th class="nowrap w-0 pr-0 insert" style="display: none;">Nový</th>
+									<th class="nowrap w-0 pr-0 update">Upravit</th>
+									<th class="nowrap w-0 pr-0 both" style="display: none;">Oba</th>
+								</tr>
+							</thead>
+							<tbody class="border-bottom-0">
+														<tr data-row_id="1">
+																<td class="text-left pl-0">
+									<span class="font-weight">Vlastní pole - klíč</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-meta_key" id="columns-meta_key-0" value="notProcess" class="notProcess"><label for="columns-meta_key-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-meta_key" id="columns-meta_key-1" value="insert" class="insert" style="display: none;"><label for="columns-meta_key-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-meta_key" id="columns-meta_key-2" checked="" value="update" class="update"><label for="columns-meta_key-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-meta_key" id="columns-meta_key-3" value="both" class="both" style="display: none;"><label for="columns-meta_key-3" class="d-inline"></label>
+								</td>
+							</tr>
+														<tr data-row_id="2">
+																<td class="text-left pl-0">
+									<span class="font-weight">Vlastní pole - hodnota</span>
+																										</td>
+																<td class="pr-0">
+									<input type="radio" name="columns-meta_value" id="columns-meta_value-0" value="notProcess" class="notProcess"><label for="columns-meta_value-0" class="d-inline"></label>
+								</td>																<td class="pr-0 insert" style="display: none;">
+
+									<input type="radio" name="columns-meta_value" id="columns-meta_value-1" value="insert" class="insert" style="display: none;"><label for="columns-meta_value-1" class="d-inline"></label>
+								</td>
+																<td class="pr-0 update">
+
+									<input type="radio" name="columns-meta_value" id="columns-meta_value-2" checked="" value="update" class="update"><label for="columns-meta_value-2" class="d-inline"></label>
+								</td>
+																<td class="pr-0 both" style="display: none;">
+
+									<input type="radio" name="columns-meta_value" id="columns-meta_value-3" value="both" class="both" style="display: none;"><label for="columns-meta_value-3" class="d-inline"></label>
+								</td>
+							</tr>
+					</tbody>
+				</table>
+			</div>
+			<div class="row form-row pt-3">
+				<div class="col-md-6">					<div class="form-group form-group-text">
+
+						<span class="label">Vytvořeno</span>
+						<span class="text-nowrap">18.11.2026, 15:40:03</span>
+					</div>
+				</div>
+				<div class="col-md-6">				</div>
+			</div>
+			<div class="dialog-buttons">
+
+					<input type="submit" class="button" name="save" id="frmeditImportForm-save" value="Uložit">
+			</div>
+
+		<div style="display:none"><input type="hidden" name="_token_" id="frmeditImportForm-_token_" value="0000"><input type="hidden" name="settings[csv_configuration_id]" id="frmeditImportForm-settings-csv_configuration_id" value=""><input type="hidden" name="settings[missing_products_id]" id="frmeditImportForm-settings-missing_products_id" value=""><input type="hidden" name="settings[missing_variants_id]" id="frmeditImportForm-settings-missing_variants_id" value=""><input type="hidden" name="settings[new_products_not_available_availability_id]" id="frmeditImportForm-settings-new_products_not_available_availability_id" value=""><input type="hidden" name="columns_insert" id="frmeditImportForm-columns_insert" value=""><input type="hidden" name="columns_update" id="frmeditImportForm-columns_update" value=""><input type="hidden" name="import_id" id="frmeditImportForm-import_id" value="64"></div>
+</form>
+<!-- Nette Form validator -->
+
+
+
+
+
+<!-- /Nette Form validator -->
+
+
+	</div>
+</div></div>
+</body></html>
