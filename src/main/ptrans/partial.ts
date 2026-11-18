@@ -16,9 +16,20 @@ type Tree = { [key: string]: string | Tree };
 const END = Symbol('konec');
 
 export function partialJson(raw: string): Tree {
+  return partialJsonState(raw).tree;
+}
+
+/**
+ * Totéž, a k tomu cesta k rozepsanému řetězci (`["sk", "long"]`) —
+ * podle ní se pozná, na kterém poli model právě píše a která jsou hotová.
+ * `open` je `null`, když se zrovna nepíše žádná hodnota.
+ */
+export function partialJsonState(raw: string): { tree: Tree; open: string[] | null } {
   const text = raw ?? '';
   let i = text.indexOf('{');
-  if (i < 0) return {};
+  let open: string[] | null = null;
+  const path: string[] = [];
+  if (i < 0) return { tree: {}, open };
 
   const ws = () => { while (i < text.length && /\s/.test(text[i])) i++; };
 
@@ -67,11 +78,13 @@ export function partialJson(raw: string): Tree {
       if (text[i] === '"') {
         const value = str();
         into[key.value] = value.value;
-        if (value.open) throw END;
+        if (value.open) { open = [...path, key.value]; throw END; }
       } else if (text[i] === '{') {
         const inner: Tree = {};
         into[key.value] = inner;
+        path.push(key.value);
         obj(inner);
+        path.pop();
       } else {
         // Číslo, true/false, pole — v odpovědi překladu nejsou; přeskočí se
         while (i < text.length && text[i] !== ',' && text[i] !== '}') i++;
@@ -80,6 +93,6 @@ export function partialJson(raw: string): Tree {
   };
 
   const root: Tree = {};
-  try { obj(root); } catch (e) { if (e !== END) return root; }
-  return root;
+  try { obj(root); } catch (e) { if (e !== END) return { tree: root, open: null }; }
+  return { tree: root, open };
 }

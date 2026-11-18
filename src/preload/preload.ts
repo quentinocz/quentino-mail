@@ -60,7 +60,7 @@ const ALLOWED_INVOKE = [
   'chat:cards', 'chat:searchProducts', 'chat:productInDomain', 'chat:suggest',
   // Překlady produktů
   'ptrans:overview', 'ptrans:saveSettings', 'ptrans:refresh', 'ptrans:list', 'ptrans:codes', 'ptrans:fields',
-  'ptrans:edit', 'ptrans:retranslate', 'ptrans:run', 'ptrans:stop', 'ptrans:progress', 'ptrans:plan',
+  'ptrans:edit', 'ptrans:retranslate', 'ptrans:run', 'ptrans:stop', 'ptrans:progress', 'ptrans:plan', 'ptrans:estimate',
   'ptrans:googleTitles', 'ptrans:templatePreview', 'ptrans:generateSeo', 'ptrans:seoUrl',
   'ptrans:exportPreview', 'ptrans:export', 'ptrans:exportToAdmin', 'ptrans:importFile', 'ptrans:redirectPreview',
   'supabase:status', 'supabase:ping',
@@ -162,7 +162,7 @@ const ALLOWED_INVOKE = [
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
   'packing:progress', 'ig:changed', 'ig:connected', 'ig:planStep', 'ig:videoStep', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
-  'ptrans:progress', 'ptrans:changed', 'ptrans:live', 'ptrans:product', 'np:step', 'zk:vystav-krok',
+  'ptrans:progress', 'ptrans:changed', 'ptrans:product', 'np:step', 'zk:vystav-krok',
   'articles:progress', 'articles:changed', 'articles:check',
   'media:progress', 'media:incoming', 'media:watched',
   // Snímek náhledu chodí jako bajty; data URL by za vteřinu nasypala megabajty řetězců

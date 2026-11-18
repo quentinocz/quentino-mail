@@ -111,6 +111,11 @@ export interface AskOptions {
    * a náhled se tím sám srovná.
    */
   onText?: (soFar: string) => void;
+  /**
+   * Čeká se před dalším pokusem — kolik a proč. Ať je v rozhraní vidět
+   * odpočet „API je přetížené, znovu za 8 s", ne zamrzlý stav.
+   */
+  onWait?: (ms: number, reason: string) => void;
 }
 
 /** Čekání, které jde přerušit — jinak by „Zastavit" muselo počkat na odklad. */
@@ -211,7 +216,12 @@ export async function ask(model: string, system: string, user: string, maxTokens
       }
       if (!retryable(e) || attempt === attempts - 1) throw e;
       if (status === 429 || status === 529) lastLimit = Date.now();
-      await sleep(waitFor(e, attempt), options.signal);
+      const pause = waitFor(e, attempt);
+      try {
+        options.onWait?.(pause, status === 429 ? 'limit API'
+          : status === 529 || /overloaded/i.test(String(e?.message ?? '')) ? 'API je přetížené' : 'výpadek spojení');
+      } catch { /* jen hlášení */ }
+      await sleep(pause, options.signal);
     }
   }
   throw last;

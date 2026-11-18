@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PtransConsistency, PtransField, PtransOverview, PtransProduct, PtransProgress, PtransQuery, PtransState,
-  PtransLive, PtransProductDone,
+  PtransProductDone, PtransProductActivity, PtransFieldActivity, PtransEstimate,
   PtransFixProposal, PtransTrial, PtransStyle,
-  PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat
+  PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat, PtransSegmentStat
 } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
@@ -197,19 +197,16 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   useEffect(() => api.on('ptrans:progress', (p: PtransProgress) => setProgress(p)), []);
 
   /*
-   * Živý náhled a právě dokončené produkty.
+   * Právě dokončené produkty.
    *
    * Dřív se po spuštění překladu celé minuty hýbal jen pruh — texty se
-   * objevily až po doběhnutí. Teď je vidět, co model zrovna píše, a každý
-   * hotový produkt se hned ukáže v seznamu i jako odkaz nad ním.
+   * objevily až po doběhnutí. Každý hotový produkt se teď hned ukáže
+   * v seznamu i jako odkaz nad ním; co se právě překládá, nese průběh.
    */
-  const [live, setLive] = useState<PtransLive | null>(null);
   const [finished, setFinished] = useState<PtransProductDone[]>([]);
-  useEffect(() => api.on('ptrans:live', (payload: PtransLive) => setLive(payload)), []);
   const refreshSoon = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => api.on('ptrans:product', (payload: PtransProductDone) => {
     setFinished(prev => [payload, ...prev.filter(one => one.code !== payload.code)].slice(0, 6));
-    setLive(prev => (prev?.code === payload.code ? null : prev));
     // Seznam se obnoví nanejvýš jednou za vteřinu a půl — při souběžném
     // překladu chodí hotové produkty rychle za sebou
     if (!refreshSoon.current) {
@@ -280,7 +277,6 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     // ne když se okno otevře uprostřed běhu
     if (!wasRunning.current && running && progress?.done === 0) setFinished([]);
     if (wasRunning.current && !running) {
-      setLive(null);
       loadPage();
       loadOverview();
       if (active) loadFields(active);
@@ -753,38 +749,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
             </div>
 
             {progress?.running && (
-              <div className="pt-progress">
-                <div className="pt-bar">
-                  {/* `bar` počítá i s rozjetým voláním, takže se pruh plní
-                      plynule; `done/total` by skákalo po celých produktech */}
-                  <span style={{ width: `${Math.round((progress.bar
-                    ?? (progress.total ? progress.done / progress.total : 0)) * 100)}%` }} />
-                </div>
-                <div className="pt-progress-text">
-                  <b>{progress.done}/{progress.total}</b>
-                  <span>{progress.label}</span>
-                  <span className="pt-eta">
-                    zbývá ~{humanTime(progress.etaSeconds)}
-                    <small> · {progress.secondsPerUnit} s na produkt</small>
-                  </span>
-                  {progress.failed > 0 && <span className="pt-fail">{progress.failed}× chyba</span>}
-                  <button className="btn ghost" onClick={() => api.ptrans.stop()}>Zastavit</button>
-                </div>
-                {live && <LivePreview live={live} onOpen={code => setActive(code)} />}
-                {finished.length > 0 && (
-                  <div className="pt-done-list">
-                    {finished.map(one => (
-                      <button key={one.code} className={`pt-done${one.ok ? '' : ' bad'}`}
-                        onClick={() => setActive(one.code)}
-                        data-tip={one.ok ? 'Hotovo — otevřít a zkontrolovat' : 'Něco zůstalo nepřeložené — otevřít'}>
-                        <Icon name={one.ok ? 'check' : 'alert'} size={12} />
-                        <span>{one.title}</span>
-                        {one.reused > 0 && <em>{one.reused}× z paměti</em>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <RunProgress progress={progress} finished={finished}
+                onOpen={code => setActive(code)} onStop={() => api.ptrans.stop()} />
             )}
 
             <div className="pt-body">
@@ -1215,38 +1181,151 @@ function LangCell({ row, long, busy, onSave, onRetranslate, onGenerate }: {
   );
 }
 
-/* ---------- živý náhled ---------- */
+/* ---------- průběh překladu ---------- */
 
 /**
- * Co model právě píše — po jazycích, poslední kus textu.
+ * Průběh běhu: kolik je hotovo, co se právě překládá a na co se čeká.
  *
- * Text je bez HTML: rozepsaná značka by se v náhledu ukázala jako
- * `<str`, a o formátování tady nejde — jde o to vidět, že to jede a jak
- * to zní. Hotový text i s formátováním je v kartě produktu.
+ * Dřív pruh postupoval podle času a skutečná práce se ukázala skokem
+ * na konci — tříminutový překlad vypadal dvě minuty jako zaseknutý. Teď:
+ *
+ *  - pruh je podíl textu, který model **opravdu napsal**,
+ *  - u každého rozpracovaného produktu jsou vidět jeho pole po jazycích:
+ *    hotové, z paměti, právě psané (s procenty), čekající,
+ *  - a když se nepíše, je vidět proč a jak dlouho — „čeká na odpověď
+ *    modelu · 6 s", „API je přetížené — znovu za 8 s".
  */
-function LivePreview({ live, onOpen }: { live: PtransLive; onOpen: (code: string) => void }) {
-  // Z každého jazyka jen pole, které se zrovna píše (poslední v odpovědi)
-  const byLang = new Map<string, { field: string; text: string }>();
-  for (const item of live.items) byLang.set(item.lang, { field: item.field, text: item.text });
-  const rows = [...byLang.entries()];
+function RunProgress({ progress, finished, onOpen, onStop }: {
+  progress: PtransProgress;
+  finished: PtransProductDone[];
+  onOpen: (code: string) => void;
+  onStop: () => void;
+}) {
+  const speed = progress.speed;
+  const products = progress.products;
+  const fields = progress.fields;
   return (
-    <div className="pt-live">
-      <div className="pt-live-head">
-        <span className="pt-live-dot" />
-        <span>Právě píše:</span>
-        <button className="linkish" onClick={() => onOpen(live.code)}><b>{live.title}</b></button>
+    <div className="pt-progress">
+      <div className="pt-bar">
+        <span style={{ width: `${Math.round((progress.bar ?? 0) * 100)}%` }} />
       </div>
-      <div className="pt-live-rows" style={{ '--pt-live-cols': rows.length } as any}>
-        {rows.map(([lang, item]) => {
-          const text = item.text.replace(/<[^>]*>?/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-          return (
-            <div key={lang} className="pt-live-item">
-              <div className="pt-live-label">{lang} · {fieldLabel(item.field)}</div>
-              <div className="pt-live-text">{text.length > 360 ? '…' + text.slice(-360) : text}</div>
-            </div>
-          );
-        })}
+      <div className="pt-progress-text">
+        {products && <span><b>{products.done}</b> z {products.total} produktů</span>}
+        {fields && <span><b>{fields.done}</b> z {fields.total} polí</span>}
+        <span className="pt-eta" data-tip={speed
+          ? `Podle naměřené rychlosti: model začne psát za ~${Math.round(speed.wait)} s a píše ~${speed.cps} znaků za vteřinu`
+            + `${(progress.lanes ?? 1) > 1 ? `, ${progress.lanes} produkty souběžně` : ''}. Odhad se zpřesňuje během běhu.`
+          : undefined}>
+          {progress.etaSeconds ? `zbývá asi ${humanTime(progress.etaSeconds)}` : 'dokončuje se'}
+        </span>
+        {progress.failed > 0 && <span className="pt-fail">{progress.failed}× chyba</span>}
+        <button className="btn ghost" onClick={onStop}>Zastavit</button>
       </div>
+      {(progress.current ?? []).map(one => (
+        <ProductActivityCard key={one.code} one={one} onOpen={onOpen} />
+      ))}
+      {finished.length > 0 && (
+        <div className="pt-done-list">
+          <span className="pt-done-label">Hotové:</span>
+          {finished.map(one => (
+            <button key={one.code} className={`pt-done${one.ok ? '' : ' bad'}`}
+              onClick={() => onOpen(one.code)}
+              data-tip={one.ok ? 'Otevřít a zkontrolovat' : `Nehotové: ${(one.failed ?? []).join(', ')} — otevřít`}>
+              <Icon name={one.ok ? 'check' : 'alert'} size={12} />
+              <span>{one.title}</span>
+              {(one.reused > 0 || (one.sentences ?? 0) > 0) && (
+                <em data-tip="Celá pole a věty, které se vzaly z paměti — u jiného produktu už přeložené">
+                  {[one.reused ? cz(one.reused, 'pole', 'pole', 'polí') : '',
+                    one.sentences ? cz(one.sentences, 'věta', 'věty', 'vět') : '']
+                    .filter(Boolean).join(' + ')} z paměti
+                </em>
+              )}
+              {(one.patterned ?? 0) > 0 && (
+                <em className="pattern" data-tip="Věty, které se od už přeložených liší jen slovem (třeba barvou). Přeložil je model podle hotové podobné věty, ať zní stejně a správně se skloňují.">
+                  {cz(one.patterned ?? 0, 'věta', 'věty', 'vět')} podle vzoru
+                </em>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** „1 věta", „3 věty", „7 vět" */
+function cz(n: number, one: string, few: string, many: string): string {
+  return `${n} ${n === 1 ? one : n >= 2 && n <= 4 ? few : many}`;
+}
+
+const PHASE_TEXT = (one: PtransProductActivity, now: number): string => {
+  const secs = Math.max(0, Math.round((now - one.since) / 1000));
+  const left = one.until ? Math.max(0, Math.ceil((one.until - now) / 1000)) : 0;
+  switch (one.phase) {
+    case 'start': return 'připravuje se';
+    case 'source': return `${one.note ?? 'doplňuje český text'} · ${secs} s`;
+    case 'waiting': return `čeká na odpověď modelu · ${secs} s`;
+    case 'writing': return `model píše · ${one.received.toLocaleString('cs-CZ')} znaků`;
+    case 'limit': return `${one.note ?? 'API je přetížené'} — zkusí to znovu za ${left} s`;
+    case 'retry': return `${one.note ?? 'další pokus'} za ${left} s`;
+    case 'saving': return 'ukládá';
+    default: return '';
+  }
+};
+
+function fieldChip(field: PtransFieldActivity): { cls: string; icon: string; tip: string; extra?: string } {
+  switch (field.status) {
+    case 'done': return { cls: 'done', icon: '✓', tip: 'Hotovo' };
+    case 'memory': return { cls: 'memory', icon: '✓', tip: 'Z paměti — u jiného produktu už přeložené, model se nevolal' };
+    case 'writing': return { cls: 'writing', icon: '', tip: 'Model právě píše',
+      extra: `${Math.min(99, Math.round((field.written / Math.max(1, field.expected)) * 100))} %` };
+    case 'waiting': return { cls: 'waiting', icon: '', tip: 'Odesláno modelu, čeká se na odpověď' };
+    case 'failed': return { cls: 'failed', icon: '✕', tip: 'Nepodařilo se' };
+    default: return { cls: 'pending', icon: '', tip: 'Na řadě' };
+  }
+}
+
+function ProductActivityCard({ one, onOpen }: { one: PtransProductActivity; onOpen: (code: string) => void }) {
+  const now = Date.now();
+  const langs = [...new Set(one.fields.map(f => f.lang))];
+  const last = [...one.fields].reverse().find(f => (f.status === 'done' || f.status === 'memory') && f.preview);
+  const stalled = one.phase === 'waiting' && now - one.since > 45_000;
+  return (
+    <div className="pt-act">
+      <div className="pt-act-head">
+        <span className={`pt-act-dot ${one.phase}`} />
+        <button className="linkish" onClick={() => onOpen(one.code)}><b>{one.title}</b></button>
+        <span className="ig-muted">{one.code}</span>
+        <span style={{ flex: 1 }} />
+        <span className={`pt-act-phase${stalled ? ' slow' : ''}`}>
+          {PHASE_TEXT(one, now)}{stalled ? ' — dlouhý text, model ještě nezačal psát' : ''}
+        </span>
+      </div>
+      {langs.map(lang => (
+        <div key={lang} className="pt-act-row">
+          <span className="pt-act-lang">{lang.toUpperCase()}</span>
+          {one.fields.filter(f => f.lang === lang).map(field => {
+            const chip = fieldChip(field);
+            return (
+              <span key={field.field} className={`pt-act-field ${chip.cls}`} data-tip={chip.tip}>
+                {chip.icon && <i>{chip.icon}</i>}
+                {(field.status === 'waiting' || field.status === 'writing') && <span className="pt-act-spin" />}
+                {fieldLabel(field.field)}
+                {chip.extra && <small>{chip.extra}</small>}
+                {field.status === 'memory' && <small>paměť</small>}
+                {field.status !== 'memory' && (field.fromMemory ?? 0) > 0 && (
+                  <small data-tip="Tolik vět či odstavců se dosadí z paměti, model píše jen zbytek">+{field.fromMemory} z paměti</small>
+                )}
+              </span>
+            );
+          })}
+        </div>
+      ))}
+      {last && (
+        <div className="pt-act-last">
+          <span>{last.lang.toUpperCase()} · {fieldLabel(last.field)}:</span> „{last.preview}"
+        </div>
+      )}
     </div>
   );
 }
@@ -1264,6 +1343,7 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
   const [langs, setLangs] = useState<string[]>(enabled.map(l => l.code));
   const [force, setForce] = useState(false);
   const [plan, setPlan] = useState<number | null>(null);
+  const [est, setEst] = useState<PtransEstimate | null>(null);
   const [starting, setStarting] = useState(false);
   // Doplnění zdrojových textů. Zapnuté ve výchozím stavu: přeložit se dá jen
   // to, co existuje, a produkt bez českého SEO titulku by jinak zůstal bez
@@ -1290,6 +1370,10 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
     api.ptrans.plan(codes, langs, { force })
       .then(count => { if (!cancelled) setPlan(count); })
       .catch(() => { if (!cancelled) setPlan(null); });
+    setEst(null);
+    api.ptrans.estimate(codes, langs, { force })
+      .then(value => { if (!cancelled) setEst(value); })
+      .catch(() => { if (!cancelled) setEst(null); });
     return () => { cancelled = true; };
   }, [codes, langs, force]);
 
@@ -1315,8 +1399,15 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
    * nastaveným stropem by dávalo odhad, který nemá jak vyjít.
    */
   const pace = Math.max(1, Math.min(overview.settings.concurrency, Math.ceil(totalUnits / 8)));
-  const seconds = plan === null ? null
-    : (totalUnits * overview.settings.secondsPerUnit) / pace;
+  /*
+   * Odhad z naměřené rychlosti modelu a délky textu (viz ptrans/activity.ts),
+   * ne z „sekund na produkt" — popis o třiceti tisících znacích trvá jinak
+   * než název. Doplnění českých textů se přičte po staru, je to pár vět.
+   */
+  // Doplněný český text je krátký (SEO titulek, popis pro Google): čekání a pár set znaků
+  const sourceSeconds = fillSource && est ? sourceCount * (est.speed.wait + 200 / est.speed.cps) : 0;
+  const seconds = est ? est.seconds + sourceSeconds
+    : plan === null ? null : (totalUnits * overview.settings.secondsPerUnit) / pace;
 
   const start = async () => {
     setStarting(true);
@@ -1451,18 +1542,30 @@ function RunDialog({ codes, overview, onClose, onStarted }: {
 
           <div className="pt-estimate">
             <div>
-              <b>{plan === null ? '…' : totalUnits}</b> volání modelu
-              <div className="ig-muted">
-                {fillSource && sourceCount > 0
-                  ? `${sourceCount} na doplnění ${(gaps?.sourceLang ?? 'cz').toUpperCase()} a ${plan ?? 0} na překlad`
-                  : 'jeden produkt a jazyk = jedno volání modelu'}
-              </div>
+              {est ? (
+                <>
+                  <b>{est.fields}</b> polí u {est.products} produktů
+                  <div className="ig-muted">
+                    {est.memory > 0 ? `${est.memory} z paměti bez modelu · ` : ''}
+                    model napíše ~{est.chars.toLocaleString('cs-CZ')} znaků
+                    {fillSource && sourceCount > 0
+                      ? ` · ${sourceCount}× doplnění ${(gaps?.sourceLang ?? 'cz').toUpperCase()}` : ''}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <b>{plan === null ? '…' : totalUnits}</b> úkolů
+                  <div className="ig-muted">počítá se, kolik toho je…</div>
+                </>
+              )}
             </div>
             <div className="pt-estimate-time">
               <b>~{humanTime(seconds)}</b>
               <div className="ig-muted">
-                podle naměřených {overview.settings.secondsPerUnit} s
-                {pace > 1 ? ` a ${pace} souběžných` : ' — poběží po jednom produktu'}
+                {est
+                  ? `model začne psát za ~${Math.round(est.speed.wait)} s, píše ~${est.speed.cps} znaků/s`
+                    + (est.lanes > 1 ? `, až ${est.lanes} souběžně` : '')
+                  : `podle naměřených ${overview.settings.secondsPerUnit} s na produkt`}
               </div>
             </div>
           </div>
@@ -1510,6 +1613,7 @@ function MemoryPanel({ langs }: { langs: { code: string; label: string }[] }) {
   const [search, setSearch] = useState('');
   const [entries, setEntries] = useState<PtransMemoryEntry[]>([]);
   const [stats, setStats] = useState<PtransMemoryStat[]>([]);
+  const [segments, setSegments] = useState<PtransSegmentStat[]>([]);
   const [loading, setLoading] = useState(false);
   const [learning, setLearning] = useState(false);
   const [draft, setDraft] = useState<PtransMemoryEntry | null>(null);
@@ -1521,6 +1625,7 @@ function MemoryPanel({ langs }: { langs: { code: string; label: string }[] }) {
       const data = await api.ptrans.memory({ lang, kind, search: search.trim() || undefined });
       setEntries(data.entries);
       setStats(data.stats);
+      setSegments(data.segments ?? []);
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
@@ -1538,7 +1643,8 @@ function MemoryPanel({ langs }: { langs: { code: string; label: string }[] }) {
     try {
       const result = await api.ptrans.learn(langs.map(l => l.code));
       const summary = result
-        .map(r => `${r.lang.toUpperCase()}: ${r.terms} výrazů, ${r.patterns} tvarů (z ${r.pairs} názvů)`)
+        .map(r => `${r.lang.toUpperCase()}: ${r.terms} výrazů, ${r.patterns} tvarů (z ${r.pairs} názvů)`
+          + (r.sentences ? `, ${r.sentences} vět a odstavců` : ''))
         .join(' · ');
       toast(summary || 'Zatím není z čeho se učit.');
       await load();
@@ -1571,6 +1677,7 @@ function MemoryPanel({ langs }: { langs: { code: string; label: string }[] }) {
   };
 
   const stat = stats.find(row => row.lang === lang);
+  const seg = segments.find(row => row.lang === lang);
   const tab = KIND_TABS.find(t => t.id === kind)!;
 
   return (
@@ -1601,7 +1708,7 @@ function MemoryPanel({ langs }: { langs: { code: string; label: string }[] }) {
         </button>
         <button className="btn primary" onClick={learn} disabled={learning}>
           {learning ? <span className="spinner-inline" /> : <Icon name="brain" size={14} />}
-          Naučit se z feedu
+          Naučit se z hotových překladů
         </button>
       </div>
 
@@ -1616,6 +1723,23 @@ function MemoryPanel({ langs }: { langs: { code: string; label: string }[] }) {
               <span><b>{stat.manual}</b> zamčených</span>
             </div>
           )}
+        </div>
+        {/*
+          Paměť vět: co se při překladu dosadí bez modelu. Plní se sama —
+          z hotových překladů při prvním běhu a po každém stažení feedu,
+          z každého nového překladu a z každé ruční opravy.
+        */}
+        <div className="pt-mem-segments">
+          <Icon name="layers" size={14} />
+          <span>
+            Paměť vět: <b>{(seg?.sentences ?? 0).toLocaleString('cs-CZ')}</b> vět,{' '}
+            <b>{(seg?.paragraphs ?? 0).toLocaleString('cs-CZ')}</b> odstavců a{' '}
+            <b>{(seg?.texts ?? 0).toLocaleString('cs-CZ')}</b> celých textů (názvy, SEO, parametry).
+          </span>
+          <span className="ig-muted">
+            Stejná věta u jiného produktu se dosadí bez modelu. Věta lišící se jen slovem (třeba barvou)
+            jde modelu s touhle hotovou jako vzorem — ať se správně vyskloňuje.
+          </span>
         </div>
 
         {draft && (

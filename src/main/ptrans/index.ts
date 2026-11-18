@@ -6,7 +6,7 @@ import { getSetting } from '../db';
 import { syncFromFeed, ingestFile, ingestNewOnly, revertToFeed, recomputeStates, refreshStatesIfNeeded, listCodes,
   getPtransSettings, savePtransSettings, listProducts, productFields,
   saveTranslation, summary, feedInfo, targetLangs, alignSources, SyncResult } from './store';
-import { run, stop, progress, planWork, translateOne } from './translate';
+import { run, stop, progress, planWork, translateOne, estimateRun } from './translate';
 import { applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl, SeoKind } from './seo';
 import { buildExport, exportPreview, ExportOptions } from './exportxml';
 import { findDeviations, patternOverview, patternFor, derivePattern,
@@ -26,7 +26,7 @@ import { runAudit, auditFor, worstProducts, auditProduct, storedSummary, AuditOp
 import { planSourceFill, fillSourceOne, missingByField, SOURCE_FIELDS, SOURCE_LABELS,
   SourceField, SourceFillOptions } from './source';
 import * as newproduct from './newproduct';
-import { learn as learnSegments } from './reuse';
+import { learn as learnSegments, learnFromStore, segmentStats } from './reuse';
 import { callerWindow } from '../caller';
 
 /**
@@ -182,10 +182,19 @@ export function dropStyle(lang: string, category: string, kind: string) {
  * přeložené. Pouští se ručně z rozhraní — je to práce na pár vteřin, ale mění
  * to, jak budou vypadat všechny další překlady.
  */
-export function learnMemory(langs?: string[]): LearnResult[] {
+export function learnMemory(langs?: string[]): (LearnResult & { sentences: number })[] {
   const result = learnFromFeed(langs);
+  /*
+   * A k tomu paměť vět a odstavců — hned, ne až při příštím překladu.
+   * Projde hotové překlady (aplikace, ruční úpravy a z feedu ty, kde je
+   * cílový jazyk poznat s jistotou) a zapamatuje si je po větách.
+   */
+  const s = getPtransSettings();
+  const list = langs?.length ? langs : targetLangs(s);
+  try { learnFromStore(list, s.sourceLang, true); } catch { /* pomůcka */ }
+  const counts = new Map(segmentStats().map(row => [row.lang, row.sentences + row.paragraphs + row.texts]));
   emit('ptrans:changed', {});
-  return result;
+  return result.map(one => ({ ...one, sentences: counts.get(one.lang) ?? 0 }));
 }
 
 /** Ruční zásah do paměti — zápis se zamkne, aby ho učení nepřepsalo. */
@@ -496,10 +505,10 @@ export async function exportToAdmin(options: ExportOptions = {}):
 export {
   getPtransSettings, savePtransSettings, listProducts, productFields, summary, targetLangs,
   derivePattern, recomputeStates, refreshStatesIfNeeded, listCodes,
-  run, stop, progress, planWork,
+  run, stop, progress, planWork, estimateRun,
   applyGoogleTitles, generateSeo, previewTemplate, refreshSeoUrl,
   buildExport, exportPreview,
-  listMemory, deleteMemory, memoryStats,
+  listMemory, deleteMemory, memoryStats, segmentStats,
   listColorRules, deleteColorRule, BASE_COLORS, baseColorOf,
   listBundleRules, saveBundleRule, deleteBundleRule, detectBundle, bundlePreview,
   googleView, writeGoogleTexts, saveAttributeRules, getAttributeRules, GOOGLE_LABELS,

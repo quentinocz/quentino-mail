@@ -182,32 +182,52 @@ function tokens(text: string): string[] {
 }
 
 /**
- * Dva klíče pro hledání podobné věty — první a druhá polovina.
+ * Dva klíče pro hledání podobné věty — začátek a konec.
  *
- * Věta, která se od známé liší jedním slovem, má jednu polovinu do písmene
- * stejnou. Podle ní se dá najít v rejstříku jedním dotazem, bez procházení
- * celé paměti.
+ * Věta, která se od známé liší jedním místem („bordó" × „tmavě modrá"),
+ * má buď stejný začátek, nebo stejný konec, a většinou obojí. Klíčem jsou
+ * první dvě a poslední dvě slova i s tím, co je mezi nimi. Dřív to byly
+ * dvě poloviny věty se stejným počtem slov — jenže barva „tmavě modrá"
+ * má o slovo víc než „bordó" a taková věta se nenašla nikdy.
  */
-function halves(lang: string, scope: string, text: string): { ntok: number; keys: [string, string] } {
+const EDGE_WORDS = 2;
+
+function edges(lang: string, scope: string, text: string): [string, string] {
   const list = tokens(text);
-  const mid = Math.floor(list.length / 2);
-  const hash = (half: number, part: string[]) => crypto.createHash('sha1')
-    .update(`${lang}\u0000${scope}\u0000${list.length}\u0000${half}\u0000${part.join('')}`).digest('hex');
-  return { ntok: list.length, keys: [hash(1, list.slice(0, mid)), hash(2, list.slice(mid))] };
+  const take = EDGE_WORDS * 2;           // slova jsou na lichých pozicích
+  const hash = (side: number, part: string[]) => crypto.createHash('sha1')
+    .update(`${lang}\u0000${scope}\u0000${side}\u0000${part.join('').toLowerCase()}`).digest('hex');
+  return [hash(1, list.slice(0, take)), hash(2, list.slice(Math.max(0, list.length - take - 1)))];
 }
 
-/** Kolika slovy se dvě věty liší; `null` = liší se i jinak než ve slovech. */
+/**
+ * Čím se dvě věty liší: jedno souvislé místo uprostřed, zbytek do písmene
+ * stejný. Vrací počet odlišných slov (na kratší straně ≥ 1), nebo `null`,
+ * když se liší víc než jedním místem, víc než třemi slovy, interpunkcí,
+ * čísly — nebo když je společného textu míň než polovina.
+ */
 function wordDiff(a: string, b: string): number | null {
   const x = tokens(a);
   const y = tokens(b);
-  if (x.length !== y.length) return null;
-  let diff = 0;
-  for (let i = 0; i < x.length; i++) {
-    if (x[i] === y[i]) continue;
-    if (i % 2 === 0) return null;          // interpunkce, čísla, značky musí sedět
-    diff++;
-  }
-  return diff;
+  let head = 0;
+  while (head < x.length && head < y.length && x[head] === y[head]) head++;
+  let tail = 0;
+  while (tail < x.length - head && tail < y.length - head
+    && x[x.length - 1 - tail] === y[y.length - 1 - tail]) tail++;
+  const midX = x.slice(head, x.length - tail);
+  const midY = y.slice(head, y.length - tail);
+  const words = (list: string[]) => list.filter(part => /\p{L}/u.test(part) && !/[^\p{L}\p{M}'’-]/u.test(part)).length;
+  const wx = words(midX);
+  const wy = words(midY);
+  if (wx === 0 && wy === 0) return midX.join('') === midY.join('') ? 0 : null;
+  // Místo, kde se věty liší, smí obsahovat jen slova a mezery mezi nimi
+  const onlyWords = (list: string[]) => list.every(part => /^[\p{L}\p{M}'’-]*$/u.test(part) || /^\s+$/u.test(part));
+  if (!onlyWords(midX) || !onlyWords(midY)) return null;
+  if (wx > 3 || wy > 3) return null;
+  const all = Math.max(words(x), words(y));
+  const same = all - Math.max(wx, wy);
+  if (same < 2 || same * 2 < all) return null;
+  return Math.max(wx, wy);
 }
 
 export interface Near {
@@ -218,21 +238,20 @@ export interface Near {
   target: string;
 }
 
-/** Nejbližší přeložená věta, která se liší nejvýš dvěma slovy. */
+/** Nejbližší přeložená věta, která se liší jedním místem o nejvýš třech slovech. */
 function nearest(lang: string, scope: string, text: string): Near | null {
-  const { ntok, keys } = halves(lang, scope, text);
-  const d = getDb();
-  const rows = d.prepare(
+  const keys = edges(lang, scope, text);
+  const rows = getDb().prepare(
     `SELECT s.source, s.target, s.hits FROM ptrans_seg_index i
      JOIN ptrans_segments s ON s.lang = i.lang AND s.skey = i.skey
-     WHERE i.lang = ? AND i.scope = ? AND i.ntok = ? AND i.hkey IN (?, ?) LIMIT 40`
-  ).all(lang, scope, ntok, keys[0], keys[1]) as { source: string; target: string; hits: number }[];
+     WHERE i.lang = ? AND i.scope = ? AND i.ntok = 0 AND i.hkey IN (?, ?) LIMIT 200`
+  ).all(lang, scope, keys[0], keys[1]) as { source: string; target: string; hits: number }[];
   let best: { row: (typeof rows)[number]; diff: number } | null = null;
   const norm = normalize(text);
   for (const row of rows) {
     if (row.source === norm) continue;
     const diff = wordDiff(norm, row.source);
-    if (diff === null || diff === 0 || diff > 2) continue;
+    if (diff === null || diff === 0) continue;
     if (!best || diff < best.diff || (diff === best.diff && row.hits > best.row.hits)) best = { row, diff };
   }
   return best ? { source: norm, like: best.row.source, target: best.row.target } : null;
@@ -273,8 +292,9 @@ export function learn(lang: string, field: string, source: string, target: strin
       hits = ptrans_segments.hits + 1,
       updated_at = excluded.updated_at
   `);
-  const index = d.prepare(`INSERT OR IGNORE INTO ptrans_seg_index (lang, skey, half, scope, ntok, hkey)
-    VALUES (?, ?, ?, ?, ?, ?)`);
+  // OR REPLACE: rejstřík z dřívější verze (poloviny věty) se tím přepíše
+  const index = d.prepare(`INSERT OR REPLACE INTO ptrans_seg_index (lang, skey, half, scope, ntok, hkey)
+    VALUES (?, ?, ?, ?, 0, ?)`);
   const at = new Date().toISOString();
   let n = 0;
   const one = (scopeHere: string, from: string, to: string, near: boolean): boolean => {
@@ -292,9 +312,9 @@ export function learn(lang: string, field: string, source: string, target: strin
     const skey = key(lang, scopeHere, from);
     write.run({ lang, skey, scope: scopeHere, source: from, target: to, manual: manual ? 1 : 0, at });
     if (near) {
-      const { ntok, keys } = halves(lang, scopeHere, from);
-      index.run(lang, skey, 1, scopeHere, ntok, keys[0]);
-      index.run(lang, skey, 2, scopeHere, ntok, keys[1]);
+      const keys = edges(lang, scopeHere, from);
+      index.run(lang, skey, 1, scopeHere, keys[0]);
+      index.run(lang, skey, 2, scopeHere, keys[1]);
     }
     return true;
   };
@@ -327,13 +347,19 @@ function clean(field: string, text: string): string {
  * cílový jazyk — z feedu, kde stojí čeština místo slovenštiny, by se paměť
  * naučila „překládat" češtinu do češtiny.
  *
- * Verze 2 přidala věty a rejstřík podobných vět; projde se znovu všechno.
+ * Verze 2 přidala věty a rejstřík podobných vět, verze 3 rejstřík podle
+ * začátku a konce věty; po změně se projde znovu všechno.
+ *
+ * Projde se znovu i **po každém stažení feedu**. Dřív se paměť naplnila
+ * jednou a dost: co někdo přeložil v e-shopu potom, se do ní nedostalo
+ * nikdy. Projít celý katalog trvá pod vteřinu, takže to nestojí za šetření.
+ * `force` = projít hned (tlačítko v záložce Paměť).
  */
-const LEARNED_VERSION = '2';
+const LEARNED_VERSION = '3';
 
-export function learnFromStore(langs: string[], sourceLang: string): number {
-  const marker = `${LEARNED_VERSION}:${[...langs].sort().join(',')}`;
-  if (getSetting('ptransSegmentsLearned', '') === marker) return 0;
+export function learnFromStore(langs: string[], sourceLang: string, force = false): number {
+  const marker = `${LEARNED_VERSION}:${[...langs].sort().join(',')}:${getSetting('ptransSyncedAt', '')}`;
+  if (!force && getSetting('ptransSegmentsLearned', '') === marker) return 0;
   const rows = getDb().prepare(
     `SELECT lang, field, source_value, value, translated, translated_hash, manual, state FROM ptrans_fields
      WHERE lang IN (${langs.map(() => '?').join(',')}) AND state IN ('ok', 'manual')
@@ -556,9 +582,16 @@ export function nearHint(all: { lang?: string; near: Near[] }[]): string {
 }
 
 /** Kolik odstavců paměť zná — do přehledu v nastavení. */
-export function segmentStats(): { lang: string; segments: number }[] {
-  return getDb().prepare('SELECT lang, COUNT(*) AS segments FROM ptrans_segments GROUP BY lang ORDER BY lang')
-    .all() as { lang: string; segments: number }[];
+export function segmentStats(): { lang: string; sentences: number; paragraphs: number; texts: number }[] {
+  const rows = getDb().prepare(
+    `SELECT lang,
+       SUM(CASE WHEN scope = 'veta' THEN 1 ELSE 0 END) AS sentences,
+       SUM(CASE WHEN scope = 'blok' THEN 1 ELSE 0 END) AS paragraphs,
+       SUM(CASE WHEN scope NOT IN ('veta', 'blok') THEN 1 ELSE 0 END) AS texts
+     FROM ptrans_segments GROUP BY lang ORDER BY lang`
+  ).all() as any[];
+  return rows.map(row => ({ lang: row.lang, sentences: row.sentences ?? 0, paragraphs: row.paragraphs ?? 0,
+    texts: row.texts ?? 0 }));
 }
 
 export const __test = { pieces, normalize, skeleton, key, LEAF, sentences, tokens, wordDiff, nearest };

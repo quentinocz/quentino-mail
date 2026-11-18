@@ -49,6 +49,11 @@ export interface PtransSettings {
   concurrency: number;
   /** Naměřená rychlost — kolik sekund zabere jeden produkt a jazyk */
   secondsPerUnit: number;
+  /**
+   * Naměřená rychlost modelu: vteřiny do prvního slova a znaky za vteřinu
+   * (viz activity.ts). Odhad času se počítá z ní.
+   */
+  speed?: { wait: number; cps: number };
 }
 
 const DEFAULTS: PtransSettings = {

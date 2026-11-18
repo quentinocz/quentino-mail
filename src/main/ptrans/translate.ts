@@ -15,7 +15,8 @@ import { memoryHint, memoryStats, learnFromFeed } from './memory';
 import { planSourceFill, fillSourceOne, SourceField, SourceTarget, SOURCE_LABELS } from './source';
 import { applyAttributes } from './google';
 import { lookup, unmask, learn, slotHint, nearHint, slotMarks, learnFromStore, Near, Mark } from './reuse';
-import { partialJson } from './partial';
+import * as activity from './activity';
+import { Speed, DEFAULT_SPEED, blend, simulate } from './activity';
 
 /**
  * Překlad produktových textů.
@@ -50,8 +51,18 @@ export interface ProgressState {
   secondsPerUnit: number;
   label: string;
   errors: string[];
-  /** Naplnění pruhu 0–1; počítá se i z rozjetých volání, aby se pruh hýbal */
+  /**
+   * Naplnění pruhu 0–1 — podle toho, kolik textu model **opravdu napsal**,
+   * ne podle uplynulého času (viz activity.ts).
+   */
   bar: number;
+  products?: { done: number; total: number };
+  fields?: { done: number; total: number };
+  /** Co se právě překládá: produkty, jejich pole a na co se čeká */
+  current?: activity.ProductActivity[];
+  /** Naměřená rychlost modelu — do vysvětlivky k odhadu */
+  speed?: Speed;
+  lanes?: number;
 }
 
 function emit(channel: string, payload: unknown) {
@@ -88,34 +99,6 @@ export function stop(): void {
 /** Přerušené volání není chyba překladu — hlásit ho v seznamu chyb by mátlo. */
 function isAborted(error: any): boolean {
   return cancelled || error?.name === 'AbortError' || /abort/i.test(String(error?.message ?? ''));
-}
-
-/* ---------- odhad zbývajícího času ---------- */
-
-/**
- * Odhad se počítá z **naměřených** časů, ne z konstanty: prvních pár překladů
- * jede podle zapamatované rychlosti z minula, pak už se řídí tím, co se právě
- * děje. Klouzavý průměr přes posledních deset měření drží odhad stabilní,
- * i když jeden produkt trvá výrazně dýl.
- */
-class Speed {
-  private samples: number[] = [];
-  constructor(private fallback: number) {}
-
-  add(seconds: number): void {
-    this.samples.push(seconds);
-    if (this.samples.length > 10) this.samples.shift();
-  }
-
-  get perUnit(): number {
-    if (this.samples.length === 0) return this.fallback;
-    const sum = this.samples.reduce((a, b) => a + b, 0);
-    return sum / this.samples.length;
-  }
-
-  eta(remaining: number, concurrency: number): number {
-    return Math.round((remaining * this.perUnit) / Math.max(1, concurrency));
-  }
 }
 
 /* ---------- co je potřeba přeložit ---------- */
@@ -354,8 +337,10 @@ function prepare(target: TranslateTarget, rows: FieldRow[], model: string, slot 
     const marker = `${target.code}|${target.lang}|${field}`;
     const known = target.force || noMask.has(marker) ? null : safeLookup(target.lang, field, text, slot.next);
     if (known?.full !== undefined) {
-      saveTranslation(target.code, target.lang, field, finalValue(field, known.full), REUSE_MODEL, false,
-        known.marks ?? []);
+      const value = finalValue(field, known.full);
+      saveTranslation(target.code, target.lang, field, value, REUSE_MODEL, false, known.marks ?? []);
+      activity.setField(target.code, target.lang, field,
+        { status: 'memory', expected: 0, written: 0, preview: activity.previewOf(value) });
       out.reused++;
       if (field === 'title') out.reusedTitle = known.full;
       continue;
@@ -370,8 +355,50 @@ function prepare(target: TranslateTarget, rows: FieldRow[], model: string, slot 
     } else {
       out.payload[field] = text;
     }
+    // Kolik toho model napíše: text bez značek hotových odstavců
+    activity.expectField(target.code, target.lang, field, workOf(out.payload[field]));
+    // Kolik vět z paměti a kolik jich jde modelu podle vzoru podobné věty — do průběhu
+    activity.setField(target.code, target.lang, field,
+      { fromMemory: known?.slots?.size ?? 0, patterned: known?.near.length ?? 0 });
   }
   return out;
+}
+
+/** Kolik znaků textu má model napsat — bez HTML a bez hotových odstavců. */
+export function workOf(text: string): number {
+  return Math.max(12, plain(text.replace(/⟦\d+⟧/g, '')).length);
+}
+
+/* ---------- měření rychlosti ---------- */
+
+let speedNow: Speed = { ...DEFAULT_SPEED };
+
+/**
+ * Sleduje jeden dotaz: kdy přišlo první slovo a jak rychle se pak psalo.
+ * Vrací zpětná volání pro `ask` a funkci, která měření na konci zapíše.
+ */
+function measure(code: string, langs: string[], nested: boolean, chars: number,
+                 slotsOf: (lang: string, field: string) => Map<string, string> | undefined) {
+  const at = Date.now();
+  let first = 0;
+  activity.setPhase(code, 'waiting');
+  return {
+    onText: (soFar: string) => {
+      if (!first) first = Date.now();
+      activity.onStream(code, langs, nested, soFar, slotsOf);
+    },
+    onWait: (ms: number, reason: string) => {
+      first = 0;
+      activity.setPhase(code, 'limit', reason, Date.now() + ms);
+    },
+    done: () => {
+      const end = Date.now();
+      if (!first) return;
+      const writing = (end - first) / 1000;
+      speedNow = blend(speedNow, (first - at) / 1000, writing > 0.5 ? chars / writing : null);
+      activity.setPhase(code, 'saving');
+    }
+  };
 }
 
 /** Paměť je zrychlení, ne podmínka — její chyba nesmí zastavit překlad. */
@@ -406,45 +433,6 @@ function marksOf(field: string, ready: { masks: Record<string, Map<string, strin
   slotBlocks: Record<string, Map<string, number>> }): Mark[] {
   const slots = ready.masks[field];
   return slots ? slotMarks(slots, ready.slotBlocks[field]) : [];
-}
-
-/* ---------- živý náhled ---------- */
-
-/**
- * Živý náhled toho, co model právě píše.
- *
- * Překlad produktu trvá deset, dvacet vteřin, a dřív se celou tu dobu
- * nedělo nic vidět — text se objevil až po uložení. Odpověď teď chodí
- * proudem a každou chvíli (ne při každém písmenu, to by zahltilo okno) se
- * pošle, co z ní už je. Značky hotových odstavců jsou v náhledu rovnou
- * nahrazené, ať je vidět celý text, ne `⟦3⟧`.
- */
-const LIVE_EVERY_MS = 180;
-
-function liveFeed(code: string, langs: string[], nested: boolean,
-                  masksOf: (lang: string) => Record<string, Map<string, string>>): (soFar: string) => void {
-  const title = (getDb().prepare('SELECT title FROM ptrans_products WHERE code = ?').get(code) as
-    { title: string } | undefined)?.title ?? code;
-  let last = 0;
-  return (soFar: string) => {
-    const now = Date.now();
-    if (now - last < LIVE_EVERY_MS) return;
-    last = now;
-    const parsed = partialJson(soFar);
-    const items: { lang: string; field: string; text: string }[] = [];
-    for (const lang of langs) {
-      const fields = nested ? parsed[lang] : parsed;
-      if (!fields || typeof fields !== 'object') continue;
-      const masks = masksOf(lang);
-      for (const [field, value] of Object.entries(fields)) {
-        if (typeof value !== 'string') continue;
-        const slots = masks[field];
-        const text = slots ? value.replace(/⟦\d+⟧/g, slot => slots.get(slot) ?? '') : value;
-        items.push({ lang, field, text });
-      }
-    }
-    if (items.length) emit('ptrans:live', { code, title, items });
-  };
 }
 
 /** Zapamatuje si nový překlad po odstavcích — pro sourozence, kteří přijdou. */
@@ -562,6 +550,9 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
       return { saved, noSource, reused: prepared.reused };
     }
 
+    for (const field of wanted) activity.setField(target.code, target.lang, field, { status: 'waiting', written: 0 });
+    const meter = measure(target.code, [target.lang], false,
+      wanted.reduce((sum, field) => sum + workOf(payload[field]), 0), (_l, field) => masks[field]);
     const answer = await ask(
       model,
       buildSystem(s, [target.lang]),
@@ -569,8 +560,9 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
       // Strop podle odhadu výstupu, ne podle délky vstupu: překlad je zhruba
       // stejně dlouhý jako zdroj, ale tokenů je zhruba poloviční počet znaků
       Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.4 * factor) + 600),
-      { signal, onText: liveFeed(target.code, [target.lang], false, () => masks) }
+      { signal, onText: meter.onText, onWait: meter.onWait }
     );
+    meter.done();
     const translated = parseJson(answer);
 
     let saved = prepared.reused;
@@ -579,9 +571,14 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
       const raw = translated[field];
       if (typeof raw !== 'string' || !raw.trim()) continue;
       const whole = fromAnswer(target, field, raw, masks);
-      if (whole === null) { broken++; continue; }
+      if (whole === null) {
+        broken++;
+        activity.setField(target.code, target.lang, field, { status: 'pending', written: 0 });
+        continue;
+      }
       const value = finalValue(field, whole);
       saveTranslation(target.code, target.lang, field, value, model, false, marksOf(field, prepared));
+      activity.setField(target.code, target.lang, field, { status: 'done', preview: activity.previewOf(value) });
       remember(target.lang, field, sources[field], value);
       saved++;
     }
@@ -880,14 +877,21 @@ async function askBatch(
     nearHint(langs.map(lang => ({ lang, near: prepared.get(lang)?.near ?? [] })))
   ].filter(Boolean).join('\n');
 
+  for (const lang of langs) {
+    for (const field of Object.keys(payload[lang] ?? {})) activity.setField(code, lang, field, { status: 'waiting', written: 0 });
+  }
+  const meter = measure(code, langs, true, langs.reduce((sum, lang) =>
+    sum + Object.values(payload[lang] ?? {}).reduce((a, text) => a + workOf(text), 0), 0),
+  (lang, field) => prepared.get(lang)?.masks[field]);
   const answer = await ask(
     model,
     buildSystem(s, langs),
     `${hint}\n\nTexty k překladu po jazycích:\n${JSON.stringify(payload, null, 1)}`,
     // S rezervou nad odhadem — JSON a uvozovky taky něco zaberou
     Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.3) + 600),
-    { signal, onText: liveFeed(code, langs, true, lang => prepared.get(lang)?.masks ?? {}) }
+    { signal, onText: meter.onText, onWait: meter.onWait }
   );
+  meter.done();
 
   const byLang = parseByLang(answer, langs);
   let saved = 0;
@@ -947,9 +951,14 @@ function saveTranslated(target: TranslateTarget, rows: FieldRow[],
     if (DERIVED_FIELDS.has(field) || !asked.has(field)) continue;
     if (typeof raw !== 'string' || !raw.trim()) continue;
     const whole = fromAnswer(target, field, raw, masks);
-    if (whole === null) { broken++; continue; }
+    if (whole === null) {
+      broken++;
+      activity.setField(target.code, target.lang, field, { status: 'pending', written: 0 });
+      continue;
+    }
     const value = finalValue(field, whole);
     saveTranslation(target.code, target.lang, field, value, model, false, marksOf(field, ready));
+    activity.setField(target.code, target.lang, field, { status: 'done', preview: activity.previewOf(value) });
     remember(target.lang, field, sources[field], value);
     saved++;
   }
@@ -958,6 +967,66 @@ function saveTranslated(target: TranslateTarget, rows: FieldRow[],
     if (result) saved += result.redirect ? 2 : 1;
   }
   return { saved, broken };
+}
+
+/* ---------- odhad práce ---------- */
+
+export interface WorkEstimate {
+  code: string;
+  /** Kolik znaků textu napíše model */
+  chars: number;
+  /** Kolik polí se překládá */
+  fields: number;
+  /** Kolik z nich se vezme celých z paměti, bez modelu */
+  memory: number;
+}
+
+/**
+ * Kolik práce čeká — po produktech, v znacích, které napíše model.
+ *
+ * Počítá se s pamětí odstavců: co je celé známé, model nepíše vůbec, a
+ * známé odstavce se nepočítají. Proto odhad u sourozenců, kteří se liší
+ * barvou, neslibuje minuty za text, který se jen dosadí.
+ */
+export function estimateWork(codes: string[], langs: string[],
+                             options: { force?: boolean; fields?: string[] } = {}): WorkEstimate[] {
+  const out: WorkEstimate[] = [];
+  for (const code of codes) {
+    const one: WorkEstimate = { code, chars: 0, fields: 0, memory: 0 };
+    for (const target of planWork([code], langs, options)) {
+      const rows = productFields(code, [target.lang]);
+      for (const field of target.fields ?? []) {
+        if (DERIVED_FIELDS.has(field)) continue;
+        const source = rows.find(r => r.field === field)?.source ?? '';
+        if (!source.trim()) continue;
+        one.fields++;
+        const text = forModel(field, source);
+        const known = options.force ? null : safeLookup(target.lang, field, text, 1);
+        if (known?.full !== undefined) { one.memory++; continue; }
+        one.chars += workOf(known?.masked ?? text);
+      }
+    }
+    if (one.fields) out.push(one);
+  }
+  return out;
+}
+
+/** Odhad pro dialog spuštění: kolik toho je a jak dlouho to potrvá. */
+export function estimateRun(codes: string[], langs: string[], options: { force?: boolean } = {}) {
+  const s = getPtransSettings();
+  try { learnFromStore(langs, s.sourceLang); } catch { /* pomůcka */ }
+  const work = estimateWork(codes, langs, options);
+  const speed = s.speed ?? DEFAULT_SPEED;
+  const lanes = Math.max(1, Math.min(8, s.concurrency));
+  return {
+    products: work.length,
+    fields: work.reduce((sum, one) => sum + one.fields, 0),
+    memory: work.reduce((sum, one) => sum + one.memory, 0),
+    chars: work.reduce((sum, one) => sum + one.chars, 0),
+    seconds: Math.round(simulate(work.map(one => one.chars), speed, lanes)),
+    speed,
+    lanes
+  };
 }
 
 /* ---------- dávkový běh ---------- */
@@ -1067,9 +1136,27 @@ export interface RunResult {
     if (work.length || source.length) plan.set(code, { source, work });
   }
 
+  /*
+   * Kolik toho model napíše, po produktech. Z toho je pruh i odhad času:
+   * počítá se v znacích textu, ne v produktech — popis o třiceti tisících
+   * znacích trvá jinak dlouho než název.
+   */
+  const plannedChars = new Map<string, number>();
+  const plannedFields = new Map<string, number>();
+  for (const one of estimateWork([...plan.keys()], langs, { force: input.force, fields: input.fields })) {
+    plannedChars.set(one.code, one.chars);
+    plannedFields.set(one.code, one.fields);
+  }
+
   cancelled = false;
   abort = new AbortController();
-  const speed = new Speed(s.secondsPerUnit || 12);
+  speedNow = { ...(s.speed ?? DEFAULT_SPEED) };
+  // Změna stavu pole (hotovo, z paměti) jde do okna hned — nanejvýš jednou za 150 ms
+  let soon: ReturnType<typeof setTimeout> | null = null;
+  activity.begin(() => {
+    if (soon) return;
+    soon = setTimeout(() => { soon = null; if (current?.running) publish(); }, 150);
+  });
   const started = Date.now();
   const errors: string[] = [];
   const noSourceFields: string[] = [];
@@ -1101,69 +1188,64 @@ export interface RunResult {
   let lanes = 1;
   let goodRun = 0;
 
-  /*
-   * Plynulý pruh.
-   *
-   * Hotové úkoly se počítaly po celých produktech, takže při třech vybraných
-   * produktech pruh skákal po třetinách a mezi skoky se půl minuty nedělo
-   * nic. Rozjeté volání se proto započítává průběžně: podle toho, jak dlouho
-   * už běží, oproti tomu, jak dlouho takové volání obvykle trvá. Nikdy
-   * nedojde až na konec svého dílku — dokončení musí zůstat skutečné.
-   */
-  const inFlight = new Map<number, { at: number; units: number }>();
-  let ticket = 0;
+  const queue = [...plan.entries()];
+  let doneChars = 0;
+  let productsDone = 0;
+  let fieldsDone = 0;
+  const fieldsTotal = () => [...plannedFields.values()].reduce((a, b) => a + b, 0);
 
   /**
-   * Kolik z rozjetých volání je „hotovo".
+   * Stav pro rozhraní.
    *
-   * Křivka se ke svému dílku blíží, ale nikdy ho nedosáhne — a hlavně se
-   * nikdy nezastaví. Tvrdý strop („nanejvýš 92 %") vypadal při pomalejší
-   * odpovědi stejně jako zaseknutý pruh; tenhle tvar se pořád po kouscích
-   * hýbe, i když volání trvá třikrát déle, než se čekalo.
+   * Pruh = napsané znaky / všechny znaky, které napsat zbývá. Odhad času =
+   * u rozjetých produktů zbytek textu a čekání (na první slovo, na volné
+   * místo u API), u čekajících čekání + text, děleno počtem souběžných.
    */
-  const partial = () => {
-    let sum = 0;
-    for (const item of inFlight.values()) {
-      if (item.units === 0) continue;
-      const expect = Math.max(3, speed.perUnit * item.units);
-      const elapsed = (Date.now() - item.at) / 1000;
-      sum += item.units * 0.97 * (1 - Math.exp(-elapsed / expect));
-    }
-    return sum;
-  };
-
-  /**
-   * Tempo pro odhad zbývajícího času.
-   *
-   * Průměr z minulých volání sám o sobě nestačí: když se zrovna čeká na
-   * odpověď, která trvá dvakrát déle než obvykle, odhad by se zmenšoval,
-   * i když se nic neděje. Rozjeté volání proto tempo zvedá — odhad tak
-   * roste, dokud odpověď nedorazí, místo aby dopočítal k nule a stál.
-   */
-  const pace = () => {
-    let slowest = speed.perUnit;
-    for (const item of inFlight.values()) {
-      const units = Math.max(1, item.units);
-      slowest = Math.max(slowest, (Date.now() - item.at) / 1000 / units);
-    }
-    return slowest;
-  };
-
   const publish = (label?: string) => {
-    const soft = Math.min(total, done + partial());
-    const left = Math.max(0, total - soft);
+    const live = activity.snapshot();
+    let activeExpected = 0;
+    let activeWritten = 0;
+    let activeSeconds = 0;
+    let activeFields = 0;
+    const now = Date.now();
+    for (const one of live) {
+      const expected = one.fields.length
+        ? one.fields.reduce((sum, f) => sum + (f.status === 'memory' ? 0 : f.expected), 0)
+        : (plannedChars.get(one.code) ?? 0);
+      const written = activity.writtenIn(one.code);
+      activeExpected += expected;
+      activeWritten += written;
+      activeFields += one.fields.filter(f => f.status === 'done' || f.status === 'memory').length;
+      const waiting = one.phase === 'limit' || one.phase === 'retry'
+        ? Math.max(0, ((one.until ?? now) - now) / 1000)
+        : one.phase === 'writing' || one.phase === 'saving' ? 0
+          : Math.max(0, speedNow.wait - (now - one.since) / 1000);
+      activeSeconds += waiting + Math.max(0, expected - written) / speedNow.cps;
+    }
+    let queuedChars = 0;
+    let queuedSeconds = 0;
+    for (const [code] of queue) {
+      const chars = plannedChars.get(code) ?? 0;
+      queuedChars += chars;
+      queuedSeconds += chars > 0 ? speedNow.wait + chars / speedNow.cps : 0.2;
+    }
+    const allChars = doneChars + activeExpected + queuedChars;
+    const soFar = doneChars + activeWritten;
     current = {
       running: true,
       done,
       total,
       failed,
-      bar: total > 0 ? Math.min(0.999, soft / total) : 0,
-      // Dokud něco běží, nesmí odhad spadnout na nulu — to je stejná lež
-      // jako zaseknutý pruh, jen obráceně
-      etaSeconds: Math.round(Math.max(inFlight.size > 0 ? 1 : 0, (left * pace()) / Math.max(1, lanes))),
-      secondsPerUnit: Number(speed.perUnit.toFixed(1)),
+      bar: allChars > 0 ? Math.min(0.999, soFar / allChars) : 0,
+      etaSeconds: Math.round((activeSeconds + queuedSeconds) / Math.max(1, Math.min(lanes, live.length + queue.length || 1))),
+      secondsPerUnit: s.secondsPerUnit,
       label: label ?? current?.label ?? '',
-      errors: errors.slice(-5)
+      errors: errors.slice(-5),
+      products: { done: productsDone, total: plan.size },
+      fields: { done: fieldsDone + activeFields, total: fieldsTotal() },
+      current: live,
+      speed: { wait: Number(speedNow.wait.toFixed(1)), cps: Math.round(speedNow.cps) },
+      lanes
     };
     emit('ptrans:progress', current);
   };
@@ -1186,14 +1268,10 @@ export interface RunResult {
     /* ---------- 1) čeština: co chybí, se dopíše ---------- */
     for (const target of item.source) {
       if (cancelled) break;
-      const id = ++ticket;
-      inFlight.set(id, { at: Date.now(), units: 1 });
-      publish(`${code} — doplňuji ${SOURCE_LABELS[target.field] ?? target.field}`
-        + ` v ${s.sourceLang.toUpperCase()}`);
-      const at = Date.now();
+      const note = `doplňuji ${SOURCE_LABELS[target.field] ?? target.field} v ${s.sourceLang.toUpperCase()}`;
+      activity.setPhase(code, 'source', note);
+      publish(`${code} — ${note}`);
       const result = await fillSourceOne(code, target.field, abort?.signal);
-      speed.add((Date.now() - at) / 1000);
-      inFlight.delete(id);
       done++;
       // Přerušené volání není chyba — po zastavení by se jen sypaly hlášky
       if (result.error && !isAborted(result)) { failed++; errors.push(result.error); }
@@ -1238,14 +1316,14 @@ export interface RunResult {
          * jiného (usekaná odpověď, chyba v JSON), dlouhé čekání nic nespraví
          * a jen prodlužuje běh.
          */
-        await new Promise(resolve =>
-          setTimeout(resolve, 600 * attempt + (rateLimitedRecently() ? 6000 * attempt : 0)));
+        const pause = 600 * attempt + (rateLimitedRecently() ? 6000 * attempt : 0);
+        activity.setPhase(code, 'retry',
+          rateLimitedRecently() ? `API je přetížené — ${attempt}. pokus` : `${attempt}. pokus`, Date.now() + pause);
+        publish();
+        await new Promise(resolve => setTimeout(resolve, pause));
         if (cancelled) break;
       }
 
-      const id = ++ticket;
-      const at = Date.now();
-      inFlight.set(id, { at, units: attempt === 1 ? targets.length : 0 });
       publish(`${code} → ${targets.map(t => labelOf(t.lang, s)).join(', ')}`
         + (attempt > 1 ? ` (${attempt}. pokus)` : ''));
 
@@ -1258,8 +1336,6 @@ export interface RunResult {
       });
       reused += result.reused;
       reusedBy.set(code, (reusedBy.get(code) ?? 0) + result.reused);
-      speed.add((Date.now() - at) / 1000 / Math.max(1, targets.length));
-      inFlight.delete(id);
       if (attempt === 1) done += targets.length;
 
       for (const field of result.noSource) {
@@ -1305,7 +1381,6 @@ export interface RunResult {
     return withSource(planWork([code], langs, { fields: input.fields })).length === 0;
   };
 
-  const queue = [...plan.entries()];
   const workers = Array.from({ length: maxLanes }, async (_unused, lane) => {
     while (queue.length > 0 && !cancelled) {
       // Přebytečné pruhy počkají, dokud se limit neuvolní
@@ -1314,16 +1389,35 @@ export interface RunResult {
         continue;
       }
       const [code, item] = queue.shift()!;
+      const title = (getDb().prepare('SELECT title FROM ptrans_products WHERE code = ?').get(code) as
+        { title: string } | undefined)?.title ?? code;
+      activity.startProduct(code, title);
+      publish();
       const ok = await oneProduct(code, item);
+      const finished = activity.finishProduct(code);
+      const fields = finished?.fields ?? [];
+      // Co se nepovedlo, se v hlášení ukáže jako nehotové — i když to model rozepsal
+      for (const one of fields) if (one.status !== 'done' && one.status !== 'memory') one.status = 'failed';
+      doneChars += fields.reduce((sum, f) => sum + (f.status === 'memory' ? 0 : f.expected), 0)
+        || (plannedChars.get(code) ?? 0);
+      plannedChars.delete(code);
+      const counted = fields.length || plannedFields.get(code) || 0;
+      plannedFields.set(code, counted);
+      fieldsDone += fields.filter(f => f.status === 'done' || f.status === 'memory').length;
+      productsDone++;
       publish();
       /*
        * Hotový produkt se ohlásí hned, ne až po celém běhu — seznam si
        * obnoví jeho stav a náhled ukáže, co je hotové. U dávky o stovce
        * produktů se jinak deset minut nedělo nic vidět.
        */
-      const title = (getDb().prepare('SELECT title FROM ptrans_products WHERE code = ?').get(code) as
-        { title: string } | undefined)?.title ?? code;
-      emit('ptrans:product', { code, title, ok: !!ok, reused: reusedBy.get(code) ?? 0 });
+      emit('ptrans:product', {
+        code, title, ok: !!ok, reused: reusedBy.get(code) ?? 0,
+        sentences: fields.reduce((sum, f) => sum + (f.fromMemory ?? 0), 0),
+        patterned: fields.reduce((sum, f) => sum + (f.patterned ?? 0), 0),
+        memory: fields.filter(f => f.status === 'memory').length,
+        failed: fields.filter(f => f.status === 'failed').map(f => `${f.lang}:${f.field}`)
+      });
     }
   });
   await Promise.all(workers);
@@ -1347,12 +1441,14 @@ export interface RunResult {
 
   const seconds = (Date.now() - started) / 1000;
   // Naměřená rychlost se pamatuje, aby byl odhad rozumný hned na začátku příště
-  if (done > 0) savePtransSettings({ secondsPerUnit: Number(speed.perUnit.toFixed(1)) });
+  if (done > 0) savePtransSettings({ speed: { wait: Number(speedNow.wait.toFixed(2)), cps: Math.round(speedNow.cps) } });
+  if (soon) clearTimeout(soon);
+  activity.end();
   getDb().prepare('UPDATE ptrans_runs SET finished_at = ?, done = ?, failed = ?, seconds = ? WHERE id = ?')
     .run(new Date().toISOString(), done, failed, seconds, runId);
 
   current = { ...current!, running: false, done, total, failed, bar: 1, etaSeconds: 0, label: '',
-    errors: finalErrors.slice(-5) };
+    errors: finalErrors.slice(-5), current: [] };
   emit('ptrans:progress', current);
   emit('ptrans:changed', {});
 

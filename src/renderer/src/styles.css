@@ -5925,8 +5925,8 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 .pt-eta small { color: var(--text-3); }
 .pt-fail { color: var(--danger); font-weight: 600; }
 
-/* Živý náhled: co model právě píše, a produkty, které se právě dokončily */
-.pt-live {
+/* Průběh: rozpracované produkty a jejich pole, a produkty právě hotové */
+.pt-act {
   margin-top: 8px;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -5934,34 +5934,53 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
   background: var(--panel);
   font-size: 12.5px;
 }
-.pt-live-head { display: flex; align-items: center; gap: 8px; color: var(--text-2); margin-bottom: 4px; }
-.pt-live-head b { color: var(--text); font-weight: 600; }
-.pt-live-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
-  animation: pt-live-pulse 1.2s ease-in-out infinite;
+.pt-act-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; min-width: 0; }
+.pt-act-head .linkish { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%; }
+.pt-act-head b { font-weight: 600; color: var(--text); }
+.pt-act-phase { color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pt-act-phase.slow { color: #8a5a10; }
+.pt-act-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
+.pt-act-dot.writing { background: var(--ok); animation: pt-live-pulse 1s ease-in-out infinite; }
+.pt-act-dot.waiting, .pt-act-dot.start, .pt-act-dot.source, .pt-act-dot.saving {
+  background: var(--accent); animation: pt-live-pulse 1.4s ease-in-out infinite;
 }
+.pt-act-dot.limit, .pt-act-dot.retry { background: var(--warn); animation: pt-live-pulse 1.4s ease-in-out infinite; }
 @keyframes pt-live-pulse { 50% { opacity: 0.3; } }
-.pt-live-rows { display: grid; grid-template-columns: repeat(var(--pt-live-cols, 1), minmax(0, 1fr)); gap: 10px; }
-.pt-live-item { min-width: 0; }
-.pt-live-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.03em; }
-.pt-live-text {
-  color: var(--text);
-  line-height: 1.45;
-  max-height: 4.4em;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+.pt-act-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 4px; }
+.pt-act-lang { width: 24px; font-size: 11px; font-weight: 700; color: var(--text-3); }
+.pt-act-field {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px; font-size: 11.5px;
+  border: 1px solid var(--border); color: var(--text-3); background: var(--bg);
 }
-.pt-live-text::after { content: '▍'; color: var(--accent); animation: pt-live-pulse 1s steps(1) infinite; }
+.pt-act-field i { font-style: normal; font-weight: 700; }
+.pt-act-field small { font-size: 10.5px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.pt-act-field.done { background: #e7f6ee; color: #1c7a4b; border-color: transparent; }
+.pt-act-field.memory { background: #fff4cc; color: #7a5a00; border-color: transparent; }
+.pt-act-field.writing { background: var(--accent-soft); color: var(--accent-dark); border-color: transparent; }
+.pt-act-field.waiting { color: var(--text-2); }
+.pt-act-field.failed { background: #fde8e8; color: #a32222; border-color: transparent; }
+.pt-act-spin {
+  width: 9px; height: 9px; border-radius: 50%;
+  border: 1.5px solid currentColor; border-right-color: transparent;
+  animation: pt-act-rot 0.8s linear infinite;
+}
+@keyframes pt-act-rot { to { transform: rotate(360deg); } }
+.pt-act-last {
+  margin-top: 6px; color: var(--text-2); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pt-act-last span { color: var(--text-3); }
+.pt-done em.pattern { color: var(--accent-dark); background: var(--accent-soft); }
+.pt-done-label { font-size: 12px; color: var(--text-3); align-self: center; }
 .pt-done-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .pt-done {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border);
-  background: var(--panel); font-size: 12px; color: var(--text-2); max-width: 260px;
+  background: var(--panel); font-size: 12px; color: var(--text-2); max-width: 480px;
 }
 .pt-done:hover { border-color: var(--accent); color: var(--text); }
-.pt-done span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-done span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 90px; }
 .pt-done.bad { color: var(--danger); }
 .pt-done em { font-style: normal; color: #7a5a00; background: #fff4cc; border-radius: 6px; padding: 0 5px; white-space: nowrap; flex-shrink: 0; }
 
@@ -10706,3 +10725,11 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .sh-den-rezim { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
 .sh-den-rezim select { flex: 1; }
 .sh-den-popis { margin-top: 6px; }
+
+/* Paměť vět v záložce Paměť: co se při překladu dosadí bez modelu */
+.pt-mem-segments {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0 0 12px; padding: 8px 10px; border-radius: 8px;
+  background: #fffaea; border: 1px solid #f3e3a8; font-size: 12.5px;
+}
+.pt-mem-segments .ig-muted { flex-basis: 100%; font-size: 12px; }

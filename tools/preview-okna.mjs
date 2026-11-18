@@ -458,32 +458,76 @@ for (const okno of OKNA) {
   await dlouhy.scrollIntoViewIfNeeded();
   await dlouhy.screenshot({ path: path.join(SHOTS, 'preklady-zvyrazneni.png') });
 
+  /*
+   * Průběh: pruh podle napsaného textu, rozpracovaný produkt s poli po
+   * jazycích a s tím, na co se čeká, a hotové produkty jako odkazy.
+   */
   await page.evaluate(() => {
-    window.__emit('ptrans:progress', { running: true, done: 3, total: 12, failed: 0, etaSeconds: 40,
-      secondsPerUnit: 9, label: 'PSSK120BR2 → Slovenština, Angličtina', errors: [], bar: 0.3 });
-    window.__emit('ptrans:live', { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', items: [
-      { lang: 'sk', field: 'title', text: 'Bordó pánske široké traky s čiernou pravou kožou' },
-      { lang: 'sk', field: 'long', text: '<p>Široké traky v bordó odtieni s pravou kožou. Vyrobené ručne v našej' },
-      { lang: 'en', field: 'long', text: '<p>Wide suspenders in burgundy with genuine leather. Handmade in our worksh' }
-    ] });
-    window.__emit('ptrans:product', { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', ok: true, reused: 3 });
-    window.__emit('ptrans:product', { code: 'DKJL02P', title: 'Tmavě fialová dětská kravata', ok: false, reused: 0 });
+    const ted = Date.now();
+    const pole = (lang, field, status, extra = {}) => ({ lang, field, status, expected: 600, written: 0, ...extra });
+    window.__emit('ptrans:progress', { running: true, done: 3, total: 12, failed: 0, etaSeconds: 134,
+      secondsPerUnit: 9, label: '', errors: [], bar: 0.37,
+      products: { done: 2, total: 6 }, fields: { done: 11, total: 24 }, speed: { wait: 4, cps: 85 }, lanes: 2,
+      current: [
+        { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', phase: 'writing',
+          since: ted - 9000, received: 1240, fields: [
+            pole('sk', 'title', 'done', { expected: 45, written: 45, preview: 'Bordó pánske široké traky s čiernou pravou kožou' }),
+            pole('sk', 'short', 'memory', { expected: 0 }),
+            pole('sk', 'long', 'writing', { written: 270, fromMemory: 3, patterned: 1 }),
+            pole('sk', 'seo_title', 'waiting'),
+            pole('en', 'title', 'done', { expected: 45, written: 45 }),
+            pole('en', 'short', 'memory', { expected: 0 }),
+            pole('en', 'long', 'waiting'),
+            pole('en', 'seo_title', 'waiting')
+          ] },
+        { code: 'MZU01', title: 'Bordó manžetové knoflíčky', phase: 'limit', note: 'API je přetížené',
+          since: ted - 2000, until: ted + 8000, received: 0, fields: [
+            pole('sk', 'title', 'waiting'), pole('sk', 'long', 'waiting')
+          ] }
+      ] });
+    window.__emit('ptrans:product', { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', ok: true, reused: 1,
+      sentences: 6, patterned: 2 });
+    window.__emit('ptrans:product', { code: 'DKJL02P', title: 'Tmavě fialová dětská kravata', ok: false, reused: 0,
+      failed: ['en:long'] });
   });
   await page.waitForTimeout(300);
   const zive = await page.evaluate(() => ({
-    nadpis: document.querySelector('.pt-live-head')?.textContent?.trim() ?? '',
-    radky: [...document.querySelectorAll('.pt-live-item')].map(one => one.textContent.trim()),
+    souhrn: document.querySelector('.pt-progress-text')?.textContent ?? '',
+    karty: [...document.querySelectorAll('.pt-act')].map(one => ({
+      faze: one.querySelector('.pt-act-phase')?.textContent ?? '',
+      pole: [...one.querySelectorAll('.pt-act-field')].map(f => `${f.className.split(' ').pop()}:${f.textContent}`),
+      posledni: one.querySelector('.pt-act-last')?.textContent ?? ''
+    })),
     hotove: [...document.querySelectorAll('.pt-done')].map(one => one.textContent.trim())
   }));
-  say('během překladu je vidět, co model právě píše',
-    /Právě píše:.*kšandy/.test(zive.nadpis) && zive.radky.length === 2, zive.radky.map(t => t.slice(0, 40)).join(' | '));
-  say('  po jazycích, poslední rozepsané pole, bez HTML',
-    zive.radky[0]?.startsWith('sk · Dlouhý popis') && !zive.radky.some(t => t.includes('<p')), zive.radky[0]?.slice(0, 30));
+  say('průběh říká produkty, pole a zbývající čas', /2 z 6 produktů/.test(zive.souhrn) && /11 z 24 polí/.test(zive.souhrn)
+    && /zbývá asi 2 min/.test(zive.souhrn), zive.souhrn);
+  say('  rozpracovaný produkt ukazuje pole po jazycích',
+    zive.karty[0]?.pole.some(t => t.startsWith('writing:') && /45 %/.test(t) && /\+3 z paměti/.test(t))
+    && zive.karty[0]?.pole.some(t => t.startsWith('memory:')) && zive.karty[0]?.pole.some(t => t.startsWith('done:')),
+    (zive.karty[0]?.pole ?? []).join(' | ').slice(0, 160));
+  say('  co právě dělá model, s počtem napsaných znaků', /model píše · 1\s?240 znaků/.test(zive.karty[0]?.faze ?? ''),
+    zive.karty[0]?.faze);
+  say('  a na co se čeká, s odpočtem', /API je přetížené — zkusí to znovu za (8|7) s/.test(zive.karty[1]?.faze ?? ''),
+    zive.karty[1]?.faze);
+  say('  i ukázka toho, co už je hotové', /Bordó pánske široké traky/.test(zive.karty[0]?.posledni ?? ''),
+    zive.karty[0]?.posledni);
   say('  a hotové produkty jsou hned odkazem nad seznamem',
-    // Nejnovější první
-    zive.hotove.length === 2 && /dětská/.test(zive.hotove[0]) && /BULDOČCI.*3× z paměti/.test(zive.hotove[1]),
-    zive.hotove.join(' · '));
+    zive.hotove.length === 2 && /dětská/.test(zive.hotove[0])
+    && /BULDOČCI.*1 pole \+ 6 vět z paměti.*2 věty podle vzoru/.test(zive.hotove[1]), zive.hotove.join(' · '));
   await page.screenshot({ path: path.join(SHOTS, 'preklady-pamet.png') });
+
+  /* Odhad před spuštěním: z délky textu a paměti, ne „sekund na produkt" */
+  await page.evaluate(() => window.__emit('ptrans:progress', { running: false, done: 0, total: 0, failed: 0,
+    etaSeconds: 0, secondsPerUnit: 9, label: '', errors: [], bar: 1, current: [] }));
+  await page.locator('button', { hasText: 'Přeložit produkt' }).first().click();
+  await page.waitForSelector('.pt-estimate', { timeout: 3000 }).catch(() => undefined);
+  await page.waitForTimeout(300);
+  const odhad = await page.evaluate(() => document.querySelector('.pt-estimate')?.textContent ?? '');
+  say('před spuštěním: kolik polí, kolik z paměti a jak dlouho', /24 polí u 6 produktů/.test(odhad)
+    // 158 s překladu + 31× doplnění češtiny po (4 s + 200 znaků / 85 za s)
+    && /7 z paměti bez modelu/.test(odhad) && /~5 min 5\d s/.test(odhad) && /85 znaků/.test(odhad), odhad.slice(0, 200));
+  await page.locator('.pt-estimate').screenshot({ path: path.join(SHOTS, 'preklady-odhad.png') }).catch(() => undefined);
   await page.close();
 }
 

@@ -110,9 +110,11 @@ shim('ai.js', {
     // Odpověď po kouscích, jak ji posílá API proudem
     if (liveCalls > 0 && options.onText) {
       liveCalls--;
-      for (const share of [0.35, 0.7]) {
+      // Skutečný model chvíli mlčí, než začne psát
+      await new Promise(r => setTimeout(r, 700));
+      for (const share of [0.2, 0.4, 0.6, 0.8]) {
         options.onText(answer.slice(0, Math.floor(answer.length * share)));
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 320));
       }
       options.onText(answer);
     }
@@ -295,18 +297,34 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
     "SELECT reuse_marks FROM ptrans_fields WHERE code = 'KR-MODRA2' AND lang = 'en' AND field = 'long'").get().reuse_marks || '[]');
   check('  a u textu celého z paměti všechny odstavce', whole.length === 5, JSON.stringify(whole).slice(0, 200));
 
-  console.log('\nživý náhled:\n');
+  console.log('\nprůběh běhu:\n');
 
-  const live = sent.filter(one => one.channel === 'ptrans:live').map(one => one.payload);
-  check('během odpovědi chodí rozepsaný text', live.length >= 2 && live[0].items.some(item => item.field === 'long'),
-    `událostí: ${live.length}`);
-  check('  se jménem produktu', live[0]?.title === 'Kravata do kanceláře zelená', live[0]?.title);
-  check('  a značky jsou v něm už nahrazené hotovými větami',
-    live.some(one => one.items.some(item => item.text.includes('SK:Vyrobena') && !/⟦\d+⟧/.test(item.text))),
-    JSON.stringify(live.at(-1)?.items).slice(0, 300));
+  const progress = sent.filter(one => one.channel === 'ptrans:progress').map(one => one.payload).filter(p => p.running);
+  const fieldsSeen = progress.flatMap(p => (p.current ?? []).flatMap(one => one.fields.filter(f => f.field === 'long')));
+  check('je vidět pole, na kterém model právě píše, i kolik z něj už je',
+    fieldsSeen.some(f => f.status === 'writing' && f.written > 0 && f.written < f.expected),
+    JSON.stringify(fieldsSeen.map(f => `${f.status}:${f.written}/${f.expected}`)));
+  check('  a hotové pole hned, i s ukázkou textu (hotové věty v ní dosazené)',
+    progress.some(p => (p.current ?? []).some(one => one.fields.some(f => f.field === 'long' && f.status === 'done'
+      && /SK:Pánská kravata v zelené/.test(f.preview ?? '') && /SK:Vyrobena/.test(f.preview ?? '')))),
+    JSON.stringify(fieldsSeen.filter(f => f.status === 'done').map(f => f.preview)).slice(0, 300));
+  check('  u pole je, kolik vět se dosadí z paměti',
+    fieldsSeen.some(f => f.fromMemory === 2), JSON.stringify(fieldsSeen.map(f => f.fromMemory)));
+  const bars = progress.map(p => p.bar);
+  check('pruh roste podle napsaného textu, ne podle času',
+    bars.some(v => v > 0.05 && v < 0.95) && bars.every((v, i) => i === 0 || v >= bars[i - 1] - 1e-9),
+    bars.map(v => v.toFixed(2)).join(' '));
+  check('  a odhad času se počítá', progress.every(p => Number.isFinite(p.etaSeconds)),
+    progress.map(p => p.etaSeconds).join(' '));
+  check('  čeká se na model → je to vidět jako „čeká na odpověď"',
+    progress.some(p => (p.current ?? []).some(one => one.phase === 'waiting'))
+    && progress.some(p => (p.current ?? []).some(one => one.phase === 'writing' && one.received > 0)));
   const doneEvents = sent.filter(one => one.channel === 'ptrans:product').map(one => one.payload);
-  check('hotový produkt se ohlásí hned, ne až po celém běhu',
-    doneEvents.length === 1 && doneEvents[0].code === 'VT-ZELENA' && doneEvents[0].ok === true, JSON.stringify(doneEvents));
+  check('hotový produkt se ohlásí hned — i s tím, co bylo z paměti a co podle vzoru',
+    doneEvents.length === 1 && doneEvents[0].code === 'VT-ZELENA' && doneEvents[0].ok === true
+    && doneEvents[0].sentences === 2 && doneEvents[0].patterned >= 1, JSON.stringify(doneEvents));
+  const speed = JSON.parse(settings.get('ptrans') ?? '{}').speed;
+  check('naměřená rychlost se uloží pro příští odhad', speed && speed.cps > 0 && speed.wait >= 0, JSON.stringify(speed));
 
   console.log('\nruční úprava:\n');
 
@@ -314,6 +332,61 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
   require(path.join(DIST, 'ptrans/store.js')).saveTranslation('VT-ZELENA', 'sk', 'long', '<p>Ručně opraveno.</p>', 'ruční', true);
   check('po ruční opravě se podbarvení smaže — text je člověka',
     db.prepare("SELECT reuse_marks FROM ptrans_fields WHERE code = 'VT-ZELENA' AND lang = 'sk' AND field = 'long'").get().reuse_marks === '');
+
+  console.log('\nskutečný popis kravaty ve dvou barvách (sk + en naráz):\n');
+
+  /*
+   * Tvar, jaký mají popisy v e-shopu: nadpis s barvou, odstavec, kde barva
+   * je jen v první větě, odrážky s parametry a odstavec o šití. U druhé
+   * barvy má model dostat jen nadpis a jednu větu — zbytek je z paměti.
+   */
+  const popis = (barva, Barva) => `<h2>${Barva} pánská kravata</h2>\n`
+    + `<p>Elegantní ${barva} kravata z mikrovlákna s jemným vzorem. Hodí se k tmavému obleku i ke světlé košili.</p>\n`
+    + '<ul><li>Materiál: 100 % polyester</li><li>Šíře: 7 cm</li><li>Délka: 148 cm</li></ul>\n'
+    + '<p>Kravata je ručně šitá v naší dílně v Česku. Dodáváme ji v dárkové krabičce.</p>';
+  product('KR-BORDO', 'Bordó pánská kravata', popis('bordó', 'Bordó'));
+  product('KR-NAVY', 'Tmavě modrá pánská kravata', popis('tmavě modrá', 'Tmavě modrá'));
+  await translate.run({ codes: ['KR-BORDO'], langs: ['sk', 'en'], fillSource: false });
+  users.length = 0; charsOut = 0; sent.length = 0;
+  run = await translate.run({ codes: ['KR-NAVY'], langs: ['sk', 'en'], fillSource: false });
+  const joint2 = users.find(text => text.includes('po jazycích')) ?? '';
+  for (const lang of ['sk', 'en']) {
+    const got = value('KR-NAVY', lang, 'long').translated;
+    check(`${lang}: výsledek je stejný, jako kdyby se překládal celý`, got === tr(lang, tidyHtml(popis('tmavě modrá', 'Tmavě modrá'))), got);
+    const m = JSON.parse(db.prepare("SELECT reuse_marks FROM ptrans_fields WHERE code = 'KR-NAVY' AND lang = ? AND field = 'long'")
+      .get(lang).reuse_marks || '[]');
+    check(`${lang}: z paměti jsou odrážky, druhá věta i celý poslední odstavec`, m.length === 5
+      && m.some(x => x.s.startsWith(`${lang.toUpperCase()}:Kravata je ručně šitá`)), JSON.stringify(m.map(x => x.s.slice(0, 22))));
+  }
+  check('model dostal jen nadpis a větu s barvou, obojí s hotovou podobnou jako vzorem',
+    /Podobné věty/.test(joint2) && joint2.includes('Elegantní tmavě modrá kravata') && !joint2.includes('Dodáváme ji v dárkové krabičce.</p>'),
+    joint2.slice(joint2.indexOf('Texty k překladu'), joint2.indexOf('Texty k překladu') + 500));
+  const done2 = sent.filter(one => one.channel === 'ptrans:product').map(one => one.payload)[0];
+  check('a hlášení o hotovém produktu to řekne', done2?.sentences === 10 && done2?.patterned >= 4, JSON.stringify(done2));
+
+  console.log('\nnaučení z překladů, které už v e-shopu jsou:\n');
+
+  /*
+   * Produkt přeložený dřív v e-shopu (ne aplikací) — ve feedu je slovenský
+   * text, aplikace ho nepřekládala. Po stažení feedu se z něj paměť naučí
+   * a sourozenec dostane jeho věty, aniž by se cokoli překládalo předem.
+   */
+  const skPopis = barva => `<p>Elegantná ${barva} kravata pre pánov, ktorý sa nechcú vzdať štýlu. `
+    + 'Je vhodná ako doplnok k obleku pre každú príležitosť.</p>';
+  const czPopis = barva => `<p>Elegantní ${barva} kravata pro pány, kteří se nechtějí vzdát stylu. `
+    + 'Je vhodná jako doplněk k obleku pro každou příležitost.</p>';
+  db.prepare("INSERT INTO ptrans_products (code, title, category, raw_xml) VALUES ('FEED-1','Zelená kravata','Kravaty','')").run();
+  db.prepare(`INSERT INTO ptrans_fields (code, lang, field, value, source_value, state) VALUES ('FEED-1','sk','long',?,?,'ok')`)
+    .run(skPopis('zelená'), czPopis('zelená'));
+  product('FEED-2', 'Žlutá kravata', czPopis('žlutá'));
+  settings.set('ptransSyncedAt', new Date().toISOString());     // feed se právě stáhl
+  users.length = 0;
+  await translate.run({ codes: ['FEED-2'], langs: ['sk'], fillSource: false });
+  const fromFeed = users.find(text => text.includes('Texty k překladu')) ?? '';
+  check('věta z překladu, který už byl v e-shopu, se dosadí z paměti', /⟦1⟧/.test(fromFeed)
+    && !fromFeed.includes('Je vhodná jako doplněk k obleku pro každou příležitost.</p>'), fromFeed.slice(-300));
+  check('  a věta s barvou jde modelu podle slovenského vzoru',
+    /Elegantná zelená kravata pre pánov/.test(fromFeed), fromFeed.slice(fromFeed.indexOf('Podobné'), fromFeed.indexOf('Podobné') + 260));
 
   console.log('\nnázvosloví ve společném dotazu:\n');
 

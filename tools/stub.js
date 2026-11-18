@@ -1498,6 +1498,8 @@
         model: '', manual: false }
     ],
     'ptrans:plan': 12,
+    'ptrans:estimate': { products: 6, fields: 24, memory: 7, chars: 9400, seconds: 158,
+      speed: { wait: 4, cps: 85 }, lanes: 2 },
     'ptrans:sourceGaps': {
       sourceLang: 'cz',
       total: 31,

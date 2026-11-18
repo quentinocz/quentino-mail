@@ -1857,6 +1857,8 @@ export interface PtransSettings {
   model: string;
   concurrency: number;
   secondsPerUnit: number;
+  /** Naměřená rychlost modelu (viz ptrans/activity.ts) */
+  speed?: { wait: number; cps: number };
 }
 
 export interface PtransProduct {
@@ -1987,19 +1989,6 @@ export interface PtransField {
   reuseMarks?: { b: number; s: string }[];
 }
 
-/**
- * Živý náhled překladu — co model právě píše.
- *
- * Chodí po kouscích, jak odpověď přibývá; `done` u posledního. Hotové
- * odstavce z paměti jsou v textu už dosazené, ať je vidět celek.
- */
-export interface PtransLive {
-  code: string;
-  title: string;
-  items: { lang: string; field: string; text: string }[];
-  done?: boolean;
-}
-
 /** Produkt, který se v běhu právě dokončil — seznam se podle toho obnoví. */
 export interface PtransProductDone {
   code: string;
@@ -2007,6 +1996,54 @@ export interface PtransProductDone {
   ok: boolean;
   /** Kolik polí šlo z paměti */
   reused: number;
+  memory?: number;
+  /** Kolik vět či odstavců se dosadilo z paměti uvnitř polí */
+  sentences?: number;
+  /** Kolik vět šlo modelu podle vzoru podobné věty */
+  patterned?: number;
+  /** Co zůstalo nehotové — „sk:long" */
+  failed?: string[];
+}
+
+export type PtransFieldStatus = 'pending' | 'memory' | 'waiting' | 'writing' | 'done' | 'failed';
+
+/** Pole rozpracovaného produktu — co s ním zrovna je. */
+export interface PtransFieldActivity {
+  lang: string;
+  field: string;
+  status: PtransFieldStatus;
+  /** Kolik znaků textu má model napsat a kolik už napsal */
+  expected: number;
+  written: number;
+  preview?: string;
+  /** Kolik odstavců či vět se vzalo z paměti */
+  fromMemory?: number;
+  /** Kolik vět šlo modelu podle vzoru podobné věty */
+  patterned?: number;
+}
+
+/** Produkt, který se právě překládá, a na co se u něj čeká. */
+export interface PtransProductActivity {
+  code: string;
+  title: string;
+  phase: 'start' | 'source' | 'waiting' | 'writing' | 'retry' | 'limit' | 'saving';
+  since: number;
+  until?: number;
+  note?: string;
+  received: number;
+  fields: PtransFieldActivity[];
+}
+
+export interface PtransEstimate {
+  products: number;
+  fields: number;
+  /** Kolik polí se vezme celých z paměti, bez modelu */
+  memory: number;
+  /** Kolik znaků textu napíše model */
+  chars: number;
+  seconds: number;
+  speed: { wait: number; cps: number };
+  lanes: number;
 }
 
 export interface PtransProgress {
@@ -2019,9 +2056,15 @@ export interface PtransProgress {
   secondsPerUnit: number;
   label: string;
   errors: string[];
-  /** Naplnění pruhu 0–1. Počítá se i z rozjetých volání, aby se pruh hýbal
-   *  plynule a ne skokem po celých produktech. */
+  /** Naplnění pruhu 0–1 — podle textu, který model opravdu napsal */
   bar: number;
+  products?: { done: number; total: number };
+  fields?: { done: number; total: number };
+  /** Co se právě překládá */
+  current?: PtransProductActivity[];
+  /** Naměřená rychlost modelu: vteřiny do prvního slova, znaky za vteřinu */
+  speed?: { wait: number; cps: number };
+  lanes?: number;
 }
 
 export interface PtransOverview {
@@ -2065,6 +2108,16 @@ export interface PtransLearnResult {
   terms: number;
   patterns: number;
   examples: number;
+  /** Kolik vět, odstavců a celých textů zná paměť překladů */
+  sentences?: number;
+}
+
+/** Paměť vět a odstavců po jazycích. */
+export interface PtransSegmentStat {
+  lang: string;
+  sentences: number;
+  paragraphs: number;
+  texts: number;
 }
 
 export interface PtransPage {

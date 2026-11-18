@@ -8,10 +8,10 @@ import type {
   IgOverview, IgMarket, IgBrand, IgSourcePost, IgPost, IgJob, IgChannels,
   IgPlanSetup, IgPlanProposal, IgPlanned, IgAlert,
   ChatOverview, ChatConfig, ChatConversation, ChatWaiting, ChatMessage, ChatProduct,
-  PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransConsistency,
+  PtransOverview, PtransSettings, PtransQuery, PtransPage, PtransField, PtransProgress, PtransEstimate, PtransConsistency,
   PtransFixProposal, PtransTrial, PtransStyle,
   OrderFeed, OrderFeedStatus, OrderContact, OrderStats, ShopOrder, SupabaseStatus,
-  PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat, PtransLearnResult,
+  PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat, PtransLearnResult, PtransSegmentStat,
   PtransGoogleView, PtransColorRule, PtransBaseColor, PtransBundleRule, PtransAttributeRules,
   PtransAudit, PtransAuditSummary,
   ArticleOverview, ArticleSettings, ArticleListRow, ArticleDetail, ArticleBrief, ArticleProgress,
@@ -172,6 +172,9 @@ export const api = {
     /** Kolik polí by se přeložilo — pro odhad před spuštěním */
     plan: (codes: string[], langs: string[], options: { force?: boolean; fields?: string[] } = {}) =>
       call<number>('ptrans:plan', codes, langs, options),
+    /** Odhad před spuštěním: kolik polí, kolik z paměti, kolik textu napíše model a jak dlouho */
+    estimate: (codes: string[], langs: string[], options: { force?: boolean } = {}) =>
+      call<PtransEstimate>('ptrans:estimate', codes, langs, options),
     /**
      * `fillSource` doplní před překladem texty, které chybí ve zdrojovém
      * jazyce — přeložit se dá jen to, co existuje.
@@ -244,7 +247,7 @@ export const api = {
       call<boolean>('ptrans:dropStyle', lang, category, kind),
     /** Paměť překladů — co se aplikace naučila z hotových jazykových mutací */
     memory: (filter: { lang?: string; kind?: PtransMemoryKind; search?: string } = {}) =>
-      call<{ entries: PtransMemoryEntry[]; stats: PtransMemoryStat[] }>('ptrans:memory', filter),
+      call<{ entries: PtransMemoryEntry[]; stats: PtransMemoryStat[]; segments: PtransSegmentStat[] }>('ptrans:memory', filter),
     learn: (langs?: string[]) => call<PtransLearnResult[]>('ptrans:learn', langs),
     saveMemory: (entry: PtransMemoryEntry) => call<PtransMemoryEntry[]>('ptrans:saveMemory', entry),
     deleteMemory: (id: number) => call<boolean>('ptrans:deleteMemory', id),

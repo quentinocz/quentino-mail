@@ -927,6 +927,8 @@ export function registerIpc() {
   handle('ptrans:progress', () => ptrans.progress());
   handle('ptrans:plan', (codes: string[], langs: string[], options: any) =>
     ptrans.planWork(codes ?? [], langs ?? [], options ?? {}).length);
+  handle('ptrans:estimate', (codes: string[], langs: string[], options: any) =>
+    ptrans.estimateRun(codes ?? [], langs ?? [], options ?? {}));
   handle('ptrans:googleTitles', (codes: string[], langs?: string[]) =>
     ptrans.applyGoogleTitles(codes ?? [], langs));
   handle('ptrans:templatePreview', (template: string, code: string, lang: string) =>
@@ -998,7 +1000,9 @@ export function registerIpc() {
     ptrans.dropStyle(lang, category, kind));
   handle('ptrans:memory', (filter: any) => ({
     entries: ptrans.listMemory(filter ?? {}),
-    stats: ptrans.memoryStats()
+    stats: ptrans.memoryStats(),
+    // Paměť vět a odstavců (viz ptrans/reuse.ts) — kolik toho zná
+    segments: ptrans.segmentStats()
   }));
   handle('ptrans:learn', (langs?: string[]) => ptrans.learnMemory(langs));
   handle('ptrans:saveMemory', (entry: any) => ptrans.editMemory(entry));
