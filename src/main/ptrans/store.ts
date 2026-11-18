@@ -189,7 +189,7 @@ export function revertToFeed(codes: string[], options: { keepManual?: boolean } 
   const guard = options.keepManual ? ' AND manual = 0' : '';
   const changes = d.prepare(
     `UPDATE ptrans_fields SET translated = NULL, translated_at = NULL, translated_hash = NULL,
-       model = '', manual = CASE WHEN ? THEN manual ELSE 0 END
+       model = '', reuse_marks = '', manual = CASE WHEN ? THEN manual ELSE 0 END
      WHERE code IN (${marks})${guard}`
   ).run(options.keepManual ? 1 : 0, ...codes).changes;
 
@@ -697,6 +697,8 @@ export interface FieldRow {
   translatedAt: string | null;
   model: string;
   manual: boolean;
+  /** Co přišlo z paměti odstavců — na zvýraznění v náhledu (viz reuse.ts) */
+  reuseMarks: { b: number; s: string }[];
 }
 
 export function productFields(code: string, langs?: string[]): FieldRow[] {
@@ -715,8 +717,19 @@ export function productFields(code: string, langs?: string[]): FieldRow[] {
     translated: row.translated,
     translatedAt: row.translated_at,
     model: row.model,
-    manual: row.manual === 1
+    manual: row.manual === 1,
+    reuseMarks: parseMarks(row.reuse_marks)
   }));
+}
+
+function parseMarks(raw: unknown): { b: number; s: string }[] {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.filter(one => typeof one?.s === 'string').slice(0, 200) : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Uloží překlad jednoho pole a rovnou ho promítne do „hodnoty ve feedu". */
@@ -842,20 +855,25 @@ export function propagateSource(code: string, field: string, source: string): vo
   recomputeStates([code]);
 }
 
+/**
+ * `marks` = co z textu přišlo z paměti odstavců. Ruční úprava je smaže:
+ * od té chvíle je text člověka, ne paměti.
+ */
 export function saveTranslation(code: string, lang: string, field: string, value: string,
-                                model: string, manual = false): void {
+                                model: string, manual = false, marks: { b: number; s: string }[] = []): void {
   const d = getDb();
   const row = d.prepare('SELECT source_value FROM ptrans_fields WHERE code = ? AND lang = ? AND field = ?')
     .get(code, lang, field) as { source_value: string } | undefined;
   const source = row?.source_value ?? '';
   d.prepare(`
     INSERT INTO ptrans_fields (code, lang, field, value, source_value, state, translated, translated_at,
-      translated_hash, model, manual, messy)
-    VALUES (@code, @lang, @field, @value, @source, @state, @value, @at, @hash, @model, @manual, @messy)
+      translated_hash, model, manual, messy, reuse_marks)
+    VALUES (@code, @lang, @field, @value, @source, @state, @value, @at, @hash, @model, @manual, @messy, @marks)
     ON CONFLICT(code, lang, field) DO UPDATE SET
       value = excluded.value, state = excluded.state, translated = excluded.translated,
       translated_at = excluded.translated_at, translated_hash = excluded.translated_hash,
-      model = excluded.model, manual = excluded.manual, messy = excluded.messy
+      model = excluded.model, manual = excluded.manual, messy = excluded.messy,
+      reuse_marks = excluded.reuse_marks
   `).run({
     code, lang, field, value, source,
     state: manual ? 'manual' : 'ok',
@@ -865,7 +883,8 @@ export function saveTranslation(code: string, lang: string, field: string, value
     manual: manual ? 1 : 0,
     // Po úklidu musí příznak zhasnout hned, ne až po dalším přepočtu stavů —
     // jinak by uklizený produkt zůstal ve filtru „nepořádek v HTML" viset
-    messy: messyFlag({ translated: value, value, source_value: source }) ? 1 : 0
+    messy: messyFlag({ translated: value, value, source_value: source }) ? 1 : 0,
+    marks: !manual && marks.length ? JSON.stringify(marks) : ''
   });
 }
 

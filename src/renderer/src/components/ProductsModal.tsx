@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PtransConsistency, PtransField, PtransOverview, PtransProduct, PtransProgress, PtransQuery, PtransState,
+  PtransLive, PtransProductDone,
   PtransFixProposal, PtransTrial, PtransStyle,
   PtransMemoryEntry, PtransMemoryKind, PtransMemoryStat
 } from '@shared/types';
@@ -195,6 +196,28 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
   useEffect(() => { loadPage(); }, [loadPage]);
   useEffect(() => api.on('ptrans:progress', (p: PtransProgress) => setProgress(p)), []);
 
+  /*
+   * Živý náhled a právě dokončené produkty.
+   *
+   * Dřív se po spuštění překladu celé minuty hýbal jen pruh — texty se
+   * objevily až po doběhnutí. Teď je vidět, co model zrovna píše, a každý
+   * hotový produkt se hned ukáže v seznamu i jako odkaz nad ním.
+   */
+  const [live, setLive] = useState<PtransLive | null>(null);
+  const [finished, setFinished] = useState<PtransProductDone[]>([]);
+  useEffect(() => api.on('ptrans:live', (payload: PtransLive) => setLive(payload)), []);
+  const refreshSoon = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => api.on('ptrans:product', (payload: PtransProductDone) => {
+    setFinished(prev => [payload, ...prev.filter(one => one.code !== payload.code)].slice(0, 6));
+    setLive(prev => (prev?.code === payload.code ? null : prev));
+    // Seznam se obnoví nanejvýš jednou za vteřinu a půl — při souběžném
+    // překladu chodí hotové produkty rychle za sebou
+    if (!refreshSoon.current) {
+      refreshSoon.current = setTimeout(() => { refreshSoon.current = null; loadPageRef.current(); }, 1500);
+    }
+    if (activeRef.current === payload.code) loadFieldsRef.current(payload.code);
+  }), []);
+
 
   // Hledání se posílá se zpožděním, ať se při psaní nedotazuje na každé písmeno
   useEffect(() => {
@@ -241,11 +264,23 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     loadFields(active);
   }, [progress, active, loadFields]);
 
+  // Odkazy pro posluchače událostí, které se registrují jen jednou
+  const loadPageRef = useRef(loadPage);
+  const loadFieldsRef = useRef(loadFields);
+  const activeRef = useRef(active);
+  loadPageRef.current = loadPage;
+  loadFieldsRef.current = loadFields;
+  activeRef.current = active;
+
   // Konec běhu: seznam i přehled se srovnají s tím, co se opravdu uložilo
   const wasRunning = useRef(false);
   useEffect(() => {
     const running = !!progress?.running;
+    // Nový běh začíná s prázdným seznamem hotových — ale jen opravdu od začátku,
+    // ne když se okno otevře uprostřed běhu
+    if (!wasRunning.current && running && progress?.done === 0) setFinished([]);
     if (wasRunning.current && !running) {
+      setLive(null);
       loadPage();
       loadOverview();
       if (active) loadFields(active);
@@ -735,6 +770,20 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                   {progress.failed > 0 && <span className="pt-fail">{progress.failed}× chyba</span>}
                   <button className="btn ghost" onClick={() => api.ptrans.stop()}>Zastavit</button>
                 </div>
+                {live && <LivePreview live={live} onOpen={code => setActive(code)} />}
+                {finished.length > 0 && (
+                  <div className="pt-done-list">
+                    {finished.map(one => (
+                      <button key={one.code} className={`pt-done${one.ok ? '' : ' bad'}`}
+                        onClick={() => setActive(one.code)}
+                        data-tip={one.ok ? 'Hotovo — otevřít a zkontrolovat' : 'Něco zůstalo nepřeložené — otevřít'}>
+                        <Icon name={one.ok ? 'check' : 'alert'} size={12} />
+                        <span>{one.title}</span>
+                        {one.reused > 0 && <em>{one.reused}× z paměti</em>}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1096,10 +1145,26 @@ function LangCell({ row, long, busy, onSave, onRetranslate, onGenerate }: {
 
   useEffect(() => { setValue(current); }, [current]);
 
+  /*
+   * Co přišlo z paměti odstavců — u sourozenců už přeložené, model to
+   * nepsal. Podbarví se, ať se dá zkontrolovat, jestli to sedí i tady.
+   * Jen dokud je v poli náš překlad: po ruční úpravě je text člověka.
+   */
+  const marks = !row.manual && row.translated && value === current ? (row.reuseMarks ?? []) : [];
+  const wholeFromMemory = !row.manual && row.model === 'paměť odstavců';
+
   return (
     <div className={`pt-cell ${row.state}`}>
       <div className="pt-cell-top">
         <span className={`pt-chip ${STATE_TONE[row.state]}`}>{STATE_LABEL[row.state]}</span>
+        {(wholeFromMemory || marks.length > 0) && (
+          <span className="pt-chip memory"
+            data-tip={wholeFromMemory
+              ? 'Celé z paměti: stejný text už je přeložený u jiného produktu. Model se nevolal.'
+              : 'Podbarvené věty jsou z paměti — u jiného produktu už přeložené. Zbytek napsal model.'}>
+            {wholeFromMemory ? 'z paměti' : `z paměti: ${marks.length}×`}
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         {generable && (
           <button className="icon-btn tiny" disabled={busy} onClick={() => onGenerate(row.field as any)}
@@ -1119,12 +1184,13 @@ function LangCell({ row, long, busy, onSave, onRetranslate, onGenerate }: {
         <HtmlField
           value={value}
           rows={row.field === 'long' ? 12 : 5}
+          marks={marks}
           onChange={setValue}
           onSave={() => { if (dirty) onSave(value); }}
         />
       ) : (
         <textarea
-          className={long ? 'pt-input tall' : 'pt-input'}
+          className={`${long ? 'pt-input tall' : 'pt-input'}${marks.length || (wholeFromMemory && value === current) ? ' from-memory' : ''}`}
           rows={long ? 5 : 2}
           value={value}
           onChange={e => setValue(e.target.value)}
@@ -1144,6 +1210,42 @@ function LangCell({ row, long, busy, onSave, onRetranslate, onGenerate }: {
             <button className="btn small primary" onClick={() => onSave(value)}>Uložit</button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- živý náhled ---------- */
+
+/**
+ * Co model právě píše — po jazycích, poslední kus textu.
+ *
+ * Text je bez HTML: rozepsaná značka by se v náhledu ukázala jako
+ * `<str`, a o formátování tady nejde — jde o to vidět, že to jede a jak
+ * to zní. Hotový text i s formátováním je v kartě produktu.
+ */
+function LivePreview({ live, onOpen }: { live: PtransLive; onOpen: (code: string) => void }) {
+  // Z každého jazyka jen pole, které se zrovna píše (poslední v odpovědi)
+  const byLang = new Map<string, { field: string; text: string }>();
+  for (const item of live.items) byLang.set(item.lang, { field: item.field, text: item.text });
+  const rows = [...byLang.entries()];
+  return (
+    <div className="pt-live">
+      <div className="pt-live-head">
+        <span className="pt-live-dot" />
+        <span>Právě píše:</span>
+        <button className="linkish" onClick={() => onOpen(live.code)}><b>{live.title}</b></button>
+      </div>
+      <div className="pt-live-rows" style={{ '--pt-live-cols': rows.length } as any}>
+        {rows.map(([lang, item]) => {
+          const text = item.text.replace(/<[^>]*>?/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+          return (
+            <div key={lang} className="pt-live-item">
+              <div className="pt-live-label">{lang} · {fieldLabel(item.field)}</div>
+              <div className="pt-live-text">{text.length > 360 ? '…' + text.slice(-360) : text}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

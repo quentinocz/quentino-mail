@@ -14,7 +14,8 @@ import { setSeoUrl } from './redirects';
 import { memoryHint, memoryStats, learnFromFeed } from './memory';
 import { planSourceFill, fillSourceOne, SourceField, SourceTarget, SOURCE_LABELS } from './source';
 import { applyAttributes } from './google';
-import { lookup, unmask, learn, slotHint, learnFromStore } from './reuse';
+import { lookup, unmask, learn, slotHint, nearHint, slotMarks, learnFromStore, Near, Mark } from './reuse';
+import { partialJson } from './partial';
 
 /**
  * Překlad produktových textů.
@@ -324,6 +325,10 @@ interface Prepared {
   /** Zdroj tak, jak ho vidí model, ale bez značek — na učení paměti */
   sources: Record<string, string>;
   masks: Record<string, Map<string, string>>;
+  /** Značka → odstavec, ať se dá v náhledu podbarvit, co přišlo z paměti */
+  slotBlocks: Record<string, Map<string, number>>;
+  /** Podobné věty s hotovým překladem — vzor pro model */
+  near: Near[];
   noSource: string[];
   /** Kolik polí se přeložilo rovnou z paměti */
   reused: number;
@@ -341,7 +346,7 @@ interface Prepared {
 function prepare(target: TranslateTarget, rows: FieldRow[], model: string, slot = { next: 1 }): Prepared {
   const wanted = (target.fields?.length ? target.fields : rows.map(r => r.field))
     .filter(field => !DERIVED_FIELDS.has(field));
-  const out: Prepared = { payload: {}, sources: {}, masks: {}, noSource: [], reused: 0 };
+  const out: Prepared = { payload: {}, sources: {}, masks: {}, slotBlocks: {}, near: [], noSource: [], reused: 0 };
   for (const field of wanted) {
     const source = rows.find(r => r.field === field)?.source ?? '';
     if (!source.trim()) { out.noSource.push(field); continue; }
@@ -349,15 +354,18 @@ function prepare(target: TranslateTarget, rows: FieldRow[], model: string, slot 
     const marker = `${target.code}|${target.lang}|${field}`;
     const known = target.force || noMask.has(marker) ? null : safeLookup(target.lang, field, text, slot.next);
     if (known?.full !== undefined) {
-      saveTranslation(target.code, target.lang, field, finalValue(field, known.full), REUSE_MODEL);
+      saveTranslation(target.code, target.lang, field, finalValue(field, known.full), REUSE_MODEL, false,
+        known.marks ?? []);
       out.reused++;
       if (field === 'title') out.reusedTitle = known.full;
       continue;
     }
     out.sources[field] = text;
+    if (known?.near.length) out.near.push(...known.near);
     if (known?.masked !== undefined && known.slots) {
       out.payload[field] = known.masked;
       out.masks[field] = known.slots;
+      if (known.slotBlock) out.slotBlocks[field] = known.slotBlock;
       slot.next += known.slots.size;
     } else {
       out.payload[field] = text;
@@ -391,6 +399,52 @@ function fromAnswer(target: TranslateTarget, field: string, raw: string,
   const whole = unmask(raw, slots);
   if (whole === null) noMask.add(`${target.code}|${target.lang}|${field}`);
   return whole;
+}
+
+/** Co v hotovém poli přišlo z paměti — podle značek, které model dodržel. */
+function marksOf(field: string, ready: { masks: Record<string, Map<string, string>>;
+  slotBlocks: Record<string, Map<string, number>> }): Mark[] {
+  const slots = ready.masks[field];
+  return slots ? slotMarks(slots, ready.slotBlocks[field]) : [];
+}
+
+/* ---------- živý náhled ---------- */
+
+/**
+ * Živý náhled toho, co model právě píše.
+ *
+ * Překlad produktu trvá deset, dvacet vteřin, a dřív se celou tu dobu
+ * nedělo nic vidět — text se objevil až po uložení. Odpověď teď chodí
+ * proudem a každou chvíli (ne při každém písmenu, to by zahltilo okno) se
+ * pošle, co z ní už je. Značky hotových odstavců jsou v náhledu rovnou
+ * nahrazené, ať je vidět celý text, ne `⟦3⟧`.
+ */
+const LIVE_EVERY_MS = 180;
+
+function liveFeed(code: string, langs: string[], nested: boolean,
+                  masksOf: (lang: string) => Record<string, Map<string, string>>): (soFar: string) => void {
+  const title = (getDb().prepare('SELECT title FROM ptrans_products WHERE code = ?').get(code) as
+    { title: string } | undefined)?.title ?? code;
+  let last = 0;
+  return (soFar: string) => {
+    const now = Date.now();
+    if (now - last < LIVE_EVERY_MS) return;
+    last = now;
+    const parsed = partialJson(soFar);
+    const items: { lang: string; field: string; text: string }[] = [];
+    for (const lang of langs) {
+      const fields = nested ? parsed[lang] : parsed;
+      if (!fields || typeof fields !== 'object') continue;
+      const masks = masksOf(lang);
+      for (const [field, value] of Object.entries(fields)) {
+        if (typeof value !== 'string') continue;
+        const slots = masks[field];
+        const text = slots ? value.replace(/⟦\d+⟧/g, slot => slots.get(slot) ?? '') : value;
+        items.push({ lang, field, text });
+      }
+    }
+    if (items.length) emit('ptrans:live', { code, title, items });
+  };
 }
 
 /** Zapamatuje si nový překlad po odstavcích — pro sourozence, kteří přijdou. */
@@ -478,7 +532,8 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
     s.limits.seoDesc && payload.seo_desc ? `- seo_desc nejvýš ${s.limits.seoDesc} znaků` : '',
     consistency,
     memory,
-    maskHint([{ masks }])
+    maskHint([{ masks }]),
+    nearHint([{ near: prepared.near }])
   ].filter(Boolean).join('\n');
 
   try {
@@ -514,7 +569,7 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
       // Strop podle odhadu výstupu, ne podle délky vstupu: překlad je zhruba
       // stejně dlouhý jako zdroj, ale tokenů je zhruba poloviční počet znaků
       Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.4 * factor) + 600),
-      { signal }
+      { signal, onText: liveFeed(target.code, [target.lang], false, () => masks) }
     );
     const translated = parseJson(answer);
 
@@ -526,7 +581,7 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
       const whole = fromAnswer(target, field, raw, masks);
       if (whole === null) { broken++; continue; }
       const value = finalValue(field, whole);
-      saveTranslation(target.code, target.lang, field, value, model);
+      saveTranslation(target.code, target.lang, field, value, model, false, marksOf(field, prepared));
       remember(target.lang, field, sources[field], value);
       saved++;
     }
@@ -821,7 +876,8 @@ async function askBatch(
       everyField.includes('title') ? consistencyHint(product?.category ?? '', lang) : '',
       memoryHint(flat, lang, product?.category ?? '')
     ])),
-    maskHint(langs.map(lang => ({ lang, masks: prepared.get(lang)?.masks ?? {} })))
+    maskHint(langs.map(lang => ({ lang, masks: prepared.get(lang)?.masks ?? {} }))),
+    nearHint(langs.map(lang => ({ lang, near: prepared.get(lang)?.near ?? [] })))
   ].filter(Boolean).join('\n');
 
   const answer = await ask(
@@ -830,7 +886,7 @@ async function askBatch(
     `${hint}\n\nTexty k překladu po jazycích:\n${JSON.stringify(payload, null, 1)}`,
     // S rezervou nad odhadem — JSON a uvozovky taky něco zaberou
     Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.3) + 600),
-    { signal }
+    { signal, onText: liveFeed(code, langs, true, lang => prepared.get(lang)?.masks ?? {}) }
   );
 
   const byLang = parseByLang(answer, langs);
@@ -840,7 +896,7 @@ async function askBatch(
     if (!translated || Object.keys(translated).length === 0) continue;
     const ready = prepared.get(lang);
     const result = saveTranslated(byLangTarget.get(lang)!, rowsByLang.get(lang) ?? [], translated, model,
-      ready?.masks ?? {}, ready?.sources ?? {}, ready?.reusedTitle);
+      ready ?? { masks: {}, slotBlocks: {}, sources: {} }, ready?.reusedTitle);
     saved += result.saved;
     // Jazyk s porušenými značkami se dotáhne po jednom (už bez nich)
     if (!result.broken) done.add(lang);
@@ -879,9 +935,9 @@ function perLanguage(lang: string, parts: string[]): string {
 /** Uloží přeložená pole jednoho jazyka a odvodí z názvu adresu. */
 function saveTranslated(target: TranslateTarget, rows: FieldRow[],
                         translated: Record<string, string>, model: string,
-                        masks: Record<string, Map<string, string>> = {},
-                        sources: Record<string, string> = {},
+                        ready: Pick<Prepared, 'masks' | 'slotBlocks' | 'sources'>,
                         reusedTitle?: string): { saved: number; broken: number } {
+  const { masks, sources } = ready;
   const s = getPtransSettings();
   // Jen pole, o která se žádalo — model občas přidá něco navíc
   const asked = new Set(target.fields ?? Object.keys(translated));
@@ -893,7 +949,7 @@ function saveTranslated(target: TranslateTarget, rows: FieldRow[],
     const whole = fromAnswer(target, field, raw, masks);
     if (whole === null) { broken++; continue; }
     const value = finalValue(field, whole);
-    saveTranslation(target.code, target.lang, field, value, model);
+    saveTranslation(target.code, target.lang, field, value, model, false, marksOf(field, ready));
     remember(target.lang, field, sources[field], value);
     saved++;
   }
@@ -1123,6 +1179,9 @@ export interface RunResult {
   const ATTEMPTS = 4;
 
   /** Jeden produkt od začátku do konce — a s ověřením, že opravdu do konce. */
+  /** Kolik polí šlo u kterého produktu z paměti — do hlášky o hotovém produktu. */
+  const reusedBy = new Map<string, number>();
+
   const oneProduct = async (code: string, item: { source: SourceTarget[]; work: TranslateTarget[] }) => {
     /* ---------- 1) čeština: co chybí, se dopíše ---------- */
     for (const target of item.source) {
@@ -1198,6 +1257,7 @@ export interface RunResult {
         };
       });
       reused += result.reused;
+      reusedBy.set(code, (reusedBy.get(code) ?? 0) + result.reused);
       speed.add((Date.now() - at) / 1000 / Math.max(1, targets.length));
       inFlight.delete(id);
       if (attempt === 1) done += targets.length;
@@ -1254,8 +1314,16 @@ export interface RunResult {
         continue;
       }
       const [code, item] = queue.shift()!;
-      await oneProduct(code, item);
+      const ok = await oneProduct(code, item);
       publish();
+      /*
+       * Hotový produkt se ohlásí hned, ne až po celém běhu — seznam si
+       * obnoví jeho stav a náhled ukáže, co je hotové. U dávky o stovce
+       * produktů se jinak deset minut nedělo nic vidět.
+       */
+      const title = (getDb().prepare('SELECT title FROM ptrans_products WHERE code = ?').get(code) as
+        { title: string } | undefined)?.title ?? code;
+      emit('ptrans:product', { code, title, ok: !!ok, reused: reusedBy.get(code) ?? 0 });
     }
   });
   await Promise.all(workers);

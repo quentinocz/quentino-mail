@@ -424,6 +424,69 @@ for (const okno of OKNA) {
   await page.close();
 }
 
+/* ---------- Překlady: co je z paměti a živý náhled ---------- */
+
+/*
+ * Co přišlo z paměti odstavců, se podbarvuje přes `CSS.highlights` — ne
+ * značkou v HTML, která by se při ruční opravě uložila do popisu. Z kódu
+ * se nepozná, jestli se podbarvení opravdu najde v textu; tady se měří,
+ * kolik rozsahů prohlížeč dostal a že v HTML pole žádná značka navíc není.
+ */
+{
+  const page = await open('produkty');
+  await page.locator('.pt-row').first().click();
+  await page.waitForSelector('.pt-cell .pt-chip.memory', { timeout: 4000 }).catch(() => undefined);
+  await page.waitForTimeout(400);
+  const pamet = await page.evaluate(() => {
+    const reg = window.CSS?.highlights?.get('qt-pamet');
+    const ranges = reg ? [...reg].map(range => range.toString()) : [];
+    return {
+      stitky: [...document.querySelectorAll('.pt-chip.memory')].map(one => one.textContent.trim()),
+      ranges,
+      vHtml: [...document.querySelectorAll('[contenteditable]')].some(one => /<mark|qt-pamet/.test(one.innerHTML)),
+      podbarvene: document.querySelectorAll('.pt-input.from-memory').length
+    };
+  });
+  say('u pole z paměti je štítek', pamet.stitky.includes('z paměti') && pamet.stitky.some(t => /z paměti: 2×/.test(t)),
+    pamet.stitky.join(' · '));
+  say('  věty z paměti jsou v náhledu podbarvené',
+    pamet.ranges.includes('Vyrobené ručne v našej dielni v Česku.') && pamet.ranges.includes('Gumu neprať v práčke.'),
+    pamet.ranges.join(' | '));
+  say('  a do HTML popisu se nic nevložilo', !pamet.vHtml);
+  say('  pole bez HTML z paměti je podbarvené celé', pamet.podbarvene === 1, `${pamet.podbarvene}`);
+  const dlouhy = page.locator('.pt-frow', { hasText: 'Dlouhý popis' }).first();
+  await dlouhy.scrollIntoViewIfNeeded();
+  await dlouhy.screenshot({ path: path.join(SHOTS, 'preklady-zvyrazneni.png') });
+
+  await page.evaluate(() => {
+    window.__emit('ptrans:progress', { running: true, done: 3, total: 12, failed: 0, etaSeconds: 40,
+      secondsPerUnit: 9, label: 'PSSK120BR2 → Slovenština, Angličtina', errors: [], bar: 0.3 });
+    window.__emit('ptrans:live', { code: 'PSSK120BR2', title: 'Bordó pánské široké kšandy s černou pravou kůží', items: [
+      { lang: 'sk', field: 'title', text: 'Bordó pánske široké traky s čiernou pravou kožou' },
+      { lang: 'sk', field: 'long', text: '<p>Široké traky v bordó odtieni s pravou kožou. Vyrobené ručne v našej' },
+      { lang: 'en', field: 'long', text: '<p>Wide suspenders in burgundy with genuine leather. Handmade in our worksh' }
+    ] });
+    window.__emit('ptrans:product', { code: 'PKT23', title: 'Bordó pánská kravata BULDOČCI', ok: true, reused: 3 });
+    window.__emit('ptrans:product', { code: 'DKJL02P', title: 'Tmavě fialová dětská kravata', ok: false, reused: 0 });
+  });
+  await page.waitForTimeout(300);
+  const zive = await page.evaluate(() => ({
+    nadpis: document.querySelector('.pt-live-head')?.textContent?.trim() ?? '',
+    radky: [...document.querySelectorAll('.pt-live-item')].map(one => one.textContent.trim()),
+    hotove: [...document.querySelectorAll('.pt-done')].map(one => one.textContent.trim())
+  }));
+  say('během překladu je vidět, co model právě píše',
+    /Právě píše:.*kšandy/.test(zive.nadpis) && zive.radky.length === 2, zive.radky.map(t => t.slice(0, 40)).join(' | '));
+  say('  po jazycích, poslední rozepsané pole, bez HTML',
+    zive.radky[0]?.startsWith('sk · Dlouhý popis') && !zive.radky.some(t => t.includes('<p')), zive.radky[0]?.slice(0, 30));
+  say('  a hotové produkty jsou hned odkazem nad seznamem',
+    // Nejnovější první
+    zive.hotove.length === 2 && /dětská/.test(zive.hotove[0]) && /BULDOČCI.*3× z paměti/.test(zive.hotove[1]),
+    zive.hotove.join(' · '));
+  await page.screenshot({ path: path.join(SHOTS, 'preklady-pamet.png') });
+  await page.close();
+}
+
 /* ---------- AI Přehled: hlavní čísla, události, žádné díry ---------- */
 
 /*

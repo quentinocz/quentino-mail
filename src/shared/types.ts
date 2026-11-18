@@ -1979,6 +1979,34 @@ export interface PtransField {
   translatedAt: string | null;
   model: string;
   manual: boolean;
+  /**
+   * Co v textu přišlo z paměti odstavců, ne od modelu: `b` = pořadí
+   * odstavce, `s` = text (celý odstavec nebo věta). Náhled to podbarví,
+   * ať se to dá zkontrolovat.
+   */
+  reuseMarks?: { b: number; s: string }[];
+}
+
+/**
+ * Živý náhled překladu — co model právě píše.
+ *
+ * Chodí po kouscích, jak odpověď přibývá; `done` u posledního. Hotové
+ * odstavce z paměti jsou v textu už dosazené, ať je vidět celek.
+ */
+export interface PtransLive {
+  code: string;
+  title: string;
+  items: { lang: string; field: string; text: string }[];
+  done?: boolean;
+}
+
+/** Produkt, který se v běhu právě dokončil — seznam se podle toho obnoví. */
+export interface PtransProductDone {
+  code: string;
+  title: string;
+  ok: boolean;
+  /** Kolik polí šlo z paměti */
+  reused: number;
 }
 
 export interface PtransProgress {

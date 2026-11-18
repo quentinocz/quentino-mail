@@ -45,6 +45,9 @@ CREATE TABLE IF NOT EXISTS ptrans_fields (
   -- Drží se v databázi, aby se dal seznam produktů podle toho filtrovat
   -- jedním dotazem místo procházení všech popisů při každém otevření.
   messy INTEGER NOT NULL DEFAULT 0,
+  -- Co v poli přišlo z paměti odstavců: JSON [{b, s}] (viz ptrans/reuse.ts).
+  -- Prázdné = celé napsal model nebo člověk.
+  reuse_marks TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (code, lang, field)
 );
 CREATE INDEX IF NOT EXISTS idx_ptrans_fields_state ON ptrans_fields(lang, state);
@@ -186,6 +189,20 @@ CREATE TABLE IF NOT EXISTS ptrans_segments (
   PRIMARY KEY (lang, skey)
 );
 
+-- Rejstřík podobných vět: dvě poloviny každé věty. Věta, která se od známé
+-- liší jedním slovem (barvou), má jednu polovinu stejnou a najde se jedním
+-- dotazem. Model pak dostane hotový překlad podobné věty jako vzor.
+CREATE TABLE IF NOT EXISTS ptrans_seg_index (
+  lang TEXT NOT NULL,
+  skey TEXT NOT NULL,
+  half INTEGER NOT NULL,
+  scope TEXT NOT NULL,
+  ntok INTEGER NOT NULL,
+  hkey TEXT NOT NULL,
+  PRIMARY KEY (lang, skey, half)
+);
+CREATE INDEX IF NOT EXISTS idx_ptrans_seg_index_find ON ptrans_seg_index(lang, scope, ntok, hkey);
+
 CREATE TABLE IF NOT EXISTS ptrans_drafts (
   id TEXT PRIMARY KEY,
   code TEXT NOT NULL DEFAULT '',
@@ -203,5 +220,7 @@ CREATE TABLE IF NOT EXISTS ptrans_drafts (
 export const ALTERS = [
   `ALTER TABLE ptrans_products ADD COLUMN origin TEXT NOT NULL DEFAULT 'feed'`,
   `ALTER TABLE ptrans_products ADD COLUMN added_at TEXT NOT NULL DEFAULT ''`,
-  `ALTER TABLE ptrans_fields ADD COLUMN messy INTEGER NOT NULL DEFAULT 0`
+  `ALTER TABLE ptrans_fields ADD COLUMN messy INTEGER NOT NULL DEFAULT 0`,
+  // Co v poli přišlo z paměti odstavců (JSON) — na zvýraznění v náhledu
+  `ALTER TABLE ptrans_fields ADD COLUMN reuse_marks TEXT NOT NULL DEFAULT ''`
 ];

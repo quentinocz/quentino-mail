@@ -73,16 +73,18 @@ shim('settings.js', { getSettings: () => ({ draftModel: 'x', brandPrompt: '' }),
  * jak má vypadat překlad celého textu, a porovnat ho s tím, co poskládala
  * paměť.
  */
-const tr = (lang, text) => text.split(/(<[^>]*>|⟦\d+⟧)/)
+const tr = (lang, text) => text.split(/(<[^>]*>|⟦\d+⟧|(?<=[.!?])\s+)/)
+  .map(part => (part === undefined ? '' : part))
   .map(part => (part.startsWith('<') || /^⟦\d+⟧$/.test(part) || !part.trim() ? part : `${lang.toUpperCase()}:${part}`))
   .join('');
+let liveCalls = 0;            // kolik dalších odpovědí má chodit po kouscích
 let calls = 0;
 let charsOut = 0;          // kolik textu musel model napsat (bez značek)
 let breakSlots = 0;        // kolik odpovědí má značky zkazit
 let lastUser = '';
 const users = [];
 shim('ai.js', {
-  ask: async (model, system, user) => {
+  ask: async (model, system, user, _max, options = {}) => {
     calls++;
     lastUser = user;
     users.push(user);
@@ -104,15 +106,28 @@ shim('ai.js', {
       return JSON.stringify(out);
     }
     const lang = /do jazyka „([a-z]{2,5})"/.exec(system)?.[1] ?? '';
-    return JSON.stringify(one(lang, payload));
+    const answer = JSON.stringify(one(lang, payload));
+    // Odpověď po kouscích, jak ji posílá API proudem
+    if (liveCalls > 0 && options.onText) {
+      liveCalls--;
+      for (const share of [0.35, 0.7]) {
+        options.onText(answer.slice(0, Math.floor(answer.length * share)));
+        await new Promise(r => setTimeout(r, 200));
+      }
+      options.onText(answer);
+    }
+    return answer;
   },
   rateLimitedRecently: () => false
 });
+const sent = [];
+const fakeWindow = { webContents: { send: (channel, payload) => sent.push({ channel, payload }) } };
 require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electron', loaded: true,
-  exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [] }, dialog: {}, net: {} } };
+  exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [fakeWindow] }, dialog: {}, net: {} } };
 
 const translate = require(path.join(DIST, 'ptrans/translate.js'));
 const reuse = require(path.join(DIST, 'ptrans/reuse.js'));
+const { partialJson } = require(path.join(DIST, 'ptrans/partial.js'));
 const { tidyHtml } = require(path.join(DIST, 'ptrans/html.js'));
 
 let bad = 0;
@@ -134,6 +149,28 @@ console.log('rozklad textu na odstavce:\n');
   check('text bez HTML je jeden kus', JSON.stringify(segs('Modrá kravata')) === JSON.stringify(['Modrá kravata']));
   const text = '<h2>Nadpis</h2>\n<p>A <a href="/x">odkaz</a></p>';
   check('složení zpátky dá přesně původní text', P(text).map(p => p.raw ?? p.inner).join('') === text);
+}
+
+console.log('\nrozklad odstavce na věty:\n');
+{
+  const S = reuse.__test.sentences;
+  const texts = inner => S(inner).map(one => one.text);
+  check('věty se dělí za tečkou a velkým písmenem',
+    JSON.stringify(texts('Modrá kravata. Šíře 7 cm. Ručně šito!')) === JSON.stringify(['Modrá kravata.', 'Šíře 7 cm.', 'Ručně šito!']));
+  check('„např. modrá" větu nerozdělí', texts('Hodí se např. modrá nebo šedá.').length === 1);
+  check('ani tečka uvnitř tučného písma',
+    texts('<strong>Pozor. Nežehlit</strong> napřímo.').length === 1);
+  check('složení zpátky dá přesně původní text',
+    S('První věta. <em>Druhá</em> věta.').map(one => one.text + one.sep).join('') === 'První věta. <em>Druhá</em> věta.');
+}
+
+console.log('\nrozepsaná odpověď pro živý náhled:\n');
+{
+  check('hotové hodnoty celé, rozepsaná tak, jak je',
+    JSON.stringify(partialJson('{"title": "Modrá", "long": "<p>Ručně ši')) === JSON.stringify({ title: 'Modrá', long: '<p>Ručně ši' }));
+  check('i po jazycích', partialJson('{"sk": {"title": "Modrá"}, "en": {"title": "Blu')?.en?.title === 'Blu');
+  check('rozepsaný escape se zahodí, hotový přeloží', partialJson('{"a": "x\\"y\\') .a === 'x"y');
+  check('nesmysl nic neshodí', JSON.stringify(partialJson('Tady JSON není')) === '{}');
 }
 
 /* ---------- sourozenci ---------- */
@@ -229,6 +266,54 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
     reuse.learn('sk', 'title', 'Kravata', 'Kravata') === 1);
   check('název se nehledá mezi odstavci popisů',
     reuse.lookup('en', 'title', 'Čistit pouze chemicky, nežehlit napřímo.') === null);
+
+  console.log('\nvěty uvnitř odstavce:\n');
+
+  const para = color => `<p>Pánská kravata v ${color} barvě, vybraná ke společenským oblekům. `
+    + 'Vyrobena z hedvábí, které drží tvar i po celém dni. Šíře 7 cm sedí ke klopám.</p>';
+  product('VT-MODRA', 'Kravata do kanceláře', para('modré'));
+  product('VT-ZELENA', 'Kravata do kanceláře zelená', para('zelené'));
+  await translate.run({ codes: ['VT-MODRA'], langs: ['sk'], fillSource: false });
+  users.length = 0; charsOut = 0; liveCalls = 1; sent.length = 0;
+  run = await translate.run({ codes: ['VT-ZELENA'], langs: ['sk'], fillSource: false });
+  const asked = users.find(text => text.includes('Texty k překladu')) ?? '';
+  check('stejné věty jdou jako značky, model píše jen větu o barvě',
+    /⟦1⟧/.test(asked) && /⟦2⟧/.test(asked) && asked.includes('v zelené barvě') && !asked.includes('Šíře 7 cm sedí ke klopám.</p>'),
+    asked.slice(-400));
+  check('a výsledek je stejný, jako kdyby se překládal celý',
+    value('VT-ZELENA', 'sk', 'long').translated === tr('sk', tidyHtml(para('zelené'))), value('VT-ZELENA', 'sk', 'long').translated);
+  check('věta o barvě nejde strojově — model dostane podobnou hotovou jako vzor',
+    /Podobné věty[\s\S]*v modré barvě[\s\S]*SK:Pánská kravata v modré barvě[\s\S]*teď: Pánská kravata v zelené barvě/.test(asked),
+    asked.slice(asked.indexOf('Podobné'), asked.indexOf('Podobné') + 300));
+
+  const marks = JSON.parse(db.prepare(
+    "SELECT reuse_marks FROM ptrans_fields WHERE code = 'VT-ZELENA' AND lang = 'sk' AND field = 'long'").get().reuse_marks || '[]');
+  check('uloží se, které věty jsou z paměti — na podbarvení v náhledu',
+    marks.length === 2 && marks.every(mark => mark.b === 0) && marks.some(mark => mark.s.startsWith('SK:Vyrobena z hedvábí')),
+    JSON.stringify(marks));
+  const whole = JSON.parse(db.prepare(
+    "SELECT reuse_marks FROM ptrans_fields WHERE code = 'KR-MODRA2' AND lang = 'en' AND field = 'long'").get().reuse_marks || '[]');
+  check('  a u textu celého z paměti všechny odstavce', whole.length === 5, JSON.stringify(whole).slice(0, 200));
+
+  console.log('\nživý náhled:\n');
+
+  const live = sent.filter(one => one.channel === 'ptrans:live').map(one => one.payload);
+  check('během odpovědi chodí rozepsaný text', live.length >= 2 && live[0].items.some(item => item.field === 'long'),
+    `událostí: ${live.length}`);
+  check('  se jménem produktu', live[0]?.title === 'Kravata do kanceláře zelená', live[0]?.title);
+  check('  a značky jsou v něm už nahrazené hotovými větami',
+    live.some(one => one.items.some(item => item.text.includes('SK:Vyrobena') && !/⟦\d+⟧/.test(item.text))),
+    JSON.stringify(live.at(-1)?.items).slice(0, 300));
+  const doneEvents = sent.filter(one => one.channel === 'ptrans:product').map(one => one.payload);
+  check('hotový produkt se ohlásí hned, ne až po celém běhu',
+    doneEvents.length === 1 && doneEvents[0].code === 'VT-ZELENA' && doneEvents[0].ok === true, JSON.stringify(doneEvents));
+
+  console.log('\nruční úprava:\n');
+
+  db.prepare("UPDATE ptrans_fields SET reuse_marks = '[{\"b\":0,\"s\":\"x\"}]' WHERE code = 'VT-ZELENA' AND lang = 'sk' AND field = 'long'").run();
+  require(path.join(DIST, 'ptrans/store.js')).saveTranslation('VT-ZELENA', 'sk', 'long', '<p>Ručně opraveno.</p>', 'ruční', true);
+  check('po ruční opravě se podbarvení smaže — text je člověka',
+    db.prepare("SELECT reuse_marks FROM ptrans_fields WHERE code = 'VT-ZELENA' AND lang = 'sk' AND field = 'long'").get().reuse_marks === '');
 
   console.log('\nnázvosloví ve společném dotazu:\n');
 

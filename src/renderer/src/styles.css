@@ -5805,6 +5805,10 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 .pt-chip.miss { background: #fde8e8; color: #a32222; border-color: transparent; }
 .pt-chip.stale { background: #e9e6ff; color: #4b39b3; border-color: transparent; }
 .pt-chip.manual { background: #e6f1fd; color: #1d5da8; border-color: transparent; }
+/* Z paměti překladů: teplá žlutá, ať se odliší od stavů a dá se najít v textu */
+.pt-chip.memory { background: #fff4cc; color: #7a5a00; border-color: transparent; }
+::highlight(qt-pamet) { background-color: #fff0b3; }
+.pt-input.from-memory { background: #fffaea; }
 
 .pt-pager {
   display: flex;
@@ -5920,6 +5924,46 @@ html[data-form-factor="phone"] .ch-app .sidebar-footer { display: none; }
 .pt-eta { margin-left: auto; }
 .pt-eta small { color: var(--text-3); }
 .pt-fail { color: var(--danger); font-weight: 600; }
+
+/* Živý náhled: co model právě píše, a produkty, které se právě dokončily */
+.pt-live {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 12.5px;
+}
+.pt-live-head { display: flex; align-items: center; gap: 8px; color: var(--text-2); margin-bottom: 4px; }
+.pt-live-head b { color: var(--text); font-weight: 600; }
+.pt-live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  animation: pt-live-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pt-live-pulse { 50% { opacity: 0.3; } }
+.pt-live-rows { display: grid; grid-template-columns: repeat(var(--pt-live-cols, 1), minmax(0, 1fr)); gap: 10px; }
+.pt-live-item { min-width: 0; }
+.pt-live-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.03em; }
+.pt-live-text {
+  color: var(--text);
+  line-height: 1.45;
+  max-height: 4.4em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.pt-live-text::after { content: '▍'; color: var(--accent); animation: pt-live-pulse 1s steps(1) infinite; }
+.pt-done-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pt-done {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--panel); font-size: 12px; color: var(--text-2); max-width: 260px;
+}
+.pt-done:hover { border-color: var(--accent); color: var(--text); }
+.pt-done span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-done.bad { color: var(--danger); }
+.pt-done em { font-style: normal; color: #7a5a00; background: #fff4cc; border-radius: 6px; padding: 0 5px; white-space: nowrap; flex-shrink: 0; }
 
 /* Stav projektů Supabase: kdy se který naposledy ozval. */
 .sb-health { margin: 4px 0 16px; }

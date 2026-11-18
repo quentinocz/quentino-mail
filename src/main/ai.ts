@@ -103,6 +103,14 @@ export interface AskOptions {
   signal?: AbortSignal;
   /** Kolik pokusů celkem, než se to vzdá (výchozí 5) */
   attempts?: number;
+  /**
+   * Text odpovědi, jak přibývá — pro živý náhled.
+   *
+   * S ním se ptá proudem vždycky. Dostává **celý dosavadní text**, ne jen
+   * přírůstek: při opakování po chybě začíná odpověď znovu od začátku
+   * a náhled se tím sám srovná.
+   */
+  onText?: (soFar: string) => void;
 }
 
 /** Čekání, které jde přerušit — jinak by „Zastavit" muselo počkat na odklad. */
@@ -156,9 +164,21 @@ export async function ask(model: string, system: string, user: string, maxTokens
        * nikdo nečekal a opakování nespravilo. Proudem to omezení neplatí a
        * spojení se cestou nepřeruší jako dlouho mlčící dotaz.
        */
-      const res = ceiling > STREAM_FROM
-        ? await client().messages.stream(body, { signal: options.signal }).finalMessage()
-        : await client().messages.create(body, { signal: options.signal });
+      let res;
+      if (ceiling > STREAM_FROM || options.onText) {
+        const stream = client().messages.stream(body, { signal: options.signal });
+        if (options.onText) {
+          let soFar = '';
+          const notify = options.onText;
+          stream.on('text', delta => {
+            soFar += delta;
+            try { notify(soFar); } catch { /* náhled nesmí shodit překlad */ }
+          });
+        }
+        res = await stream.finalMessage();
+      } else {
+        res = await client().messages.create(body, { signal: options.signal });
+      }
       recordUsage(model, res.usage as any);
       const block = res.content.find(b => b.type === 'text');
       const text = block && block.type === 'text' ? block.text.trim() : '';

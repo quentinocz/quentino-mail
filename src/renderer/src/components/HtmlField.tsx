@@ -58,6 +58,65 @@ export interface HtmlFieldHandle {
   context(): { before: string; selection: string; after: string };
 }
 
+/* ---------- zvýraznění textu z paměti překladů ---------- */
+
+/**
+ * Podbarvení odstavců a vět, které překladač vzal z paměti.
+ *
+ * Kreslí se přes `CSS.highlights`, ne značkou v textu: kdyby se do HTML
+ * vložil `<mark>` nebo třída, uložila by se při první ruční opravě do
+ * popisu a odešla až na e-shop. Zvýraznění nad rozsahem textu se obsahu
+ * nedotkne. Kde ho prohlížeč nezná, zvýraznění prostě není — štítek
+ * „z paměti" u pole zůstane.
+ */
+const HIGHLIGHT = 'qt-pamet';
+const allRanges = new Map<number, Range[]>();
+let nextId = 1;
+
+function repaint() {
+  const registry = (globalThis as any).CSS?.highlights;
+  const Ctor = (globalThis as any).Highlight;
+  if (!registry || !Ctor) return;
+  const ranges = [...allRanges.values()].flat();
+  if (ranges.length) registry.set(HIGHLIGHT, new Ctor(...ranges));
+  else registry.delete(HIGHLIGHT);
+}
+
+/** Nejmenší bloky — stejné, jaké počítá paměť odstavců v hlavním procesu. */
+const BLOCKS = 'p,li,h1,h2,h3,h4,h5,h6,td,th,dt,dd,figcaption,blockquote';
+const NESTED = `${BLOCKS},ul,ol,table,div`;
+
+function leafBlocks(root: HTMLElement): Element[] {
+  return Array.from(root.querySelectorAll(BLOCKS)).filter(el => !el.querySelector(NESTED));
+}
+
+/** Rozsah textu `needle` uvnitř prvku; na mezerách nezáleží. */
+function rangeFor(el: Element, needle: string): Range | null {
+  const want = needle.replace(/\s+/g, ' ').trim();
+  if (!want) return null;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const map: { node: Text; off: number }[] = [];
+  let text = '';
+  let space = true;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const t = node as Text;
+    for (let k = 0; k < t.data.length; k++) {
+      const blank = /[\s\u00a0]/.test(t.data[k]);
+      if (blank && space) continue;
+      text += blank ? ' ' : t.data[k];
+      map.push({ node: t, off: k });
+      space = blank;
+    }
+  }
+  const at = text.indexOf(want);
+  if (at < 0) return null;
+  const range = document.createRange();
+  range.setStart(map[at].node, map[at].off);
+  const last = map[at + want.length - 1];
+  range.setEnd(last.node, last.off + 1);
+  return range;
+}
+
 const HtmlField = forwardRef<HtmlFieldHandle, {
   value: string;
   onChange: (html: string) => void;
@@ -67,7 +126,9 @@ const HtmlField = forwardRef<HtmlFieldHandle, {
   readOnly?: boolean;
   /** Ozve se, když se v poli změní výběr — podle toho se nabízí přepis */
   onSelect?: (text: string) => void;
-}>(function HtmlField({ value, onChange, onSave, rows = 12, readOnly, onSelect }, handle) {
+  /** Co přišlo z paměti překladů — podbarví se (viz výš) */
+  marks?: { b: number; s: string }[];
+}>(function HtmlField({ value, onChange, onSave, rows = 12, readOnly, onSelect, marks }, handle) {
   const [mode, setMode] = useState<'rich' | 'source'>('rich');
   const [linking, setLinking] = useState(false);
   const [url, setUrl] = useState('');
@@ -104,6 +165,29 @@ const HtmlField = forwardRef<HtmlFieldHandle, {
     // Jen při přepnutí režimu — jinak by se přepisovalo za běhu psaní
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
+
+  const id = useRef(0);
+  if (!id.current) id.current = nextId++;
+  useEffect(() => {
+    const el = box.current;
+    if (mode !== 'rich' || !el || !marks?.length) {
+      allRanges.delete(id.current);
+      repaint();
+      return;
+    }
+    const blocks = leafBlocks(el);
+    const found: Range[] = [];
+    for (const mark of marks) {
+      // Nejdřív v odstavci, kam patří; kdyby se pořadí odstavců posunulo, kdekoli
+      const range = (blocks[mark.b] && rangeFor(blocks[mark.b], mark.s))
+        ?? blocks.map(block => rangeFor(block, mark.s)).find(Boolean)
+        ?? (blocks.length ? null : rangeFor(el, mark.s));
+      if (range) found.push(range);
+    }
+    allRanges.set(id.current, found);
+    repaint();
+  }, [marks, value, mode]);
+  useEffect(() => () => { allRanges.delete(id.current); repaint(); }, []);
 
   const publish = useCallback(() => {
     if (!box.current) return;
