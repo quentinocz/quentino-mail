@@ -215,6 +215,21 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
     if (activeRef.current === payload.code) loadFieldsRef.current(payload.code);
   }), []);
 
+  /*
+   * Pole hotové uprostřed odpovědi: otevřená karta produktu se obnoví hned
+   * — slovenština se ukáže, jakmile je dopsaná, i když se ještě píše
+   * angličtina. Obnovuje se nanejvýš jednou za 400 ms, ať karta neblikne
+   * při každém poli zvlášť.
+   */
+  const fieldSoon = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => api.on('ptrans:field', (payload: { code: string }) => {
+    if (activeRef.current !== payload.code || fieldSoon.current) return;
+    fieldSoon.current = setTimeout(() => {
+      fieldSoon.current = null;
+      if (activeRef.current) loadFieldsRef.current(activeRef.current);
+    }, 400);
+  }), []);
+
 
   // Hledání se posílá se zpožděním, ať se při psaní nedotazuje na každé písmeno
   useEffect(() => {

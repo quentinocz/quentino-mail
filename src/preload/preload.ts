@@ -162,7 +162,7 @@ const ALLOWED_INVOKE = [
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
   'packing:progress', 'ig:changed', 'ig:connected', 'ig:planStep', 'ig:videoStep', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
-  'ptrans:progress', 'ptrans:changed', 'ptrans:product', 'np:step', 'zk:vystav-krok',
+  'ptrans:progress', 'ptrans:changed', 'ptrans:product', 'ptrans:field', 'np:step', 'zk:vystav-krok',
   'articles:progress', 'articles:changed', 'articles:check',
   'media:progress', 'media:incoming', 'media:watched',
   // Snímek náhledu chodí jako bajty; data URL by za vteřinu nasypala megabajty řetězců

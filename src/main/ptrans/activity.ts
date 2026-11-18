@@ -130,13 +130,33 @@ export function previewOf(text: string): string {
  * uzavřený) a na kterém se právě píše — a kolik z něj už je.
  * `slotsOf` dosadí do ukázky hotové odstavce místo značek.
  */
+/**
+ * Vrací pole, která se tímhle přírůstkem uzavřela — i s textem, tak jak ho
+ * model napsal. Volající je hned uloží (a opakované hlášení téhož pole si
+ * pohlídá sám). Funguje i mimo běh (tlačítko „přeložit znovu"): tam se jen
+ * nic nezobrazuje.
+ */
 export function onStream(code: string, langs: string[], nested: boolean, soFar: string,
-                         slotsOf: (lang: string, field: string) => Map<string, string> | undefined): void {
+                         slotsOf: (lang: string, field: string) => Map<string, string> | undefined):
+  { lang: string; field: string; value: string }[] {
+  const out: { lang: string; field: string; value: string }[] = [];
   const one = active?.get(code);
-  if (!one) return;
+  const { tree, open } = partialJsonState(soFar);
+  if (!one) {
+    // Mimo běh se jen pozná, co je uzavřené
+    for (const lang of langs) {
+      const fields = nested ? tree[lang] : tree;
+      if (!fields || typeof fields !== 'object') continue;
+      for (const [field, value] of Object.entries(fields)) {
+        if (typeof value !== 'string') continue;
+        const isOpen = !!open && (nested ? open[0] === lang && open[1] === field : open[0] === field);
+        if (!isOpen) out.push({ lang, field, value });
+      }
+    }
+    return out;
+  }
   one.received = soFar.length;
   if (one.phase !== 'writing') setPhase(code, 'writing');
-  const { tree, open } = partialJsonState(soFar);
   for (const lang of langs) {
     const fields = nested ? tree[lang] : tree;
     if (!fields || typeof fields !== 'object') continue;
@@ -156,10 +176,12 @@ export function onStream(code: string, langs: string[], nested: boolean, soFar: 
         have.status = 'done';
         have.written = have.expected;
         have.preview = previewOf(text);
+        out.push({ lang, field, value });
         changed?.();
       }
     }
   }
+  return out;
 }
 
 /** Kolik znaků z toho, co se v produktu píše, už je napsaných. */

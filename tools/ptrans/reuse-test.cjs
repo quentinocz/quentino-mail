@@ -110,6 +110,7 @@ shim('ai.js', {
     // Odpověď po kouscích, jak ji posílá API proudem
     if (liveCalls > 0 && options.onText) {
       liveCalls--;
+      answering = true;
       // Skutečný model chvíli mlčí, než začne psát
       await new Promise(r => setTimeout(r, 700));
       for (const share of [0.2, 0.4, 0.6, 0.8]) {
@@ -117,13 +118,23 @@ shim('ai.js', {
         await new Promise(r => setTimeout(r, 320));
       }
       options.onText(answer);
+      answering = false;
     }
     return answer;
   },
   rateLimitedRecently: () => false
 });
 const sent = [];
-const fakeWindow = { webContents: { send: (channel, payload) => sent.push({ channel, payload }) } };
+let answering = false;          // model ještě píše odpověď
+const fakeWindow = { webContents: { send: (channel, payload) => {
+  // U hotového pole se hned podívá, jestli už je v databázi — a jestli model pořád píše
+  if (channel === 'ptrans:field') {
+    payload = { ...payload, answering, saved: db.prepare(
+      'SELECT translated FROM ptrans_fields WHERE code = ? AND lang = ? AND field = ?'
+    ).get(payload.code, payload.lang, payload.field)?.translated ?? null };
+  }
+  sent.push({ channel, payload });
+} } };
 require.cache[require.resolve('electron')] = { id: 'electron', filename: 'electron', loaded: true,
   exports: { app: { getPath: () => os.tmpdir() }, BrowserWindow: { getAllWindows: () => [fakeWindow] }, dialog: {}, net: {} } };
 
@@ -319,6 +330,11 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
   check('  čeká se na model → je to vidět jako „čeká na odpověď"',
     progress.some(p => (p.current ?? []).some(one => one.phase === 'waiting'))
     && progress.some(p => (p.current ?? []).some(one => one.phase === 'writing' && one.received > 0)));
+  const early = sent.filter(one => one.channel === 'ptrans:field').map(one => one.payload);
+  check('dopsané pole se uloží hned, ještě když model píše další',
+    early.some(one => one.field === 'long' && one.answering && /SK:Pánská kravata v zelené/.test(one.saved ?? '')),
+    JSON.stringify(early.map(one => [one.field, one.answering, (one.saved ?? '').slice(0, 20)])));
+  check('  a uloží se jen jednou', early.filter(one => one.field === 'long').length === 1);
   const doneEvents = sent.filter(one => one.channel === 'ptrans:product').map(one => one.payload);
   check('hotový produkt se ohlásí hned — i s tím, co bylo z paměti a co podle vzoru',
     doneEvents.length === 1 && doneEvents[0].code === 'VT-ZELENA' && doneEvents[0].ok === true

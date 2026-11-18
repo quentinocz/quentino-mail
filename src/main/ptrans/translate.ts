@@ -341,6 +341,7 @@ function prepare(target: TranslateTarget, rows: FieldRow[], model: string, slot 
       saveTranslation(target.code, target.lang, field, value, REUSE_MODEL, false, known.marks ?? []);
       activity.setField(target.code, target.lang, field,
         { status: 'memory', expected: 0, written: 0, preview: activity.previewOf(value) });
+      emitField(target.code, target.lang, field);
       out.reused++;
       if (field === 'title') out.reusedTitle = known.full;
       continue;
@@ -369,6 +370,35 @@ export function workOf(text: string): number {
   return Math.max(12, plain(text.replace(/⟦\d+⟧/g, '')).length);
 }
 
+/**
+ * Uloží jedno přeložené pole — hned, jak ho model dopíše.
+ *
+ * Dřív se ukládalo až po celé odpovědi: v kartě produktu svítila u
+ * slovenštiny „čeština", i když byla dávno napsaná, a čekalo se na
+ * angličtinu. Teď se pole uloží ve chvíli, kdy je v odpovědi uzavřené
+ * (hotový řetězec v JSON se už nezmění), a okno se o tom dozví.
+ * Vrací `false`, když model nedodržel značky hotových odstavců.
+ */
+function saveOne(target: TranslateTarget, field: string, raw: string, model: string,
+                 ready: Pick<Prepared, 'masks' | 'slotBlocks' | 'sources'>): boolean {
+  const whole = fromAnswer(target, field, raw, ready.masks);
+  if (whole === null) {
+    activity.setField(target.code, target.lang, field, { status: 'pending', written: 0 });
+    return false;
+  }
+  const value = finalValue(field, whole);
+  saveTranslation(target.code, target.lang, field, value, model, false, marksOf(field, ready));
+  activity.setField(target.code, target.lang, field, { status: 'done', preview: activity.previewOf(value) });
+  remember(target.lang, field, ready.sources[field], value);
+  emitField(target.code, target.lang, field);
+  return true;
+}
+
+/** Okno se dozví, že u produktu přibylo pole — otevřená karta se obnoví. */
+function emitField(code: string, lang: string, field: string) {
+  emit('ptrans:field', { code, lang, field });
+}
+
 /* ---------- měření rychlosti ---------- */
 
 let speedNow: Speed = { ...DEFAULT_SPEED };
@@ -378,14 +408,17 @@ let speedNow: Speed = { ...DEFAULT_SPEED };
  * Vrací zpětná volání pro `ask` a funkci, která měření na konci zapíše.
  */
 function measure(code: string, langs: string[], nested: boolean, chars: number,
-                 slotsOf: (lang: string, field: string) => Map<string, string> | undefined) {
+                 slotsOf: (lang: string, field: string) => Map<string, string> | undefined,
+                 onClosed?: (lang: string, field: string, raw: string) => void) {
   const at = Date.now();
   let first = 0;
   activity.setPhase(code, 'waiting');
   return {
     onText: (soFar: string) => {
       if (!first) first = Date.now();
-      activity.onStream(code, langs, nested, soFar, slotsOf);
+      for (const one of activity.onStream(code, langs, nested, soFar, slotsOf)) {
+        try { onClosed?.(one.lang, one.field, one.value); } catch { /* uloží se na konci */ }
+      }
     },
     onWait: (ms: number, reason: string) => {
       first = 0;
@@ -551,8 +584,14 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
     }
 
     for (const field of wanted) activity.setField(target.code, target.lang, field, { status: 'waiting', written: 0 });
+    // Pole uložená už během odpovědi — na konci se jen započítají
+    const early = new Map<string, boolean>();
     const meter = measure(target.code, [target.lang], false,
-      wanted.reduce((sum, field) => sum + workOf(payload[field]), 0), (_l, field) => masks[field]);
+      wanted.reduce((sum, field) => sum + workOf(payload[field]), 0), (_l, field) => masks[field],
+      (_lang, field, raw) => {
+        if (early.has(field) || !wanted.includes(field) || !raw.trim()) return;
+        early.set(field, saveOne(target, field, raw, model, prepared));
+      });
     const answer = await ask(
       model,
       buildSystem(s, [target.lang]),
@@ -570,17 +609,9 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
     for (const field of wanted) {
       const raw = translated[field];
       if (typeof raw !== 'string' || !raw.trim()) continue;
-      const whole = fromAnswer(target, field, raw, masks);
-      if (whole === null) {
-        broken++;
-        activity.setField(target.code, target.lang, field, { status: 'pending', written: 0 });
-        continue;
-      }
-      const value = finalValue(field, whole);
-      saveTranslation(target.code, target.lang, field, value, model, false, marksOf(field, prepared));
-      activity.setField(target.code, target.lang, field, { status: 'done', preview: activity.previewOf(value) });
-      remember(target.lang, field, sources[field], value);
-      saved++;
+      const ok = early.has(field) ? early.get(field)! : saveOne(target, field, raw, model, prepared);
+      if (ok) saved++;
+      else broken++;
     }
 
     // Adresa se odvodí z přeloženého názvu — kód to zvládne přesněji než model.
@@ -880,9 +911,17 @@ async function askBatch(
   for (const lang of langs) {
     for (const field of Object.keys(payload[lang] ?? {})) activity.setField(code, lang, field, { status: 'waiting', written: 0 });
   }
+  const early = new Map<string, boolean>();
   const meter = measure(code, langs, true, langs.reduce((sum, lang) =>
     sum + Object.values(payload[lang] ?? {}).reduce((a, text) => a + workOf(text), 0), 0),
-  (lang, field) => prepared.get(lang)?.masks[field]);
+  (lang, field) => prepared.get(lang)?.masks[field],
+  (lang, field, raw) => {
+    const key = `${lang}|${field}`;
+    const target = byLangTarget.get(lang);
+    const ready = prepared.get(lang);
+    if (early.has(key) || !target || !ready || !(field in (payload[lang] ?? {})) || !raw.trim()) return;
+    early.set(key, saveOne(target, field, raw, model, ready));
+  });
   const answer = await ask(
     model,
     buildSystem(s, langs),
@@ -900,7 +939,7 @@ async function askBatch(
     if (!translated || Object.keys(translated).length === 0) continue;
     const ready = prepared.get(lang);
     const result = saveTranslated(byLangTarget.get(lang)!, rowsByLang.get(lang) ?? [], translated, model,
-      ready ?? { masks: {}, slotBlocks: {}, sources: {} }, ready?.reusedTitle);
+      ready ?? { masks: {}, slotBlocks: {}, sources: {} }, ready?.reusedTitle, early);
     saved += result.saved;
     // Jazyk s porušenými značkami se dotáhne po jednom (už bez nich)
     if (!result.broken) done.add(lang);
@@ -940,8 +979,8 @@ function perLanguage(lang: string, parts: string[]): string {
 function saveTranslated(target: TranslateTarget, rows: FieldRow[],
                         translated: Record<string, string>, model: string,
                         ready: Pick<Prepared, 'masks' | 'slotBlocks' | 'sources'>,
-                        reusedTitle?: string): { saved: number; broken: number } {
-  const { masks, sources } = ready;
+                        reusedTitle?: string,
+                        early: Map<string, boolean> = new Map()): { saved: number; broken: number } {
   const s = getPtransSettings();
   // Jen pole, o která se žádalo — model občas přidá něco navíc
   const asked = new Set(target.fields ?? Object.keys(translated));
@@ -950,17 +989,10 @@ function saveTranslated(target: TranslateTarget, rows: FieldRow[],
   for (const [field, raw] of Object.entries(translated)) {
     if (DERIVED_FIELDS.has(field) || !asked.has(field)) continue;
     if (typeof raw !== 'string' || !raw.trim()) continue;
-    const whole = fromAnswer(target, field, raw, masks);
-    if (whole === null) {
-      broken++;
-      activity.setField(target.code, target.lang, field, { status: 'pending', written: 0 });
-      continue;
-    }
-    const value = finalValue(field, whole);
-    saveTranslation(target.code, target.lang, field, value, model, false, marksOf(field, ready));
-    activity.setField(target.code, target.lang, field, { status: 'done', preview: activity.previewOf(value) });
-    remember(target.lang, field, sources[field], value);
-    saved++;
+    const key = `${target.lang}|${field}`;
+    const ok = early.has(key) ? early.get(key)! : saveOne(target, field, raw, model, ready);
+    if (ok) saved++;
+    else broken++;
   }
   if (s.fields.seo_url !== false) {
     const result = applySlug(target.code, target.lang, rows, model, translated.title ?? reusedTitle);
@@ -1242,7 +1274,14 @@ export interface RunResult {
       label: label ?? current?.label ?? '',
       errors: errors.slice(-5),
       products: { done: productsDone, total: plan.size },
-      fields: { done: fieldsDone + activeFields, total: fieldsTotal() },
+      /*
+       * Počet polí u rozpracovaného produktu bere to, co se opravdu překládá.
+       * Odhad před během nevidí pole, která dostanou český text až během
+       * doplnění (SEO, Google) — a hlásilo se pak „7 z 6 polí".
+       */
+      fields: { done: fieldsDone + activeFields,
+        total: fieldsTotal() + live.reduce((sum, one) =>
+          sum + Math.max(0, one.fields.length - (plannedFields.get(one.code) ?? 0)), 0) },
       current: live,
       speed: { wait: Number(speedNow.wait.toFixed(1)), cps: Math.round(speedNow.cps) },
       lanes
