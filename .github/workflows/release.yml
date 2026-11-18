@@ -2,7 +2,11 @@ name: Instalátory
 
 # Build se spustí označením verze (`git tag v1.0.1 && git push --tags`)
 # nebo ručně tlačítkem v záložce Actions. Stejná značka spustí i sestavení
-# pro iOS, takže jedním tagem vznikne instalátor pro Windows, macOS i .ipa.
+# pro iOS, takže jedním tagem vznikne instalátor pro macOS i .ipa.
+#
+# Windows se od 18. 11. 2026 nesestavuje — není potřeba (rozhodnutí
+# Patrika). Skript `npm run dist:win` zůstává; kdyby byl Windows potřeba,
+# stačí do matice vrátit položku s `windows-2022` (viz historie souboru).
 on:
   push:
     tags: ['v*']
@@ -23,16 +27,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Schválně `windows-2022`, ne `windows-latest`. Ten má dnes Visual
-          # Studio 2026 (verze 18) a node-gyp 9 — který si přes @electron/rebuild
-          # nese electron-builder — ho neumí rozpoznat: zná jen VS 2013 až 2022
-          # a spadne na „Could not find any Visual Studio installation to use".
-          # Až electron-builder povýší node-gyp, dá se vrátit na windows-latest.
-          # Runner je x64, takže odpovídá `win.arch: [x64]`.
-          - os: windows-2022
-            label: Windows x64
-            script: dist:win
-            artifact: windows-x64
           # Runner je Apple Silicon → odpovídá `mac.arch: [arm64]`.
           # Dřív `macos-14`, jenže ten GitHub k 1. 10. 2026 vyřadil a sestavení
           # pro Mac skončilo hned na startu hláškou „The configuration
@@ -113,7 +107,7 @@ jobs:
               gh release create "$GITHUB_REF_NAME" instalatory/* \
                 --repo "$GITHUB_REPOSITORY" \
                 --title "Quentino App $GITHUB_REF_NAME" \
-                --notes "Instalátory a .ipa sestavené automaticky. Windows verze je nepodepsaná — SmartScreen ohlásí varování, je potřeba kliknout na *Více informací → Přesto spustit*."
+                --notes "Instalátor pro macOS a .ipa sestavené automaticky."
             fi
             if [ $? -eq 0 ]; then echo "Hotovo."; exit 0; fi
             echo "Pokus $pokus selhal, čekám 20 s…"

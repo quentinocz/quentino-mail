@@ -493,21 +493,27 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
     'Úplně jiný krátký popis, aby nebyl v paměti.'));
   db.prepare("DELETE FROM ptrans_segments").run();
   db.prepare("DELETE FROM ptrans_seg_index").run();
-  slowMs = 400; maxInFlight = 0; calls = 0;
-  const startedAt = Date.now();
+  slowMs = 900; maxInFlight = 0; calls = 0;
   await translate.run({ codes: ['KAP-C'], langs: ['sk', 'en'], fillSource: false });
-  const took = Date.now() - startedAt;
   slowMs = 0;
   check('slovenština a angličtina se píšou naráz', maxInFlight === 2 && calls === 2,
     `dotazů ${calls}, naráz nejvýš ${maxInFlight}`);
-  check('  takže produkt trvá jako jeden dotaz, ne jako dva za sebou', took < 400 * 2, `${took} ms`);
+  /*
+   * Že běží naráz, se měří překryvem dotazů (výš), ne stopkami. Hodiny
+   * v zkoušce sedí jen na rychlém počítači — na sestavovacím Windows to
+   * vyšlo 2,5 s místo 0,8 s, i když dotazy běžely souběžně.
+   */
+  const asksLang = timeline.slice(-2);
+  check('  takže druhý jazyk nečeká, až dopíše první',
+    asksLang.length === 2 && asksLang[1].started < asksLang[0].ended && asksLang[0].started < asksLang[1].ended,
+    JSON.stringify(asksLang.map(one => [one.started, one.ended])));
 
   // Dlouhý popis jako ve skutečnosti (přes tisíc znaků) dostane vlastní dotaz
   const dlouhy = kap('zeleným lemem', 'Hodí se k šedému obleku. ' + 'Doplňuje oblek na svatbu i ples a dodá mu barevný akcent. '.repeat(12),
     'Další jiný krátký popis.');
   kapProduct('KAP-D', 'Bílý kapesníček se zeleným lemem', dlouhy);
   db.prepare("DELETE FROM ptrans_segments").run();
-  slowMs = 400; maxInFlight = 0; calls = 0;
+  slowMs = 900; maxInFlight = 0; calls = 0;
   await translate.run({ codes: ['KAP-D'], langs: ['sk', 'en'], fillSource: false });
   slowMs = 0;
   check('dlouhý popis má vlastní dotaz, i ten běží naráz s ostatními', calls === 4 && maxInFlight === 4,
