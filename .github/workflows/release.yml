@@ -33,7 +33,12 @@ jobs:
             label: Windows x64
             script: dist:win
             artifact: windows-x64
-          - os: macos-14         # runner je Apple Silicon → odpovídá `mac.arch: [arm64]`
+          # Runner je Apple Silicon → odpovídá `mac.arch: [arm64]`.
+          # Dřív `macos-14`, jenže ten GitHub k 1. 10. 2026 vyřadil a sestavení
+          # pro Mac skončilo hned na startu hláškou „The configuration
+          # 'macos-14-arm64-us-default' is not supported". `macos-15` je také
+          # Apple Silicon a stejný běžec používá sestavení pro iOS.
+          - os: macos-15
             label: macOS arm64
             script: dist:mac
             artifact: macos-arm64
