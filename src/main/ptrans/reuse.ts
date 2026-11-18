@@ -102,6 +102,17 @@ function scopeOf(field: string, text: string): string {
   return HTML_FIELDS.has(field) && pieces(text).length > 1 ? 'blok' : field;
 }
 
+/**
+ * Pole, která se pamatují i po větách.
+ *
+ * Krátký popis a popis pro Google bývají holý text bez odstavců — jako
+ * celek se u sourozence nenajdou nikdy, jejich věty ano. Dřív se po větách
+ * učily a hledaly jen odstavce popisu s HTML, takže tahle pole z paměti
+ * nedostala nic. SEO popis ne: jeho překlad se zkracuje na 155 znaků a
+ * poslední věta by se naučila useknutá.
+ */
+const BY_SENTENCE = new Set(['short', 'long', 'google_desc']);
+
 function key(lang: string, scope: string, inner: string): string {
   return crypto.createHash('sha1').update(`${lang}\u0000${scope}\u0000${normalize(inner)}`).digest('hex');
 }
@@ -149,6 +160,22 @@ export function sentences(inner: string): Sentence[] {
       const end = inner.indexOf('>', i);
       if (end < 0) return [{ text: inner, sep: '' }];
       const tag = inner.slice(i, end + 1);
+      /*
+       * Zalomení řádku je hranice věty. Popisy v e-shopu jsou psané
+       * odrážkami „• Rozměry: 27 × 27 cm<br>• Bílý střed…" a nadpisy
+       * „<strong>Jak sladit?</strong><br>Skvěle se…" — bez tečky na konci
+       * řádku. Mezi sourozenci se liší jedna odrážka, ostatní jsou stejné.
+       */
+      if (/^<br\b/i.test(tag) && depth === 0) {
+        const run = /^(?:\s*<br\b[^>]*>)+\s*/i.exec(inner.slice(i));
+        const sep = run ? run[0] : tag;
+        if (inner.slice(start, i).trim()) {
+          out.push({ text: inner.slice(start, i), sep });
+          start = i + sep.length;
+        }
+        i += sep.length;
+        continue;
+      }
       if (tag.startsWith('</')) depth--;
       else if (!tag.endsWith('/>') && !VOID_TAG.test(tag)) depth++;
       i = end + 1;
@@ -201,33 +228,43 @@ function edges(lang: string, scope: string, text: string): [string, string] {
 }
 
 /**
- * Čím se dvě věty liší: jedno souvislé místo uprostřed, zbytek do písmene
- * stejný. Vrací počet odlišných slov (na kratší straně ≥ 1), nebo `null`,
- * když se liší víc než jedním místem, víc než třemi slovy, interpunkcí,
- * čísly — nebo když je společného textu míň než polovina.
+ * Jak moc jsou si dvě věty podobné: podíl společných slov ve stejném
+ * pořadí (nejdelší společná podposloupnost) k délce delší z nich.
+ *
+ * Dřív se uznávala jen věta, která se liší jedním místem o nejvýš třech
+ * slovech. Skutečné popisy sourozenců se ale liší víc — „tmavě fialovým
+ * lemem" × „tmavě modrým lemem s jemnými puntíky", jiný výčet barev —
+ * a vzor se tak nenašel téměř nikdy. Vzor je pro model jen příklad
+ * (o překladu rozhoduje on), takže volnější shoda kvalitě neuškodí.
  */
+function similarity(a: string, b: string): number {
+  const x = (normalize(a).toLowerCase().match(/\p{L}[\p{L}\p{M}'’-]*|\d+/gu) ?? []);
+  const y = (normalize(b).toLowerCase().match(/\p{L}[\p{L}\p{M}'’-]*|\d+/gu) ?? []);
+  if (!x.length || !y.length) return 0;
+  // Dlouhé věty se porovnávají jen do 80 slov — víc v popisu nebývá
+  const xs = x.slice(0, 80);
+  const ys = y.slice(0, 80);
+  let prev = new Array(ys.length + 1).fill(0);
+  for (let i = 1; i <= xs.length; i++) {
+    const row = new Array(ys.length + 1).fill(0);
+    for (let j = 1; j <= ys.length; j++) {
+      row[j] = xs[i - 1] === ys[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], row[j - 1]);
+    }
+    prev = row;
+  }
+  return prev[ys.length] / Math.max(xs.length, ys.length);
+}
+
+/** Od jaké podobnosti se hotová věta nabídne modelu jako vzor. */
+const SIMILAR = 0.6;
+
+/** Zpětná kompatibilita zkoušek: kolik slov se liší, nebo `null`, když se věty liší moc. */
 function wordDiff(a: string, b: string): number | null {
-  const x = tokens(a);
-  const y = tokens(b);
-  let head = 0;
-  while (head < x.length && head < y.length && x[head] === y[head]) head++;
-  let tail = 0;
-  while (tail < x.length - head && tail < y.length - head
-    && x[x.length - 1 - tail] === y[y.length - 1 - tail]) tail++;
-  const midX = x.slice(head, x.length - tail);
-  const midY = y.slice(head, y.length - tail);
-  const words = (list: string[]) => list.filter(part => /\p{L}/u.test(part) && !/[^\p{L}\p{M}'’-]/u.test(part)).length;
-  const wx = words(midX);
-  const wy = words(midY);
-  if (wx === 0 && wy === 0) return midX.join('') === midY.join('') ? 0 : null;
-  // Místo, kde se věty liší, smí obsahovat jen slova a mezery mezi nimi
-  const onlyWords = (list: string[]) => list.every(part => /^[\p{L}\p{M}'’-]*$/u.test(part) || /^\s+$/u.test(part));
-  if (!onlyWords(midX) || !onlyWords(midY)) return null;
-  if (wx > 3 || wy > 3) return null;
-  const all = Math.max(words(x), words(y));
-  const same = all - Math.max(wx, wy);
-  if (same < 2 || same * 2 < all) return null;
-  return Math.max(wx, wy);
+  const sim = similarity(a, b);
+  if (normalize(a) === normalize(b)) return 0;
+  if (sim < SIMILAR) return null;
+  const words = Math.max((normalize(a).match(/\p{L}+/gu) ?? []).length, (normalize(b).match(/\p{L}+/gu) ?? []).length);
+  return Math.max(1, Math.round(words * (1 - sim)));
 }
 
 export interface Near {
@@ -238,21 +275,21 @@ export interface Near {
   target: string;
 }
 
-/** Nejbližší přeložená věta, která se liší jedním místem o nejvýš třech slovech. */
+/** Nejpodobnější přeložená věta (aspoň 60 % společných slov ve stejném pořadí). */
 function nearest(lang: string, scope: string, text: string): Near | null {
   const keys = edges(lang, scope, text);
   const rows = getDb().prepare(
     `SELECT s.source, s.target, s.hits FROM ptrans_seg_index i
      JOIN ptrans_segments s ON s.lang = i.lang AND s.skey = i.skey
-     WHERE i.lang = ? AND i.scope = ? AND i.ntok = 0 AND i.hkey IN (?, ?) LIMIT 200`
+     WHERE i.lang = ? AND i.scope = ? AND i.ntok = 0 AND i.hkey IN (?, ?) LIMIT 120`
   ).all(lang, scope, keys[0], keys[1]) as { source: string; target: string; hits: number }[];
-  let best: { row: (typeof rows)[number]; diff: number } | null = null;
+  let best: { row: (typeof rows)[number]; sim: number } | null = null;
   const norm = normalize(text);
   for (const row of rows) {
     if (row.source === norm) continue;
-    const diff = wordDiff(norm, row.source);
-    if (diff === null || diff === 0) continue;
-    if (!best || diff < best.diff || (diff === best.diff && row.hits > best.row.hits)) best = { row, diff };
+    const sim = similarity(norm, row.source);
+    if (sim < SIMILAR) continue;
+    if (!best || sim > best.sim || (sim === best.sim && row.hits > best.row.hits)) best = { row, sim };
   }
   return best ? { source: norm, like: best.row.source, target: best.row.target } : null;
 }
@@ -323,7 +360,7 @@ export function learn(lang: string, field: string, source: string, target: strin
     const to = normalize(segB[i].inner!);
     if (!one(scope, from, to, !html)) continue;
     n++;
-    if (!html) continue;
+    if (!html && !BY_SENTENCE.has(field)) continue;
     // Věty uvnitř odstavce — jen když se jich na obou stranách sešlo stejně
     const sa = sentences(from);
     const sb = sentences(to);
@@ -348,37 +385,61 @@ function clean(field: string, text: string): string {
  * naučila „překládat" češtinu do češtiny.
  *
  * Verze 2 přidala věty a rejstřík podobných vět, verze 3 rejstřík podle
- * začátku a konce věty; po změně se projde znovu všechno.
+ * začátku a konce věty, verze 4 věty i v holém textu a zalomení řádku
+ * jako hranici věty; po změně se projde znovu všechno.
  *
  * Projde se znovu i **po každém stažení feedu**. Dřív se paměť naplnila
  * jednou a dost: co někdo přeložil v e-shopu potom, se do ní nedostalo
  * nikdy. Projít celý katalog trvá pod vteřinu, takže to nestojí za šetření.
  * `force` = projít hned (tlačítko v záložce Paměť).
  */
-const LEARNED_VERSION = '3';
+const LEARNED_VERSION = '4';
 
-export function learnFromStore(langs: string[], sourceLang: string, force = false): number {
+export async function learnFromStore(langs: string[], sourceLang: string, force = false): Promise<number> {
   const marker = `${LEARNED_VERSION}:${[...langs].sort().join(',')}:${getSetting('ptransSyncedAt', '')}`;
   if (!force && getSetting('ptransSegmentsLearned', '') === marker) return 0;
-  const rows = getDb().prepare(
-    `SELECT lang, field, source_value, value, translated, translated_hash, manual, state FROM ptrans_fields
+  const d = getDb();
+  const rows = d.prepare(
+    `SELECT code, lang, field, source_value, value, translated, translated_hash, manual, state FROM ptrans_fields
      WHERE lang IN (${langs.map(() => '?').join(',')}) AND state IN ('ok', 'manual')
        AND trim(source_value) != ''`
   ).all(...langs) as any[];
+  /*
+   * Po kouscích a jen to, co se změnilo.
+   *
+   * Celý katalog (1370 produktů, 48 tisíc polí) trvá přes šest vteřin —
+   * a po tu dobu by okno zamrzlo, protože se to děje v hlavním procesu.
+   * Proto se pamatuje otisk každé už naučené dvojice (ptrans_learned) a
+   * příště se přeskočí; a mezi kousky se procesu vrátí slovo, ať okno
+   * reaguje. Verze paměti je v otisku, takže po změně pravidel se projde
+   * všechno znovu.
+   */
+  const seen = d.prepare('SELECT hash FROM ptrans_learned WHERE code = ? AND lang = ? AND field = ?');
+  const mark = d.prepare(`INSERT INTO ptrans_learned (code, lang, field, hash) VALUES (?, ?, ?, ?)
+    ON CONFLICT(code, lang, field) DO UPDATE SET hash = excluded.hash`);
   let n = 0;
-  const run = getDb().transaction(() => {
-    for (const row of rows) {
-      const manual = row.manual === 1;
-      const ours = !!row.translated && row.translated_hash === hashText(row.source_value);
-      let target = '';
-      if (manual || ours) target = row.translated ?? row.value;
-      else if (plain(row.value) !== plain(row.source_value)
-        && detectLanguage(row.value, [sourceLang, row.lang]) === row.lang) target = row.value;
-      if (!target) continue;
-      n += learn(row.lang, row.field, row.source_value, target, manual);
-    }
-  });
-  run();
+  const CHUNK = 400;
+  for (let at = 0; at < rows.length; at += CHUNK) {
+    const part = rows.slice(at, at + CHUNK);
+    d.transaction(() => {
+      for (const row of part) {
+        const manual = row.manual === 1;
+        const ours = !!row.translated && row.translated_hash === hashText(row.source_value);
+        let target = '';
+        if (manual || ours) target = row.translated ?? row.value;
+        else if (plain(row.value) !== plain(row.source_value)
+          && detectLanguage(row.value, [sourceLang, row.lang]) === row.lang) target = row.value;
+        if (!target) continue;
+        const hash = crypto.createHash('sha1')
+          .update(`${LEARNED_VERSION}\u0000${manual ? 1 : 0}\u0000${row.source_value}\u0000${target}`).digest('hex');
+        if ((seen.get(row.code, row.lang, row.field) as { hash: string } | undefined)?.hash === hash) continue;
+        n += learn(row.lang, row.field, row.source_value, target, manual);
+        mark.run(row.code, row.lang, row.field, hash);
+      }
+    })();
+    // Okno mezitím překreslí a odpoví na kliknutí
+    await new Promise(resolve => setImmediate(resolve));
+  }
   setSetting('ptransSegmentsLearned', marker);
   return n;
 }
@@ -412,13 +473,13 @@ export interface Reuse {
   totalChars: number;
 }
 
-/**
- * Kdy má smysl posílat modelu text se značkami.
- *
- * Značka v textu stojí trochu souvislosti; u jedné krátké věty v dlouhém
- * popisu se to nevyplatí. Pod třetinu známého textu jde text modelu celý.
+/*
+ * Značky se dávají **vždycky**, když je co dosadit. Dřív platil práh: pod
+ * třetinou známého textu šel text modelu celý. Na skutečných popisech to
+ * znamenalo, že se paměť nepoužila skoro nikdy — sourozenci mají stejné
+ * dva odstavce z šesti (čtvrtina textu) a ty se platily a čekalo se na
+ * ně znovu. Model dostane u každé značky její text, souvislost má.
  */
-const MASK_FROM = 0.3;
 
 /** Kolik vzorů podobných vět nanejvýš do jednoho pole — víc už jen zdržuje. */
 const NEAR_MAX = 8;
@@ -433,7 +494,10 @@ type Part = { kind: 'raw'; text: string }
  * `start` je číslo první značky — v jednom dotazu jich může být víc polí
  * a značky se nesmějí opakovat.
  */
-export function lookup(lang: string, field: string, source: string, start = 1): Reuse | null {
+export function lookup(lang: string, field: string, source: string, start = 1,
+                       options: { near?: boolean } = {}): Reuse | null {
+  // Hledání podobných vět je nejdražší část; odhad před během ho nepotřebuje
+  const wantNear = options.near !== false;
   const text = clean(field, source);
   if (!text.trim()) return null;
   const list = pieces(text);
@@ -464,9 +528,9 @@ export function lookup(lang: string, field: string, source: string, start = 1): 
       parts.push({ kind: 'known', text: piece.inner, target: whole, block });
       continue;
     }
-    if (!html) {
-      // Pole bez HTML (název, SEO popis): jen vzor podobného textu
-      const like = safeNear(lang, scope, piece.inner);
+    if (!html && !BY_SENTENCE.has(field)) {
+      // Název, SEO texty: jen vzor podobného textu
+      const like = wantNear ? safeNear(lang, scope, piece.inner) : null;
       if (like) near.push(like);
       parts.push({ kind: 'open', text: piece.inner, block });
       continue;
@@ -479,7 +543,7 @@ export function lookup(lang: string, field: string, source: string, start = 1): 
         knownChars += len;
         parts.push({ kind: 'known', text: one.text, target: hit, block });
       } else {
-        if (len && near.length < NEAR_MAX) {
+        if (wantNear && len && near.length < NEAR_MAX) {
           const like = safeNear(lang, 'veta', one.text);
           if (like) near.push(like);
         }
@@ -498,7 +562,6 @@ export function lookup(lang: string, field: string, source: string, start = 1): 
       .map(part => ({ b: (part as any).block as number, s: plain((part as any).target) }));
     return { full, marks, near, knownChars, totalChars };
   }
-  if (knownChars / Math.max(1, totalChars) < MASK_FROM) return near.length ? { near, knownChars, totalChars } : null;
 
   const slots = new Map<string, string>();
   const slotBlock = new Map<string, number>();
@@ -594,4 +657,4 @@ export function segmentStats(): { lang: string; sentences: number; paragraphs: n
     texts: row.texts ?? 0 }));
 }
 
-export const __test = { pieces, normalize, skeleton, key, LEAF, sentences, tokens, wordDiff, nearest };
+export const __test = { pieces, normalize, skeleton, key, LEAF, sentences, tokens, wordDiff, nearest, similarity };

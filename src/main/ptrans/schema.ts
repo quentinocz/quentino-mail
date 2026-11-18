@@ -203,6 +203,17 @@ CREATE TABLE IF NOT EXISTS ptrans_seg_index (
 );
 CREATE INDEX IF NOT EXISTS idx_ptrans_seg_index_find ON ptrans_seg_index(lang, scope, ntok, hkey);
 
+-- Co už se paměť naučila z hotových překladů: otisk dvojice zdroj → překlad.
+-- Při dalším průchodu (po stažení feedu) se nezměněné přeskočí — celý
+-- katalog by jinak zabral vteřiny pokaždé.
+CREATE TABLE IF NOT EXISTS ptrans_learned (
+  code TEXT NOT NULL,
+  lang TEXT NOT NULL,
+  field TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  PRIMARY KEY (code, lang, field)
+);
+
 CREATE TABLE IF NOT EXISTS ptrans_drafts (
   id TEXT PRIMARY KEY,
   code TEXT NOT NULL DEFAULT '',

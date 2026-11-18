@@ -399,6 +399,31 @@ function emitField(code: string, lang: string, field: string) {
   emit('ptrans:field', { code, lang, field });
 }
 
+/* ---------- kolik dotazů naráz ---------- */
+
+/**
+ * Strop souběžných dotazů na model pro celou aplikaci.
+ *
+ * Produkt se teď překládá několika dotazy naráz (jazyky, velká pole) a
+ * produktů běží víc. Bez stropu by se při souběžnosti 3 sešlo i dvacet
+ * dotazů a API by začalo odmítat. Strop roste s nastavenou souběžností.
+ */
+let inFlightAsks = 0;
+const askQueue: (() => void)[] = [];
+
+function gate(concurrency: number): Promise<() => void> {
+  const max = Math.max(4, Math.min(12, (concurrency || 2) * 4));
+  const release = () => {
+    inFlightAsks--;
+    askQueue.shift()?.();
+  };
+  return new Promise(resolve => {
+    const go = () => { inFlightAsks++; resolve(release); };
+    if (inFlightAsks < max) go();
+    else askQueue.push(go);
+  });
+}
+
 /* ---------- měření rychlosti ---------- */
 
 let speedNow: Speed = { ...DEFAULT_SPEED };
@@ -432,6 +457,11 @@ function measure(code: string, langs: string[], nested: boolean, chars: number,
       activity.setPhase(code, 'saving');
     }
   };
+}
+
+/** Pro odhad: co je známé, bez hledání podobných vět (to je pomalé a odhad ho nepotřebuje). */
+function quickLookup(lang: string, field: string, text: string) {
+  try { return lookup(lang, field, text, 1, { near: false }); } catch { return null; }
 }
 
 /** Paměť je zrychlení, ne podmínka — její chyba nesmí zastavit překlad. */
@@ -592,15 +622,25 @@ async function runTranslate(target: TranslateTarget, signal: AbortSignal | undef
         if (early.has(field) || !wanted.includes(field) || !raw.trim()) return;
         early.set(field, saveOne(target, field, raw, model, prepared));
       });
-    const answer = await ask(
+    const release = await gate(s.concurrency);
+    let answer: string;
+    try {
+      answer = await ask(
       model,
       buildSystem(s, [target.lang]),
       `${hint}\n\nTexty k překladu:\n${JSON.stringify(payload, null, 1)}`,
-      // Strop podle odhadu výstupu, ne podle délky vstupu: překlad je zhruba
-      // stejně dlouhý jako zdroj, ale tokenů je zhruba poloviční počet znaků
-      Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.4 * factor) + 600),
+      /*
+       * Strop odpovědi s velkou rezervou. Strop se neplatí — platí se, co
+       * model opravdu napíše — ale useknutá odpověď znamená opakování, a
+       * to stojí minutu čekání. HTML značky a slovenská diakritika mají
+       * víc tokenů na znak, než by odpovídalo délce textu.
+       */
+      Math.min(OUTPUT_MAX, Math.max(2000, Math.ceil(estimate(chars) * 2 * factor) + 1000)),
       { signal, onText: meter.onText, onWait: meter.onWait }
-    );
+      );
+    } finally {
+      release();
+    }
     meter.done();
     const translated = parseJson(answer);
 
@@ -709,15 +749,10 @@ export function applySlug(code: string, lang: string, rows: FieldRow[], model: s
 /*
  * Kolik toho smí jít do jednoho dotazu.
  *
- * Odpověď musí obsahovat překlad všech žádaných jazyků. Popisy produktů
- * nejsou stejně dlouhé: většina má kolem dvou tisíc znaků, ale najdou se
- * i třicetitisícové. U těch by tři jazyky v jednom dotazu narazily na strop
- * odpovědi, model by ji usekl uprostřed a z JSON by nezbylo nic použitelného.
- *
- * Dávka se proto skládá podle velikosti, ne podle počtu jazyků: běžný produkt
- * projde se všemi trhy v jednom dotazu, u dlouhého se jazyky rozdělí a
- * u opravdu obřího se rozdělí i pole. Rychlost se tím bere jen tam, kde by
- * jinak dotaz stejně spadl.
+ * Popisy produktů nejsou stejně dlouhé: většina má kolem dvou tisíc znaků,
+ * ale najdou se i třicetitisícové. Takový by narazil na strop odpovědi,
+ * model by ji usekl uprostřed a z JSON by nezbylo nic použitelného — proto
+ * se velký dotaz dělí po polích (viz `runTranslate`).
  */
 
 /** Překlad bývá zhruba stejně dlouhý jako zdroj; čeština má ~2 znaky na token. */
@@ -738,46 +773,15 @@ const OUTPUT_MAX = 32000;
 
 const estimate = (chars: number) => Math.ceil(chars * TOKENS_PER_CHAR);
 
-/** Kolik znaků nese zadání pro jeden jazyk. */
-function payloadChars(part: Record<string, string>): number {
-  return Object.values(part).reduce((sum, value) => sum + value.length, 0);
-}
-
 /**
- * Rozdělí jazyky do dávek tak, aby se odpověď na každou vešla do rozpočtu.
- * Jazyk, který se nevejde ani sám, dostane vlastní dávku — o dělení polí se
- * pak postará `translateOne`.
- */
-function packLangs(langs: string[], charsOf: (lang: string) => number): string[][] {
-  const out: string[][] = [];
-  let batch: string[] = [];
-  let sum = 0;
-  for (const lang of langs) {
-    const need = estimate(charsOf(lang));
-    if (batch.length > 0 && sum + need > OUTPUT_BUDGET) {
-      out.push(batch);
-      batch = [];
-      sum = 0;
-    }
-    batch.push(lang);
-    sum += need;
-  }
-  if (batch.length) out.push(batch);
-  return out;
-}
-
-/**
- * Jeden produkt do všech jazyků naráz.
+ * Jeden produkt do všech jazyků — souběžnými dotazy.
  *
- * Dřív se pro každý jazyk posílal vlastní dotaz. Zdrojový text, pravidla
- * i názvosloví se tak posílaly znovu a znovu — u tří trhů trojnásobek
- * vstupních tokenů a trojnásobek příležitostí narazit na limit. A když
- * jeden z těch dotazů spadl, zůstal jeden trh nepřeložený, zatímco ostatní
- * prošly; zvenku to vypadalo, jako by aplikace jazyk přeskočila.
+ * Nejdřív se uloží, co je celé v paměti; zbytek jde modelu po jazycích
+ * a velkých polích naráz (viz níž). Každý dotaz má vlastní pokusy a
+ * dělení; co nevyjde, se vrátí jako nehotový jazyk a běh ho zkusí znovu.
  *
- * Teď jde ven jeden dotaz. Když se nepovede nebo se v odpovědi některý
- * jazyk nevrátí, dotáhne se ten jazyk zvlášť — společný dotaz je zrychlení,
- * ne podmínka.
+ * Dřív šly všechny jazyky jedním dotazem kvůli úspoře vstupních tokenů.
+ * Úspora byla malá a platila se časem: model píše jazyky po sobě.
  */
 export async function translateProduct(code: string, targets: TranslateTarget[], signal?: AbortSignal):
   Promise<{ saved: number; errors: string[]; noSource: string[]; failed: string[]; reused: number }> {
@@ -828,177 +832,57 @@ export async function translateProduct(code: string, targets: TranslateTarget[],
    */
   const failed: string[] = [];
 
-  for (const batch of packLangs(langs, lang => payloadChars(payload[lang]))) {
-    if (batch.length === 1) {
-      // Sám jazyk: běžná cesta, která si umí poradit i s dělením polí
-      const one = await translateOne(byLangTarget.get(batch[0])!, signal);
-      saved += one.saved;
-      reused += one.reused ?? 0;
-      if (one.error) { errors.push(one.error); failed.push(batch[0]); }
-      continue;
-    }
-
-    const part: Record<string, Record<string, string>> = {};
-    for (const lang of batch) part[lang] = payload[lang];
-    const done = new Set<string>();
-    try {
-      saved += await askBatch(code, part, batch, rowsByLang, byLangTarget, prepared, model, s, done, signal);
-    } catch (e: any) {
-      if (isAborted(e)) throw e;
-      // Pád společného dotazu ještě není chyba překladu — každý trh dostane
-      // vlastní pokus hned pod tímhle a teprve ten rozhodne
-      errors.push(`${code}: ${e.message}`);
-    }
-    // Co se ze společné odpovědi nevrátilo, se dotáhne po jednom
-    for (const lang of batch) {
-      if (done.has(lang)) continue;
-      const one = await translateOne(byLangTarget.get(lang)!, signal);
-      saved += one.saved;
-      reused += one.reused ?? 0;
-      if (one.error) { errors.push(one.error); failed.push(lang); }
-    }
-    // Když se to po jednom nakonec povedlo, hláška o pádu dávky jen mate
-    if (failed.length === 0) {
-      const at = errors.findIndex(text => text.startsWith(`${code}: `));
-      if (at >= 0) errors.splice(at, 1);
-    }
+  /*
+   * Jazyky a velká pole **souběžně**, ne po sobě.
+   *
+   * Překlad trvá tak dlouho, jak dlouho model píše — a jeden dotaz píše
+   * jedno pole po druhém. Dřív šla slovenština i angličtina jedním dotazem,
+   * takže se na angličtinu čekalo, až model dopíše celou slovenštinu
+   * (u kapesníčku KAPJL03 přes tři minuty). Teď má každý jazyk vlastní
+   * dotaz a dlouhý popis a popis pro Google každý svůj; běží naráz a
+   * produkt je hotový, když doběhne ten nejdelší. Platí se víc vstupu
+   * (pravidla a nápovědy jdou s každým dotazem), kvalita je stejná —
+   * každé pole dostane stejné zadání jako dřív.
+   */
+  const jobs: { lang: string; target: TranslateTarget }[] = [];
+  for (const lang of langs) {
+    const target = byLangTarget.get(lang)!;
+    for (const fields of splitJobs(payload[lang])) jobs.push({ lang, target: { ...target, fields } });
   }
+  const results = await Promise.all(jobs.map(job => translateOne(job.target, signal).catch(e => {
+    if (isAborted(e)) throw e;
+    return { saved: 0, reused: 0, error: `${code} (${job.lang}): ${e?.message ?? e}` } as
+      { saved: number; reused?: number; error?: string };
+  })));
+  results.forEach((one, i) => {
+    saved += one.saved;
+    reused += one.reused ?? 0;
+    if (one.error) {
+      errors.push(one.error);
+      if (!failed.includes(jobs[i].lang)) failed.push(jobs[i].lang);
+    }
+  });
 
   return { saved, errors: errors.slice(0, 4), noSource, failed, reused };
 }
 
-/** Jeden společný dotaz na několik jazyků. Vrací, kolik polí se uložilo. */
-async function askBatch(
-  code: string,
-  payload: Record<string, Record<string, string>>,
-  langs: string[],
-  rowsByLang: Map<string, FieldRow[]>,
-  byLangTarget: Map<string, TranslateTarget>,
-  prepared: Map<string, Prepared>,
-  model: string,
-  s: PtransSettings,
-  done: Set<string>,
-  signal?: AbortSignal
-): Promise<number> {
-  const product = getDb().prepare('SELECT title, category, manufacturer FROM ptrans_products WHERE code = ?')
-    .get(code) as { title: string; category: string; manufacturer: string } | undefined;
-  const everyField = Array.from(new Set(Object.values(payload).flatMap(part => Object.keys(part))));
-  const flat = Object.values(payload).flatMap(part => Object.values(part)).join(' \n');
-  const chars = Object.values(payload).reduce((sum, part) => sum + payloadChars(part), 0);
+/**
+ * Rozdělí pole jednoho jazyka do souběžných dotazů.
+ *
+ * Velká pole (dlouhý popis, popis pro Google) jdou každé samo; krátká
+ * (název, SEO, krátký popis) spolu — u nich je víc čekání na odpověď než
+ * psaní a název s SEO titulkem mají znít stejně.
+ */
+const OWN_JOB_FROM = 700;
 
-  const hint = [
-    product?.category ? `Kategorie: ${product.category}` : '',
-    product?.manufacturer ? `Značka: ${product.manufacturer}` : '',
-    'Vysvětlivky k polím:',
-    ...everyField.filter(f => FIELD_LABELS[f]).map(f => `- ${f}: ${FIELD_LABELS[f]}`),
-    s.limits.seoTitle && everyField.includes('seo_title') ? `- seo_title nejvýš ${s.limits.seoTitle} znaků` : '',
-    s.limits.seoDesc && everyField.includes('seo_desc') ? `- seo_desc nejvýš ${s.limits.seoDesc} znaků` : '',
-    /*
-     * Názvosloví a tvar názvů **pro každý jazyk zvlášť**.
-     *
-     * Dřív šly jen pro první jazyk dávky — v dotazu „sk + en" tak angličtina
-     * dostala slovenské vzory („kšandy → traky") a svoje vlastní žádné.
-     * Model si pak tvar anglického názvu pokaždé vymýšlel znovu.
-     */
-    ...langs.map(lang => perLanguage(lang, [
-      everyField.includes('title') ? consistencyHint(product?.category ?? '', lang) : '',
-      memoryHint(flat, lang, product?.category ?? '')
-    ])),
-    maskHint(langs.map(lang => ({ lang, masks: prepared.get(lang)?.masks ?? {} }))),
-    nearHint(langs.map(lang => ({ lang, near: prepared.get(lang)?.near ?? [] })))
-  ].filter(Boolean).join('\n');
-
-  for (const lang of langs) {
-    for (const field of Object.keys(payload[lang] ?? {})) activity.setField(code, lang, field, { status: 'waiting', written: 0 });
+function splitJobs(payload: Record<string, string>): string[][] {
+  const big: string[][] = [];
+  const rest: string[] = [];
+  for (const [field, text] of Object.entries(payload)) {
+    if (workOf(text) >= OWN_JOB_FROM) big.push([field]);
+    else rest.push(field);
   }
-  const early = new Map<string, boolean>();
-  const meter = measure(code, langs, true, langs.reduce((sum, lang) =>
-    sum + Object.values(payload[lang] ?? {}).reduce((a, text) => a + workOf(text), 0), 0),
-  (lang, field) => prepared.get(lang)?.masks[field],
-  (lang, field, raw) => {
-    const key = `${lang}|${field}`;
-    const target = byLangTarget.get(lang);
-    const ready = prepared.get(lang);
-    if (early.has(key) || !target || !ready || !(field in (payload[lang] ?? {})) || !raw.trim()) return;
-    early.set(key, saveOne(target, field, raw, model, ready));
-  });
-  const answer = await ask(
-    model,
-    buildSystem(s, langs),
-    `${hint}\n\nTexty k překladu po jazycích:\n${JSON.stringify(payload, null, 1)}`,
-    // S rezervou nad odhadem — JSON a uvozovky taky něco zaberou
-    Math.min(OUTPUT_MAX, Math.ceil(estimate(chars) * 1.3) + 600),
-    { signal, onText: meter.onText, onWait: meter.onWait }
-  );
-  meter.done();
-
-  const byLang = parseByLang(answer, langs);
-  let saved = 0;
-  for (const lang of langs) {
-    const translated = byLang[lang];
-    if (!translated || Object.keys(translated).length === 0) continue;
-    const ready = prepared.get(lang);
-    const result = saveTranslated(byLangTarget.get(lang)!, rowsByLang.get(lang) ?? [], translated, model,
-      ready ?? { masks: {}, slotBlocks: {}, sources: {} }, ready?.reusedTitle, early);
-    saved += result.saved;
-    // Jazyk s porušenými značkami se dotáhne po jednom (už bez nich)
-    if (!result.broken) done.add(lang);
-  }
-  return saved;
-}
-
-/** Odpověď rozdělená po jazycích; přijme i tvar bez obalu, když je jazyk jeden. */
-function parseByLang(raw: string, langs: string[]): Record<string, Record<string, string>> {
-  let text = raw.trim();
-  if (text.startsWith('```')) text = text.replace(/^```[a-z]*\n?/i, '').replace(/```\s*$/, '').trim();
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('Model nevrátil JSON.');
-  const parsed = JSON.parse(text.slice(start, end + 1));
-
-  const out: Record<string, Record<string, string>> = {};
-  for (const lang of langs) {
-    const part = parsed?.[lang];
-    if (!part || typeof part !== 'object') continue;
-    const fields: Record<string, string> = {};
-    for (const [key, value] of Object.entries(part)) {
-      if (typeof value === 'string') fields[key] = value;
-    }
-    if (Object.keys(fields).length) out[lang] = fields;
-  }
-  return out;
-}
-
-/** Nápovědy pro jeden jazyk dávky, s jazykem v nadpisu — ať je jasné, ke kterému patří. */
-function perLanguage(lang: string, parts: string[]): string {
-  const body = parts.filter(Boolean).join('\n').trim();
-  return body ? `\n[${lang}]\n${body}` : '';
-}
-
-/** Uloží přeložená pole jednoho jazyka a odvodí z názvu adresu. */
-function saveTranslated(target: TranslateTarget, rows: FieldRow[],
-                        translated: Record<string, string>, model: string,
-                        ready: Pick<Prepared, 'masks' | 'slotBlocks' | 'sources'>,
-                        reusedTitle?: string,
-                        early: Map<string, boolean> = new Map()): { saved: number; broken: number } {
-  const s = getPtransSettings();
-  // Jen pole, o která se žádalo — model občas přidá něco navíc
-  const asked = new Set(target.fields ?? Object.keys(translated));
-  let saved = 0;
-  let broken = 0;
-  for (const [field, raw] of Object.entries(translated)) {
-    if (DERIVED_FIELDS.has(field) || !asked.has(field)) continue;
-    if (typeof raw !== 'string' || !raw.trim()) continue;
-    const key = `${target.lang}|${field}`;
-    const ok = early.has(key) ? early.get(key)! : saveOne(target, field, raw, model, ready);
-    if (ok) saved++;
-    else broken++;
-  }
-  if (s.fields.seo_url !== false) {
-    const result = applySlug(target.code, target.lang, rows, model, translated.title ?? reusedTitle);
-    if (result) saved += result.redirect ? 2 : 1;
-  }
-  return { saved, broken };
+  return rest.length ? [rest, ...big] : big;
 }
 
 /* ---------- odhad práce ---------- */
@@ -1011,6 +895,11 @@ export interface WorkEstimate {
   fields: number;
   /** Kolik z nich se vezme celých z paměti, bez modelu */
   memory: number;
+  /**
+   * Nejdelší ze souběžných dotazů — produkt je hotový, až doběhne ten.
+   * Na tomhle se počítá čas, ne na součtu.
+   */
+  longest: number;
 }
 
 /**
@@ -1024,18 +913,24 @@ export function estimateWork(codes: string[], langs: string[],
                              options: { force?: boolean; fields?: string[] } = {}): WorkEstimate[] {
   const out: WorkEstimate[] = [];
   for (const code of codes) {
-    const one: WorkEstimate = { code, chars: 0, fields: 0, memory: 0 };
+    const one: WorkEstimate = { code, chars: 0, fields: 0, memory: 0, longest: 0 };
     for (const target of planWork([code], langs, options)) {
       const rows = productFields(code, [target.lang]);
+      const work: Record<string, string> = {};
       for (const field of target.fields ?? []) {
         if (DERIVED_FIELDS.has(field)) continue;
         const source = rows.find(r => r.field === field)?.source ?? '';
         if (!source.trim()) continue;
         one.fields++;
         const text = forModel(field, source);
-        const known = options.force ? null : safeLookup(target.lang, field, text, 1);
+        const known = options.force ? null : quickLookup(target.lang, field, text);
         if (known?.full !== undefined) { one.memory++; continue; }
-        one.chars += workOf(known?.masked ?? text);
+        work[field] = known?.masked ?? text;
+        one.chars += workOf(work[field]);
+      }
+      // Stejné dělení jako při překladu: každý dotaz zvlášť, rozhoduje nejdelší
+      for (const fields of splitJobs(work)) {
+        one.longest = Math.max(one.longest, fields.reduce((sum, field) => sum + workOf(work[field]), 0));
       }
     }
     if (one.fields) out.push(one);
@@ -1046,7 +941,8 @@ export function estimateWork(codes: string[], langs: string[],
 /** Odhad pro dialog spuštění: kolik toho je a jak dlouho to potrvá. */
 export function estimateRun(codes: string[], langs: string[], options: { force?: boolean } = {}) {
   const s = getPtransSettings();
-  try { learnFromStore(langs, s.sourceLang); } catch { /* pomůcka */ }
+  // Paměť se tady neučí — to by u velkého katalogu zdrželo otevření dialogu.
+  // Naučí se na začátku běhu (bez zamrznutí okna); odhad počítá s tím, co zná.
   const work = estimateWork(codes, langs, options);
   const speed = s.speed ?? DEFAULT_SPEED;
   const lanes = Math.max(1, Math.min(8, s.concurrency));
@@ -1055,7 +951,7 @@ export function estimateRun(codes: string[], langs: string[], options: { force?:
     fields: work.reduce((sum, one) => sum + one.fields, 0),
     memory: work.reduce((sum, one) => sum + one.memory, 0),
     chars: work.reduce((sum, one) => sum + one.chars, 0),
-    seconds: Math.round(simulate(work.map(one => one.chars), speed, lanes)),
+    seconds: Math.round(simulate(work.map(one => one.longest), speed, lanes)),
     speed,
     lanes
   };
@@ -1147,7 +1043,7 @@ export interface RunResult {
    * Paměť odstavců se poprvé naplní z toho, co už přeložené je — jednou,
    * napoprvé. Dál se plní sama každým překladem.
    */
-  try { learnFromStore(langs, s.sourceLang); } catch { /* pomůcka, ne podmínka */ }
+  try { await learnFromStore(langs, s.sourceLang); } catch { /* pomůcka, ne podmínka */ }
 
   /*
    * Práce se vede po produktech, ne po dvojicích produkt–jazyk.
@@ -1175,8 +1071,10 @@ export interface RunResult {
    */
   const plannedChars = new Map<string, number>();
   const plannedFields = new Map<string, number>();
+  const plannedLongest = new Map<string, number>();
   for (const one of estimateWork([...plan.keys()], langs, { force: input.force, fields: input.fields })) {
     plannedChars.set(one.code, one.chars);
+    plannedLongest.set(one.code, one.longest);
     plannedFields.set(one.code, one.fields);
   }
 
@@ -1252,14 +1150,22 @@ export interface RunResult {
         ? Math.max(0, ((one.until ?? now) - now) / 1000)
         : one.phase === 'writing' || one.phase === 'saving' ? 0
           : Math.max(0, speedNow.wait - (now - one.since) / 1000);
-      activeSeconds += waiting + Math.max(0, expected - written) / speedNow.cps;
+      /*
+       * Pole se píšou souběžně (po jazycích a velkých polích), takže zbývá
+       * tolik, kolik zbývá nejdelšímu z nich — ne součet.
+       */
+      const left = one.fields.length
+        ? Math.max(0, ...one.fields.filter(f => f.status !== 'done' && f.status !== 'memory')
+          .map(f => Math.max(0, f.expected - (f.status === 'writing' ? f.written : 0))))
+        : (plannedLongest.get(one.code) ?? 0);
+      activeSeconds = Math.max(activeSeconds, waiting + left / speedNow.cps);
     }
     let queuedChars = 0;
     let queuedSeconds = 0;
     for (const [code] of queue) {
-      const chars = plannedChars.get(code) ?? 0;
-      queuedChars += chars;
-      queuedSeconds += chars > 0 ? speedNow.wait + chars / speedNow.cps : 0.2;
+      queuedChars += plannedChars.get(code) ?? 0;
+      const longest = plannedLongest.get(code) ?? 0;
+      queuedSeconds += longest > 0 ? speedNow.wait + longest / speedNow.cps : 0.2;
     }
     const allChars = doneChars + activeExpected + queuedChars;
     const soFar = doneChars + activeWritten;
@@ -1269,7 +1175,8 @@ export interface RunResult {
       total,
       failed,
       bar: allChars > 0 ? Math.min(0.999, soFar / allChars) : 0,
-      etaSeconds: Math.round((activeSeconds + queuedSeconds) / Math.max(1, Math.min(lanes, live.length + queue.length || 1))),
+      // Rozpracované běží souběžně (rozhoduje nejpomalejší), čekající se rozdělí mezi pruhy
+      etaSeconds: Math.round(activeSeconds + queuedSeconds / Math.max(1, lanes)),
       secondsPerUnit: s.secondsPerUnit,
       label: label ?? current?.label ?? '',
       errors: errors.slice(-5),
@@ -1305,15 +1212,22 @@ export interface RunResult {
 
   const oneProduct = async (code: string, item: { source: SourceTarget[]; work: TranslateTarget[] }) => {
     /* ---------- 1) čeština: co chybí, se dopíše ---------- */
-    for (const target of item.source) {
-      if (cancelled) break;
-      const note = `doplňuji ${SOURCE_LABELS[target.field] ?? target.field} v ${s.sourceLang.toUpperCase()}`;
+    /*
+     * Naráz, ne po jednom. SEO titulek, SEO popis a texty pro Google na
+     * sobě nezávisí, a po jednom to u KAPJL03 trvalo dvacet vteřin, než
+     * se vůbec začalo překládat.
+     */
+    if (item.source.length && !cancelled) {
+      const names = item.source.map(target => SOURCE_LABELS[target.field] ?? target.field).join(', ');
+      const note = `doplňuji ${s.sourceLang.toUpperCase()}: ${names}`;
       activity.setPhase(code, 'source', note);
       publish(`${code} — ${note}`);
-      const result = await fillSourceOne(code, target.field, abort?.signal);
-      done++;
-      // Přerušené volání není chyba — po zastavení by se jen sypaly hlášky
-      if (result.error && !isAborted(result)) { failed++; errors.push(result.error); }
+      const results = await Promise.all(item.source.map(target => fillSourceOne(code, target.field, abort?.signal)));
+      for (const result of results) {
+        done++;
+        // Přerušené volání není chyba — po zastavení by se jen sypaly hlášky
+        if (result.error && !isAborted(result)) { failed++; errors.push(result.error); }
+      }
       publish();
     }
 
@@ -1420,19 +1334,41 @@ export interface RunResult {
     return withSource(planWork([code], langs, { fields: input.fields })).length === 0;
   };
 
+  /*
+   * Sourozenci po sobě, ne naráz.
+   *
+   * Kapesníček KAPJL03 může vzít odstavce z KAPJL02P jen tehdy, když je
+   * KAPJL02P už přeložený. Kdyby šly vedle sebe ve dvou pruzích, nemá
+   * druhý z čeho brát a oba se platí celé. Rodina = kategorie a písmena
+   * na začátku kódu (KAPJL…, PSSK…) — tak jsou kódy v e-shopu stavěné.
+   * Pruh si vezme první produkt, jehož rodina se zrovna nepřekládá.
+   */
+  const familyOf = (code: string) => `${(getDb().prepare('SELECT category FROM ptrans_products WHERE code = ?')
+    .get(code) as { category: string } | undefined)?.category ?? ''}|${(/^[A-Za-z]+/.exec(code)?.[0] ?? code).toUpperCase()}`;
+  const busyFamilies = new Set<string>();
+
   const workers = Array.from({ length: maxLanes }, async (_unused, lane) => {
     while (queue.length > 0 && !cancelled) {
       // Přebytečné pruhy počkají, dokud se limit neuvolní
       if (lane >= lanes) {
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        // Krátce: jakmile se pruh uvolní, má se hned rozjet
+        await new Promise(resolve => setTimeout(resolve, 300));
         continue;
       }
-      const [code, item] = queue.shift()!;
+      const pick = queue.findIndex(([one]) => !busyFamilies.has(familyOf(one)));
+      if (pick < 0) {
+        // Zbývají jen sourozenci rozpracovaných — počká se, až jeden doběhne
+        await new Promise(resolve => setTimeout(resolve, 300));
+        continue;
+      }
+      const [code, item] = queue.splice(pick, 1)[0];
+      const family = familyOf(code);
+      busyFamilies.add(family);
       const title = (getDb().prepare('SELECT title FROM ptrans_products WHERE code = ?').get(code) as
         { title: string } | undefined)?.title ?? code;
       activity.startProduct(code, title);
       publish();
-      const ok = await oneProduct(code, item);
+      const ok = await oneProduct(code, item).finally(() => busyFamilies.delete(family));
       const finished = activity.finishProduct(code);
       const fields = finished?.fields ?? [];
       // Co se nepovedlo, se v hlášení ukáže jako nehotové — i když to model rozepsal

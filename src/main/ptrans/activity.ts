@@ -110,11 +110,18 @@ export function setField(code: string, lang: string, field: string, patch: Parti
 export function setPhase(code: string, phase: Phase, note?: string, until?: number): void {
   const one = active?.get(code);
   if (!one) return;
+  /*
+   * Produkt se překládá několika dotazy naráz. Když jeden teprve čeká a
+   * druhý už píše, platí „píše"; „ukládá" až ve chvíli, kdy nic dalšího
+   * nečeká ani se nepíše.
+   */
+  const busy = one.fields.some(f => f.status === 'writing' || f.status === 'waiting');
+  if (phase === 'waiting' && one.phase === 'writing') return;
+  if (phase === 'saving' && busy) return;
   if (one.phase !== phase || one.note !== note) one.since = Date.now();
   one.phase = phase;
   one.note = note;
   one.until = until;
-  if (phase === 'waiting') one.received = 0;
 }
 
 /** Začátek textu na ukázku — bez HTML a značek. */
@@ -155,7 +162,6 @@ export function onStream(code: string, langs: string[], nested: boolean, soFar: 
     }
     return out;
   }
-  one.received = soFar.length;
   if (one.phase !== 'writing') setPhase(code, 'writing');
   for (const lang of langs) {
     const fields = nested ? tree[lang] : tree;
@@ -181,6 +187,8 @@ export function onStream(code: string, langs: string[], nested: boolean, soFar: 
       }
     }
   }
+  // Napsané znaky za všechny souběžné dotazy produktu
+  one.received = one.fields.reduce((sum, f) => sum + (f.status === 'done' || f.status === 'writing' ? f.written : 0), 0);
   return out;
 }
 

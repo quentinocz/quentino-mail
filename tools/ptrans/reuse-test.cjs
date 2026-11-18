@@ -78,16 +78,29 @@ const tr = (lang, text) => text.split(/(<[^>]*>|⟦\d+⟧|(?<=[.!?])\s+)/)
   .map(part => (part.startsWith('<') || /^⟦\d+⟧$/.test(part) || !part.trim() ? part : `${lang.toUpperCase()}:${part}`))
   .join('');
 let liveCalls = 0;            // kolik dalších odpovědí má chodit po kouscích
+let slowMs = 0;               // jak dlouho „model píše" každou odpověď
+let inFlight = 0;
+const timeline = [];          // kdy který pomalý dotaz běžel
+let maxInFlight = 0;
 let calls = 0;
 let charsOut = 0;          // kolik textu musel model napsat (bez značek)
 let breakSlots = 0;        // kolik odpovědí má značky zkazit
 let lastUser = '';
+const asksLog = [];             // dotazy i s jazykem
 const users = [];
 shim('ai.js', {
   ask: async (model, system, user, _max, options = {}) => {
     calls++;
+    if (slowMs) {
+      const started = Date.now();
+      inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(r => setTimeout(r, slowMs));
+      inFlight--;
+      timeline.push({ user, started, ended: Date.now() });
+    }
     lastUser = user;
     users.push(user);
+    asksLog.push({ lang: /do jazyka „([a-z]{2,5})"/.exec(system)?.[1] ?? '', user });
     const payload = JSON.parse(user.slice(user.indexOf('{', user.indexOf('Texty k překladu'))));
     const many = /do jazyků: (.+)\./.exec(system);
     const one = (lang, fields) => {
@@ -349,7 +362,7 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
   check('po ruční opravě se podbarvení smaže — text je člověka',
     db.prepare("SELECT reuse_marks FROM ptrans_fields WHERE code = 'VT-ZELENA' AND lang = 'sk' AND field = 'long'").get().reuse_marks === '');
 
-  console.log('\nskutečný popis kravaty ve dvou barvách (sk + en naráz):\n');
+  console.log('\nskutečný popis kravaty ve dvou barvách (sk + en souběžně):\n');
 
   /*
    * Tvar, jaký mají popisy v e-shopu: nadpis s barvou, odstavec, kde barva
@@ -363,9 +376,11 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
   product('KR-BORDO', 'Bordó pánská kravata', popis('bordó', 'Bordó'));
   product('KR-NAVY', 'Tmavě modrá pánská kravata', popis('tmavě modrá', 'Tmavě modrá'));
   await translate.run({ codes: ['KR-BORDO'], langs: ['sk', 'en'], fillSource: false });
-  users.length = 0; charsOut = 0; sent.length = 0;
+  users.length = 0; charsOut = 0; sent.length = 0; asksLog.length = 0;
   run = await translate.run({ codes: ['KR-NAVY'], langs: ['sk', 'en'], fillSource: false });
-  const joint2 = users.find(text => text.includes('po jazycích')) ?? '';
+  // Každý jazyk a velké pole má vlastní dotaz — tady slovenský dlouhý popis
+  const joint2 = asksLog.filter(one => one.lang === 'sk').map(one => one.user)
+    .find(text => text.includes('"long"')) ?? '';
   for (const lang of ['sk', 'en']) {
     const got = value('KR-NAVY', lang, 'long').translated;
     check(`${lang}: výsledek je stejný, jako kdyby se překládal celý`, got === tr(lang, tidyHtml(popis('tmavě modrá', 'Tmavě modrá'))), got);
@@ -404,7 +419,132 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
   check('  a věta s barvou jde modelu podle slovenského vzoru',
     /Elegantná zelená kravata pre pánov/.test(fromFeed), fromFeed.slice(fromFeed.indexOf('Podobné'), fromFeed.indexOf('Podobné') + 260));
 
-  console.log('\nnázvosloví ve společném dotazu:\n');
+  console.log('\npopisy ve tvaru, jaký mají v e-shopu (KAPJL02P × KAPJL03):\n');
+
+  /*
+   * Zkrácené skutečné popisy dvou kapesníčků. Sourozenci se liší víc než
+   * barvou: jiný výčet barev, jiné věty — stejné jsou dva odstavce ze šesti,
+   * většina odrážek a začátek krátkého popisu. Dřív paměť nepoužila nic:
+   * čtvrtina známého textu byla pod prahem, odrážky oddělené <br> se
+   * nedělily na věty a krátký popis (holý text) se po větách nehledal.
+   */
+  const kap = (lem, jak, kratky) => ({
+    long: `<p><strong>Bílý pánský kapesníček do saka s ${lem} – elegantní detail</strong></p>\n`
+      + `<p>Elegantní bílý kapesníček do saka doplněný ${lem} je ideální volbou pro muže, kteří chtějí svůj outfit doladit do posledního detailu.</p>\n`
+      + `<p>• Rozměry: 27 × 27 cm<br>• Bílý střed – matný z jedné strany, jemně lesklý z druhé strany<br>• Lem: ${lem}<br>• Dodáván v elegantní krabičce</p>\n`
+      + '<p><strong>Proč nosit kapesníček do saka?</strong><br>Kapesníček do saka patří mezi nejoblíbenější pánské společenské doplňky. Dokáže oživit oblek a podtrhnout smysl pro detail.</p>\n'
+      + `<p><strong>Jak sladit?</strong><br>${jak}</p>\n`
+      + '<p><strong>Vyrobeno českou rodinnou značkou s důrazem na kvalitu a precizní zpracování.</strong></p>',
+    short: kratky
+  });
+  const A = kap('tmavě fialovým lemem', 'Skvěle se kombinuje s motýlkem nebo kravatou v tmavě fialové barvě.',
+    'Bílý pánský kapesníček do saka s tmavě fialovým lemem je elegantní doplněk k obleku na svatbu. Stylový kapesníček pro ženicha i svatební hosty.');
+  const B = kap('tmavě modrým lemem s jemnými puntíky', 'Skvěle se kombinuje s tmavě modrou kravatou s jemnými puntíky, '
+    + 'motýlkem nebo kšandami v tmavě modré barvě. Výborně ladí také s bílými, světle šedými a stříbrnými doplňky.',
+    'Bílý pánský kapesníček do saka s tmavě modrým puntíkovaným lemem je elegantní doplněk k obleku na svatbu. Stylový kapesníček pro ženicha i svatební hosty.');
+  const kapProduct = (code, title, texts) => {
+    db.prepare("INSERT INTO ptrans_products (code, title, category, raw_xml) VALUES (?,?,?,'')").run(code, title, 'Kapesníčky');
+    for (const lang of ['sk', 'en']) {
+      for (const [field, text] of [['title', title], ['long', texts.long], ['short', texts.short]]) {
+        db.prepare(`INSERT INTO ptrans_fields (code, lang, field, value, source_value, state) VALUES (?,?,?,?,?,'same')`)
+          .run(code, lang, field, text, text);
+      }
+    }
+  };
+  kapProduct('KAP-A', 'Bílý kapesníček s fialovým lemem', A);
+  kapProduct('KAP-B', 'Bílý kapesníček s modrým lemem', B);
+  await translate.run({ codes: ['KAP-A'], langs: ['sk', 'en'], fillSource: false });
+  // Kolik z dlouhého popisu znají celé odstavce — v e-shopu to byla čtvrtina
+  {
+    const blocks = reuse.__test.pieces(tidyHtml(B.long)).filter(p => p.inner !== undefined);
+    const plainLen = t => t.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().length;
+    const whole = blocks.filter(p => db.prepare('SELECT 1 FROM ptrans_segments WHERE lang = ? AND source = ? AND scope = ?')
+      .get('sk', reuse.__test.normalize(p.inner), 'blok'));
+    const share = whole.reduce((a, p) => a + plainLen(p.inner), 0) / blocks.reduce((a, p) => a + plainLen(p.inner), 0);
+    check(`celé stejné odstavce tvoří jen ${Math.round(share * 100)} % textu — pod dřívějším prahem 30 %`, share < 0.3);
+  }
+  asksLog.length = 0;
+  await translate.run({ codes: ['KAP-B'], langs: ['sk', 'en'], fillSource: false });
+  const skLong = asksLog.find(one => one.lang === 'sk' && one.user.includes('"long"'))?.user ?? '';
+  // Jen to, co model dostal k překladu — bez vysvětlivek ke značkám a vzorů
+  const zadani = text => text.slice(text.indexOf('Texty k překladu'));
+  const kapMarks = JSON.parse(db.prepare("SELECT reuse_marks FROM ptrans_fields WHERE code = 'KAP-B' AND lang = 'sk' AND field = 'long'").get().reuse_marks || '[]');
+  check('celé stejné odstavce (Proč nosit…, Vyrobeno…) jsou z paměti, i když jsou jen čtvrtina textu',
+    kapMarks.some(m => m.s.startsWith('SK:Proč nosit')) && kapMarks.some(m => m.s.startsWith('SK:Vyrobeno českou')),
+    JSON.stringify(kapMarks.map(m => m.s.slice(0, 26))));
+  check('  stejné odrážky oddělené <br> taky — model píše jen tu s lemem',
+    kapMarks.some(m => m.s.startsWith('SK:• Rozměry')) && kapMarks.some(m => m.s.startsWith('SK:• Dodáván'))
+    && zadani(skLong).includes('• Lem: tmavě modrým lemem s jemnými puntíky') && !zadani(skLong).includes('• Rozměry: 27 × 27 cm'),
+    skLong.slice(skLong.indexOf('Texty k překladu'), skLong.indexOf('Texty k překladu') + 400));
+  check('  a výsledek je stejný, jako kdyby se překládal celý',
+    value('KAP-B', 'sk', 'long').translated === tr('sk', tidyHtml(B.long)), value('KAP-B', 'sk', 'long').translated);
+  const skShort = asksLog.find(one => one.lang === 'sk' && one.user.includes('"short"'))?.user ?? '';
+  const shortJson = (JSON.parse(zadani(skShort).slice(zadani(skShort).indexOf('{'))).short ?? '');
+  check('krátký popis (holý text bez odstavců) se pamatuje po větách',
+    /⟦\d+⟧/.test(shortJson) && !shortJson.includes('Stylový kapesníček pro ženicha i svatební hosty.'),
+    skShort.slice(skShort.indexOf('Texty k překladu'), skShort.indexOf('Texty k překladu') + 300));
+  check('věta, která se liší víc než jedním slovem, dostane podobnou jako vzor',
+    /Podobné věty[\s\S]*Elegantní bílý kapesníček do saka doplněný tmavě fialovým lemem/.test(skLong),
+    skLong.slice(skLong.indexOf('Podobné'), skLong.indexOf('Podobné') + 200));
+
+  console.log('\njazyky a velká pole souběžně:\n');
+
+  kapProduct('KAP-C', 'Bílý kapesníček s červeným lemem', kap('červeným lemem', 'Hodí se k šedému obleku.',
+    'Úplně jiný krátký popis, aby nebyl v paměti.'));
+  db.prepare("DELETE FROM ptrans_segments").run();
+  db.prepare("DELETE FROM ptrans_seg_index").run();
+  slowMs = 400; maxInFlight = 0; calls = 0;
+  const startedAt = Date.now();
+  await translate.run({ codes: ['KAP-C'], langs: ['sk', 'en'], fillSource: false });
+  const took = Date.now() - startedAt;
+  slowMs = 0;
+  check('slovenština a angličtina se píšou naráz', maxInFlight === 2 && calls === 2,
+    `dotazů ${calls}, naráz nejvýš ${maxInFlight}`);
+  check('  takže produkt trvá jako jeden dotaz, ne jako dva za sebou', took < 400 * 2, `${took} ms`);
+
+  // Dlouhý popis jako ve skutečnosti (přes tisíc znaků) dostane vlastní dotaz
+  const dlouhy = kap('zeleným lemem', 'Hodí se k šedému obleku. ' + 'Doplňuje oblek na svatbu i ples a dodá mu barevný akcent. '.repeat(12),
+    'Další jiný krátký popis.');
+  kapProduct('KAP-D', 'Bílý kapesníček se zeleným lemem', dlouhy);
+  db.prepare("DELETE FROM ptrans_segments").run();
+  slowMs = 400; maxInFlight = 0; calls = 0;
+  await translate.run({ codes: ['KAP-D'], langs: ['sk', 'en'], fillSource: false });
+  slowMs = 0;
+  check('dlouhý popis má vlastní dotaz, i ten běží naráz s ostatními', calls === 4 && maxInFlight === 4,
+    `dotazů ${calls}, naráz nejvýš ${maxInFlight}`);
+
+  console.log('\nsourozenci v jednom běhu se souběžností:\n');
+
+  /*
+   * Víc produktů v jednom běhu, souběžnost 3. Sourozenci (stejná kategorie,
+   * stejná písmena kódu) nesmí jít naráz — druhý by neměl z čeho brát.
+   */
+  settings.set('ptrans', JSON.stringify({ ...JSON.parse(settings.get('ptrans')), concurrency: 3 }));
+  for (const [code, cat] of [['AAA1', 'Aa'], ['BBB1', 'Bb'], ['CCC1', 'Cc'], ['DDD1', 'Dd']]) {
+    db.prepare("INSERT INTO ptrans_products (code, title, category, raw_xml) VALUES (?,?,?,'')").run(code, `Jiný produkt ${code}`, cat);
+    db.prepare(`INSERT INTO ptrans_fields (code, lang, field, value, source_value, state) VALUES (?,?,?,?,?,'same')`)
+      .run(code, 'sk', 'title', `Jiný produkt ${code}`, `Jiný produkt ${code}`);
+  }
+  const sib = (code, lem) => {
+    const text = kap(lem, 'Hodí se k obleku.', 'Krátký popis ' + code + '.');
+    db.prepare("INSERT INTO ptrans_products (code, title, category, raw_xml) VALUES (?,?,?,'')").run(code, `Kapesníček ${code}`, 'Zz');
+    db.prepare(`INSERT INTO ptrans_fields (code, lang, field, value, source_value, state) VALUES (?,?,?,?,?,'same')`)
+      .run(code, 'sk', 'long', text.long, text.long);
+  };
+  sib('SOUR01', 'žlutým lemem');
+  sib('SOUR02', 'oranžovým lemem');
+  slowMs = 700; maxInFlight = 0;
+  await translate.run({ codes: ['AAA1', 'BBB1', 'CCC1', 'SOUR01', 'SOUR02'], langs: ['sk'], fillSource: false });
+  slowMs = 0;
+  const sibMarks = JSON.parse(db.prepare("SELECT reuse_marks FROM ptrans_fields WHERE code = 'SOUR02' AND lang = 'sk' AND field = 'long'").get().reuse_marks || '[]');
+  const first = timeline.find(one => one.user.includes('žlutým lemem'));
+  const second = timeline.find(one => one.user.includes('oranžovým lemem'));
+  check('sourozenci šli po sobě, i když byly volné dva pruhy', first && second && second.started >= first.ended,
+    first && second ? `první ${first.started}–${first.ended}, druhý od ${second.started}` : 'chybí dotaz');
+  check('  a druhý proto bere z prvního', sibMarks.some(m => m.s.startsWith('SK:Proč nosit')),
+    JSON.stringify(sibMarks.map(m => m.s.slice(0, 20))));
+
+  console.log('\nnázvosloví po jazycích:\n');
 
   db.prepare(`INSERT INTO ptrans_memory (kind, lang, source, target, category, hits, confidence, origin, locked)
     VALUES ('term','sk','kšandy','traky','',5,1,'manual',1), ('term','en','kšandy','suspenders','',5,1,'manual',1)`).run();
@@ -413,11 +553,12 @@ product('KR-MODRA2', 'Modrá pánská kravata', desc('modrá'));
     db.prepare(`INSERT INTO ptrans_fields (code, lang, field, value, source_value, state)
       VALUES ('KS1',?, 'title', 'Černé kšandy s koženými poutky', 'Černé kšandy s koženými poutky', 'same')`).run(lang);
   }
-  users.length = 0;
+  users.length = 0; asksLog.length = 0;
   await translate.run({ codes: ['KS1'], langs: ['sk', 'en'], fillSource: false });
-  const joint = users.find(text => text.includes('po jazycích')) ?? '';
+  const enAsk = asksLog.filter(one => one.lang === 'en' && one.user.includes('kšandy')).map(one => one.user).join('\n');
+  const skAsk = asksLog.filter(one => one.lang === 'sk' && one.user.includes('kšandy')).map(one => one.user).join('\n');
   check('angličtina dostane svoje „suspenders", ne slovenské „traky"',
-    /\[en\][\s\S]*suspenders/.test(joint) && /\[sk\][\s\S]*traky/.test(joint), joint.slice(0, 400));
+    /suspenders/.test(enAsk) && !/traky/.test(enAsk) && /traky/.test(skAsk), enAsk.slice(0, 400));
 
   console.log(bad ? `\n${bad} věcí nesedí` : '\nco už je přeložené, se znovu neplatí — a výsledek je stejný');
   process.exit(bad ? 1 : 0);

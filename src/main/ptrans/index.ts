@@ -182,7 +182,7 @@ export function dropStyle(lang: string, category: string, kind: string) {
  * přeložené. Pouští se ručně z rozhraní — je to práce na pár vteřin, ale mění
  * to, jak budou vypadat všechny další překlady.
  */
-export function learnMemory(langs?: string[]): (LearnResult & { sentences: number })[] {
+export async function learnMemory(langs?: string[]): Promise<(LearnResult & { sentences: number })[]> {
   const result = learnFromFeed(langs);
   /*
    * A k tomu paměť vět a odstavců — hned, ne až při příštím překladu.
@@ -191,7 +191,7 @@ export function learnMemory(langs?: string[]): (LearnResult & { sentences: numbe
    */
   const s = getPtransSettings();
   const list = langs?.length ? langs : targetLangs(s);
-  try { learnFromStore(list, s.sourceLang, true); } catch { /* pomůcka */ }
+  try { await learnFromStore(list, s.sourceLang, true); } catch { /* pomůcka */ }
   const counts = new Map(segmentStats().map(row => [row.lang, row.sentences + row.paragraphs + row.texts]));
   emit('ptrans:changed', {});
   return result.map(one => ({ ...one, sentences: counts.get(one.lang) ?? 0 }));

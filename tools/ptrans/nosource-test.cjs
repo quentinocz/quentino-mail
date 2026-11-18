@@ -200,10 +200,14 @@ console.log('pole bez českého znění:\n');
     "SELECT translated FROM ptrans_fields WHERE code = ? AND lang = ? AND field = 'title'"
   ).get(code, lang)?.translated ?? '';
 
-  // Nejdřív bez potíží: dva jazyky mají stát jeden dotaz, ne dva
+  /*
+   * Nejdřív bez potíží: dva jazyky jsou dva dotazy **naráz**. Dřív šly
+   * jedním společným dotazem, jenže model v něm píše jazyky po sobě a na
+   * angličtinu se čekalo, až dopíše slovenštinu (viz translateProduct).
+   */
   asked = 0; joint = 0;
   let run = await translate.run({ codes: [TWO], langs: ['sk', 'en'], fillSource: false });
-  check('dva jazyky = jeden dotaz', asked === 1 && joint === 1, `dotazů: ${asked}, společných: ${joint}`);
+  check('dva jazyky = dva souběžné dotazy', asked === 2 && joint === 0, `dotazů: ${asked}, společných: ${joint}`);
   check('a oba trhy jsou přeložené',
     value(TWO, 'sk').startsWith('[sk]') && value(TWO, 'en').startsWith('[en]'),
     `${value(TWO, 'sk')} / ${value(TWO, 'en')}`);
