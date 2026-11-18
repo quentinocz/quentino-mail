@@ -781,7 +781,7 @@ export function registerIpc() {
   handle('banners:clashes', (set: any) => banners.bannerClashes(set));
   handle('banners:shorten', (id: string, ids: string[]) => banners.shortenSets(id, ids ?? []));
   // Texty modelem, odkazy mapou adres — uhodnutý slovenský odkaz vede na 404
-  handle('banners:translate', (set: any) => banners.translateSet(set));
+  handle('banners:translate', (set: any, scope?: any) => banners.translateSet(set, scope ?? {}));
   handle('banners:href', (cz: string) => banners.resolveHref(String(cz ?? '')));
   // Která sada se zapeče do skriptu v šabloně e-shopu
   handle('banners:fallback', (id: string) => banners.setFallback(String(id ?? '')));

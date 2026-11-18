@@ -9,6 +9,7 @@ import {
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import { inToolWindow } from '../toolwindows';
 
 /**
@@ -209,6 +210,7 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
       <div className="modal zk-modal">
         <div className="modal-head">
           <span className="modal-title"><Icon name="user" size={15} /> Zkušební kabina</span>
+          <HelpButton topic="zkusebna" />
           <div className="zk-head-right">
             <button className={`tab ${zalozka === 'kabina' ? 'active' : ''}`} onClick={() => setZalozka('kabina')}>Kabina</button>
             <button className={`tab ${zalozka === 'vizualy' ? 'active' : ''}`} onClick={() => setZalozka('vizualy')}>Vizuály</button>

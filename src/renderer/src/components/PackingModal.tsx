@@ -5,6 +5,7 @@ import type {
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import CallContact from './CallContact';
 import { useIsPhone } from '../mobile';
 import { inToolWindow } from '../toolwindows';
@@ -1126,6 +1127,7 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
         style={panelH ? { paddingTop: panelH } : undefined}>
         <div className="modal-head">
           <div className="modal-title"><Icon name="bag" size={16} /> Balení objednávek</div>
+          <HelpButton topic="packing" />
           <span style={{ flex: 1 }} />
           {/*
             * Skenování je při balení to hlavní, co se dělá — ne jedna ikona

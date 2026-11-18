@@ -421,6 +421,60 @@ for (const okno of OKNA) {
   say('  a nekreslí ztmavení do prázdna',
     !!mira && /rgba\(0, 0, 0, 0\)|transparent/.test(mira.ztmaveni), mira?.ztmaveni ?? '');
   await page.screenshot({ path: path.join(SHOTS, `okno-${okno.hash}.png`) });
+  // Každý modul má v hlavičce otazník s nápovědou
+  say('  a v hlavičce je otazník s nápovědou',
+    await page.locator('[aria-label="Nápověda"]').first().isVisible().catch(() => false));
+  await page.close();
+}
+
+/* ---------- Nápověda: panel s postupy a ukázka na obrazovce ---------- */
+
+{
+  const page = await open('produkty');
+  await page.locator('[aria-label="Nápověda"]').first().click();
+  await page.waitForTimeout(400);
+  const panel = await page.evaluate(() => {
+    const box = document.querySelector('.hp-panel')?.getBoundingClientRect();
+    return {
+      nadpis: document.querySelector('.hp-head h2')?.textContent ?? '',
+      sirka: Math.round(box?.width ?? 0), okno: window.innerWidth,
+      oblasti: document.querySelectorAll('.hp-area').length,
+      kroky: document.querySelectorAll('.hp-guide.open .hp-steps li').length,
+      ukazat: document.querySelectorAll('.hp-guide.open .hp-show').length,
+      tlacitka: document.querySelectorAll('.hp-guide.open .hp-ui').length
+    };
+  });
+  say('otazník otevře nápovědu k modulu', panel.nadpis === 'Produkty a překlady', panel.nadpis);
+  say('  panel nechá modul vidět vedle sebe', panel.sirka > 300 && panel.sirka < panel.okno * 0.5,
+    `${panel.sirka} z ${panel.okno} px`);
+  say('  je v něm mapa okna a očíslovaný postup', panel.oblasti >= 4 && panel.kroky >= 5,
+    `${panel.oblasti} oblastí, ${panel.kroky} kroků`);
+  say('  tlačítka v textu jsou vidět jako tlačítka', panel.tlacitka >= 4, `${panel.tlacitka}`);
+  say('  kroky umí ukázat místo v okně', panel.ukazat >= 3, `${panel.ukazat}× Ukázat`);
+  await page.screenshot({ path: path.join(SHOTS, 'napoveda-preklady.png') });
+  await page.locator('.hp-guide.open .hp-show').first().click();
+  await page.waitForTimeout(400);
+  const spot = await page.evaluate(() => {
+    const ring = document.querySelector('.hp-spot')?.getBoundingClientRect();
+    const btn = document.querySelector('.pt-feedbtn')?.getBoundingClientRect();
+    const panel = document.querySelector('.hp-panel').getBoundingClientRect();
+    return ring && btn ? {
+      dx: Math.abs(ring.left - btn.left), dy: Math.abs(ring.top - btn.top),
+      // Tlačítko je vpravo nahoře — pod panelem. Panel musí uhnout, jinak by ukázka nebyla vidět.
+      volno: panel.left > btn.right
+    } : null;
+  });
+  say('„Ukázat" orámuje tlačítko, o kterém krok mluví', !!spot && spot.dx < 12 && spot.dy < 12, JSON.stringify(spot));
+  say('  a panel nápovědy mu uhne z cesty', !!spot?.volno);
+  await page.screenshot({ path: path.join(SHOTS, 'napoveda-ukazat.png') });
+  /* Přepnutí tématu */
+  await page.locator('.hp-pick').selectOption('banners');
+  await page.waitForTimeout(200);
+  say('  téma jde přepnout na jiný modul',
+    (await page.locator('.hp-head h2').textContent()) === 'Bannery');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  say('  Esc nápovědu zavře', (await page.locator('.hp-panel').count()) === 0);
   await page.close();
 }
 
@@ -1364,6 +1418,47 @@ for (const okno of OKNA) {
   await page.close();
 }
 
+/* ---------- Překlady: rozvržení a hlavní akce ---------- */
+
+/*
+ * Patrik (18. 11.): sloupec s produkty zbytečně široký, dole moc tlačítek,
+ * „primárně by mělo vést k exportu rovnou do administrace" a jasné
+ * tlačítko na načtení feedu, které nesmaže neodeslané překlady.
+ */
+{
+  const page = await open('produkty');
+  await page.locator('.pt-row').first().click();
+  await page.waitForTimeout(500);
+  const rozvrzeni = await page.evaluate(() => {
+    const list = document.querySelector('.pt-list')?.getBoundingClientRect();
+    const detail = document.querySelector('.pt-detail')?.getBoundingClientRect();
+    const foot = document.querySelector('.pt-foot');
+    const tlacitka = [...(foot?.querySelectorAll(':scope > button, :scope > .dm > button') ?? [])]
+      .map(one => one.textContent.trim());
+    const hlavni = foot?.querySelector('.btn.primary')?.textContent?.trim() ?? '';
+    return {
+      seznam: Math.round(list?.width ?? 0), detail: Math.round(detail?.width ?? 0),
+      tlacitka, hlavni,
+      feed: document.querySelector('.pt-feedbtn')?.textContent?.trim() ?? '',
+      feedTip: document.querySelector('.pt-feedbtn')?.getAttribute('data-tip') ?? ''
+    };
+  });
+  say('seznam produktů je užší a detail dostane víc místa',
+    rozvrzeni.seznam <= 360 && rozvrzeni.detail >= rozvrzeni.seznam * 2.2,
+    `seznam ${rozvrzeni.seznam} px, detail ${rozvrzeni.detail} px`);
+  say('  dole jsou nejvýš čtyři volby', rozvrzeni.tlacitka.length <= 4, rozvrzeni.tlacitka.join(' | '));
+  say('  hlavní akce je export do administrace', /Exportovat do administrace/.test(rozvrzeni.hlavni), rozvrzeni.hlavni);
+  say('  načtení feedu je tlačítko s popiskem a slibuje, že se nic neztratí',
+    rozvrzeni.feed.includes('Načíst aktuální feed') && /nic se neztratí/.test(rozvrzeni.feedTip));
+  await page.screenshot({ path: path.join(SHOTS, 'preklady-rozvrzeni.png') });
+  await page.locator('.pt-foot .dm > button', { hasText: 'Úpravy vybraných' }).click();
+  await page.waitForTimeout(200);
+  const nabidka = await page.locator('.dm-pop .dm-item small').count();
+  say('  úpravy jsou v nabídce a každá říká, co udělá', nabidka === 4, `${nabidka} popisků`);
+  await page.screenshot({ path: path.join(SHOTS, 'preklady-upravy.png') });
+  await page.close();
+}
+
 /* ---------- Bannery: živý náhled běží na skriptu z e-shopu ---------- */
 
 /*
@@ -2083,6 +2178,68 @@ for (const okno of OKNA) {
   const velikost = await page.locator('.bn-code .desc').last().innerText();
   say('  velikost skriptu je u tlačítka vidět', /\d+ tisíc znaků/.test(velikost), velikost.trim());
   await page.screenshot({ path: path.join(SHOTS, 'bannery-kod.png') });
+  await page.close();
+}
+
+/* ---------- Bannery: překlad jednoho banneru a hlídka před uložením ---------- */
+
+/*
+ * Patrik (18. 11.): „přeložit jen konkrétní banner, ne vždy celou sadu"
+ * a „jasné a výrazné upozornění při uložení, pokud není něco přeloženo".
+ * Ukázková sada nemá slovenštinu ani angličtinu nikde — hlídka musí být
+ * vidět hned a uložení se musí zastavit.
+ */
+{
+  const page = await open('bannery');
+  await page.locator('.wt-row', { hasText: 'Podzimní sada' }).click();
+  await page.waitForTimeout(700);
+  const stitky = await page.locator('.bn-strip .bn-tile-lang').count();
+  say('nepřeložené dlaždice mají štítek SK a EN', stitky >= 4, `${stitky} dlaždic`);
+  say('  nad uložením je výrazné upozornění', await page.locator('.bn-langwarn').isVisible());
+
+  await page.locator('.bn-save .btn.primary').click();
+  await page.waitForTimeout(300);
+  const hlidka = await page.locator('.bn-guard').isVisible();
+  const ulozeno = await page.evaluate(() => (window.__calls || []).some(one => one[0] === 'banners:save'));
+  say('uložení se zastaví a ukáže, co chybí', hlidka && !ulozeno);
+  const polozek = await page.locator('.bn-guard-list li').count();
+  say('  seznam vyjmenuje bannery, bloky i odkazy', polozek >= 9, `${polozek} položek`);
+  await page.screenshot({ path: path.join(SHOTS, 'bannery-hlidka.png') });
+  await page.locator('.bn-guard-btns button', { hasText: 'Zpět k úpravám' }).click();
+  await page.waitForTimeout(200);
+  say('  „Zpět" okno zavře a nic neuloží', !(await page.locator('.bn-guard').count())
+    && !(await page.evaluate(() => (window.__calls || []).some(one => one[0] === 'banners:save'))));
+
+  /* Překlad jen druhého banneru — první musí zůstat nepřeložený */
+  await page.locator('.bn-strip .bn-tile').nth(1).click();
+  await page.waitForTimeout(200);
+  await page.locator('button', { hasText: 'Přeložit tento banner' }).click();
+  await page.waitForTimeout(500);
+  const poPrekladu = await page.evaluate(() => {
+    const call = (window.__calls || []).filter(one => one[0] === 'banners:translate').pop();
+    const tiles = [...document.querySelectorAll('.bn-strip .bn-tile')];
+    return {
+      ids: call ? JSON.stringify(call[2] ?? null) : '',
+      prvni: !!tiles[0]?.querySelector('.bn-tile-lang'),
+      druhy: !!tiles[1]?.querySelector('.bn-tile-lang')
+    };
+  });
+  say('„Přeložit tento banner" pošle jen jeden banner', poPrekladu.ids.includes('b2') && !poPrekladu.ids.includes('b1'),
+    poPrekladu.ids);
+  say('  přeložený banner štítek ztratí, ostatní ho mají dál', !poPrekladu.druhy && poPrekladu.prvni);
+
+  /* „Doplnit a uložit" přeloží jen prázdná políčka a uloží */
+  await page.locator('.bn-save .btn.primary').click();
+  await page.waitForTimeout(200);
+  await page.locator('.bn-guard-btns button', { hasText: 'Doplnit překlady a uložit' }).click();
+  await page.waitForTimeout(900);
+  const konec = await page.evaluate(() => {
+    const calls = window.__calls || [];
+    const tr = calls.filter(one => one[0] === 'banners:translate').pop();
+    return { onlyEmpty: !!tr?.[2]?.onlyEmpty, ulozeno: calls.some(one => one[0] === 'banners:save') };
+  });
+  say('„Doplnit překlady a uložit" doplní jen prázdné a uloží', konec.onlyEmpty && konec.ulozeno,
+    JSON.stringify(konec));
   await page.close();
 }
 

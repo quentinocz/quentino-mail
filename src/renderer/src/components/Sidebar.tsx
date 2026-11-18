@@ -1,6 +1,7 @@
 import type { AccountPublic, FolderInfo, Category, ChatWaiting } from '@shared/types';
 import { CATEGORY_LABELS } from '@shared/types';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import WorkspaceSwitch, { Workspace, AiTool } from './WorkspaceSwitch';
 
 export type View =
@@ -170,6 +171,7 @@ export default function Sidebar(p: Props) {
           <span className="icon"><Icon name="settings" /></span>
           <span className="label">Nastavení</span>
         </button>
+        <HelpButton topic="mail" className="side-item" label="Nápověda" />
       </div>
     </div>
   );

@@ -1012,7 +1012,9 @@ export const api = {
     clashes: (set: Partial<BannerSet>) => call<BannerClash[]>('banners:clashes', set),
     shorten: (id: string, ids: string[]) => call<BannersState>('banners:shorten', id, ids),
     /** Doplní slovenštinu a angličtinu do celé sady naráz, texty i odkazy */
-    translate: (set: Partial<BannerSet>) => call<BannerSet>('banners:translate', set),
+    /** `ids` = jen tyhle bannery (`links` = odkazy); `onlyEmpty` = jen prázdná políčka */
+    translate: (set: Partial<BannerSet>, scope: { ids?: string[]; onlyEmpty?: boolean } = {}) =>
+      call<BannerSet>('banners:translate', set, scope),
     /** Kam povede český odkaz v ostatních trzích — hned při psaní */
     href: (cz: string) =>
       call<{ sk: string; en: string; skVia: string; enVia: string }>('banners:href', cz),

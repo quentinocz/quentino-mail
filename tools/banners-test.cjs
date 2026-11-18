@@ -1446,6 +1446,27 @@ const preklad = (async () => {
     ok('banner nad bloky se překládá dál', hotovo.banners[0].copy.title.sk.endsWith('[sk]'));
     ok('texty bloků šly do překladače jedním dotazem spolu s bannerem',
       poslano.includes('Ženich a jeho parta') && poslano.includes('Kšandy k obleku'));
+
+    /*
+     * Překlad jednoho banneru (Patrik, 18. 11.). Celá sada přepsala
+     * i ručně doladěnou slovenštinu u ostatních bannerů.
+     */
+    const dva = sada({
+      banners: [
+        bezAdresy(banner({ id: 'b1' })),
+        bezAdresy(banner({ id: 'b2', copy: { ...banner().copy, title: { cz: 'Motýlky', sk: 'Motýliky ručne', en: '' },
+          href: { cz: '', sk: '', en: '' } } }))
+      ]
+    });
+    poslano.length = 0;
+    const jen = await banners.translateSet(dva, { ids: ['b2'] });
+    ok('„přeložit tento banner" pošle jen jeho texty', !poslano.includes('Kšandy k obleku') && poslano.includes('Motýlky'),
+      poslano.join(' | '));
+    ok('  ostatní bannery zůstanou nepřeložené', !jen.banners[0].copy.title.sk);
+    poslano.length = 0;
+    const doplnene = await banners.translateSet(dva, { ids: ['b2'], onlyEmpty: true });
+    check('„doplnit" nechá ručně upravenou slovenštinu a doplní jen prázdnou angličtinu',
+      [doplnene.banners[1].copy.title.sk, doplnene.banners[1].copy.title.en], ['Motýliky ručne', 'Motýlky [en]']);
   } finally {
     webtexts.translateWeb = puvodni;
   }

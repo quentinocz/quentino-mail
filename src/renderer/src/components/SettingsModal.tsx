@@ -6,6 +6,7 @@ import { CATEGORY_LABELS } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import UpdateCard from './UpdateCard';
 import { buildBrandSignature, DEFAULT_SIG_CONFIG } from '../signature';
 
@@ -313,6 +314,7 @@ export default function SettingsModal(p: Props) {
           <span>Nastavení</span>
           {/* Po vydání je užitečné vidět, jestli běží to, co se právě sestavilo */}
           <span className="set-version">{version ? `verze ${version}` : ''}</span>
+          <HelpButton topic="settings" />
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <button className="toolbar-btn" disabled={busy === 'export'}
               onClick={() => { setBackupBox('export'); setBackupPass(''); }}

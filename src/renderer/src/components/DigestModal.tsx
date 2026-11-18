@@ -12,6 +12,7 @@ import { api } from '../api';
 import { useIsPhone } from '../mobile';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import { inToolWindow } from '../toolwindows';
 
 /**
@@ -1512,6 +1513,8 @@ export default function DigestModal({ onClose, onOpenMessage, onOpenChat }: Prop
               </span>
             )}
           </span>
+          {/* Přímo v hlavičce, ne v nadpisu: poslední prvek skupiny je všude zavírací křížek */}
+          <HelpButton topic="digest" />
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {/*
               * Listování zpátky. Starší přehledy se drží půl roku — postřeh

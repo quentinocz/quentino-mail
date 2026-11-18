@@ -1086,8 +1086,24 @@ export async function pull(): Promise<string> {
  * slug, který se z českého slova neuhodne — a uhodnutý odkaz vede na
  * stránku 404, což je horší než banner bez odkazu.
  */
-export async function translateSet(value: any): Promise<BannerSet> {
+/**
+ * Co z sady přeložit.
+ *
+ * `ids` — jen tyhle bannery (a `links` = odkazy pod bannerem); prázdné =
+ * celá sada. Překládat pokaždé celou sadu znamenalo, že oprava nadpisu
+ * jednoho banneru přepsala i ručně doladěnou slovenštinu u ostatních.
+ *
+ * `onlyEmpty` — doplní jen prázdná políčka a hotový překlad nechá být.
+ * Na to je „doplnit chybějící" před uložením.
+ */
+export interface TranslateScope { ids?: string[]; onlyEmpty?: boolean }
+
+export async function translateSet(value: any, scope: TranslateScope = {}): Promise<BannerSet> {
   const set = normalizeSet(value);
+  const vybrane = scope.ids?.length ? new Set(scope.ids) : null;
+  const chci = (id: string) => !vybrane || vybrane.has(id);
+  const doplnit = (text: { sk: string; en: string }, lang: 'sk' | 'en') =>
+    !scope.onlyEmpty || !String(text[lang] ?? '').trim();
   const source: string[] = [];
   const slots: { banner: Banner; field: 'kicker' | 'title' | 'text' | 'button' | 'alt' | 'badge' }[] = [];
 
@@ -1096,31 +1112,35 @@ export async function translateSet(value: any): Promise<BannerSet> {
    * překládají se proto spolu s ním. Dokud tu nebyly, přeložil se u nich
    * jen odkaz a texty zůstaly česky i na slovenském a anglickém webu.
    */
-  const vsechny = [...set.banners, ...set.highlights.banners];
+  const vsechny = [...set.banners, ...set.highlights.banners].filter(one => chci(one.id));
 
   for (const one of vsechny) {
     /* Popis fotky se překládá s ostatními texty — Google čte každý trh zvlášť */
     for (const field of ['kicker', 'title', 'text', 'button', 'alt', 'badge'] as const) {
-      if (one.copy[field].cz) { source.push(one.copy[field].cz); slots.push({ banner: one, field }); }
+      const text = one.copy[field];
+      if (!text.cz || (!doplnit(text, 'sk') && !doplnit(text, 'en'))) continue;
+      source.push(text.cz);
+      slots.push({ banner: one, field });
     }
   }
   if (source.length > 0) {
     const done = await translateWeb(source);
     slots.forEach((slot, i) => {
-      slot.banner.copy[slot.field].sk = done[i]?.sk ?? '';
-      slot.banner.copy[slot.field].en = done[i]?.en ?? '';
+      const text = slot.banner.copy[slot.field];
+      if (doplnit(text, 'sk')) text.sk = done[i]?.sk ?? '';
+      if (doplnit(text, 'en')) text.en = done[i]?.en ?? '';
     });
   }
 
   /* Texty odkazů pod bannerem jdou stejným dotazem — je to jedna stránka */
-  if (set.links.items.length > 0) {
+  if (set.links.items.length > 0 && chci('links')) {
     const zdroj = set.links.items.map(one => one.text.cz);
     if (zdroj.some(Boolean)) {
       const hotovo = await translateWeb(zdroj);
       set.links.items.forEach((one, i) => {
         if (!one.text.cz) return;
-        one.text.sk = hotovo[i]?.sk ?? '';
-        one.text.en = hotovo[i]?.en ?? '';
+        if (doplnit(one.text, 'sk')) one.text.sk = hotovo[i]?.sk ?? '';
+        if (doplnit(one.text, 'en')) one.text.en = hotovo[i]?.en ?? '';
       });
     }
     for (const one of set.links.items) {

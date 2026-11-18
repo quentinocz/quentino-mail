@@ -4,6 +4,7 @@ import { api } from '../api';
 import { pickForArticle, sizeOf, uploadToShop } from '../shopfiles';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import HtmlField from './HtmlField';
 import { inToolWindow } from '../toolwindows';
 
@@ -304,6 +305,7 @@ export default function ReviewsModal({ onClose }: { onClose: () => void }) {
       <div className={`modal rv-modal rv-${size}`}>
         <div className="modal-head">
           <span className="modal-title"><Icon name="star" size={15} /> Recenze zákazníků</span>
+          <HelpButton topic="reviews" />
           <small className="desc">
             {pocetRecenzi(items.length)}{state?.publishedAt
               ? ` · vystaveno ${new Date(state.publishedAt).toLocaleString('cs-CZ')}`

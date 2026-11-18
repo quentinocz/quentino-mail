@@ -4,6 +4,7 @@ import { api } from '../api';
 import { bytesToBlob, targetSize, toWebp } from '../media';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import MediaProducts from './MediaProducts';
 import { inToolWindow } from '../toolwindows';
 
@@ -197,6 +198,7 @@ export default function MediaModal({ onClose }: { onClose: () => void }) {
       <div className={`modal md-modal md-${size}`} onDragOver={e => e.preventDefault()} onDrop={onDrop}>
         <div className="modal-head">
           <span className="modal-title"><Icon name="image" size={15} /> Konvertor médií</span>
+          <HelpButton topic="media" />
           <span style={{ flex: 1 }} />
           <div className="ig-seg">
             <button className={tab === 'files' ? 'active' : ''} onClick={() => setTab('files')}>Soubory</button>

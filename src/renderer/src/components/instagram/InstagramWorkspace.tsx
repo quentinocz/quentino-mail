@@ -3,6 +3,7 @@ import type { IgOverview, ChatWaiting } from '@shared/types';
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
+import HelpButton from '../HelpPanel';
 import WorkspaceSwitch, { Workspace, AiTool } from '../WorkspaceSwitch';
 import { SidebarResizer } from '../../sidebar';
 import { useIsPhone } from '../../mobile';
@@ -286,6 +287,7 @@ export default function InstagramWorkspace({ onOpenSettings, onWorkspace, chatUn
             <span className="icon"><Icon name="settings" /></span>
             <span className="label">Nastavení</span>
           </button>
+          <HelpButton topic="instagram" className="side-item" label="Nápověda" />
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import { api, type LabelItemRow } from '../api';
 import { useToast } from '../toast';
 import { useIsPhone } from '../mobile';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import { inToolWindow } from '../toolwindows';
 
 /**
@@ -233,7 +234,8 @@ export default function CatalogModal({ onClose, openStockin }: {
       <div className="modal kat-modal" data-scan={scanPanel ? 'on' : undefined}
         style={scanPanel ? { paddingTop: scanPanel } : undefined}>
         <div className="modal-head">
-          <div className="modal-title"><Icon name="bag" size={15} /> Katalog</div>
+          <div className="modal-title"><Icon name="layers" size={15} /> Katalog a naskladnění</div>
+          <HelpButton topic="catalog" />
           <div className="kat-tabs">
             <button className={tab === 'catalog' ? 'on' : ''} onClick={() => setTab('catalog')}>Produkty</button>
             <button className={tab === 'stockin' ? 'on' : ''} onClick={() => setTab('stockin')}>Naskladnění</button>

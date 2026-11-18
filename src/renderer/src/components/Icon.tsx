@@ -40,6 +40,9 @@ const PATHS: Record<string, ReactNode> = {
   alert: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></>,
   plus: <><path d="M5 12h14" /><path d="M12 5v14" /></>,
   chevDown: <polyline points="6 9 12 15 18 9" />,
+  chevUp: <polyline points="18 15 12 9 6 15" />,
+  // Nápověda — otazník v kolečku, u každého modulu
+  help: <><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><path d="M12 17h.01" /></>,
   // Řazení: dvě šipky proti sobě — pořadí balení proti pořadí přehledu
   sort: <><path d="M7 4v16" /><path d="m3 8 4-4 4 4" /><path d="M17 20V4" /><path d="m13 16 4 4 4-4" /></>,
   chevLeft: <polyline points="15 18 9 12 15 6" />,

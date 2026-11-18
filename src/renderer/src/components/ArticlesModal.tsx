@@ -6,6 +6,7 @@ import type {
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import ArticleSettingsPanel from './ArticleSettings';
 import { ArticleBriefPanel, ArticleTextPanel, ArticleLinksPanel } from './ArticleEditor';
 import { inToolWindow } from '../toolwindows';
@@ -180,6 +181,7 @@ export default function ArticlesModal({ onClose }: { onClose: () => void }) {
       <div className={`modal ar-modal ar-${size}`}>
         <div className="modal-head">
           <div className="modal-title"><Icon name="fileText" size={16} /> Články</div>
+          <HelpButton topic="articles" />
           <span className="pt-feed">
             {overview ? `${overview.summary.total} článků · ${overview.summary.drafts} rozepsaných`
               + ` · ${overview.urlmap} dvojic adres` : ''}

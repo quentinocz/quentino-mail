@@ -3,6 +3,7 @@ import type { ChatConversation, ChatWaiting, ChatMessage as Msg, ChatOverview, O
 import { api } from '../../api';
 import { useToast } from '../../toast';
 import Icon from '../Icon';
+import HelpButton from '../HelpPanel';
 import { SwipeRow, useEdgeBack } from '../../gestures';
 import CallContact from '../CallContact';
 import WorkspaceSwitch, { Workspace, AiTool } from '../WorkspaceSwitch';
@@ -307,6 +308,7 @@ export default function ChatWorkspace({ onOpenSettings, onWorkspace, chatUnread,
       <div className="sidebar">
         <div className="ch-brandrow">
           <div className="brand">quentino<span> chat</span></div>
+          {!phone && <HelpButton topic="chat" />}
           {/* Na telefonu je nastavení pod ozubeným kolečkem — dvě tlačítka přes
               celou šířku dole braly místo konverzacím */}
           {phone && (

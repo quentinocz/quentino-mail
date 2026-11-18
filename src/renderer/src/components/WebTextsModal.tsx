@@ -5,6 +5,7 @@ import type {
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import { inToolWindow } from '../toolwindows';
 
 /**
@@ -430,7 +431,8 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div className="modal wt-modal">
         <div className="modal-head">
-          <span className="modal-title"><Icon name="globe" size={15} /> Texty na webu</span>
+          <span className="modal-title"><Icon name="pen" size={15} /> Texty na webu</span>
+          <HelpButton topic="webtexts" />
           <div className="wt-head-right">
             <button className={`tab ${tab === 'plan' ? 'active' : ''}`} onClick={() => setTab('plan')}>Plán</button>
             <button className={`tab ${tab === 'xmas' ? 'active' : ''}`} onClick={() => setTab('xmas')}>Vánoce</button>

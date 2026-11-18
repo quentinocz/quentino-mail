@@ -2726,6 +2726,28 @@
       if (channel === 'webtexts:load' || channel === 'webtexts:publish') {
         return Promise.resolve({ ok: true, data: answers['webtexts:state'] });
       }
+      /*
+       * Překlad sady: „přeloží" jen vybrané bannery (a jen prázdná políčka,
+       * když se o to řekne) — tak, jak to dělá hlavní proces. Podle předpony
+       * se v náhledu pozná, co se přeložilo a co zůstalo.
+       */
+      if (channel === 'banners:translate') {
+        var sadaT = JSON.parse(JSON.stringify(arguments[1] || {}));
+        var rozsah = arguments[2] || {};
+        var chci = function (id) { return !rozsah.ids || !rozsah.ids.length || rozsah.ids.indexOf(id) >= 0; };
+        var prelozit = function (t) {
+          if (!t || !t.cz) return;
+          ['sk', 'en'].forEach(function (l) {
+            if (!rozsah.onlyEmpty || !t[l]) t[l] = '[' + l + '] ' + t.cz;
+          });
+        };
+        (sadaT.banners || []).concat((sadaT.highlights && sadaT.highlights.banners) || []).forEach(function (b) {
+          if (!chci(b.id)) return;
+          ['kicker', 'title', 'text', 'button', 'alt', 'badge'].forEach(function (f) { prelozit(b.copy[f]); });
+        });
+        if (chci('links') && sadaT.links) (sadaT.links.items || []).forEach(function (one) { prelozit(one.text); });
+        return Promise.resolve({ ok: true, data: sadaT });
+      }
       if (channel === 'banners:load' || channel === 'banners:publish'
         || channel === 'banners:save' || channel === 'banners:fallback'
         || channel === 'banners:copy') {

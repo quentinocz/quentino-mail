@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Banner, BannerClash, BannerLink, BannerLinks, BannerSet, BannerSharedLook,
   BannerHighlights, BannerTemplate, BannersState, WebText
 } from '@shared/types';
 import { VSTUPNI_PRIPONY } from '@shared/videoedit';
+import { missingTranslations, langList, BANNER_FIELD_LABELS, type BannerGap } from '@shared/bannerlangs';
 import { api } from '../api';
 import { toWebp } from '../media';
 import { useToast } from '../toast';
 import { inToolWindow } from '../toolwindows';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import BannerPreview, { type PreviewDevice } from './BannerPreview';
 
 /**
@@ -404,6 +406,14 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
   }, []);
   const cisloBanneru = (id: string) => cisla?.rows.find(one => one.id === id) ?? null;
   const [showTemplates, setShowTemplates] = useState(false);
+  /**
+   * Uložení čeká na rozhodnutí, protože něco není přeložené.
+   *
+   * Sada jde rovnou na web a nepřeložený banner se na slovenském webu
+   * ukáže česky. Malá šedá poznámka se přehlédne — proto okno přes celý
+   * editor, které se nedá minout.
+   */
+  const [hlidka, setHlidka] = useState<null | 'save' | 'shorten'>(null);
 
   const apply = useCallback((next: BannersState, message?: string) => {
     setState(next);
@@ -453,6 +463,10 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     (vBlocich ? setHl({ banners }) : setSet({ banners }));
 
   const banner: Banner | null = seznam()[pick] ?? null;
+
+  /* Co chybí přeložit — přepočítá se s každou změnou textu */
+  const mezery: BannerGap[] = useMemo(() => missingTranslations(draft), [draft]);
+  const mezeraBanneru = (id: string) => mezery.find(one => one.id === id) ?? null;
 
   const setBanner = (patch: Partial<Banner>) =>
     setSeznam(seznam().map((one, i) => (i === pick ? { ...one, ...patch } : one)));
@@ -507,18 +521,56 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const save = () => draft && run('Ukládám', async () => {
-    const next = await api.banners.save(draft);
+  const saveNow = (what: BannerSet) => run('Ukládám', async () => {
+    const next = await api.banners.save(what);
     // Uložená podoba může být přísnější (dorovnané ztmavení) — ukáže se hned
-    const saved = next.sets.find(one => one.id === draft.id);
+    const saved = next.sets.find(one => one.id === what.id);
     if (saved) setDraft(saved);
     return next;
   }, 'Sada je na webu.');
 
-  const saveAndShorten = () => draft && run('Ukládám', async () => {
-    await api.banners.save(draft);
-    return api.banners.shorten(draft.id, shortenable.map(one => one.id));
+  const saveAndShortenNow = (what: BannerSet) => run('Ukládám', async () => {
+    await api.banners.save(what);
+    return api.banners.shorten(what.id, shortenable.map(one => one.id));
   }, 'Uloženo, předchozí sada zkrácena.');
+
+  /* Uložení s hlídkou: když něco chybí přeložit, nejdřív se zeptá */
+  const save = () => {
+    if (!draft) return;
+    if (mezery.length) { setHlidka('save'); return; }
+    void saveNow(draft);
+  };
+  const saveAndShorten = () => {
+    if (!draft) return;
+    if (mezery.length) { setHlidka('shorten'); return; }
+    void saveAndShortenNow(draft);
+  };
+
+  /** Z okna hlídky: doplní jen prázdná políčka a uloží. Hotové překlady nechá. */
+  const doplnitAUlozit = async () => {
+    if (!draft || !hlidka) return;
+    const kam = hlidka;
+    setHlidka(null);
+    setBusy('Překládám chybějící');
+    let hotovo: BannerSet;
+    try {
+      hotovo = await api.banners.translate(draft, { ids: mezery.map(one => one.id), onlyEmpty: true });
+      setDraft(hotovo);
+    } catch (e: any) {
+      toast(String(e?.message ?? e), 'error');
+      setBusy('');
+      return;
+    }
+    setBusy('');
+    const zbylo = missingTranslations(hotovo);
+    if (zbylo.length) {
+      // Model něco nevrátil — neukládat potichu, ukázat znovu
+      toast(`Přeložit se nepodařilo všechno (${zbylo.length}×). Doplň to ručně, nebo ulož i tak.`, 'error');
+      setHlidka(kam);
+      return;
+    }
+    await (kam === 'shorten' ? saveAndShortenNow(hotovo) : saveNow(hotovo));
+  };
 
   const remove = (id: string) => {
     if (!window.confirm('Smazat sadu bannerů? Z webu zmizí hned.')) return;
@@ -532,6 +584,21 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
     setLang('sk');
     return api.banners.state();
   }, 'Slovenština a angličtina doplněny — projdi je a ulož.');
+
+  /**
+   * Přeloží jen banner, který je zrovna otevřený.
+   *
+   * Celá sada se překládala pokaždé — a s ní se přepsala i slovenština,
+   * kterou člověk u jiného banneru ručně doladil. Tady se sáhne jen na
+   * tenhle jeden; ostatní zůstanou, jak jsou.
+   */
+  const translateOne = () => draft && banner && run('Překládám banner', async () => {
+    const ids = banner.id ? [banner.id] : [];
+    if (!ids.length) throw new Error('Banner ještě nemá číslo — ulož sadu a zkus to znovu.');
+    setDraft(await api.banners.translate(draft, { ids }));
+    setLang('sk');
+    return api.banners.state();
+  }, `Banner ${pick + 1} přeložen — zkontroluj slovenštinu a angličtinu a ulož.`);
 
   /** Kam povede český odkaz jinde — ptá se to hned, ne až po uložení. */
   const resolveHref = async () => {
@@ -935,6 +1002,7 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
       <div className="modal bn-modal">
         <div className="modal-head">
           <span className="modal-title"><Icon name="banner" size={15} /> Bannery</span>
+          <HelpButton topic="banners" />
           <div className="wt-head-right">
             <button className={`tab ${tab === 'sady' ? 'active' : ''}`} onClick={() => setTab('sady')}>Sady</button>
             <button className={`tab ${tab === 'kod' ? 'active' : ''}`} onClick={() => setTab('kod')}>Kód do e-shopu</button>
@@ -1381,6 +1449,11 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                                 {String(cisloBanneru(one.id)!.ctr).replace('.', ',')} %
                               </span>
                             )}
+                            {mezeraBanneru(one.id) && (
+                              <span className="bn-tile-lang" title="Tenhle banner není celý přeložený">
+                                {langList([...new Set(mezeraBanneru(one.id)!.fields.flatMap(f => f.langs))])}
+                              </span>
+                            )}
                             <span className="bn-tile-name">
                               {one.copy.title.cz || one.name || 'bez nadpisu'}
                             </span>
@@ -1695,8 +1768,13 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                               </button>
                             ))}
                             <span className="wt-spacer" />
-                            <button className="btn ghost" onClick={translate} disabled={!!busy}>
-                              <Icon name="globe" size={14} /> Přeložit celou sadu
+                            <button className="btn" onClick={translateOne} disabled={!!busy || !banner}
+                              title="Přeloží jen tenhle banner — ostatní nechá, jak jsou">
+                              <Icon name="globe" size={14} /> Přeložit tento banner
+                            </button>
+                            <button className="btn ghost" onClick={translate} disabled={!!busy}
+                              title="Přeloží všechny bannery, bloky i odkazy — přepíše i ručně upravené překlady">
+                              Celou sadu
                             </button>
                           </div>
 
@@ -2237,6 +2315,17 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
                     * je nejčastější způsob, jak o práci přijít.
                     */}
                   <div className="bn-save">
+                    {/* V liště, která je pořád vidět — nad ní by se odrolovalo pryč */}
+                    {mezery.length > 0 && (
+                      <button className="bn-langwarn" onClick={() => setHlidka('save')}>
+                        <Icon name="alert" size={15} />
+                        <span>
+                          <b>Nepřeloženo: {mezery.length === 1 ? mezery[0].where : `${mezery.length} částí sady`}</b>
+                          {' '}— na slovenském a anglickém webu by se ukázala čeština.
+                        </span>
+                        <span className="bn-langwarn-go">Ukázat</span>
+                      </button>
+                    )}
                     <button className="btn primary" onClick={save} disabled={!!busy || !draft.name}>
                       <Icon name="save" size={14} /> Uložit a vystavit
                     </button>
@@ -2305,6 +2394,47 @@ export default function BannersModal({ onClose }: { onClose: () => void }) {
               <p className="desc">
                 Náhled běží na tomtéž skriptu, který bude na e-shopu — včetně odpočtu, rotace
                 a padajících emoji. Co je vidět tady, bude vidět i tam.
+              </p>
+            </div>
+          </div>
+        )}
+        {hlidka && draft && (
+          <div className="bn-guard" role="alertdialog" aria-labelledby="bn-guard-title">
+            <div className="bn-guard-box">
+              <div className="bn-guard-head">
+                <Icon name="alert" size={22} />
+                <h3 id="bn-guard-title">Sada není celá přeložená</h3>
+              </div>
+              <p>
+                Sada se ukládá rovnou na web. Co tu chybí, uvidí návštěvníci slovenského
+                a anglického webu <b>česky</b>.
+              </p>
+              <ul className="bn-guard-list">
+                {mezery.map(one => (
+                  <li key={one.id}>
+                    <b>{one.where}</b>
+                    <span>
+                      {one.fields.map(f => `${BANNER_FIELD_LABELS[f.field] ?? f.field} (${langList(f.langs)})`).join(', ')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="bn-guard-btns">
+                <button className="btn primary" onClick={() => void doplnitAUlozit()} disabled={!!busy}>
+                  <Icon name="globe" size={14} /> Doplnit překlady a uložit
+                </button>
+                <button className="btn ghost" disabled={!!busy} onClick={() => {
+                  const kam = hlidka;
+                  setHlidka(null);
+                  void (kam === 'shorten' ? saveAndShortenNow(draft) : saveNow(draft));
+                }}>
+                  Uložit bez překladu
+                </button>
+                <span className="wt-spacer" />
+                <button className="btn ghost" onClick={() => setHlidka(null)}>Zpět k úpravám</button>
+              </div>
+              <p className="desc">
+                „Doplnit" přeloží jen prázdná políčka — co už je přeložené nebo ručně upravené, nechá být.
               </p>
             </div>
           </div>

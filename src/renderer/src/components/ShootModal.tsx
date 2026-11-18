@@ -13,6 +13,7 @@ import {
   sharpness, clipping, cropBox, lockRatio, ratioValue, RATIOS
 } from '../shoot/fix';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
 import ShootView, { Tool } from './ShootView';
 import ShootGallery, { forgetThumb } from './ShootGallery';
 import ShootSettings from './ShootSettings';
@@ -784,6 +785,7 @@ export default function ShootModal({ onClose, standalone = false }: {
         <small className="sh-when">{when(shoot.createdAt)}</small>
 
         <span className="sh-top-space" />
+        <HelpButton topic="shoot" className="sh-mini" />
 
         {/*
           * „Hotovo" je jediné místo, kde se dá přečíst, že se focení ukládá

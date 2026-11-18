@@ -8,6 +8,8 @@ import type {
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
+import HelpButton from './HelpPanel';
+import DropMenu from './DropMenu';
 import PtransSettingsPanel from './PtransSettings';
 import ProductGoogle from './ProductGoogle';
 import PtransAuditPanel from './PtransAudit';
@@ -632,6 +634,8 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
       <div className={`modal pt-modal ${wide ? 'wide' : ''}`}>
         <div className="modal-head">
           <div className="modal-title"><Icon name="globe" size={16} /> Produkty a překlady</div>
+          {/* Nápověda podle záložky — Nový produkt má vlastní postup */}
+          <HelpButton topic={tab === 'new' ? 'newproduct' : 'ptrans'} />
           <span className="pt-feed">
             {overview ? `${overview.feed.products} produktů · feed ${relTime(overview.feed.syncedAt)}` : ''}
           </span>
@@ -655,22 +659,23 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
               <Icon name={wide ? 'minimize' : 'expand'} size={15} />
             </button>
           )}
-          <button className="icon-btn" onClick={importFile}
-            data-tip="Přidat produkty z XML souboru — novinky, které ve feedu ještě nejsou">
-            <Icon name="upload" size={15} />
-          </button>
           {/*
-            Dvě různé věci, proto dvě tlačítka. „Jen nové" se nedotkne
-            rozpracovaných produktů; „srovnat" přepíše stavy podle e-shopu.
+            Načtení feedu je jedno jasné tlačítko s popiskem. Dřív to byly tři
+            ikonky (šipka, plus, kolečko) a nebylo poznat, která co dělá —
+            ani že žádná z nich nesmaže překlady, které ještě nejsou v e-shopu.
+            Ty zůstávají vždycky: feed přepíše jen to, co je v e-shopu.
           */}
-          <button className="icon-btn" onClick={refreshNew}
-            data-tip="Donačíst nové produkty — rozpracovaných se to nedotkne">
-            <Icon name="plus" size={15} />
+          <button className="btn ghost pt-feedbtn" onClick={refreshFeed} disabled={loading}
+            data-tip="Stáhne nejnovější data z e-shopu. Překlady, které ještě nejsou v Upgates, zůstanou — nic se neztratí.">
+            <Icon name="refresh" size={14} className={loading ? 'spinning' : undefined} /> Načíst aktuální feed
           </button>
-          <button className="icon-btn" onClick={refreshFeed}
-            data-tip="Srovnat vše podle feedu — přepočítá stavy a uklidí, co z e-shopu zmizelo">
-            <Icon name="refresh" size={15} className={loading ? 'spinning' : undefined} />
-          </button>
+          <DropMenu label="" icon="dots" className="icon-btn" align="right" title="Další způsoby načtení"
+            items={[
+              { label: 'Donačíst jen nové produkty', icon: 'plus', onClick: () => void refreshNew(),
+                hint: 'Přidá produkty, které aplikace ještě nezná. Ostatních se nedotkne.' },
+              { label: 'Přidat produkty ze souboru XML', icon: 'upload', onClick: () => void importFile(),
+                hint: 'Novinky, které ve feedu ještě nejsou — po objevení ve feedu se spárují podle kódu.' }
+            ]} />
           {/* Během běhu je zavření ve skutečnosti zmenšení — překlad jede dál
               v hlavním procesu a průběh se přesune do pruhu dole */}
           {progress?.running && (
@@ -840,7 +845,7 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                         ? <img className="pt-thumb" src={row.image} alt="" loading="lazy" />
                         : <span className="pt-thumb empty"><Icon name="image" size={14} /></span>}
                       <div className="pt-row-main">
-                        <div className="pt-row-title">{row.title || row.code}</div>
+                        <div className="pt-row-title" title={row.title || row.code}>{row.title || row.code}</div>
                         <div className="pt-row-sub">
                           <span className="pt-code">{row.code}</span>
                           {row.category && <span>{row.category}</span>}
@@ -1007,44 +1012,54 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
+            {/*
+              Spodní lišta: dvě hlavní akce vidět, zbytek v nabídkách.
+              Bylo tu osm tlačítek stejné váhy a nebylo poznat, kudy dál.
+              Práce jde vždycky stejně: vybrat → přeložit → poslat do
+              e-shopu. Proto „Přeložit" a „Do administrace" vpravo a výrazně;
+              úpravy vybraných a export do souboru jsou o krok stranou.
+            */}
             <div className="modal-foot pt-foot">
               <span className="ig-muted">
                 {selected.size > 0 ? `Vybráno ${selected.size} produktů` : 'Nic není vybráno'}
               </span>
+              <DropMenu label="Úpravy vybraných" icon="sliders" up
+                items={[
+                  { label: 'Doplnit Google atributy', icon: 'zap', onClick: () => void fillGoogle(),
+                    disabled: selected.size === 0,
+                    hint: 'Barva, pohlaví, věk, stav a set — spočítá se z parametrů a kategorií, bez modelu.' },
+                  { label: 'Titulky pro Google ze šablony', icon: 'bag', onClick: () => void googleTitles(),
+                    disabled: selected.size === 0,
+                    hint: 'Poskládá titulek podle šablony z Nastavení → Google. Okamžité, zdarma.' },
+                  { label: 'Uklidit HTML popisů', icon: 'eraser', onClick: () => void tidySelected(),
+                    disabled: selected.size === 0,
+                    hint: 'Vyhodí z popisů kód, který tam nepatří. Text zůstane stejný.' },
+                  { label: 'Vrátit na stav z e-shopu', icon: 'refresh', onClick: () => void revertSelected(),
+                    disabled: selected.size === 0, danger: true,
+                    hint: 'Zahodí, co aplikace u vybraných napsala a ještě není v e-shopu. Zeptá se předem.' }
+                ]} />
               <span style={{ flex: 1 }} />
-              <button className="btn ghost" onClick={googleTitles} disabled={selected.size === 0}
-                data-tip="Poskládá Google titulek ze šablony — okamžité, bez modelu">
-                <Icon name="bag" size={13} /> Titulky ze šablony
-              </button>
-              <button className="btn ghost" onClick={fillGoogle} disabled={selected.size === 0}
-                data-tip="Barva, pohlaví, věk, stav a set — spočítá se z parametrů a kategorií">
-                <Icon name="zap" size={13} /> Doplnit Google atributy
-              </button>
-              <button className="btn ghost" onClick={tidySelected} disabled={selected.size === 0}
-                data-tip="Vyhodí z popisů kód, který tam nepatří (obal z chatu, prázdné <div>) — ve všech jazycích včetně češtiny. Text zůstane stejný.">
-                <Icon name="eraser" size={13} /> Uklidit HTML
-              </button>
-              <button className="btn ghost" onClick={revertSelected} disabled={selected.size === 0}
-                data-tip="Zahodit, co aplikace vymyslela, a vrátit se ke stavu ve feedu">
-                <Icon name="refresh" size={13} /> Vrátit na feed
-              </button>
-              <button className="btn ghost" onClick={() => exportXml('current')} disabled={selected.size === 0}
-                data-tip="Vybrané produkty tak, jak jsou teď — překlad, kde je, jinak hodnota z feedu">
-                <Icon name="download" size={13} /> Export v aktuálním stavu
-              </button>
-              <button className="btn ghost" onClick={() => exportXml('translated')}
-                data-tip="Jen to, co aplikace přeložila nebo vygenerovala">
-                <Icon name="download" size={13} /> Export překladů{selected.size > 0 ? ` (${selected.size})` : ''}
-              </button>
-              <button className="btn ghost" disabled={busyAdmin}
-                onClick={() => exportToAdmin(selected.size > 0 ? 'current' : 'translated')}
-                data-tip="Otevře průvodce importem v administraci a vloží do něj soubor — spuštění importu zůstává na tobě">
-                {busyAdmin ? <span className="spinner-inline" /> : <Icon name="upload" size={13} />}
-                {' '}Do administrace
-              </button>
-              <button className="btn primary" disabled={selected.size === 0 || progress?.running}
-                onClick={() => setRunOpen(true)}>
+              <DropMenu label="Uložit jako soubor" icon="download" up align="right"
+                items={[
+                  { label: `Jen překlady${selected.size > 0 ? ` (${selected.size} vybraných)` : ''}`, icon: 'download',
+                    onClick: () => void exportXml('translated'),
+                    hint: 'XML s tím, co aplikace přeložila nebo napsala — k ručnímu importu do Upgates.' },
+                  { label: 'Vybrané v aktuálním stavu', icon: 'download', onClick: () => void exportXml('current'),
+                    disabled: selected.size === 0,
+                    hint: 'Překlad, kde je, jinak hodnota z e-shopu. Pro zálohu nebo přenos.' }
+                ]} />
+              <button className="btn" disabled={selected.size === 0 || progress?.running}
+                onClick={() => setRunOpen(true)}
+                data-tip="Přeloží a doplní vybrané produkty do všech zapnutých jazyků">
                 <Icon name="sparkles" size={13} /> Přeložit vybrané
+              </button>
+              <button className="btn primary pt-toadmin" disabled={busyAdmin}
+                onClick={() => exportToAdmin(selected.size > 0 ? 'current' : 'translated')}
+                data-tip={selected.size > 0
+                  ? 'Pošle vybrané produkty do importu v administraci. Import spustíš ty.'
+                  : 'Pošle do importu v administraci všechno přeložené, co v e-shopu ještě není. Import spustíš ty.'}>
+                {busyAdmin ? <span className="spinner-inline" /> : <Icon name="upload" size={13} />}
+                {' '}Exportovat do administrace
               </button>
             </div>
           </>
