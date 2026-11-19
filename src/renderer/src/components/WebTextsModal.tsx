@@ -69,6 +69,41 @@ function walkTexts(plan: WebPlan, fn: (t: WebText) => WebText): WebPlan {
   };
 }
 
+/**
+ * Co by slovenský a anglický web ukázal česky nebo poslal na český web.
+ *
+ * Jen u zapnutých oblastí — vypnutá oblast se na web neposílá. U odkazů se
+ * hlídá **adresa**: text bez překladu se ukáže česky, ale odkaz bez
+ * slovenské adresy vede Slováka na český web (a holá cesta „/akce" na
+ * slovenské doméně na stránku, která tam není).
+ */
+export interface WebGap { where: string; what: string; langs: ('sk' | 'en')[]; kind: 'text' | 'href' }
+
+function webGaps(plan: WebPlan): WebGap[] {
+  const out: WebGap[] = [];
+  const miss = (t: WebText) => (['sk', 'en'] as const).filter(l => !!t.cz.trim() && !t[l].trim());
+  const add = (where: string, what: string, t: WebText, kind: WebGap['kind'] = 'text') => {
+    const langs = miss(t);
+    if (langs.length) out.push({ where, what, langs: [...langs], kind });
+  };
+  if (plan.product.on) {
+    const nazvy: Record<string, string> = {
+      one: 'jediný řádek', above: 'řádek nad boxem', header: 'nadpis', ship: 'expedice',
+      delivery: 'doručení', pickup: 'osobní odběr', below: 'řádek pod boxem'
+    };
+    for (const key of PRODUCT_TEXTS) add('Box u produktu', nazvy[key], (plan.product as any)[key]);
+  }
+  if (plan.topbar.on) add('Horní lišta', 'text', plan.topbar.text);
+  if (plan.links.on && plan.links.mode !== 'off') {
+    plan.links.items.forEach((one, i) => {
+      add(`Odkaz ${i + 1}`, 'text', one.text);
+      add(`Odkaz ${i + 1}`, 'adresa', one.href, 'href');
+    });
+  }
+  if (plan.button.on) add('Bublina u tlačítka', 'text', plan.button.text);
+  return out;
+}
+
 /** Čas na hodinách v podobě, kterou chce `datetime-local`. */
 function localNow(offsetMinutes = 0): string {
   const d = new Date(Date.now() + offsetMinutes * 60_000);
@@ -173,6 +208,49 @@ function TextField({ label, hint, value, lang, onChange, rows = 1 }: {
   );
 }
 
+/**
+ * Adresa odkazu ve třech jazycích.
+ *
+ * Slovenská a anglická adresa se **nepíší, ale dohledávají**: stejná stránka
+ * má v každém trhu jiný slug („/sleva-na-svatebni-objednavky" ×
+ * „/zlava-na-svadobne-objednavky"). Po vyplnění české adresy se aplikace
+ * zeptá té stránky na přepínač jazyků — stejně jako u bannerů. Dřív se
+ * adresy nepřekládaly vůbec a slovenský web posílal na český.
+ */
+function HrefField({ value, lang, onChange, onResolve, note }: {
+  value: WebText;
+  lang: Lang;
+  onChange: (next: WebText) => void;
+  /** Česká adresa se dopsala — `changed` = jiná než při vstupu do pole */
+  onResolve: (changed: boolean) => void;
+  note: string;
+}) {
+  const [startValue, setStartValue] = useState('');
+  const chybi = (['sk', 'en'] as const).filter(l => !!value.cz.trim() && !value[l].trim());
+  return (
+    <div className="field wt-field">
+      <label>Odkaz {lang !== 'cz' && <small>(dohledaný z české stránky)</small>}</label>
+      <input
+        value={value[lang]}
+        placeholder={lang === 'cz' ? 'https://www.quentino.cz/… nebo /cesta' : (value.cz ? 'zatím nedohledáno' : '')}
+        onFocus={() => setStartValue(value.cz)}
+        onBlur={() => { if (lang === 'cz' && value.cz.trim()) onResolve(value.cz !== startValue); }}
+        onChange={e => onChange({ ...value, [lang]: e.target.value })}
+      />
+      <span className="wt-href-state">
+        {(['sk', 'en'] as const).map(l => (
+          <span key={l} className={`wt-href-chip ${!value.cz ? '' : value[l] ? 'ok' : 'miss'}`}
+            title={value[l] || (value.cz ? 'Adresa chybí — na tomhle webu by odkaz vedl na český web' : '')}>
+            {l.toUpperCase()} {value.cz ? (value[l] ? '✓' : 'chybí') : '—'}
+          </span>
+        ))}
+        {chybi.length > 0 && lang === 'cz' && <button type="button" className="linkish" onClick={() => onResolve(false)}>dohledat</button>}
+        {note && <span className="desc">{note}</span>}
+      </span>
+    </div>
+  );
+}
+
 /* ---------- jedna oblast ---------- */
 
 function Area({ title, hint, on, onToggle, children }: {
@@ -203,6 +281,10 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
   const [state, setState] = useState<WebTextsState | null>(null);
   const [draft, setDraft] = useState<WebPlan | null>(null);
   const [lang, setLang] = useState<Lang>('cz');
+  /* Odkud se adresa odkazu vzala — „podle e-shopu" je jistota, „jen doménou" dohad */
+  const [hrefNotes, setHrefNotes] = useState<Record<number, string>>({});
+  /* Uložení čeká na rozhodnutí, protože něco chybí ve slovenštině nebo angličtině */
+  const [hlidka, setHlidka] = useState(false);
   const [clashes, setClashes] = useState<WebClash[]>([]);
   const [busy, setBusy] = useState('');
   const [tab, setTab] = useState<'plan' | 'xmas' | 'setup'>('plan');
@@ -263,11 +345,12 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
     else if (message) toast(message);
   };
 
-  const save = async () => {
-    if (!draft) return;
+  const saveNow = async (what: WebPlan | null = draft) => {
+    if (!what) return;
+    setHlidka(false);
     setBusy('ukládám');
     try {
-      const next = await api.webtexts.save(draft);
+      const next = await api.webtexts.save(what);
       apply(next, next.error ? undefined : 'Změna je uložená a vystavená na web.');
       setDraft(null);
     } catch (e: any) {
@@ -275,6 +358,13 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
     } finally {
       setBusy('');
     }
+  };
+
+  /* Uložení s hlídkou: chybí-li překlad nebo adresa, nejdřív se zeptá */
+  const save = () => {
+    if (!draft) return;
+    if (webGaps(draft).length) { setHlidka(true); return; }
+    void saveNow(draft);
   };
 
   const remove = async (id: string) => {
@@ -354,32 +444,102 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
    * doladěné, by znamenalo, že se po každém stisknutí musí kontrolovat
    * všechny tři jazyky znovu — a jednou by se na to zapomnělo.
    */
+  const via = (v: string) => (v === 'page' || v === 'product'
+    ? 'podle e-shopu' : v === 'map' ? 'z naučené mapy' : v === 'domain' ? 'jen doménou — zkontroluj' : 'nenalezeno');
+
+  /**
+   * Dohledá slovenskou a anglickou adresu odkazu.
+   *
+   * `overwrite` — česká adresa se změnila, takže staré cizí adresy patří
+   * k jiné stránce a přepíšou se. Jinak se doplní jen prázdné.
+   */
+  const resolveLinks = async (plan: WebPlan, only: number[] | null, overwrite: boolean):
+    Promise<{ plan: WebPlan; found: number; missing: number }> => {
+    let found = 0;
+    let missing = 0;
+    const notes: Record<number, string> = {};
+    const items = await Promise.all(plan.links.items.map(async (one, i) => {
+      if ((only && !only.includes(i)) || !one.href.cz.trim()) return one;
+      if (!overwrite && one.href.sk.trim() && one.href.en.trim()) return one;
+      const got = await api.webtexts.href(one.href.cz);
+      const sk = overwrite || !one.href.sk.trim() ? got.sk : one.href.sk;
+      const en = overwrite || !one.href.en.trim() ? got.en : one.href.en;
+      found += Number(!!got.sk) + Number(!!got.en);
+      missing += Number(!sk) + Number(!en);
+      notes[i] = `SK ${via(got.skVia)} · EN ${via(got.enVia)}`;
+      return { ...one, href: { ...one.href, sk, en } };
+    }));
+    setHrefNotes(n => ({ ...n, ...notes }));
+    return { plan: { ...plan, links: { ...plan.links, items } }, found, missing };
+  };
+
+  /** Přeloží prázdné texty a dohledá chybějící adresy odkazů. */
+  const fillPlan = async (plan: WebPlan): Promise<{ plan: WebPlan; filled: number; hrefs: number }> => {
+    const source: string[] = [];
+    walkTexts(plan, t => { source.push(t.cz); return t; });
+    const done = await api.webtexts.translate(source);
+    let i = 0;
+    let filled = 0;
+    const texts = walkTexts(plan, t => {
+      const one = done[i++];
+      if (!t.cz || !one) return t;
+      const sk = t.sk || one.sk;
+      const en = t.en || one.en;
+      if (sk !== t.sk || en !== t.en) filled++;
+      return { ...t, sk, en };
+    });
+    const links = await resolveLinks(texts, null, false);
+    return { plan: links.plan, filled, hrefs: links.found };
+  };
+
   const translatePlan = async () => {
     if (!draft) return;
     setBusy('překládám');
     try {
-      const source: string[] = [];
-      walkTexts(draft, t => { source.push(t.cz); return t; });
-      const done = await api.webtexts.translate(source);
-      let i = 0;
-      let filled = 0;
-      const next = walkTexts(draft, t => {
-        const one = done[i++];
-        if (!t.cz || !one) return t;
-        const sk = t.sk || one.sk;
-        const en = t.en || one.en;
-        if (sk !== t.sk || en !== t.en) filled++;
-        return { ...t, sk, en };
-      });
-      setDraft(next);
-      toast(filled
-        ? `Doplněno ${filled} textů ve slovenštině a angličtině. Ulož a vystav, ať to platí.`
-        : 'Není co doplnit — všechno je přeložené. Smaž překlad, který chceš přepsat.');
+      const out = await fillPlan(draft);
+      setDraft(out.plan);
+      const zbylo = webGaps(out.plan);
+      toast(out.filled || out.hrefs
+        ? `Doplněno ${out.filled} textů a ${out.hrefs} adres odkazů ve slovenštině a angličtině.`
+          + (zbylo.length ? ` Nedohledáno: ${zbylo.length} — doplň je ručně.` : ' Ulož a vystav, ať to platí.')
+        : 'Není co doplnit — všechno je přeložené. Smaž překlad, který chceš přepsat.',
+        zbylo.length ? 'error' : undefined);
     } catch (e: any) {
       toast(e.message, 'error');
     } finally {
       setBusy('');
     }
+  };
+
+  /* Česká adresa odkazu se dopsala: rovnou dohledat ostatní trhy */
+  const resolveOne = async (index: number, overwrite: boolean) => {
+    if (!draft) return;
+    try {
+      const out = await resolveLinks(draft, [index], overwrite);
+      setDraft(d => (d ? { ...d, links: { ...d.links, items: d.links.items.map((x, j) =>
+        (j === index ? out.plan.links.items[index] : x)) } } : d));
+    } catch (e: any) {
+      toast(e.message, 'error');
+    }
+  };
+
+  /* Z okna hlídky: doplnit a uložit */
+  const fillAndSave = async () => {
+    if (!draft) return;
+    setHlidka(false);
+    setBusy('překládám');
+    let out: WebPlan;
+    try {
+      out = (await fillPlan(draft)).plan;
+      setDraft(out);
+    } catch (e: any) {
+      toast(e.message, 'error');
+      setBusy('');
+      return;
+    }
+    setBusy('');
+    if (webGaps(out).length) { setHlidka(true); toast('Něco se dohledat nepodařilo — doplň to ručně, nebo ulož i tak.', 'error'); return; }
+    await saveNow(out);
   };
 
   const translateSeason = async () => {
@@ -560,7 +720,7 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                   </div>
                   <p className="desc">
                     Emoji piš rovnou. Slovo mezi dvěma hvězdičkami — <code>**takhle**</code> — bude na webu tučné.
-                    Překlad doplní jen prázdná políčka a nechává adresy odkazů být.
+                    Překlad doplní jen prázdná políčka a k odkazům dohledá adresu téže stránky na slovenském a anglickém webu.
                   </p>
 
                   <Area
@@ -700,8 +860,8 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                                   items: draft.links.items.map((x, j) => (j === i ? { ...x, text } : x))
                                 }
                               })} />
-                            <TextField label="Odkaz" lang={lang} value={item.href}
-                              hint="https://www.quentino.cz/…"
+                            <HrefField lang={lang} value={item.href} note={hrefNotes[i] ?? ''}
+                              onResolve={changed => void resolveOne(i, changed)}
                               onChange={href => set({
                                 links: {
                                   ...draft.links,
@@ -755,6 +915,17 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
                       onChange={text => set({ button: { ...draft.button, text } })} />
                   </Area>
 
+                  {/* Upozornění v liště, která se ukládá — ne až po uložení */}
+                  {webGaps(draft).length > 0 && (
+                    <button className="bn-langwarn" onClick={() => setHlidka(true)}>
+                      <Icon name="alert" size={15} />
+                      <span>
+                        <b>Nepřeloženo nebo bez adresy: {webGaps(draft).length}×</b>
+                        {' '}— slovenský a anglický web by ukázal češtinu nebo poslal na český web.
+                      </span>
+                      <span className="bn-langwarn-go">Ukázat</span>
+                    </button>
+                  )}
                   <div className="wt-foot">
                     {draft.id && (
                       <>
@@ -931,6 +1102,39 @@ export default function WebTextsModal({ onClose }: { onClose: () => void }) {
               <button className="btn primary" onClick={saveConfig} disabled={!!busy}>
                 <Icon name="save" size={14} /> Uložit napojení
               </button>
+            </div>
+          </div>
+        )}
+        {hlidka && draft && (
+          <div className="bn-guard" role="alertdialog" aria-labelledby="wt-guard-title">
+            <div className="bn-guard-box">
+              <div className="bn-guard-head">
+                <Icon name="alert" size={22} />
+                <h3 id="wt-guard-title">Změna není celá přeložená</h3>
+              </div>
+              <p>
+                Změna jde rovnou na web. Slovenský a anglický web by tady ukázal <b>češtinu</b>,
+                a odkaz bez adresy pro daný trh by vedl <b>na český web</b>.
+              </p>
+              <ul className="bn-guard-list">
+                {webGaps(draft).map((one, i) => (
+                  <li key={i}>
+                    <b>{one.where} — {one.what}</b>
+                    <span>{one.kind === 'href' ? 'chybí adresa' : 'chybí překlad'}: {one.langs.map(l => l.toUpperCase()).join(' a ')}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="bn-guard-btns">
+                <button className="btn primary" onClick={() => void fillAndSave()} disabled={!!busy}>
+                  <Icon name="globe" size={14} /> Doplnit a uložit
+                </button>
+                <button className="btn ghost" onClick={() => void saveNow(draft)} disabled={!!busy}>Uložit bez toho</button>
+                <span className="wt-spacer" />
+                <button className="btn ghost" onClick={() => setHlidka(false)}>Zpět k úpravám</button>
+              </div>
+              <p className="desc">
+                „Doplnit" přeloží jen prázdné texty a dohledá chybějící adresy — co je vyplněné ručně, nechá být.
+              </p>
             </div>
           </div>
         )}

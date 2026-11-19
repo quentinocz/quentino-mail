@@ -199,7 +199,10 @@ export const WEBTEXTS: HelpTopic = {
         { text: 'V [Plán] klikni na [Nová změna]. Dej název a platnost od–do.', area: 'list' },
         { text: 'Napiš texty. **Expedujeme od** posune i odhad doručení na webu, ať nesedí „doručíme zítra".', area: 'edit' },
         { text: '[Přeložit do SK a EN] doplní jen prázdná políčka.', area: 'edit' },
-        { text: '[Uložit a vystavit]. Když se změna překrývá s jinou, aplikace nabídne zkrátit tu předchozí.', area: 'edit' }
+        { text: 'U odkazů v liště stačí česká adresa. Slovenskou a anglickou aplikace dohledá na té stránce '
+            + '(přepínač jazyků) — pod polem vidíš „SK ✓ EN ✓", nebo co chybí.', area: 'edit' },
+        { text: '[Uložit a vystavit]. Chybí-li překlad nebo adresa pro jiný trh, aplikace se zastaví a nabídne '
+            + 'doplnění. Když se změna překrývá s jinou, nabídne zkrátit tu předchozí.', area: 'edit' }
       ]
     },
     {

@@ -10979,3 +10979,16 @@ select.pt-perpage { padding: 3px 6px; font-size: 12px; color: var(--text-2); }
 .pt-pager select.pt-perpage { flex: none; }
 /* Ve třech jazycích vedle sebe se lišta pole nevešla a „HTML" se uřízlo — zalomí se */
 .html-bar { flex-wrap: wrap; row-gap: 2px; }
+
+/* Texty na webu: modal je kotvou pro okno hlídky */
+.wt-modal { position: relative; }
+.wt-modal .bn-langwarn { margin: 8px 0 0; }
+/* Stav adresy odkazu v jednotlivých trzích */
+.wt-href-state { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.wt-href-chip {
+  font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: var(--bg); color: var(--text-3); border: 1px solid var(--border);
+}
+.wt-href-chip.ok { background: rgba(47, 158, 110, .12); color: var(--ok); border-color: transparent; }
+.wt-href-chip.miss { background: rgba(245, 158, 11, .16); color: #b45309; border-color: transparent; }
+.wt-link { align-items: start; }

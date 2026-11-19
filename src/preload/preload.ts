@@ -117,7 +117,7 @@ const ALLOWED_INVOKE = [
   'balikovna:setup', 'balikovna:saveSetup', 'balikovna:fields', 'balikovna:rows',
   'balikovna:export', 'balikovna:open', 'balikovna:import',
   'webtexts:state', 'webtexts:load', 'webtexts:save', 'webtexts:delete', 'webtexts:toggle',
-  'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate',
+  'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate', 'webtexts:href',
   'zk:prehled', 'zk:vrstvy', 'zk:kroky', 'zk:generuj-postavu', 'zk:generuj-vrstvu',
   'zk:generuj-vse', 'zk:ukazka', 'zk:ukazka-vse', 'zk:schval', 'zk:zadani', 'zk:zadani-zpet',
   'zk:nastaveni', 'zk:nastav', 'zk:kontakt', 'zk:katalog', 'zk:produkty', 'zk:produkt',

@@ -944,6 +944,9 @@
     'webtexts:clashes': [],
     // Překlad v náhledu nic nevolá — vrací se prázdno, aby šlo tlačítko zmáčknout
     'webtexts:translate': [],
+    /* Adresa v jiném trhu — jako by ji aplikace přečetla z přepínače jazyků na stránce */
+    'webtexts:href': { sk: 'https://www.quentino.sk/cierny-piatok', en: 'https://www.wearquentino.com/black-friday',
+      skVia: 'page', enVia: 'page' },
     'packeta:formats': ['A6 on A4', 'A6 on A6', 'A7 on A7', 'A7 on A4', 'A8 on A8', '105x35mm on A4'],
     'packeta:packets': [],
     'digest:ask': 'Storno je letos 4 % objednávek, loni ve stejném období 7 %. Nejvíc jich je u dobírky (3 ze 4). '
@@ -2556,6 +2559,12 @@
        * musí udělat sám, jinak by varování nikdy nenaskočilo a nepoznalo by
        * se, že se v rozhraní rozbilo.
        */
+      if (channel === 'webtexts:translate') {
+        var texty = arguments[1] || [];
+        return Promise.resolve({ ok: true, data: texty.map(function (t) {
+          return t ? { sk: '[sk] ' + t, en: '[en] ' + t } : { sk: '', en: '' };
+        }) });
+      }
       if (channel === 'webtexts:clashes') {
         var draft = arg || {};
         var od = Date.parse(String(draft.from || '').replace(' ', 'T'));

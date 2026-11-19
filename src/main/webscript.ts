@@ -772,6 +772,15 @@ const TEMPLATE = String.raw`
       var one = o.items[i];
       var text = pick(one.text), href = pick(one.href);
       if (!text) continue;
+      /*
+       * Adresa pro tenhle trh chybí a česká je jen cesta („/akce"). Na
+       * slovenské doméně by vedla na stránku, která tam neexistuje (404),
+       * protože slovenský web má jiné slugy. Celá česká adresa je lepší
+       * než žádná — aplikace ale při ukládání hlídá, aby k tomu nedošlo.
+       */
+      if (href && href.charAt(0) === "/" && LANG !== "cz" && !(one.href && one.href[LANG])) {
+        href = "https://www.quentino.cz" + href;
+      }
       extra.push({ text: text, href: href || "#", blank: !!one.blank });
     }
     if (o.mode === "replace") return extra;

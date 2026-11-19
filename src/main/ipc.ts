@@ -729,6 +729,12 @@ export function registerIpc() {
   handle('webtexts:shorten', (id: string, ids: string[]) => webtexts.shortenWebPlans(id, ids ?? []));
   // Překlad rozepsaných textů do slovenštiny a angličtiny naráz
   handle('webtexts:translate', (texts: string[]) => webtexts.translateWeb(texts ?? []));
+  /*
+   * Adresa odkazu v liště pro slovenský a anglický web. Tytéž stránky mají
+   * v každém trhu jiný slug, takže se adresa nepřekládá, ale dohledává —
+   * stejnou cestou jako u bannerů (přepínač jazyků na stránce, pak mapa).
+   */
+  handle('webtexts:href', (cz: string) => banners.resolveHref(String(cz ?? '')));
   // Vánoční garance je celoroční nastavení, ne naplánovaná změna
   handle('webtexts:season', (next: any) => webtexts.saveWebSeason(next ?? {}));
   handle('webtexts:publish', () => webtexts.publishWebTexts());

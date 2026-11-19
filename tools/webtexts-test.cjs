@@ -251,9 +251,14 @@ function run(plans, opts = {}) {
   const button = fakeElement('button');
   const wrap = fakeElement('div');
   wrap.appendChild(button);
+  /* Hlavička e-shopu — nad její spodní část skript vkládá lištu s odkazy */
+  const header = fakeElement('header');
+  const hdrBottom = fakeElement('div');
+  header.appendChild(hdrBottom);
   const known = {
     '.pd-shrt-desc': box, '.hdr-phn': bar,
-    'button[name="formSendButton"]': button
+    'button[name="formSendButton"]': button,
+    '.hdr-bottom': hdrBottom
   };
 
   const store = {};
@@ -315,7 +320,14 @@ function run(plans, opts = {}) {
     bar: unquote(bar.style.getPropertyValue('--topbar-msg')),
     boxRich: rich(box),
     barRich: rich(bar),
-    boxHidden: box.classes.has('q-no-before')
+    boxHidden: box.classes.has('q-no-before'),
+    /* První odkaz v liště, jak ho uvidí návštěvník */
+    link: (() => {
+      const lista = header.children.find(one => String(one.className) === 'q-weddingbar');
+      const a = lista ? lista.querySelector('.q-weddingbar-link') : null;
+      const t = lista ? lista.querySelector('.q-weddingbar-text') : null;
+      return a ? { href: a.href, text: t ? t.innerHTML : '' } : null;
+    })()
   };
 }
 
@@ -586,6 +598,31 @@ if (compiled) {
     topbar: { on: true, text: { cz: 'ČESKY' } }
   }], { host: 'www.wearquentino.com' });
   check('chybějící překlad padne na češtinu', en.bar, 'ČESKY');
+
+  /*
+   * Lišta s odkazy v jiném trhu (Patrik, 19. 11.): adresy se nepřekládaly,
+   * takže slovenský web posílal na český. Tady se zkouší, co skript na
+   * které doméně opravdu nastaví.
+   */
+  const sOdkazem = (href) => [{
+    id: 'l', fromMs: Date.now() - 1000, toMs: Date.now() + 3600e3,
+    links: { on: true, mode: 'replace', items: [{
+      text: { cz: 'Akce', sk: 'Akcia', en: 'Sale' }, href, blank: false
+    }] }
+  }];
+  const adresy = { cz: '/akce', sk: 'https://www.quentino.sk/akcia', en: 'https://www.wearquentino.com/sale' };
+  check('český web vede na českou stránku', run(sOdkazem(adresy), { host: 'www.quentino.cz' }).link?.href, '/akce');
+  check('slovenský web na slovenskou', run(sOdkazem(adresy), { host: 'www.quentino.sk' }).link?.href,
+    'https://www.quentino.sk/akcia');
+  check('anglický na anglickou', run(sOdkazem(adresy), { host: 'www.wearquentino.com' }).link?.href,
+    'https://www.wearquentino.com/sale');
+  check('  a text je v jazyce webu', run(sOdkazem(adresy), { host: 'www.quentino.sk' }).link?.text, 'Akcia');
+  check('chybí-li slovenská adresa, holá česká cesta nevede na 404 slovenské domény',
+    run(sOdkazem({ cz: '/akce', sk: '', en: '' }), { host: 'www.quentino.sk' }).link?.href,
+    'https://www.quentino.cz/akce');
+  check('  celá česká adresa zůstane, jak je',
+    run(sOdkazem({ cz: 'https://www.quentino.cz/akce', sk: '', en: '' }), { host: 'www.quentino.sk' }).link?.href,
+    'https://www.quentino.cz/akce');
 }
 
 /* ---------- názvy polí sedí na obou stranách ---------- */

@@ -427,6 +427,49 @@ for (const okno of OKNA) {
   await page.close();
 }
 
+/* ---------- Texty na webu: odkazy v jiných trzích a hlídka ---------- */
+
+/*
+ * Patrik (19. 11.): při překladu se v liště s odkazy nedohledaly adresy
+ * stránek v jazykové mutaci — slovenský web posílal na český. Adresa se
+ * teď dohledává z české stránky a uložení hlídá, co chybí.
+ */
+{
+  const page = await open('texty');
+  await page.locator('.wt-row', { hasText: 'Black Friday' }).first().click();
+  await page.waitForTimeout(400);
+  const pred = await page.evaluate(() => [...document.querySelectorAll('.wt-href-chip')].map(one => one.textContent.trim()));
+  say('u odkazu je vidět, že slovenská a anglická adresa chybí', pred.join(' ').includes('SK chybí') && pred.join(' ').includes('EN chybí'),
+    pred.join(' · '));
+  say('  a nad uložením svítí upozornění', await page.locator('.wt-modal .bn-langwarn').isVisible());
+
+  await page.locator('.wt-modal .wt-foot .btn.primary', { hasText: 'Uložit a vystavit' }).click();
+  await page.waitForTimeout(250);
+  const hlidka = await page.evaluate(() => ({
+    okno: !!document.querySelector('.wt-modal .bn-guard'),
+    adresa: [...document.querySelectorAll('.bn-guard-list li')].some(li => /adresa/.test(li.textContent) && /SK a EN/.test(li.textContent)),
+    ulozeno: (window.__calls || []).some(one => one[0] === 'webtexts:save')
+  }));
+  say('uložení se zastaví a vyjmenuje chybějící adresy', hlidka.okno && hlidka.adresa && !hlidka.ulozeno, JSON.stringify(hlidka));
+  await page.screenshot({ path: path.join(SHOTS, 'texty-hlidka.png') });
+  await page.locator('.bn-guard-btns button', { hasText: 'Doplnit a uložit' }).click();
+  await page.waitForTimeout(800);
+  const potom = await page.evaluate(() => {
+    const calls = window.__calls || [];
+    const save = calls.filter(one => one[0] === 'webtexts:save').pop();
+    const odkaz = save?.[1]?.links?.items?.[0];
+    return {
+      dohledano: calls.some(one => one[0] === 'webtexts:href' && /black-friday/.test(one[1])),
+      sk: odkaz?.href?.sk ?? '', en: odkaz?.href?.en ?? '', text: odkaz?.text?.sk ?? ''
+    };
+  });
+  say('„Doplnit a uložit" dohledá adresy podle české stránky a uloží je',
+    potom.dohledano && potom.sk === 'https://www.quentino.sk/cierny-piatok' && potom.en.includes('wearquentino.com'),
+    JSON.stringify(potom));
+  say('  a přeloží i text odkazu', potom.text.startsWith('[sk]'), potom.text);
+  await page.close();
+}
+
 /* ---------- Nápověda: panel s postupy a ukázka na obrazovce ---------- */
 
 {

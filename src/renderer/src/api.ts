@@ -941,6 +941,8 @@ export const api = {
      * slova — po jednom by z toho byly nezávislé překlady.
      */
     translate: (texts: string[]) => call<{ sk: string; en: string }[]>('webtexts:translate', texts),
+    /** Slovenská a anglická adresa k české stránce; `via` = odkud se vzala */
+    href: (cz: string) => call<{ sk: string; en: string; skVia: string; enVia: string }>('webtexts:href', cz),
     /** Garance doručení do Vánoc — platí každý rok, proto stojí mimo plán */
     season: (next: Partial<WebSeason>) => call<WebTextsState>('webtexts:season', next),
     publish: () => call<WebTextsState>('webtexts:publish'),
