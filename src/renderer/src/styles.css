@@ -6252,9 +6252,15 @@ html[data-form-factor="phone"] .pt-detail { display: none; }
 }
 .pt-cols-head {
   position: sticky;
-  top: 0;
+  /*
+   * Přes celou šířku i výšku odsazení seznamu polí. S `top: 0` a vnitřním
+   * okrajem nad ním zůstal proužek, ve kterém byl při rolování vidět
+   * odrolovaný text („Vlastnosti" nad hlavičkou jazyků, snímek 19. 11.).
+   */
+  top: -12px;
+  margin: -12px -16px 0;
   z-index: 2;
-  padding: 6px 2px;
+  padding: 18px 18px 6px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   font-size: 11px;

@@ -1471,6 +1471,29 @@ for (const okno of OKNA) {
   say('hlavička seznamu ani řádky nevyčnívají do detailu', pretek.ven.length === 0, pretek.ven.slice(0, 3).join(' | '));
   say('  zrušit výběr je dole u počtu vybraných', pretek.zrusit);
   await page.screenshot({ path: path.join(SHOTS, 'preklady-vybrano.png') });
+
+  /*
+   * Hlavička jazyků při rolování (snímek 19. 11.): nad ní zůstával proužek,
+   * ve kterém prosvítal odrolovaný text. Mezi horním okrajem seznamu polí
+   * a hlavičkou nesmí být vidět nic jiného než hlavička.
+   */
+  await page.locator('.pt-fields').evaluate(el => { el.scrollTop = 420; });
+  await page.waitForTimeout(200);
+  const nad = await page.evaluate(() => {
+    const box = document.querySelector('.pt-fields').getBoundingClientRect();
+    const head = document.querySelector('.pt-cols-head');
+    const cizi = [];
+    for (let y = box.top + 1; y < head.getBoundingClientRect().bottom - 1; y += 3) {
+      for (let x = box.left + 2; x < box.right - 14; x += 40) {
+        const el = document.elementFromPoint(x, y);
+        if (el && !head.contains(el)) cizi.push(`${Math.round(x)},${Math.round(y)} ${el.className}`);
+      }
+    }
+    return { cizi, horni: Math.round(head.getBoundingClientRect().top - box.top) };
+  });
+  say('hlavička jazyků při rolování nic nepropouští', nad.cizi.length === 0 && nad.horni <= 0,
+    nad.cizi.slice(0, 2).join(' | ') || `od horního okraje ${nad.horni} px`);
+  await page.screenshot({ path: path.join(SHOTS, 'preklady-rolovani.png') });
   await page.setViewportSize({ width: 1280, height: 860 });
   await page.locator('.pt-foot .dm > button', { hasText: 'Úpravy vybraných' }).click();
   await page.waitForTimeout(200);
