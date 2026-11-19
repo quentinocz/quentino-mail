@@ -808,19 +808,12 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                       {selectingAll ? <span className="spinner-inline" /> : null} Vybrat všech {page.total}
                     </button>
                   )}
-                  <span style={{ flex: 1 }} />
-                  <label className="pt-check pt-perpage">
-                    Na stránku
-                    <select value={query.limit ?? 60}
-                      onChange={e => setQuery(q => ({ ...q, limit: Number(e.target.value), offset: 0 }))}>
-                      {[30, 60, 120, 250, 500].map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
-                  </label>
-                  {selected.size > 0 && (
-                    <button className="btn ghost" onClick={() => setSelected(new Set())}>
-                      Zrušit výběr ({selected.size})
-                    </button>
-                  )}
+                  {/*
+                    Hlavička je jen tak široká jako seznam (290–350 px). „Na stránku"
+                    a „Zrušit výběr" se do ní nevešly a přetékaly přes název produktu
+                    v detailu. Počet na stránku je teď dole u stránkování (tam, kde
+                    se listuje), zrušení výběru dole u „Vybráno …".
+                  */}
                 </div>
 
                 <div className="pt-rows">
@@ -899,19 +892,25 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
 
-                {page.total > (query.limit ?? 60) && (
+                {/* I když se vše vejde na stránku — dole je i volba počtu na stránku */}
+                {page.total > 30 && (
                   <div className="pt-pager">
-                    <button className="btn ghost" disabled={(query.offset ?? 0) === 0}
+                    {/* Šipky bez popisku — do sloupce o 300 px se s počtem na stránku nevešly */}
+                    <button className="btn ghost pt-pg" disabled={(query.offset ?? 0) === 0} data-tip="Předchozí stránka"
                       onClick={() => setQuery(q => ({ ...q, offset: Math.max(0, (q.offset ?? 0) - (q.limit ?? 60)) }))}>
-                      <Icon name="chevLeft" size={13} /> Předchozí
+                      <Icon name="chevLeft" size={14} />
                     </button>
-                    <span className="ig-muted">
+                    <span className="ig-muted pt-pg-text">
                       {(query.offset ?? 0) + 1}–{Math.min(page.total, (query.offset ?? 0) + rows.length)} z {page.total}
                     </span>
-                    <button className="btn ghost"
+                    <select className="pt-perpage" value={query.limit ?? 60} data-tip="Produktů na stránku"
+                      onChange={e => setQuery(q => ({ ...q, limit: Number(e.target.value), offset: 0 }))}>
+                      {[30, 60, 120, 250, 500].map(n => <option key={n} value={n}>{n} / str.</option>)}
+                    </select>
+                    <button className="btn ghost pt-pg" data-tip="Další stránka"
                       disabled={(query.offset ?? 0) + page.rows.length >= page.total}
                       onClick={() => setQuery(q => ({ ...q, offset: (q.offset ?? 0) + (q.limit ?? 60) }))}>
-                      Další <Icon name="chevRight" size={13} />
+                      <Icon name="chevRight" size={14} />
                     </button>
                   </div>
                 )}
@@ -1020,8 +1019,11 @@ export default function ProductsModal({ onClose }: { onClose: () => void }) {
               úpravy vybraných a export do souboru jsou o krok stranou.
             */}
             <div className="modal-foot pt-foot">
-              <span className="ig-muted">
+              <span className="ig-muted pt-selcount">
                 {selected.size > 0 ? `Vybráno ${selected.size} produktů` : 'Nic není vybráno'}
+                {selected.size > 0 && (
+                  <button className="linkish" onClick={() => setSelected(new Set())}>zrušit výběr</button>
+                )}
               </span>
               <DropMenu label="Úpravy vybraných" icon="sliders" up
                 items={[

@@ -10949,3 +10949,27 @@ html[data-theme="dark"] .hp-ui { box-shadow: none; }
 /* Otazník stojí hned u názvu modulu — v hlavičce rozložené do stran by jinak skončil uprostřed */
 .modal-head > .hp-btn { margin-right: auto; margin-left: -4px; }
 .modal-head .hp-btn { width: 28px; height: 28px; }
+
+/*
+ * Hlavička užšího seznamu: nic z ní nesmí přetéct do detailu. Dřív se
+ * „Zrušit výběr (274)" vysunulo přes název produktu vpravo.
+ */
+.pt-list-head { flex-wrap: wrap; row-gap: 4px; min-width: 0; overflow: hidden; padding: 8px 12px; }
+.pt-list-head .pt-check { white-space: nowrap; }
+.pt-list-head .linkish { white-space: nowrap; }
+select.pt-perpage { padding: 3px 6px; font-size: 12px; color: var(--text-2); }
+.pt-selcount { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+/* Kód, kategorie a odkaz na jednom řádku — dlouhá kategorie se zkrátí, neláme řádek */
+.pt-row .pt-row-sub { flex-wrap: nowrap; min-width: 0; white-space: nowrap; }
+.pt-row .pt-row-sub > span:not(.pt-code) { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.pt-row .pt-row-sub > .pt-code, .pt-row .pt-row-sub > .pt-open { flex: none; }
+/* Detail nesmí nic z hlavičky schovat pod sebe ani přes sebe kreslit */
+.pt-detail { min-width: 0; }
+.pt-detail-head { min-width: 0; flex-wrap: wrap; row-gap: 8px; }
+
+.pt-pager { gap: 8px; padding: 8px 12px; }
+.pt-pager .pt-pg { padding: 6px 10px; flex: none; }
+.pt-pager .pt-pg-text { white-space: nowrap; flex: 1; text-align: center; }
+.pt-pager select.pt-perpage { flex: none; }
+/* Ve třech jazycích vedle sebe se lišta pole nevešla a „HTML" se uřízlo — zalomí se */
+.html-bar { flex-wrap: wrap; row-gap: 2px; }

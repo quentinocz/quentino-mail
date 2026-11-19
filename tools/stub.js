@@ -1427,7 +1427,13 @@
           manufacturer: 'Quentino', availability: 'Skladem více než 20 ks', stock: 2, price: '449 CZK', active: true,
           origin: 'feed', url: 'https://www.quentino.cz/p/ukazkovy-produkt', doneLangs: ['en'], todoLangs: ['sk', 'de'],
           states: { sk: { total: 6, todo: 1, worst: 'stale' }, en: { total: 6, todo: 0, worst: 'ok' },
-            de: { total: 6, todo: 6, worst: 'missing' } } }
+            de: { total: 6, todo: 6, worst: 'missing' } } },
+        /* Dlouhý název i kategorie jako na skutečném snímku — tady se pozná, jestli řádek drží tvar */
+        { code: 'KAPHV01', title: 'Bordó pánský hedvábný kapesníček do saka s jemnou strukturou', image: null,
+          category: 'Jednobarevné kapesníčky do saka', manufacturer: 'Quentino', availability: 'Skladem', stock: 5,
+          price: '399 CZK', active: true, origin: 'feed', url: 'https://www.quentino.cz/p/ukazkovy-produkt',
+          doneLangs: [], todoLangs: ['sk', 'en'],
+          states: { sk: { total: 6, todo: 6, worst: 'same' }, en: { total: 6, todo: 6, worst: 'same' } } }
       ]
     },
     'ptrans:fields': [

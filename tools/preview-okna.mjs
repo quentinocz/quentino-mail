@@ -1451,6 +1451,27 @@ for (const okno of OKNA) {
   say('  načtení feedu je tlačítko s popiskem a slibuje, že se nic neztratí',
     rozvrzeni.feed.includes('Načíst aktuální feed') && /nic se neztratí/.test(rozvrzeni.feedTip));
   await page.screenshot({ path: path.join(SHOTS, 'preklady-rozvrzeni.png') });
+
+  /*
+   * Patrik (19. 11.), snímek: s vybranými produkty „Zrušit výběr (274)"
+   * v hlavičce seznamu přetékalo přes název produktu v detailu. Měří se
+   * v okně velikosti jeho snímku: nic z hlavičky seznamu ani z řádků
+   * nesmí vyčnívat za pravý okraj seznamu.
+   */
+  await page.setViewportSize({ width: 1232, height: 750 });
+  await page.locator('.pt-list-head .pt-check input').check();
+  await page.waitForTimeout(300);
+  const pretek = await page.evaluate(() => {
+    const list = document.querySelector('.pt-list').getBoundingClientRect();
+    const ven = [...document.querySelectorAll('.pt-list-head *, .pt-row *, .pt-pager *')]
+      .filter(el => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().right > list.right + 1)
+      .map(el => `${el.className || el.tagName}: ${(el.textContent || '').trim().slice(0, 30)}`);
+    return { ven, zrusit: !!document.querySelector('.pt-selcount .linkish') };
+  });
+  say('hlavička seznamu ani řádky nevyčnívají do detailu', pretek.ven.length === 0, pretek.ven.slice(0, 3).join(' | '));
+  say('  zrušit výběr je dole u počtu vybraných', pretek.zrusit);
+  await page.screenshot({ path: path.join(SHOTS, 'preklady-vybrano.png') });
+  await page.setViewportSize({ width: 1280, height: 860 });
   await page.locator('.pt-foot .dm > button', { hasText: 'Úpravy vybraných' }).click();
   await page.waitForTimeout(200);
   const nabidka = await page.locator('.dm-pop .dm-item small').count();
