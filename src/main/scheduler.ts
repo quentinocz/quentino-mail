@@ -1,3 +1,4 @@
+import { tick as adsTick } from './ads';
 import { BrowserWindow } from 'electron';
 import { getDb } from './db';
 import { sendNow } from './smtp';
@@ -121,6 +122,15 @@ export function startScheduler() {
    * a síť navíc je přesně to, co v té chvíli nikdo nepotřebuje.
    */
   startUpdateWatch();
+
+  /*
+   * Reklamy: noční běh. Kontrola po deseti minutách je jen pár čtení; běh
+   * samotný se udělá jednou za den po třetí hodině, a když je Mac v noci
+   * vypnutý, dožene se po probuzení. Mezitím se převezmou data z Macu,
+   * který běh udělal.
+   */
+  setInterval(() => { adsTick().catch(() => {}); }, 10 * 60_000);
+  setTimeout(() => { adsTick().catch(() => {}); }, 90_000);
 
   // první běh krátce po startu
   setTimeout(processOutbox, 5_000);

@@ -116,6 +116,9 @@ const ALLOWED_INVOKE = [
   'packeta:create', 'packeta:labels', 'packeta:formats',
   'balikovna:setup', 'balikovna:saveSetup', 'balikovna:fields', 'balikovna:rows',
   'balikovna:export', 'balikovna:open', 'balikovna:import',
+  // Reklamy: přehled, kampaně, produkty, nastavení a připojení Google Ads
+  'ads:status', 'ads:overview', 'ads:campaigns', 'ads:products', 'ads:ship', 'ads:config',
+  'ads:connect', 'ads:disconnect', 'ads:customers', 'ads:fetch', 'ads:feed',
   'webtexts:state', 'webtexts:load', 'webtexts:save', 'webtexts:delete', 'webtexts:toggle',
   'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate', 'webtexts:href',
   'zk:prehled', 'zk:vrstvy', 'zk:kroky', 'zk:generuj-postavu', 'zk:generuj-vrstvu',
@@ -174,6 +177,8 @@ const ALLOWED_EVENTS = [
   'live:state', 'live:offers', 'live:work', 'packing:changed',
   // Události zapsané na jiném zařízení — přehled se překreslí sám
   'events:changed',
+  // Reklamy: nová data (stažení, cizí Mac, nastavení)
+  'ads:changed',
   // Nová verze na GitHubu: nález, průběh stahování, chyba
   'update:changed'
 ];

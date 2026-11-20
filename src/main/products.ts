@@ -13,6 +13,8 @@ import { syncFeedXml } from './ptrans';
 export const DEFAULT_FEED_URL = '';
 
 const LANGS: MailLang[] = ['cz', 'sk', 'en'];
+/** Číslo podoby katalogu — viz `importFeedXml`. */
+const PRODUCT_FEED_SCHEMA = '5';
 const CURRENCY_SYMBOL: Record<string, string> = { CZK: 'Kč', EUR: '€', USD: '$', GBP: '£', PLN: 'zł' };
 
 function tag(block: string, name: string): string | null {
@@ -102,6 +104,7 @@ function parseVariants(block: string, productCode: string): any[] {
     const value = tag(priceBlock, 'PRICE_SALE') || tag(priceBlock, 'PRICE_WITH_VAT');
     const cur = tag(priceBlock, 'CURRENCY') ?? '';
     const stock = toNumber(tag(vb, 'STOCK'));
+    const money = czMoney(priceBlock);
 
     out.push({
       code,
@@ -113,10 +116,33 @@ function parseVariants(block: string, productCode: string): any[] {
       stock: stock === null ? null : Math.round(stock),
       price: value ? `${value} ${CURRENCY_SYMBOL[cur] ?? cur}`.trim() : '',
       main: tag(vb, 'MAIN_YN') === '1' ? 1 : 0,
-      sort: sort++
+      sort: sort++,
+      purchase: money.purchase,
+      price_novat: money.novat
     });
   }
   return out;
+}
+
+/**
+ * Nákupní cena a cena bez DPH z českého ceníku.
+ *
+ * Kvůli modulu Reklamy: zisk po reklamě se počítá z marže, a marže je
+ * cena bez DPH minus nákupní cena. Bere se česká cena, protože nákupní
+ * cena je v korunách a na ostatních trzích bývá prázdná. Nákupní cena
+ * nula nebo prázdno znamená „nevyplněno" — počítat s nulou by z produktu
+ * udělalo zlatý důl se stoprocentní marží.
+ *
+ * Bez DPH se bere akční cena, pokud platí: ve feedu je `PRICE_WITHOUT_VAT`
+ * už po slevě, kdežto s DPH se zvlášť uvádí `PRICE_SALE`.
+ */
+function czMoney(priceBlock: string): { purchase: number | null; novat: number | null } {
+  const purchase = toNumber(tag(priceBlock, 'PRICE_PURCHASE'));
+  const novat = toNumber(tag(priceBlock, 'PRICE_WITHOUT_VAT'));
+  return {
+    purchase: purchase && purchase > 0 ? purchase : null,
+    novat: novat && novat > 0 ? novat : null
+  };
 }
 
 export function importFeedXml(xml: string): number {
@@ -137,7 +163,7 @@ export function importFeedXml(xml: string): number {
       title_sk: '', url_sk: '', price_sk: '',
       title_en: '', url_en: '', price_en: '',
       category: '', categories: '', manufacturer: '', availability: '',
-      stock: null, price_num: null
+      stock: null, price_num: null, purchase: null, price_novat: null
     };
 
     // Názvy a URL dle jazyka
@@ -183,6 +209,14 @@ export function importFeedXml(xml: string): number {
         row[`price_${lang}`] = `${value} ${CURRENCY_SYMBOL[cur] ?? cur}`.trim();
         if (lang === 'cz') row.price_num = toNumber(value);
       }
+      if (lang === 'cz') {
+        // Uvnitř VARIANTS jsou ceny variant; produktu patří jen ta před nimi
+        const head = block.split('<VARIANTS>')[0];
+        const own = /<PRICE language="cz">([\s\S]*?)<\/PRICE>/.exec(head)?.[1] ?? '';
+        const money = czMoney(own);
+        row.purchase = money.purchase;
+        row.price_novat = money.novat;
+      }
     }
 
     // Kategorie, výrobce, dostupnost — pro filtrování v prohlížeči produktů
@@ -207,17 +241,20 @@ export function importFeedXml(xml: string): number {
     d.prepare('DELETE FROM products').run();
     const ins = d.prepare(
       `INSERT OR REPLACE INTO products (code, title_cz, url_cz, price_cz, title_sk, url_sk, price_sk, title_en, url_en, price_en, image, images,
-                                        category, categories, manufacturer, availability, stock, price_num, ean, product_id)
+                                        category, categories, manufacturer, availability, stock, price_num, ean, product_id,
+                                        purchase, price_novat)
        VALUES (@code, @title_cz, @url_cz, @price_cz, @title_sk, @url_sk, @price_sk, @title_en, @url_en, @price_en, @image, @images,
-               @category, @categories, @manufacturer, @availability, @stock, @price_num, @ean, @product_id)`
+               @category, @categories, @manufacturer, @availability, @stock, @price_num, @ean, @product_id,
+               @purchase, @price_novat)`
     );
     for (const r of rows) ins.run(r);
 
     d.prepare('DELETE FROM product_variants').run();
     const insVariant = d.prepare(
       `INSERT OR REPLACE INTO product_variants
-         (code, product_code, variant_id, label, ean, availability, stock, price, main, sort)
-       VALUES (@code, @product_code, @variant_id, @label, @ean, @availability, @stock, @price, @main, @sort)`
+         (code, product_code, variant_id, label, ean, availability, stock, price, main, sort, purchase, price_novat)
+       VALUES (@code, @product_code, @variant_id, @label, @ean, @availability, @stock, @price, @main, @sort,
+               @purchase, @price_novat)`
     );
     for (const v of variants) insVariant.run(v);
   });
@@ -227,9 +264,10 @@ export function importFeedXml(xml: string): number {
    * Číslo podoby katalogu. Zvedá se pokaždé, když import začne plnit něco,
    * co dřív neexistovalo — jinak by se u toho, kdo už katalog jednou stažený
    * má, nové sloupce ani tabulky nikdy nenaplnily a v aplikaci by prostě
-   * chyběly. Naposledy kvůli variantám, EANům a vnitřním číslům produktů.
+   * chyběly. Naposledy kvůli nákupním cenám a cenám bez DPH, ze kterých
+   * modul Reklamy počítá marži.
    */
-  setSetting('productFeedSchema', '4');
+  setSetting('productFeedSchema', PRODUCT_FEED_SCHEMA);
   // Katalog i varianty jsou nové — hledání se dopočítá při prvním dotazu
   dropSearchIndex();
   return rows.length;
@@ -354,7 +392,7 @@ export function feedIsStale(): boolean {
   // Katalog stažený starší verzí aplikace nemá kategorie, dostupnost,
   // varianty ani seznam všech obrázků — a bez nového stažení by se
   // v konvertoru médií tvářil každý produkt, že fotky nemá vůbec
-  if (getSetting('productFeedSchema') !== '4') return true;
+  if (getSetting('productFeedSchema') !== PRODUCT_FEED_SCHEMA) return true;
   return Date.now() - new Date(st.lastSync).getTime() > 20 * 3600 * 1000;
 }
 

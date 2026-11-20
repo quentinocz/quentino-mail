@@ -18,7 +18,7 @@ export type Workspace = 'mail' | 'chat' | 'instagram';
  * místa pro tutéž věc a v poště přebývala tlačítka, která s poštou nesouvisí.
  */
 export type AiTool = 'instagram' | 'digest' | 'packing' | 'catalog' | 'ptrans' | 'articles'
-  | 'webtexts' | 'banners' | 'media' | 'shoot' | 'reviews' | 'zkusebna';
+  | 'webtexts' | 'banners' | 'media' | 'shoot' | 'reviews' | 'zkusebna' | 'ads';
 
 const TABS: { id: Workspace | 'ai'; icon: string; label: string; tip: string }[] = [
   { id: 'mail', icon: 'mail', label: 'Pošta', tip: 'E-mailová schránka' },
@@ -96,7 +96,14 @@ export const AI_TOOLS: {
     desktopOnly: true },
 
   { id: 'digest', icon: 'sunrise', label: 'AI Přehled', group: 'prehled', color: '#c29a3a',
-    hint: 'Prodeje v číslech a postřehy k nim' }
+    hint: 'Prodeje v číslech a postřehy k nim' },
+  /*
+   * Reklamy patří k přehledům: jsou to čísla, podle kterých se rozhoduje,
+   * ne obsah webu. Na telefonu zatím nejsou — ranní souhrn a schvalování
+   * návrhů přijdou v pozdější fázi.
+   */
+  { id: 'ads', icon: 'megaphone', label: 'Reklamy', group: 'prehled', color: '#5e8a2f',
+    hint: 'Zisk po reklamě, kampaně a segmenty produktů', desktopOnly: true }
 ];
 
 /**

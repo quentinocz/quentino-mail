@@ -66,6 +66,7 @@ import { registerIgIpc } from './instagram/ipc';
 import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
+import * as ads from './ads';
 import * as banners from './banners';
 import * as zkusebna from './zkusebna';
 import { iconIdeas } from './bannericon';
@@ -718,6 +719,22 @@ export function registerIpc() {
   });
 
   /* ---------- texty na webu ---------- */
+  /*
+   * Reklamy (fáze 1): jen čtení. Stažení z Google Ads, zisk z objednávek,
+   * segmenty produktů a doplňkový feed — do účtů se nic nezapisuje.
+   */
+  handle('ads:status', () => ads.status());
+  handle('ads:overview', (days: number) => ads.overview(Number(days) || 30));
+  handle('ads:campaigns', (days: number) => ads.campaigns(Number(days) || 30));
+  handle('ads:products', (days: number) => ads.products(Number(days) || 30));
+  handle('ads:ship', () => ads.shipMethods());
+  handle('ads:config', (patch: any) => ads.saveConfig(patch ?? {}));
+  handle('ads:connect', (clientId: string, secret?: string) => ads.connectGoogle(String(clientId ?? ''), secret));
+  handle('ads:disconnect', () => ads.disconnectGoogle());
+  handle('ads:customers', () => ads.googleCustomers());
+  handle('ads:fetch', (days?: number) => ads.fetchGoogle(days ? Number(days) : undefined));
+  handle('ads:feed', () => ads.publishFeed());
+
   handle('webtexts:state', () => webtexts.webTextsState());
   // Otevření modulu se ptá webu — pravda je ve vystaveném souboru
   handle('webtexts:load', () => webtexts.loadWebTexts());

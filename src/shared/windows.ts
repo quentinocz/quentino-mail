@@ -22,7 +22,7 @@
 
 export type ToolWindowId =
   | 'shoot' | 'packing' | 'catalog' | 'ptrans' | 'articles'
-  | 'webtexts' | 'banners' | 'media' | 'reviews' | 'digest' | 'instagram' | 'zkusebna';
+  | 'webtexts' | 'banners' | 'media' | 'reviews' | 'digest' | 'instagram' | 'zkusebna' | 'ads';
 
 export type ToolWindowDef = {
   id: ToolWindowId;
@@ -91,6 +91,12 @@ export const TOOL_WINDOWS: ToolWindowDef[] = [
    * dílny s vrstvami stojí živý náhled toho, co uvidí zákazník, a v užším
    * okně by se model zmenšil natolik, že by se na něm nedalo nic posoudit.
    */
+  /*
+   * Reklamy: přehled s mapou produktů a tabulkami vedle sebe — v užším
+   * okně by se mapa a tabulka musely skládat pod sebe.
+   */
+  { id: 'ads', hash: 'reklamy', title: 'Reklamy — Quentino App',
+    width: 1320, height: 880, minWidth: 900, minHeight: 620 },
   { id: 'zkusebna', hash: 'kabina', title: 'Zkušební kabina — Quentino App',
     width: 1360, height: 900, minWidth: 940, minHeight: 640 }
 ];

@@ -78,6 +78,8 @@ const PATHS: Record<string, ReactNode> = {
    * druhý neznamenal nic. Tohle je přesně to, co ten nástroj dělá:
    * plocha, na které je text a pod ním tlačítko.
    */
+  /* Megafon — reklamy; jediná ikona, která „mluví ven" */
+  megaphone: <><path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z" /><path d="M16 9a4 4 0 0 1 0 6" /><path d="M19 6a8 8 0 0 1 0 12" /></>,
   banner: <><rect x="2.5" y="5" width="19" height="14" rx="1.5" /><path d="M6 10.5h7" /><rect x="6" y="13.5" width="5.5" height="2.6" rx="1.3" /></>,
   /* Ořez — dva rohy, jak se značí výřez */
   crop: <><path d="M6 2v14a2 2 0 0 0 2 2h14" /><path d="M18 22V8a2 2 0 0 0-2-2H2" /></>,

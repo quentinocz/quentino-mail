@@ -361,6 +361,12 @@ export interface ShopOrderItem {
   code: string;
   quantity: number;
   price: number;
+  /**
+   * Cena za kus s DPH, když ji export uvádí zvlášť. Bez ní se z `price`
+   * nedá poznat, jestli je za kus, nebo za celý řádek — modul Reklamy si
+   * to pak ověří proti celkové ceně objednávky.
+   */
+  unitPrice?: number;
 }
 
 /** Adresa z exportu objednávek */
@@ -418,6 +424,12 @@ export interface ShopOrder {
   pickupName: string;
   /** Váha celé objednávky v gramech, jak ji spočítal e-shop */
   weight: number;
+  /**
+   * Kolik zákazník zaplatil za dopravu a za platbu (s DPH). `null` = feed
+   * cenu neuvedl, což není totéž co doprava zdarma.
+   */
+  shipmentPrice?: number | null;
+  paymentPrice?: number | null;
   items: ShopOrderItem[];
   /**
    * Fakturační a doručovací adresa.

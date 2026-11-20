@@ -27,11 +27,12 @@ db.exec(`
     manufacturer TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '',
     stock INTEGER, price_num REAL,
     ean TEXT NOT NULL DEFAULT '', product_id TEXT NOT NULL DEFAULT '', stock_at TEXT NOT NULL DEFAULT '',
-    search TEXT NOT NULL DEFAULT '');
+    search TEXT NOT NULL DEFAULT '', purchase REAL, price_novat REAL);
   CREATE TABLE IF NOT EXISTS product_variants (
     code TEXT PRIMARY KEY, product_code TEXT NOT NULL, variant_id TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT '', ean TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '',
-    stock INTEGER, price TEXT NOT NULL DEFAULT '', main INTEGER NOT NULL DEFAULT 0, sort INTEGER NOT NULL DEFAULT 0);
+    stock INTEGER, price TEXT NOT NULL DEFAULT '', main INTEGER NOT NULL DEFAULT 0, sort INTEGER NOT NULL DEFAULT 0,
+    purchase REAL, price_novat REAL);
   CREATE TABLE IF NOT EXISTS stockin (
     id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
     device TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'open',

@@ -34,6 +34,9 @@ import type {
   MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload,
   UpdateState
 } from '@shared/types';
+import type {
+  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer
+} from '@shared/ads';
 import type { ToolWindowId } from '@shared/windows';
 import type { VidProjekt, VidZnelka } from '@shared/videoedit';
 import type {
@@ -1396,6 +1399,25 @@ export const api = {
    * Okna nástrojů. Každá funkce z nabídky se otevírá ve vlastním okně, aby
    * se vedle ní dalo dál pracovat s poštou.
    */
+  /**
+   * Reklamy. Ve fázi 1 jen čtení: data z Google Ads, zisk z objednávek,
+   * segmenty produktů a doplňkový feed se segmenty.
+   */
+  ads: {
+    status: () => call<AdsStatus>('ads:status'),
+    overview: (days: number) => call<AdsOverview>('ads:overview', days),
+    campaigns: (days: number) => call<AdsCampaignRow[]>('ads:campaigns', days),
+    products: (days: number) => call<AdsProducts>('ads:products', days),
+    ship: () => call<AdsShipMethod[]>('ads:ship'),
+    config: (patch: Partial<AdsConfig>) => call<AdsStatus>('ads:config', patch),
+    /** Otevře prohlížeč s přihlášením Google; tajný klíč se uloží jen v tomhle Macu */
+    connect: (clientId: string, secret?: string) => call<AdsStatus>('ads:connect', clientId, secret),
+    disconnect: () => call<AdsStatus>('ads:disconnect'),
+    customers: () => call<AdsGoogleCustomer[]>('ads:customers'),
+    fetch: (days?: number) => call<string>('ads:fetch', days),
+    publishFeed: () => call<string>('ads:feed')
+  },
+
   tool: {
     /** `arg` je, na co se má okno rovnou podívat — objednávka, naskladnění */
     open: (id: ToolWindowId, arg = '') => call<boolean>('tool:open', id, arg),

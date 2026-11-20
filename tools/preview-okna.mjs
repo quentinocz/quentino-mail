@@ -388,7 +388,8 @@ const OKNA = [
   { hash: 'media', nadpis: 'Konvertor' },
   { hash: 'clanky', nadpis: 'Články' },
   { hash: 'produkty', nadpis: 'Produkty' },
-  { hash: 'kabina', nadpis: 'Zkušební kabina' }
+  { hash: 'kabina', nadpis: 'Zkušební kabina' },
+  { hash: 'reklamy', nadpis: 'Reklamy' }
 ];
 
 /*
@@ -424,6 +425,50 @@ for (const okno of OKNA) {
   // Každý modul má v hlavičce otazník s nápovědou
   say('  a v hlavičce je otazník s nápovědou',
     await page.locator('[aria-label="Nápověda"]').first().isVisible().catch(() => false));
+  await page.close();
+}
+
+/* ---------- Reklamy: všechny záložky bez přetékání ---------- */
+/*
+ * Reklamy mají vedle sebe mapu a tabulku a nahoře čtyři dlaždice s čísly
+ * v korunách. Dlouhé číslo nebo název kampaně umí rozhodit mřížku tak, že
+ * se obsah posune doprava mimo okno — a to se pozná jedině tím, že se
+ * stránka dá posouvat do strany.
+ */
+{
+  const page = await open('reklamy');
+  const tabs = [
+    { label: 'Dnes', must: '.ad-kpis', shot: 'reklamy-dnes' },
+    { label: 'Kampaně', must: '.ad-table', shot: 'reklamy-kampane' },
+    { label: 'Produkty', must: '.ad-map', shot: 'reklamy-produkty' },
+    { label: 'Nastavení', must: '.ad-settings', shot: 'reklamy-nastaveni' }
+  ];
+  for (const tab of tabs) {
+    await page.locator('.ad-tabs button', { hasText: tab.label }).click();
+    await page.waitForSelector(tab.must, { timeout: 4000 }).catch(() => {});
+    const mira = await page.evaluate(sel => {
+      const body = document.querySelector('.ad-body');
+      const el = document.querySelector(sel);
+      return {
+        je: !!el,
+        preteka: body ? body.scrollWidth - body.clientWidth : -1,
+        hlava: (() => { const h = document.querySelector('.ad-modal .modal-head'); return h ? h.scrollWidth - h.clientWidth : -1; })()
+      };
+    }, tab.must);
+    say(`Reklamy › ${tab.label}: obsah je vidět a nepřetéká do strany`, mira.je && mira.preteka <= 1 && mira.hlava <= 1,
+      `přetéká o ${mira.preteka} px, hlavička o ${mira.hlava} px`);
+    await page.screenshot({ path: path.join(SHOTS, `${tab.shot}.png`) });
+  }
+  // Mapa: tečky jen u produktů s útratou a klik na segment ztlumí ostatní
+  await page.locator('.ad-tabs button', { hasText: 'Produkty' }).click();
+  const tecek = await page.locator('.ad-map circle.dot').count();
+  await page.locator('button.ad-seg.zrouti').click();
+  const tlumene = await page.locator('.ad-map circle.dot.dim').count();
+  const radku = await page.locator('.ad-ptable tbody tr').count();
+  say('Reklamy › mapa: tečky produktů a výběr segmentu ztlumí ostatní', tecek > 20 && tlumene > 0 && tlumene < tecek,
+    `${tecek} teček, ${tlumene} ztlumených`);
+  say('  a tabulka ukáže jen žrouty', radku > 0 && await page.locator('.ad-ptable tbody .ad-seg:not(.zrouti)').count() === 0,
+    `${radku} řádků`);
   await page.close();
 }
 

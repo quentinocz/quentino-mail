@@ -613,6 +613,12 @@ const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
    * si stejně vezme web z úložiště.
    */
   'banners:',
+  /*
+   * Reklamy ve fázi 1 jsou mapa produktů a tabulky kampaní — na telefonu
+   * zatím nejsou v nabídce. Ranní souhrn a schvalování návrhů na telefonu
+   * přijdou se čtvrtou fází, a s nimi i kanály v aplikaci pro iOS.
+   */
+  'ads:',
   // Správa recenzí sahá do administrace e-shopu v okně — telefon okno nemá
   'reviews:',
   // Nový produkt: předloha, obrázky z disku a import v okně administrace

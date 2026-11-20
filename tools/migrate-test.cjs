@@ -35,7 +35,8 @@ const SOURCES = [
   'src/main/instagram/schema.ts',
   'src/main/ptrans/schema.ts',
   'src/main/articles/schema.ts',
-  'src/main/shoot/store.ts'
+  'src/main/shoot/store.ts',
+  'src/main/ads/schema.ts'
 ];
 
 /**

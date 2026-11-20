@@ -12,6 +12,7 @@ import BannersModal from './BannersModal';
 import MediaModal from './MediaModal';
 import ReviewsModal from './ReviewsModal';
 import ZkusebnaModal from './ZkusebnaModal';
+import AdsModal from './AdsModal';
 import InstagramWorkspace from './instagram/InstagramWorkspace';
 import TooltipLayer from './TooltipLayer';
 
@@ -102,6 +103,8 @@ export default function ToolWindow({ id }: { id: ToolWindowId }) {
         return <ReviewsModal onClose={close} />;
       case 'zkusebna':
         return <ZkusebnaModal onClose={close} />;
+      case 'ads':
+        return <AdsModal onClose={close} />;
       /*
        * Sociální sítě nejsou překryv, ale celá obrazovka s vlastním panelem —
        * proto se v okně vykreslí, jak jsou. Pošta a chat v tomhle okně nejsou,

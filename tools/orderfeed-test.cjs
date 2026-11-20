@@ -56,6 +56,15 @@ const orders = feed.parseOrders(xml, 'cz');
 const byCode = code => orders.find(o => o.code === code);
 
 /*
+ * Cena dopravy a platby — z nich modul Reklamy počítá zisk objednávky.
+ * Chybějící cena musí zůstat `null`: „feed ji neuvedl" není „zdarma"
+ * a nula by tiše přepsala známou cenu z velkého feedu.
+ */
+check('cena dopravy s DPH', byCode('023687').shipmentPrice, 69);
+check('cena platby s DPH (nula je nula)', byCode('023687').paymentPrice, 0);
+check('neuvedená cena dopravy je null, ne nula', byCode('023688').shipmentPrice, null);
+
+/*
  * Výdejní místo. Ve feedu je jako `BRANCH_ID` uvnitř `<SHIPMENT>` a u každého
  * dopravce vypadá jinak: Zásilkovna má číslo pobočky, PPL kód `KM…`.
  * U zásilky na adresu je tam nula, což znamená „žádné místo" — vzít ji jako

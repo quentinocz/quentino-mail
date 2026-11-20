@@ -132,6 +132,15 @@ function blocks(xml: string, name: string): string[] {
   return xml.match(new RegExp(`<${name}[^>]*>[\\s\\S]*?</${name}>`, 'gi')) ?? [];
 }
 
+/** Cena s DPH z bloku dopravy nebo platby; `null`, když ji blok nemá. */
+function priceOf(block: string): number | null {
+  if (!block) return null;
+  const raw = tag(block, 'PRICE_WITH_VAT', 'PRICE');
+  if (!raw) return null;
+  const value = Number(raw.replace(',', '.'));
+  return Number.isFinite(value) ? value : null;
+}
+
 /** Telefon do tvaru, na který jde kliknout: bez mezer, s předvolbou. */
 export function normalizePhone(raw: string, market = 'cz'): string {
   const clean = (raw ?? '').replace(/[^\d+]/g, '');
@@ -198,7 +207,10 @@ export function parseOrders(xml: string, market: string): ShopOrder[] {
       title: tag(item, 'TITLE', 'NAME'),
       code: tag(item, 'CODE', 'PRODUCT_CODE'),
       quantity: Number(tag(item, 'QUANTITY')) || 1,
-      price: Number(tag(item, 'PRICE_WITH_VAT', 'PRICE')) || 0
+      price: Number(tag(item, 'PRICE_WITH_VAT', 'PRICE')) || 0,
+      ...(tag(item, 'PRICE_PER_UNIT_WITH_VAT', 'UNIT_PRICE_WITH_VAT')
+        ? { unitPrice: Number(tag(item, 'PRICE_PER_UNIT_WITH_VAT', 'UNIT_PRICE_WITH_VAT')) || 0 }
+        : {})
     })).filter(item => item.title || item.code);
 
     // Doprava a platba mají uvnitř svůj vlastní NAME — mimo tyhle bloky by
@@ -267,6 +279,14 @@ export function parseOrders(xml: string, market: string): ShopOrder[] {
       pickupName: tag(shipmentBlock, 'BRANCH_NAME', 'PICKUP_POINT_NAME', 'PLACE_NAME')
         || tag(block, 'BRANCH_NAME', 'PICKUP_POINT_NAME'),
       payment: tag(paymentBlock, 'NAME'),
+      /*
+       * Cena dopravy a platby. Modul Reklamy z nich počítá zisk objednávky:
+       * co zákazník za dopravu zaplatil, je příjem, co stojí dopravce,
+       * náklad. Chybějící cena zůstane `null` — „nevíme" se nesmí plést
+       * s „zdarma".
+       */
+      shipmentPrice: priceOf(shipmentBlock),
+      paymentPrice: priceOf(paymentBlock),
       items,
       billing: parseAddress(billingBlock),
       postal: parseAddress(postalBlock)
@@ -283,10 +303,12 @@ function save(orders: ShopOrder[]): number {
   const stmt = d.prepare(`
     INSERT INTO shop_orders (code, market, status, paid, paid_date, resolved, invoice,
       created_at, updated_at, currency, total, tracking, customer_id, name, email, phone,
-      shipment, payment, note, pickup_id, pickup_name, weight, items_json, billing_json, postal_json, seen_at)
+      shipment, payment, note, pickup_id, pickup_name, weight, items_json, billing_json, postal_json, seen_at,
+      ship_price, pay_price)
     VALUES (@code, @market, @status, @paid, @paidDate, @resolved, @invoice,
       @createdAt, @updatedAt, @currency, @total, @tracking, @customerId, @name, @email, @phone,
-      @shipment, @payment, @note, @pickupId, @pickupName, @weight, @items, @billing, @postal, @seen)
+      @shipment, @payment, @note, @pickupId, @pickupName, @weight, @items, @billing, @postal, @seen,
+      @shipPrice, @payPrice)
     ON CONFLICT(code, market) DO UPDATE SET
       status = excluded.status, paid = excluded.paid, paid_date = excluded.paid_date,
       resolved = excluded.resolved, invoice = excluded.invoice,
@@ -311,7 +333,10 @@ function save(orders: ShopOrder[]): number {
       billing_json = CASE WHEN excluded.billing_json IS NOT NULL
         THEN excluded.billing_json ELSE shop_orders.billing_json END,
       postal_json = CASE WHEN excluded.postal_json IS NOT NULL
-        THEN excluded.postal_json ELSE shop_orders.postal_json END
+        THEN excluded.postal_json ELSE shop_orders.postal_json END,
+      -- Cena dopravy a platby: neuvedená (NULL) nepřepíše známou
+      ship_price = COALESCE(excluded.ship_price, shop_orders.ship_price),
+      pay_price = COALESCE(excluded.pay_price, shop_orders.pay_price)
   `);
 
   const write = d.transaction((list: ShopOrder[]) => {
@@ -325,6 +350,8 @@ function save(orders: ShopOrder[]): number {
         shipment: order.shipment, payment: order.payment, note: order.note ?? '',
         pickupId: order.pickupId ?? '', pickupName: order.pickupName ?? '',
         weight: order.weight ?? 0,
+        shipPrice: order.shipmentPrice ?? null,
+        payPrice: order.paymentPrice ?? null,
         items: JSON.stringify(order.items),
         billing: order.billing ? JSON.stringify(order.billing) : null,
         postal: order.postal ? JSON.stringify(order.postal) : null,
@@ -472,6 +499,8 @@ function toOrder(row: any): ShopOrder {
     shipment: row.shipment, payment: row.payment, note: row.note ?? '',
     pickupId: row.pickup_id ?? '', pickupName: row.pickup_name ?? '',
     weight: Number(row.weight) || 0,
+    shipmentPrice: row.ship_price ?? null,
+    paymentPrice: row.pay_price ?? null,
     items: safeItems(row.items_json),
     billing: safeAddress(row.billing_json),
     postal: safeAddress(row.postal_json)

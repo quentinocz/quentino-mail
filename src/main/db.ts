@@ -7,6 +7,7 @@ import { ZK_SCHEMA, ZK_ALTERS } from './zkusebna/schema';
 import { SCHEMA as ptransSchema, ALTERS as ptransAlters } from './ptrans/schema';
 import { SCHEMA as artSchema, ALTERS as artAlters } from './articles/schema';
 import { SCHEMA as shootSchema, ALTERS as shootAlters } from './shoot/store';
+import { SCHEMA as adsSchema, ALTERS as adsAlters } from './ads/schema';
 import { connectSecure } from './secure';
 
 let db: Database.Database;
@@ -415,6 +416,8 @@ function migrate(d: Database.Database) {
   zaved('instagram', igSchema, igAlters);
   // Zkušební kabina: postavy, vrstvy oblečení a jejich přiřazení k produktům
   zaved('zkusebna', ZK_SCHEMA, ZK_ALTERS);
+  // Reklamy: kampaně a výkon po dnech z Google Ads (později Sklik a Meta)
+  zaved('ads', adsSchema, adsAlters);
 
   // Fulltextové vyhledávání (FTS5) nad zprávami
   d.exec(`
@@ -479,6 +482,12 @@ function migrate(d: Database.Database) {
    */
   try { d.exec("ALTER TABLE shop_orders ADD COLUMN pickup_id TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
   try { d.exec("ALTER TABLE shop_orders ADD COLUMN pickup_name TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  /*
+   * Cena dopravy a platby s DPH, jak ji zaplatil zákazník. Modul Reklamy
+   * z ní počítá zisk objednávky. NULL = feed ji neuvedl (≠ zdarma).
+   */
+  try { d.exec('ALTER TABLE shop_orders ADD COLUMN ship_price REAL'); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE shop_orders ADD COLUMN pay_price REAL'); } catch { /* sloupec už existuje */ }
   // Váha objednávky v gramech — Zásilkovna ji u zásilky chce a feed ji počítá
   try { d.exec('ALTER TABLE shop_orders ADD COLUMN weight REAL NOT NULL DEFAULT 0'); } catch { /* sloupec už existuje */ }
 
@@ -519,6 +528,15 @@ function migrate(d: Database.Database) {
    * Prázdno znamená „ještě se nespočítalo" a doplní se při prvním hledání.
    */
   try { d.exec("ALTER TABLE products ADD COLUMN search TEXT NOT NULL DEFAULT ''"); } catch { /* sloupec už existuje */ }
+  /*
+   * Nákupní cena a cena bez DPH (český ceník) — pro marži v modulu Reklamy.
+   * Prázdno = nákupní cena v e-shopu není vyplněná; marže se pak odhadne
+   * podle kategorie, nula by tvrdila stoprocentní marži.
+   */
+  try { d.exec('ALTER TABLE products ADD COLUMN purchase REAL'); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE products ADD COLUMN price_novat REAL'); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE product_variants ADD COLUMN purchase REAL'); } catch { /* sloupec už existuje */ }
+  try { d.exec('ALTER TABLE product_variants ADD COLUMN price_novat REAL'); } catch { /* sloupec už existuje */ }
   /*
    * Balení po kusech, ne po položkách. Dřív se odškrtávala celá položka, takže
    * u „3 ks" nebylo z čeho poznat, kolik jich už je v krabici — a při balení

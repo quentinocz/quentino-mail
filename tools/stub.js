@@ -715,6 +715,90 @@
       { key: 'dobirka', label: 'Dobírka', hint: 'Částka k vybrání' },
       { key: 'obsah', label: 'Obsah zásilky', hint: 'Složený z položek' }
     ],
+    /*
+     * Reklamy — ilustrační čísla v řádu, v jakém se pohybuje Quentino:
+     * třicet dní, jeden účet Google Ads, Sklik a Meta zatím nepřipojené.
+     * Denní řady jsou spočítané, ne náhodné, aby se náhled neměnil
+     * mezi dvěma běhy a srovnání obrázků mělo smysl.
+     */
+    'ads:status': {
+      config: { targetProfitShare: 0.5, convValueWithVat: true, vat: { cz: 21, sk: 23, en: 21 }, eurRate: 25,
+        markets: ['cz'], shipping: [], defaultShipCost: 79, fallbackMargin: 0.6, autonomy: 'suggest',
+        google: { customerId: '1234567890', customerName: 'Quentino CZ', loginCustomerId: '', clientId: 'x.apps.googleusercontent.com',
+          apiVersion: 'v26', currency: 'CZK' }, feedToken: 'a1b2c3', updatedAt: '2026-11-19T10:00:00Z' },
+      google: { connected: true, hasSecret: true, account: 'Quentino CZ', lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
+      lastRun: { day: '2026-11-20', device: 'MacBook Patrik (1a2b3c4d)', finishedAt: new Date(Date.now() - 5 * 3600e3).toISOString(), result: '6 kampaní', error: '' },
+      shared: true,
+      feedUrl: 'https://xyzabc.supabase.co/storage/v1/object/public/web/reklamy/a1b2c3/segmenty.tsv',
+      feedPublishedAt: new Date(Date.now() - 5 * 3600e3).toISOString(),
+      purchase: { withPrice: 1030, total: 1375 }
+    },
+    'ads:overview': (function () {
+      var daily = [];
+      var start = Date.UTC(2026, 9, 21);
+      for (var i = 0; i < 30; i++) {
+        var date = new Date(start + i * 86400e3).toISOString().slice(0, 10);
+        var vlna = 1 + 0.25 * Math.sin(i / 3) + (i > 24 ? 0.35 : 0);
+        daily.push({ date: date, orders: Math.round(14 * vlna), revenue: Math.round(16800 * vlna),
+          profit: Math.round(10100 * vlna), cost: Math.round(1650 + 220 * Math.cos(i / 2)), conversions: Math.round(9 * vlna) });
+      }
+      var spark = daily.map(function (d) { return { date: d.date, cost: d.cost, value: Math.round(d.cost * 7.4) }; });
+      var off = daily.map(function (d) { return { date: d.date, cost: 0, value: 0 }; });
+      return {
+        from: daily[0].date, to: daily[29].date, days: 30,
+        profitAfterAds: { value: 252400, prev: 221800 }, revenue: { value: 521300, prev: 468900 },
+        cost: { value: 49600, prev: 47200 }, orders: { value: 468, prev: 431 },
+        profitShare: 0.484, shopPno: 0.095, margin: 0.58, targetPno: 0.08,
+        systems: [
+          { system: 'google', connected: true, cost: 49600, value: 367000, conversions: 281, profit: 163260, pno: 0.135, targetPno: 0.08, daily: spark },
+          { system: 'sklik', connected: false, cost: 0, value: 0, conversions: 0, profit: 0, pno: null, targetPno: 0.08, daily: off },
+          { system: 'meta', connected: false, cost: 0, value: 0, conversions: 0, profit: 0, pno: null, targetPno: 0.08, daily: off }
+        ],
+        daily: daily,
+        alerts: [
+          { level: 'warn', title: 'Zisk po reklamě 48 % z obratu', text: 'Cíl je 50 %. Rozbor podle produktů ukáže, kde reklama utrácí bez zisku.' },
+          { level: 'info', title: 'Nákupní cenu má 1030 z 1375 produktů', text: 'U ostatních se marže odhaduje podle kategorie. Doplněním nákupních cen v Upgates budou čísla přesnější.' },
+          { level: 'info', title: 'Náklady na dopravu jsou zatím odhad', text: 'V Nastavení doplň, kolik stojí jednotlivé dopravy — zisk z každé objednávky je o ně nižší.' }
+        ],
+        estimatedOrders: 61
+      };
+    })(),
+    'ads:campaigns': [
+      { system: 'google', id: '1', name: 'PMax – celý katalog CZ', type: 'PERFORMANCE_MAX', status: 'ENABLED', budget: 1100, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: 6, cost: 31200, clicks: 9800, conversions: 188, value: 246000, profit: 111480, pno: 0.127, targetPno: 0.08 },
+      { system: 'google', id: '2', name: 'Vyhledávání – Kšandy', type: 'SEARCH', status: 'ENABLED', budget: 250, bidding: 'TARGET_ROAS', targetRoas: 7, cost: 7400, clicks: 2100, conversions: 41, value: 58900, profit: 26760, pno: 0.126, targetPno: 0.08 },
+      { system: 'google', id: '3', name: 'Vyhledávání – Motýlky a kravaty', type: 'SEARCH', status: 'ENABLED', budget: 200, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null, cost: 6100, clicks: 1900, conversions: 33, value: 41200, profit: 17800, pno: 0.148, targetPno: 0.08 },
+      { system: 'google', id: '4', name: 'Nákupy – Ponožky', type: 'SHOPPING', status: 'ENABLED', budget: 120, bidding: 'MANUAL_CPC', targetRoas: null, cost: 3900, clicks: 1500, conversions: 6, value: 5400, profit: -768, pno: 0.722, targetPno: 0.08 },
+      { system: 'google', id: '5', name: 'Brand', type: 'SEARCH', status: 'PAUSED', budget: 50, bidding: 'MANUAL_CPC', targetRoas: null, cost: 1000, clicks: 600, conversions: 13, value: 15500, profit: 7990, pno: 0.065, targetPno: 0.08 }
+    ],
+    'ads:products': (function () {
+      var segs = ['hvezdy', 'hvezdy', 'pracanti', 'pracanti', 'pracanti', 'zrouti', 'spici', 'novinky', 'doprodej', 'pracanti', 'zrouti', 'spici'];
+      var nazvy = ['Bordó pánské široké kšandy', 'Tmavě modrý motýlek s kapesníčkem', 'Béžová pletená kravata',
+        'Černé kožené kšandy na háčky', 'Svatební regata s kapesníčkem', 'Ponožky PIVO a CHMEL', 'Smaragdový motýlek se vzorem',
+        'Lněný motýlek přírodní', 'Bordó manžetové knoflíčky', 'Šedé úzké kšandy', 'Ponožky Dýmka', 'Hedvábná kravata modrá'];
+      var why = { hvezdy: 'Zisk po reklamě 9 870 Kč — mezi nejlepšími.', pracanti: 'Prodává se se ziskem 3 310 Kč.',
+        zrouti: '84 kliků za 1 120 Kč a žádný prodej — při běžném poměru by měl prodat 2×.', spici: 'Jen 40 zobrazení — reklama ho skoro neukazuje.',
+        novinky: 'V katalogu 12 dní — ochranná doba, data ještě nejsou.', doprodej: 'Skladem 2 ks — brzy dojde.' };
+      var rows = [];
+      for (var i = 0; i < 60; i++) {
+        var sg = segs[i % segs.length];
+        var cost = sg === 'spici' ? 12 + i : Math.round(2400 / (1 + i * 0.25));
+        var profit = sg === 'zrouti' ? -Math.round(cost * 0.8) : sg === 'spici' ? 0 : Math.round(cost * (sg === 'hvezdy' ? 4 : 1.4));
+        rows.push({ code: 'P' + (100 + i), title: nazvy[i % nazvy.length] + (i >= nazvy.length ? ' ' + (i + 1) : ''), image: null,
+          category: 'Kšandy', segment: sg, why: why[sg], margin: 0.45 + (i % 5) * 0.08, marginEstimated: i % 7 === 0,
+          stock: sg === 'doprodej' ? 2 : 4 + (i % 30), cost: cost, clicks: Math.round(cost / 3), impressions: cost * 30,
+          conversions: sg === 'zrouti' || sg === 'spici' ? 0 : 3, value: profit + cost, profit: profit,
+          pno: profit + cost > 0 ? cost / (profit + cost) : null, breakEven: 0.45 + (i % 5) * 0.08, targetPno: 0.1, sold: (i * 7) % 11 });
+      }
+      return { from: '2026-10-21', to: '2026-11-19', rows: rows,
+        counts: { hvezdy: 38, pracanti: 214, zrouti: 12, spici: 611, novinky: 27, doprodej: 44, vyprodano: 429 },
+        unmatched: [{ itemId: 'ps99old', cost: 120 }] };
+    })(),
+    'ads:ship': [
+      { name: 'Zásilkovna Z-Box', orders: 812, paidAvg: 57, cost: 62, guessed: true },
+      { name: 'PPL ParcelBox', orders: 344, paidAvg: 57, cost: 62, guessed: true },
+      { name: 'PPL – doručení na adresu', orders: 120, paidAvg: 82, cost: 95, guessed: false },
+      { name: 'E-mailem', orders: 41, paidAvg: 0, cost: 0, guessed: true }
+    ],
     // Texty na webu — plán s běžící, chystanou a doběhlou změnou
     'webtexts:state': (function () {
       var den = 86400000;
