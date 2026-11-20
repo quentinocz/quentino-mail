@@ -61,6 +61,17 @@ export function normalizeConfig(raw: any): AdsConfig {
     defaultShipCost: numIn(src.defaultShipCost, 0, 10_000, base.defaultShipCost),
     fallbackMargin: numIn(src.fallbackMargin, 0, 0.95, base.fallbackMargin),
     autonomy: ['suggest', 'guarded', 'full'].includes(src.autonomy) ? src.autonomy : base.autonomy,
+    guards: (() => {
+      const g = src.guards && typeof src.guards === 'object' ? src.guards : {};
+      const b = base.guards;
+      return {
+        maxBudgetStep: numIn(g.maxBudgetStep, 0.05, 0.5, b.maxBudgetStep),
+        maxRoasStep: numIn(g.maxRoasStep, 0.05, 0.3, b.maxRoasStep),
+        cooldownDays: numIn(g.cooldownDays, 1, 30, b.cooldownDays),
+        minConversions: numIn(g.minConversions, 5, 200, b.minConversions),
+        monthlyBudget: numIn(g.monthlyBudget, 0, 10_000_000, b.monthlyBudget)
+      };
+    })(),
     google: { ...base.google, ...(src.google && typeof src.google === 'object' ? src.google : {}) },
     feedToken: typeof src.feedToken === 'string' ? src.feedToken : '',
     updatedAt: typeof src.updatedAt === 'string' ? src.updatedAt : ''
@@ -97,6 +108,7 @@ export function saveAdsConfig(patch: Partial<AdsConfig>): AdsConfig {
     ...patch,
     google: { ...current.google, ...(patch.google ?? {}) },
     vat: { ...current.vat, ...(patch.vat ?? {}) },
+    guards: { ...current.guards, ...(patch.guards ?? {}) },
     updatedAt: new Date().toISOString()
   });
   setSetting(CONFIG_KEY, JSON.stringify(next));
@@ -109,15 +121,24 @@ export function saveAdsConfig(patch: Partial<AdsConfig>): AdsConfig {
 export function saveCampaigns(system: AdsSystem, list: CampaignInfo[], at: string): void {
   const d = getDb();
   const up = d.prepare(`
-    INSERT INTO ads_campaigns (system, id, name, type, status, budget, bidding, target_roas, updated_at)
-    VALUES (@system, @id, @name, @type, @status, @budget, @bidding, @targetRoas, @at)
+    INSERT INTO ads_campaigns (system, id, name, type, status, budget, bidding, target_roas, updated_at,
+      budget_id, budget_shared, limited)
+    VALUES (@system, @id, @name, @type, @status, @budget, @bidding, @targetRoas, @at,
+      @budgetId, @budgetShared, @limited)
     ON CONFLICT(system, id) DO UPDATE SET
       name = excluded.name, type = excluded.type, status = excluded.status, budget = excluded.budget,
-      bidding = excluded.bidding, target_roas = excluded.target_roas, updated_at = excluded.updated_at
+      bidding = excluded.bidding, target_roas = excluded.target_roas, updated_at = excluded.updated_at,
+      budget_id = excluded.budget_id, budget_shared = excluded.budget_shared, limited = excluded.limited
     WHERE excluded.updated_at >= ads_campaigns.updated_at
   `);
   d.transaction(() => {
-    for (const one of list) up.run({ system, ...one, at });
+    for (const one of list) {
+      up.run({
+        system, id: one.id, name: one.name, type: one.type, status: one.status, budget: one.budget,
+        bidding: one.bidding, targetRoas: one.targetRoas, at,
+        budgetId: one.budgetId ?? '', budgetShared: one.budgetShared ? 1 : 0, limited: one.limited ? 1 : 0
+      });
+    }
   })();
 }
 
@@ -294,7 +315,8 @@ export function syncStats(system: AdsSystem = 'google'): number {
      UNION SELECT DISTINCT substr(date, 1, 7) FROM ads_product_day WHERE system = ?`
   ).all(system, system) as any[]).map(r => String(r.m)).filter(Boolean);
   const campaigns = (d.prepare(
-    'SELECT id, name, type, status, budget, bidding, target_roas AS targetRoas, updated_at FROM ads_campaigns WHERE system = ?'
+    `SELECT id, name, type, status, budget, bidding, target_roas AS targetRoas, updated_at,
+       budget_id AS budgetId, budget_shared AS budgetShared, limited FROM ads_campaigns WHERE system = ?`
   ).all(system) as any[]);
   const campaignsAt = campaigns.reduce((max, one) => (one.updated_at > max ? one.updated_at : max), '');
   const latestMonth = months.sort().slice(-1)[0];

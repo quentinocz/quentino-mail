@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS ads_campaigns (
   -- Cílové ROAS jako násobek (3.5 = 350 %); NULL = bez cíle
   target_roas REAL,
   updated_at TEXT NOT NULL DEFAULT '',
+  budget_id TEXT NOT NULL DEFAULT '',
+  budget_shared INTEGER NOT NULL DEFAULT 0,
+  limited INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (system, id)
 );
 
@@ -69,10 +72,77 @@ CREATE TABLE IF NOT EXISTS ads_runs (
   error TEXT NOT NULL DEFAULT ''
 );
 
+-- Hledané dotazy za posledních 30 dní, sečtené po kampani. Přepisují se
+-- při každém stažení celé — jde jen o podklad pro vylučující slova.
+CREATE TABLE IF NOT EXISTS ads_search_terms (
+  system TEXT NOT NULL,
+  campaign_id TEXT NOT NULL,
+  term TEXT NOT NULL,
+  clicks INTEGER NOT NULL DEFAULT 0,
+  impressions INTEGER NOT NULL DEFAULT 0,
+  cost REAL NOT NULL DEFAULT 0,
+  conversions REAL NOT NULL DEFAULT 0,
+  value REAL NOT NULL DEFAULT 0,
+  fetched_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (system, campaign_id, term)
+);
+
+-- Návrhy změn. Operace jsou v absolutních hodnotách („rozpočet 900 → 1 080"),
+-- ne v rozdílech: dva Macy, které by tentýž návrh provedly, tak udělají
+-- totéž jednou, ne dvakrát.
+CREATE TABLE IF NOT EXISTS ads_proposals (
+  id TEXT PRIMARY KEY,
+  fingerprint TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',
+  system TEXT NOT NULL DEFAULT 'google',
+  target_id TEXT NOT NULL DEFAULT '',
+  target_name TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  why TEXT NOT NULL DEFAULT '',
+  impact REAL NOT NULL DEFAULT 0,
+  confidence INTEGER NOT NULL DEFAULT 1,
+  ops_json TEXT NOT NULL DEFAULT '[]',
+  -- open | approved | applied | dismissed | snoozed | never | failed | stale
+  status TEXT NOT NULL DEFAULT 'open',
+  snooze_until TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT '',
+  decided_by TEXT NOT NULL DEFAULT ''
+);
+
+-- Deník změn v účtech. Řádek se nikdy nepřepisuje: vrácení je nová změna
+-- s odkazem na tu původní (revert_of). Díky tomu si Macy deníky jen
+-- sjednocují a nemohou si navzájem přepsat historii.
+CREATE TABLE IF NOT EXISTS ads_changes (
+  id TEXT PRIMARY KEY,
+  proposal_id TEXT NOT NULL DEFAULT '',
+  revert_of TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',
+  system TEXT NOT NULL DEFAULT 'google',
+  target_id TEXT NOT NULL DEFAULT '',
+  target_name TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '',
+  ops_json TEXT NOT NULL DEFAULT '[]',
+  -- Co vrátí změnu zpět (u nových vylučujících slov jejich resourceName)
+  undo_json TEXT NOT NULL DEFAULT '[]',
+  at TEXT NOT NULL DEFAULT '',
+  device TEXT NOT NULL DEFAULT ''
+);
+
 -- Rejstříky jen nad sloupci, které tabulky mají od založení. Nad sloupci
 -- doplněnými ALTERem by shodily migraci staré databáze (viz migrate-test).
 CREATE INDEX IF NOT EXISTS idx_ads_campaign_day_date ON ads_campaign_day(date);
 CREATE INDEX IF NOT EXISTS idx_ads_product_day_date ON ads_product_day(date);
 `;
 
-export const ALTERS: string[] = [];
+/*
+ * Doplněno ve fázi 2: k čemu patří rozpočet (u sdíleného se nesahá, změnil
+ * by se i jiným kampaním) a jestli kampaň brzdí rozpočet — jen taková
+ * dostane návrh na přidání peněz.
+ */
+export const ALTERS: string[] = [
+  "ALTER TABLE ads_campaigns ADD COLUMN budget_id TEXT NOT NULL DEFAULT ''",
+  'ALTER TABLE ads_campaigns ADD COLUMN budget_shared INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE ads_campaigns ADD COLUMN limited INTEGER NOT NULL DEFAULT 0'
+];

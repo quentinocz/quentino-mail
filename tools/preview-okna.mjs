@@ -441,6 +441,7 @@ for (const okno of OKNA) {
     { label: 'Dnes', must: '.ad-kpis', shot: 'reklamy-dnes' },
     { label: 'Kampaně', must: '.ad-table', shot: 'reklamy-kampane' },
     { label: 'Produkty', must: '.ad-map', shot: 'reklamy-produkty' },
+    { label: 'Návrhy', must: '.ad-prop', shot: 'reklamy-navrhy' },
     { label: 'Nastavení', must: '.ad-settings', shot: 'reklamy-nastaveni' }
   ];
   for (const tab of tabs) {
@@ -469,6 +470,19 @@ for (const okno of OKNA) {
     `${tecek} teček, ${tlumene} ztlumených`);
   say('  a tabulka ukáže jen žrouty', radku > 0 && await page.locator('.ad-ptable tbody .ad-seg:not(.zrouti)').count() === 0,
     `${radku} řádků`);
+  // Dnes: nahoře „Čeká na tebe" se třemi návrhy a odkazem na ostatní
+  await page.locator('.ad-tabs button', { hasText: 'Dnes' }).click();
+  await page.waitForSelector('.ad-side .ad-prop', { timeout: 4000 }).catch(() => {});
+  say('Reklamy › Dnes: „Čeká na tebe" ukazuje tři návrhy a odkaz na všechny',
+    await page.locator('.ad-side .ad-prop').count() === 3 && await page.locator('.ad-more-link').isVisible(),
+    `${await page.locator('.ad-side .ad-prop').count()} karet`);
+  // Záložka Návrhy: číslo u záložky, tlačítka u karty, historie s vrácením
+  await page.locator('.ad-tabs button', { hasText: 'Návrhy' }).click();
+  await page.waitForSelector('.ad-proposals', { timeout: 4000 }).catch(() => {});
+  say('Reklamy › Návrhy: počet u záložky, Použít u každé karty a Vrátit v historii',
+    (await page.locator('.ad-count').innerText().catch(() => '')) === '4'
+      && await page.locator('.ad-prop-list .ad-prop button', { hasText: 'Použít' }).count() === 4
+      && await page.locator('.ad-history button', { hasText: 'Vrátit' }).count() === 2);
   await page.close();
 }
 

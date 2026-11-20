@@ -734,6 +734,16 @@ export function registerIpc() {
   handle('ads:customers', () => ads.googleCustomers());
   handle('ads:fetch', (days?: number) => ads.fetchGoogle(days ? Number(days) : undefined));
   handle('ads:feed', () => ads.publishFeed());
+  // Fáze 2: návrhy změn — zápis do účtu jen po kliknutí na Použít
+  handle('ads:proposals', () => ads.proposals());
+  handle('ads:engine', () => ads.runEngine());
+  handle('ads:apply', (id: string) => ads.applyProposal(String(id ?? '')));
+  handle('ads:decide', (id: string, decision: string) => {
+    const ok = ['approve', 'dismiss', 'snooze', 'never', 'reopen'];
+    if (!ok.includes(decision)) throw new Error('Neznámé rozhodnutí.');
+    return ads.decideProposal(String(id ?? ''), decision as any);
+  });
+  handle('ads:revert', (id: string) => ads.revertChange(String(id ?? '')));
 
   handle('webtexts:state', () => webtexts.webTextsState());
   // Otevření modulu se ptá webu — pravda je ve vystaveném souboru

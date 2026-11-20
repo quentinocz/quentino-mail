@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod,
-  AdsGoogleCustomer, AdsConfig, AdsSystemTile
+  AdsGoogleCustomer, AdsConfig, AdsSystemTile, AdsProposals, AdsProposal, AdsChange, AdsGuards
 } from '@shared/ads';
 import { SEGMENT_LABELS } from '@shared/ads';
 import { api } from '../api';
@@ -19,12 +19,12 @@ import { inToolWindow } from '../toolwindows';
  * tržba, ne ROAS. Tržba bez marže v e-shopu, kde jedna věc má marži 80 %
  * a jiná 30 %, o úspěchu reklamy nic neříká.
  *
- * Návrhy změn a autopilot přijdou až po tom, co se na skutečných datech
- * ukáže, že čísla sedí. Proto okno nemá žádné tlačítko, které by do účtu
- * něco zapsalo.
+ * Do účtu se zapisuje jen přes návrh, který člověk potvrdí tlačítkem
+ * Použít — a každá provedená změna jde vrátit. Autopilot přijde až po
+ * tom, co se ukáže, že odhady návrhů vycházejí.
  */
 
-type Tab = 'today' | 'campaigns' | 'products' | 'settings';
+type Tab = 'today' | 'campaigns' | 'products' | 'proposals' | 'settings';
 
 const SYSTEM_LABEL: Record<string, string> = { google: 'Google Ads', sklik: 'Sklik', meta: 'Meta' };
 const SYSTEM_SHORT: Record<string, string> = { google: 'G', sklik: 'S', meta: 'M' };
@@ -113,12 +113,15 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
   const [overview, setOverview] = useState<AdsOverview | null>(null);
   const [campaigns, setCampaigns] = useState<AdsCampaignRow[] | null>(null);
   const [products, setProducts] = useState<AdsProducts | null>(null);
+  const [proposals, setProposals] = useState<AdsProposals | null>(null);
   const [busy, setBusy] = useState('');
 
   const load = useCallback(async () => {
     try {
       const st = await api.ads.status();
       setStatus(st);
+      // Návrhy se načítají vždy — číslo u záložky a „Čeká na tebe" v Dnes
+      setProposals(await api.ads.proposals());
       if (tab === 'today') setOverview(await api.ads.overview(days));
       if (tab === 'campaigns') setCampaigns(await api.ads.campaigns(days));
       if (tab === 'products') setProducts(await api.ads.products(days));
@@ -156,10 +159,13 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
             <button className={tab === 'today' ? 'active' : ''} onClick={() => setTab('today')}>Dnes</button>
             <button className={tab === 'campaigns' ? 'active' : ''} onClick={() => setTab('campaigns')}>Kampaně</button>
             <button className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>Produkty</button>
+            <button className={tab === 'proposals' ? 'active' : ''} onClick={() => setTab('proposals')}>
+              Návrhy{proposals && proposals.open.length > 0 && <b className="ad-count">{proposals.open.length}</b>}
+            </button>
             <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Nastavení</button>
           </div>
           <span style={{ flex: 1 }} />
-          {tab !== 'settings' && (
+          {tab !== 'settings' && tab !== 'proposals' && (
             <select className="ad-period" value={days} onChange={e => setDays(Number(e.target.value))}
               data-tip="Období končí včerejškem — dnešek je rozdělaný a srovnával by se celý den s půlkou">
               <option value={7}>7 dní</option>
@@ -182,7 +188,13 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
         {status && <StatusLine status={status} />}
 
         <div className="ad-body">
-          {tab === 'today' && <Today overview={overview} status={status} onSettings={() => setTab('settings')} />}
+          {tab === 'today' && (
+            <Today overview={overview} status={status} proposals={proposals} onSettings={() => setTab('settings')}
+              onProposals={() => setTab('proposals')} onChanged={load} />
+          )}
+          {tab === 'proposals' && status && (
+            <Proposals data={proposals} status={status} onChanged={load} busy={busy} setBusy={setBusy} />
+          )}
           {tab === 'campaigns' && <Campaigns rows={campaigns} />}
           {tab === 'products' && <Products data={products} />}
           {tab === 'settings' && status && (
@@ -202,7 +214,7 @@ function StatusLine({ status }: { status: AdsStatus }) {
     <div className="ad-status">
       <span className={`ad-dot ${status.google.lastError ? 'bad' : run ? 'ok' : ''}`} />
       <span>
-        <b>Fáze 1 — jen čte, v účtech nic nemění.</b>{' '}
+        <b>Mění jen to, co schválíš — každá změna jde vrátit.</b>{' '}
         {run
           ? <>Noční běh {relTime(run.finishedAt)} ({run.device.replace(/\s*\([^)]*\)$/, '')}){run.error ? ` — chyba: ${run.error}` : ''}</>
           : 'Noční běh zatím neproběhl.'}
@@ -217,8 +229,9 @@ function StatusLine({ status }: { status: AdsStatus }) {
 
 /* ---------- Dnes ---------- */
 
-function Today({ overview, status, onSettings }: {
-  overview: AdsOverview | null; status: AdsStatus | null; onSettings: () => void;
+function Today({ overview, status, proposals, onSettings, onProposals, onChanged }: {
+  overview: AdsOverview | null; status: AdsStatus | null; proposals: AdsProposals | null;
+  onSettings: () => void; onProposals: () => void; onChanged: () => void;
 }) {
   if (!overview) return <div className="ad-empty">Načítám…</div>;
   const o = overview;
@@ -302,6 +315,19 @@ function Today({ overview, status, onSettings }: {
       </div>
 
       <div className="ad-side">
+        {proposals && proposals.open.length > 0 && status && (
+          <>
+            <div className="ad-side-head">
+              <b>Čeká na tebe</b><span style={{ flex: 1 }} /><span className="muted small">seřazeno podle zisku</span>
+            </div>
+            {proposals.open.slice(0, 3).map(p => (
+              <ProposalCard key={p.id} p={p} status={status} compact onChanged={onChanged} />
+            ))}
+            {proposals.open.length > 3 && (
+              <button className="linkish ad-more-link" onClick={onProposals}>Všechny návrhy ({proposals.open.length})</button>
+            )}
+          </>
+        )}
         <div className="ad-side-head"><b>Co je potřeba vědět</b></div>
         {o.alerts.length === 0 && <div className="ad-card ad-alert ok">Data sedí a nic nehoří.</div>}
         {o.alerts.map((one, i) => (
@@ -310,15 +336,19 @@ function Today({ overview, status, onSettings }: {
             <div>{one.text}</div>
           </div>
         ))}
-        <div className="ad-card ad-gate">
-          <b>Než přijdou návrhy změn</b>
-          <div className="muted">
-            Návrhy a autopilot se zapnou, až se ukáže, že čísla sedí: <b>14 dní</b> dat z Google Ads
-            spárovaných s objednávkami.
+        {(proposals?.dataDays ?? daysWithAds) < 14 ? (
+          <div className="ad-card ad-gate">
+            <b>Než přijdou návrhy změn</b>
+            <div className="muted">
+              Návrhy se začnou počítat, až bude aspoň <b>14 dní</b> dat z Google Ads spárovaných s objednávkami.
+              První stažení vezme 90 dní zpětně, takže to bývá hned.
+            </div>
+            <div className="ad-bar"><i style={{ width: `${Math.min(100, ((proposals?.dataDays ?? daysWithAds) / 14) * 100)}%` }} /></div>
+            <div className="muted small">{Math.min(proposals?.dataDays ?? daysWithAds, 14)} ze 14 dní</div>
           </div>
-          <div className="ad-bar"><i style={{ width: `${Math.min(100, (daysWithAds / 14) * 100)}%` }} /></div>
-          <div className="muted small">{Math.min(daysWithAds, 14)} ze 14 dní</div>
-        </div>
+        ) : (
+          <TrackCard proposals={proposals} />
+        )}
         {o.estimatedOrders > 0 && (
           <div className="muted small ad-note">
             U {o.estimatedOrders} objednávek chyběla nákupní cena některé položky — marže je u nich odhadnutá podle kategorie.
@@ -523,7 +553,274 @@ function Products({ data }: { data: AdsProducts | null }) {
   );
 }
 
+/* ---------- Návrhy ---------- */
+
+const KIND_LABEL: Record<string, string> = {
+  'budget-up': 'Rozpočet', 'budget-down': 'Rozpočet', 'roas-up': 'Cílové ROAS', 'roas-down': 'Cílové ROAS',
+  'roas-set': 'Cílové ROAS', negatives: 'Vylučující slova', exclude: 'Produkty'
+};
+
+function Confidence({ n }: { n: number }) {
+  const label = ['', 'málo dat', 'dost dat', 'hodně dat', 'velmi spolehlivé'][n] ?? '';
+  return (
+    <span className="ad-conf" data-tip={`Jistota: ${label}`}>
+      {[1, 2, 3, 4].map(i => <i key={i} className={i <= n ? 'on' : ''} />)}
+    </span>
+  );
+}
+
+/** Úspěšnost dřívějších návrhů — podle ní se jednou zapne autopilot */
+function TrackCard({ proposals }: { proposals: AdsProposals | null }) {
+  const t = proposals?.track;
+  return (
+    <div className="ad-card ad-gate">
+      <b>Jak vycházejí návrhy</b>
+      {t && t.evaluated > 0 ? (
+        <>
+          <div className="muted">
+            Z {t.evaluated} vyhodnocených změn vyšlo <b>{t.better}</b> (zisk kampaně 14 dní po změně neklesl).
+            Autopilot v mezích se nabídne, až to bude aspoň 70 % po 4 týdnech.
+          </div>
+          <div className="ad-bar"><i style={{ width: `${Math.round((t.better / t.evaluated) * 100)}%` }} /></div>
+        </>
+      ) : (
+        <div className="muted">Každá provedená změna se po 14 dnech vyhodnotí. Zatím žádná vyhodnocená není.</div>
+      )}
+    </div>
+  );
+}
+
+function needsGoogle(p: AdsProposal): boolean {
+  return p.ops.some(op => op.kind !== 'exclude');
+}
+
+/** Co se přesně změní — řádek po operaci */
+function OpsList({ p }: { p: AdsProposal }) {
+  return (
+    <ul className="ad-ops">
+      {p.ops.map((op, i) => {
+        switch (op.kind) {
+          case 'budget':
+            return <li key={i}>Denní rozpočet <b>{kc(op.from)}</b> → <b>{kc(op.to)}</b></li>;
+          case 'troas':
+            return <li key={i}>Cílové ROAS <b>{op.from == null ? 'bez cíle' : `${Math.round(op.from * 100)} %`}</b> → <b>{op.to ? `${Math.round(op.to * 100)} %` : 'bez cíle'}</b></li>;
+          case 'negative':
+            return <li key={i}>Vyloučit „<b>{op.text}</b>" (frázová shoda) <span className="muted">· {op.clicks} kliků, {kc(op.cost)}</span></li>;
+          case 'exclude':
+            return <li key={i}>Vyřadit {op.codes.length} produktů na {op.days} dní: <span className="muted">{op.codes.slice(0, 8).join(', ')}{op.codes.length > 8 ? '…' : ''}</span></li>;
+          default:
+            return null;
+        }
+      })}
+    </ul>
+  );
+}
+
+function ProposalCard({ p, status, compact = false, onChanged }: {
+  p: AdsProposal; status: AdsStatus; compact?: boolean; onChanged: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(!compact);
+  const viaOther = needsGoogle(p) && !status.google.connected;
+  const act = async (fn: () => Promise<unknown>, done: string) => {
+    setBusy(true);
+    try { await fn(); toast(done, 'info'); onChanged(); } catch (e: any) { toast(e.message, 'error'); onChanged(); } finally { setBusy(false); }
+  };
+  return (
+    <div className={`ad-card ad-prop ${p.status}`}>
+      <div className="ad-prop-top">
+        <span className="ad-chip">{KIND_LABEL[p.kind] ?? p.kind}</span>
+        <span className={`ad-chip ${p.impact >= 0 ? 'ok' : 'warn'}`}
+          data-tip="Odhad změny zisku po reklamě za 30 dní">
+          {p.impact >= 0 ? '+' : '−'}{kc(Math.abs(p.impact))} / 30 dní{p.impact < 0 ? ' · drží cíl' : ''}
+        </span>
+        <Confidence n={p.confidence} />
+      </div>
+      <div className="ad-prop-title">{p.title}</div>
+      {open && <div className="ad-prop-why">{p.why}</div>}
+      {open && <OpsList p={p} />}
+      {p.error && <div className="ad-prop-err">{p.error}</div>}
+      <div className="ad-prop-btns">
+        <button className="btn primary small" disabled={busy}
+          data-tip={viaOther ? 'Tenhle Mac není přihlášený ke Google Ads — změnu provede přihlášený Mac do deseti minut' : 'Provede změnu v účtu. Jde vrátit v Historii změn.'}
+          onClick={() => act(() => api.ads.apply(p.id), viaOther ? 'Schváleno — provede to přihlášený Mac' : 'Změna je v účtu')}>
+          {viaOther ? 'Schválit' : 'Použít'}
+        </button>
+        {compact && !open && <button className="btn ghost small" onClick={() => setOpen(true)}>Proč</button>}
+        <button className="btn ghost small" disabled={busy}
+          onClick={() => act(() => api.ads.decide(p.id, 'snooze'), 'Odloženo na týden')}>Odložit</button>
+        {!compact && (
+          <>
+            <button className="btn ghost small" disabled={busy}
+              onClick={() => act(() => api.ads.decide(p.id, 'dismiss'), 'Zamítnuto — dva týdny se nenabídne')}>Zamítnout</button>
+            <button className="btn ghost small" disabled={busy}
+              data-tip="Tenhle druh návrhu pro tuhle kampaň už nenabízet"
+              onClick={() => act(() => api.ads.decide(p.id, 'never'), 'Tohle už se navrhovat nebude')}>Nenavrhovat</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const VERDICT: Record<string, { label: string; cls: string }> = {
+  better: { label: 'vyšlo', cls: 'ok' }, same: { label: 'beze změny', cls: '' },
+  worse: { label: 'nevyšlo', cls: 'bad' }, pending: { label: 'vyhodnotí se po 14 dnech', cls: '' }
+};
+
+function ChangeRow({ c, status, onChanged }: { c: AdsChange; status: AdsStatus; onChanged: () => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const ev = c.evaluation;
+  const canRevert = !c.revertOf && !c.revertedAt && (status.google.connected || c.undo.every(op => op.kind === 'exclude-remove'));
+  return (
+    <div className={`ad-change ${c.revertedAt ? 'reverted' : ''}`}>
+      <div className="ad-change-main">
+        <div className="ad-change-title">{c.title}</div>
+        <div className="muted small">
+          {new Date(c.at).toLocaleString('cs-CZ')} · {c.device.replace(/\s*\([^)]*\)$/, '')}
+          {c.revertedAt ? ` · vráceno ${new Date(c.revertedAt).toLocaleDateString('cs-CZ')}` : ''}
+        </div>
+        {ev && !c.revertOf && (
+          <div className="small">
+            <span className={`ad-chip ${VERDICT[ev.verdict].cls}`}>{VERDICT[ev.verdict].label}</span>{' '}
+            {ev.verdict !== 'pending' && <span className="muted">zisk kampaně {kc(ev.before)} → {kc(ev.after)} denně</span>}
+          </div>
+        )}
+      </div>
+      {canRevert && (
+        <button className="btn ghost small" disabled={busy} onClick={async () => {
+          setBusy(true);
+          try { await api.ads.revert(c.id); toast('Vráceno', 'info'); } catch (e: any) { toast(e.message, 'error'); }
+          finally { setBusy(false); onChanged(); }
+        }}>Vrátit</button>
+      )}
+    </div>
+  );
+}
+
+function Proposals({ data, status, onChanged, busy, setBusy }: {
+  data: AdsProposals | null; status: AdsStatus; onChanged: () => void; busy: string; setBusy: (s: string) => void;
+}) {
+  const toast = useToast();
+  if (!data) return <div className="ad-empty">Načítám…</div>;
+  const recompute = async () => {
+    setBusy('engine');
+    try {
+      const fresh = await api.ads.engine();
+      toast(fresh ? `${fresh} nových návrhů` : 'Žádné nové návrhy', 'info');
+      onChanged();
+    } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(''); }
+  };
+  return (
+    <div className="ad-proposals">
+      <div className="ad-prop-list">
+        <div className="ad-prop-head">
+          <b>Návrhy</b>
+          <span className="muted small">
+            {data.generatedAt ? `spočítané ${relTime(data.generatedAt)}` : 'zatím nespočítané'} · seřazené podle dopadu na zisk
+          </span>
+          <span style={{ flex: 1 }} />
+          <button className="btn ghost small" onClick={recompute} disabled={!!busy}
+            data-tip="Přepočítá návrhy z dat, která už aplikace má. Nová data přinese Načíst data.">
+            <Icon name="refresh" size={13} className={busy === 'engine' ? 'spinning' : undefined} /> Přepočítat návrhy
+          </button>
+        </div>
+        {data.dataDays < 14 && (
+          <div className="ad-card ad-alert info">
+            <b>Málo dat</b>
+            <div>Návrhy chtějí aspoň 14 dní dat z Google Ads (teď {data.dataDays}). Načti data v hlavičce okna.</div>
+          </div>
+        )}
+        {data.dataDays >= 14 && data.open.length === 0 && (
+          <div className="ad-card ad-alert ok">Teď není co měnit — kampaně jsou v mezích cíle.</div>
+        )}
+        {data.open.map(p => <ProposalCard key={p.id} p={p} status={status} onChanged={onChanged} />)}
+        {data.waiting.length > 0 && (
+          <>
+            <div className="ad-prop-head"><b>Schválené, čekají na přihlášený Mac</b></div>
+            {data.waiting.map(p => (
+              <div key={p.id} className="ad-card ad-prop approved">
+                <div className="ad-prop-title">{p.title}</div>
+                <div className="muted small">Schválil {p.decidedBy.replace(/\s*\([^)]*\)$/, '')} · provede se do deseti minut na Macu přihlášeném ke Google Ads.</div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+      <div className="ad-history">
+        <div className="ad-prop-head"><b>Historie změn</b></div>
+        <div className="ad-card ad-history-list">
+          {data.changes.length === 0 && <div className="muted small ad-pad">Zatím se v účtu nic neměnilo.</div>}
+          {data.changes.map(c => <ChangeRow key={c.id} c={c} status={status} onChanged={onChanged} />)}
+        </div>
+        {data.excluded.length > 0 && (
+          <>
+            <div className="ad-prop-head"><b>Vyřazené produkty</b><span className="muted small">custom_label_2 = vyradit</span></div>
+            <div className="ad-card ad-pad small">
+              {data.excluded.slice(0, 30).map(e => (
+                <span key={e.code} className="ad-chip" data-tip={`Vrátí se ${new Date(e.until).toLocaleDateString('cs-CZ')}`}>{e.code}</span>
+              ))}
+            </div>
+          </>
+        )}
+        {data.decided.length > 0 && (
+          <>
+            <div className="ad-prop-head"><b>Rozhodnuté návrhy</b></div>
+            <div className="ad-card ad-history-list">
+              {data.decided.slice(0, 15).map(p => (
+                <div key={p.id} className="ad-change">
+                  <div className="ad-change-main">
+                    <div className="ad-change-title">{p.title}</div>
+                    <div className="muted small">
+                      {({ applied: 'provedeno', dismissed: 'zamítnuto', snoozed: 'odloženo', never: 'nenavrhovat', stale: 'zastaralé', failed: 'nepovedlo se', open: 'otevřené', approved: 'schválené' } as Record<string, string>)[p.status]}
+                      {p.error ? ` · ${p.error}` : ''}
+                    </div>
+                  </div>
+                  {['dismissed', 'snoozed', 'never'].includes(p.status) && (
+                    <button className="btn ghost small" onClick={async () => { await api.ads.decide(p.id, 'reopen').catch(() => {}); onChanged(); }}>Znovu nabídnout</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Nastavení ---------- */
+
+function GuardsSection({ guards, onSave }: { guards: AdsGuards; onSave: (g: AdsGuards) => void }) {
+  const [g, setG] = useState(guards);
+  useEffect(() => setG(guards), [guards]);
+  const field = (key: keyof AdsGuards, label: string, unit: string, scale = 1) => (
+    <label className="ad-inline">
+      {label}
+      <input type="number" min={0} value={Math.round(g[key] * scale)}
+        onChange={e => setG({ ...g, [key]: (Number(e.target.value) || 0) / scale })}
+        onBlur={() => onSave(g)} />
+      {unit}
+    </label>
+  );
+  return (
+    <section className="ad-card ad-set">
+      <h3>Pojistky</h3>
+      <p className="muted small">
+        Malé kroky a dost dat. Chytré nabízení Googlu se po každé změně týden učí — velký skok ho rozhodí víc, než pomůže.
+      </p>
+      <div className="ad-guards">
+        {field('maxBudgetStep', 'Rozpočet jedním návrhem nejvýš o', '%', 100)}
+        {field('maxRoasStep', 'Cílové ROAS jedním návrhem nejvýš o', '%', 100)}
+        {field('cooldownDays', 'Kampaň po změně v klidu', 'dní')}
+        {field('minConversions', 'Měnit cíl až od', 'konverzí / 30 dní')}
+        {field('monthlyBudget', 'Strop útraty za měsíc', 'Kč (0 = bez stropu)')}
+      </div>
+    </section>
+  );
+}
 
 function Settings({ status, onStatus, busy, setBusy }: {
   status: AdsStatus; onStatus: (s: AdsStatus) => void; busy: string; setBusy: (s: string) => void;
@@ -698,6 +995,8 @@ function Settings({ status, onStatus, busy, setBusy }: {
         </div>
       </section>
 
+      <GuardsSection guards={cfg.guards} onSave={guards => save({ guards }, 'Pojistky uložené')} />
+
       <section className="ad-card ad-set">
         <h3>Doprava</h3>
         <p className="muted small">
@@ -732,6 +1031,10 @@ function Settings({ status, onStatus, busy, setBusy }: {
           Doplňkový feed s <code>custom_label_0</code> = segment (hvezdy, pracanti, zrouti…) a <code>custom_label_1</code> = pásmo
           marže. V Merchant Center: <b>Produkty → Feedy → Doplňkové feedy → Přidat</b>, plánované načítání z adresy níže,
           jednou denně. Pak jde v kampani rozdělit produkty podle segmentu.
+        </p>
+        <p className="muted small">
+          Vyřazení žroutů jde přes <code>custom_label_2 = vyradit</code>. V Performance Max (skupina položek) nebo v Nákupech
+          tuhle hodnotu <b>jednou</b> vylouč — pak se produkty vyřazují a po 30 dnech vracejí jen změnou feedu.
         </p>
         {status.feedUrl
           ? <div className="ad-feedurl"><code>{status.feedUrl}</code>

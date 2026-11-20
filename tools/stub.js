@@ -724,6 +724,7 @@
     'ads:status': {
       config: { targetProfitShare: 0.5, convValueWithVat: true, vat: { cz: 21, sk: 23, en: 21 }, eurRate: 25,
         markets: ['cz'], shipping: [], defaultShipCost: 79, fallbackMargin: 0.6, autonomy: 'suggest',
+        guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
         google: { customerId: '1234567890', customerName: 'Quentino CZ', loginCustomerId: '', clientId: 'x.apps.googleusercontent.com',
           apiVersion: 'v26', currency: 'CZK' }, feedToken: 'a1b2c3', updatedAt: '2026-11-19T10:00:00Z' },
       google: { connected: true, hasSecret: true, account: 'Quentino CZ', lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
@@ -792,6 +793,49 @@
       return { from: '2026-10-21', to: '2026-11-19', rows: rows,
         counts: { hvezdy: 38, pracanti: 214, zrouti: 12, spici: 611, novinky: 27, doprodej: 44, vyprodano: 429 },
         unmatched: [{ itemId: 'ps99old', cost: 120 }] };
+    })(),
+    'ads:proposals': (function () {
+      var now = new Date().toISOString();
+      var p = function (id, kind, title, why, impact, conf, ops) {
+        return { id: id, fingerprint: kind + '|google|' + id, kind: kind, system: 'google', targetId: id, targetName: '',
+          title: title, why: why, impact: impact, confidence: conf, ops: ops, status: 'open', snoozeUntil: '', error: '',
+          createdAt: now, updatedAt: now, decidedBy: '' };
+      };
+      return {
+        open: [
+          p('1', 'budget-up', 'Přidat rozpočet: PMax – celý katalog CZ 1 100 Kč → 1 320 Kč denně',
+            'Kampaň brzdí rozpočet a má PNO 12,7 % při cíli 15 % (188 konverzí za 30 dní). Další koruna vydělá méně než průměrná — odhad počítá s PNO 17,1 %.',
+            9800, 4, [{ kind: 'budget', campaignId: '1', budgetId: '77', from: 1100, to: 1320 }]),
+          p('2', 'negatives', 'Vyloučit 4 slova v kampani Vyhledávání – Kšandy',
+            'Dotazy s „bazar", „návod", „použité", „zdarma" stály za 30 dní 1 420 Kč bez jediné objednávky. Slova z názvů produktů a z dotazů, které prodaly, se nevylučují nikdy.',
+            1280, 3, [
+              { kind: 'negative', campaignId: '2', text: 'bazar', match: 'PHRASE', cost: 520, clicks: 88 },
+              { kind: 'negative', campaignId: '2', text: 'návod', match: 'PHRASE', cost: 410, clicks: 71 },
+              { kind: 'negative', campaignId: '2', text: 'použité', match: 'PHRASE', cost: 300, clicks: 64 },
+              { kind: 'negative', campaignId: '2', text: 'zdarma', match: 'PHRASE', cost: 190, clicks: 66 }]),
+          p('3', 'exclude', 'Vyřadit 12 žroutů z produktových kampaní na 30 dní',
+            'Za 30 dní stály 2 900 Kč a na zisku po reklamě skončily na −1 150 Kč. Vyřazení jde přes doplňkový feed (custom_label_2 = vyradit); po 30 dnech se vrátí samy a dostanou novou šanci.',
+            1150, 2, [{ kind: 'exclude', codes: ['PZ01', 'PZ02', 'PZ03', 'PZ04', 'PZ05', 'PZ06', 'PZ07', 'PZ08', 'PZ09', 'PZ10', 'PZ11', 'PZ12'], days: 30 }]),
+          p('4', 'roas-up', 'Přísnější cíl: Nákupy – Ponožky cílové ROAS 400 % → 460 %',
+            'PNO 72,2 % je nad cílem 15 % (marže 65 % − požadovaný zisk). Na cíl by bylo potřeba ROAS 807 %; krok je omezený na 15 %, aby se chytré nabízení nerozhodilo.',
+            -420, 1, [{ kind: 'troas', campaignId: '4', field: 'maximize_conversion_value', from: 4, to: 4.6 }])
+        ],
+        waiting: [],
+        decided: [Object.assign(p('9', 'budget-down', 'Ubrat rozpočet: Brand 80 Kč → 64 Kč denně', '', 300, 1, []), { status: 'dismissed' })],
+        changes: [
+          { id: 'c1', proposalId: 'x', revertOf: '', kind: 'roas-up', system: 'google', targetId: '3', targetName: 'Motýlky',
+            title: 'Přísnější cíl: Vyhledávání – Motýlky a kravaty cílové ROAS 500 % → 575 %', ops: [], undo: [{ kind: 'troas' }],
+            at: new Date(Date.now() - 20 * 86400e3).toISOString(), device: 'MacBook Patrik (1a2b3c4d)',
+            evaluation: { before: 410, after: 486, days: 14, verdict: 'better' } },
+          { id: 'c2', proposalId: 'y', revertOf: '', kind: 'negatives', system: 'google', targetId: '2', targetName: 'Kšandy',
+            title: 'Vyloučit 3 slova v kampani Vyhledávání – Kšandy', ops: [], undo: [{ kind: 'negative-remove' }],
+            at: new Date(Date.now() - 3 * 86400e3).toISOString(), device: 'MacBook Pro kancelář (9f8e7d6c)' }
+        ],
+        dataDays: 90,
+        track: { evaluated: 5, better: 4 },
+        generatedAt: new Date(Date.now() - 5 * 3600e3).toISOString(),
+        excluded: [{ code: 'PS99', until: '2026-12-15' }, { code: 'PZ00', until: '2026-12-15' }]
+      };
     })(),
     'ads:ship': [
       { name: 'Zásilkovna Z-Box', orders: 812, paidAvg: 57, cost: 62, guessed: true },

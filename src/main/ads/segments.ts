@@ -142,12 +142,19 @@ export function marginBand(margin: number | null): string {
  * které mu poslal hlavní feed, a doplňkový feed s ID, které v hlavním není,
  * prostě ignoruje — takže je bezpečné poslat obojí.
  */
-export function supplementalTsv(rows: { id: string; segment: AdsSegment; band: string }[]): string {
+export function supplementalTsv(rows: { id: string; segment: AdsSegment; band: string; out?: boolean }[]): string {
   const clean = (value: string) => value.replace(/[\t\r\n]+/g, ' ').trim();
-  const lines = ['id\tcustom_label_0\tcustom_label_1'];
+  /*
+   * custom_label_2 = „vyradit" u produktů, které návrh vyřadil z reklam.
+   * V kampani stačí jednou vyloučit tuhle hodnotu — pak se vyřazení
+   * i návrat po 30 dnech dějí jen změnou feedu, bez sahání do kampaně.
+   * Prázdná hodnota u ostatních je nutná: bez ní by produkt, který se
+   * vrátil, držel v Merchant Center starý štítek.
+   */
+  const lines = ['id\tcustom_label_0\tcustom_label_1\tcustom_label_2'];
   for (const row of rows) {
     if (!row.id) continue;
-    lines.push(`${clean(row.id)}\t${row.segment}\t${row.band}`);
+    lines.push(`${clean(row.id)}\t${row.segment}\t${row.band}\t${row.out ? 'vyradit' : ''}`);
   }
   return lines.join('\n') + '\n';
 }

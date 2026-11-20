@@ -13,6 +13,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { db, DIST } = require('./ptrans/harness.cjs');
+// Šifrování klíčenky mimo aplikaci není — hodnoty se ukládají, jak jsou
+const secPath = require.resolve(path.join(DIST, 'secure.js'));
+require.cache[secPath] = { id: secPath, filename: secPath, loaded: true, exports: {
+  encrypt: v => v, decrypt: v => v
+} };
 
 const econ = require(path.join(DIST, 'ads/economics.js'));
 const seg = require(path.join(DIST, 'ads/segments.js'));
@@ -21,6 +26,7 @@ const store = require(path.join(DIST, 'ads/store.js'));
 const schema = require(path.join(DIST, 'ads/schema.js'));
 const { DEFAULT_ADS_CONFIG } = require(path.join(DIST, '../shared/ads.js'));
 
+(async () => {
 let failed = 0;
 function check(label, got, want) {
   const ok = JSON.stringify(got) === JSON.stringify(want);
@@ -131,8 +137,10 @@ check('2 kusy skladem → doprodej', s('LOW'), 'doprodej');
 check('25 kliků bez prodeje ještě není žrout (může to být náhoda)', s('EARLY'), 'spici');
 check('pásmo marže', [seg.marginBand(0.73), seg.marginBand(0.55), seg.marginBand(0.2), seg.marginBand(null)],
   ['marze-70-plus', 'marze-50-70', 'marze-do-30', 'marze-neznama']);
-check('doplňkový feed (TSV)', seg.supplementalTsv([{ id: 'PS120', segment: 'hvezdy', band: 'marze-70-plus' }]),
-  'id\tcustom_label_0\tcustom_label_1\nPS120\thvezdy\tmarze-70-plus\n');
+check('doplňkový feed (TSV) i se štítkem vyřazení', seg.supplementalTsv([
+  { id: 'PS120', segment: 'hvezdy', band: 'marze-70-plus' },
+  { id: 'PZ1', segment: 'zrouti', band: 'marze-30-50', out: true }]),
+  'id\tcustom_label_0\tcustom_label_1\tcustom_label_2\nPS120\thvezdy\tmarze-70-plus\t\nPZ1\tzrouti\tmarze-30-50\tvyradit\n');
 
 /* ---------- odpovědi Google Ads ---------- */
 console.log('\nGoogle Ads: převod odpovědí');
@@ -224,6 +232,173 @@ check('…a převezme sdílené nastavení i jeho adresu feedu',
 fs.rmSync(shared, { recursive: true, force: true });
 db.prepare("UPDATE settings SET value = '0' WHERE key = 'syncEnabled'").run();
 
+/* ---------- engine návrhů ---------- */
+console.log('\nEngine návrhů');
+const engine = require(path.join(DIST, 'ads/engine.js'));
+const ecfg = JSON.parse(JSON.stringify(DEFAULT_ADS_CONFIG));
+const ecamp = (over) => ({ id: '1', name: 'PMax', type: 'PERFORMANCE_MAX', status: 'ENABLED',
+  bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: 6, budget: 1000, budgetId: '77', budgetShared: false,
+  limited: false, cost: 9000, conversions: 60, value: 90000, ...over });
+const einput = (over) => ({ cfg: ecfg, margin: 0.65, targetPno: 0.15, campaigns: [], terms: [],
+  vocabulary: engine.vocabularyOf(['Bordó pánské široké kšandy', 'Tmavě modrý motýlek']),
+  products: [], excluded: new Set(), cooling: new Set(), blocked: new Set(), monthSpend: 0, daysLeft: 20,
+  dataDays: 30, ...over });
+
+// PNO 10 % při cíli 15 % a brzdí ho rozpočet → přidat 20 %
+let out = engine.generate(einput({ campaigns: [ecamp({ limited: true })] }));
+check('rozpočet nahoru: brzdí ho rozpočet a je pod cílem', out.map(o => [o.kind, o.ops[0].from, o.ops[0].to]),
+  [['budget-up', 1000, 1200]]);
+// Přidaných 200 Kč × 30 dní × 80 % = 4 800 Kč; při průměrném PNO 10 % by vydělaly 4 800 / 0,1 × 0,65 − 4 800 = 26 400
+check('  odhad počítá s horší mezní návratností (kladný, ale menší než při průměrném PNO)', out[0].impact > 0 && out[0].impact < 26400, true);
+out = engine.generate(einput({ campaigns: [ecamp({ limited: false })] }));
+check('bez omezení rozpočtem se rozpočet nepřidává', out.some(o => o.kind === 'budget-up'), false);
+out = engine.generate(einput({ campaigns: [ecamp({ limited: true, budgetShared: true })] }));
+check('sdílený rozpočet se nemění', out.some(o => o.kind === 'budget-up'), false);
+const cap = JSON.parse(JSON.stringify(ecfg)); cap.guards.monthlyBudget = 30000;
+out = engine.generate(einput({ cfg: cap, campaigns: [ecamp({ limited: true })], monthSpend: 28000, daysLeft: 2 }));
+check('měsíční strop: přidání, které by ho přetáhlo, se nenavrhne', out.some(o => o.kind === 'budget-up'), false);
+
+// PNO 25 % při cíli 15 %: cíl ROAS 600 % → nejvýš +15 % = 690 %
+out = engine.generate(einput({ campaigns: [ecamp({ cost: 22500 })] }));
+check('nad cílem: přísnější cílové ROAS o nejvýš 15 % (i za cenu části zisku)', out.map(o => [o.kind, o.ops[0].from, Math.round(o.ops[0].to * 100)]),
+  [['roas-up', 6, 690]]);
+check('ROAS pro PNO počítá s hodnotou s DPH (1,21 / 0,15 = 807 %)', Math.round(engine.roasForPno(ecfg, 0.15) * 100), 807);
+out = engine.generate(einput({ campaigns: [ecamp({ cost: 22500, targetRoas: null })] }));
+check('bez cíle: navrhne ho nastavit', out.map(o => o.kind), ['roas-set']);
+out = engine.generate(einput({ campaigns: [ecamp({ cost: 22500, bidding: 'MANUAL_CPC', targetRoas: null })] }));
+check('ruční CPC nad cílem: ubrat rozpočet', out.map(o => [o.kind, o.ops[0].to]), [['budget-down', 800]]);
+out = engine.generate(einput({ campaigns: [ecamp({ cost: 22500, conversions: 8 })] }));
+check('málo konverzí: cíl se nemění', out.some(o => o.kind === 'roas-up'), false);
+out = engine.generate(einput({ campaigns: [ecamp({ cost: 22500 })], cooling: new Set(['1']) }));
+check('týden po změně je kampaň v klidu', out.length, 0);
+out = engine.generate(einput({ campaigns: [ecamp({ cost: 22500 })], blocked: new Set(['roas-up|google|1']) }));
+check('„nenavrhovat" platí', out.length, 0);
+out = engine.generate(einput({ campaigns: [ecamp({ limited: true })], dataDays: 10 }));
+check('pod 14 dní dat se nic nenavrhuje', out.length, 0);
+
+// Vylučující slova
+const search = ecamp({ id: '5', name: 'Kšandy', type: 'SEARCH', bidding: 'MANUAL_CPC', targetRoas: null, cost: 3000, conversions: 30, value: 40000 });
+const eterms = [
+  { campaignId: '5', term: 'kšandy bazar', clicks: 80, cost: 300, conversions: 0 },
+  { campaignId: '5', term: 'kšandy návod', clicks: 70, cost: 260, conversions: 0 },
+  { campaignId: '5', term: 'široké kšandy', clicks: 200, cost: 900, conversions: 12 },
+  { campaignId: '5', term: 'kšandy dětské', clicks: 80, cost: 320, conversions: 0 },
+  { campaignId: '5', term: 'dětské kšandy růžové', clicks: 30, cost: 90, conversions: 2 }
+];
+out = engine.generate(einput({ campaigns: [search], terms: eterms }));
+const neg = out.find(o => o.kind === 'negatives');
+check('vylučující slova z dotazů bez prodeje', neg && neg.ops.map(o => o.text).sort(), ['bazar', 'návod']);
+check('  slovo z názvu produktu („kšandy") se nevylučuje nikdy', neg.ops.some(o => o.text === 'kšandy'), false);
+check('  slovo z dotazu, který prodal („dětské"), taky ne', neg.ops.some(o => o.text === 'dětské'), false);
+
+// Žrouti
+out = engine.generate(einput({ products: [
+  { code: 'A', title: 'x', segment: 'zrouti', cost: 400, profit: -300 },
+  { code: 'B', title: 'y', segment: 'zrouti', cost: 50, profit: -50 },
+  { code: 'C', title: 'z', segment: 'hvezdy', cost: 900, profit: 3000 }] }));
+check('žrouti s útratou nad 150 Kč ven na 30 dní', out.filter(o => o.kind === 'exclude').map(o => o.ops[0].codes), [['A']]);
+
+/* ---------- návrhy, zápis do účtu a vrácení ---------- */
+console.log('\nNávrhy: zápis do Google Ads a vrácení');
+const prop = require(path.join(DIST, 'ads/proposals.js'));
+const draft = { fingerprint: 'budget-up|google|1', kind: 'budget-up', targetId: '1', targetName: 'PMax', title: 'Přidat',
+  why: 'proto', impact: 1200, confidence: 2, ops: [{ kind: 'budget', campaignId: '1', budgetId: '77', from: 1000, to: 1200 }] };
+check('nový návrh se uloží', prop.saveGenerated([draft]), 1);
+const first = prop.proposalsView(0.6, 1.21).open[0];
+check('stejný návrh příště jen aktualizuje (stejné ID)', [prop.saveGenerated([{ ...draft, impact: 1500 }]),
+  prop.proposalsView(0.6, 1.21).open[0].id, prop.proposalsView(0.6, 1.21).open[0].impact], [0, first.id, 1500]);
+
+// Google Ads napodobený: token, čtení kampaně, mutace
+db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('adsGoogleRefresh','r'),('adsGoogleSecret','s')").run();
+store.saveAdsConfig({ google: { ...store.getAdsConfig().google, customerId: '1234567890', clientId: 'cid', currency: 'CZK' } });
+let budgetNow = 1000;
+const calls = [];
+global.fetch = async (url, init = {}) => {
+  const body = init.body ? (String(url).includes('oauth2') ? String(init.body) : JSON.parse(init.body)) : null;
+  calls.push({ url: String(url), body });
+  const reply = (json) => ({ ok: true, status: 200, json: async () => json, text: async () => JSON.stringify(json) });
+  if (String(url).includes('oauth2')) return reply({ access_token: 'tok', expires_in: 3600 });
+  if (String(url).endsWith('googleAds:search')) {
+    return reply({ results: [{ campaign: { id: '1', maximizeConversionValue: { targetRoas: 6 } },
+      campaignBudget: { amountMicros: String(budgetNow * 1e6) } }] });
+  }
+  if (String(url).endsWith('campaignBudgets:mutate')) {
+    if (!body.validateOnly) budgetNow = Number(body.operations[0].update.amountMicros) / 1e6;
+    return reply({ results: [{ resourceName: body.operations[0].update.resourceName }] });
+  }
+  return reply({});
+};
+const done = (await prop.applyProposal(store.getAdsConfig(), first.id, async () => {}));
+check('použít: nejdřív naoko (validateOnly), pak doopravdy',
+  calls.filter(c => c.url.endsWith('campaignBudgets:mutate')).map(c => c.body.validateOnly), [true, false]);
+check('  rozpočet v účtu je 1 200 Kč (v milióntinách)', [budgetNow,
+  calls.find(c => c.url.endsWith('campaignBudgets:mutate')).body.operations[0].update.amountMicros], [1200, '1200000000']);
+check('  návrh je provedený a změna je v deníku s cestou zpět', [done.status, prop.allChanges()[0].undo[0].to], ['applied', 1000]);
+
+// Vrácení: kontrola stavu a zpětná operace
+const change = prop.allChanges()[0];
+(await prop.revertChange(store.getAdsConfig(), change.id, async () => {}));
+check('vrátit: rozpočet je zase 1 000 Kč a původní změna je označená jako vrácená',
+  [budgetNow, !!prop.allChanges().find(c => c.id === change.id).revertedAt], [1000, true]);
+
+// Ručně změněný rozpočet: návrh se neprovede
+prop.saveGenerated([{ ...draft, fingerprint: 'budget-up|google|1|b' }]);
+const second = prop.proposalsView(0.6, 1.21).open.find(p => p.fingerprint.endsWith('|b'));
+budgetNow = 950;
+const mutBefore = calls.filter(c => c.url.includes(':mutate')).length;
+let staleErr = '';
+try { (await prop.applyProposal(store.getAdsConfig(), second.id, async () => {})); } catch (e) { staleErr = e.message; }
+check('když někdo rozpočet mezitím změnil, nic se nezapíše', [calls.filter(c => c.url.includes(':mutate')).length - mutBefore,
+  /950 Kč/.test(staleErr), prop.getProposal(second.id).status], [0, true, 'stale']);
+
+// Mac bez přihlášení: jen schválí, provede to přihlášený
+db.prepare("UPDATE settings SET value = '' WHERE key = 'adsGoogleRefresh'").run();
+budgetNow = 1000;
+prop.saveGenerated([{ ...draft, fingerprint: 'budget-up|google|1|c' }]);
+const third = prop.proposalsView(0.6, 1.21).open.find(p => p.fingerprint.endsWith('|c'));
+check('Mac bez přihlášení návrh jen schválí', (await prop.applyProposal(store.getAdsConfig(), third.id, async () => {})).status, 'approved');
+db.prepare("UPDATE settings SET value = 'r' WHERE key = 'adsGoogleRefresh'").run();
+check('…a přihlášený Mac ho při kontrole provede', [(await prop.applyApproved(store.getAdsConfig(), async () => {})),
+  prop.getProposal(third.id).status, budgetNow], [1, 'applied', 1200]);
+check('schválený návrh se do té doby nenabízí znovu', prop.blockedFingerprints().has('budget-up|google|1|c'), false);
+
+// Vylučující slovo: vrácení maže přesně to, co se vytvořilo
+const g2 = require(path.join(DIST, 'ads/google.js'));
+const negOp = g2.buildMutation('123-456-7890', { kind: 'negative', campaignId: '5', text: 'bazar', match: 'PHRASE', cost: 0, clicks: 0 });
+check('vylučující slovo: frázová shoda v kampani', negOp, { service: 'campaignCriteria', operation: { create: {
+  campaign: 'customers/1234567890/campaigns/5', negative: true, keyword: { text: 'bazar', matchType: 'PHRASE' } } } });
+check('zrušení cíle při vrácení „nastavit cíl"', g2.buildMutation('1', { kind: 'troas', campaignId: '9', field: 'maximize_conversion_value', from: 5, to: 0 }).operation,
+  { update: { resourceName: 'customers/1/campaigns/9', maximizeConversionValue: {} }, updateMask: 'maximize_conversion_value.target_roas' });
+
+// Vyřazení žroutů: bez API, do feedu, po 30 dnech samo zpět
+prop.saveGenerated([{ fingerprint: 'exclude|google|A', kind: 'exclude', targetId: 'feed', targetName: 'feed', title: 'Vyřadit',
+  why: '', impact: 300, confidence: 2, ops: [{ kind: 'exclude', codes: ['A'], days: 30 }] }]);
+const ex = prop.proposalsView(0.6, 1.21).open.find(p => p.kind === 'exclude');
+let fed = 0;
+(await prop.applyProposal(store.getAdsConfig(), ex.id, async () => { fed++; }));
+check('vyřazení: produkt je ve feedu jako vyradit a feed se vystavil', [prop.excludedCodes().map(e => e.code), fed], [['A'], 1]);
+check('  po 30 dnech se vrátí sám', prop.excludedCodes(econ.shiftDay(econ.localDay(), 31)).length, 0);
+
+// Sdílení návrhů: rozhodnutí z jiného Macu se převezme, cizí deník se přidá
+const shared2 = fs.mkdtempSync(path.join(os.tmpdir(), 'reklamy-'));
+db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('syncEnabled','1'),('syncFolder',?)").run(shared2);
+prop.shareProposals();
+const navrhy = path.join(shared2, 'reklamy', 'navrhy.json');
+check('návrhy jsou ve sdílené složce', fs.existsSync(navrhy), true);
+const sdil = JSON.parse(fs.readFileSync(navrhy, 'utf8'));
+const jiny = sdil.proposals[0];
+jiny.status = 'dismissed'; jiny.updatedAt = new Date(Date.now() + 60_000).toISOString(); jiny.decidedBy = 'Jiný Mac';
+fs.writeFileSync(navrhy, JSON.stringify(sdil));
+fs.writeFileSync(path.join(shared2, 'reklamy', 'zmeny-cizimac.json'), JSON.stringify({ changes: [{ id: 'cizi1', proposalId: '', revertOf: '',
+  kind: 'negatives', system: 'google', targetId: '5', targetName: 'K', title: 'Cizí změna', ops: [], undo: [], at: new Date().toISOString(), device: 'Jiný Mac' }] }));
+check('zamítnutí z jiného Macu i jeho změna se převezmou', [prop.shareProposals(), prop.getProposal(jiny.id).status,
+  prop.allChanges().some(c => c.id === 'cizi1')], [true, 'dismissed', true]);
+check('vlastní deník je ve vlastním souboru (cizí se nepřepisuje)',
+  fs.readdirSync(path.join(shared2, 'reklamy')).filter(n => n.startsWith('zmeny-')).length, 2);
+fs.rmSync(shared2, { recursive: true, force: true });
+db.prepare("UPDATE settings SET value = '0' WHERE key = 'syncEnabled'").run();
+
+
 /* ---------- celý průchod nad skutečným katalogem ---------- */
 /*
  * Katalog e-shopu v repozitáři není (je to celý feed s cenami). Když je po
@@ -299,9 +474,16 @@ if (fs.existsSync(feedFile)) {
   check('feed má řádek i pro kód varianty', tsv.includes(`\n${variant.code}\t`), true);
   const c = ads.campaigns(30);
   check('kampaň v přehledu kampaní', [c[0].id, c[0].cost], ['9', 100]);
+  // Engine nad skutečným katalogem doběhne a dá přehled pro okno
+  let engineOk = true;
+  try { ads.runEngine(); } catch (e) { engineOk = false; console.log('      ', e.message); }
+  const view = ads.proposals();
+  check('engine nad skutečným katalogem doběhne a přehled návrhů má data',
+    [engineOk, Array.isArray(view.open), typeof view.dataDays], [true, true, 'number']);
 } else {
   console.log('\n(katalog e-shopu není po ruce — celý průchod se přeskakuje)');
 }
 
 console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ Reklamy: vše sedí');
 process.exit(failed ? 1 : 0);
+})().catch(err => { console.error(err); process.exit(1); });

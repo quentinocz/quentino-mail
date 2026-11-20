@@ -47,6 +47,8 @@ export interface AdsConfig {
   /** Marže pro produkty bez nákupní ceny, když ji nejde odhadnout z kategorie */
   fallbackMargin: number;
   autonomy: AdsAutonomy;
+  /** Pojistky pro návrhy (a později autopilot) */
+  guards: AdsGuards;
   google: {
     /** Číslo účtu Google Ads bez pomlček */
     customerId: string;
@@ -62,6 +64,96 @@ export interface AdsConfig {
   /** Náhodná část adresy doplňkového feedu se segmenty */
   feedToken: string;
   updatedAt: string;
+}
+
+/**
+ * Pojistky. Malé kroky a dost dat: chytré nabízení Googlu se po každé
+ * změně týden učí a skok o polovinu rozpočtu ho rozhodí víc, než pomůže.
+ */
+export interface AdsGuards {
+  /** Nejvyšší změna rozpočtu jedním návrhem (0,2 = ±20 %) */
+  maxBudgetStep: number;
+  /** Nejvyšší změna cílového ROAS jedním návrhem (0,15 = ±15 %) */
+  maxRoasStep: number;
+  /** Kolik dní se kampaň po změně nechá být */
+  cooldownDays: number;
+  /** Kolik konverzí za 30 dní musí kampaň mít, aby se jí měnil cíl nebo rozpočet */
+  minConversions: number;
+  /** Strop útraty za měsíc ve všech systémech, Kč bez DPH; 0 = bez stropu */
+  monthlyBudget: number;
+}
+
+/**
+ * Jedna operace v účtu — vždy v absolutních hodnotách („z 900 na 1 080"),
+ * aby se dala zkontrolovat proti skutečnosti a provést bezpečně dvakrát.
+ */
+export type AdsOp =
+  | { kind: 'budget'; campaignId: string; budgetId: string; from: number; to: number }
+  | { kind: 'troas'; campaignId: string; field: 'maximize_conversion_value' | 'target_roas'; from: number | null; to: number }
+  | { kind: 'negative'; campaignId: string; text: string; match: 'PHRASE' | 'EXACT'; cost: number; clicks: number }
+  | { kind: 'negative-remove'; campaignId: string; resource: string; text: string }
+  | { kind: 'exclude'; codes: string[]; days: number }
+  | { kind: 'exclude-remove'; codes: string[] };
+
+export type AdsProposalKind = 'budget-up' | 'budget-down' | 'roas-up' | 'roas-down' | 'roas-set' | 'negatives' | 'exclude';
+
+export type AdsProposalStatus = 'open' | 'approved' | 'applied' | 'dismissed' | 'snoozed' | 'never' | 'failed' | 'stale';
+
+export interface AdsProposal {
+  id: string;
+  fingerprint: string;
+  kind: AdsProposalKind;
+  system: AdsSystem;
+  targetId: string;
+  targetName: string;
+  title: string;
+  /** Proč — čísla, ze kterých návrh vychází */
+  why: string;
+  /** Odhad změny zisku po reklamě za 30 dní, Kč */
+  impact: number;
+  /** 1 = málo dat, 4 = hodně dat */
+  confidence: number;
+  ops: AdsOp[];
+  status: AdsProposalStatus;
+  snoozeUntil: string;
+  error: string;
+  createdAt: string;
+  updatedAt: string;
+  decidedBy: string;
+}
+
+export interface AdsChange {
+  id: string;
+  proposalId: string;
+  revertOf: string;
+  kind: string;
+  system: AdsSystem;
+  targetId: string;
+  targetName: string;
+  title: string;
+  ops: AdsOp[];
+  undo: AdsOp[];
+  at: string;
+  device: string;
+  /** Dopočítává se při čtení */
+  revertedAt?: string;
+  /** Vyhodnocení po 14 dnech: zisk kampaně za den před a po změně */
+  evaluation?: { before: number; after: number; days: number; verdict: 'better' | 'worse' | 'same' | 'pending' };
+}
+
+export interface AdsProposals {
+  open: AdsProposal[];
+  /** Schválené na jiném Macu, čekají na Mac přihlášený ke Googlu */
+  waiting: AdsProposal[];
+  decided: AdsProposal[];
+  changes: AdsChange[];
+  /** Kolik dní dat z reklam je k dispozici — návrhy chtějí aspoň 14 */
+  dataDays: number;
+  /** Úspěšnost dřívějších odhadů (vyšlo / vyhodnocené) */
+  track: { evaluated: number; better: number };
+  generatedAt: string;
+  /** Produkty, které právě reklama vynechává (doplňkový feed) */
+  excluded: { code: string; until: string }[];
 }
 
 /** Stav připojení a posledního běhu — mění se na každém Macu jinak. */
@@ -239,6 +331,7 @@ export const DEFAULT_ADS_CONFIG: AdsConfig = {
   defaultShipCost: 79,
   fallbackMargin: 0.6,
   autonomy: 'suggest',
+  guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
   google: {
     customerId: '',
     customerName: '',

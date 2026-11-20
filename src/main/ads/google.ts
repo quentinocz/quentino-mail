@@ -29,7 +29,7 @@ import crypto from 'crypto';
 import type { AddressInfo } from 'net';
 import { getSetting, setSetting } from '../db';
 import { encrypt, decrypt } from '../secure';
-import type { AdsConfig, AdsGoogleCustomer } from '../../shared/ads';
+import type { AdsConfig, AdsGoogleCustomer, AdsOp } from '../../shared/ads';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -315,6 +315,12 @@ export interface CampaignInfo {
   budget: number | null;
   bidding: string;
   targetRoas: number | null;
+  /** Číslo rozpočtu (z resourceName) — rozpočet se mění zvlášť od kampaně */
+  budgetId?: string;
+  /** Sdílený rozpočet: změna by se týkala i jiných kampaní, proto se na něj nesahá */
+  budgetShared?: boolean;
+  /** Kampaň brzdí rozpočet (primary_status_reasons obsahuje BUDGET_CONSTRAINED) */
+  limited?: boolean;
 }
 
 export interface DayRow {
@@ -330,6 +336,7 @@ export interface DayRow {
 export const CAMPAIGNS_QUERY = 'SELECT campaign.id, campaign.name, campaign.status, '
   + 'campaign.advertising_channel_type, campaign.bidding_strategy_type, '
   + 'campaign.maximize_conversion_value.target_roas, campaign.target_roas.target_roas, '
+  + 'campaign.campaign_budget, campaign.primary_status_reasons, campaign_budget.explicitly_shared, '
   + "campaign_budget.amount_micros FROM campaign WHERE campaign.status != 'REMOVED'";
 
 export function campaignDaysQuery(from: string, to: string): string {
@@ -361,9 +368,149 @@ export function parseCampaigns(rows: any[]): CampaignInfo[] {
       status: c.status ?? '',
       budget: budget != null ? micros(budget) : null,
       bidding: c.biddingStrategyType ?? '',
-      targetRoas: roas != null && num(roas) > 0 ? num(roas) : null
+      targetRoas: roas != null && num(roas) > 0 ? num(roas) : null,
+      budgetId: String(c.campaignBudget ?? '').split('/').pop() ?? '',
+      budgetShared: !!row.campaignBudget?.explicitlyShared,
+      limited: Array.isArray(c.primaryStatusReasons) && c.primaryStatusReasons.includes('BUDGET_CONSTRAINED')
     };
   }).filter(one => one.id);
+}
+
+/* ---------- hledané dotazy ---------- */
+
+export function searchTermsQuery(from: string, to: string): string {
+  return 'SELECT campaign.id, search_term_view.search_term, metrics.clicks, metrics.impressions, '
+    + 'metrics.cost_micros, metrics.conversions, metrics.conversions_value FROM search_term_view '
+    + `WHERE segments.date BETWEEN '${from}' AND '${to}' AND metrics.clicks > 0`;
+}
+
+export interface TermRow {
+  campaignId: string;
+  term: string;
+  clicks: number;
+  impressions: number;
+  cost: number;
+  conversions: number;
+  value: number;
+}
+
+/** Dotazy sečtené po kampani — Google je vrací po sestavách. */
+export function parseSearchTerms(rows: any[]): TermRow[] {
+  const map = new Map<string, TermRow>();
+  for (const row of rows) {
+    const campaignId = String(row.campaign?.id ?? '');
+    const term = String(row.searchTermView?.searchTerm ?? '').trim().toLowerCase();
+    if (!campaignId || !term) continue;
+    const key = `${campaignId}|${term}`;
+    const one = map.get(key) ?? { campaignId, term, clicks: 0, impressions: 0, cost: 0, conversions: 0, value: 0 };
+    one.clicks += num(row.metrics?.clicks);
+    one.impressions += num(row.metrics?.impressions);
+    one.cost += micros(row.metrics?.costMicros);
+    one.conversions += num(row.metrics?.conversions);
+    one.value += num(row.metrics?.conversionsValue);
+    map.set(key, one);
+  }
+  return [...map.values()];
+}
+
+/* ---------- zápis do účtu ---------- */
+
+/**
+ * Operace pro Google Ads z jedné změny modulu.
+ *
+ * Peníze jdou v milióntinách měny účtu; rozpočet se zaokrouhlí na celé
+ * koruny, protože Google chce částku v násobcích nejmenší jednotky měny.
+ * `rate` přepočítá koruny na měnu účtu (u korunového účtu 1).
+ */
+export function buildMutation(customerId: string, op: AdsOp, rate = 1):
+  { service: 'campaignBudgets' | 'campaigns' | 'campaignCriteria'; operation: any } | null {
+  const cid = customerId.replace(/\D/g, '');
+  switch (op.kind) {
+    case 'budget':
+      return {
+        service: 'campaignBudgets',
+        operation: {
+          update: {
+            resourceName: `customers/${cid}/campaignBudgets/${op.budgetId}`,
+            amountMicros: String(Math.round(op.to / rate) * 1_000_000)
+          },
+          updateMask: 'amount_micros'
+        }
+      };
+    case 'troas': {
+      const value = Math.round(op.to * 100) / 100;
+      const resourceName = `customers/${cid}/campaigns/${op.campaignId}`;
+      /*
+       * Nula = cíl zrušit (vrácení návrhu „nastavit cílové ROAS"). Pole se
+       * jmenuje v masce a v objektu chybí — tak Google pole vyprázdní.
+       */
+      if (value <= 0 && op.field === 'maximize_conversion_value') {
+        return { service: 'campaigns', operation: { update: { resourceName, maximizeConversionValue: {} }, updateMask: 'maximize_conversion_value.target_roas' } };
+      }
+      return op.field === 'target_roas'
+        ? { service: 'campaigns', operation: { update: { resourceName, targetRoas: { targetRoas: value } }, updateMask: 'target_roas.target_roas' } }
+        : { service: 'campaigns', operation: { update: { resourceName, maximizeConversionValue: { targetRoas: value } }, updateMask: 'maximize_conversion_value.target_roas' } };
+    }
+    case 'negative':
+      return {
+        service: 'campaignCriteria',
+        operation: {
+          create: {
+            campaign: `customers/${cid}/campaigns/${op.campaignId}`,
+            negative: true,
+            keyword: { text: op.text, matchType: op.match }
+          }
+        }
+      };
+    case 'negative-remove':
+      return { service: 'campaignCriteria', operation: { remove: op.resource } };
+    default:
+      // Vyřazení produktů jde přes doplňkový feed, ne přes API
+      return null;
+  }
+}
+
+/**
+ * Zápis do účtu.
+ *
+ * Nejdřív se pošle „naoko" (`validateOnly`): Google ověří, že by změna
+ * prošla, ale nic neprovede. Teprve když projde, pošle se doopravdy.
+ * Bez toho by se u návrhu se třemi operacemi mohla provést jedna a dvě
+ * spadnout — a účet by zůstal napůl změněný.
+ *
+ * U vylučujících slov je zapnuté `partialFailure`: slovo, které už
+ * v kampani je, Google odmítne jako duplikát, a kvůli tomu nemají
+ * propadnout ostatní.
+ */
+export async function mutate(
+  cfg: AdsConfig,
+  service: 'campaignBudgets' | 'campaigns' | 'campaignCriteria',
+  operations: any[],
+  validateOnly: boolean
+): Promise<{ resources: string[]; partial: string }> {
+  const id = cfg.google.customerId.replace(/\D/g, '');
+  const token = await accessToken(cfg);
+  const res = await fetch(`${API}/${cfg.google.apiVersion}/customers/${id}/${service}:mutate`, {
+    method: 'POST',
+    headers: headers(cfg, token),
+    body: JSON.stringify({ operations, validateOnly, partialFailure: service === 'campaignCriteria' })
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(explainError(res.status, json));
+  return {
+    resources: (json.results ?? []).map((one: any) => String(one?.resourceName ?? '')),
+    partial: json.partialFailureError?.message ?? ''
+  };
+}
+
+/** Aktuální rozpočet a cíl kampaně — kontrola před zápisem. */
+export async function readCampaignNow(cfg: AdsConfig, campaignId: string):
+  Promise<{ budget: number | null; targetRoas: number | null }> {
+  const rows = await gaql(cfg, 'SELECT campaign.id, campaign.maximize_conversion_value.target_roas, '
+    + 'campaign.target_roas.target_roas, campaign_budget.amount_micros FROM campaign '
+    + `WHERE campaign.id = ${campaignId.replace(/\D/g, '')}`);
+  const parsed = parseCampaigns(rows)[0];
+  return { budget: parsed?.budget ?? null, targetRoas: parsed?.targetRoas ?? null };
 }
 
 export function parseCampaignDays(rows: any[]): DayRow[] {

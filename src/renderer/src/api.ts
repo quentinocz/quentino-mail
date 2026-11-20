@@ -35,7 +35,8 @@ import type {
   UpdateState
 } from '@shared/types';
 import type {
-  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer
+  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer,
+  AdsProposals, AdsProposal, AdsChange
 } from '@shared/ads';
 import type { ToolWindowId } from '@shared/windows';
 import type { VidProjekt, VidZnelka } from '@shared/videoedit';
@@ -1415,7 +1416,15 @@ export const api = {
     disconnect: () => call<AdsStatus>('ads:disconnect'),
     customers: () => call<AdsGoogleCustomer[]>('ads:customers'),
     fetch: (days?: number) => call<string>('ads:fetch', days),
-    publishFeed: () => call<string>('ads:feed')
+    publishFeed: () => call<string>('ads:feed'),
+    proposals: () => call<AdsProposals>('ads:proposals'),
+    /** Přepočítat návrhy z aktuálních dat; vrací počet nových */
+    engine: () => call<number>('ads:engine'),
+    /** Provede návrh v účtu (na Macu bez přihlášení ho jen schválí) */
+    apply: (id: string) => call<AdsProposal>('ads:apply', id),
+    decide: (id: string, decision: 'approve' | 'dismiss' | 'snooze' | 'never' | 'reopen') =>
+      call<AdsProposal>('ads:decide', id, decision),
+    revert: (id: string) => call<AdsChange>('ads:revert', id)
   },
 
   tool: {

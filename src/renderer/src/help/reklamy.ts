@@ -14,14 +14,14 @@ export const ADS: HelpTopic = {
   icon: 'megaphone',
   color: '#5e8a2f',
   intro: 'Kolik reklama opravdu vydělává: výkon z Google Ads spárovaný s objednávkami z Upgates a nákupními '
-    + 'cenami z katalogu. Zatím jen čte — v účtech nic nemění. Návrhy změn přijdou, až se na datech ukáže, že čísla sedí.',
+    + 'cenami z katalogu. Každou noc spočítá návrhy změn; do účtu se zapíše jen to, co potvrdíš, a každá změna jde vrátit.',
   areas: [
     { id: 'tabs', label: 'Záložky a období', x: 0, y: 0, w: 12, h: 1, target: '.ad-tabs' },
     { id: 'status', label: 'Stav nočního běhu', x: 0, y: 1, w: 12, h: 1, target: '.ad-status' },
     { id: 'kpis', label: 'Zisk po reklamě, obrat, náklady, PNO', x: 0, y: 2, w: 8, h: 2, target: '.ad-kpis' },
     { id: 'systems', label: 'Google, Sklik, Meta', x: 0, y: 4, w: 8, h: 2, target: '.ad-systems' },
     { id: 'chart', label: 'Den po dni', x: 0, y: 6, w: 8, h: 2, target: '.ad-chart' },
-    { id: 'side', label: 'Upozornění a brána k návrhům', x: 8, y: 2, w: 4, h: 6, target: '.ad-side' }
+    { id: 'side', label: 'Čeká na tebe, upozornění, úspěšnost návrhů', x: 8, y: 2, w: 4, h: 6, target: '.ad-side' }
   ],
   guides: [
     {
@@ -49,6 +49,29 @@ export const ADS: HelpTopic = {
       ]
     },
     {
+      title: 'Projít návrhy změn',
+      when: 'Ráno, když u záložky Návrhy svítí číslo.',
+      steps: [
+        { text: 'Tři nejvýnosnější návrhy jsou rovnou v Dnes vpravo pod **Čeká na tebe**. Všechny jsou v záložce [Návrhy].', area: 'side' },
+        { text: 'Každý návrh má odhad v korunách za 30 dní, jistotu (tečky = kolik dat za ním stojí) a přesně vypsané, '
+            + 'co se změní — rozpočet z kolika na kolik, která slova se vyloučí.', area: 'tabs' },
+        { text: '[Použít] změnu hned zapíše do účtu. Na Macu, který není přihlášený ke Googlu, je místo něj [Schválit] '
+            + '— změnu pak do deseti minut provede přihlášený Mac.', area: 'tabs' },
+        { text: '[Odložit] ho schová na týden, [Zamítnout] na dva týdny, [Nenavrhovat] už nikdy pro tuhle kampaň.', area: 'tabs' },
+        { text: 'Návrh se záporným odhadem a štítkem **drží cíl** stojí trochu zisku, ale drží cíl zisku z obratu. '
+            + 'Když chceš spíš víc korun, sniž cíl v [Nastavení].', area: 'tabs' }
+      ]
+    },
+    {
+      title: 'Vrátit změnu',
+      steps: [
+        { text: 'V záložce [Návrhy] vpravo je **Historie změn** ze všech Maců.', area: 'tabs' },
+        { text: '[Vrátit] nastaví účet zpět. Když mezitím někdo hodnotu v Google Ads změnil ručně, aplikace nic '
+            + 'nepřepíše a řekne, co v účtu je.', area: 'tabs' },
+        { text: 'Po 14 dnech se u změny ukáže, jestli **vyšla** — zisk kampaně za den před a po.', area: 'side' }
+      ]
+    },
+    {
       title: 'Najít produkty, které jen utrácejí',
       steps: [
         { text: 'Otevři záložku [Produkty]. Mapa ukazuje útratu a zisk každého produktu, který v reklamách běží.', area: 'tabs' },
@@ -71,9 +94,12 @@ export const ADS: HelpTopic = {
     'Období v hlavičce končí včerejškem — dnešek je rozdělaný a srovnával by se celý den s půlkou.',
     'Cílové PNO není jedno pro celý e-shop: je to **marže − požadovaný podíl zisku**. Levné zboží s nižší marží snese méně.',
     'Doplněním nákupních cen v Upgates budou čísla přesnější — u produktů bez ní se marže odhaduje podle kategorie.',
-    'V [Nastavení] doplň, kolik stojí jednotlivé dopravy; odhady aplikace jsou označené.'
+    'V [Nastavení] doplň, kolik stojí jednotlivé dopravy; odhady aplikace jsou označené.',
+    'Vyřazení žroutů funguje přes custom_label_2 = vyradit — v kampani tuhle hodnotu jednou vylouč a dál se to řídí feedem.',
+    'Vylučující slova se nikdy neberou ze slov, která jsou v názvu nějakého produktu, ani z dotazů, které prodaly.'
   ],
   warnings: [
+    '[Použít] mění skutečný účet Google Ads. Před kliknutím si přečti, co přesně se změní — je to vypsané na kartě.',
     'Zisk se počítá ze **všech** objednávek, nejen z těch, které si připsala reklama — reklamní systémy si konverze přivlastňují velkoryse.'
   ]
 };

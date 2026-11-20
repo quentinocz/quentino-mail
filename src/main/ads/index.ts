@@ -16,13 +16,16 @@ import { webStorage } from '../webtexts';
 import type { ShopOrder } from '../../shared/types';
 import {
   AdsConfig, AdsStatus, AdsOverview, AdsSystemTile, AdsAlert, AdsDay, AdsCampaignRow,
-  AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod, AdsGoogleCustomer
+  AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod, AdsGoogleCustomer, AdsProposals, AdsChange,
+  AdsProposal
 } from '../../shared/ads';
 import {
   orderMoney, marginTable, productMargin, targetPno, shiftDay, localDay, PriceInfo, OrderMoney
 } from './economics';
 import { segmentProducts, marginBand, supplementalTsv } from './segments';
 import * as google from './google';
+import { generate, vocabularyOf, EngineCampaign } from './engine';
+import * as prop from './proposals';
 import {
   getAdsConfig, saveAdsConfig, saveCampaigns, saveDays, syncConfig, syncStats, isShared,
   lastRun, markRun, writeLocal
@@ -528,6 +531,10 @@ export function fetchGoogle(daysBack?: number): Promise<string> {
       const list = google.parseCampaigns(await google.gaql(cfg, google.CAMPAIGNS_QUERY));
       const days = google.parseCampaignDays(await google.gaql(cfg, google.campaignDaysQuery(from, to)));
       const prods = google.parseProductDays(await google.gaql(cfg, google.productDaysQuery(from, to)));
+      // Hledané dotazy vždy za 30 dní — podklad pro vylučující slova
+      const terms = google.parseSearchTerms(await google.gaql(cfg,
+        google.searchTermsQuery(shiftDay(to, -30), shiftDay(to, -1))));
+      saveTerms('google', terms, at);
       saveCampaigns('google', list, at);
       saveDays('ads_campaign_day', 'google', from, to, days, at);
       saveDays('ads_product_day', 'google', from, to, prods, at);
@@ -542,6 +549,104 @@ export function fetchGoogle(daysBack?: number): Promise<string> {
     }
   })().finally(() => { fetching = null; });
   return fetching;
+}
+
+function saveTerms(system: 'google', terms: google.TermRow[], at: string): void {
+  const d = getDb();
+  const cfg = getAdsConfig();
+  const ins = d.prepare(`INSERT OR REPLACE INTO ads_search_terms
+    (system, campaign_id, term, clicks, impressions, cost, conversions, value, fetched_at)
+    VALUES (?,?,?,?,?,?,?,?,?)`);
+  d.transaction(() => {
+    d.prepare('DELETE FROM ads_search_terms WHERE system = ?').run(system);
+    for (const t of terms) {
+      ins.run(system, t.campaignId, t.term, t.clicks, t.impressions, czk(cfg, t.cost), t.conversions, czk(cfg, t.value), at);
+    }
+  })();
+}
+
+/* ---------- návrhy ---------- */
+
+/** Marže objednávek po dopravě za posledních 30 dní (bez reklamy) */
+function shopMargin(cfg: AdsConfig, catalog: Catalog): number {
+  const { from, to } = period(30);
+  const orders = ordersBetween(cfg, catalog, from, to);
+  const revenue = orders.reduce((s, o) => s + o.revenue + o.fees, 0);
+  return revenue > 0 ? orders.reduce((s, o) => s + o.profit, 0) / revenue : cfg.fallbackMargin;
+}
+
+/**
+ * Přepočítá návrhy z posledních 30 dní.
+ *
+ * Běží po nočním stažení na Macu, který ho udělal, a na požádání.
+ * Návrhy pak putují sdílenou složkou na ostatní Macy.
+ */
+export function runEngine(): number {
+  const cfg = getAdsConfig();
+  const catalog = loadCatalog(cfg);
+  const margin = shopMargin(cfg, catalog);
+  const target = targetPno(margin, cfg.targetProfitShare) ?? 0;
+  const rows = campaigns(30);
+  const meta = new Map((getDb().prepare(
+    "SELECT id, budget_id, budget_shared, limited FROM ads_campaigns WHERE system = 'google'"
+  ).all() as any[]).map(r => [String(r.id), r]));
+  const list: EngineCampaign[] = rows.filter(r => r.system === 'google').map(r => ({
+    id: r.id, name: r.name, type: r.type, status: r.status, bidding: r.bidding, targetRoas: r.targetRoas,
+    budget: r.budget, budgetId: meta.get(r.id)?.budget_id ?? '', budgetShared: !!meta.get(r.id)?.budget_shared,
+    limited: !!meta.get(r.id)?.limited, cost: r.cost, conversions: r.conversions, value: r.value
+  }));
+  const terms = (getDb().prepare(
+    "SELECT campaign_id, term, clicks, cost, conversions FROM ads_search_terms WHERE system = 'google'"
+  ).all() as any[]).map(t => ({ campaignId: String(t.campaign_id), term: t.term, clicks: t.clicks, cost: t.cost, conversions: t.conversions }));
+  const prods = products(30).rows;
+  const today = localDay();
+  const monthStart = `${today.slice(0, 8)}01`;
+  const monthSpend = (getDb().prepare('SELECT SUM(cost) AS c FROM ads_campaign_day WHERE date >= ?').get(monthStart) as any)?.c ?? 0;
+  const lastDay = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
+  const dataDays = (getDb().prepare('SELECT COUNT(DISTINCT date) AS n FROM ads_campaign_day').get() as any)?.n ?? 0;
+  const drafts = generate({
+    cfg, margin, targetPno: target, campaigns: list, terms,
+    vocabulary: vocabularyOf(catalog.products.map(p => p.title)),
+    products: prods.map(p => ({ code: p.code, title: p.title, segment: p.segment, cost: p.cost, profit: p.profit })),
+    excluded: new Set(prop.excludedCodes(today).map(one => one.code)),
+    cooling: prop.coolingCampaigns(cfg.guards.cooldownDays, today),
+    blocked: prop.blockedFingerprints(today),
+    monthSpend: czk(cfg, Number(monthSpend) || 0),
+    daysLeft: lastDay - Number(today.slice(8, 10)) + 1,
+    dataDays: Number(dataDays) || 0
+  });
+  const fresh = prop.saveGenerated(drafts);
+  setSetting('adsProposalsAt', new Date().toISOString());
+  try { prop.shareProposals(); } catch { /* složka příště */ }
+  emit({ proposals: fresh });
+  return fresh;
+}
+
+export function proposals(): AdsProposals {
+  const cfg = getAdsConfig();
+  const margin = shopMargin(cfg, loadCatalog(cfg));
+  const vat = cfg.convValueWithVat ? vatShop(cfg) : 1;
+  return prop.proposalsView(margin, vat);
+}
+
+const feedAfter = async () => { if (webStorage().key) await publishFeed(); };
+
+export async function applyProposal(id: string): Promise<AdsProposal> {
+  const result = await prop.applyProposal(getAdsConfig(), id, feedAfter);
+  emit();
+  return result;
+}
+
+export function decideProposal(id: string, decision: prop.Decision): AdsProposal {
+  const result = prop.decide(id, decision);
+  emit();
+  return result;
+}
+
+export async function revertChange(id: string): Promise<AdsChange> {
+  const result = await prop.revertChange(getAdsConfig(), id, feedAfter);
+  emit();
+  return result;
 }
 
 /* ---------- doplňkový feed ---------- */
@@ -563,11 +668,13 @@ export function feedText(daysWanted = 30): string {
   const catalog = loadCatalog(cfg);
   const data = products(daysWanted);
   const byCode = new Map(catalog.products.map(p => [p.code, p]));
-  const rows: { id: string; segment: AdsSegment; band: string }[] = [];
+  const out = new Set(prop.excludedCodes().map(one => one.code));
+  const rows: { id: string; segment: AdsSegment; band: string; out: boolean }[] = [];
   for (const row of data.rows) {
     const band = marginBand(row.margin);
-    rows.push({ id: row.code, segment: row.segment, band });
-    for (const variant of byCode.get(row.code)?.variants ?? []) rows.push({ id: variant, segment: row.segment, band });
+    const off = out.has(row.code);
+    rows.push({ id: row.code, segment: row.segment, band, out: off });
+    for (const variant of byCode.get(row.code)?.variants ?? []) rows.push({ id: variant, segment: row.segment, band, out: off });
   }
   return supplementalTsv(rows);
 }
@@ -619,6 +726,9 @@ export async function tick(): Promise<void> {
     // Převzít, co udělaly jiné Macy, se dá kdykoli — běh sám až po třetí
     try { if (syncConfig()) emit(); } catch { /* složka příště */ }
     try { if (syncStats('google') > 0) emit(); } catch { /* složka příště */ }
+    try { if (prop.shareProposals()) emit(); } catch { /* složka příště */ }
+    // Návrhy schválené na Macu bez přihlášení provede ten přihlášený
+    try { if (await prop.applyApproved(getAdsConfig(), feedAfter) > 0) emit(); } catch { /* stav je u návrhu */ }
     if (now.getHours() < 3) return;
     const day = localDay(now);
     if (lastRun()?.day === day) return;
@@ -626,6 +736,12 @@ export async function tick(): Promise<void> {
     const mark = { day, device: deviceLabel(), finishedAt: '', result: '', error: '' };
     try {
       mark.result = await fetchGoogle();
+      try {
+        const fresh = runEngine();
+        if (fresh) mark.result += `, ${fresh} nových návrhů`;
+      } catch (err: any) {
+        mark.result += `, návrhy: ${err?.message ?? err}`;
+      }
       if (webStorage().key) {
         try { await publishFeed(); mark.result += ', feed vystaven'; } catch (err: any) {
           mark.result += `, feed: ${err?.message ?? err}`;

@@ -119,6 +119,7 @@ const ALLOWED_INVOKE = [
   // Reklamy: přehled, kampaně, produkty, nastavení a připojení Google Ads
   'ads:status', 'ads:overview', 'ads:campaigns', 'ads:products', 'ads:ship', 'ads:config',
   'ads:connect', 'ads:disconnect', 'ads:customers', 'ads:fetch', 'ads:feed',
+  'ads:proposals', 'ads:engine', 'ads:apply', 'ads:decide', 'ads:revert',
   'webtexts:state', 'webtexts:load', 'webtexts:save', 'webtexts:delete', 'webtexts:toggle',
   'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate', 'webtexts:href',
   'zk:prehled', 'zk:vrstvy', 'zk:kroky', 'zk:generuj-postavu', 'zk:generuj-vrstvu',
