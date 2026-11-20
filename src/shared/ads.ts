@@ -11,6 +11,32 @@ export type AdsSystem = 'google' | 'sklik' | 'meta';
 /** Jak moc smí modul měnit kampaně sám. Ve fázi 1 jen čte. */
 export type AdsAutonomy = 'suggest' | 'guarded' | 'full';
 
+/** Účet Google Ads a trh, ke kterému patří */
+export interface AdsAccount {
+  /** Číslo účtu bez pomlček */
+  id: string;
+  name: string;
+  /** Měna účtu (CZK, EUR…) — částky se přepočítají na koruny */
+  currency: string;
+  /** cz | sk | en — podle trhu se páruje s objednávkami a počítá DPH */
+  market: string;
+  enabled: boolean;
+}
+
+export const MARKET_LABELS: Record<string, string> = { cz: 'CZ', sk: 'SK', en: '.com' };
+
+/**
+ * Trh účtu podle názvu a měny — jen výchozí odhad, v Nastavení jde změnit.
+ * Název má přednost: anglický web může účtovat taky v eurech.
+ */
+export function guessMarket(name: string, currency: string): string {
+  const n = (name ?? '').toLowerCase();
+  if (/\.com|\ben\b|english|international|wearquentino|world|global/.test(n)) return 'en';
+  if (/\.sk|\bsk\b|slovens|slovak/.test(n)) return 'sk';
+  if (/\.cz|\bcz\b|česk|cesk/.test(n)) return 'cz';
+  return /eur/i.test(currency ?? '') ? 'sk' : 'cz';
+}
+
 /** Náklad na dopravu podle způsobu doručení — kolik to stojí nás, ne zákazníka. */
 export interface AdsShipCost {
   /** Název dopravy tak, jak je v objednávce („Zásilkovna Z-Box") */
@@ -50,7 +76,12 @@ export interface AdsConfig {
   /** Pojistky pro návrhy (a později autopilot) */
   guards: AdsGuards;
   google: {
-    /** Číslo účtu Google Ads bez pomlček */
+    /**
+     * Účty Google Ads — každý patří jednomu trhu (CZ, SK, .com). Modul
+     * stahuje ze všech zapnutých a do každého zapisuje zvlášť.
+     */
+    accounts: AdsAccount[];
+    /** Starší podoba s jediným účtem — převede se do `accounts` */
     customerId: string;
     customerName: string;
     /** Manažerský účet (MCC), přes který se k účtu chodí; prázdné = přímo */
@@ -88,10 +119,10 @@ export interface AdsGuards {
  * aby se dala zkontrolovat proti skutečnosti a provést bezpečně dvakrát.
  */
 export type AdsOp =
-  | { kind: 'budget'; campaignId: string; budgetId: string; from: number; to: number }
-  | { kind: 'troas'; campaignId: string; field: 'maximize_conversion_value' | 'target_roas'; from: number | null; to: number }
-  | { kind: 'negative'; campaignId: string; text: string; match: 'PHRASE' | 'EXACT'; cost: number; clicks: number }
-  | { kind: 'negative-remove'; campaignId: string; resource: string; text: string }
+  | { kind: 'budget'; campaignId: string; budgetId: string; from: number; to: number; account?: string }
+  | { kind: 'troas'; campaignId: string; field: 'maximize_conversion_value' | 'target_roas'; from: number | null; to: number; account?: string }
+  | { kind: 'negative'; campaignId: string; text: string; match: 'PHRASE' | 'EXACT'; cost: number; clicks: number; account?: string }
+  | { kind: 'negative-remove'; campaignId: string; resource: string; text: string; account?: string }
   | { kind: 'exclude'; codes: string[]; days: number }
   | { kind: 'exclude-remove'; codes: string[] };
 
@@ -102,11 +133,15 @@ export type AdsProposalStatus = 'open' | 'approved' | 'applied' | 'dismissed' | 
 export interface AdsProposal {
   id: string;
   fingerprint: string;
+  /** Trh, kterého se návrh týká ('' = celý e-shop, např. vyřazení ve feedu) */
+  market?: string;
   kind: AdsProposalKind;
   system: AdsSystem;
   targetId: string;
   targetName: string;
   title: string;
+  /** Co to znamená, polopaticky — bez zkratek */
+  plain?: string;
   /** Proč — čísla, ze kterých návrh vychází */
   why: string;
   /** Odhad změny zisku po reklamě za 30 dní, Kč */
@@ -165,6 +200,8 @@ export interface AdsStatus {
     hasSecret: boolean;
     /** E-mail servisního účtu, když se tenhle Mac prokazuje klíčem; jinak prázdné */
     service: string;
+    /** Chyby posledního stažení po účtech (účet → text) */
+    accountErrors: Record<string, string>;
     account: string;
     lastFetch: string;
     lastError: string;
@@ -220,6 +257,10 @@ export interface AdsOverview {
   from: string;
   to: string;
   days: number;
+  /** Trh, za který jsou čísla ('all' = všechny sledované) */
+  market: string;
+  /** Rozpad po trzích — u 'all', aby bylo vidět, který trh táhne */
+  markets: { market: string; revenue: number; cost: number; profitAfterAds: number; pno: number | null; targetPno: number | null }[];
   /** Zisk z objednávek (marže + doprava) minus všechny náklady na reklamu */
   profitAfterAds: AdsKpi;
   /** Obrat bez DPH ze všech objednávek ve sledovaných trzích */
@@ -243,6 +284,9 @@ export interface AdsOverview {
 
 export interface AdsCampaignRow {
   system: AdsSystem;
+  /** Účet a trh kampaně */
+  account: string;
+  market: string;
   id: string;
   name: string;
   type: string;
@@ -335,6 +379,7 @@ export const DEFAULT_ADS_CONFIG: AdsConfig = {
   autonomy: 'suggest',
   guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
   google: {
+    accounts: [],
     customerId: '',
     customerName: '',
     loginCustomerId: '',

@@ -1,13 +1,14 @@
 /**
- * Modul Reklamy — fáze 1: data, zisk a segmenty.
+ * Modul Reklamy — data, zisk, segmenty a návrhy změn.
  *
- * Ve fázi 1 modul do účtů nic nezapisuje. Stahuje výkon z Google Ads,
- * páruje ho s objednávkami z Upgates a nákupními cenami z katalogu
- * a ukazuje zisk po reklamě, kampaně a produkty v segmentech. Segmenty
- * vystaví jako doplňkový feed pro Merchant Center.
+ * Stahuje výkon ze všech zapnutých účtů Google Ads (každý patří jednomu
+ * trhu — CZ, SK, .com), páruje ho s objednávkami téhož trhu a s nákupními
+ * cenami z katalogu a ukazuje zisk po reklamě, kampaně, produkty
+ * v segmentech a návrhy změn. Čísla jdou vidět za všechny trhy dohromady
+ * i za každý zvlášť; cílové PNO má každý trh podle své marže.
  *
- * Automatika a návrhy změn přijdou až po tom, co se na skutečných
- * datech ukáže, že čísla sedí (brána „14 dní s Ads i Upgates ±2 %").
+ * Všechny částky jsou v Kč bez DPH: účet v eurech se přepočte kurzem,
+ * hodnota konverzí se zbaví DPH podle trhu účtu.
  */
 import { BrowserWindow, shell } from 'electron';
 import { getDb, getSetting, setSetting } from '../db';
@@ -17,7 +18,7 @@ import type { ShopOrder } from '../../shared/types';
 import {
   AdsConfig, AdsStatus, AdsOverview, AdsSystemTile, AdsAlert, AdsDay, AdsCampaignRow,
   AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod, AdsGoogleCustomer, AdsProposals, AdsChange,
-  AdsProposal
+  AdsProposal, AdsAccount
 } from '../../shared/ads';
 import {
   orderMoney, marginTable, productMargin, targetPno, shiftDay, localDay, PriceInfo, OrderMoney
@@ -28,7 +29,7 @@ import { generate, vocabularyOf, EngineCampaign } from './engine';
 import * as prop from './proposals';
 import {
   getAdsConfig, saveAdsConfig, saveCampaigns, saveDays, syncConfig, syncStats, isShared,
-  lastRun, markRun, writeLocal
+  lastRun, markRun, writeLocal, activeAccounts, accountInfo, accountCzk, accountValue, migrateItems
 } from './store';
 
 function emit(payload: unknown = {}) {
@@ -109,9 +110,15 @@ function toOrder(row: any): ShopOrder {
   };
 }
 
+/** Trhy, za které se počítá: 'all' = všechny sledované, jinak jeden */
+function marketsOf(cfg: AdsConfig, scope = 'all'): string[] {
+  const all = cfg.markets.length ? cfg.markets : ['cz'];
+  return scope === 'all' || !scope ? all : [scope];
+}
+
 /** Objednávky ve sledovaných trzích mezi dvěma dny (včetně). */
-function ordersBetween(cfg: AdsConfig, catalog: Catalog, from: string, to: string): OrderMoney[] {
-  const markets = cfg.markets.length ? cfg.markets : ['cz'];
+function ordersBetween(cfg: AdsConfig, catalog: Catalog, from: string, to: string, scope = 'all'): OrderMoney[] {
+  const markets = marketsOf(cfg, scope);
   const rows = getDb().prepare(
     `SELECT code, market, status, paid, resolved, created_at, currency, total, shipment, payment,
             items_json, ship_price, pay_price
@@ -130,25 +137,51 @@ function ordersBetween(cfg: AdsConfig, catalog: Catalog, from: string, to: strin
 interface Agg { cost: number; clicks: number; impressions: number; conversions: number; value: number }
 const emptyAgg = (): Agg => ({ cost: 0, clicks: 0, impressions: 0, conversions: 0, value: 0 });
 
-function vatShop(cfg: AdsConfig): number {
-  return 1 + (cfg.vat[cfg.markets[0] ?? 'cz'] ?? 21) / 100;
+function vatOf(cfg: AdsConfig, market: string): number {
+  return 1 + (cfg.vat[market] ?? 21) / 100;
 }
 
-/** Hodnota konverze bez DPH — měření ji obvykle posílá s DPH */
-function valueNovat(cfg: AdsConfig, value: number): number {
-  return cfg.convValueWithVat ? value / vatShop(cfg) : value;
+/** Řádek z reklam už přepočtený: náklady v Kč, hodnota v Kč bez DPH, s trhem */
+interface AdRow {
+  system: string; date: string; campaign_id: string; account: string; market: string;
+  cost: number; clicks: number; impressions: number; conversions: number; value: number;
 }
 
-/** Účet v eurech se přepočte; Quentino má korunový, ale nic se nepředpokládá. */
-function czk(cfg: AdsConfig, amount: number): number {
-  return /eur/i.test(cfg.google.currency) ? amount * cfg.eurRate : amount;
-}
-
-function campaignDays(from: string, to: string): any[] {
-  return getDb().prepare(
-    `SELECT system, date, campaign_id, cost, clicks, impressions, conversions, value
-     FROM ads_campaign_day WHERE date BETWEEN ? AND ?`
+/**
+ * Dny kampaní s účtem a trhem. Účet je u dne, a když chybí (data z doby
+ * jednoho účtu), vezme se od kampaně.
+ */
+function campaignDays(cfg: AdsConfig, from: string, to: string, scope = 'all'): AdRow[] {
+  const markets = new Set(marketsOf(cfg, scope));
+  const rows = getDb().prepare(
+    `SELECT d.system, d.date, d.campaign_id, d.cost, d.clicks, d.impressions, d.conversions, d.value,
+            COALESCE(NULLIF(d.account, ''), c.account, '') AS account
+     FROM ads_campaign_day d LEFT JOIN ads_campaigns c ON c.system = d.system AND c.id = d.campaign_id
+     WHERE d.date BETWEEN ? AND ?`
   ).all(from, to) as any[];
+  const out: AdRow[] = [];
+  for (const r of rows) {
+    const acc = accountInfo(cfg, r.account);
+    if (!markets.has(acc.market)) continue;
+    out.push({
+      system: r.system, date: r.date, campaign_id: String(r.campaign_id), account: acc.id, market: acc.market,
+      cost: accountCzk(cfg, acc, Number(r.cost) || 0), clicks: Number(r.clicks) || 0,
+      impressions: Number(r.impressions) || 0, conversions: Number(r.conversions) || 0,
+      value: accountValue(cfg, acc, Number(r.value) || 0)
+    });
+  }
+  return out;
+}
+
+/** Marže objednávek po dopravě po trzích (bez reklamy) */
+function marginsByMarket(cfg: AdsConfig, orders: OrderMoney[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const m of new Set([...cfg.markets, ...orders.map(o => o.market)])) {
+    const list = orders.filter(o => o.market === m);
+    const revenue = list.reduce((s, o) => s + o.revenue + o.fees, 0);
+    out.set(m, revenue > 0 ? list.reduce((s, o) => s + o.profit, 0) / revenue : cfg.fallbackMargin);
+  }
+  return out;
 }
 
 /* ---------- přehled ---------- */
@@ -160,20 +193,21 @@ function period(days: number): { from: string; to: string; prevFrom: string; pre
   return { from, to, prevFrom: shiftDay(from, -days), prevTo: shiftDay(from, -1) };
 }
 
-export function overview(daysWanted = 30): AdsOverview {
+export function overview(daysWanted = 30, scope = 'all'): AdsOverview {
   const cfg = getAdsConfig();
+  migrateItems(cfg);
   const days = Math.min(365, Math.max(7, Math.round(daysWanted) || 30));
   const { from, to, prevFrom, prevTo } = period(days);
   const catalog = loadCatalog(cfg);
-  const orders = ordersBetween(cfg, catalog, prevFrom, to);
+  const orders = ordersBetween(cfg, catalog, prevFrom, to, scope);
   const now = orders.filter(o => o.date >= from);
   const prev = orders.filter(o => o.date <= prevTo);
   const sum = (list: OrderMoney[], key: 'revenue' | 'profit' | 'fees') => list.reduce((a, o) => a + o[key], 0);
 
-  const ads = campaignDays(prevFrom, to);
+  const ads = campaignDays(cfg, prevFrom, to, scope);
   const adsNow = ads.filter(r => r.date >= from);
   const adsPrev = ads.filter(r => r.date <= prevTo);
-  const costOf = (list: any[]) => list.reduce((a, r) => a + czk(cfg, r.cost), 0);
+  const costOf = (list: AdRow[]) => list.reduce((a, r) => a + r.cost, 0);
 
   const revenue = sum(now, 'revenue') + sum(now, 'fees');
   const grossProfit = sum(now, 'profit');
@@ -181,6 +215,7 @@ export function overview(daysWanted = 30): AdsOverview {
   const margin = revenue > 0 ? grossProfit / revenue : null;
   const target = targetPno(margin, cfg.targetProfitShare);
   const prevRevenue = sum(prev, 'revenue') + sum(prev, 'fees');
+  const margins = marginsByMarket(cfg, now);
 
   // Dny
   const daily: AdsDay[] = [];
@@ -192,42 +227,56 @@ export function overview(daysWanted = 30): AdsOverview {
       orders: o.length,
       revenue: o.reduce((s, x) => s + x.revenue + x.fees, 0),
       profit: o.reduce((s, x) => s + x.profit, 0),
-      cost: a.reduce((s, x) => s + czk(cfg, x.cost), 0),
+      cost: a.reduce((s, x) => s + x.cost, 0),
       conversions: a.reduce((s, x) => s + x.conversions, 0)
     });
   }
 
-  // Systémy — ve fázi 1 jen Google; Sklik a Meta jako nepřipojené dlaždice
+  // Systémy — zatím Google; Sklik a Meta jako nepřipojené dlaždice
   const g = google.googleSecrets();
   const systems: AdsSystemTile[] = (['google', 'sklik', 'meta'] as const).map(system => {
     const rows = adsNow.filter(r => r.system === system);
     const agg = rows.reduce((acc: Agg, r) => {
-      acc.cost += czk(cfg, r.cost); acc.conversions += r.conversions; acc.value += czk(cfg, r.value);
+      acc.cost += r.cost; acc.conversions += r.conversions; acc.value += r.value;
       return acc;
     }, emptyAgg());
-    const value = valueNovat(cfg, agg.value);
+    // Zisk z konverzí podle marže trhu, ze kterého konverze je
+    const profit = rows.reduce((s, r) => s + r.value * (margins.get(r.market) ?? cfg.fallbackMargin) - r.cost, 0);
     const byDay = new Map<string, { cost: number; value: number }>();
     for (const r of rows) {
       const one = byDay.get(r.date) ?? { cost: 0, value: 0 };
-      one.cost += czk(cfg, r.cost);
-      one.value += valueNovat(cfg, czk(cfg, r.value));
+      one.cost += r.cost;
+      one.value += r.value;
       byDay.set(r.date, one);
     }
     return {
       system,
       connected: system === 'google' ? (g.connected || rows.length > 0) : rows.length > 0,
       cost: agg.cost,
-      value,
+      value: agg.value,
       conversions: agg.conversions,
-      profit: value * (margin ?? cfg.fallbackMargin) - agg.cost,
-      pno: value > 0 ? agg.cost / value : null,
+      profit,
+      pno: agg.value > 0 ? agg.cost / agg.value : null,
       targetPno: target,
       daily: daily.map(d => ({ date: d.date, ...(byDay.get(d.date) ?? { cost: 0, value: 0 }) }))
     };
   });
 
+  // Rozpad po trzích — aby bylo vidět, který trh táhne a který prodělává
+  const byMarket = marketsOf(cfg, scope).map(m => {
+    const o = now.filter(x => x.market === m);
+    const r = o.reduce((s, x) => s + x.revenue + x.fees, 0);
+    const c = adsNow.filter(x => x.market === m).reduce((s, x) => s + x.cost, 0);
+    return {
+      market: m, revenue: r, cost: c,
+      profitAfterAds: o.reduce((s, x) => s + x.profit, 0) - c,
+      pno: r > 0 ? c / r : null,
+      targetPno: targetPno(margins.get(m) ?? null, cfg.targetProfitShare)
+    };
+  });
+
   return {
-    from, to, days,
+    from, to, days, market: scope || 'all', markets: byMarket,
     profitAfterAds: { value: grossProfit - cost, prev: sum(prev, 'profit') - costOf(adsPrev) },
     revenue: { value: revenue, prev: prevRevenue },
     cost: { value: cost, prev: costOf(adsPrev) },
@@ -251,7 +300,7 @@ export function overview(daysWanted = 30): AdsOverview {
  * nejdřív kontroluje, jestli se dá číslům věřit.
  */
 function alerts(
-  cfg: AdsConfig, catalog: Catalog, orders: OrderMoney[], ads: any[], daily: AdsDay[], share: number | null
+  cfg: AdsConfig, catalog: Catalog, orders: OrderMoney[], ads: AdRow[], daily: AdsDay[], share: number | null
 ): AdsAlert[] {
   const out: AdsAlert[] = [];
   const g = google.googleSecrets();
@@ -306,42 +355,44 @@ function alerts(
 
 /* ---------- kampaně ---------- */
 
-export function campaigns(daysWanted = 30): AdsCampaignRow[] {
+export function campaigns(daysWanted = 30, scope = 'all'): AdsCampaignRow[] {
   const cfg = getAdsConfig();
+  migrateItems(cfg);
   const days = Math.min(365, Math.max(7, Math.round(daysWanted) || 30));
   const { from, to } = period(days);
   const catalog = loadCatalog(cfg);
-  const orders = ordersBetween(cfg, catalog, from, to);
-  const revenue = orders.reduce((s, o) => s + o.revenue + o.fees, 0);
-  const margin = revenue > 0 ? orders.reduce((s, o) => s + o.profit, 0) / revenue : null;
-  const target = targetPno(margin, cfg.targetProfitShare);
+  const margins = marginsByMarket(cfg, ordersBetween(cfg, catalog, from, to, 'all'));
+  const markets = new Set(marketsOf(cfg, scope));
 
   const list = getDb().prepare(
-    'SELECT system, id, name, type, status, budget, bidding, target_roas FROM ads_campaigns'
+    'SELECT system, id, name, type, status, budget, bidding, target_roas, account FROM ads_campaigns'
   ).all() as any[];
   const agg = new Map<string, Agg>();
-  for (const r of campaignDays(from, to)) {
+  for (const r of campaignDays(cfg, from, to, scope)) {
     const key = `${r.system}|${r.campaign_id}`;
     const one = agg.get(key) ?? emptyAgg();
-    one.cost += czk(cfg, r.cost); one.clicks += r.clicks; one.impressions += r.impressions;
-    one.conversions += r.conversions; one.value += czk(cfg, r.value);
+    one.cost += r.cost; one.clicks += r.clicks; one.impressions += r.impressions;
+    one.conversions += r.conversions; one.value += r.value;
     agg.set(key, one);
   }
   return list
     .map(row => {
+      const acc = accountInfo(cfg, row.account);
       const a = agg.get(`${row.system}|${row.id}`) ?? emptyAgg();
-      const value = valueNovat(cfg, a.value);
+      const margin = margins.get(acc.market) ?? cfg.fallbackMargin;
       return {
-        system: row.system, id: row.id, name: row.name, type: row.type, status: row.status,
-        budget: row.budget != null ? czk(cfg, row.budget) : null, bidding: row.bidding,
+        system: row.system, account: acc.id, market: acc.market,
+        id: row.id, name: row.name, type: row.type, status: row.status,
+        budget: row.budget != null ? accountCzk(cfg, acc, row.budget) : null, bidding: row.bidding,
         targetRoas: row.target_roas ?? null,
-        cost: a.cost, clicks: a.clicks, conversions: a.conversions, value,
-        profit: value * (margin ?? cfg.fallbackMargin) - a.cost,
-        pno: value > 0 ? a.cost / value : null,
-        targetPno: target
+        cost: a.cost, clicks: a.clicks, conversions: a.conversions, value: a.value,
+        profit: a.value * margin - a.cost,
+        pno: a.value > 0 ? a.cost / a.value : null,
+        targetPno: targetPno(margin, cfg.targetProfitShare)
       } as AdsCampaignRow;
     })
-    // Pozastavené bez útraty v období jen zabírají místo
+    // Kampaně vypnutých účtů a jiných trhů pryč; pozastavené bez útraty jen zabírají místo
+    .filter(row => markets.has(row.market) && accountInfo(cfg, row.account).enabled)
     .filter(row => row.status === 'ENABLED' || row.cost > 0)
     .sort((a, b) => b.cost - a.cost);
 }
@@ -375,32 +426,37 @@ function ages(): Map<string, number> {
   return out;
 }
 
-export function products(daysWanted = 30): AdsProducts {
+export function products(daysWanted = 30, scope = 'all'): AdsProducts {
   const cfg = getAdsConfig();
+  migrateItems(cfg);
   const days = Math.min(365, Math.max(7, Math.round(daysWanted) || 30));
   const { from, to } = period(days);
   const catalog = loadCatalog(cfg);
+  const markets = new Set(marketsOf(cfg, scope));
 
-  // Výkon z reklam po produktech (varianty se sečtou k rodiči)
+  // Výkon z reklam po produktech a účtech (varianty se sečtou k rodiči)
   const rows = getDb().prepare(
-    `SELECT item_id, SUM(cost) AS cost, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
+    `SELECT account, item_id, SUM(cost) AS cost, SUM(clicks) AS clicks, SUM(impressions) AS impressions,
             SUM(conversions) AS conversions, SUM(value) AS value
-     FROM ads_product_day WHERE date BETWEEN ? AND ? GROUP BY item_id`
+     FROM ads_item_day WHERE date BETWEEN ? AND ? GROUP BY account, item_id`
   ).all(from, to) as any[];
   const perf = new Map<string, Agg>();
-  const unmatched: { itemId: string; cost: number }[] = [];
+  const unmatched = new Map<string, number>();
   for (const r of rows) {
+    const acc = accountInfo(cfg, r.account);
+    if (!markets.has(acc.market)) continue;
+    const cost = accountCzk(cfg, acc, Number(r.cost) || 0);
     const info = matchItem(catalog, String(r.item_id));
-    if (!info) { unmatched.push({ itemId: r.item_id, cost: czk(cfg, r.cost) }); continue; }
+    if (!info) { unmatched.set(r.item_id, (unmatched.get(r.item_id) ?? 0) + cost); continue; }
     const one = perf.get(info.product) ?? emptyAgg();
-    one.cost += czk(cfg, r.cost); one.clicks += r.clicks; one.impressions += r.impressions;
-    one.conversions += r.conversions; one.value += valueNovat(cfg, czk(cfg, r.value));
+    one.cost += cost; one.clicks += Number(r.clicks) || 0; one.impressions += Number(r.impressions) || 0;
+    one.conversions += Number(r.conversions) || 0; one.value += accountValue(cfg, acc, Number(r.value) || 0);
     perf.set(info.product, one);
   }
 
   // Prodané kusy ze všech objednávek
   const sold = new Map<string, number>();
-  for (const order of ordersBetween(cfg, catalog, from, to)) {
+  for (const order of ordersBetween(cfg, catalog, from, to, scope)) {
     for (const line of order.lines) sold.set(line.product, (sold.get(line.product) ?? 0) + line.quantity);
   }
 
@@ -438,8 +494,8 @@ export function products(daysWanted = 30): AdsProducts {
     };
   });
   out.sort((a, b) => b.cost - a.cost || b.sold - a.sold || a.title.localeCompare(b.title, 'cs'));
-  unmatched.sort((a, b) => b.cost - a.cost);
-  return { from, to, rows: out, counts, unmatched: unmatched.slice(0, 50) };
+  const lost = [...unmatched.entries()].map(([itemId, cost]) => ({ itemId, cost })).sort((a, b) => b.cost - a.cost);
+  return { from, to, rows: out, counts, unmatched: lost.slice(0, 50) };
 }
 
 /**
@@ -468,13 +524,15 @@ export function shipMethods(): AdsShipMethod[] {
      FROM shop_orders WHERE substr(created_at, 1, 10) >= ? AND shipment <> ''
      GROUP BY shipment ORDER BY n DESC LIMIT 40`
   ).all(since) as any[];
-  const vat = vatShop(cfg);
   return rows.map(r => {
     const known = cfg.shipping.find(one => one.name.toLowerCase() === String(r.name).toLowerCase());
+    // Slovenská a anglická doprava je v eurech a s jinou DPH
+    const market = String(r.market || 'cz');
+    const paid = (Number(r.paid) || 0) * (market === 'cz' ? 1 : cfg.eurRate);
     return {
       name: String(r.name),
       orders: Number(r.n) || 0,
-      paidAvg: (Number(r.paid) || 0) / vat,
+      paidAvg: paid / vatOf(cfg, market),
       cost: known ? known.cost : guessShipCost(String(r.name), cfg.defaultShipCost),
       guessed: known ? known.guessed : true
     };
@@ -510,111 +568,148 @@ function seedShipping(): void {
 let fetching: Promise<string> | null = null;
 
 /**
- * Stáhne kampaně a výkon z Google Ads.
+ * Stáhne kampaně a výkon ze všech zapnutých účtů Google Ads.
  *
  * Bere se posledních 28 dní, protože konverze se do reklamních systémů
- * dopisují zpětně (nákup den po kliknutí patří ke dni kliknutí). Úplně
- * první stažení vezme 90 dní, aby segmenty měly z čeho počítat.
+ * dopisují zpětně (nákup den po kliknutí patří ke dni kliknutí). Účet,
+ * ze kterého ještě nic není, se poprvé stáhne za 90 dní, aby segmenty
+ * měly z čeho počítat.
+ *
+ * Chyba jednoho účtu nezastaví ostatní: slovenský účet bez přístupu
+ * nesmí připravit český trh o čerstvá data. Chyby se pamatují po účtech.
  */
 export function fetchGoogle(daysBack?: number): Promise<string> {
   if (fetching) return fetching;
   fetching = (async () => {
     const cfg = getAdsConfig();
-    if (!google.googleSecrets().connected) throw new Error('Tenhle Mac není přihlášený ke Google Ads.');
-    if (!cfg.google.customerId) throw new Error('Vyber v Nastavení účet Google Ads.');
-    const any = (getDb().prepare("SELECT 1 FROM ads_campaign_day WHERE system = 'google' LIMIT 1").get());
-    const back = daysBack ?? (any ? 28 : 90);
+    migrateItems(cfg);
+    if (!google.googleSecrets().connected) throw new Error('Tenhle Mac není připojený ke Google Ads.');
+    const accounts = activeAccounts(cfg);
+    if (!accounts.length) throw new Error('Přidej v Nastavení aspoň jeden účet Google Ads.');
     const to = localDay();
-    const from = shiftDay(to, -(back - 1));
     const at = new Date().toISOString();
-    try {
-      const list = google.parseCampaigns(await google.gaql(cfg, google.CAMPAIGNS_QUERY));
-      const days = google.parseCampaignDays(await google.gaql(cfg, google.campaignDaysQuery(from, to)));
-      const prods = google.parseProductDays(await google.gaql(cfg, google.productDaysQuery(from, to)));
-      // Hledané dotazy vždy za 30 dní — podklad pro vylučující slova
-      const terms = google.parseSearchTerms(await google.gaql(cfg,
-        google.searchTermsQuery(shiftDay(to, -30), shiftDay(to, -1))));
-      saveTerms('google', terms, at);
-      saveCampaigns('google', list, at);
-      saveDays('ads_campaign_day', 'google', from, to, days, at);
-      saveDays('ads_product_day', 'google', from, to, prods, at);
-      setSetting('adsGoogleFetched', at);
-      setSetting('adsGoogleError', '');
-      try { syncStats('google'); } catch { /* složka příště */ }
-      emit({ fetched: at });
-      return `${list.length} kampaní, ${days.length} dnů kampaní, ${prods.length} dnů produktů`;
-    } catch (err: any) {
-      setSetting('adsGoogleError', String(err?.message ?? err));
-      throw err;
+    const errors: Record<string, string> = {};
+    const done: string[] = [];
+    for (const acc of accounts) {
+      try {
+        const any = getDb().prepare("SELECT 1 FROM ads_campaign_day WHERE system = 'google' AND account = ? LIMIT 1").get(acc.id);
+        const back = daysBack ?? (any ? 28 : 90);
+        const from = shiftDay(to, -(back - 1));
+        const list = google.parseCampaigns(await google.gaql(cfg, google.CAMPAIGNS_QUERY, acc.id));
+        const days = google.parseCampaignDays(await google.gaql(cfg, google.campaignDaysQuery(from, to), acc.id));
+        const prods = google.parseProductDays(await google.gaql(cfg, google.productDaysQuery(from, to), acc.id));
+        // Hledané dotazy vždy za 30 dní — podklad pro vylučující slova
+        const terms = google.parseSearchTerms(await google.gaql(cfg,
+          google.searchTermsQuery(shiftDay(to, -30), shiftDay(to, -1)), acc.id));
+        saveTerms(acc.id, terms, at);
+        saveCampaigns('google', list, at, acc.id);
+        saveDays('ads_campaign_day', 'google', from, to, days, at, acc.id);
+        saveDays('ads_item_day', 'google', from, to, prods, at, acc.id);
+        done.push(`${MARKET_NAME[acc.market] ?? acc.market}: ${list.length} kampaní`);
+      } catch (err: any) {
+        errors[acc.id] = String(err?.message ?? err);
+      }
     }
+    setSetting('adsAccountErrors', JSON.stringify(errors));
+    if (!done.length) {
+      const first = Object.values(errors)[0] ?? 'neznámá chyba';
+      setSetting('adsGoogleError', first);
+      throw new Error(first);
+    }
+    setSetting('adsGoogleFetched', at);
+    setSetting('adsGoogleError', Object.keys(errors).length
+      ? `Některé účty se nestáhly: ${Object.entries(errors).map(([id, e]) => `${accountInfo(cfg, id).name || id} — ${e}`).join('; ')}`
+      : '');
+    try { syncStats('google'); } catch { /* složka příště */ }
+    emit({ fetched: at });
+    return done.join(', ') + (Object.keys(errors).length ? ` (${Object.keys(errors).length} účet s chybou)` : '');
   })().finally(() => { fetching = null; });
   return fetching;
 }
 
-function saveTerms(system: 'google', terms: google.TermRow[], at: string): void {
+const MARKET_NAME: Record<string, string> = { cz: 'CZ', sk: 'SK', en: '.com' };
+
+/** Dotazy se ukládají v měně účtu; přepočet až při čtení, jako u ostatních čísel */
+function saveTerms(account: string, terms: google.TermRow[], at: string): void {
   const d = getDb();
-  const cfg = getAdsConfig();
   const ins = d.prepare(`INSERT OR REPLACE INTO ads_search_terms
-    (system, campaign_id, term, clicks, impressions, cost, conversions, value, fetched_at)
-    VALUES (?,?,?,?,?,?,?,?,?)`);
+    (system, campaign_id, term, clicks, impressions, cost, conversions, value, fetched_at, account)
+    VALUES ('google',?,?,?,?,?,?,?,?,?)`);
   d.transaction(() => {
-    d.prepare('DELETE FROM ads_search_terms WHERE system = ?').run(system);
+    d.prepare("DELETE FROM ads_search_terms WHERE system = 'google' AND account = ?").run(account);
     for (const t of terms) {
-      ins.run(system, t.campaignId, t.term, t.clicks, t.impressions, czk(cfg, t.cost), t.conversions, czk(cfg, t.value), at);
+      ins.run(t.campaignId, t.term, t.clicks, t.impressions, t.cost, t.conversions, t.value, at, account);
     }
   })();
 }
 
 /* ---------- návrhy ---------- */
 
-/** Marže objednávek po dopravě za posledních 30 dní (bez reklamy) */
-function shopMargin(cfg: AdsConfig, catalog: Catalog): number {
-  const { from, to } = period(30);
-  const orders = ordersBetween(cfg, catalog, from, to);
-  const revenue = orders.reduce((s, o) => s + o.revenue + o.fees, 0);
-  return revenue > 0 ? orders.reduce((s, o) => s + o.profit, 0) / revenue : cfg.fallbackMargin;
-}
-
 /**
- * Přepočítá návrhy z posledních 30 dní.
+ * Přepočítá návrhy z posledních 30 dní — pro každý trh zvlášť.
+ *
+ * Každý trh má vlastní marži (slovenské objednávky mají jinou DPH, dopravu
+ * i ceny), a tedy vlastní cílové PNO. Kampaně slovenského účtu se proto
+ * měří slovenským cílem, ne českým. Vyřazení žroutů jde přes společný
+ * feed, a tak se počítá jednou, za všechny trhy.
  *
  * Běží po nočním stažení na Macu, který ho udělal, a na požádání.
  * Návrhy pak putují sdílenou složkou na ostatní Macy.
  */
 export function runEngine(): number {
   const cfg = getAdsConfig();
+  migrateItems(cfg);
   const catalog = loadCatalog(cfg);
-  const margin = shopMargin(cfg, catalog);
-  const target = targetPno(margin, cfg.targetProfitShare) ?? 0;
-  const rows = campaigns(30);
+  const { from, to } = period(30);
+  const margins = marginsByMarket(cfg, ordersBetween(cfg, catalog, from, to, 'all'));
   const meta = new Map((getDb().prepare(
     "SELECT id, budget_id, budget_shared, limited FROM ads_campaigns WHERE system = 'google'"
   ).all() as any[]).map(r => [String(r.id), r]));
-  const list: EngineCampaign[] = rows.filter(r => r.system === 'google').map(r => ({
-    id: r.id, name: r.name, type: r.type, status: r.status, bidding: r.bidding, targetRoas: r.targetRoas,
-    budget: r.budget, budgetId: meta.get(r.id)?.budget_id ?? '', budgetShared: !!meta.get(r.id)?.budget_shared,
-    limited: !!meta.get(r.id)?.limited, cost: r.cost, conversions: r.conversions, value: r.value
-  }));
-  const terms = (getDb().prepare(
-    "SELECT campaign_id, term, clicks, cost, conversions FROM ads_search_terms WHERE system = 'google'"
-  ).all() as any[]).map(t => ({ campaignId: String(t.campaign_id), term: t.term, clicks: t.clicks, cost: t.cost, conversions: t.conversions }));
-  const prods = products(30).rows;
+  const all = campaigns(30, 'all').filter(r => r.system === 'google');
+  const termRows = getDb().prepare(
+    "SELECT campaign_id, term, clicks, cost, conversions, account FROM ads_search_terms WHERE system = 'google'"
+  ).all() as any[];
+  const prods = products(30, 'all').rows;
   const today = localDay();
   const monthStart = `${today.slice(0, 8)}01`;
-  const monthSpend = (getDb().prepare('SELECT SUM(cost) AS c FROM ads_campaign_day WHERE date >= ?').get(monthStart) as any)?.c ?? 0;
+  const monthSpend = campaignDays(cfg, monthStart, today, 'all').reduce((s, r) => s + r.cost, 0);
   const lastDay = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
   const dataDays = (getDb().prepare('SELECT COUNT(DISTINCT date) AS n FROM ads_campaign_day').get() as any)?.n ?? 0;
-  const drafts = generate({
-    cfg, margin, targetPno: target, campaigns: list, terms,
-    vocabulary: vocabularyOf(catalog.products.map(p => p.title)),
-    products: prods.map(p => ({ code: p.code, title: p.title, segment: p.segment, cost: p.cost, profit: p.profit })),
-    excluded: new Set(prop.excludedCodes(today).map(one => one.code)),
-    cooling: prop.coolingCampaigns(cfg.guards.cooldownDays, today),
-    blocked: prop.blockedFingerprints(today),
-    monthSpend: czk(cfg, Number(monthSpend) || 0),
-    daysLeft: lastDay - Number(today.slice(8, 10)) + 1,
-    dataDays: Number(dataDays) || 0
+  const vocabulary = vocabularyOf(catalog.products.map(p => p.title));
+  const excluded = new Set(prop.excludedCodes(today).map(one => one.code));
+  const cooling = prop.coolingCampaigns(cfg.guards.cooldownDays, today);
+  const blocked = prop.blockedFingerprints(today);
+
+  const markets = [...new Set(activeAccounts(cfg).map(a => a.market))].filter(m => cfg.markets.includes(m));
+  const drafts = [] as ReturnType<typeof generate>;
+  markets.forEach((market, index) => {
+    const margin = margins.get(market) ?? cfg.fallbackMargin;
+    const list: EngineCampaign[] = all.filter(r => r.market === market).map(r => ({
+      id: r.id, account: r.account, name: r.name, type: r.type, status: r.status, bidding: r.bidding,
+      targetRoas: r.targetRoas, budget: r.budget, budgetId: meta.get(r.id)?.budget_id ?? '',
+      budgetShared: !!meta.get(r.id)?.budget_shared, limited: !!meta.get(r.id)?.limited,
+      cost: r.cost, conversions: r.conversions, value: r.value
+    }));
+    const ids = new Set(list.map(c => c.id));
+    const terms = termRows.filter(t => ids.has(String(t.campaign_id))).map(t => ({
+      campaignId: String(t.campaign_id), term: t.term, clicks: t.clicks, conversions: t.conversions,
+      cost: accountCzk(cfg, accountInfo(cfg, t.account), Number(t.cost) || 0)
+    }));
+    const otherDaily = all.filter(r => r.market !== market && r.status === 'ENABLED')
+      .reduce((s, r) => s + (r.budget ?? 0), 0);
+    drafts.push(...generate({
+      cfg, market, margin, targetPno: targetPno(margin, cfg.targetProfitShare) ?? 0, campaigns: list, terms,
+      vocabulary,
+      // Žrouti jdou přes společný feed — jednou, ne za každý trh
+      products: index === 0
+        ? prods.map(p => ({ code: p.code, title: p.title, segment: p.segment, cost: p.cost, profit: p.profit }))
+        : [],
+      excluded, cooling, blocked, monthSpend, otherDaily,
+      daysLeft: lastDay - Number(today.slice(8, 10)) + 1,
+      dataDays: Number(dataDays) || 0
+    }));
   });
+  drafts.sort((a, b) => b.impact - a.impact);
   const fresh = prop.saveGenerated(drafts);
   setSetting('adsProposalsAt', new Date().toISOString());
   try { prop.shareProposals(); } catch { /* složka příště */ }
@@ -624,9 +719,20 @@ export function runEngine(): number {
 
 export function proposals(): AdsProposals {
   const cfg = getAdsConfig();
-  const margin = shopMargin(cfg, loadCatalog(cfg));
-  const vat = cfg.convValueWithVat ? vatShop(cfg) : 1;
-  return prop.proposalsView(margin, vat);
+  migrateItems(cfg);
+  const catalog = loadCatalog(cfg);
+  const { from, to } = period(30);
+  const margins = marginsByMarket(cfg, ordersBetween(cfg, catalog, from, to, 'all'));
+  const accountOf = new Map((getDb().prepare("SELECT id, account FROM ads_campaigns WHERE system = 'google'")
+    .all() as any[]).map(r => [String(r.id), String(r.account ?? '')]));
+  return prop.proposalsView(campaignId => {
+    const acc: AdsAccount = accountInfo(cfg, accountOf.get(campaignId) ?? '');
+    return {
+      margin: margins.get(acc.market) ?? cfg.fallbackMargin,
+      cost: (n: number) => accountCzk(cfg, acc, n),
+      value: (n: number) => accountValue(cfg, acc, n)
+    };
+  });
 }
 
 const feedAfter = async () => { if (webStorage().key) await publishFeed(); };
@@ -666,7 +772,7 @@ export function feedUrl(): string {
 export function feedText(daysWanted = 30): string {
   const cfg = getAdsConfig();
   const catalog = loadCatalog(cfg);
-  const data = products(daysWanted);
+  const data = products(daysWanted, 'all');
   const byCode = new Map(catalog.products.map(p => [p.code, p]));
   const out = new Set(prop.excludedCodes().map(one => one.code));
   const rows: { id: string; segment: AdsSegment; band: string; out: boolean }[] = [];
@@ -732,7 +838,7 @@ export async function tick(): Promise<void> {
     if (now.getHours() < 3) return;
     const day = localDay(now);
     if (lastRun()?.day === day) return;
-    if (!google.googleSecrets().connected || !getAdsConfig().google.customerId) return;
+    if (!google.googleSecrets().connected || !activeAccounts(getAdsConfig()).length) return;
     const mark = { day, device: deviceLabel(), finishedAt: '', result: '', error: '' };
     try {
       mark.result = await fetchGoogle();
@@ -771,7 +877,8 @@ export function status(): AdsStatus {
       connected: g.connected,
       hasSecret: g.hasSecret,
       service: g.service,
-      account: cfg.google.customerName || cfg.google.customerId,
+      account: activeAccounts(cfg).map(a => a.name || a.id).join(', '),
+      accountErrors: (() => { try { return JSON.parse(getSetting('adsAccountErrors', '{}') || '{}'); } catch { return {}; } })(),
       lastFetch: getSetting('adsGoogleFetched', '') || '',
       lastError: getSetting('adsGoogleError', '') || ''
     },

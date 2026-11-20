@@ -33,7 +33,8 @@ export const ADS: HelpTopic = {
         { text: 'Klikni na [Nahrát klíč (JSON)] a vyber stažený soubor. Aplikace ukáže e-mail servisního účtu.', area: 'tabs' },
         { text: 'V Google Ads ten e-mail přidej jako uživatele (Správce → Přístup a zabezpečení) s přístupem **Standardní**. '
             + 'Bez přihlašovací obrazovky a bez ověřování aplikace — klíč nevyprší.', area: 'tabs' },
-        { text: '[Vybrat účet] ukáže účty, ke kterým máš přístup — klikni na účet Quentina.', area: 'tabs' },
+        { text: '[Načíst účty] ukáže účty, ke kterým má servisní účet přístup. Přidej **každý trh zvlášť** — český, '
+            + 'slovenský, později .com — a u každého zkontroluj, ke kterému trhu patří.', area: 'tabs' },
         { text: 'V hlavičce klikni na [Načíst data]. Poprvé se stáhne 90 dní, pak už to běží samo každou noc.', area: 'status' }
       ]
     },
@@ -92,6 +93,9 @@ export const ADS: HelpTopic = {
     }
   ],
   tips: [
+    'Podtržené pojmy (PNO, ROAS, bod zlomu…) a štítky segmentů vysvětlí po najetí myší, co znamenají.',
+    'V hlavičce jde přepnout **Všechny trhy / CZ / SK / .com**. Každý trh má cílové PNO podle své marže.',
+    'Tabulky produktů a kampaní se řadí klikem na hlavičku sloupce; druhý klik obrátí pořadí.',
     'Období v hlavičce končí včerejškem — dnešek je rozdělaný a srovnával by se celý den s půlkou.',
     'Cílové PNO není jedno pro celý e-shop: je to **marže − požadovaný podíl zisku**. Levné zboží s nižší marží snese méně.',
     'Doplněním nákupních cen v Upgates budou čísla přesnější — u produktů bez ní se marže odhaduje podle kategorie.',

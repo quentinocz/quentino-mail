@@ -11178,6 +11178,22 @@ button.ad-seg.on { border-color: currentColor; }
 .ad-change-title { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
 .ad-pad { padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 5px; }
 .ad-guards { display: flex; flex-direction: column; gap: 8px; }
+.ad-term { text-decoration: underline dotted; text-decoration-color: var(--text-3); text-underline-offset: 3px; cursor: help; }
+.ad-sortable { cursor: pointer; user-select: none; }
+.ad-sortable:hover { color: var(--text); }
+.ad-sortable.on { color: var(--accent-dark); }
+.ad-sort-ico { margin-left: 4px; font-size: 9px; opacity: .5; }
+.ad-sortable.on .ad-sort-ico { opacity: 1; }
+.ad-prop-plain { font-size: 13px; line-height: 1.55; color: var(--text); }
+.ad-prop-more { align-self: flex-start; }
+.ad-filters .ad-inline input { width: 54px; min-width: 0; padding: 5px 6px; }
+.ad-accounts { display: flex; flex-direction: column; gap: 8px; }
+.ad-account { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; }
+.ad-account.off { opacity: .55; }
+.ad-account-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ad-account select { padding: 5px 8px; font-size: 12.5px; }
+.ad-market { display: inline-grid; place-items: center; min-width: 26px; padding: 1px 6px; border-radius: 6px; font-size: 10.5px;
+  font-weight: 800; background: var(--bg); color: var(--text-2); border: 1px solid var(--border); }
 .ad-way { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
 .ad-way p { margin: 0; }
 .ad-file { position: relative; align-self: flex-start; cursor: pointer; }

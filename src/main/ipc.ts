@@ -724,9 +724,10 @@ export function registerIpc() {
    * segmenty produktů a doplňkový feed — do účtů se nic nezapisuje.
    */
   handle('ads:status', () => ads.status());
-  handle('ads:overview', (days: number) => ads.overview(Number(days) || 30));
-  handle('ads:campaigns', (days: number) => ads.campaigns(Number(days) || 30));
-  handle('ads:products', (days: number) => ads.products(Number(days) || 30));
+  // Trh: 'all' = všechny sledované dohromady, jinak cz / sk / en
+  handle('ads:overview', (days: number, market?: string) => ads.overview(Number(days) || 30, String(market || 'all')));
+  handle('ads:campaigns', (days: number, market?: string) => ads.campaigns(Number(days) || 30, String(market || 'all')));
+  handle('ads:products', (days: number, market?: string) => ads.products(Number(days) || 30, String(market || 'all')));
   handle('ads:ship', () => ads.shipMethods());
   handle('ads:config', (patch: any) => ads.saveConfig(patch ?? {}));
   handle('ads:connect', (clientId: string, secret?: string) => ads.connectGoogle(String(clientId ?? ''), secret));

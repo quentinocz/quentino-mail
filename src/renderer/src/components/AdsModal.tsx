@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod,
-  AdsGoogleCustomer, AdsConfig, AdsSystemTile, AdsProposals, AdsProposal, AdsChange, AdsGuards
+  AdsGoogleCustomer, AdsConfig, AdsSystemTile, AdsProposals, AdsProposal, AdsChange, AdsGuards, AdsAccount
 } from '@shared/ads';
-import { SEGMENT_LABELS } from '@shared/ads';
+import { SEGMENT_LABELS, MARKET_LABELS, guessMarket } from '@shared/ads';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
 import HelpButton from './HelpPanel';
 import { inToolWindow } from '../toolwindows';
+import { ADS_TERMS, SEGMENT_HELP } from '../adsTerms';
 
 /**
  * Reklamy — fáze 1.
@@ -50,6 +51,52 @@ const relTime = (iso: string) => {
   if (diff < 36 * 3600_000) return `před ${Math.round(diff / 3600_000)} h`;
   return new Date(iso).toLocaleDateString('cs-CZ');
 };
+
+/**
+ * Pojem s vysvětlením po najetí myší (tečkované podtržení). Zkratky jako
+ * PNO nebo ROAS se nedají vynechat — jsou to slova z Google Ads — ale
+ * nikdo nemusí vědět, co znamenají.
+ */
+function Term({ k, children }: { k: string; children: React.ReactNode }) {
+  return <span className="ad-term" data-tip={ADS_TERMS[k] ?? ''}>{children}</span>;
+}
+
+type SortDir = 'asc' | 'desc';
+
+/** Řazení tabulky klikem na hlavičku; druhý klik obrátí směr */
+function useSort<T>(rows: T[], initial: { key: string; dir: SortDir }, value: (row: T, key: string) => number | string | null) {
+  const [sort, setSort] = useState(initial);
+  const sorted = useMemo(() => {
+    const out = [...rows];
+    out.sort((a, b) => {
+      const va = value(a, sort.key);
+      const vb = value(b, sort.key);
+      // Prázdné hodnoty vždycky na konec, ať je to vzestupně, nebo sestupně
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      const cmp = typeof va === 'string' && typeof vb === 'string' ? va.localeCompare(vb, 'cs') : Number(va) - Number(vb);
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+    return out;
+  }, [rows, sort, value]);
+  const toggle = (key: string, firstDir: SortDir = 'desc') =>
+    setSort(prev => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: firstDir }));
+  return { sorted, sort, toggle };
+}
+
+function SortTh({ k, sort, onSort, right, children, tip, firstDir }: {
+  k: string; sort: { key: string; dir: SortDir }; onSort: (k: string, d?: SortDir) => void;
+  right?: boolean; children: React.ReactNode; tip?: string; firstDir?: SortDir;
+}) {
+  const on = sort.key === k;
+  return (
+    <th className={`${right ? 'r' : ''} ad-sortable ${on ? 'on' : ''}`} onClick={() => onSort(k, firstDir)}
+      data-tip={tip} aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      {children}<span className="ad-sort-ico">{on ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+    </th>
+  );
+}
 
 /** Změna proti minulému období jako štítek */
 function Delta({ now, prev, invert = false }: { now: number; prev: number; invert?: boolean }) {
@@ -109,6 +156,8 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [tab, setTab] = useState<Tab>('today');
   const [days, setDays] = useState(30);
+  // Trh: 'all' = všechny sledované dohromady
+  const [market, setMarket] = useState('all');
   const [status, setStatus] = useState<AdsStatus | null>(null);
   const [overview, setOverview] = useState<AdsOverview | null>(null);
   const [campaigns, setCampaigns] = useState<AdsCampaignRow[] | null>(null);
@@ -122,13 +171,14 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
       setStatus(st);
       // Návrhy se načítají vždy — číslo u záložky a „Čeká na tebe" v Dnes
       setProposals(await api.ads.proposals());
-      if (tab === 'today') setOverview(await api.ads.overview(days));
-      if (tab === 'campaigns') setCampaigns(await api.ads.campaigns(days));
-      if (tab === 'products') setProducts(await api.ads.products(days));
+      if (tab === 'today') setOverview(await api.ads.overview(days, market));
+      if (tab === 'campaigns') setCampaigns(await api.ads.campaigns(days, market));
+      if (tab === 'products') setProducts(await api.ads.products(days, market));
     } catch (e: any) {
       toast(e.message, 'error');
     }
-  }, [tab, days, toast]);
+  }, [tab, days, market, toast]);
+  const markets = status?.config.markets ?? ['cz'];
 
   useEffect(() => { void load(); }, [load]);
   // Nová data z nočního běhu nebo z jiného Macu
@@ -165,6 +215,13 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
             <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Nastavení</button>
           </div>
           <span style={{ flex: 1 }} />
+          {tab !== 'settings' && tab !== 'proposals' && markets.length > 1 && (
+            <select className="ad-period" value={market} onChange={e => setMarket(e.target.value)}
+              data-tip="Čísla za všechny trhy dohromady, nebo jen za jeden. Každý trh má cílové PNO podle své marže.">
+              <option value="all">Všechny trhy</option>
+              {markets.map(m => <option key={m} value={m}>{MARKET_LABELS[m] ?? m}</option>)}
+            </select>
+          )}
           {tab !== 'settings' && tab !== 'proposals' && (
             <select className="ad-period" value={days} onChange={e => setDays(Number(e.target.value))}
               data-tip="Období končí včerejškem — dnešek je rozdělaný a srovnával by se celý den s půlkou">
@@ -243,11 +300,11 @@ function Today({ overview, status, proposals, onSettings, onProposals, onChanged
       <div className="ad-main">
         <div className="ad-kpis">
           <div className="ad-card ad-kpi hero">
-            <div className="ad-h">Zisk po reklamě · {o.days} dní</div>
+            <div className="ad-h"><Term k="profitAfterAds">Zisk po reklamě</Term> · {o.days} dní</div>
             <div className="ad-v">{kc(o.profitAfterAds.value)}</div>
             <div className="ad-d">
               <Delta now={o.profitAfterAds.value} prev={o.profitAfterAds.prev} />{' '}
-              <span className="muted" data-tip="Podíl zisku po reklamě na obratu bez DPH">
+              <span className="muted ad-term" data-tip={ADS_TERMS.profitShare}>
                 {pct(share, 0)} z obratu · cíl {pct(target, 0)}
               </span>
             </div>
@@ -263,11 +320,11 @@ function Today({ overview, status, proposals, onSettings, onProposals, onChanged
             <div className="ad-d"><Delta now={o.cost.value} prev={o.cost.prev} invert /> <span className="muted">Kč bez DPH</span></div>
           </div>
           <div className="ad-card ad-kpi">
-            <div className="ad-h" data-tip="Náklady na reklamu / obrat bez DPH ze všech objednávek">PNO e-shopu</div>
+            <div className="ad-h"><Term k="shopPno">PNO e-shopu</Term></div>
             <div className="ad-v">{pct(o.shopPno)}</div>
             <div className="ad-d">
               <span className={`ad-chip ${o.shopPno != null && o.targetPno != null && o.shopPno > o.targetPno ? 'bad' : 'ok'}`}
-                data-tip={`Marže objednávek po dopravě ${pct(o.margin, 0)} − cílový podíl zisku ${pct(target, 0)}`}>
+                data-tip={`${ADS_TERMS.targetPno} Teď: marže objednávek po dopravě ${pct(o.margin, 0)} − cíl ${pct(target, 0)}.`}>
                 cíl {pct(o.targetPno, 0)}
               </span>
             </div>
@@ -289,9 +346,12 @@ function Today({ overview, status, proposals, onSettings, onProposals, onChanged
               </div>
               {sys.connected ? (
                 <>
-                  <div className="ad-row"><span className="muted">Útrata</span><b>{kc(sys.cost)}</b></div>
-                  <div className="ad-row"><span className="muted" data-tip="Hodnota konverzí bez DPH × marže − útrata">Zisk z konverzí</span><b>{kc(sys.profit)}</b></div>
-                  <div className="ad-row"><span className="muted">PNO / cíl</span><b>{pct(sys.pno)} / {pct(sys.targetPno, 0)}</b></div>
+                  <div className="ad-row"><span className="muted"><Term k="cost">Útrata</Term></span><b>{kc(sys.cost)}</b></div>
+                  <div className="ad-row">
+                    <span className="muted ad-term" data-tip="Zisk z nákupů, které si reklama připsala: hodnota konverzí bez DPH × marže trhu − útrata.">Zisk z konverzí</span>
+                    <b>{kc(sys.profit)}</b>
+                  </div>
+                  <div className="ad-row"><span className="muted"><Term k="pno">PNO</Term> / <Term k="targetPno">cíl</Term></span><b>{pct(sys.pno)} / {pct(sys.targetPno, 0)}</b></div>
                   <Spark daily={sys.daily} />
                 </>
               ) : (
@@ -304,6 +364,33 @@ function Today({ overview, status, proposals, onSettings, onProposals, onChanged
             </div>
           ))}
         </div>
+
+        {o.markets.length > 1 && (
+          <div className="ad-card ad-table-wrap">
+            <table className="ad-table">
+              <thead>
+                <tr>
+                  <th>Trh</th><th className="r">Obrat bez DPH</th><th className="r">Náklady na reklamu</th>
+                  <th className="r"><Term k="profitAfterAds">Zisk po reklamě</Term></th>
+                  <th className="r"><Term k="pno">PNO</Term> / cíl</th>
+                </tr>
+              </thead>
+              <tbody>
+                {o.markets.map(m => (
+                  <tr key={m.market}>
+                    <td><span className="ad-market">{MARKET_LABELS[m.market] ?? m.market}</span></td>
+                    <td className="r">{kc(m.revenue)}</td>
+                    <td className="r">{kc(m.cost)}</td>
+                    <td className={`r ${m.profitAfterAds < 0 ? 'neg' : ''}`}><b>{kc(m.profitAfterAds)}</b></td>
+                    <td className={`r ${m.pno != null && m.targetPno != null && m.pno > m.targetPno ? 'neg' : ''}`}>
+                      {pct(m.pno)} / {pct(m.targetPno, 0)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div className="ad-card ad-chart">
           <div className="ad-chart-head">
@@ -370,21 +457,47 @@ const BIDDING_LABEL: Record<string, string> = {
   TARGET_CPA: 'cílová CPA', MANUAL_CPC: 'ruční CPC', TARGET_SPEND: 'max. kliky', MAXIMIZE_CLICKS: 'max. kliky'
 };
 
+const TYPE_TERM: Record<string, string> = { PERFORMANCE_MAX: 'pmax', SHOPPING: 'shopping', SEARCH: 'search' };
+
+const campaignValue = (row: AdsCampaignRow, key: string): number | string | null => {
+  switch (key) {
+    case 'name': return row.name;
+    case 'market': return row.market;
+    case 'type': return TYPE_LABEL[row.type] ?? row.type;
+    case 'budget': return row.budget;
+    case 'cost': return row.cost;
+    case 'conversions': return row.conversions;
+    case 'value': return row.value;
+    case 'profit': return row.profit;
+    case 'pno': return row.pno;
+    default: return null;
+  }
+};
+
 function Campaigns({ rows }: { rows: AdsCampaignRow[] | null }) {
+  const { sorted, sort, toggle } = useSort(rows ?? [], { key: 'cost', dir: 'desc' }, campaignValue);
   if (!rows) return <div className="ad-empty">Načítám…</div>;
   if (!rows.length) return <div className="ad-empty">Zatím žádné kampaně. Připoj Google Ads v Nastavení a načti data.</div>;
+  const manyMarkets = new Set(rows.map(r => r.market)).size > 1;
   return (
     <div className="ad-card ad-table-wrap">
       <table className="ad-table">
         <thead>
           <tr>
-            <th>Kampaň</th><th>Typ</th><th className="r">Rozpočet/den</th><th className="r">Útrata</th>
-            <th className="r">Konverze</th><th className="r" data-tip="Hodnota konverzí bez DPH">Hodnota</th>
-            <th className="r" data-tip="Hodnota × marže objednávek − útrata">Zisk</th><th className="r">PNO / cíl</th><th>Nabízení</th>
+            <SortTh k="name" sort={sort} onSort={toggle} firstDir="asc">Kampaň</SortTh>
+            {manyMarkets && <SortTh k="market" sort={sort} onSort={toggle} firstDir="asc" tip={ADS_TERMS.market}>Trh</SortTh>}
+            <SortTh k="type" sort={sort} onSort={toggle} firstDir="asc">Typ</SortTh>
+            <SortTh k="budget" sort={sort} onSort={toggle} right tip={ADS_TERMS.budget}>Rozpočet/den</SortTh>
+            <SortTh k="cost" sort={sort} onSort={toggle} right tip={ADS_TERMS.cost}>Útrata</SortTh>
+            <SortTh k="conversions" sort={sort} onSort={toggle} right tip={ADS_TERMS.conversions}>Konverze</SortTh>
+            <SortTh k="value" sort={sort} onSort={toggle} right tip={ADS_TERMS.value}>Hodnota</SortTh>
+            <SortTh k="profit" sort={sort} onSort={toggle} right tip="Hodnota konverzí × marže trhu − útrata. Kolik kampaň vydělala po zaplacení reklamy.">Zisk</SortTh>
+            <SortTh k="pno" sort={sort} onSort={toggle} right tip={`${ADS_TERMS.pno} Cíl: ${ADS_TERMS.targetPno}`}>PNO / cíl</SortTh>
+            <th className="ad-term" data-tip={ADS_TERMS.bidding}>Nabízení</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map(row => {
+          {sorted.map(row => {
             const over = row.pno != null && row.targetPno != null && row.pno > row.targetPno;
             return (
               <tr key={`${row.system}-${row.id}`} className={row.status !== 'ENABLED' ? 'paused' : ''}>
@@ -395,16 +508,24 @@ function Campaigns({ rows }: { rows: AdsCampaignRow[] | null }) {
                     {row.status !== 'ENABLED' && <span className="ad-chip">pozastavená</span>}
                   </div>
                 </td>
-                <td>{TYPE_LABEL[row.type] ?? row.type}</td>
+                {manyMarkets && <td><span className="ad-market">{MARKET_LABELS[row.market] ?? row.market}</span></td>}
+                <td>{TYPE_TERM[row.type]
+                  ? <Term k={TYPE_TERM[row.type]}>{TYPE_LABEL[row.type]}</Term>
+                  : (TYPE_LABEL[row.type] ?? row.type)}</td>
                 <td className="r">{row.budget != null ? kc(row.budget) : '—'}</td>
                 <td className="r">{kc(row.cost)}</td>
                 <td className="r">{row.conversions.toLocaleString('cs-CZ', { maximumFractionDigits: 1 })}</td>
                 <td className="r">{kc(row.value)}</td>
                 <td className={`r ${row.profit < 0 ? 'neg' : ''}`}><b>{kc(row.profit)}</b></td>
-                <td className={`r ${over ? 'neg' : ''}`}>{pct(row.pno)} / {pct(row.targetPno, 0)}</td>
+                <td className={`r ${over ? 'neg' : ''}`}
+                  data-tip={row.pno == null ? 'Bez konverzí se PNO spočítat nedá.' : over
+                    ? `Za každých 100 Kč tržby jde na reklamu ${Math.round(row.pno * 100)} Kč — víc, než dovoluje cíl ${Math.round((row.targetPno ?? 0) * 100)} Kč.`
+                    : `Za každých 100 Kč tržby jde na reklamu ${Math.round(row.pno * 100)} Kč — v cíli.`}>
+                  {pct(row.pno)} / {pct(row.targetPno, 0)}
+                </td>
                 <td className="muted">
                   {BIDDING_LABEL[row.bidding] ?? row.bidding}
-                  {row.targetRoas ? ` ${Math.round(row.targetRoas * 100)} %` : ''}
+                  {row.targetRoas ? <> <Term k="troas">{Math.round(row.targetRoas * 100)} %</Term></> : ''}
                 </td>
               </tr>
             );
@@ -464,34 +585,78 @@ function ProductMap({ rows, active, onPick }: {
   );
 }
 
+const productValue = (r: AdsProductRow, key: string): number | string | null => {
+  switch (key) {
+    case 'title': return r.title || r.code;
+    case 'segment': return SEGMENT_ORDER.indexOf(r.segment);
+    case 'margin': return r.margin;
+    case 'cost': return r.cost;
+    case 'profit': return r.cost || r.value ? r.profit : null;
+    case 'pno': return r.pno;
+    case 'sold': return r.sold;
+    case 'stock': return r.stock;
+    default: return null;
+  }
+};
+
+type Extra = 'all' | 'ads' | 'noads' | 'loss' | 'noprice' | 'instock';
+
+const EXTRA_LABELS: Record<Extra, string> = {
+  all: 'Vše', ads: 'Jen s útratou', noads: 'Bez reklamy', loss: 'Prodělávají (PNO nad zlomem)',
+  noprice: 'Bez nákupní ceny', instock: 'Jen skladem'
+};
+
 function Products({ data }: { data: AdsProducts | null }) {
   const [segment, setSegment] = useState<AdsSegment | null>(null);
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
   const [limit, setLimit] = useState(100);
+  const [category, setCategory] = useState('');
+  const [extra, setExtra] = useState<Extra>('all');
+  const [maxMargin, setMaxMargin] = useState('');
+
+  const categories = useMemo(() => [...new Set((data?.rows ?? []).map(r => r.category).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'cs')), [data]);
 
   const rows = useMemo(() => {
     if (!data) return [];
     const q = query.trim().toLowerCase();
+    const mm = maxMargin.trim() ? Number(maxMargin) / 100 : null;
     return data.rows.filter(r => (!segment || r.segment === segment)
       && (!q || r.title.toLowerCase().includes(q) || r.code.toLowerCase().includes(q))
-      && (!picked || r.code === picked));
-  }, [data, segment, query, picked]);
+      && (!picked || r.code === picked)
+      && (!category || r.category === category)
+      && (mm == null || (r.margin != null && r.margin <= mm))
+      && (extra === 'all'
+        || (extra === 'ads' && r.cost > 0)
+        || (extra === 'noads' && r.cost === 0)
+        || (extra === 'loss' && r.pno != null && r.breakEven != null && r.pno > r.breakEven)
+        || (extra === 'noprice' && r.marginEstimated)
+        || (extra === 'instock' && (r.stock ?? 0) > 0)));
+  }, [data, segment, query, picked, category, extra, maxMargin]);
+  const { sorted, sort, toggle } = useSort(rows, { key: 'cost', dir: 'desc' }, productValue);
+  const filtered = !!(segment || query || picked || category || extra !== 'all' || maxMargin);
 
   if (!data) return <div className="ad-empty">Načítám…</div>;
   return (
     <div className="ad-products">
       <div className="ad-card ad-map-card">
-        <div className="ad-chart-head"><b>Mapa produktů</b><span className="muted small">velikost tečky = hodnota konverzí</span></div>
+        <div className="ad-chart-head">
+          <b>Mapa produktů</b>
+          <span className="muted small ad-term" data-tip={`Každá tečka je produkt, který v reklamách utrácí. Vodorovně: kolik utratil. Svisle: kolik vydělal po zaplacení reklamy (pod čárkovanou čárou prodělává). Velikost tečky = tržba z reklamy. Klik na tečku ukáže produkt v tabulce.`}>
+            jak ji číst?
+          </span>
+        </div>
         <ProductMap rows={data.rows} active={segment} onPick={code => { setPicked(code); setSegment(null); }} />
         <div className="ad-seglist">
           {SEGMENT_ORDER.map(one => (
-            <button key={one} className={`ad-seg ${one} ${segment === one ? 'on' : ''}`}
+            <button key={one} className={`ad-seg ${one} ${segment === one ? 'on' : ''}`} data-tip={SEGMENT_HELP[one]}
               onClick={() => { setSegment(segment === one ? null : one); setPicked(null); }}>
               {SEGMENT_LABELS[one]} <b>{data.counts[one]}</b>
             </button>
           ))}
         </div>
+        <div className="muted small ad-note">Najeď myší na štítek segmentu — vysvětlí, co znamená. Kliknutím se tabulka vyfiltruje.</div>
         {data.unmatched.length > 0 && (
           <div className="muted small ad-note">
             {data.unmatched.length} ID z reklam se nespárovalo s katalogem (např. {data.unmatched.slice(0, 3).map(u => u.itemId).join(', ')}).
@@ -507,7 +672,21 @@ function Products({ data }: { data: AdsProducts | null }) {
             <option value="">Segment: všechny</option>
             {SEGMENT_ORDER.map(one => <option key={one} value={one}>{SEGMENT_LABELS[one]}</option>)}
           </select>
-          {picked && <button className="btn ghost" onClick={() => setPicked(null)}>Zrušit výběr</button>}
+          <select value={category} onChange={e => setCategory(e.target.value)}>
+            <option value="">Kategorie: všechny</option>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={extra} onChange={e => setExtra(e.target.value as Extra)}>
+            {(Object.keys(EXTRA_LABELS) as Extra[]).map(k => <option key={k} value={k}>{k === 'all' ? 'Zobrazit: vše' : EXTRA_LABELS[k]}</option>)}
+          </select>
+          <label className="ad-inline small" data-tip="Jen produkty s marží nejvýš tolik procent — levné zboží, které reklama snadno převálcuje">
+            marže do <input type="number" min={0} max={100} value={maxMargin} onChange={e => setMaxMargin(e.target.value)} placeholder="—" /> %
+          </label>
+          {filtered && (
+            <button className="btn ghost small" onClick={() => {
+              setSegment(null); setQuery(''); setPicked(null); setCategory(''); setExtra('all'); setMaxMargin('');
+            }}>Zrušit filtry</button>
+          )}
           <span style={{ flex: 1 }} />
           <span className="muted small">{rows.length} produktů</span>
         </div>
@@ -515,27 +694,37 @@ function Products({ data }: { data: AdsProducts | null }) {
           <table className="ad-table ad-ptable">
             <thead>
               <tr>
-                <th>Produkt</th><th>Segment</th><th className="r">Marže</th><th className="r">Útrata</th>
-                <th className="r">Zisk</th><th className="r" data-tip="PNO produktu / bod zlomu (= marže)">PNO / zlom</th>
-                <th className="r" data-tip="Prodáno kusů ve všech objednávkách, nejen z reklam">Prodáno</th><th className="r">Sklad</th>
+                <SortTh k="title" sort={sort} onSort={toggle} firstDir="asc">Produkt</SortTh>
+                <SortTh k="segment" sort={sort} onSort={toggle} firstDir="asc" tip="Segment — najeď na štítek v řádku, vysvětlí se">Segment</SortTh>
+                <SortTh k="margin" sort={sort} onSort={toggle} right tip={ADS_TERMS.margin}>Marže</SortTh>
+                <SortTh k="cost" sort={sort} onSort={toggle} right tip={ADS_TERMS.cost}>Útrata</SortTh>
+                <SortTh k="profit" sort={sort} onSort={toggle} right tip="Zisk po reklamě: tržba z reklamy × marže − útrata">Zisk</SortTh>
+                <SortTh k="pno" sort={sort} onSort={toggle} right tip={`PNO produktu / bod zlomu. ${ADS_TERMS.breakEven}`}>PNO / zlom</SortTh>
+                <SortTh k="sold" sort={sort} onSort={toggle} right tip={ADS_TERMS.sold}>Prodáno</SortTh>
+                <SortTh k="stock" sort={sort} onSort={toggle} right>Sklad</SortTh>
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, limit).map(r => (
-                <tr key={r.code} data-tip={r.why}>
+              {sorted.slice(0, limit).map(r => (
+                <tr key={r.code}>
                   <td>
                     <div className="ad-name">
                       {r.image ? <img src={r.image} alt="" loading="lazy" /> : <span className="ad-thumb" />}
-                      <span className="ad-ptitle">{r.title || r.code}</span>
+                      <span className="ad-ptitle" data-tip={`${r.title} (${r.code})`}>{r.title || r.code}</span>
                     </div>
                   </td>
-                  <td><span className={`ad-seg ${r.segment} small`}>{SEGMENT_LABELS[r.segment]}</span></td>
+                  <td><span className={`ad-seg ${r.segment} small`} data-tip={`${SEGMENT_HELP[r.segment]}${r.why ? ` Tenhle produkt: ${r.why}` : ''}`}>{SEGMENT_LABELS[r.segment]}</span></td>
                   <td className="r" data-tip={r.marginEstimated ? 'Nákupní cena chybí — odhad podle kategorie' : undefined}>
                     {pct(r.margin, 0)}{r.marginEstimated ? '*' : ''}
                   </td>
                   <td className="r">{r.cost ? kc(r.cost) : '—'}</td>
                   <td className={`r ${r.profit < 0 ? 'neg' : ''}`}>{r.cost || r.value ? <b>{kc(r.profit)}</b> : '—'}</td>
-                  <td className={`r ${r.pno != null && r.breakEven != null && r.pno > r.breakEven ? 'neg' : ''}`}>
+                  <td className={`r ${r.pno != null && r.breakEven != null && r.pno > r.breakEven ? 'neg' : ''}`}
+                    data-tip={r.pno != null && r.breakEven != null
+                      ? (r.pno > r.breakEven
+                        ? `Reklama spolkne ${Math.round(r.pno * 100)} Kč ze 100 Kč tržby, ale na kuse vyděláme jen ${Math.round(r.breakEven * 100)} Kč — prodělává.`
+                        : `Reklama spolkne ${Math.round(r.pno * 100)} Kč ze 100 Kč tržby, na kuse vyděláme ${Math.round(r.breakEven * 100)} Kč — vydělává.`)
+                      : undefined}>
                     {pct(r.pno, 0)} / {pct(r.breakEven, 0)}
                   </td>
                   <td className="r">{r.sold || '—'}</td>
@@ -544,8 +733,8 @@ function Products({ data }: { data: AdsProducts | null }) {
               ))}
             </tbody>
           </table>
-          {rows.length > limit && (
-            <button className="btn ghost ad-more" onClick={() => setLimit(limit + 200)}>Ukázat další ({rows.length - limit})</button>
+          {sorted.length > limit && (
+            <button className="btn ghost ad-more" onClick={() => setLimit(limit + 200)}>Ukázat další ({sorted.length - limit})</button>
           )}
         </div>
       </div>
@@ -563,7 +752,7 @@ const KIND_LABEL: Record<string, string> = {
 function Confidence({ n }: { n: number }) {
   const label = ['', 'málo dat', 'dost dat', 'hodně dat', 'velmi spolehlivé'][n] ?? '';
   return (
-    <span className="ad-conf" data-tip={`Jistota: ${label}`}>
+    <span className="ad-conf" data-tip={`Jistota: ${label}. ${ADS_TERMS.confidence}`}>
       {[1, 2, 3, 4].map(i => <i key={i} className={i <= n ? 'on' : ''} />)}
     </span>
   );
@@ -622,6 +811,7 @@ function ProposalCard({ p, status, compact = false, onChanged }: {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(!compact);
+  const [detail, setDetail] = useState(false);
   const viaOther = needsGoogle(p) && !status.google.connected;
   const act = async (fn: () => Promise<unknown>, done: string) => {
     setBusy(true);
@@ -631,15 +821,26 @@ function ProposalCard({ p, status, compact = false, onChanged }: {
     <div className={`ad-card ad-prop ${p.status}`}>
       <div className="ad-prop-top">
         <span className="ad-chip">{KIND_LABEL[p.kind] ?? p.kind}</span>
+        {p.market && status.config.markets.length > 1 && (
+          <span className="ad-market" data-tip={ADS_TERMS.market}>{MARKET_LABELS[p.market] ?? p.market}</span>
+        )}
         <span className={`ad-chip ${p.impact >= 0 ? 'ok' : 'warn'}`}
-          data-tip="Odhad změny zisku po reklamě za 30 dní">
+          data-tip={p.impact < 0 ? `${ADS_TERMS.impact} ${ADS_TERMS.holdsTarget}` : ADS_TERMS.impact}>
           {p.impact >= 0 ? '+' : '−'}{kc(Math.abs(p.impact))} / 30 dní{p.impact < 0 ? ' · drží cíl' : ''}
         </span>
         <Confidence n={p.confidence} />
       </div>
       <div className="ad-prop-title">{p.title}</div>
-      {open && <div className="ad-prop-why">{p.why}</div>}
-      {open && <OpsList p={p} />}
+      {open && p.plain && <div className="ad-prop-plain">{p.plain}</div>}
+      {open && (!p.plain || detail) && (
+        <>
+          <div className="ad-prop-why"><b>Čísla:</b> {p.why}</div>
+          <OpsList p={p} />
+        </>
+      )}
+      {open && p.plain && !detail && (
+        <button className="linkish ad-prop-more" onClick={() => setDetail(true)}>Podrobně — čísla a přesné změny</button>
+      )}
       {p.error && <div className="ad-prop-err">{p.error}</div>}
       <div className="ad-prop-btns">
         <button className="btn primary small" disabled={busy}
@@ -648,14 +849,14 @@ function ProposalCard({ p, status, compact = false, onChanged }: {
           {viaOther ? 'Schválit' : 'Použít'}
         </button>
         {compact && !open && <button className="btn ghost small" onClick={() => setOpen(true)}>Proč</button>}
-        <button className="btn ghost small" disabled={busy}
+        <button className="btn ghost small" disabled={busy} data-tip="Schovat na týden, pak se nabídne znovu"
           onClick={() => act(() => api.ads.decide(p.id, 'snooze'), 'Odloženo na týden')}>Odložit</button>
         {!compact && (
           <>
-            <button className="btn ghost small" disabled={busy}
+            <button className="btn ghost small" disabled={busy} data-tip="Nechci teď — dva týdny se nenabídne"
               onClick={() => act(() => api.ads.decide(p.id, 'dismiss'), 'Zamítnuto — dva týdny se nenabídne')}>Zamítnout</button>
             <button className="btn ghost small" disabled={busy}
-              data-tip="Tenhle druh návrhu pro tuhle kampaň už nenabízet"
+              data-tip="Tenhle druh návrhu pro tuhle kampaň už nikdy nenabízet (jde vrátit v Rozhodnutých návrzích)"
               onClick={() => act(() => api.ads.decide(p.id, 'never'), 'Tohle už se navrhovat nebude')}>Nenavrhovat</button>
           </>
         )}
@@ -793,6 +994,80 @@ function Proposals({ data, status, onChanged, busy, setBusy }: {
 
 /* ---------- Nastavení ---------- */
 
+/**
+ * Účty Google Ads a jejich trhy.
+ *
+ * Každý trh má obvykle vlastní účet (český v korunách, slovenský v eurech).
+ * Modul stahuje ze všech zapnutých, čísla ukazuje dohromady i zvlášť a do
+ * každého účtu zapisuje jen jeho kampaně. Trh účtu rozhoduje, s jakými
+ * objednávkami se páruje a jakou DPH se počítá.
+ */
+function AccountsBlock({ cfg, status, customers, busy, onLoad, onSave }: {
+  cfg: AdsConfig; status: AdsStatus; customers: AdsGoogleCustomer[] | null; busy: string;
+  onLoad: () => void; onSave: (accounts: AdsAccount[]) => void;
+}) {
+  const accounts = cfg.google.accounts;
+  const update = (id: string, patch: Partial<AdsAccount>) =>
+    onSave(accounts.map(a => (a.id === id ? { ...a, ...patch } : a)));
+  const fmt = (id: string) => id.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
+  const fresh = (customers ?? []).filter(c => !c.manager && !accounts.some(a => a.id === c.id));
+  return (
+    <div className="ad-accounts">
+      <div className="ad-set-row">
+        <b>Účty a trhy</b>
+        <span className="muted small">každý trh má svůj účet; čísla jdou vidět dohromady i zvlášť</span>
+      </div>
+      {accounts.length === 0 && <div className="muted small">Zatím žádný účet. Klikni na Načíst účty a přidej je.</div>}
+      {accounts.map(a => (
+        <div key={a.id} className={`ad-account ${a.enabled ? '' : 'off'}`}>
+          <label className="ad-check" data-tip="Vypnutý účet se nestahuje a jeho kampaně se nepočítají">
+            <input type="checkbox" checked={a.enabled} onChange={e => update(a.id, { enabled: e.target.checked })} />
+          </label>
+          <div className="ad-account-name">
+            <b>{a.name || 'Účet bez názvu'}</b>
+            <span className="muted small">{fmt(a.id)} · {a.currency}</span>
+            {status.google.accountErrors?.[a.id] && <span className="ad-prop-err">{status.google.accountErrors[a.id]}</span>}
+          </div>
+          <select value={a.market} onChange={e => update(a.id, { market: e.target.value })}
+            data-tip="Trh účtu: s objednávkami kterého webu se páruje a jaká DPH se odečítá">
+            <option value="cz">CZ (quentino.cz)</option>
+            <option value="sk">SK (quentino.sk)</option>
+            <option value="en">.com (anglický web)</option>
+          </select>
+          <button className="icon-btn" data-tip="Odebrat účet z modulu (data zůstanou)"
+            onClick={() => onSave(accounts.filter(x => x.id !== a.id))}><Icon name="x" size={14} /></button>
+        </div>
+      ))}
+      <div className="ad-set-row">
+        <button className="btn" onClick={onLoad} disabled={!!busy}>Načíst účty</button>
+      </div>
+      {customers && (
+        <div className="ad-customers">
+          {fresh.length === 0 && (
+            <span className="muted small">
+              {customers.length === 0
+                ? (status.google.service
+                  ? 'Servisní účet zatím nemá přístup k žádnému účtu — přidej jeho e-mail v Google Ads jako uživatele.'
+                  : 'Přihlášený uživatel nemá přístup k žádnému účtu.')
+                : 'Všechny dostupné účty už jsou přidané.'}
+            </span>
+          )}
+          {fresh.map(c => {
+            const market = guessMarket(c.name, c.currency);
+            return (
+              <button key={c.id} className="ad-customer"
+                onClick={() => onSave([...accounts, { id: c.id, name: c.name, currency: c.currency || 'CZK', market, enabled: true }])}>
+                <b>+ {c.name || 'Účet bez názvu'}</b>
+                <span className="muted">{fmt(c.id)} · {c.currency || '?'} · přidat jako {MARKET_LABELS[market]}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GuardsSection({ guards, onSave }: { guards: AdsGuards; onSave: (g: AdsGuards) => void }) {
   const [g, setG] = useState(guards);
   useEffect(() => setG(guards), [guards]);
@@ -891,8 +1166,7 @@ function Settings({ status, onStatus, busy, setBusy }: {
         {status.google.connected ? (
           <>
             <p>
-              {status.google.service ? 'Tenhle Mac se připojuje servisním účtem' : 'Tenhle Mac je přihlášený'}
-              {cfg.google.customerId ? <> · účet <b>{cfg.google.customerName || cfg.google.customerId}</b></> : ''}.
+              {status.google.service ? 'Tenhle Mac se připojuje servisním účtem' : 'Tenhle Mac je přihlášený'}.
               {' '}Poslední stažení: {relTime(status.google.lastFetch)}.
             </p>
             {status.google.service && (
@@ -904,34 +1178,17 @@ function Settings({ status, onStatus, busy, setBusy }: {
             {status.google.service && (
               <p className="muted small">
                 Tenhle e-mail musí být v Google Ads jako uživatel (Správce → Přístup a zabezpečení) s přístupem Standardní.
-                Když po kliknutí na Vybrat účet žádný účet nenajde, ještě tam přidaný není.
+                Udělej to v každém účtu, který má modul řídit (CZ, SK, .com). Když Načíst účty některý nenajde, ještě tam přidaný není.
               </p>
             )}
             {status.google.lastError && <div className="ad-alert bad ad-card">{status.google.lastError}</div>}
+            <AccountsBlock cfg={cfg} status={status} customers={customers} busy={busy}
+              onLoad={loadCustomers} onSave={accounts => save({ google: { ...cfg.google, accounts } }, 'Účty uložené')} />
             <div className="ad-set-row">
-              <button className="btn" onClick={loadCustomers} disabled={!!busy}>Vybrat účet</button>
               <button className="btn ghost" onClick={async () => onStatus(await api.ads.disconnect())}>
                 {status.google.service ? 'Odebrat klíč z tohoto Macu' : 'Odhlásit tento Mac'}
               </button>
             </div>
-            {customers && (
-              <div className="ad-customers">
-                {customers.length === 0 && (
-                  <span className="muted">
-                    {status.google.service
-                      ? 'Servisní účet zatím nemá přístup k žádnému účtu — přidej jeho e-mail v Google Ads jako uživatele.'
-                      : 'Přihlášený uživatel nemá přístup k žádnému účtu.'}
-                  </span>
-                )}
-                {customers.map(c => (
-                  <button key={c.id} className={`ad-customer ${cfg.google.customerId === c.id ? 'on' : ''}`}
-                    onClick={() => void save({ google: { ...cfg.google, customerId: c.id, customerName: c.name, currency: c.currency || 'CZK' } }, 'Účet vybraný')}>
-                    <b>{c.name || 'Účet bez názvu'}</b>
-                    <span className="muted">{c.id.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')} · {c.currency || '?'}{c.manager ? ' · manažerský' : ''}</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </>
         ) : (
           <>

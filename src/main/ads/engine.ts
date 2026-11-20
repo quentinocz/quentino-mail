@@ -27,6 +27,8 @@ import type { AdsConfig, AdsOp, AdsProposalKind } from '../../shared/ads';
 
 export interface EngineCampaign {
   id: string;
+  /** Účet Google Ads — zapisuje se do něj */
+  account?: string;
   name: string;
   type: string;
   status: string;
@@ -61,6 +63,8 @@ export interface EngineProduct {
 
 export interface EngineInput {
   cfg: AdsConfig;
+  /** Trh, za který se počítá (cz, sk, en) — kvůli DPH v cílovém ROAS a štítku návrhu */
+  market?: string;
   /** Marže objednávek po dopravě (bez reklamy) */
   margin: number;
   /** Cílové PNO e-shopu (na hodnotě bez DPH) */
@@ -76,8 +80,10 @@ export interface EngineInput {
   cooling: Set<string>;
   /** Otisky návrhů, které se teď nemají nabízet (odložené, „nenavrhovat") */
   blocked: Set<string>;
-  /** Útrata tento měsíc a kolik dní měsíce zbývá — kvůli stropu */
+  /** Útrata tento měsíc (všechny trhy) a kolik dní měsíce zbývá — kvůli stropu */
   monthSpend: number;
+  /** Denní rozpočty zapnutých kampaní ostatních trhů — strop je společný */
+  otherDaily?: number;
   daysLeft: number;
   /** Kolik dní dat je k dispozici */
   dataDays: number;
@@ -85,10 +91,13 @@ export interface EngineInput {
 
 export interface ProposalDraft {
   fingerprint: string;
+  market?: string;
   kind: AdsProposalKind;
   targetId: string;
   targetName: string;
   title: string;
+  /** Vysvětlení pro člověka, který není PPC specialista — bez zkratek */
+  plain: string;
   why: string;
   impact: number;
   confidence: number;
@@ -133,34 +142,37 @@ export function vocabularyOf(titles: string[]): Set<string> {
 }
 
 /** ROAS, jak ho počítá Google: hodnota tak, jak ji posílá měření (obvykle s DPH) */
-function vatFactor(cfg: AdsConfig): number {
-  return cfg.convValueWithVat ? 1 + (cfg.vat[cfg.markets[0] ?? 'cz'] ?? 21) / 100 : 1;
+function vatFactor(cfg: AdsConfig, market = 'cz'): number {
+  return cfg.convValueWithVat ? 1 + (cfg.vat[market] ?? 21) / 100 : 1;
 }
 
 /**
  * Cílové ROAS v jednotkách Googlu pro dané PNO.
  * PNO je na hodnotě bez DPH, Google počítá s hodnotou z měření.
  */
-export function roasForPno(cfg: AdsConfig, pno: number): number {
-  return vatFactor(cfg) / pno;
+export function roasForPno(cfg: AdsConfig, pno: number, market = 'cz'): number {
+  return vatFactor(cfg, market) / pno;
 }
 
 export function generate(input: EngineInput): ProposalDraft[] {
   const { cfg, margin, targetPno } = input;
+  const market = input.market ?? 'cz';
   const g = cfg.guards;
   const out: ProposalDraft[] = [];
   if (input.dataDays < 14 || !(targetPno > 0)) return out;
 
   const push = (draft: ProposalDraft) => {
-    if (input.blocked.has(draft.fingerprint)) return;
-    out.push(draft);
+    // „Nenavrhovat" platí pro druh návrhu a kampaň, ne jen pro přesná čísla nebo slova
+    if (input.blocked.has(draft.fingerprint) || input.blocked.has(draft.fingerprint.split('|').slice(0, 3).join('|'))) return;
+    // Otisk bez trhu by u dvou trhů splynul jen u feedu; kampaně mají ID unikátní
+    out.push({ ...draft, market: draft.kind === 'exclude' ? '' : market });
   };
 
   // Kolik se smí přidat, aby se nepřekročil měsíční strop
   let headroom = Infinity;
   if (g.monthlyBudget > 0) {
     const daily = input.campaigns.filter(c => c.status === 'ENABLED').reduce((s, c) => s + (c.budget ?? 0), 0);
-    headroom = Math.max(0, (g.monthlyBudget - input.monthSpend) / Math.max(1, input.daysLeft) - daily);
+    headroom = Math.max(0, (g.monthlyBudget - input.monthSpend) / Math.max(1, input.daysLeft) - daily - (input.otherDaily ?? 0));
   }
 
   for (const c of input.campaigns) {
@@ -185,11 +197,15 @@ export function generate(input: EngineInput): ProposalDraft[] {
           fingerprint: `budget-up|google|${c.id}`,
           kind: 'budget-up', targetId: c.id, targetName: c.name,
           title: `Přidat rozpočet: ${c.name} ${kc(c.budget)} → ${kc(to)} denně`,
+          plain: `Kampaň „${c.name}" vydělává, ale každý den jí dojdou peníze dřív, než den skončí — zbytek dne ji pak `
+            + `Google přestane ukazovat a zákazníci, kteří by nakoupili, ji neuvidí. Návrh: přidat ${kc(to - c.budget)} denně. `
+            + `Za každých 100 Kč tržby z ní dnes jde na reklamu ${Math.round(pno * 100)} Kč a cíl dovoluje až ${Math.round(targetPno * 100)} Kč, `
+            + 'takže je kam růst. Přidané peníze vydělají o něco méně než ty dosavadní — s tím odhad počítá.',
           why: `Kampaň brzdí rozpočet a má PNO ${pct(pno)} při cíli ${pct(targetPno)} (${Math.round(c.conversions)} konverzí `
             + `za 30 dní). Další koruna vydělá méně než průměrná — odhad počítá s PNO ${pct(marginal)}.`
             + (headroom < Infinity ? ` Vejde se do měsíčního stropu.` : ''),
           impact, confidence: Math.min(conf, 3),
-          ops: [{ kind: 'budget', campaignId: c.id, budgetId: c.budgetId, from: c.budget, to }]
+          ops: [{ kind: 'budget', campaignId: c.id, budgetId: c.budgetId, from: c.budget, to, account: c.account }]
         });
         if (headroom < Infinity) headroom -= add;
         continue;
@@ -198,7 +214,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
 
     /* --- Nad cílem: přísnější cíl, nebo méně peněz --- */
     if (pno != null && pno > targetPno * 1.15 && enough) {
-      const need = roasForPno(cfg, targetPno);
+      const need = roasForPno(cfg, targetPno, market);
       /*
        * Odhad: útrata klesne o 15 % a odpadnou nejhorší aukce, které mají
        * PNO o polovinu horší, než je průměr kampaně. Když je marže vysoká,
@@ -219,26 +235,35 @@ export function generate(input: EngineInput): ProposalDraft[] {
             fingerprint: `roas-up|google|${c.id}`,
             kind: 'roas-up', targetId: c.id, targetName: c.name,
             title: `Přísnější cíl: ${c.name} cílové ROAS ${roasPct(c.targetRoas!)} → ${roasPct(to)}`,
+            plain: `Kampaň „${c.name}" dává na reklamu ${Math.round(pno * 100)} Kč z každých 100 Kč tržby, cíl je nejvýš `
+              + `${Math.round(targetPno * 100)} Kč. Návrh: říct Googlu, ať je vybíravější — ať platí jen za kliky, ze kterých `
+              + 'se víc nakupuje. Útrata klesne víc než tržby. Mění se to po malém kroku, aby se Google nerozhodil.'
+              + (impact < 0 ? ' Zisk v korunách tím trochu klesne, ale podíl zisku z obratu se přiblíží tvému cíli.' : ''),
             why: `PNO ${pct(pno)} je nad cílem ${pct(targetPno)} (marže ${pct(margin)} − požadovaný zisk). `
               + `Na cíl by bylo potřeba ROAS ${roasPct(need)}; krok je omezený na ${Math.round(g.maxRoasStep * 100)} %, `
               + 'aby se chytré nabízení nerozhodilo.' + cost,
             impact, confidence: conf,
-            ops: [{ kind: 'troas', campaignId: c.id, field, from: c.targetRoas, to }]
+            ops: [{ kind: 'troas', campaignId: c.id, field, from: c.targetRoas, to, account: c.account }]
           });
         }
       } else if (c.bidding === 'MAXIMIZE_CONVERSION_VALUE') {
         // Bez cíle: nastavit ho mírně nad tím, co kampaň dnes dělá
-        const now = c.cost > 0 ? (c.value * vatFactor(cfg)) / c.cost : 0;
+        const now = c.cost > 0 ? (c.value * vatFactor(cfg, market)) / c.cost : 0;
         const to = Math.min(now * (1 + g.maxRoasStep), need);
         if (to > 0) {
           push({
             fingerprint: `roas-set|google|${c.id}`,
             kind: 'roas-set', targetId: c.id, targetName: c.name,
             title: `Nastavit cílové ROAS: ${c.name} → ${roasPct(to)}`,
+            plain: `Kampaň „${c.name}" nemá žádný cíl návratnosti — Google jen utrácí, aby přinesl co nejvíc tržeb, `
+              + `a teď dává na reklamu ${Math.round(pno * 100)} Kč ze 100 Kč tržby (cíl je ${Math.round(targetPno * 100)} Kč). `
+              + 'Návrh: dát mu cíl, kolik tržby má přinést každá koruna reklamy. Začíná se kousek nad tím, co kampaň dělá dnes, '
+              + 'aby se nic neutnulo naráz.'
+              + (impact < 0 ? ' Zisk v korunách tím trochu klesne, ale podíl zisku z obratu se přiblíží tvému cíli.' : ''),
             why: `Kampaň maximalizuje hodnotu bez cíle a dosahuje PNO ${pct(pno)} při cíli ${pct(targetPno)}. `
               + `Cíl o ${Math.round(g.maxRoasStep * 100)} % nad dnešní návratností (${roasPct(now)}) ji začne krotit postupně.` + cost,
             impact, confidence: Math.max(1, conf - 1),
-            ops: [{ kind: 'troas', campaignId: c.id, field: 'maximize_conversion_value', from: null, to }]
+            ops: [{ kind: 'troas', campaignId: c.id, field: 'maximize_conversion_value', from: null, to, account: c.account }]
           });
         }
       } else if (c.budget && !c.budgetShared && c.budgetId) {
@@ -247,13 +272,16 @@ export function generate(input: EngineInput): ProposalDraft[] {
           fingerprint: `budget-down|google|${c.id}`,
           kind: 'budget-down', targetId: c.id, targetName: c.name,
           title: `Ubrat rozpočet: ${c.name} ${kc(c.budget)} → ${kc(to)} denně`,
+          plain: `Kampaň „${c.name}" dává na reklamu ${Math.round(pno * 100)} Kč z každých 100 Kč tržby a cíl je nejvýš `
+            + `${Math.round(targetPno * 100)} Kč. Nemá nastavený cíl, který by šlo zpřísnit, tak se jí ubere denní rozpočet `
+            + `o ${kc(c.budget - to)}. Odpadnou hlavně nejdražší kliky.`,
           why: `PNO ${pct(pno)} je nad cílem ${pct(targetPno)} a nabízení nemá cíl, kterým by se dalo zpřísnit.`
             + ((c.budget - to) * 30 * 0.8 * (1 - margin / (pno * 1.3)) < 0
               ? ` Zisk po reklamě tím mírně klesne — drží se cíl ${pct(cfg.targetProfitShare)} zisku z obratu.` : ''),
           // Ubere se nejhorší část útraty — počítá se s PNO o třetinu horším než průměr
           impact: (c.budget - to) * 30 * 0.8 * (1 - margin / (pno * 1.3)),
           confidence: conf,
-          ops: [{ kind: 'budget', campaignId: c.id, budgetId: c.budgetId, from: c.budget, to }]
+          ops: [{ kind: 'budget', campaignId: c.id, budgetId: c.budgetId, from: c.budget, to, account: c.account }]
         });
       }
       continue;
@@ -267,12 +295,17 @@ export function generate(input: EngineInput): ProposalDraft[] {
         fingerprint: `budget-down|google|${c.id}`,
         kind: 'budget-down', targetId: c.id, targetName: c.name,
         title: `Ubrat rozpočet: ${c.name} ${kc(c.budget)} → ${kc(to)} denně`,
+        plain: pno == null
+          ? `Kampaň „${c.name}" za měsíc utratila ${kc(c.cost)} a nepřinesla jediný nákup. Návrh: ubrat jí denní `
+            + `rozpočet o ${kc(c.budget - to)}, dokud se neukáže, že umí prodávat.`
+          : `Kampaň „${c.name}" stojí víc, než kolik prodeje z ní vydělají — reklama spolkne ${Math.round(pno * 100)} Kč `
+            + `ze 100 Kč tržby, ale na zboží vyděláme jen ${Math.round(margin * 100)} Kč. Návrh: ubrat denní rozpočet o ${kc(c.budget - to)}.`,
         why: pno == null
           ? `Za 30 dní ${kc(c.cost)} a žádná konverze.`
           : `PNO ${pct(pno)} je nad marží ${pct(margin)} — každá objednávka z kampaně prodělá.`,
         impact: Math.max(0, (c.budget - to) * 30 * 0.8 - (pno ? ((c.budget - to) * 30 * 0.8 / pno) * margin : 0)),
         confidence: 1,
-        ops: [{ kind: 'budget', campaignId: c.id, budgetId: c.budgetId, from: c.budget, to }]
+        ops: [{ kind: 'budget', campaignId: c.id, budgetId: c.budgetId, from: c.budget, to, account: c.account }]
       });
       continue;
     }
@@ -287,10 +320,13 @@ export function generate(input: EngineInput): ProposalDraft[] {
           fingerprint: `roas-down|google|${c.id}`,
           kind: 'roas-down', targetId: c.id, targetName: c.name,
           title: `Volnější cíl pro růst: ${c.name} cílové ROAS ${roasPct(c.targetRoas!)} → ${roasPct(to)}`,
+          plain: `Kampaň „${c.name}" je velmi levná — dává na reklamu jen ${Math.round(pno * 100)} Kč ze 100 Kč tržby, `
+            + `i když cíl dovoluje ${Math.round(targetPno * 100)} Kč. Peníze jí nechybí, brzdí ji příliš přísné zadání. `
+            + 'Návrh: dovolit Googlu i o něco dražší kliky — kampaň se ukáže víc lidem a prodá víc.',
           why: `PNO ${pct(pno)} je hluboko pod cílem ${pct(targetPno)} a rozpočet kampaň nebrzdí — brzdí ji vlastní `
             + 'přísný cíl. Mírně volnější cíl ji pustí do dalších aukcí, zisk po reklamě by měl růst.',
           impact, confidence: Math.max(1, conf - 1),
-          ops: [{ kind: 'troas', campaignId: c.id, field, from: c.targetRoas, to }]
+          ops: [{ kind: 'troas', campaignId: c.id, field, from: c.targetRoas, to, account: c.account }]
         });
       }
     }
@@ -337,11 +373,14 @@ export function generate(input: EngineInput): ProposalDraft[] {
       fingerprint: `negatives|google|${campaignId}|${picked.map(([w]) => w).sort().join(',')}`,
       kind: 'negatives', targetId: campaignId, targetName: c.name,
       title: `Vyloučit ${picked.length} ${picked.length === 1 ? 'slovo' : picked.length < 5 ? 'slova' : 'slov'} v kampani ${c.name}`,
+      plain: `Lidé hledali věci se slovy ${picked.map(([w]) => `„${w}"`).join(', ')}, klikli na reklamu, ale nic nekoupili — `
+        + `za měsíc to stálo ${kc(cost)}. Návrh: u hledání s těmito slovy reklamu už neukazovat. Na hledání, které prodává, `
+        + 'to nemá vliv: slova z názvů produktů a z hledání, ze kterých přišla objednávka, se nikdy nevylučují.',
       why: `Dotazy s ${picked.map(([w]) => `„${w}"`).join(', ')} stály za 30 dní ${kc(cost)} bez jediné objednávky. `
         + 'Slova z názvů produktů a z dotazů, které prodaly, se nevylučují nikdy.',
       impact: cost * 0.9,
       confidence: picked.reduce((s, [, v]) => s + v.clicks, 0) >= 200 ? 3 : 2,
-      ops: picked.map(([w, v]) => ({ kind: 'negative' as const, campaignId, text: w, match: 'PHRASE' as const, cost: v.cost, clicks: v.clicks }))
+      ops: picked.map(([w, v]) => ({ kind: 'negative' as const, campaignId, text: w, match: 'PHRASE' as const, cost: v.cost, clicks: v.clicks, account: c.account }))
     });
   }
 
@@ -357,6 +396,9 @@ export function generate(input: EngineInput): ProposalDraft[] {
       fingerprint: `exclude|google|${eaters.map(p => p.code).sort().join(',')}`,
       kind: 'exclude', targetId: 'feed', targetName: 'Doplňkový feed',
       title: `Vyřadit ${eaters.length} žroutů z produktových kampaní na 30 dní`,
+      plain: `${eaters.length} produktů na reklamě prodělává — kliky na ně stojí víc, než kolik jejich prodej vydělá. `
+        + 'Návrh: na 30 dní je vynechat z reklam. Na e-shopu zůstanou, jen se za ně nebude platit. Po 30 dnech se do '
+        + 'reklam vrátí samy a dostanou novou šanci (třeba v sezóně).',
       why: `Za 30 dní stály ${kc(cost)} a na zisku po reklamě skončily na ${kc(-gain)}. Vyřazení jde přes doplňkový feed `
         + '(custom_label_2 = vyradit); po 30 dnech se vrátí samy a dostanou novou šanci.',
       impact: gain,

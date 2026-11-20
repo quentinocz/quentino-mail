@@ -341,7 +341,7 @@ function headers(cfg: AdsConfig, token: string): Record<string, string> {
 }
 
 /** Dotaz GAQL s listováním po stránkách. */
-export async function gaql(cfg: AdsConfig, query: string, customerId = cfg.google.customerId): Promise<any[]> {
+export async function gaql(cfg: AdsConfig, query: string, customerId = cfg.google.accounts[0]?.id ?? cfg.google.customerId): Promise<any[]> {
   const id = customerId.replace(/\D/g, '');
   if (!id) throw new Error('Není vybraný účet Google Ads.');
   const token = await accessToken(cfg);
@@ -572,9 +572,11 @@ export async function mutate(
   cfg: AdsConfig,
   service: 'campaignBudgets' | 'campaigns' | 'campaignCriteria',
   operations: any[],
-  validateOnly: boolean
+  validateOnly: boolean,
+  customerId: string
 ): Promise<{ resources: string[]; partial: string }> {
-  const id = cfg.google.customerId.replace(/\D/g, '');
+  const id = customerId.replace(/\D/g, '');
+  if (!id) throw new Error('Není jasné, do kterého účtu Google Ads se má zapsat.');
   const token = await accessToken(cfg);
   const res = await fetch(`${API}/${cfg.google.apiVersion}/customers/${id}/${service}:mutate`, {
     method: 'POST',
@@ -590,11 +592,11 @@ export async function mutate(
 }
 
 /** Aktuální rozpočet a cíl kampaně — kontrola před zápisem. */
-export async function readCampaignNow(cfg: AdsConfig, campaignId: string):
+export async function readCampaignNow(cfg: AdsConfig, campaignId: string, customerId: string):
   Promise<{ budget: number | null; targetRoas: number | null }> {
   const rows = await gaql(cfg, 'SELECT campaign.id, campaign.maximize_conversion_value.target_roas, '
     + 'campaign.target_roas.target_roas, campaign_budget.amount_micros FROM campaign '
-    + `WHERE campaign.id = ${campaignId.replace(/\D/g, '')}`);
+    + `WHERE campaign.id = ${campaignId.replace(/\D/g, '')}`, customerId);
   const parsed = parseCampaigns(rows)[0];
   return { budget: parsed?.budget ?? null, targetRoas: parsed?.targetRoas ?? null };
 }

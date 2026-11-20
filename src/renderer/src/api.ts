@@ -1406,9 +1406,10 @@ export const api = {
    */
   ads: {
     status: () => call<AdsStatus>('ads:status'),
-    overview: (days: number) => call<AdsOverview>('ads:overview', days),
-    campaigns: (days: number) => call<AdsCampaignRow[]>('ads:campaigns', days),
-    products: (days: number) => call<AdsProducts>('ads:products', days),
+    /** `market`: 'all' = všechny trhy dohromady, jinak cz / sk / en */
+    overview: (days: number, market = 'all') => call<AdsOverview>('ads:overview', days, market),
+    campaigns: (days: number, market = 'all') => call<AdsCampaignRow[]>('ads:campaigns', days, market),
+    products: (days: number, market = 'all') => call<AdsProducts>('ads:products', days, market),
     ship: () => call<AdsShipMethod[]>('ads:ship'),
     config: (patch: Partial<AdsConfig>) => call<AdsStatus>('ads:config', patch),
     /** Otevře prohlížeč s přihlášením Google; tajný klíč se uloží jen v tomhle Macu */

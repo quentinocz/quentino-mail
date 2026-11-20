@@ -26,11 +26,12 @@ import crypto from 'crypto';
 import { getDb, getSetting } from '../db';
 import { deviceId, deviceLabel } from '../device';
 import type {
-  AdsConfig, AdsOp, AdsProposal, AdsProposalStatus, AdsChange, AdsProposals, AdsSystem
+  AdsConfig, AdsOp, AdsProposal, AdsProposalStatus, AdsChange, AdsProposals, AdsSystem, AdsAccount
 } from '../../shared/ads';
 import type { ProposalDraft } from './engine';
 import * as google from './google';
 import { shiftDay, localDay } from './economics';
+import { accountInfo } from './store';
 
 /* ---------- řádky ---------- */
 
@@ -40,8 +41,8 @@ function parse<T>(json: string, fallback: T): T {
 
 function toProposal(row: any): AdsProposal {
   return {
-    id: row.id, fingerprint: row.fingerprint, kind: row.kind, system: row.system,
-    targetId: row.target_id, targetName: row.target_name, title: row.title, why: row.why,
+    id: row.id, fingerprint: row.fingerprint, kind: row.kind, system: row.system, market: row.market ?? '',
+    targetId: row.target_id, targetName: row.target_name, title: row.title, plain: row.plain ?? '', why: row.why,
     impact: Number(row.impact) || 0, confidence: Number(row.confidence) || 1,
     ops: parse<AdsOp[]>(row.ops_json, []), status: row.status, snoozeUntil: row.snooze_until,
     error: row.error, createdAt: row.created_at, updatedAt: row.updated_at, decidedBy: row.decided_by
@@ -60,16 +61,16 @@ function toChange(row: any): AdsChange {
 function writeProposal(p: AdsProposal): void {
   getDb().prepare(`
     INSERT INTO ads_proposals (id, fingerprint, kind, system, target_id, target_name, title, why, impact,
-      confidence, ops_json, status, snooze_until, error, created_at, updated_at, decided_by)
+      confidence, ops_json, status, snooze_until, error, created_at, updated_at, decided_by, market, plain)
     VALUES (@id, @fingerprint, @kind, @system, @targetId, @targetName, @title, @why, @impact,
-      @confidence, @ops, @status, @snoozeUntil, @error, @createdAt, @updatedAt, @decidedBy)
+      @confidence, @ops, @status, @snoozeUntil, @error, @createdAt, @updatedAt, @decidedBy, @market, @plain)
     ON CONFLICT(id) DO UPDATE SET
-      title = excluded.title, why = excluded.why, impact = excluded.impact, confidence = excluded.confidence,
+      title = excluded.title, why = excluded.why, plain = excluded.plain, impact = excluded.impact, confidence = excluded.confidence,
       ops_json = excluded.ops_json, status = excluded.status, snooze_until = excluded.snooze_until,
       error = excluded.error, updated_at = excluded.updated_at, decided_by = excluded.decided_by,
       target_name = excluded.target_name
     WHERE excluded.updated_at >= ads_proposals.updated_at
-  `).run({ ...p, ops: JSON.stringify(p.ops) });
+  `).run({ ...p, market: p.market ?? '', plain: p.plain ?? '', ops: JSON.stringify(p.ops) });
 }
 
 function writeChange(c: AdsChange): void {
@@ -166,8 +167,8 @@ export function saveGenerated(drafts: ProposalDraft[], system: AdsSystem = 'goog
       if (last && ['approved', 'never'].includes(last.status)) continue;
       const proposal: AdsProposal = {
         id: reuse ? last.id : idOf(`${draft.fingerprint}|${at}`),
-        fingerprint: draft.fingerprint, kind: draft.kind, system,
-        targetId: draft.targetId, targetName: draft.targetName, title: draft.title, why: draft.why,
+        fingerprint: draft.fingerprint, kind: draft.kind, system, market: draft.market ?? '',
+        targetId: draft.targetId, targetName: draft.targetName, title: draft.title, plain: draft.plain, why: draft.why,
         impact: Math.round(draft.impact), confidence: draft.confidence, ops: draft.ops,
         status: 'open', snoozeUntil: '', error: '',
         createdAt: reuse ? last.created_at : at, updatedAt: at, decidedBy: ''
@@ -212,9 +213,25 @@ export function decide(id: string, decision: Decision): AdsProposal {
 
 export class StaleError extends Error {}
 
+/**
+ * Do kterého účtu operace patří.
+ *
+ * Návrh ho nese s sebou; starší návrhy z doby jednoho účtu ho nemají
+ * a dohledá se podle kampaně. Kampaň patří vždy jen jednomu účtu.
+ */
+function accountOfOp(cfg: AdsConfig, op: AdsOp): AdsAccount {
+  const own = 'account' in op ? op.account : '';
+  if (own) return accountInfo(cfg, own);
+  const campaignId = 'campaignId' in op ? op.campaignId : '';
+  const row = campaignId
+    ? getDb().prepare("SELECT account FROM ads_campaigns WHERE system = 'google' AND id = ?").get(campaignId) as any
+    : null;
+  return accountInfo(cfg, row?.account ?? '');
+}
+
 /** Přepočet korun na měnu účtu */
-function rateOf(cfg: AdsConfig): number {
-  return /eur/i.test(cfg.google.currency) ? cfg.eurRate : 1;
+function rateOf(cfg: AdsConfig, account: AdsAccount): number {
+  return /eur/i.test(account.currency) ? cfg.eurRate : 1;
 }
 
 /**
@@ -224,12 +241,12 @@ function rateOf(cfg: AdsConfig): number {
  * z čeho návrh vycházel — jinak se nic nezapíše (StaleError).
  */
 export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: AdsOp[]; note: string }> {
-  const rate = rateOf(cfg);
   for (const op of ops) {
     if (op.kind !== 'budget' && op.kind !== 'troas') continue;
-    const now = await google.readCampaignNow(cfg, op.campaignId);
+    const account = accountOfOp(cfg, op);
+    const now = await google.readCampaignNow(cfg, op.campaignId, account.id);
     if (op.kind === 'budget') {
-      const current = now.budget != null ? now.budget * rate : null;
+      const current = now.budget != null ? now.budget * rateOf(cfg, account) : null;
       if (current == null || Math.abs(current - op.from) > Math.max(1, op.from * 0.01)) {
         throw new StaleError(`Rozpočet je teď ${current == null ? 'neznámý' : `${Math.round(current)} Kč`}, `
           + `návrh počítal s ${Math.round(op.from)} Kč — někdo ho mezitím změnil.`);
@@ -243,29 +260,31 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
     }
   }
 
-  // Seskupit podle služby, nejdřív naoko, pak doopravdy
-  const groups = new Map<string, { op: AdsOp; mutation: any }[]>();
+  // Seskupit podle účtu a služby, nejdřív naoko, pak doopravdy
+  const groups = new Map<string, { account: string; service: string; items: { op: AdsOp; mutation: any }[] }>();
   for (const op of ops) {
-    const m = google.buildMutation(cfg.google.customerId, op, rate);
+    const account = accountOfOp(cfg, op);
+    const m = google.buildMutation(account.id, op, rateOf(cfg, account));
     if (!m) continue;
-    const list = groups.get(m.service) ?? [];
-    list.push({ op, mutation: m.operation });
-    groups.set(m.service, list);
+    const key = `${account.id}|${m.service}`;
+    const group = groups.get(key) ?? { account: account.id, service: m.service, items: [] };
+    group.items.push({ op: { ...op, account: account.id } as AdsOp, mutation: m.operation });
+    groups.set(key, group);
   }
-  for (const [service, list] of groups) {
-    await google.mutate(cfg, service as any, list.map(x => x.mutation), true);
+  for (const g of groups.values()) {
+    await google.mutate(cfg, g.service as any, g.items.map(x => x.mutation), true, g.account);
   }
   const undo: AdsOp[] = [];
   const notes: string[] = [];
-  for (const [service, list] of groups) {
-    const result = await google.mutate(cfg, service as any, list.map(x => x.mutation), false);
+  for (const g of groups.values()) {
+    const result = await google.mutate(cfg, g.service as any, g.items.map(x => x.mutation), false, g.account);
     if (result.partial) notes.push(result.partial);
-    list.forEach((x, i) => {
+    g.items.forEach((x, i) => {
       const op = x.op;
       if (op.kind === 'budget') undo.push({ ...op, from: op.to, to: op.from });
       else if (op.kind === 'troas') undo.push({ ...op, from: op.to, to: op.from ?? 0 });
       else if (op.kind === 'negative' && result.resources[i]) {
-        undo.push({ kind: 'negative-remove', campaignId: op.campaignId, resource: result.resources[i], text: op.text });
+        undo.push({ kind: 'negative-remove', campaignId: op.campaignId, resource: result.resources[i], text: op.text, account: g.account });
       }
     });
   }
@@ -276,7 +295,7 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
 }
 
 function canWrite(cfg: AdsConfig): boolean {
-  return google.googleSecrets().connected && !!cfg.google.customerId;
+  return google.googleSecrets().connected && cfg.google.accounts.some(one => one.enabled);
 }
 
 /**
@@ -359,7 +378,10 @@ export async function revertChange(
  * chce vědět: „od té doby, co jsme přidali rozpočet, vydělává víc, nebo
  * míň?" Do 14 dní po změně je výsledek „čeká se".
  */
-export function evaluate(change: AdsChange, margin: number, vat: number, today = localDay()): AdsChange['evaluation'] {
+/** Jak přepočítat čísla kampaně: marže jejího trhu, měna a DPH jejího účtu */
+export type EvalMoney = (campaignId: string) => { margin: number; cost: (n: number) => number; value: (n: number) => number };
+
+export function evaluate(change: AdsChange, money: EvalMoney, today = localDay()): AdsChange['evaluation'] {
   if (!['budget-up', 'budget-down', 'roas-up', 'roas-down', 'roas-set'].includes(change.kind)) return undefined;
   const day = change.at.slice(0, 10);
   const afterEnd = shiftDay(day, 14);
@@ -369,7 +391,8 @@ export function evaluate(change: AdsChange, margin: number, vat: number, today =
       + 'WHERE campaign_id = ? AND date BETWEEN ? AND ?'
     ).get(change.targetId, from, to) as any;
     const days = Number(r?.days) || 0;
-    return { perDay: days ? ((Number(r.value) || 0) / vat * margin - (Number(r.cost) || 0)) / days : 0, days };
+    const m = money(change.targetId);
+    return { perDay: days ? (m.value(Number(r.value) || 0) * m.margin - m.cost(Number(r.cost) || 0)) / days : 0, days };
   };
   const before = profit(shiftDay(day, -14), shiftDay(day, -1));
   if (afterEnd >= today) return { before: before.perDay, after: 0, days: 0, verdict: 'pending' };
@@ -381,7 +404,7 @@ export function evaluate(change: AdsChange, margin: number, vat: number, today =
 
 /* ---------- přehled pro okno ---------- */
 
-export function proposalsView(margin: number, vat: number): AdsProposals {
+export function proposalsView(money: EvalMoney): AdsProposals {
   const rows = (getDb().prepare('SELECT * FROM ads_proposals ORDER BY impact DESC').all() as any[]).map(toProposal);
   const today = localDay();
   const open = rows.filter(p => p.status === 'open' || (p.status === 'snoozed' && p.snoozeUntil <= today)
@@ -390,7 +413,7 @@ export function proposalsView(margin: number, vat: number): AdsProposals {
     .filter(p => !open.includes(p) && p.status !== 'approved')
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 40);
-  const changes = allChanges().slice(0, 60).map(c => ({ ...c, evaluation: evaluate(c, margin, vat, today) }));
+  const changes = allChanges().slice(0, 60).map(c => ({ ...c, evaluation: evaluate(c, money, today) }));
   const evaluated = changes.filter(c => c.evaluation && c.evaluation.verdict !== 'pending' && !c.revertOf);
   const dataDays = (getDb().prepare('SELECT COUNT(DISTINCT date) AS n FROM ads_campaign_day').get() as any)?.n ?? 0;
   return {

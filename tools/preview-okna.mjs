@@ -470,6 +470,19 @@ for (const okno of OKNA) {
     `${tecek} teček, ${tlumene} ztlumených`);
   say('  a tabulka ukáže jen žrouty', radku > 0 && await page.locator('.ad-ptable tbody .ad-seg:not(.zrouti)').count() === 0,
     `${radku} řádků`);
+  // Řazení klikem na hlavičku: Zisk sestupně, druhý klik vzestupně
+  await page.locator('button.ad-seg.zrouti').click();
+  await page.locator('.ad-ptable th', { hasText: 'Zisk' }).click();
+  const zisky = async () => (await page.locator('.ad-ptable tbody tr td:nth-child(5)').allInnerTexts())
+    .map(t => Number(t.replace(/[^\d−-]/g, '').replace('−', '-'))).filter(n => !Number.isNaN(n));
+  const dolu = await zisky();
+  await page.locator('.ad-ptable th', { hasText: 'Zisk' }).click();
+  const nahoru = await zisky();
+  say('Reklamy › produkty: řazení klikem na hlavičku (sestupně, pak vzestupně)',
+    dolu.length > 2 && dolu.every((v, i) => i === 0 || dolu[i - 1] >= v) && nahoru.every((v, i) => i === 0 || nahoru[i - 1] <= v),
+    `${dolu.slice(0, 3).join(', ')} … / ${nahoru.slice(0, 3).join(', ')} …`);
+  say('  a pojmy mají vysvětlivky (tečkované podtržení s bublinou)',
+    await page.locator('.ad-modal th[data-tip*="Bod zlomu ="]').count() > 0 && await page.locator('.ad-seg[data-tip*="Žrouti ="]').count() > 0);
   // Dnes: nahoře „Čeká na tebe" se třemi návrhy a odkazem na ostatní
   await page.locator('.ad-tabs button', { hasText: 'Dnes' }).click();
   await page.waitForSelector('.ad-side .ad-prop', { timeout: 4000 }).catch(() => {});

@@ -723,11 +723,14 @@
      */
     'ads:status': {
       config: { targetProfitShare: 0.5, convValueWithVat: true, vat: { cz: 21, sk: 23, en: 21 }, eurRate: 25,
-        markets: ['cz'], shipping: [], defaultShipCost: 79, fallbackMargin: 0.6, autonomy: 'suggest',
+        markets: ['cz', 'sk'], shipping: [], defaultShipCost: 79, fallbackMargin: 0.6, autonomy: 'suggest',
         guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
-        google: { customerId: '1234567890', customerName: 'Quentino CZ', loginCustomerId: '', clientId: 'x.apps.googleusercontent.com',
+        google: { accounts: [
+            { id: '1234567890', name: 'Quentino CZ', currency: 'CZK', market: 'cz', enabled: true },
+            { id: '2345678901', name: 'Quentino SK', currency: 'EUR', market: 'sk', enabled: true }],
+          customerId: '', customerName: '', loginCustomerId: '', clientId: 'x.apps.googleusercontent.com',
           apiVersion: 'v26', currency: 'CZK' }, feedToken: 'a1b2c3', updatedAt: '2026-11-19T10:00:00Z' },
-      google: { connected: true, hasSecret: true, account: 'Quentino CZ', lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
+      google: { connected: true, hasSecret: true, service: 'reklamy@quentino.iam.gserviceaccount.com', accountErrors: {}, account: 'Quentino CZ, Quentino SK', lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
       lastRun: { day: '2026-11-20', device: 'MacBook Patrik (1a2b3c4d)', finishedAt: new Date(Date.now() - 5 * 3600e3).toISOString(), result: '6 kampaní', error: '' },
       shared: true,
       feedUrl: 'https://xyzabc.supabase.co/storage/v1/object/public/web/reklamy/a1b2c3/segmenty.tsv',
@@ -746,7 +749,10 @@
       var spark = daily.map(function (d) { return { date: d.date, cost: d.cost, value: Math.round(d.cost * 7.4) }; });
       var off = daily.map(function (d) { return { date: d.date, cost: 0, value: 0 }; });
       return {
-        from: daily[0].date, to: daily[29].date, days: 30,
+        from: daily[0].date, to: daily[29].date, days: 30, market: 'all',
+        markets: [
+          { market: 'cz', revenue: 448300, cost: 41200, profitAfterAds: 223900, pno: 0.092, targetPno: 0.08 },
+          { market: 'sk', revenue: 73000, cost: 8400, profitAfterAds: 28500, pno: 0.115, targetPno: 0.06 }],
         profitAfterAds: { value: 252400, prev: 221800 }, revenue: { value: 521300, prev: 468900 },
         cost: { value: 49600, prev: 47200 }, orders: { value: 468, prev: 431 },
         profitShare: 0.484, shopPno: 0.095, margin: 0.58, targetPno: 0.08,
@@ -765,11 +771,11 @@
       };
     })(),
     'ads:campaigns': [
-      { system: 'google', id: '1', name: 'PMax – celý katalog CZ', type: 'PERFORMANCE_MAX', status: 'ENABLED', budget: 1100, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: 6, cost: 31200, clicks: 9800, conversions: 188, value: 246000, profit: 111480, pno: 0.127, targetPno: 0.08 },
-      { system: 'google', id: '2', name: 'Vyhledávání – Kšandy', type: 'SEARCH', status: 'ENABLED', budget: 250, bidding: 'TARGET_ROAS', targetRoas: 7, cost: 7400, clicks: 2100, conversions: 41, value: 58900, profit: 26760, pno: 0.126, targetPno: 0.08 },
-      { system: 'google', id: '3', name: 'Vyhledávání – Motýlky a kravaty', type: 'SEARCH', status: 'ENABLED', budget: 200, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null, cost: 6100, clicks: 1900, conversions: 33, value: 41200, profit: 17800, pno: 0.148, targetPno: 0.08 },
-      { system: 'google', id: '4', name: 'Nákupy – Ponožky', type: 'SHOPPING', status: 'ENABLED', budget: 120, bidding: 'MANUAL_CPC', targetRoas: null, cost: 3900, clicks: 1500, conversions: 6, value: 5400, profit: -768, pno: 0.722, targetPno: 0.08 },
-      { system: 'google', id: '5', name: 'Brand', type: 'SEARCH', status: 'PAUSED', budget: 50, bidding: 'MANUAL_CPC', targetRoas: null, cost: 1000, clicks: 600, conversions: 13, value: 15500, profit: 7990, pno: 0.065, targetPno: 0.08 }
+      { system: 'google', account: '1234567890', market: 'cz', id: '1', name: 'PMax – celý katalog CZ', type: 'PERFORMANCE_MAX', status: 'ENABLED', budget: 1100, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: 6, cost: 31200, clicks: 9800, conversions: 188, value: 246000, profit: 111480, pno: 0.127, targetPno: 0.08 },
+      { system: 'google', account: '1234567890', market: 'cz', id: '2', name: 'Vyhledávání – Kšandy', type: 'SEARCH', status: 'ENABLED', budget: 250, bidding: 'TARGET_ROAS', targetRoas: 7, cost: 7400, clicks: 2100, conversions: 41, value: 58900, profit: 26760, pno: 0.126, targetPno: 0.08 },
+      { system: 'google', account: '2345678901', market: 'sk', id: '3', name: 'Vyhľadávanie – Motýliky a kravaty', type: 'SEARCH', status: 'ENABLED', budget: 200, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null, cost: 6100, clicks: 1900, conversions: 33, value: 41200, profit: 17800, pno: 0.148, targetPno: 0.08 },
+      { system: 'google', account: '1234567890', market: 'cz', id: '4', name: 'Nákupy – Ponožky', type: 'SHOPPING', status: 'ENABLED', budget: 120, bidding: 'MANUAL_CPC', targetRoas: null, cost: 3900, clicks: 1500, conversions: 6, value: 5400, profit: -768, pno: 0.722, targetPno: 0.08 },
+      { system: 'google', account: '1234567890', market: 'cz', id: '5', name: 'Brand', type: 'SEARCH', status: 'PAUSED', budget: 50, bidding: 'MANUAL_CPC', targetRoas: null, cost: 1000, clicks: 600, conversions: 13, value: 15500, profit: 7990, pno: 0.065, targetPno: 0.08 }
     ],
     'ads:products': (function () {
       var segs = ['hvezdy', 'hvezdy', 'pracanti', 'pracanti', 'pracanti', 'zrouti', 'spici', 'novinky', 'doprodej', 'pracanti', 'zrouti', 'spici'];
@@ -798,6 +804,12 @@
       var now = new Date().toISOString();
       var p = function (id, kind, title, why, impact, conf, ops) {
         return { id: id, fingerprint: kind + '|google|' + id, kind: kind, system: 'google', targetId: id, targetName: '',
+          market: id === '4' ? 'sk' : (kind === 'exclude' ? '' : 'cz'),
+          plain: kind === 'budget-up'
+            ? 'Kampaň „PMax – celý katalog CZ" vydělává, ale každý den jí dojdou peníze dřív, než den skončí — zbytek dne ji pak Google přestane ukazovat a zákazníci, kteří by nakoupili, ji neuvidí. Návrh: přidat 220 Kč denně.'
+            : kind === 'negatives'
+              ? 'Lidé hledali věci se slovy „bazar", „návod", „použité", „zdarma", klikli na reklamu, ale nic nekoupili — za měsíc to stálo 1 420 Kč. Návrh: u hledání s těmito slovy reklamu už neukazovat.'
+              : '',
           title: title, why: why, impact: impact, confidence: conf, ops: ops, status: 'open', snoozeUntil: '', error: '',
           createdAt: now, updatedAt: now, decidedBy: '' };
       };

@@ -301,12 +301,14 @@ check('žrouti s útratou nad 150 Kč ven na 30 dní', out.filter(o => o.kind ==
 /* ---------- návrhy, zápis do účtu a vrácení ---------- */
 console.log('\nNávrhy: zápis do Google Ads a vrácení');
 const prop = require(path.join(DIST, 'ads/proposals.js'));
+// Přepočet čísel kampaně pro vyhodnocení: marže 60 %, korunový účet, DPH 21 %
+const MONEY = () => ({ margin: 0.6, cost: n => n, value: n => n / 1.21 });
 const draft = { fingerprint: 'budget-up|google|1', kind: 'budget-up', targetId: '1', targetName: 'PMax', title: 'Přidat',
   why: 'proto', impact: 1200, confidence: 2, ops: [{ kind: 'budget', campaignId: '1', budgetId: '77', from: 1000, to: 1200 }] };
 check('nový návrh se uloží', prop.saveGenerated([draft]), 1);
-const first = prop.proposalsView(0.6, 1.21).open[0];
+const first = prop.proposalsView(MONEY).open[0];
 check('stejný návrh příště jen aktualizuje (stejné ID)', [prop.saveGenerated([{ ...draft, impact: 1500 }]),
-  prop.proposalsView(0.6, 1.21).open[0].id, prop.proposalsView(0.6, 1.21).open[0].impact], [0, first.id, 1500]);
+  prop.proposalsView(MONEY).open[0].id, prop.proposalsView(MONEY).open[0].impact], [0, first.id, 1500]);
 
 // Google Ads napodobený: token, čtení kampaně, mutace
 db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('adsGoogleRefresh','r'),('adsGoogleSecret','s')").run();
@@ -343,7 +345,7 @@ check('vrátit: rozpočet je zase 1 000 Kč a původní změna je označená jak
 
 // Ručně změněný rozpočet: návrh se neprovede
 prop.saveGenerated([{ ...draft, fingerprint: 'budget-up|google|1|b' }]);
-const second = prop.proposalsView(0.6, 1.21).open.find(p => p.fingerprint.endsWith('|b'));
+const second = prop.proposalsView(MONEY).open.find(p => p.fingerprint.endsWith('|b'));
 budgetNow = 950;
 const mutBefore = calls.filter(c => c.url.includes(':mutate')).length;
 let staleErr = '';
@@ -355,7 +357,7 @@ check('když někdo rozpočet mezitím změnil, nic se nezapíše', [calls.filte
 db.prepare("UPDATE settings SET value = '' WHERE key = 'adsGoogleRefresh'").run();
 budgetNow = 1000;
 prop.saveGenerated([{ ...draft, fingerprint: 'budget-up|google|1|c' }]);
-const third = prop.proposalsView(0.6, 1.21).open.find(p => p.fingerprint.endsWith('|c'));
+const third = prop.proposalsView(MONEY).open.find(p => p.fingerprint.endsWith('|c'));
 check('Mac bez přihlášení návrh jen schválí', (await prop.applyProposal(store.getAdsConfig(), third.id, async () => {})).status, 'approved');
 db.prepare("UPDATE settings SET value = 'r' WHERE key = 'adsGoogleRefresh'").run();
 check('…a přihlášený Mac ho při kontrole provede', [(await prop.applyApproved(store.getAdsConfig(), async () => {})),
@@ -373,7 +375,7 @@ check('zrušení cíle při vrácení „nastavit cíl"', g2.buildMutation('1', 
 // Vyřazení žroutů: bez API, do feedu, po 30 dnech samo zpět
 prop.saveGenerated([{ fingerprint: 'exclude|google|A', kind: 'exclude', targetId: 'feed', targetName: 'feed', title: 'Vyřadit',
   why: '', impact: 300, confidence: 2, ops: [{ kind: 'exclude', codes: ['A'], days: 30 }] }]);
-const ex = prop.proposalsView(0.6, 1.21).open.find(p => p.kind === 'exclude');
+const ex = prop.proposalsView(MONEY).open.find(p => p.kind === 'exclude');
 let fed = 0;
 (await prop.applyProposal(store.getAdsConfig(), ex.id, async () => { fed++; }));
 check('vyřazení: produkt je ve feedu jako vyradit a feed se vystavil', [prop.excludedCodes().map(e => e.code), fed], [['A'], 1]);
@@ -480,15 +482,21 @@ if (fs.existsSync(feedFile)) {
   store.saveAdsConfig({ shipping: [{ name: 'Zásilkovna', cost: 60, guessed: false }], targetProfitShare: 0.5 });
 
   // Řádky ze zkoušky sdílení by se do období připletly
-  db.exec('DELETE FROM ads_campaign_day; DELETE FROM ads_product_day;');
+  db.exec('DELETE FROM ads_campaign_day; DELETE FROM ads_item_day; DELETE FROM ads_campaigns;');
+  // Starší data bez účtu se při prvním čtení přelijí k prvnímu účtu
+  db.prepare("DELETE FROM settings WHERE key = 'adsItemsMigrated'").run();
+  db.prepare(`INSERT INTO ads_product_day (system, date, item_id, cost, clicks, impressions, conversions, value, fetched_at)
+    VALUES ('google', '2026-01-05', 'stary', 5, 1, 10, 0, 0, 'x')`).run();
+  store.saveAdsConfig({ markets: ['cz'], google: { ...store.getAdsConfig().google, accounts: [
+    { id: '1234567890', name: 'Quentino CZ', currency: 'CZK', market: 'cz', enabled: true }] } });
   // Reklama: kampaň a produkt (ID varianty malými, jak ho vrací Google)
   const at = new Date().toISOString();
   store.saveCampaigns('google', [{ id: '9', name: 'PMax', type: 'PERFORMANCE_MAX', status: 'ENABLED', budget: 300,
-    bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null }], at);
+    bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null }], at, '1234567890');
   store.saveDays('ads_campaign_day', 'google', yesterday, yesterday,
-    [{ date: yesterday, id: '9', cost: 100, clicks: 30, impressions: 900, conversions: 1, value: price }], at);
-  store.saveDays('ads_product_day', 'google', yesterday, yesterday,
-    [{ date: yesterday, id: variant.code.toLowerCase(), cost: 100, clicks: 30, impressions: 900, conversions: 1, value: price }], at);
+    [{ date: yesterday, id: '9', cost: 100, clicks: 30, impressions: 900, conversions: 1, value: price }], at, '1234567890');
+  store.saveDays('ads_item_day', 'google', yesterday, yesterday,
+    [{ date: yesterday, id: variant.code.toLowerCase(), cost: 100, clicks: 30, impressions: 900, conversions: 1, value: price }], at, '1234567890');
 
   const o = ads.overview(30);
   const expectProfit = price / 1.21 + 79 / 1.21 - variant.purchase - 60;
@@ -508,6 +516,64 @@ if (fs.existsSync(feedFile)) {
   check('feed má řádek i pro kód varianty', tsv.includes(`\n${variant.code}\t`), true);
   const c = ads.campaigns(30);
   check('kampaň v přehledu kampaní', [c[0].id, c[0].cost], ['9', 100]);
+  check('stará data bez účtu se přelila k prvnímu účtu',
+    [db.prepare('SELECT COUNT(*) AS n FROM ads_product_day').get().n,
+      db.prepare("SELECT account FROM ads_item_day WHERE item_id = 'stary'").get()?.account], [0, '1234567890']);
+
+  /* --- víc trhů: slovenský účet v eurech --- */
+  store.saveAdsConfig({ google: { ...store.getAdsConfig().google, accounts: [
+    { id: '1234567890', name: 'Quentino CZ', currency: 'CZK', market: 'cz', enabled: true },
+    { id: '2345678901', name: 'Quentino SK', currency: 'EUR', market: 'sk', enabled: true }] } });
+  check('zapnutý slovenský účet přidá slovenský trh mezi sledované', store.getAdsConfig().markets, ['cz', 'sk']);
+  db.prepare(`INSERT INTO shop_orders (code, market, status, created_at, currency, total, shipment, items_json, ship_price)
+    VALUES ('S1', 'sk', 'Vybavuje sa', ?, 'EUR', 40, 'Packeta', ?, 0)`)
+    .run(`${yesterday}T12:00:00+01:00`, JSON.stringify([{ title: 'x', code: variant.code, quantity: 1, price: 40 }]));
+  store.saveCampaigns('google', [{ id: '19', name: 'PMax SK', type: 'PERFORMANCE_MAX', status: 'ENABLED', budget: 10,
+    bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null }], at, '2345678901');
+  // 4 € útraty a 40 € hodnoty konverzí (se slovenskou DPH 23 %)
+  store.saveDays('ads_campaign_day', 'google', yesterday, yesterday,
+    [{ date: yesterday, id: '19', cost: 4, clicks: 5, impressions: 50, conversions: 1, value: 40 }], at, '2345678901');
+  store.saveDays('ads_item_day', 'google', yesterday, yesterday,
+    [{ date: yesterday, id: variant.code.toLowerCase(), cost: 4, clicks: 5, impressions: 50, conversions: 1, value: 40 }], at, '2345678901');
+  check('stažení slovenského účtu nesmazalo český den',
+    db.prepare("SELECT COUNT(*) AS n FROM ads_campaign_day WHERE account = '1234567890'").get().n, 1);
+  const all = ads.overview(30, 'all');
+  const sk = ads.overview(30, 'sk');
+  const czOnly = ads.overview(30, 'cz');
+  close('útrata ze slovenského účtu je v korunách (4 € × 25)', sk.cost.value, 100);
+  check('všechny trhy = součet CZ a SK', [Math.round(all.cost.value), Math.round(all.revenue.value)],
+    [Math.round(czOnly.cost.value + sk.cost.value), Math.round(czOnly.revenue.value + sk.revenue.value)]);
+  close('slovenská tržba bez slovenské DPH (40 € × 25 / 1,23)', sk.revenue.value, 40 * 25 / 1.23);
+  check('rozpad po trzích v přehledu', all.markets.map(m => m.market), ['cz', 'sk']);
+  const kampane = ads.campaigns(30, 'all');
+  close('hodnota slovenské kampaně bez slovenské DPH', kampane.find(c => c.id === '19').value, 40 * 25 / 1.23);
+  check('kampaň ví, ze kterého je účtu a trhu', [kampane.find(c => c.id === '19').account, kampane.find(c => c.id === '19').market],
+    ['2345678901', 'sk']);
+  check('výběr trhu ukáže jen jeho kampaně', ads.campaigns(30, 'cz').map(c => c.id), ['9']);
+  const prodSk = ads.products(30, 'sk').rows.find(r => r.code === variant.product_code);
+  close('produkt na slovenském trhu: útrata z eur', prodSk.cost, 100);
+  close('produkt za všechny trhy: útrata CZ + SK', ads.products(30, 'all').rows.find(r => r.code === variant.product_code).cost, 200);
+
+  // Zápis jde do účtu, kterému kampaň patří — a v jeho měně
+  {
+    const prop2 = require(path.join(DIST, 'ads/proposals.js'));
+    const urls = [];
+    let eur = 10;
+    db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('adsGoogleRefresh','r'),('adsGoogleSecret','s')").run();
+    global.fetch = async (url, init = {}) => {
+      urls.push(String(url));
+      const body = init.body && !String(url).includes('oauth2') ? JSON.parse(init.body) : null;
+      const reply = (json) => ({ ok: true, status: 200, json: async () => json });
+      if (String(url).includes('oauth2')) return reply({ access_token: 't', expires_in: 3600 });
+      if (String(url).endsWith('googleAds:search')) return reply({ results: [{ campaign: { id: '19' }, campaignBudget: { amountMicros: String(eur * 1e6) } }] });
+      if (body && !body.validateOnly) eur = Number(body.operations[0].update.amountMicros) / 1e6;
+      return reply({ results: [{ resourceName: 'x' }] });
+    };
+    await prop2.execute(store.getAdsConfig(), [{ kind: 'budget', campaignId: '19', budgetId: '5', from: 250, to: 300 }]);
+    check('zápis do slovenské kampaně jde do slovenského účtu a v eurech (300 Kč = 12 €)',
+      [urls.filter(u => u.includes(':mutate')).every(u => u.includes('/customers/2345678901/')), eur], [true, 12]);
+  }
+
   // Engine nad skutečným katalogem doběhne a dá přehled pro okno
   let engineOk = true;
   try { ads.runEngine(); } catch (e) { engineOk = false; console.log('      ', e.message); }

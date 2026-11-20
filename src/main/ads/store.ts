@@ -23,7 +23,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { getDb, getSetting, setSetting } from '../db';
-import { DEFAULT_ADS_CONFIG, AdsConfig, AdsSystem } from '../../shared/ads';
+import { DEFAULT_ADS_CONFIG, AdsConfig, AdsSystem, AdsAccount } from '../../shared/ads';
 import type { CampaignInfo, DayRow } from './google';
 
 const CONFIG_KEY = 'adsConfig';
@@ -72,16 +72,52 @@ export function normalizeConfig(raw: any): AdsConfig {
         monthlyBudget: numIn(g.monthlyBudget, 0, 10_000_000, b.monthlyBudget)
       };
     })(),
-    google: { ...base.google, ...(src.google && typeof src.google === 'object' ? src.google : {}) },
+    google: (() => {
+      const g = { ...base.google, ...(src.google && typeof src.google === 'object' ? src.google : {}) };
+      let accounts: AdsAccount[] = Array.isArray(g.accounts)
+        ? g.accounts
+          .filter((one: any) => one && String(one.id ?? '').replace(/\D/g, ''))
+          .map((one: any) => ({
+            id: String(one.id).replace(/\D/g, ''),
+            name: String(one.name ?? ''),
+            currency: String(one.currency ?? 'CZK') || 'CZK',
+            market: ['cz', 'sk', 'en'].includes(one.market) ? one.market : 'cz',
+            enabled: one.enabled !== false
+          }))
+        : [];
+      /*
+       * Nastavení z doby, kdy šel vybrat jen jeden účet: ten se stane
+       * prvním účtem českého trhu, aby se nic nemuselo vybírat znovu.
+       */
+      if (!accounts.length && String(g.customerId ?? '').replace(/\D/g, '')) {
+        accounts = [{
+          id: String(g.customerId).replace(/\D/g, ''), name: String(g.customerName ?? ''),
+          currency: String(g.currency ?? 'CZK') || 'CZK', market: 'cz', enabled: true
+        }];
+      }
+      // Stejný účet dvakrát by stáhl a sečetl totéž dvakrát
+      const seen = new Set<string>();
+      accounts = accounts.filter(one => (seen.has(one.id) ? false : (seen.add(one.id), true)));
+      return { ...g, accounts };
+    })(),
     feedToken: typeof src.feedToken === 'string' ? src.feedToken : '',
     updatedAt: typeof src.updatedAt === 'string' ? src.updatedAt : ''
   };
 }
 
+/**
+ * Trh zapnutého účtu se sleduje vždycky — účet pro Slovensko bez
+ * slovenských objednávek by ukazoval jen náklady a žádný zisk.
+ */
+function withAccountMarkets(cfg: AdsConfig): AdsConfig {
+  const extra = cfg.google.accounts.filter(a => a.enabled).map(a => a.market).filter(m => !cfg.markets.includes(m));
+  return extra.length ? { ...cfg, markets: [...cfg.markets, ...extra] } : cfg;
+}
+
 export function getAdsConfig(): AdsConfig {
   let raw: any = null;
   try { raw = JSON.parse(getSetting(CONFIG_KEY, '') || 'null'); } catch { raw = null; }
-  const cfg = normalizeConfig(raw);
+  const cfg = withAccountMarkets(normalizeConfig(raw));
   /*
    * Adresa doplňkového feedu musí být neuhodnutelná a stejná na všech
    * Macích. Razítko se při tom NEposouvá: čerstvě zapnutý Mac by jinak měl
@@ -116,19 +152,79 @@ export function saveAdsConfig(patch: Partial<AdsConfig>): AdsConfig {
   return next;
 }
 
+/* ---------- účty ---------- */
+
+/** Zapnuté účty Google Ads */
+export function activeAccounts(cfg: AdsConfig): AdsAccount[] {
+  return cfg.google.accounts.filter(one => one.enabled);
+}
+
+/**
+ * Účet řádku. Prázdné číslo mají data z doby, kdy byl účet jen jeden —
+ * patří prvnímu účtu (to je ten, který byl tehdy vybraný).
+ */
+export function accountInfo(cfg: AdsConfig, id: string): AdsAccount {
+  const clean = String(id ?? '').replace(/\D/g, '');
+  return cfg.google.accounts.find(one => one.id === clean)
+    ?? cfg.google.accounts[0]
+    ?? { id: clean, name: '', currency: cfg.google.currency || 'CZK', market: 'cz', enabled: true };
+}
+
+/** Částka v měně účtu → Kč */
+export function accountCzk(cfg: AdsConfig, account: AdsAccount, amount: number): number {
+  return /eur/i.test(account.currency) ? amount * cfg.eurRate : amount;
+}
+
+/**
+ * Hodnota konverze z účtu → Kč bez DPH. DPH podle trhu účtu: slovenský
+ * účet posílá hodnotu se slovenskou DPH, ne s českou.
+ */
+export function accountValue(cfg: AdsConfig, account: AdsAccount, value: number): number {
+  const czk = accountCzk(cfg, account, value);
+  return cfg.convValueWithVat ? czk / (1 + (cfg.vat[account.market] ?? 21) / 100) : czk;
+}
+
+/**
+ * Data o produktech z doby jednoho účtu se jednou přelijí do tabulky
+ * s účtem. Stará tabulka neměla účet v klíči, takže český a slovenský
+ * výkon téhož produktu by se v ní přepsaly.
+ */
+export function migrateItems(cfg: AdsConfig): void {
+  if (getSetting('adsItemsMigrated', '') === '1') return;
+  const d = getDb();
+  const primary = cfg.google.accounts[0]?.id ?? '';
+  try {
+    d.transaction(() => {
+      d.prepare(`INSERT OR IGNORE INTO ads_item_day (system, account, date, item_id, cost, clicks, impressions,
+          conversions, value, fetched_at)
+        SELECT system, ?, date, item_id, cost, clicks, impressions, conversions, value, fetched_at FROM ads_product_day`)
+        .run(primary);
+      d.prepare('DELETE FROM ads_product_day').run();
+      // Řádky bez účtu dostanou ten, ke kterému tehdy patřily
+      if (primary) {
+        d.prepare("UPDATE ads_campaigns SET account = ? WHERE account = ''").run(primary);
+        d.prepare("UPDATE ads_campaign_day SET account = ? WHERE account = ''").run(primary);
+        d.prepare("UPDATE ads_search_terms SET account = ? WHERE account = ''").run(primary);
+      }
+    })();
+    setSetting('adsItemsMigrated', '1');
+  } catch { /* zkusí se příště */ }
+}
+
 /* ---------- statistiky ---------- */
 
-export function saveCampaigns(system: AdsSystem, list: CampaignInfo[], at: string): void {
+export function saveCampaigns(system: AdsSystem, list: (CampaignInfo & { account?: string })[], at: string, account = ''): void {
   const d = getDb();
   const up = d.prepare(`
     INSERT INTO ads_campaigns (system, id, name, type, status, budget, bidding, target_roas, updated_at,
-      budget_id, budget_shared, limited)
+      budget_id, budget_shared, limited, account)
     VALUES (@system, @id, @name, @type, @status, @budget, @bidding, @targetRoas, @at,
-      @budgetId, @budgetShared, @limited)
+      @budgetId, @budgetShared, @limited, @account)
     ON CONFLICT(system, id) DO UPDATE SET
       name = excluded.name, type = excluded.type, status = excluded.status, budget = excluded.budget,
       bidding = excluded.bidding, target_roas = excluded.target_roas, updated_at = excluded.updated_at,
-      budget_id = excluded.budget_id, budget_shared = excluded.budget_shared, limited = excluded.limited
+      budget_id = excluded.budget_id, budget_shared = excluded.budget_shared, limited = excluded.limited,
+      account = excluded.account
     WHERE excluded.updated_at >= ads_campaigns.updated_at
   `);
   d.transaction(() => {
@@ -136,7 +232,8 @@ export function saveCampaigns(system: AdsSystem, list: CampaignInfo[], at: strin
       up.run({
         system, id: one.id, name: one.name, type: one.type, status: one.status, budget: one.budget,
         bidding: one.bidding, targetRoas: one.targetRoas, at,
-        budgetId: one.budgetId ?? '', budgetShared: one.budgetShared ? 1 : 0, limited: one.limited ? 1 : 0
+        budgetId: one.budgetId ?? '', budgetShared: one.budgetShared ? 1 : 0, limited: one.limited ? 1 : 0,
+        account: one.account ?? account
       });
     }
   })();
@@ -150,23 +247,25 @@ export function saveCampaigns(system: AdsSystem, list: CampaignInfo[], at: strin
  * přepočtená neplatná kliknutí), zůstalo by u ní staré číslo navždy.
  */
 export function saveDays(
-  table: 'ads_campaign_day' | 'ads_product_day',
+  table: 'ads_campaign_day' | 'ads_item_day',
   system: AdsSystem,
   from: string,
   to: string,
   rows: DayRow[],
-  at: string
+  at: string,
+  account = ''
 ): void {
   const d = getDb();
   const key = table === 'ads_campaign_day' ? 'campaign_id' : 'item_id';
-  const del = d.prepare(`DELETE FROM ${table} WHERE system = ? AND date BETWEEN ? AND ?`);
+  // Maže se jen tenhle účet — stažení slovenského účtu nesmí smazat český
+  const del = d.prepare(`DELETE FROM ${table} WHERE system = ? AND account = ? AND date BETWEEN ? AND ?`);
   const ins = d.prepare(`
-    INSERT OR REPLACE INTO ${table} (system, date, ${key}, cost, clicks, impressions, conversions, value, fetched_at)
-    VALUES (@system, @date, @id, @cost, @clicks, @impressions, @conversions, @value, @at)
+    INSERT OR REPLACE INTO ${table} (system, account, date, ${key}, cost, clicks, impressions, conversions, value, fetched_at)
+    VALUES (@system, @account, @date, @id, @cost, @clicks, @impressions, @conversions, @value, @at)
   `);
   d.transaction(() => {
-    del.run(system, from, to);
-    for (const row of rows) ins.run({ system, ...row, at });
+    del.run(system, account, from, to);
+    for (const row of rows) ins.run({ system, account, ...row, at });
   })();
 }
 
@@ -229,16 +328,17 @@ type Packed = (string | number)[];
 function packMonth(system: AdsSystem, month: string) {
   const d = getDb();
   const like = `${month}-%`;
+  // Účet je na konci řádku: starší soubory ho nemají a čtou se jako hlavní účet
   const days = (d.prepare(
-    `SELECT date, campaign_id, cost, clicks, impressions, conversions, value, fetched_at
+    `SELECT date, campaign_id, cost, clicks, impressions, conversions, value, fetched_at, account
      FROM ads_campaign_day WHERE system = ? AND date LIKE ?`
   ).all(system, like) as any[]).map(r => [r.date, r.campaign_id, r.cost, r.clicks, r.impressions,
-    r.conversions, r.value, r.fetched_at]);
+    r.conversions, r.value, r.fetched_at, r.account]);
   const products = (d.prepare(
-    `SELECT date, item_id, cost, clicks, impressions, conversions, value, fetched_at
-     FROM ads_product_day WHERE system = ? AND date LIKE ?`
+    `SELECT date, item_id, cost, clicks, impressions, conversions, value, fetched_at, account
+     FROM ads_item_day WHERE system = ? AND date LIKE ?`
   ).all(system, like) as any[]).map(r => [r.date, r.item_id, r.cost, r.clicks, r.impressions,
-    r.conversions, r.value, r.fetched_at]);
+    r.conversions, r.value, r.fetched_at, r.account]);
   return { days, products };
 }
 
@@ -247,31 +347,34 @@ function packMonth(system: AdsSystem, month: string) {
  * slučovalo po řádcích, zůstala by v datech kampaň, kterou novější
  * stažení už nemá.
  */
-function mergeRows(table: 'ads_campaign_day' | 'ads_product_day', system: AdsSystem, rows: Packed[]): number {
+function mergeRows(table: 'ads_campaign_day' | 'ads_item_day', system: AdsSystem, rows: Packed[], primary: string): number {
   const d = getDb();
   const key = table === 'ads_campaign_day' ? 'campaign_id' : 'item_id';
-  const byDay = new Map<string, Packed[]>();
+  // Slučuje se po dnech a účtech: novější stažení slovenského účtu nesmí smazat český den
+  const byDay = new Map<string, { day: string; account: string; list: Packed[] }>();
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 8) continue;
-    const list = byDay.get(String(row[0])) ?? [];
-    list.push(row);
-    byDay.set(String(row[0]), list);
+    const account = String(row[8] ?? '') || primary;
+    const k = `${row[0]}|${account}`;
+    const one = byDay.get(k) ?? { day: String(row[0]), account, list: [] };
+    one.list.push(row);
+    byDay.set(k, one);
   }
-  const mineAt = d.prepare(`SELECT MAX(fetched_at) AS at FROM ${table} WHERE system = ? AND date = ?`);
-  const del = d.prepare(`DELETE FROM ${table} WHERE system = ? AND date = ?`);
+  const mineAt = d.prepare(`SELECT MAX(fetched_at) AS at FROM ${table} WHERE system = ? AND date = ? AND account = ?`);
+  const del = d.prepare(`DELETE FROM ${table} WHERE system = ? AND date = ? AND account = ?`);
   const ins = d.prepare(`
-    INSERT OR REPLACE INTO ${table} (system, date, ${key}, cost, clicks, impressions, conversions, value, fetched_at)
-    VALUES (?,?,?,?,?,?,?,?,?)`);
+    INSERT OR REPLACE INTO ${table} (system, date, ${key}, cost, clicks, impressions, conversions, value, fetched_at, account)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`);
   let changed = 0;
   d.transaction(() => {
-    for (const [day, list] of byDay) {
+    for (const { day, account, list } of byDay.values()) {
       const theirs = list.reduce((max, row) => (String(row[7]) > max ? String(row[7]) : max), '');
-      const mine = String((mineAt.get(system, day) as any)?.at ?? '');
+      const mine = String((mineAt.get(system, day, account) as any)?.at ?? '');
       if (theirs <= mine) continue;
-      del.run(system, day);
+      del.run(system, day, account);
       for (const row of list) {
         ins.run(system, day, String(row[1]), Number(row[2]) || 0, Number(row[3]) || 0, Number(row[4]) || 0,
-          Number(row[5]) || 0, Number(row[6]) || 0, String(row[7]));
+          Number(row[5]) || 0, Number(row[6]) || 0, String(row[7]), account);
       }
       changed++;
     }
@@ -302,8 +405,9 @@ export function syncStats(system: AdsSystem = 'google'): number {
   for (const name of files) {
     const remote = readJson(path.join(dir, name));
     if (!remote) continue;
-    taken += mergeRows('ads_campaign_day', system, Array.isArray(remote.days) ? remote.days : []);
-    mergeRows('ads_product_day', system, Array.isArray(remote.products) ? remote.products : []);
+    const primary = getAdsConfig().google.accounts[0]?.id ?? '';
+    taken += mergeRows('ads_campaign_day', system, Array.isArray(remote.days) ? remote.days : [], primary);
+    mergeRows('ads_item_day', system, Array.isArray(remote.products) ? remote.products : [], primary);
     if (Array.isArray(remote.campaigns)) {
       saveCampaigns(system, remote.campaigns, String(remote.campaignsAt ?? ''));
     }
@@ -312,11 +416,11 @@ export function syncStats(system: AdsSystem = 'google'): number {
   // 2) Zapsat měsíce, kde jsem novější
   const months = (d.prepare(
     `SELECT DISTINCT substr(date, 1, 7) AS m FROM ads_campaign_day WHERE system = ?
-     UNION SELECT DISTINCT substr(date, 1, 7) FROM ads_product_day WHERE system = ?`
+     UNION SELECT DISTINCT substr(date, 1, 7) FROM ads_item_day WHERE system = ?`
   ).all(system, system) as any[]).map(r => String(r.m)).filter(Boolean);
   const campaigns = (d.prepare(
     `SELECT id, name, type, status, budget, bidding, target_roas AS targetRoas, updated_at,
-       budget_id AS budgetId, budget_shared AS budgetShared, limited FROM ads_campaigns WHERE system = ?`
+       budget_id AS budgetId, budget_shared AS budgetShared, limited, account FROM ads_campaigns WHERE system = ?`
   ).all(system) as any[]);
   const campaignsAt = campaigns.reduce((max, one) => (one.updated_at > max ? one.updated_at : max), '');
   const latestMonth = months.sort().slice(-1)[0];

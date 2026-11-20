@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS ads_campaigns (
   budget_id TEXT NOT NULL DEFAULT '',
   budget_shared INTEGER NOT NULL DEFAULT 0,
   limited INTEGER NOT NULL DEFAULT 0,
+  -- Účet Google Ads (číslo bez pomlček). Prázdné = data z doby, kdy byl
+  -- účet jen jeden; čtou se jako hlavní účet.
+  account TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (system, id)
 );
 
@@ -43,11 +46,12 @@ CREATE TABLE IF NOT EXISTS ads_campaign_day (
   conversions REAL NOT NULL DEFAULT 0,
   value REAL NOT NULL DEFAULT 0,
   fetched_at TEXT NOT NULL DEFAULT '',
+  account TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (system, date, campaign_id)
 );
 
--- Výkon po produktech (Nákupy a Performance Max). item_id je ID nabídky
--- z feedu malými písmeny — Google ho v přehledech vrací zmenšené.
+-- Výkon po produktech — stará podoba bez účtu. Data se z ní jednou přelijí
+-- do ads_item_day (viz store.ts) a dál se nepoužívá.
 CREATE TABLE IF NOT EXISTS ads_product_day (
   system TEXT NOT NULL,
   date TEXT NOT NULL,
@@ -72,6 +76,23 @@ CREATE TABLE IF NOT EXISTS ads_runs (
   error TEXT NOT NULL DEFAULT ''
 );
 
+-- Výkon po produktech (Nákupy a Performance Max) po účtech. Tentýž kód
+-- produktu běží v českém i slovenském účtu, proto je účet v klíči.
+-- item_id je ID nabídky malými písmeny — Google ho v přehledech zmenšuje.
+CREATE TABLE IF NOT EXISTS ads_item_day (
+  system TEXT NOT NULL,
+  account TEXT NOT NULL DEFAULT '',
+  date TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  cost REAL NOT NULL DEFAULT 0,
+  clicks INTEGER NOT NULL DEFAULT 0,
+  impressions INTEGER NOT NULL DEFAULT 0,
+  conversions REAL NOT NULL DEFAULT 0,
+  value REAL NOT NULL DEFAULT 0,
+  fetched_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (system, account, date, item_id)
+);
+
 -- Hledané dotazy za posledních 30 dní, sečtené po kampani. Přepisují se
 -- při každém stažení celé — jde jen o podklad pro vylučující slova.
 CREATE TABLE IF NOT EXISTS ads_search_terms (
@@ -84,6 +105,7 @@ CREATE TABLE IF NOT EXISTS ads_search_terms (
   conversions REAL NOT NULL DEFAULT 0,
   value REAL NOT NULL DEFAULT 0,
   fetched_at TEXT NOT NULL DEFAULT '',
+  account TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (system, campaign_id, term)
 );
 
@@ -108,7 +130,11 @@ CREATE TABLE IF NOT EXISTS ads_proposals (
   error TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT '',
-  decided_by TEXT NOT NULL DEFAULT ''
+  decided_by TEXT NOT NULL DEFAULT '',
+  -- Trh kampaně (cz, sk, en); prázdné = celý e-shop (vyřazení ve feedu)
+  market TEXT NOT NULL DEFAULT '',
+  -- Vysvětlení bez zkratek pro člověka, který není PPC specialista
+  plain TEXT NOT NULL DEFAULT ''
 );
 
 -- Deník změn v účtech. Řádek se nikdy nepřepisuje: vrácení je nová změna
@@ -134,6 +160,7 @@ CREATE TABLE IF NOT EXISTS ads_changes (
 -- doplněnými ALTERem by shodily migraci staré databáze (viz migrate-test).
 CREATE INDEX IF NOT EXISTS idx_ads_campaign_day_date ON ads_campaign_day(date);
 CREATE INDEX IF NOT EXISTS idx_ads_product_day_date ON ads_product_day(date);
+CREATE INDEX IF NOT EXISTS idx_ads_item_day_date ON ads_item_day(date);
 `;
 
 /*
@@ -144,5 +171,14 @@ CREATE INDEX IF NOT EXISTS idx_ads_product_day_date ON ads_product_day(date);
 export const ALTERS: string[] = [
   "ALTER TABLE ads_campaigns ADD COLUMN budget_id TEXT NOT NULL DEFAULT ''",
   'ALTER TABLE ads_campaigns ADD COLUMN budget_shared INTEGER NOT NULL DEFAULT 0',
-  'ALTER TABLE ads_campaigns ADD COLUMN limited INTEGER NOT NULL DEFAULT 0'
+  'ALTER TABLE ads_campaigns ADD COLUMN limited INTEGER NOT NULL DEFAULT 0',
+  /*
+   * Víc účtů Google Ads (CZ, SK, .com). Každý řádek ví, ze kterého účtu je;
+   * podle účtu se pozná trh, měna a DPH a do kterého účtu se zapisuje.
+   */
+  "ALTER TABLE ads_campaigns ADD COLUMN account TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ads_campaign_day ADD COLUMN account TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ads_search_terms ADD COLUMN account TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ads_proposals ADD COLUMN market TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE ads_proposals ADD COLUMN plain TEXT NOT NULL DEFAULT ''"
 ];
