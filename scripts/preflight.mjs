@@ -619,6 +619,11 @@ const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
    * přijdou se čtvrtou fází, a s nimi i kanály v aplikaci pro iOS.
    */
   'ads:',
+  /*
+   * Trezor sdíleného nastavení. Telefon se synchronizuje vlastní cestou
+   * (state.json); heslo trezoru se zadává na počítačích.
+   */
+  'vault:',
   // Správa recenzí sahá do administrace e-shopu v okně — telefon okno nemá
   'reviews:',
   // Nový produkt: předloha, obrázky z disku a import v okně administrace

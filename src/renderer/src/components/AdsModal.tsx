@@ -1195,7 +1195,7 @@ function Settings({ status, onStatus, busy, setBusy }: {
             <p className="muted">
               Stačí připojit <b>jeden Mac</b> — ostatní si data vezmou ze sdílené složky
               {status.shared ? '' : ' (zapni synchronizaci v Nastavení aplikace)'}.
-              Klíč i přihlášení zůstávají jen v tomhle Macu.
+              Klíč se na ostatní Macy přenese sám přes šifrovaný trezor (Nastavení → Synchronizace), když je odemčený.
             </p>
             <div className="ad-way">
               <div className="ad-set-row"><b>Servisní účet</b><span className="ad-chip ok">doporučeno</span></div>

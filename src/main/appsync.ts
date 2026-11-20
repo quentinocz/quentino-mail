@@ -14,6 +14,7 @@ import { digestShare, applyDigestShare } from './digest';
 import { eventsExport, eventsImport } from './events';
 import * as live from './live';
 import * as igStore from './instagram/store';
+import { syncVault } from './vault';
 
 /**
  * Synchronizace mezi zařízeními přes sdílenou složku (Dropbox, OneDrive, Google Drive,
@@ -21,7 +22,8 @@ import * as igStore from './instagram/store';
  *  - state.json  — nastavení, pravidla, znalosti, osoby; novější stav vyhrává (razítko)
  *  - contacts.json — našeptávač adres; slučuje se sjednocením (nikdy nic neztratí)
  *  - archive/    — archivované zprávy jako .eml; pouze se přidávají, takže nekolidují
- * Hesla účtů a Anthropic API klíč se ze zásady NEsynchronizují.
+ * Hesla a klíče jdou jen přes šifrovaný trezor (vault.ts) a jen na Macy,
+ * kde je zadané heslo trezoru — do složky se nikdy nedostanou jako text.
  */
 
 function emit(channel: string, payload: unknown) {
@@ -846,6 +848,17 @@ export async function runSync(): Promise<string> {
     } else if (!remote || localStamp > (remote?.updatedAt ?? '')) {
       writeState(dir, localStamp);
       parts.push('nastavení odesláno');
+    }
+
+    // 1b) Celá tabulka nastavení, e-mailové účty a trezor s klíči (viz vault.ts)
+    try {
+      const vault = syncVault();
+      if (vault) {
+        parts.push(vault);
+        emit('folders:changed', {});
+      }
+    } catch (e: any) {
+      parts.push(`nastavení: ${e?.message ?? e}`);
     }
 
     // 2) Kontakty — sjednocení

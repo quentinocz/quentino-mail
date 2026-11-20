@@ -941,8 +941,10 @@ export default function SettingsModal(p: Props) {
                 sociální sítě (záměr a texty, ne fotky — ty zůstávají na tom zařízení, kde vznikly)
                 a <b>lokální archiv včetně příloh</b>.
                 U nastavení vyhrává novější změna, archiv a kontakty se slučují — nikdy se nic neztratí.
-                Hesla účtů a API klíč se z bezpečnostních důvodů nesynchronizují.
+                Přenáší se i <b>všechno ostatní nastavení</b> (feedy, Upgates, úložiště, Analytics, Reklamy…)
+                a <b>e-mailové účty</b>. Hesla a klíče jdou jen přes šifrovaný trezor níž.
               </div>
+              <VaultCard />
               <label className="check-row">
                 <input type="checkbox" checked={syncCfg.enabled}
                   onChange={e => run('syncSave', async () => setSyncCfg(await api.appsync.save({ enabled: e.target.checked })))} />
@@ -2088,6 +2090,76 @@ function SecureCard() {
         Trvalé řešení je podepsat aplikaci certifikátem od Apple — pak podpis zůstává stejný
         a klíčenka se po aktualizaci neozve.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Trezor s hesly a klíči.
+ *
+ * Hesla k účtům a klíče (Upgates, Google Ads, Analytics, úložiště…) se
+ * mezi Macy přenášejí jen zašifrované heslem trezoru. To heslo se zadává
+ * na každém Macu jednou ručně — ve sdílené složce není, takže kdo by se
+ * k ní dostal, z trezoru nic nepřečte.
+ */
+function VaultCard() {
+  const toast = useToast();
+  const [st, setSt] = useState<Awaited<ReturnType<typeof api.vault.status>> | null>(null);
+  const [pass, setPass] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.vault.status().then(setSt).catch(() => setSt(null)); }, []);
+  if (!st) return null;
+  const save = async () => {
+    setBusy(true);
+    try {
+      setSt(await api.vault.set(pass));
+      setPass('');
+      toast(st.exists ? 'Trezor odemčený — hesla a klíče se teď přenesou i sem' : 'Trezor založený — na ostatních Macích zadej stejné heslo');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="vault-card">
+      <div className="vault-head">
+        <Icon name="lock" size={14} />
+        <b>Trezor s hesly a klíči</b>
+        <span className={`vault-chip ${st.unlocked && !st.mismatch ? 'ok' : st.mismatch ? 'bad' : ''}`}>
+          {st.mismatch ? 'heslo nesedí' : st.unlocked ? 'odemčený' : st.exists ? 'zamčený — zadej heslo' : 'nezaložený'}
+        </span>
+      </div>
+      <div className="desc">
+        Hesla k e-mailům a klíče (Upgates, Google Ads, Analytics, úložiště, AI…) se přenesou na ostatní Macy
+        <b> zašifrované heslem trezoru</b> (AES-256). Heslo zadej na každém Macu jednou — stejné všude.
+        Ve sdílené složce není, takže bez něj z trezoru nikdo nic nepřečte.
+        {st.unlocked && ` Sdílí se ${st.counts.plain} nastavení a ${st.counts.secret} hesel a klíčů.`}
+      </div>
+      {st.mismatch && (
+        <div className="desc" style={{ color: 'var(--danger)' }}>
+          Heslo na tomhle Macu trezor ve složce neotevře — zadej heslo, které je na ostatních Macích.
+        </div>
+      )}
+      {(!st.unlocked || st.mismatch) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input type="password" value={pass} onChange={e => setPass(e.target.value)} autoComplete="new-password"
+            placeholder={st.exists ? 'Heslo trezoru z ostatních Maců' : 'Nové heslo trezoru (aspoň 10 znaků)'} style={{ flex: 1 }} />
+          <button className="btn primary" disabled={busy || pass.length < 10} onClick={save}>
+            {st.exists ? 'Odemknout' : 'Založit trezor'}
+          </button>
+        </div>
+      )}
+      {st.unlocked && !st.mismatch && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span className="desc">{st.lastAt ? `Naposledy ${new Date(st.lastAt).toLocaleString('cs-CZ')} · ${st.lastResult}` : 'Proběhne při další synchronizaci.'}</span>
+          <span style={{ flex: 1 }} />
+          <button className="btn ghost" onClick={async () => setSt(await api.vault.forget())}
+            data-tip="Tenhle Mac přestane hesla a klíče přenášet. Na ostatních Macích ani ve složce se nic nesmaže.">
+            Zapomenout heslo na tomhle Macu
+          </button>
+        </div>
+      )}
     </div>
   );
 }

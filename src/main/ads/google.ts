@@ -21,8 +21,8 @@
  * (v tomhle souboru není jediný zápis), a kdo chce jistotu, dá
  * přihlašovanému uživateli v Google Ads jen právo čtení.
  *
- * Refresh token se ukládá šifrovaně v tomhle Macu a do sdílené složky
- * nejde — stejně jako ostatní hesla aplikace.
+ * Refresh token se ukládá šifrovaně klíčenkou; mezi Macy ho přenáší
+ * jen šifrovaný trezor, stejně jako ostatní hesla aplikace.
  */
 import http from 'http';
 import crypto from 'crypto';
@@ -75,8 +75,9 @@ export function googleSecrets(): { hasSecret: boolean; connected: boolean; servi
  * Přístup a zabezpečení) a aplikace se prokazuje klíčem z JSON souboru.
  * Klíč nevyprší a není potřeba žádný prohlížeč.
  *
- * Klíč je tajný jako heslo — ukládá se šifrovaně v tomhle Macu a do
- * sdílené složky nejde.
+ * Klíč je tajný jako heslo — ukládá se šifrovaně klíčenkou tohoto Macu.
+ * Na ostatní Macy ho přenese jen šifrovaný trezor (vault.ts), a to jen tam,
+ * kde je zadané heslo trezoru.
  */
 interface ServiceKey { client_email: string; private_key: string; private_key_id?: string }
 

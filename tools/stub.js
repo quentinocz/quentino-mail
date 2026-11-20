@@ -849,6 +849,9 @@
         excluded: [{ code: 'PS99', until: '2026-12-15' }, { code: 'PZ00', until: '2026-12-15' }]
       };
     })(),
+    // Trezor sdíleného nastavení — odemčený, sdílí se nastavení i klíče
+    'vault:status': { unlocked: true, exists: true, mismatch: false, lastAt: new Date(Date.now() - 60e3).toISOString(),
+      lastResult: 'nastavení aktuální', counts: { plain: 142, secret: 14 } },
     'ads:ship': [
       { name: 'Zásilkovna Z-Box', orders: 812, paidAvg: 57, cost: 62, guessed: true },
       { name: 'PPL ParcelBox', orders: 344, paidAvg: 57, cost: 62, guessed: true },

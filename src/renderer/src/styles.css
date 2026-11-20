@@ -11209,3 +11209,12 @@ button.ad-seg.on { border-color: currentColor; }
   .ad-settings { grid-template-columns: minmax(0, 1fr); }
   .ad-status-right { display: none; }
 }
+
+/* Trezor sdíleného nastavení (Nastavení → Synchronizace) */
+.vault-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg); margin: 10px 0; }
+.vault-head { display: flex; align-items: center; gap: 8px; }
+.vault-chip { margin-left: auto; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  background: var(--panel); color: var(--text-2); border: 1px solid var(--border); }
+.vault-chip.ok { color: var(--ok); background: rgba(47, 158, 110, .1); border-color: rgba(47, 158, 110, .3); }
+.vault-chip.bad { color: var(--danger); background: rgba(229, 72, 77, .08); border-color: rgba(229, 72, 77, .3); }

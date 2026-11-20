@@ -116,6 +116,8 @@ const ALLOWED_INVOKE = [
   'packeta:create', 'packeta:labels', 'packeta:formats',
   'balikovna:setup', 'balikovna:saveSetup', 'balikovna:fields', 'balikovna:rows',
   'balikovna:export', 'balikovna:open', 'balikovna:import',
+  // Trezor sdíleného nastavení (heslo, stav)
+  'vault:status', 'vault:set', 'vault:forget',
   // Reklamy: přehled, kampaně, produkty, nastavení a připojení Google Ads
   'ads:status', 'ads:overview', 'ads:campaigns', 'ads:products', 'ads:ship', 'ads:config',
   'ads:connect', 'ads:disconnect', 'ads:customers', 'ads:fetch', 'ads:feed',

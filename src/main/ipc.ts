@@ -67,6 +67,7 @@ import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
 import * as ads from './ads';
+import { vaultStatus, setVaultPassphrase, forgetVaultPassphrase } from './vault';
 import * as banners from './banners';
 import * as zkusebna from './zkusebna';
 import { iconIdeas } from './bannericon';
@@ -723,6 +724,11 @@ export function registerIpc() {
    * Reklamy (fáze 1): jen čtení. Stažení z Google Ads, zisk z objednávek,
    * segmenty produktů a doplňkový feed — do účtů se nic nezapisuje.
    */
+  // Trezor sdíleného nastavení: heslo se zadává na každém Macu jednou
+  handle('vault:status', () => vaultStatus());
+  handle('vault:set', (pass: string) => setVaultPassphrase(String(pass ?? '')));
+  handle('vault:forget', () => forgetVaultPassphrase());
+
   handle('ads:status', () => ads.status());
   // Trh: 'all' = všechny sledované dohromady, jinak cz / sk / en
   handle('ads:overview', (days: number, market?: string) => ads.overview(Number(days) || 30, String(market || 'all')));

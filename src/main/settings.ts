@@ -311,6 +311,18 @@ const VOLATILE_SETTING_KEYS = [
 const VOLATILE_SETTING_PREFIXES = [
   'orderFeedSync:', 'orderFeedError:', 'supabaseSeen:',
   /*
+   * Reklamy: razítka a chyby posledního stažení, značky migrací. Nastavení
+   * modulu (adsConfig) přenášet patří, tohle je zpráva o posledním běhu
+   * na konkrétním Macu.
+   */
+  'adsGoogleFetched', 'adsGoogleError', 'adsAccountErrors', 'adsFeedPublished', 'adsProposalsAt',
+  'adsItemsMigrated',
+  /*
+   * Trezor sdíleného nastavení: heslo k němu a razítka změn jsou vlastnost
+   * tohohle Macu. Heslo se na jiný Mac zadává ručně — právě to je pojistka.
+   */
+  'vaultPass', 'vaultState',
+  /*
    * Uložené rozbory z Analytics. Je to stažená kopie cizích dat, ne
    * nastavení: po obnovení na jiném počítači by se ukazovala stará čísla
    * a čerstvá by se stáhla až za den. Ke všemu jsou velké.
@@ -318,7 +330,12 @@ const VOLATILE_SETTING_PREFIXES = [
   'ga4Deep', 'ga4Pages', 'ga4Notes'
 ];
 
-function isVolatile(key: string): boolean {
+/** Hodnota zašifrovaná klíčenkou nebo klíčem aplikace (viz secure.ts) */
+export function isEncrypted(value: string | null | undefined): boolean {
+  return typeof value === 'string' && /^(enc|loc|raw):/.test(value);
+}
+
+export function isVolatile(key: string): boolean {
   return VOLATILE_SETTING_KEYS.includes(key)
     || VOLATILE_SETTING_PREFIXES.some(prefix => key.startsWith(prefix));
 }
@@ -354,7 +371,7 @@ function restoreFile(files: any, ref: string | null | undefined, subdir: string)
   }
 }
 
-function seal(obj: unknown, passphrase: string): object {
+export function seal(obj: unknown, passphrase: string): object {
   const salt = crypto.randomBytes(16);
   const iv = crypto.randomBytes(12);
   const key = crypto.scryptSync(passphrase, salt, 32);
@@ -369,7 +386,7 @@ function seal(obj: unknown, passphrase: string): object {
   };
 }
 
-function unseal(box: any, passphrase: string): any {
+export function unseal(box: any, passphrase: string): any {
   try {
     const key = crypto.scryptSync(passphrase, Buffer.from(box.salt, 'base64'), 32);
     const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(box.iv, 'base64'));
@@ -421,7 +438,13 @@ const BACKUP_TABLES = [
    * Rozdělané nové produkty. Je to hodina práce, která ještě nikde jinde
    * není — do e-shopu se dostanou až importem a ve feedu nejsou.
    */
-  'ptrans_drafts'
+  'ptrans_drafts',
+  // Události (akce, dovolená) — zapsal je člověk a vysvětlují čísla v přehledu
+  'shop_events',
+  // Co se překlady naučily z oprav
+  'ptrans_learned',
+  // Reklamy: rozhodnuté návrhy a deník změn v účtech — historie, která jinde není
+  'ads_proposals', 'ads_changes'
 ];
 
 /** Strop na tabulku — záloha nemá být obraz celé databáze. */
@@ -499,10 +522,21 @@ export function exportConfig(passphrase?: string): object {
   // Celá tabulka nastavení 1:1 — přenese se i to, co nemá políčko v UI
   const settings: Record<string, string> = {};
   const secrets: Record<string, any> = { accountPasswords: {}, igTokens: {} };
+  /*
+   * Zašifrované hodnoty se poznají podle předpony, ne podle seznamu. Seznam
+   * se zapomínal doplňovat: klíč ke Google Analytics, servisní účet Google
+   * Ads nebo klíč k OpenAI šly do zálohy jako šifra z klíčenky tohohle Macu,
+   * kterou žádný jiný počítač nepřečte — po obnovení vypadaly vyplněné,
+   * a přitom nefungovaly.
+   */
+  secrets.settings = {} as Record<string, string>;
   for (const r of d.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]) {
     if (isVolatile(r.key)) continue;
-    if (SECRET_SETTING_KEYS.includes(r.key)) {
-      try { secrets[r.key] = r.value ? decrypt(r.value) : ''; } catch { secrets[r.key] = ''; }
+    if (SECRET_SETTING_KEYS.includes(r.key) || isEncrypted(r.value)) {
+      let plain = '';
+      try { plain = r.value ? decrypt(r.value) : ''; } catch { plain = ''; }
+      if (SECRET_SETTING_KEYS.includes(r.key)) secrets[r.key] = plain;
+      else if (plain) secrets.settings[r.key] = plain;
       continue;
     }
     settings[r.key] = r.value;
@@ -595,6 +629,8 @@ export function importConfig(data: any, passphrase?: string): string {
       // Nová záloha: přenese se celá tabulka nastavení tak, jak byla
       for (const [key, value] of Object.entries(data.settings as Record<string, string>)) {
         if (isVolatile(key)) continue;
+        // Šifra z cizí klíčenky by tu byla nečitelná — klíče jdou zvlášť v `secrets`
+        if (isEncrypted(String(value ?? ''))) continue;
         setSetting(key, String(value ?? ''));
       }
       const voucherLogo = restoreFile(files, data.voucherLogoFile, 'vouchers');
@@ -614,6 +650,15 @@ export function importConfig(data: any, passphrase?: string): string {
       parts.push(SECRET_LABELS[key] ?? key);
     }
   }
+  // Ostatní zašifrované hodnoty (Google Ads, Analytics, OpenAI…) — rozpoznané podle předpony
+  const otherSecrets = secrets.settings && typeof secrets.settings === 'object' ? secrets.settings : {};
+  let otherCount = 0;
+  for (const [key, value] of Object.entries(otherSecrets as Record<string, string>)) {
+    if (typeof value !== 'string' || !value || isVolatile(key)) continue;
+    setSetting(key, encrypt(value));
+    otherCount++;
+  }
+  if (otherCount) parts.push(`${otherCount}× další klíč`);
 
   /* ---- Znalostní báze (bez duplikátů podle názvu) ---- */
   if (Array.isArray(data.knowledge)) {

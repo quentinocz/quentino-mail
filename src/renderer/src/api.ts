@@ -1400,6 +1400,14 @@ export const api = {
    * Okna nástrojů. Každá funkce z nabídky se otevírá ve vlastním okně, aby
    * se vedle ní dalo dál pracovat s poštou.
    */
+  /** Trezor: sdílení nastavení, hesel a klíčů mezi Macy (šifrovaně) */
+  vault: {
+    status: () => call<{ unlocked: boolean; exists: boolean; mismatch: boolean; lastAt: string; lastResult: string;
+      counts: { plain: number; secret: number } }>('vault:status'),
+    set: (pass: string) => call<any>('vault:set', pass),
+    forget: () => call<any>('vault:forget')
+  },
+
   /**
    * Reklamy. Ve fázi 1 jen čtení: data z Google Ads, zisk z objednávek,
    * segmenty produktů a doplňkový feed se segmenty.
