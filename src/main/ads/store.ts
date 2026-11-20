@@ -61,6 +61,11 @@ export function normalizeConfig(raw: any): AdsConfig {
     defaultShipCost: numIn(src.defaultShipCost, 0, 10_000, base.defaultShipCost),
     fallbackMargin: numIn(src.fallbackMargin, 0, 0.95, base.fallbackMargin),
     autonomy: ['suggest', 'guarded', 'full'].includes(src.autonomy) ? src.autonomy : base.autonomy,
+    sklik: {
+      enabled: !!src.sklik?.enabled,
+      userId: String(src.sklik?.userId ?? '').replace(/\D/g, ''),
+      name: String(src.sklik?.name ?? 'Sklik') || 'Sklik'
+    },
     guards: (() => {
       const g = src.guards && typeof src.guards === 'object' ? src.guards : {};
       const b = base.guards;
@@ -110,7 +115,9 @@ export function normalizeConfig(raw: any): AdsConfig {
  * slovenských objednávek by ukazoval jen náklady a žádný zisk.
  */
 function withAccountMarkets(cfg: AdsConfig): AdsConfig {
-  const extra = cfg.google.accounts.filter(a => a.enabled).map(a => a.market).filter(m => !cfg.markets.includes(m));
+  const extra = cfg.google.accounts.filter(a => a.enabled).map(a => a.market)
+    .concat(cfg.sklik.enabled ? ['cz'] : [])
+    .filter((m, i, all) => !cfg.markets.includes(m) && all.indexOf(m) === i);
   return extra.length ? { ...cfg, markets: [...cfg.markets, ...extra] } : cfg;
 }
 
@@ -164,6 +171,10 @@ export function activeAccounts(cfg: AdsConfig): AdsAccount[] {
  * patří prvnímu účtu (to je ten, který byl tehdy vybraný).
  */
 export function accountInfo(cfg: AdsConfig, id: string): AdsAccount {
+  // Sklik je jeden účet českého trhu v korunách
+  if (id === 'sklik') {
+    return { id: 'sklik', name: cfg.sklik.name || 'Sklik', currency: 'CZK', market: 'cz', enabled: cfg.sklik.enabled };
+  }
   const clean = String(id ?? '').replace(/\D/g, '');
   return cfg.google.accounts.find(one => one.id === clean)
     ?? cfg.google.accounts[0]

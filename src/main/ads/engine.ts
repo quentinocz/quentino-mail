@@ -23,7 +23,7 @@
  * Pojistky: kroky nejvýš ±20 % rozpočtu a ±15 % cíle, kampaň po změně
  * týden v klidu, cíl se nemění pod 20 konverzí za 30 dní.
  */
-import type { AdsConfig, AdsOp, AdsProposalKind } from '../../shared/ads';
+import type { AdsConfig, AdsOp, AdsProposalKind, AdsSystem } from '../../shared/ads';
 
 export interface EngineCampaign {
   id: string;
@@ -63,6 +63,8 @@ export interface EngineProduct {
 
 export interface EngineInput {
   cfg: AdsConfig;
+  /** Reklamní systém kampaní — do otisku návrhu, aby se Sklik a Google nepletly */
+  system?: AdsSystem;
   /** Trh, za který se počítá (cz, sk, en) — kvůli DPH v cílovém ROAS a štítku návrhu */
   market?: string;
   /** Marže objednávek po dopravě (bez reklamy) */
@@ -157,6 +159,7 @@ export function roasForPno(cfg: AdsConfig, pno: number, market = 'cz'): number {
 export function generate(input: EngineInput): ProposalDraft[] {
   const { cfg, margin, targetPno } = input;
   const market = input.market ?? 'cz';
+  const sys = input.system ?? 'google';
   const g = cfg.guards;
   const out: ProposalDraft[] = [];
   if (input.dataDays < 14 || !(targetPno > 0)) return out;
@@ -194,7 +197,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
         const extraCost = (to - c.budget) * 30 * 0.8;
         const impact = (extraCost / marginal) * margin - extraCost;
         push({
-          fingerprint: `budget-up|google|${c.id}`,
+          fingerprint: `budget-up|${sys}|${c.id}`,
           kind: 'budget-up', targetId: c.id, targetName: c.name,
           title: `Přidat rozpočet: ${c.name} ${kc(c.budget)} → ${kc(to)} denně`,
           plain: `Kampaň „${c.name}" vydělává, ale každý den jí dojdou peníze dřív, než den skončí — zbytek dne ji pak `
@@ -232,7 +235,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
         const to = Math.min(c.targetRoas! * (1 + g.maxRoasStep), need);
         if (to > c.targetRoas! * 1.01) {
           push({
-            fingerprint: `roas-up|google|${c.id}`,
+            fingerprint: `roas-up|${sys}|${c.id}`,
             kind: 'roas-up', targetId: c.id, targetName: c.name,
             title: `Přísnější cíl: ${c.name} cílové ROAS ${roasPct(c.targetRoas!)} → ${roasPct(to)}`,
             plain: `Kampaň „${c.name}" dává na reklamu ${Math.round(pno * 100)} Kč z každých 100 Kč tržby, cíl je nejvýš `
@@ -252,7 +255,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
         const to = Math.min(now * (1 + g.maxRoasStep), need);
         if (to > 0) {
           push({
-            fingerprint: `roas-set|google|${c.id}`,
+            fingerprint: `roas-set|${sys}|${c.id}`,
             kind: 'roas-set', targetId: c.id, targetName: c.name,
             title: `Nastavit cílové ROAS: ${c.name} → ${roasPct(to)}`,
             plain: `Kampaň „${c.name}" nemá žádný cíl návratnosti — Google jen utrácí, aby přinesl co nejvíc tržeb, `
@@ -269,7 +272,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
       } else if (c.budget && !c.budgetShared && c.budgetId) {
         const to = Math.round(c.budget * (1 - g.maxBudgetStep));
         push({
-          fingerprint: `budget-down|google|${c.id}`,
+          fingerprint: `budget-down|${sys}|${c.id}`,
           kind: 'budget-down', targetId: c.id, targetName: c.name,
           title: `Ubrat rozpočet: ${c.name} ${kc(c.budget)} → ${kc(to)} denně`,
           plain: `Kampaň „${c.name}" dává na reklamu ${Math.round(pno * 100)} Kč z každých 100 Kč tržby a cíl je nejvýš `
@@ -292,7 +295,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
       && (pno == null || pno > margin)) {
       const to = Math.round(c.budget * (1 - g.maxBudgetStep));
       push({
-        fingerprint: `budget-down|google|${c.id}`,
+        fingerprint: `budget-down|${sys}|${c.id}`,
         kind: 'budget-down', targetId: c.id, targetName: c.name,
         title: `Ubrat rozpočet: ${c.name} ${kc(c.budget)} → ${kc(to)} denně`,
         plain: pno == null
@@ -317,7 +320,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
       const impact = c.value * 0.08 * margin - c.cost * 0.15;
       if (impact > 0) {
         push({
-          fingerprint: `roas-down|google|${c.id}`,
+          fingerprint: `roas-down|${sys}|${c.id}`,
           kind: 'roas-down', targetId: c.id, targetName: c.name,
           title: `Volnější cíl pro růst: ${c.name} cílové ROAS ${roasPct(c.targetRoas!)} → ${roasPct(to)}`,
           plain: `Kampaň „${c.name}" je velmi levná — dává na reklamu jen ${Math.round(pno * 100)} Kč ze 100 Kč tržby, `
@@ -370,7 +373,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
     if (!picked.length) continue;
     const cost = picked.reduce((s, [, v]) => s + v.cost, 0);
     push({
-      fingerprint: `negatives|google|${campaignId}|${picked.map(([w]) => w).sort().join(',')}`,
+      fingerprint: `negatives|${sys}|${campaignId}|${picked.map(([w]) => w).sort().join(',')}`,
       kind: 'negatives', targetId: campaignId, targetName: c.name,
       title: `Vyloučit ${picked.length} ${picked.length === 1 ? 'slovo' : picked.length < 5 ? 'slova' : 'slov'} v kampani ${c.name}`,
       plain: `Lidé hledali věci se slovy ${picked.map(([w]) => `„${w}"`).join(', ')}, klikli na reklamu, ale nic nekoupili — `
@@ -393,7 +396,7 @@ export function generate(input: EngineInput): ProposalDraft[] {
     const cost = eaters.reduce((s, p) => s + p.cost, 0);
     const gain = eaters.reduce((s, p) => s - Math.min(0, p.profit), 0);
     push({
-      fingerprint: `exclude|google|${eaters.map(p => p.code).sort().join(',')}`,
+      fingerprint: `exclude|${sys}|${eaters.map(p => p.code).sort().join(',')}`,
       kind: 'exclude', targetId: 'feed', targetName: 'Doplňkový feed',
       title: `Vyřadit ${eaters.length} žroutů z produktových kampaní na 30 dní`,
       plain: `${eaters.length} produktů na reklamě prodělává — kliky na ně stojí víc, než kolik jejich prodej vydělá. `

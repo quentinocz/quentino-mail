@@ -725,12 +725,14 @@
       config: { targetProfitShare: 0.5, convValueWithVat: true, vat: { cz: 21, sk: 23, en: 21 }, eurRate: 25,
         markets: ['cz', 'sk'], shipping: [], defaultShipCost: 79, fallbackMargin: 0.6, autonomy: 'suggest',
         guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
+        sklik: { enabled: true, userId: '', name: 'Sklik' },
         google: { accounts: [
             { id: '1234567890', name: 'Quentino CZ', currency: 'CZK', market: 'cz', enabled: true },
             { id: '2345678901', name: 'Quentino SK', currency: 'EUR', market: 'sk', enabled: true }],
           customerId: '', customerName: '', loginCustomerId: '', clientId: 'x.apps.googleusercontent.com',
           apiVersion: 'v26', currency: 'CZK' }, feedToken: 'a1b2c3', updatedAt: '2026-11-19T10:00:00Z' },
       google: { connected: true, hasSecret: true, service: 'reklamy@quentino.iam.gserviceaccount.com', accountErrors: {}, account: 'Quentino CZ, Quentino SK', lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
+      sklik: { hasToken: true, lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
       lastRun: { day: '2026-11-20', device: 'MacBook Patrik (1a2b3c4d)', finishedAt: new Date(Date.now() - 5 * 3600e3).toISOString(), result: '6 kampaní', error: '' },
       shared: true,
       feedUrl: 'https://xyzabc.supabase.co/storage/v1/object/public/web/reklamy/a1b2c3/segmenty.tsv',
@@ -758,7 +760,7 @@
         profitShare: 0.484, shopPno: 0.095, margin: 0.58, targetPno: 0.08,
         systems: [
           { system: 'google', connected: true, cost: 49600, value: 367000, conversions: 281, profit: 163260, pno: 0.135, targetPno: 0.08, daily: spark },
-          { system: 'sklik', connected: false, cost: 0, value: 0, conversions: 0, profit: 0, pno: null, targetPno: 0.08, daily: off },
+          { system: 'sklik', connected: true, cost: 6200, value: 51800, conversions: 44, profit: 23840, pno: 0.12, targetPno: 0.08, daily: spark.map(function (d) { return { date: d.date, cost: Math.round(d.cost / 8), value: Math.round(d.value / 7) }; }) },
           { system: 'meta', connected: false, cost: 0, value: 0, conversions: 0, profit: 0, pno: null, targetPno: 0.08, daily: off }
         ],
         daily: daily,
@@ -771,6 +773,7 @@
       };
     })(),
     'ads:campaigns': [
+      { system: 'sklik', account: 'sklik', market: 'cz', id: '9001', name: 'Zboží.cz – celý katalog', type: 'SHOPPING', status: 'ENABLED', budget: 220, bidding: 'MANUAL_CPC', targetRoas: null, cost: 6200, clicks: 3100, conversions: 44, value: 51800, profit: 23840, pno: 0.12, targetPno: 0.08 },
       { system: 'google', account: '1234567890', market: 'cz', id: '1', name: 'PMax – celý katalog CZ', type: 'PERFORMANCE_MAX', status: 'ENABLED', budget: 1100, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: 6, cost: 31200, clicks: 9800, conversions: 188, value: 246000, profit: 111480, pno: 0.127, targetPno: 0.08 },
       { system: 'google', account: '1234567890', market: 'cz', id: '2', name: 'Vyhledávání – Kšandy', type: 'SEARCH', status: 'ENABLED', budget: 250, bidding: 'TARGET_ROAS', targetRoas: 7, cost: 7400, clicks: 2100, conversions: 41, value: 58900, profit: 26760, pno: 0.126, targetPno: 0.08 },
       { system: 'google', account: '2345678901', market: 'sk', id: '3', name: 'Vyhľadávanie – Motýliky a kravaty', type: 'SEARCH', status: 'ENABLED', budget: 200, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null, cost: 6100, clicks: 1900, conversions: 33, value: 41200, profit: 17800, pno: 0.148, targetPno: 0.08 },
@@ -800,6 +803,14 @@
         counts: { hvezdy: 38, pracanti: 214, zrouti: 12, spici: 611, novinky: 27, doprodej: 44, vyprodano: 429 },
         unmatched: [{ itemId: 'ps99old', cost: 120 }] };
     })(),
+    'ads:ask': {
+      answer: 'Za posledních 30 dní je **zisk po reklamě 48 %** z obratu — cíl je 50 %, chybí tedy zhruba 10 000 Kč.\n\n'
+        + 'Kde to brzdí:\n- **Nákupy – Ponožky** utrácí 72 Kč ze 100 Kč tržby, ale na ponožkách vyděláme jen 55 Kč.\n'
+        + '- Slovensko má PNO (podíl nákladů na reklamu z tržby) 11,5 % při cíli 6 %.\n\n'
+        + 'Navrhl jsem dva kroky — najdeš je níž i v záložce Návrhy.',
+      proposals: [],
+      notes: ['„Brand" má sdílený rozpočet — změna by se týkala i jiných kampaní, proto ji nenavrhuji.']
+    },
     'ads:proposals': (function () {
       var now = new Date().toISOString();
       var p = function (id, kind, title, why, impact, conf, ops) {
@@ -833,6 +844,10 @@
             -420, 1, [{ kind: 'troas', campaignId: '4', field: 'maximize_conversion_value', from: 4, to: 4.6 }])
         ],
         waiting: [],
+        planned: [Object.assign(p('7', 'budget-up', 'Přidat rozpočet: PMax – celý katalog CZ 1 100 Kč → 1 320 Kč denně (od 1. 12.)', '', 0, 1,
+            [{ kind: 'budget', campaignId: '1', budgetId: '77', from: 1100, to: 1320 }]),
+          { fingerprint: 'budget-up|google|1|chat|ab12', status: 'snoozed', snoozeUntil: '2026-12-01',
+            plain: 'Začátek prosince je nejsilnější na dárky — přidat rozpočet, dokud lidé nakupují s časovou rezervou.' })],
         decided: [Object.assign(p('9', 'budget-down', 'Ubrat rozpočet: Brand 80 Kč → 64 Kč denně', '', 300, 1, []), { status: 'dismissed' })],
         changes: [
           { id: 'c1', proposalId: 'x', revertOf: '', kind: 'roas-up', system: 'google', targetId: '3', targetName: 'Motýlky',

@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod,
-  AdsGoogleCustomer, AdsConfig, AdsSystemTile, AdsProposals, AdsProposal, AdsChange, AdsGuards, AdsAccount
+  AdsGoogleCustomer, AdsConfig, AdsSystemTile, AdsProposals, AdsProposal, AdsChange, AdsGuards, AdsAccount,
+  AdsChatTurn
 } from '@shared/ads';
 import { SEGMENT_LABELS, MARKET_LABELS, guessMarket } from '@shared/ads';
 import { api } from '../api';
@@ -12,9 +13,9 @@ import { inToolWindow } from '../toolwindows';
 import { ADS_TERMS, SEGMENT_HELP } from '../adsTerms';
 
 /**
- * Reklamy — fáze 1.
+ * Reklamy.
  *
- * Modul zatím jen čte: stáhne výkon z Google Ads, spáruje ho
+ * Stáhne výkon z Google Ads a Skliku, spáruje ho
  * s objednávkami a nákupními cenami a ukáže, kolik reklama opravdu
  * vydělává. První číslo na každé obrazovce je **zisk po reklamě** — ne
  * tržba, ne ROAS. Tržba bez marže v e-shopu, kde jedna věc má marži 80 %
@@ -25,11 +26,11 @@ import { ADS_TERMS, SEGMENT_HELP } from '../adsTerms';
  * tom, co se ukáže, že odhady návrhů vycházejí.
  */
 
-type Tab = 'today' | 'campaigns' | 'products' | 'proposals' | 'settings';
+type Tab = 'today' | 'campaigns' | 'products' | 'proposals' | 'advisor' | 'settings';
 
 const SYSTEM_LABEL: Record<string, string> = { google: 'Google Ads', sklik: 'Sklik', meta: 'Meta' };
 const SYSTEM_SHORT: Record<string, string> = { google: 'G', sklik: 'S', meta: 'M' };
-const SYSTEM_PHASE: Record<string, string> = { sklik: 'připojí se ve fázi 3', meta: 'připojí se ve fázi 4' };
+const SYSTEM_PHASE: Record<string, string> = { sklik: 'připoj v Nastavení', meta: 'připojí se ve fázi 4' };
 
 const SEGMENT_ORDER: AdsSegment[] = ['hvezdy', 'pracanti', 'zrouti', 'spici', 'novinky', 'doprodej', 'vyprodano'];
 
@@ -164,6 +165,8 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
   const [products, setProducts] = useState<AdsProducts | null>(null);
   const [proposals, setProposals] = useState<AdsProposals | null>(null);
   const [busy, setBusy] = useState('');
+  // Rozhovor s poradcem přežije přepnutí záložky (ne zavření okna)
+  const [chat, setChat] = useState<AdsChatTurn[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -197,7 +200,7 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const connected = !!status?.google.connected;
+  const connected = !!status?.google.connected || (!!status?.sklik?.hasToken && !!status?.config.sklik.enabled);
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -212,6 +215,7 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
             <button className={tab === 'proposals' ? 'active' : ''} onClick={() => setTab('proposals')}>
               Návrhy{proposals && proposals.open.length > 0 && <b className="ad-count">{proposals.open.length}</b>}
             </button>
+            <button className={tab === 'advisor' ? 'active' : ''} onClick={() => setTab('advisor')}>Poradce</button>
             <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Nastavení</button>
           </div>
           <span style={{ flex: 1 }} />
@@ -222,7 +226,7 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
               {markets.map(m => <option key={m} value={m}>{MARKET_LABELS[m] ?? m}</option>)}
             </select>
           )}
-          {tab !== 'settings' && tab !== 'proposals' && (
+          {tab !== 'settings' && tab !== 'proposals' && tab !== 'advisor' && (
             <select className="ad-period" value={days} onChange={e => setDays(Number(e.target.value))}
               data-tip="Období končí včerejškem — dnešek je rozdělaný a srovnával by se celý den s půlkou">
               <option value={7}>7 dní</option>
@@ -254,10 +258,150 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
           )}
           {tab === 'campaigns' && <Campaigns rows={campaigns} />}
           {tab === 'products' && <Products data={products} />}
+          {tab === 'advisor' && status && (
+            <Advisor turns={chat} setTurns={setChat} market={market} status={status} onChanged={load}
+              onProposals={() => setTab('proposals')} />
+          )}
           {tab === 'settings' && status && (
             <Settings status={status} onStatus={setStatus} busy={busy} setBusy={setBusy} />
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- poradce ---------- */
+
+/**
+ * Text odpovědi: odstavce, odrážky „- " a **tučně**. Bez HTML z modelu —
+ * odpověď se skládá z React prvků, takže v ní nic nespustí skript.
+ */
+function RichText({ text }: { text: string }) {
+  const bold = (line: string) => line.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part));
+  const blocks = text.split(/\n\s*\n/);
+  return (
+    <>
+      {blocks.map((block, i) => {
+        const lines = block.split('\n').filter(l => l.trim());
+        const items = lines.filter(l => /^\s*[-•]\s+/.test(l));
+        if (items.length && items.length === lines.length) {
+          return <ul key={i}>{items.map((l, j) => <li key={j}>{bold(l.replace(/^\s*[-•]\s+/, ''))}</li>)}</ul>;
+        }
+        if (items.length) {
+          const head = lines.filter(l => !/^\s*[-•]\s+/.test(l));
+          return (
+            <div key={i}>
+              {head.map((l, j) => <p key={j}>{bold(l)}</p>)}
+              <ul>{items.map((l, j) => <li key={j}>{bold(l.replace(/^\s*[-•]\s+/, ''))}</li>)}</ul>
+            </div>
+          );
+        }
+        return <p key={i}>{lines.map((l, j) => <React.Fragment key={j}>{j > 0 && <br />}{bold(l)}</React.Fragment>)}</p>;
+      })}
+    </>
+  );
+}
+
+const ADVISOR_STARTERS = [
+  'Jak si stojíme proti cíli a co ho nejvíc brzdí?',
+  'Které kampaně prodělávají a co s nimi udělat?',
+  'Naplánuj rozpočty na Vánoce — kdy přidat a kdy zase ubrat.',
+  'Proč se změnil zisk po reklamě proti minulému období?',
+  'Co dělat se žrouty a spícími produkty?'
+];
+
+/**
+ * Poradce: otázky nad daty modulu. Když navrhne změnu, vznikne z ní
+ * obyčejný návrh (karta s Použít), nikdy se nic neprovede samo.
+ */
+function Advisor({ turns, setTurns, market, status, onChanged, onProposals }: {
+  turns: AdsChatTurn[]; setTurns: (t: AdsChatTurn[]) => void; market: string; status: AdsStatus;
+  onChanged: () => void; onProposals: () => void;
+}) {
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [turns.length, busy]);
+
+  const send = async (question: string) => {
+    const q = question.trim();
+    if (!q || busy) return;
+    const history = turns.map(t => ({ role: t.role, text: t.text }));
+    const next: AdsChatTurn[] = [...turns, { role: 'user', text: q }];
+    setTurns(next);
+    setText('');
+    setBusy(true);
+    try {
+      const reply = await api.ads.ask(history, q, market);
+      setTurns([...next, { role: 'assistant', text: reply.answer, proposals: reply.proposals, notes: reply.notes }]);
+      if (reply.proposals.length) onChanged();
+    } catch (e: any) {
+      toast(e.message, 'error');
+      setTurns(turns);
+      setText(q);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="ad-advisor">
+      <div className="ad-chat">
+        {turns.length === 0 && (
+          <div className="ad-card ad-chat-intro">
+            <b>Zeptej se na cokoli o reklamě</b>
+            <p className="muted">
+              Poradce vidí stejná čísla jako záložky{market !== 'all' ? ` (teď jen ${MARKET_LABELS[market] ?? market})` : ''}:
+              zisk po reklamě, kampaně, produkty, otevřené návrhy a poslední změny. Když navrhne změnu nebo plán,
+              vznikne z něj návrh se stejnými pojistkami jako ostatní — <b>nic se neprovede samo</b>.
+            </p>
+            <div className="ad-chat-starters">
+              {ADVISOR_STARTERS.map(s => <button key={s} className="ad-chip" onClick={() => void send(s)}>{s}</button>)}
+            </div>
+          </div>
+        )}
+        {turns.map((t, i) => (
+          <div key={i} className={`ad-msg ${t.role}`}>
+            {t.role === 'user' ? <div className="ad-msg-body">{t.text}</div> : (
+              <div className="ad-msg-body">
+                <RichText text={t.text} />
+                {!!t.proposals?.length && (
+                  <div className="ad-msg-props">
+                    <div className="small"><b>Návrhy z odpovědi</b> — schválíš je tady nebo v záložce{' '}
+                      <button className="linkish" onClick={onProposals}>Návrhy</button>
+                    </div>
+                    {t.proposals.map(p => (
+                      <div key={p.id} className="ad-msg-prop">
+                        {p.system === 'sklik' && <span className="ad-badge sklik">S</span>}
+                        <span>{p.title}</span>
+                        {p.status === 'snoozed' && <span className="ad-chip info">naplánováno</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!!t.notes?.length && (
+                  <ul className="ad-msg-notes">{t.notes.map((n, j) => <li key={j}>{n}</li>)}</ul>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {busy && <div className="ad-msg assistant"><div className="ad-msg-body muted">Procházím čísla…</div></div>}
+        <div ref={end} />
+      </div>
+      <div className="ad-chat-input">
+        <textarea value={text} rows={2} placeholder="Třeba: Kolik můžu v prosinci přidat, aby zisk zůstal nad cílem?"
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(text); } }} />
+        <div className="ad-chat-actions">
+          {turns.length > 0 && <button className="btn ghost small" disabled={busy} onClick={() => setTurns([])}>Nový rozhovor</button>}
+          <button className="btn primary" disabled={busy || !text.trim()} onClick={() => void send(text)}>Zeptat se</button>
+        </div>
+        {!status.google.connected && !status.sklik?.hasToken && (
+          <div className="muted small">Poradce pracuje s daty ve sdílené složce — na tomhle Macu nemusí být nic připojené.</div>
+        )}
       </div>
     </div>
   );
@@ -269,7 +413,7 @@ function StatusLine({ status }: { status: AdsStatus }) {
   const run = status.lastRun;
   return (
     <div className="ad-status">
-      <span className={`ad-dot ${status.google.lastError ? 'bad' : run ? 'ok' : ''}`} />
+      <span className={`ad-dot ${status.google.lastError || status.sklik?.lastError ? 'bad' : run ? 'ok' : ''}`} />
       <span>
         <b>Mění jen to, co schválíš — každá změna jde vrátit.</b>{' '}
         {run
@@ -779,9 +923,15 @@ function TrackCard({ proposals }: { proposals: AdsProposals | null }) {
   );
 }
 
-function needsGoogle(p: AdsProposal): boolean {
-  return p.ops.some(op => op.kind !== 'exclude');
+/** Umí tenhle Mac operace zapsat (Google přihlášený, Sklik s tokenem)? Feed zvládne každý. */
+function canWriteHere(ops: AdsProposal['ops'], status: AdsStatus): boolean {
+  const api = ops.filter(op => op.kind !== 'exclude' && op.kind !== 'exclude-remove');
+  const sklik = api.some(op => 'account' in op && op.account === 'sklik');
+  const google = api.some(op => !('account' in op && op.account === 'sklik'));
+  return (!sklik || (!!status.sklik?.hasToken && status.config.sklik.enabled)) && (!google || status.google.connected);
 }
+
+const fromAdvisor = (p: AdsProposal) => p.fingerprint.includes('|chat|');
 
 /** Co se přesně změní — řádek po operaci */
 function OpsList({ p }: { p: AdsProposal }) {
@@ -812,7 +962,7 @@ function ProposalCard({ p, status, compact = false, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(!compact);
   const [detail, setDetail] = useState(false);
-  const viaOther = needsGoogle(p) && !status.google.connected;
+  const viaOther = !canWriteHere(p.ops, status);
   const act = async (fn: () => Promise<unknown>, done: string) => {
     setBusy(true);
     try { await fn(); toast(done, 'info'); onChanged(); } catch (e: any) { toast(e.message, 'error'); onChanged(); } finally { setBusy(false); }
@@ -824,11 +974,20 @@ function ProposalCard({ p, status, compact = false, onChanged }: {
         {p.market && status.config.markets.length > 1 && (
           <span className="ad-market" data-tip={ADS_TERMS.market}>{MARKET_LABELS[p.market] ?? p.market}</span>
         )}
-        <span className={`ad-chip ${p.impact >= 0 ? 'ok' : 'warn'}`}
-          data-tip={p.impact < 0 ? `${ADS_TERMS.impact} ${ADS_TERMS.holdsTarget}` : ADS_TERMS.impact}>
-          {p.impact >= 0 ? '+' : '−'}{kc(Math.abs(p.impact))} / 30 dní{p.impact < 0 ? ' · drží cíl' : ''}
-        </span>
-        <Confidence n={p.confidence} />
+        {p.system === 'sklik' && <span className="ad-badge sklik" data-tip="Sklik">S</span>}
+        {fromAdvisor(p) ? (
+          <span className="ad-chip info" data-tip="Navrhl poradce na tvou otázku — odhad v korunách u něj není, prošel ale stejnými pojistkami jako ostatní návrhy.">
+            z poradce
+          </span>
+        ) : (
+          <>
+            <span className={`ad-chip ${p.impact >= 0 ? 'ok' : 'warn'}`}
+              data-tip={p.impact < 0 ? `${ADS_TERMS.impact} ${ADS_TERMS.holdsTarget}` : ADS_TERMS.impact}>
+              {p.impact >= 0 ? '+' : '−'}{kc(Math.abs(p.impact))} / 30 dní{p.impact < 0 ? ' · drží cíl' : ''}
+            </span>
+            <Confidence n={p.confidence} />
+          </>
+        )}
       </div>
       <div className="ad-prop-title">{p.title}</div>
       {open && p.plain && <div className="ad-prop-plain">{p.plain}</div>}
@@ -844,8 +1003,8 @@ function ProposalCard({ p, status, compact = false, onChanged }: {
       {p.error && <div className="ad-prop-err">{p.error}</div>}
       <div className="ad-prop-btns">
         <button className="btn primary small" disabled={busy}
-          data-tip={viaOther ? 'Tenhle Mac není přihlášený ke Google Ads — změnu provede přihlášený Mac do deseti minut' : 'Provede změnu v účtu. Jde vrátit v Historii změn.'}
-          onClick={() => act(() => api.ads.apply(p.id), viaOther ? 'Schváleno — provede to přihlášený Mac' : 'Změna je v účtu')}>
+          data-tip={viaOther ? 'Tenhle Mac nemá přístup do účtu — změnu provede Mac, který ho má, do deseti minut' : 'Provede změnu v účtu. Jde vrátit v Historii změn.'}
+          onClick={() => act(() => api.ads.apply(p.id), viaOther ? 'Schváleno — provede to Mac s přístupem do účtu' : 'Změna je v účtu')}>
           {viaOther ? 'Schválit' : 'Použít'}
         </button>
         {compact && !open && <button className="btn ghost small" onClick={() => setOpen(true)}>Proč</button>}
@@ -874,7 +1033,7 @@ function ChangeRow({ c, status, onChanged }: { c: AdsChange; status: AdsStatus; 
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const ev = c.evaluation;
-  const canRevert = !c.revertOf && !c.revertedAt && (status.google.connected || c.undo.every(op => op.kind === 'exclude-remove'));
+  const canRevert = !c.revertOf && !c.revertedAt && canWriteHere(c.undo, status);
   return (
     <div className={`ad-change ${c.revertedAt ? 'reverted' : ''}`}>
       <div className="ad-change-main">
@@ -906,6 +1065,7 @@ function Proposals({ data, status, onChanged, busy, setBusy }: {
 }) {
   const toast = useToast();
   if (!data) return <div className="ad-empty">Načítám…</div>;
+  const planned = data.planned ?? [];
   const recompute = async () => {
     setBusy('engine');
     try {
@@ -944,7 +1104,25 @@ function Proposals({ data, status, onChanged, busy, setBusy }: {
             {data.waiting.map(p => (
               <div key={p.id} className="ad-card ad-prop approved">
                 <div className="ad-prop-title">{p.title}</div>
-                <div className="muted small">Schválil {p.decidedBy.replace(/\s*\([^)]*\)$/, '')} · provede se do deseti minut na Macu přihlášeném ke Google Ads.</div>
+                <div className="muted small">Schválil {p.decidedBy.replace(/\s*\([^)]*\)$/, '')} · provede se do deseti minut na Macu s přístupem do účtu.</div>
+              </div>
+            ))}
+          </>
+        )}
+        {planned.length > 0 && (
+          <>
+            <div className="ad-prop-head"><b>Naplánované kroky</b><span className="muted small">z poradce — v návrzích se objeví v daný den</span></div>
+            {planned.map(p => (
+              <div key={p.id} className="ad-card ad-prop planned">
+                <div className="ad-prop-top">
+                  <span className="ad-chip info">{new Date(p.snoozeUntil).toLocaleDateString('cs-CZ')}</span>
+                  {p.system === 'sklik' && <span className="ad-badge sklik">S</span>}
+                </div>
+                <div className="ad-prop-title">{p.title}</div>
+                {p.plain && <div className="ad-prop-plain">{p.plain}</div>}
+                <div className="ad-prop-btns">
+                  <button className="btn ghost small" onClick={async () => { await api.ads.decide(p.id, 'dismiss').catch(() => {}); onChanged(); }}>Zrušit krok</button>
+                </div>
               </div>
             ))}
           </>
@@ -1092,6 +1270,80 @@ function GuardsSection({ guards, onSave }: { guards: AdsGuards; onSave: (g: AdsG
         {field('cooldownDays', 'Kampaň po změně v klidu', 'dní')}
         {field('minConversions', 'Měnit cíl až od', 'konverzí / 30 dní')}
         {field('monthlyBudget', 'Strop útraty za měsíc', 'Kč (0 = bez stropu)')}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Sklik: API token a (když se spravuje cizí účet) číslo účtu. Token se
+ * po uložení hned vyzkouší — špatný se neuloží, aby noční běh nepadal
+ * potichu. Na ostatní Macy ho přenese trezor.
+ */
+function SklikSection({ status, onStatus, busy, setBusy }: {
+  status: AdsStatus; onStatus: (s: AdsStatus) => void; busy: string; setBusy: (s: string) => void;
+}) {
+  const toast = useToast();
+  const cfg = status.config;
+  const [token, setToken] = useState('');
+  const [userId, setUserId] = useState(cfg.sklik.userId);
+  useEffect(() => { setUserId(cfg.sklik.userId); }, [cfg.sklik.userId]);
+  const has = status.sklik?.hasToken;
+
+  const test = async () => {
+    setBusy('sklik');
+    try {
+      const res = await api.ads.sklik(token, userId);
+      onStatus(res.status);
+      setToken('');
+      toast(`Sklik připojen: ${res.message}`, 'info');
+    } catch (e: any) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <section className="ad-card ad-set ad-sklik">
+      <h3><span className="ad-badge sklik">S</span> Sklik</h3>
+      {has && cfg.sklik.enabled ? (
+        <p>Tenhle Mac má token Skliku. Poslední stažení: {relTime(status.sklik.lastFetch)}.</p>
+      ) : (
+        <p className="muted">
+          Kampaně ze Skliku (Seznam, Zboží.cz) se počítají do zisku po reklamě stejně jako Google. Návrhy umí
+          měnit <b>denní rozpočet</b> kampaní; nabídky a cíle zůstávají ve Skliku.
+        </p>
+      )}
+      {status.sklik?.lastError && <div className="ad-alert bad ad-card">{status.sklik.lastError}</div>}
+      {!has && (
+        <ol className="ad-steps">
+          <li>Ve Skliku otevři <b>Nastavení účtu → Správa API tokenů</b> a vytvoř nový token.</li>
+          <li>Vlož ho sem a dej <b>Uložit a vyzkoušet</b>. Token je tajný jako heslo — uloží se zašifrovaně a na ostatní Macy ho přenese trezor.</li>
+        </ol>
+      )}
+      <div className="field">
+        <label>API token {has && <small>(uložený — vyplň jen pro změnu)</small>}</label>
+        <input type="password" value={token} onChange={e => setToken(e.target.value)} autoComplete="off" />
+      </div>
+      <div className="field">
+        <label>Číslo spravovaného účtu <small>(jen když token patří agentuře nebo jinému účtu)</small></label>
+        <input value={userId} onChange={e => setUserId(e.target.value.replace(/\D/g, ''))} placeholder="prázdné = vlastní účet" />
+      </div>
+      <div className="ad-set-row">
+        <button className="btn primary" onClick={test} disabled={!!busy || (!token.trim() && !has)}>
+          {busy === 'sklik' ? 'Zkouším…' : has ? 'Vyzkoušet připojení' : 'Uložit a vyzkoušet'}
+        </button>
+        {cfg.sklik.enabled && (
+          <label className="ad-check">
+            <input type="checkbox" checked={cfg.sklik.enabled}
+              onChange={async e => { onStatus(await api.ads.config({ sklik: { ...cfg.sklik, enabled: e.target.checked } })); }} />
+            Stahovat Sklik
+          </label>
+        )}
+        {has && (
+          <button className="btn ghost" onClick={async () => onStatus(await api.ads.sklikOff())}>Odebrat token z tohoto Macu</button>
+        )}
       </div>
     </section>
   );
@@ -1256,6 +1508,8 @@ function Settings({ status, onStatus, busy, setBusy }: {
           </div>
         </details>
       </section>
+
+      <SklikSection status={status} onStatus={onStatus} busy={busy} setBusy={setBusy} />
 
       <section className="ad-card ad-set">
         <h3>Cíl</h3>

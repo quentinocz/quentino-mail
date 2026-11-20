@@ -35,7 +35,7 @@ import type {
   UpdateState
 } from '@shared/types';
 import type {
-  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer,
+  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer, AdsChatTurn, AdsChatReply,
   AdsProposals, AdsProposal, AdsChange
 } from '@shared/ads';
 import type { ToolWindowId } from '@shared/windows';
@@ -1426,6 +1426,12 @@ export const api = {
     /** Klíč servisního účtu (obsah JSON souboru) — uloží se jen v tomhle Macu */
     service: (json: string) => call<AdsStatus>('ads:service', json),
     customers: () => call<AdsGoogleCustomer[]>('ads:customers'),
+    /** Uloží API token Skliku a vyzkouší ho (špatný se neuloží); prázdný token = nechat stávající */
+    sklik: (token: string, userId: string) => call<{ status: AdsStatus; message: string }>('ads:sklik', token, userId),
+    sklikOff: () => call<AdsStatus>('ads:sklikOff'),
+    /** Poradce: odpověď a návrhy, které z ní vznikly (nic se neprovádí samo) */
+    ask: (history: AdsChatTurn[], question: string, market = 'all') =>
+      call<AdsChatReply>('ads:ask', history, question, market),
     fetch: (days?: number) => call<string>('ads:fetch', days),
     publishFeed: () => call<string>('ads:feed'),
     proposals: () => call<AdsProposals>('ads:proposals'),

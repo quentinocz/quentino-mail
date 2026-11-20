@@ -740,7 +740,11 @@ export function registerIpc() {
   handle('ads:disconnect', () => ads.disconnectGoogle());
   handle('ads:service', (json: string) => ads.connectService(String(json ?? '')));
   handle('ads:customers', () => ads.googleCustomers());
-  handle('ads:fetch', (days?: number) => ads.fetchGoogle(days ? Number(days) : undefined));
+  handle('ads:fetch', (days?: number) => ads.fetchAll(days ? Number(days) : undefined));
+  handle('ads:sklik', (token: string, userId: string) => ads.connectSklik(String(token ?? ''), String(userId ?? '')));
+  handle('ads:sklikOff', () => ads.disconnectSklik());
+  handle('ads:ask', (history: any, question: string, market?: string) =>
+    ads.askAdvisor(Array.isArray(history) ? history : [], String(question ?? ''), String(market || 'all')));
   handle('ads:feed', () => ads.publishFeed());
   // Fáze 2: návrhy změn — zápis do účtu jen po kliknutí na Použít
   handle('ads:proposals', () => ads.proposals());

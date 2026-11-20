@@ -13,7 +13,7 @@ export const ADS: HelpTopic = {
   title: 'Reklamy',
   icon: 'megaphone',
   color: '#5e8a2f',
-  intro: 'Kolik reklama opravdu vydělává: výkon z Google Ads spárovaný s objednávkami z Upgates a nákupními '
+  intro: 'Kolik reklama opravdu vydělává: výkon z Google Ads a Skliku spárovaný s objednávkami z Upgates a nákupními '
     + 'cenami z katalogu. Každou noc spočítá návrhy změn; do účtu se zapíše jen to, co potvrdíš, a každá změna jde vrátit.',
   areas: [
     { id: 'tabs', label: 'Záložky a období', x: 0, y: 0, w: 12, h: 1, target: '.ad-tabs' },
@@ -36,6 +36,17 @@ export const ADS: HelpTopic = {
         { text: '[Načíst účty] ukáže účty, ke kterým má servisní účet přístup. Přidej **každý trh zvlášť** — český, '
             + 'slovenský, později .com — a u každého zkontroluj, ke kterému trhu patří.', area: 'tabs' },
         { text: 'V hlavičce klikni na [Načíst data]. Poprvé se stáhne 90 dní, pak už to běží samo každou noc.', area: 'status' }
+      ]
+    },
+    {
+      title: 'Připojit Sklik',
+      when: 'Jednou — token se na ostatní Macy přenese trezorem.',
+      steps: [
+        { text: 'Ve Skliku otevři **Nastavení účtu → Správa API tokenů** a vytvoř token.', area: 'tabs' },
+        { text: 'V záložce [Nastavení] ho vlož do sekce **Sklik** a klikni na [Uložit a vyzkoušet]. Špatný token se neuloží.', area: 'tabs' },
+        { text: 'Číslo spravovaného účtu vyplň, jen když token patří agentuře nebo jinému účtu.', area: 'tabs' },
+        { text: 'Sklik se pak stahuje spolu s Googlem a je vidět v dlaždici systémů i v kampaních. Návrhy u něj mění jen '
+            + '**denní rozpočet** — nabídky a cíle zůstávají ve Skliku.', area: 'systems' }
       ]
     },
     {
@@ -62,6 +73,19 @@ export const ADS: HelpTopic = {
         { text: '[Odložit] ho schová na týden, [Zamítnout] na dva týdny, [Nenavrhovat] už nikdy pro tuhle kampaň.', area: 'tabs' },
         { text: 'Návrh se záporným odhadem a štítkem **drží cíl** stojí trochu zisku, ale drží cíl zisku z obratu. '
             + 'Když chceš spíš víc korun, sniž cíl v [Nastavení].', area: 'tabs' }
+      ]
+    },
+    {
+      title: 'Zeptat se poradce a naplánovat sezónu',
+      when: 'Když chceš vědět proč, nebo co udělat — třeba před Vánoci.',
+      steps: [
+        { text: 'Otevři záložku [Poradce] a napiš otázku (nebo klikni na některou z nabídnutých). Poradce vidí stejná čísla '
+            + 'jako záložky — za trh, který je vybraný v hlavičce.', area: 'tabs' },
+        { text: 'Když navrhne změnu, objeví se pod odpovědí jako **návrh**. Nic se neprovede samo — schválíš ho v [Návrhy] '
+            + 'jako každý jiný a jde vrátit.', area: 'tabs' },
+        { text: 'Plán (třeba „přidat 1. 12., ubrat 27. 12.") vznikne jako **naplánované kroky**: v Návrzích čekají '
+            + 'pod sebou s datem a ve svůj den se nabídnou k použití.', area: 'tabs' },
+        { text: 'Poradce dodržuje pojistky: velkou změnu rozdělí do víc kroků a pod odpovědí napíše, co a proč neprošlo.', area: 'tabs' }
       ]
     },
     {
@@ -93,6 +117,7 @@ export const ADS: HelpTopic = {
     }
   ],
   tips: [
+    'Rozhovor s poradcem vydrží přepínání záložek; [Nový rozhovor] začne znovu.',
     'Podtržené pojmy (PNO, ROAS, bod zlomu…) a štítky segmentů vysvětlí po najetí myší, co znamenají.',
     'V hlavičce jde přepnout **Všechny trhy / CZ / SK / .com**. Každý trh má cílové PNO podle své marže.',
     'Tabulky produktů a kampaní se řadí klikem na hlavičku sloupce; druhý klik obrátí pořadí.',

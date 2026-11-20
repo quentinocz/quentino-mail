@@ -18,15 +18,19 @@ import type { ShopOrder } from '../../shared/types';
 import {
   AdsConfig, AdsStatus, AdsOverview, AdsSystemTile, AdsAlert, AdsDay, AdsCampaignRow,
   AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod, AdsGoogleCustomer, AdsProposals, AdsChange,
-  AdsProposal, AdsAccount
+  AdsProposal, AdsAccount, AdsChatTurn, AdsChatReply
 } from '../../shared/ads';
 import {
   orderMoney, marginTable, productMargin, targetPno, shiftDay, localDay, PriceInfo, OrderMoney
 } from './economics';
 import { segmentProducts, marginBand, supplementalTsv } from './segments';
 import * as google from './google';
+import * as sklik from './sklik';
 import { generate, vocabularyOf, EngineCampaign } from './engine';
 import * as prop from './proposals';
+import * as chat from './chat';
+import { ask } from '../ai';
+import { getSettings } from '../settings';
 import {
   getAdsConfig, saveAdsConfig, saveCampaigns, saveDays, syncConfig, syncStats, isShared,
   lastRun, markRun, writeLocal, activeAccounts, accountInfo, accountCzk, accountValue, migrateItems
@@ -232,7 +236,7 @@ export function overview(daysWanted = 30, scope = 'all'): AdsOverview {
     });
   }
 
-  // Systémy — zatím Google; Sklik a Meta jako nepřipojené dlaždice
+  // Systémy — Google a Sklik; Meta zatím jako nepřipojená dlaždice
   const g = google.googleSecrets();
   const systems: AdsSystemTile[] = (['google', 'sklik', 'meta'] as const).map(system => {
     const rows = adsNow.filter(r => r.system === system);
@@ -251,7 +255,8 @@ export function overview(daysWanted = 30, scope = 'all'): AdsOverview {
     }
     return {
       system,
-      connected: system === 'google' ? (g.connected || rows.length > 0) : rows.length > 0,
+      connected: system === 'google' ? (g.connected || rows.length > 0)
+        : system === 'sklik' ? (cfg.sklik.enabled || rows.length > 0) : rows.length > 0,
       cost: agg.cost,
       value: agg.value,
       conversions: agg.conversions,
@@ -629,6 +634,76 @@ export function fetchGoogle(daysBack?: number): Promise<string> {
 
 const MARKET_NAME: Record<string, string> = { cz: 'CZ', sk: 'SK', en: '.com' };
 
+let fetchingSklik: Promise<string> | null = null;
+
+/**
+ * Stáhne kampaně a výkon ze Skliku. Stejné okno jako Google (28 dní,
+ * poprvé 90), aby se dopsané konverze opravily i zpětně.
+ *
+ * Sklik nevrací produkty po dnech ani hledané dotazy tak, jak je potřebují
+ * segmenty a vylučující slova — ty zůstávají na Googlu. Ze Skliku jsou
+ * kampaně, útrata a konverze, a to stačí na zisk po reklamě a rozpočty.
+ */
+export function fetchSklik(daysBack?: number): Promise<string> {
+  if (fetchingSklik) return fetchingSklik;
+  fetchingSklik = (async () => {
+    const cfg = getAdsConfig();
+    if (!cfg.sklik.enabled) throw new Error('Sklik je v Nastavení vypnutý.');
+    if (!sklik.sklikToken()) throw new Error('Tenhle Mac nemá uložený token Skliku.');
+    const to = localDay();
+    const at = new Date().toISOString();
+    try {
+      const any = getDb().prepare("SELECT 1 FROM ads_campaign_day WHERE system = 'sklik' LIMIT 1").get();
+      const from = shiftDay(to, -((daysBack ?? (any ? 28 : 90)) - 1));
+      const days = await sklik.sklikDays(from, to, cfg.sklik.userId);
+      const limited = sklik.limitedFrom(days, to);
+      const list = (await sklik.sklikCampaigns(cfg.sklik.userId))
+        .map(c => ({ ...c, limited: c.limited || limited.has(c.id) }));
+      saveCampaigns('sklik', list, at, 'sklik');
+      saveDays('ads_campaign_day', 'sklik', from, to, days, at, 'sklik');
+      setSetting('adsSklikFetched', at);
+      setSetting('adsSklikError', '');
+      try { syncStats('sklik'); } catch { /* složka příště */ }
+      emit({ fetched: at });
+      return `Sklik: ${list.length} kampaní`;
+    } catch (err: any) {
+      setSetting('adsSklikError', String(err?.message ?? err));
+      throw err;
+    }
+  })().finally(() => { fetchingSklik = null; });
+  return fetchingSklik;
+}
+
+/** Co se má stahovat na tomhle Macu */
+function sources(cfg: AdsConfig): { google: boolean; sklik: boolean } {
+  return {
+    google: google.googleSecrets().connected && activeAccounts(cfg).length > 0,
+    sklik: cfg.sklik.enabled && !!sklik.sklikToken()
+  };
+}
+
+/**
+ * Stáhne všechny připojené systémy. Chyba jednoho nezastaví druhý —
+ * výsledek říká, co prošlo a co ne; chyba jen když neprošlo nic.
+ */
+export async function fetchAll(daysBack?: number): Promise<string> {
+  const cfg = getAdsConfig();
+  const src = sources(cfg);
+  if (!src.google && !src.sklik) {
+    throw new Error('Tenhle Mac nemá připojený Google Ads ani Sklik (Reklamy → Nastavení).');
+  }
+  const done: string[] = [];
+  const errors: string[] = [];
+  if (src.google) {
+    try { done.push(await fetchGoogle(daysBack)); } catch (err: any) { errors.push(`Google: ${err?.message ?? err}`); }
+  }
+  if (src.sklik) {
+    try { done.push(await fetchSklik(daysBack)); } catch (err: any) { errors.push(String(err?.message ?? err)); }
+  }
+  if (!done.length) throw new Error(errors.join(' · '));
+  return [...done, ...errors.map(e => `chyba — ${e}`)].join(', ');
+}
+
 /** Dotazy se ukládají v měně účtu; přepočet až při čtení, jako u ostatních čísel */
 function saveTerms(account: string, terms: google.TermRow[], at: string): void {
   const d = getDb();
@@ -663,9 +738,9 @@ export function runEngine(): number {
   const { from, to } = period(30);
   const margins = marginsByMarket(cfg, ordersBetween(cfg, catalog, from, to, 'all'));
   const meta = new Map((getDb().prepare(
-    "SELECT id, budget_id, budget_shared, limited FROM ads_campaigns WHERE system = 'google'"
-  ).all() as any[]).map(r => [String(r.id), r]));
-  const all = campaigns(30, 'all').filter(r => r.system === 'google');
+    "SELECT system, id, budget_id, budget_shared, limited FROM ads_campaigns"
+  ).all() as any[]).map(r => [`${r.system}|${r.id}`, r]));
+  const everything = campaigns(30, 'all');
   const termRows = getDb().prepare(
     "SELECT campaign_id, term, clicks, cost, conversions, account FROM ads_search_terms WHERE system = 'google'"
   ).all() as any[];
@@ -680,28 +755,41 @@ export function runEngine(): number {
   const cooling = prop.coolingCampaigns(cfg.guards.cooldownDays, today);
   const blocked = prop.blockedFingerprints(today);
 
-  const markets = [...new Set(activeAccounts(cfg).map(a => a.market))].filter(m => cfg.markets.includes(m));
-  const drafts = [] as ReturnType<typeof generate>;
-  markets.forEach((market, index) => {
+  // Google po trzích, Sklik zvlášť (jen CZ) — každý systém má své návrhy
+  const runs: { system: 'google' | 'sklik'; market: string }[] = [
+    ...[...new Set(activeAccounts(cfg).map(a => a.market))].filter(m => cfg.markets.includes(m))
+      .map(market => ({ system: 'google' as const, market })),
+    ...(cfg.sklik.enabled && cfg.markets.includes('cz') ? [{ system: 'sklik' as const, market: 'cz' }] : [])
+  ];
+  const drafts = { google: [] as ReturnType<typeof generate>, sklik: [] as ReturnType<typeof generate> };
+  let feedDone = false;
+  runs.forEach(({ system, market }) => {
+    const all = everything.filter(r => r.system === system);
     const margin = margins.get(market) ?? cfg.fallbackMargin;
-    const list: EngineCampaign[] = all.filter(r => r.market === market).map(r => ({
-      id: r.id, account: r.account, name: r.name, type: r.type, status: r.status, bidding: r.bidding,
-      targetRoas: r.targetRoas, budget: r.budget, budgetId: meta.get(r.id)?.budget_id ?? '',
-      budgetShared: !!meta.get(r.id)?.budget_shared, limited: !!meta.get(r.id)?.limited,
-      cost: r.cost, conversions: r.conversions, value: r.value
-    }));
+    const list: EngineCampaign[] = all.filter(r => r.market === market).map(r => {
+      const m = meta.get(`${system}|${r.id}`);
+      return {
+        id: r.id, account: r.account, name: r.name, type: r.type, status: r.status, bidding: r.bidding,
+        targetRoas: r.targetRoas, budget: r.budget, budgetId: m?.budget_id ?? '',
+        budgetShared: !!m?.budget_shared, limited: !!m?.limited,
+        cost: r.cost, conversions: r.conversions, value: r.value
+      };
+    });
     const ids = new Set(list.map(c => c.id));
-    const terms = termRows.filter(t => ids.has(String(t.campaign_id))).map(t => ({
+    const terms = system !== 'google' ? [] : termRows.filter(t => ids.has(String(t.campaign_id))).map(t => ({
       campaignId: String(t.campaign_id), term: t.term, clicks: t.clicks, conversions: t.conversions,
       cost: accountCzk(cfg, accountInfo(cfg, t.account), Number(t.cost) || 0)
     }));
-    const otherDaily = all.filter(r => r.market !== market && r.status === 'ENABLED')
+    // Strop je společný pro všechny trhy i systémy
+    const otherDaily = everything.filter(r => !(r.system === system && r.market === market) && r.status === 'ENABLED')
       .reduce((s, r) => s + (r.budget ?? 0), 0);
-    drafts.push(...generate({
-      cfg, market, margin, targetPno: targetPno(margin, cfg.targetProfitShare) ?? 0, campaigns: list, terms,
+    const withFeed = system === 'google' && !feedDone;
+    if (withFeed) feedDone = true;
+    drafts[system].push(...generate({
+      cfg, system, market, margin, targetPno: targetPno(margin, cfg.targetProfitShare) ?? 0, campaigns: list, terms,
       vocabulary,
       // Žrouti jdou přes společný feed — jednou, ne za každý trh
-      products: index === 0
+      products: withFeed
         ? prods.map(p => ({ code: p.code, title: p.title, segment: p.segment, cost: p.cost, profit: p.profit }))
         : [],
       excluded, cooling, blocked, monthSpend, otherDaily,
@@ -709,8 +797,9 @@ export function runEngine(): number {
       dataDays: Number(dataDays) || 0
     }));
   });
-  drafts.sort((a, b) => b.impact - a.impact);
-  const fresh = prop.saveGenerated(drafts);
+  drafts.google.sort((a, b) => b.impact - a.impact);
+  drafts.sklik.sort((a, b) => b.impact - a.impact);
+  const fresh = prop.saveGenerated(drafts.google, 'google') + prop.saveGenerated(drafts.sklik, 'sklik');
   setSetting('adsProposalsAt', new Date().toISOString());
   try { prop.shareProposals(); } catch { /* složka příště */ }
   emit({ proposals: fresh });
@@ -831,17 +920,18 @@ export async function tick(): Promise<void> {
   try {
     // Převzít, co udělaly jiné Macy, se dá kdykoli — běh sám až po třetí
     try { if (syncConfig()) emit(); } catch { /* složka příště */ }
-    try { if (syncStats('google') > 0) emit(); } catch { /* složka příště */ }
+    try { if (syncStats('google') + syncStats('sklik') > 0) emit(); } catch { /* složka příště */ }
     try { if (prop.shareProposals()) emit(); } catch { /* složka příště */ }
     // Návrhy schválené na Macu bez přihlášení provede ten přihlášený
     try { if (await prop.applyApproved(getAdsConfig(), feedAfter) > 0) emit(); } catch { /* stav je u návrhu */ }
     if (now.getHours() < 3) return;
     const day = localDay(now);
     if (lastRun()?.day === day) return;
-    if (!google.googleSecrets().connected || !activeAccounts(getAdsConfig()).length) return;
+    const src = sources(getAdsConfig());
+    if (!src.google && !src.sklik) return;
     const mark = { day, device: deviceLabel(), finishedAt: '', result: '', error: '' };
     try {
-      mark.result = await fetchGoogle();
+      mark.result = await fetchAll();
       try {
         const fresh = runEngine();
         if (fresh) mark.result += `, ${fresh} nových návrhů`;
@@ -864,6 +954,52 @@ export async function tick(): Promise<void> {
   }
 }
 
+/* ---------- poradce ---------- */
+
+/**
+ * Otázka na poradce. Odpověď je text a z navržených kroků rovnou návrhy
+ * (ty jdou přes stejné pojistky a kontroly jako návrhy enginu).
+ */
+export async function askAdvisor(history: AdsChatTurn[], question: string, scope = 'all'): Promise<AdsChatReply> {
+  const q = String(question ?? '').trim();
+  if (!q) throw new Error('Napiš otázku.');
+  const cfg = getAdsConfig();
+  migrateItems(cfg);
+  const catalog = loadCatalog(cfg);
+  const { from, to } = period(30);
+  const margins = marginsByMarket(cfg, ordersBetween(cfg, catalog, from, to, 'all'));
+  const today = localDay();
+  const monthStart = `${today.slice(0, 8)}01`;
+  const lastDay = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
+  const meta = new Map((getDb().prepare(
+    'SELECT system, id, budget_id, budget_shared, limited FROM ads_campaigns'
+  ).all() as any[]).map(r => [`${r.system}|${r.id}`, {
+    budgetId: String(r.budget_id ?? ''), budgetShared: !!r.budget_shared, limited: !!r.limited
+  }]));
+  const view = proposals();
+  const ctx: chat.ChatContext = {
+    cfg, today,
+    overview: overview(30, scope),
+    campaigns: campaigns(30, scope),
+    meta,
+    products: products(30, scope).rows,
+    open: view.open,
+    changes: view.changes,
+    vocabulary: vocabularyOf(catalog.products.map(p => p.title)),
+    margins: Object.fromEntries([...margins].map(([m, v]) => [m, Math.round(v * 1000) / 1000])),
+    monthSpend: campaignDays(cfg, monthStart, today, 'all').reduce((s, r) => s + r.cost, 0),
+    daysLeft: lastDay - Number(today.slice(8, 10)) + 1
+  };
+  const s = getSettings();
+  const text = await ask(s.insightModel || s.draftModel, chat.SYSTEM,
+    chat.userMessage(ctx, (history ?? []).map(t => ({ role: t.role, text: t.text })), q), 6000);
+  const reply = chat.parseReply(text);
+  const { drafts, notes } = chat.draftsFrom(reply.actions, ctx, q);
+  const created = prop.saveChat(drafts);
+  if (created.length) emit({ proposals: created.length });
+  return { answer: reply.answer || 'Odpověď nepřišla — zkus otázku položit jinak.', proposals: created, notes };
+}
+
 /* ---------- stav pro okno ---------- */
 
 export function status(): AdsStatus {
@@ -881,6 +1017,11 @@ export function status(): AdsStatus {
       accountErrors: (() => { try { return JSON.parse(getSetting('adsAccountErrors', '{}') || '{}'); } catch { return {}; } })(),
       lastFetch: getSetting('adsGoogleFetched', '') || '',
       lastError: getSetting('adsGoogleError', '') || ''
+    },
+    sklik: {
+      hasToken: !!sklik.sklikToken(),
+      lastFetch: getSetting('adsSklikFetched', '') || '',
+      lastError: getSetting('adsSklikError', '') || ''
     },
     lastRun: lastRun(),
     shared: isShared(),
@@ -913,6 +1054,33 @@ export function connectService(json: string): AdsStatus {
 
 export function disconnectGoogle(): AdsStatus {
   google.forgetGoogle();
+  emit();
+  return status();
+}
+
+/**
+ * Uloží token Skliku a hned ho vyzkouší. Špatný token se neuloží — jinak
+ * by noční běh každou noc padal na přihlášení a nikdo by nevěděl proč.
+ */
+export async function connectSklik(token: string, userId: string): Promise<{ status: AdsStatus; message: string }> {
+  const before = sklik.sklikToken();
+  const clean = String(token ?? '').trim();
+  if (clean) sklik.saveSklikToken(clean);
+  saveAdsConfig({ sklik: { ...getAdsConfig().sklik, userId: String(userId ?? '').replace(/\D/g, '') } });
+  try {
+    const message = await sklik.sklikTest(getAdsConfig().sklik.userId);
+    saveAdsConfig({ sklik: { ...getAdsConfig().sklik, enabled: true } });
+    setSetting('adsSklikError', '');
+    emit();
+    return { status: status(), message };
+  } catch (err) {
+    if (clean) sklik.saveSklikToken(before);
+    throw err;
+  }
+}
+
+export function disconnectSklik(): AdsStatus {
+  sklik.saveSklikToken('');
   emit();
   return status();
 }

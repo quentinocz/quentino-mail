@@ -30,6 +30,7 @@ import type {
 } from '../../shared/ads';
 import type { ProposalDraft } from './engine';
 import * as google from './google';
+import * as sklik from './sklik';
 import { shiftDay, localDay } from './economics';
 import { accountInfo } from './store';
 
@@ -178,11 +179,38 @@ export function saveGenerated(drafts: ProposalDraft[], system: AdsSystem = 'goog
     }
     const open = d.prepare("SELECT * FROM ads_proposals WHERE status = 'open' AND system = ?").all(system) as any[];
     for (const row of open) {
-      if (seen.has(row.fingerprint)) continue;
+      // Návrhy z poradce engine nevyrábí — zastarat by tedy neměly jen proto, že je nový běh nezopakoval
+      if (seen.has(row.fingerprint) || String(row.fingerprint).includes('|chat|')) continue;
       writeProposal({ ...toProposal(row), status: 'stale', error: 'Podmínky se změnily — návrh už neplatí.', updatedAt: at });
     }
   })();
   return fresh;
+}
+
+/**
+ * Zapíše návrhy z poradce. Na rozdíl od enginu nic jiného nezastará.
+ * Krok s datem se uloží jako odložený do toho dne — v Návrzích se objeví
+ * sám, až přijde čas (stejně jako návrh odložený na týden).
+ */
+export function saveChat(drafts: (ProposalDraft & { system: AdsSystem; notBefore: string })[]): AdsProposal[] {
+  const at = new Date().toISOString();
+  const out: AdsProposal[] = [];
+  getDb().transaction(() => {
+    for (const draft of drafts) {
+      const proposal: AdsProposal = {
+        id: idOf(`${draft.fingerprint}|${at}`),
+        fingerprint: draft.fingerprint, kind: draft.kind, system: draft.system, market: draft.market ?? '',
+        targetId: draft.targetId, targetName: draft.targetName, title: draft.title, plain: draft.plain, why: draft.why,
+        impact: Math.round(draft.impact), confidence: draft.confidence, ops: draft.ops,
+        status: draft.notBefore ? 'snoozed' : 'open', snoozeUntil: draft.notBefore, error: '',
+        createdAt: at, updatedAt: at, decidedBy: ''
+      };
+      writeProposal(proposal);
+      out.push(proposal);
+    }
+  })();
+  if (out.length) shareSoon();
+  return out;
 }
 
 /* ---------- rozhodnutí ---------- */
@@ -241,6 +269,18 @@ function rateOf(cfg: AdsConfig, account: AdsAccount): number {
  * z čeho návrh vycházel — jinak se nic nezapíše (StaleError).
  */
 export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: AdsOp[]; note: string }> {
+  // Sklik: jen denní rozpočty a ty se zapisují po jednom (Sklik nemá zápis „naoko")
+  const isSklik = (op: AdsOp) => 'account' in op && op.account === 'sklik';
+  const sklikOps = ops.filter(isSklik);
+  for (const op of sklikOps) {
+    if (op.kind !== 'budget') throw new Error('Ve Skliku umí aplikace měnit jen denní rozpočet kampaně.');
+    const current = await sklik.sklikBudgetNow(op.campaignId, cfg.sklik.userId);
+    if (current == null || Math.abs(current - op.from) > Math.max(1, op.from * 0.01)) {
+      throw new StaleError(`Rozpočet ve Skliku je teď ${current == null ? 'neznámý' : `${Math.round(current)} Kč`}, `
+        + `návrh počítal s ${Math.round(op.from)} Kč — někdo ho mezitím změnil.`);
+    }
+  }
+  ops = ops.filter(op => !isSklik(op));
   for (const op of ops) {
     if (op.kind !== 'budget' && op.kind !== 'troas') continue;
     const account = accountOfOp(cfg, op);
@@ -276,6 +316,11 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
   }
   const undo: AdsOp[] = [];
   const notes: string[] = [];
+  for (const op of sklikOps) {
+    if (op.kind !== 'budget') continue;
+    await sklik.sklikSetBudget(op.campaignId, op.to, cfg.sklik.userId);
+    undo.push({ ...op, from: op.to, to: op.from });
+  }
   for (const g of groups.values()) {
     const result = await google.mutate(cfg, g.service as any, g.items.map(x => x.mutation), false, g.account);
     if (result.partial) notes.push(result.partial);
@@ -294,8 +339,18 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
   return { undo, note: notes.join(' ') };
 }
 
-function canWrite(cfg: AdsConfig): boolean {
-  return google.googleSecrets().connected && cfg.google.accounts.some(one => one.enabled);
+/**
+ * Umí tenhle Mac zapsat tyhle operace? Google potřebuje přihlášení
+ * a zapnutý účet, Sklik token. Feed (vyřazení) zvládne každý Mac.
+ */
+function canWrite(cfg: AdsConfig, ops?: AdsOp[]): boolean {
+  const googleOk = google.googleSecrets().connected && cfg.google.accounts.some(one => one.enabled);
+  const sklikOk = cfg.sklik.enabled && !!sklik.sklikToken();
+  if (!ops) return googleOk || sklikOk;
+  const api = ops.filter(op => op.kind !== 'exclude' && op.kind !== 'exclude-remove');
+  const needSklik = api.some(op => 'account' in op && op.account === 'sklik');
+  const needGoogle = api.some(op => !('account' in op && op.account === 'sklik'));
+  return (!needSklik || sklikOk) && (!needGoogle || googleOk);
 }
 
 /**
@@ -308,8 +363,7 @@ export async function applyProposal(
   const p = getProposal(id);
   if (!p) throw new Error('Návrh nenalezen.');
   if (!['open', 'approved', 'failed'].includes(p.status)) throw new Error('Tenhle návrh už není otevřený.');
-  const needsApi = p.ops.some(op => op.kind !== 'exclude');
-  if (needsApi && !canWrite(cfg)) {
+  if (!canWrite(cfg, p.ops)) {
     return decide(id, 'approve');
   }
   const at = new Date().toISOString();
@@ -354,8 +408,11 @@ export async function revertChange(
   if (!change) throw new Error('Změna nenalezena.');
   if (change.revertedAt) throw new Error('Tahle změna už je vrácená.');
   if (change.revertOf) throw new Error('Vrácení se nevrací — udělej nový návrh.');
-  const needsApi = change.undo.some(op => op.kind !== 'exclude-remove');
-  if (needsApi && !canWrite(cfg)) throw new Error('Vrátit jde jen na Macu přihlášeném ke Google Ads.');
+  if (!canWrite(cfg, change.undo)) {
+    throw new Error(change.system === 'sklik'
+      ? 'Vrátit jde jen na Macu s uloženým tokenem Skliku.'
+      : 'Vrátit jde jen na Macu přihlášeném ke Google Ads.');
+  }
   const { undo } = await execute(cfg, change.undo);
   const at = new Date().toISOString();
   const back: AdsChange = {
@@ -409,8 +466,11 @@ export function proposalsView(money: EvalMoney): AdsProposals {
   const today = localDay();
   const open = rows.filter(p => p.status === 'open' || (p.status === 'snoozed' && p.snoozeUntil <= today)
     || p.status === 'failed');
+  // Kroky plánu z poradce, které čekají na svůj den — zvlášť, ať je nevytlačí historie
+  const planned = rows.filter(p => p.status === 'snoozed' && p.snoozeUntil > today && p.fingerprint.includes('|chat|'))
+    .sort((a, b) => a.snoozeUntil.localeCompare(b.snoozeUntil));
   const decided = rows
-    .filter(p => !open.includes(p) && p.status !== 'approved')
+    .filter(p => !open.includes(p) && !planned.includes(p) && p.status !== 'approved')
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 40);
   const changes = allChanges().slice(0, 60).map(c => ({ ...c, evaluation: evaluate(c, money, today) }));
@@ -419,6 +479,7 @@ export function proposalsView(money: EvalMoney): AdsProposals {
   return {
     open,
     waiting: rows.filter(p => p.status === 'approved'),
+    planned,
     decided,
     changes,
     dataDays: Number(dataDays) || 0,

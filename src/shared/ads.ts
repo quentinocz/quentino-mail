@@ -75,6 +75,16 @@ export interface AdsConfig {
   autonomy: AdsAutonomy;
   /** Pojistky pro návrhy (a později autopilot) */
   guards: AdsGuards;
+  /**
+   * Sklik (Seznam). Jen český trh, účet v korunách. Token je v klíčence
+   * (a v trezoru), tady jen to, co tajné není.
+   */
+  sklik: {
+    enabled: boolean;
+    /** Číslo spravovaného účtu, když se přes token chodí do cizího; prázdné = vlastní */
+    userId: string;
+    name: string;
+  };
   google: {
     /**
      * Účty Google Ads — každý patří jednomu trhu (CZ, SK, .com). Modul
@@ -180,6 +190,8 @@ export interface AdsProposals {
   open: AdsProposal[];
   /** Schválené na jiném Macu, čekají na Mac přihlášený ke Googlu */
   waiting: AdsProposal[];
+  /** Naplánované kroky z poradce (odložené do dne, kdy mají platit) */
+  planned: AdsProposal[];
   decided: AdsProposal[];
   changes: AdsChange[];
   /** Kolik dní dat z reklam je k dispozici — návrhy chtějí aspoň 14 */
@@ -189,6 +201,22 @@ export interface AdsProposals {
   generatedAt: string;
   /** Produkty, které právě reklama vynechává (doplňkový feed) */
   excluded: { code: string; until: string }[];
+}
+
+/** Jedna zpráva v rozhovoru s poradcem */
+export interface AdsChatTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  /** U odpovědi: návrhy, které z ní vznikly */
+  proposals?: AdsProposal[];
+  /** U odpovědi: kroky, které neprošly pravidly, a proč */
+  notes?: string[];
+}
+
+export interface AdsChatReply {
+  answer: string;
+  proposals: AdsProposal[];
+  notes: string[];
 }
 
 /** Stav připojení a posledního běhu — mění se na každém Macu jinak. */
@@ -203,6 +231,12 @@ export interface AdsStatus {
     /** Chyby posledního stažení po účtech (účet → text) */
     accountErrors: Record<string, string>;
     account: string;
+    lastFetch: string;
+    lastError: string;
+  };
+  sklik: {
+    /** Je na tomhle Macu uložený API token */
+    hasToken: boolean;
     lastFetch: string;
     lastError: string;
   };
@@ -378,6 +412,7 @@ export const DEFAULT_ADS_CONFIG: AdsConfig = {
   fallbackMargin: 0.6,
   autonomy: 'suggest',
   guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
+  sklik: { enabled: false, userId: '', name: 'Sklik' },
   google: {
     accounts: [],
     customerId: '',

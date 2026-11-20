@@ -435,6 +435,145 @@ fs.rmSync(shared2, { recursive: true, force: true });
 db.prepare("UPDATE settings SET value = '0' WHERE key = 'syncEnabled'").run();
 
 
+/* ---------- Sklik ---------- */
+console.log('\nSklik');
+{
+  const sk = require(path.join(DIST, 'ads/sklik.js'));
+  const list = sk.markShared(sk.parseSklikCampaigns([
+    { id: 11, name: 'Zboží – katalog', type: 'zbozi', status: 'active', budget: { id: 501, dayBudget: 25000 } },
+    { id: 12, name: 'Hledání – kšandy', type: 'fulltext', status: 'suspend', budget: { id: 502, dayBudget: 10000 } },
+    { id: 13, name: 'Obsah A', type: 'context', status: 'active', budget: { id: 503, dayBudget: 5000 } },
+    { id: 14, name: 'Obsah B', type: 'context', status: 'active', budget: { id: 503, dayBudget: 5000 } },
+    { id: 15, name: 'Smazaná', type: 'zbozi', status: 'active', deleted: true }
+  ]));
+  check('kampaně: haléře na koruny, typy jako u Googlu, pozastavená = PAUSED, smazaná pryč',
+    list.map(c => [c.id, c.type, c.status, c.budget]),
+    [['11', 'SHOPPING', 'ENABLED', 250], ['12', 'SEARCH', 'PAUSED', 100], ['13', 'DISPLAY', 'ENABLED', 50], ['14', 'DISPLAY', 'ENABLED', 50]]);
+  check('  rozpočet sdílený víc kampaněmi se pozná (a engine na něj nesáhne)', list.map(c => c.budgetShared), [false, false, true, true]);
+  const rep = sk.parseSklikReport([
+    { id: 11, stats: [
+      { date: '2026-11-18T00:00:00+01:00', totalMoney: 41250, clicks: 90, impressions: 4000, conversions: 3, conversionValue: 297000, exhaustedBudget: 1 },
+      { date: '2026-11-19', totalMoney: 0, clicks: 0, impressions: 0, conversions: 0, conversionValue: 0 }] }
+  ]);
+  check('statistiky: den, koruny, prázdné dny pryč', rep.map(r => [r.date, r.cost, r.conversions, r.value]),
+    [['2026-11-18', 412.5, 3, 2970]]);
+  const ex = (date) => ({ id: '11', date, cost: 1, clicks: 1, impressions: 1, conversions: 0, value: 0, exhausted: 1 });
+  check('omezeno rozpočtem: aspoň 3× za posledních 7 dní došel rozpočet',
+    [...sk.limitedFrom([ex('2026-11-17'), ex('2026-11-18'), ex('2026-11-19')], '2026-11-20')], ['11']);
+  check('  dvakrát nestačí, a starší dny se nepočítají',
+    [...sk.limitedFrom([ex('2026-11-01'), ex('2026-11-18'), ex('2026-11-19')], '2026-11-20')], []);
+
+  // Engine: otisk se Sklikem, bez cílů ROAS (ruční CPC) jen rozpočty
+  out = engine.generate(einput({ system: 'sklik', campaigns: [ecamp({ id: '11', account: 'sklik', limited: true,
+    bidding: 'MANUAL_CPC', targetRoas: null, budgetId: '501' })] }));
+  check('engine: návrh pro Sklik má vlastní otisk a jde do účtu sklik',
+    out.map(o => [o.fingerprint, o.ops[0].kind, o.ops[0].account]), [['budget-up|sklik|11', 'budget', 'sklik']]);
+
+  // Zápis rozpočtu: kontrola stavu, haléře, vrácení
+  const skCalls = [];
+  let skBudget = 25000;
+  global.fetch = async (url, init = {}) => {
+    const method = String(url).split('/').pop();
+    const body = JSON.parse(init.body);
+    skCalls.push({ method, body });
+    const reply = (json) => ({ ok: true, status: 200, json: async () => ({ status: 200, session: 'S2', ...json }) });
+    if (method === 'client.loginByToken') return reply({ session: 'S1' });
+    if (method === 'campaigns.list') return reply({ campaigns: [{ id: 11, budget: { id: 501, dayBudget: skBudget } }] });
+    if (method === 'campaigns.update') { skBudget = body[1][0].dayBudget; return reply({}); }
+    return reply({});
+  };
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('adsSklikToken', 'sk-token')").run();
+  store.saveAdsConfig({ sklik: { enabled: true, userId: '', name: 'Sklik' } });
+  check('účet sklik = český trh v korunách', store.accountInfo(store.getAdsConfig(), 'sklik'),
+    { id: 'sklik', name: 'Sklik', currency: 'CZK', market: 'cz', enabled: true });
+  const skDraft = { fingerprint: 'budget-up|sklik|11', kind: 'budget-up', targetId: '11', targetName: 'Zboží', title: 'Přidat',
+    why: '', plain: '', impact: 500, confidence: 2, ops: [{ kind: 'budget', campaignId: '11', budgetId: '501', from: 250, to: 300, account: 'sklik' }] };
+  prop.saveGenerated([skDraft], 'sklik');
+  const skP = prop.proposalsView(MONEY).open.find(p => p.fingerprint === 'budget-up|sklik|11');
+  check('návrh Skliku se uloží jako system sklik', skP && skP.system, 'sklik');
+  // Google na tomhle Macu připojený není — Sklik se přesto zapíše
+  const done = await prop.applyProposal(store.getAdsConfig(), skP.id, async () => {});
+  const upd = skCalls.find(c => c.method === 'campaigns.update');
+  check('použít: přihlášení tokenem, rozpočet v haléřích, session v prvním parametru',
+    [skCalls[0].method, skCalls[0].body, upd.body[1], upd.body[0].session, done.status],
+    ['client.loginByToken', ['sk-token'], [{ id: 11, dayBudget: 30000 }], 'S2', 'applied']);
+  const skChange = prop.allChanges().find(c => c.proposalId === skP.id);
+  await prop.revertChange(store.getAdsConfig(), skChange.id, async () => {});
+  check('vrátit: rozpočet je zase 250 Kč', skBudget, 25000);
+  prop.saveGenerated([{ ...skDraft, fingerprint: 'budget-up|sklik|11|b' }], 'sklik');
+  const skStale = prop.proposalsView(MONEY).open.find(p => p.fingerprint.endsWith('|b'));
+  skBudget = 20000;
+  const before = skCalls.filter(c => c.method === 'campaigns.update').length;
+  try { await prop.applyProposal(store.getAdsConfig(), skStale.id, async () => {}); } catch { /* čeká se */ }
+  check('ručně změněný rozpočet ve Skliku: nic se nezapíše', [skCalls.filter(c => c.method === 'campaigns.update').length - before,
+    prop.getProposal(skStale.id).status], [0, 'stale']);
+  check('Google návrhy nový běh Skliku nezavřel', prop.getProposal(first.id) != null, true);
+  db.prepare("UPDATE settings SET value = '' WHERE key = 'adsSklikToken'").run();
+  prop.saveGenerated([{ ...skDraft, fingerprint: 'budget-up|sklik|11|c' }], 'sklik');
+  const skNo = prop.proposalsView(MONEY).open.find(p => p.fingerprint.endsWith('|c'));
+  check('Mac bez tokenu Skliku návrh jen schválí', (await prop.applyProposal(store.getAdsConfig(), skNo.id, async () => {})).status, 'approved');
+  store.saveAdsConfig({ sklik: { enabled: false, userId: '', name: 'Sklik' } });
+}
+
+
+/* ---------- poradce ---------- */
+console.log('\nPoradce: kroky z chatu → návrhy');
+{
+  const chat = require(path.join(DIST, 'ads/chat.js'));
+  check('odpověď v ```json se přečte', chat.parseReply('```json\n{"answer":"Ahoj","actions":[{"type":"budget"}]}\n```').actions.length, 1);
+  check('odpověď bez JSON je prostě text', chat.parseReply('Jen text.'), { answer: 'Jen text.', actions: [] });
+  const ccfg = JSON.parse(JSON.stringify(DEFAULT_ADS_CONFIG));
+  const row = (over) => ({ system: 'google', account: '111', market: 'cz', id: '1', name: 'PMax', type: 'PERFORMANCE_MAX',
+    status: 'ENABLED', budget: 1000, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: 6, cost: 9000, clicks: 1, conversions: 60,
+    value: 90000, profit: 1, pno: 0.1, targetPno: 0.15, ...over });
+  const ctx = {
+    cfg: ccfg, today: '2026-11-20', overview: null,
+    campaigns: [row({}), row({ id: '2', name: 'Sdílená' }), row({ id: '9', system: 'sklik', account: 'sklik', name: 'Zboží', bidding: 'MANUAL_CPC', targetRoas: null, budget: 200 })],
+    meta: new Map([['google|1', { budgetId: '77', budgetShared: false, limited: true }], ['google|2', { budgetId: '78', budgetShared: true, limited: false }],
+      ['sklik|9', { budgetId: '501', budgetShared: false, limited: false }]]),
+    products: [{ code: 'K1', title: 'Kšandy', cost: 400, profit: -300 }], open: [], changes: [],
+    vocabulary: engine.vocabularyOf(['Bordó pánské široké kšandy']), margins: { cz: 0.6 }, monthSpend: 0, daysLeft: 10
+  };
+  let r = chat.draftsFrom([{ type: 'budget', campaignId: '1', to: 1500, reason: 'Vydělává, přidat.' }], ctx, 'přidej');
+  check('rozpočet nad pojistkou se zkrátí na +20 % a řekne se to', [r.drafts.map(d => [d.kind, d.ops[0].from, d.ops[0].to, d.system]), r.notes.length],
+    [[['budget-up', 1000, 1200, 'google']], 1]);
+  check('  vysvětlení pro laika je z odpovědi a otisk má stejný začátek jako engine',
+    [r.drafts[0].plain, r.drafts[0].fingerprint.startsWith('budget-up|google|1|chat|')], ['Vydělává, přidat.', true]);
+  r = chat.draftsFrom([
+    { type: 'budget', campaignId: '1', to: 1200, date: '2026-12-01' },
+    { type: 'budget', campaignId: '1', to: 1440, date: '2026-12-08' },
+    { type: 'budget', campaignId: '1', to: 1000, date: '2026-12-27' }], ctx, 'Vánoce');
+  check('plán: kroky jdou za sebou a další počítá s hodnotou předchozího',
+    r.drafts.map(d => [d.notBefore, d.ops[0].from, d.ops[0].to]),
+    [['2026-12-01', 1000, 1200], ['2026-12-08', 1200, 1440], ['2026-12-27', 1440, 1152]]);
+  r = chat.draftsFrom([{ type: 'budget', campaignId: '2', to: 1100 }, { type: 'budget', campaignId: '404', to: 10 },
+    { type: 'budget', campaignId: '1', to: 1100, date: '2025-01-01' }], ctx, 'x');
+  check('sdílený rozpočet, neznámá kampaň a datum v minulosti → žádný návrh, ale vysvětlení', [r.drafts.length, r.notes.length], [0, 3]);
+  r = chat.draftsFrom([{ type: 'budget', system: 'sklik', campaignId: '9', to: 230 }], ctx, 'x');
+  check('Sklik: rozpočet do účtu sklik', r.drafts.map(d => [d.system, d.ops[0].account, d.ops[0].to]), [['sklik', 'sklik', 230]]);
+  r = chat.draftsFrom([{ type: 'troas', system: 'sklik', campaignId: '9', to: 6 }], ctx, 'x');
+  check('Sklik cíl ROAS neumí', r.drafts.length, 0);
+  r = chat.draftsFrom([{ type: 'troas', campaignId: '1', to: 800 }], ctx, 'x');
+  check('cíl ROAS v procentech se pozná a zkrátí na +15 %', r.drafts.map(d => [d.kind, d.ops[0].from, d.ops[0].to]), [['roas-up', 6, 6.9]]);
+  r = chat.draftsFrom([{ type: 'negative', campaignId: '1', words: ['bazar', 'široké kšandy', 'ab'] }], ctx, 'x');
+  check('vylučující slova: slovo z názvu produktu ani krátké ne', [r.drafts[0].ops.map(o => o.text), r.notes.length], [['bazar'], 1]);
+  r = chat.draftsFrom([{ type: 'exclude', codes: ['k1', 'NIC'], days: 200 }, { type: 'pause', campaignId: '1' }], ctx, 'x');
+  check('vyřazení: jen známé kódy, nejvýš 60 dní; neznámý krok jen poznámka',
+    [r.drafts.map(d => [d.ops[0].codes, d.ops[0].days]), r.notes.length], [[[['K1'], 60]], 2]);
+  const capCtx = { ...ctx, cfg: { ...ccfg, guards: { ...ccfg.guards, monthlyBudget: 30000 } }, monthSpend: 20000 };
+  r = chat.draftsFrom([{ type: 'budget', campaignId: '1', to: 1200 }], capCtx, 'x');
+  check('měsíční strop platí i pro poradce', r.drafts.length, 0);
+
+  // Uložení: krok s datem čeká, nový běh enginu návrhy z poradce nezahodí
+  r = chat.draftsFrom([{ type: 'budget', campaignId: '1', to: 1100 }, { type: 'budget', campaignId: '1', to: 1200, date: '2026-12-01' }], ctx, 'x');
+  const saved = prop.saveChat(r.drafts);
+  check('návrh hned je otevřený, s datem odložený do toho dne', saved.map(p => [p.status, p.snoozeUntil]), [['open', ''], ['snoozed', '2026-12-01']]);
+  prop.saveGenerated([], 'google');
+  check('  nový běh enginu ho nechá otevřený', prop.getProposal(saved[0].id).status, 'open');
+  for (const p of saved) prop.decide(p.id, 'dismiss');
+}
+
+
 /* ---------- celý průchod nad skutečným katalogem ---------- */
 /*
  * Katalog e-shopu v repozitáři není (je to celý feed s cenami). Když je po
@@ -466,6 +605,15 @@ if (fs.existsSync(feedFile)) {
   const ps = db.prepare("SELECT purchase, price_novat FROM products WHERE purchase IS NOT NULL LIMIT 1").get();
   check('cena bez DPH je u produktu s nákupní cenou', ps.price_novat > ps.purchase, true);
 
+  // Poradce: model se napodobí — vrátí odpověď a jeden krok (rozpočet slovenské kampaně)
+  const aiPath = require.resolve(path.join(DIST, 'ai.js'));
+  const aiAsked = [];
+  require.cache[aiPath] = { id: aiPath, filename: aiPath, loaded: true, exports: {
+    ask: async (model, system, user) => {
+      aiAsked.push(user);
+      return JSON.stringify({ answer: 'Slovensko prodělává.', actions: [{ type: 'budget', campaignId: '19', to: 200, reason: 'Ubrat.' }] });
+    }
+  } };
   // Objednávka z reálného kódu varianty, včera
   const ads = require(path.join(DIST, 'ads/index.js'));
   const variant = db.prepare(`SELECT v.code, v.product_code, COALESCE(v.purchase, p.purchase) AS purchase,
@@ -529,7 +677,7 @@ if (fs.existsSync(feedFile)) {
     VALUES ('S1', 'sk', 'Vybavuje sa', ?, 'EUR', 40, 'Packeta', ?, 0)`)
     .run(`${yesterday}T12:00:00+01:00`, JSON.stringify([{ title: 'x', code: variant.code, quantity: 1, price: 40 }]));
   store.saveCampaigns('google', [{ id: '19', name: 'PMax SK', type: 'PERFORMANCE_MAX', status: 'ENABLED', budget: 10,
-    bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null }], at, '2345678901');
+    bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: null, budgetId: '5' }], at, '2345678901');
   // 4 € útraty a 40 € hodnoty konverzí (se slovenskou DPH 23 %)
   store.saveDays('ads_campaign_day', 'google', yesterday, yesterday,
     [{ date: yesterday, id: '19', cost: 4, clicks: 5, impressions: 50, conversions: 1, value: 40 }], at, '2345678901');
@@ -572,6 +720,20 @@ if (fs.existsSync(feedFile)) {
     await prop2.execute(store.getAdsConfig(), [{ kind: 'budget', campaignId: '19', budgetId: '5', from: 250, to: 300 }]);
     check('zápis do slovenské kampaně jde do slovenského účtu a v eurech (300 Kč = 12 €)',
       [urls.filter(u => u.includes(':mutate')).every(u => u.includes('/customers/2345678901/')), eur], [true, 12]);
+  }
+
+  // Poradce nad skutečnými daty: data jdou modelu, krok projde pojistkami a stane se návrhem
+  {
+    // Nastavení modelu čte getSettings a ten se dívá i do účtů pošty
+    db.exec('CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY, email TEXT, pass_enc TEXT)');
+    const reply = await ads.askAdvisor([], 'Jak je na tom Slovensko?', 'all');
+    const sent = JSON.parse(aiAsked[0].split('DATA:\n')[1].split('\n\nOTÁZKA')[0]);
+    check('poradce dostane kampaně obou trhů a otázku', [sent.kampane.map(k => k.id).sort(), aiAsked[0].endsWith('Jak je na tom Slovensko?')],
+      [['19', '9'], true]);
+    if (!reply.proposals.length) console.log('      poznámky:', reply.notes);
+    check('  a z odpovědi vznikne návrh (10 € = 250 Kč → nejvýš −20 % = 200 Kč)', [reply.answer, reply.proposals.map(p => [p.kind, p.ops[0].to, p.market])],
+      ['Slovensko prodělává.', [['budget-down', 200, 'sk']]]);
+    for (const p of reply.proposals) require(path.join(DIST, 'ads/proposals.js')).decide(p.id, 'dismiss');
   }
 
   // Engine nad skutečným katalogem doběhne a dá přehled pro okno

@@ -442,6 +442,7 @@ for (const okno of OKNA) {
     { label: 'Kampaně', must: '.ad-table', shot: 'reklamy-kampane' },
     { label: 'Produkty', must: '.ad-map', shot: 'reklamy-produkty' },
     { label: 'Návrhy', must: '.ad-prop', shot: 'reklamy-navrhy' },
+    { label: 'Poradce', must: '.ad-advisor', shot: 'reklamy-poradce' },
     { label: 'Nastavení', must: '.ad-settings', shot: 'reklamy-nastaveni' }
   ];
   for (const tab of tabs) {
@@ -496,6 +497,19 @@ for (const okno of OKNA) {
     (await page.locator('.ad-count').innerText().catch(() => '')) === '4'
       && await page.locator('.ad-prop-list .ad-prop button', { hasText: 'Použít' }).count() === 4
       && await page.locator('.ad-history button', { hasText: 'Vrátit' }).count() === 2);
+  say('  a naplánovaný krok z poradce je zvlášť, s datem a bez Použít',
+    await page.locator('.ad-prop.planned').count() === 1 && await page.locator('.ad-prop.planned button', { hasText: 'Použít' }).count() === 0);
+  // Poradce: otázka z nabídky → odpověď s tučným textem, odrážkami a vysvětlením, co neprošlo
+  await page.locator('.ad-tabs button', { hasText: 'Poradce' }).click();
+  await page.locator('.ad-chat-starters .ad-chip').first().click();
+  await page.waitForSelector('.ad-msg.assistant .ad-msg-body ul', { timeout: 4000 }).catch(() => {});
+  say('Reklamy › Poradce: otázka a odpověď s odrážkami, tučně a poznámkou k nepovedenému kroku',
+    await page.locator('.ad-msg.user').count() === 1 && await page.locator('.ad-msg.assistant b').count() > 0
+      && await page.locator('.ad-msg.assistant li').count() >= 2 && await page.locator('.ad-msg-notes li').count() === 1);
+  await page.screenshot({ path: path.join(SHOTS, 'reklamy-poradce-odpoved.png') });
+  await page.locator('.ad-tabs button', { hasText: 'Nastavení' }).click();
+  say('Reklamy › Nastavení: sekce Sklik s tokenem jako heslo',
+    await page.locator('.ad-sklik input[type="password"]').count() === 1);
   await page.close();
 }
 
