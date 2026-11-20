@@ -770,6 +770,7 @@ export function status(): AdsStatus {
     google: {
       connected: g.connected,
       hasSecret: g.hasSecret,
+      service: g.service,
       account: cfg.google.customerName || cfg.google.customerId,
       lastFetch: getSetting('adsGoogleFetched', '') || '',
       lastError: getSetting('adsGoogleError', '') || ''
@@ -792,6 +793,13 @@ export async function connectGoogle(clientId: string, secret?: string): Promise<
   if (secret && secret.trim()) google.saveGoogleSecret(secret);
   saveAdsConfig({ google: { ...getAdsConfig().google, clientId: clientId.trim() } });
   await google.loginGoogle(clientId, url => shell.openExternal(url));
+  emit();
+  return status();
+}
+
+/** Připojení servisním účtem — obsah JSON souboru s klíčem */
+export function connectService(json: string): AdsStatus {
+  google.saveServiceKey(json);
   emit();
   return status();
 }

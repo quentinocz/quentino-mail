@@ -379,6 +379,40 @@ let fed = 0;
 check('vyřazení: produkt je ve feedu jako vyradit a feed se vystavil', [prop.excludedCodes().map(e => e.code), fed], [['A'], 1]);
 check('  po 30 dnech se vrátí sám', prop.excludedCodes(econ.shiftDay(econ.localDay(), 31)).length, 0);
 
+// Servisní účet: klíč z JSON, podepsané JWT, žádný prohlížeč
+{
+  const crypto = require('crypto');
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const pem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  let chyba = '';
+  try { g2.saveServiceKey('{"type":"authorized_user"}'); } catch (e) { chyba = e.message; }
+  check('servisní účet: jiný soubor než klíč se odmítne srozumitelně', /servisního účtu/.test(chyba), true);
+  db.prepare("UPDATE settings SET value = '' WHERE key = 'adsGoogleRefresh'").run();
+  const email = g2.saveServiceKey(JSON.stringify({ type: 'service_account', client_email: 'reklamy@quentino.iam.gserviceaccount.com',
+    private_key: pem, private_key_id: 'k1' }));
+  check('  klíč se uloží a Mac je připojený i bez přihlášení přes prohlížeč',
+    [email, g2.googleSecrets().connected, g2.googleSecrets().service], ['reklamy@quentino.iam.gserviceaccount.com', true, email]);
+  const tokenCalls = [];
+  global.fetch = async (url, init = {}) => {
+    tokenCalls.push({ url: String(url), body: String(init.body ?? '') });
+    const reply = (json) => ({ ok: true, status: 200, json: async () => json });
+    if (String(url).includes('oauth2')) return reply({ access_token: 'sa-token', expires_in: 3600 });
+    return reply({ resourceNames: ['customers/1234567890'], results: [{ customer: { descriptiveName: 'Quentino', currencyCode: 'CZK' } }] });
+  };
+  const list = await g2.listCustomers({ ...store.getAdsConfig() });
+  const form = new URLSearchParams(tokenCalls.find(c => c.url.includes('oauth2')).body);
+  const [h, c, sig] = form.get('assertion').split('.');
+  const claims = JSON.parse(Buffer.from(c, 'base64url').toString());
+  const ok = crypto.createVerify('RSA-SHA256').update(`${h}.${c}`).verify(publicKey, Buffer.from(sig, 'base64url'));
+  check('  token se získá podepsaným JWT (jwt-bearer, adwords, platný podpis)',
+    [form.get('grant_type'), claims.iss, claims.scope, claims.aud, claims.exp - claims.iat, ok],
+    ['urn:ietf:params:oauth:grant-type:jwt-bearer', email, 'https://www.googleapis.com/auth/adwords',
+      'https://oauth2.googleapis.com/token', 3600, true]);
+  check('  a účty se načtou', list.map(x => [x.id, x.name]), [['1234567890', 'Quentino']]);
+  g2.forgetGoogle();
+  check('  odebrání klíče Mac odpojí', g2.googleSecrets().connected, false);
+}
+
 // Sdílení návrhů: rozhodnutí z jiného Macu se převezme, cizí deník se přidá
 const shared2 = fs.mkdtempSync(path.join(os.tmpdir(), 'reklamy-'));
 db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('syncEnabled','1'),('syncFolder',?)").run(shared2);

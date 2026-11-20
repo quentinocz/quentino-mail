@@ -891,17 +891,38 @@ function Settings({ status, onStatus, busy, setBusy }: {
         {status.google.connected ? (
           <>
             <p>
-              Tenhle Mac je přihlášený{cfg.google.customerId ? <> · účet <b>{cfg.google.customerName || cfg.google.customerId}</b></> : ''}.
+              {status.google.service ? 'Tenhle Mac se připojuje servisním účtem' : 'Tenhle Mac je přihlášený'}
+              {cfg.google.customerId ? <> · účet <b>{cfg.google.customerName || cfg.google.customerId}</b></> : ''}.
               {' '}Poslední stažení: {relTime(status.google.lastFetch)}.
             </p>
+            {status.google.service && (
+              <div className="ad-feedurl">
+                <code>{status.google.service}</code>
+                <button className="btn ghost" onClick={() => { void navigator.clipboard.writeText(status.google.service); toast('E-mail zkopírovaný', 'info'); }}>Kopírovat</button>
+              </div>
+            )}
+            {status.google.service && (
+              <p className="muted small">
+                Tenhle e-mail musí být v Google Ads jako uživatel (Správce → Přístup a zabezpečení) s přístupem Standardní.
+                Když po kliknutí na Vybrat účet žádný účet nenajde, ještě tam přidaný není.
+              </p>
+            )}
             {status.google.lastError && <div className="ad-alert bad ad-card">{status.google.lastError}</div>}
             <div className="ad-set-row">
               <button className="btn" onClick={loadCustomers} disabled={!!busy}>Vybrat účet</button>
-              <button className="btn ghost" onClick={async () => onStatus(await api.ads.disconnect())}>Odhlásit tento Mac</button>
+              <button className="btn ghost" onClick={async () => onStatus(await api.ads.disconnect())}>
+                {status.google.service ? 'Odebrat klíč z tohoto Macu' : 'Odhlásit tento Mac'}
+              </button>
             </div>
             {customers && (
               <div className="ad-customers">
-                {customers.length === 0 && <span className="muted">Přihlášený uživatel nemá přístup k žádnému účtu.</span>}
+                {customers.length === 0 && (
+                  <span className="muted">
+                    {status.google.service
+                      ? 'Servisní účet zatím nemá přístup k žádnému účtu — přidej jeho e-mail v Google Ads jako uživatele.'
+                      : 'Přihlášený uživatel nemá přístup k žádnému účtu.'}
+                  </span>
+                )}
                 {customers.map(c => (
                   <button key={c.id} className={`ad-customer ${cfg.google.customerId === c.id ? 'on' : ''}`}
                     onClick={() => void save({ google: { ...cfg.google, customerId: c.id, customerName: c.name, currency: c.currency || 'CZK' } }, 'Účet vybraný')}>
@@ -915,28 +936,53 @@ function Settings({ status, onStatus, busy, setBusy }: {
         ) : (
           <>
             <p className="muted">
-              Stačí přihlásit <b>jeden Mac</b> — ostatní si data vezmou ze sdílené složky
+              Stačí připojit <b>jeden Mac</b> — ostatní si data vezmou ze sdílené složky
               {status.shared ? '' : ' (zapni synchronizaci v Nastavení aplikace)'}.
-              Přihlášení zůstává v klíčence tohoto Macu.
+              Klíč i přihlášení zůstávají jen v tomhle Macu.
             </p>
-            <ol className="ad-steps">
-              <li>V <b>Google Cloud Console</b> vyber projekt a v knihovně API zapni <b>Google Ads API</b>.</li>
-              <li>Na stránce Google Ads API → Overview požádej o přístup <b>Explorer</b> (čtení skutečných účtů).</li>
-              <li>V Credentials vytvoř <b>OAuth client ID</b> typu <b>Desktop app</b> a zkopíruj ID a tajný klíč.</li>
-              <li>OAuth consent screen přepni na <b>In production</b> — ve stavu Testing přihlášení po 7 dnech vyprší.</li>
-            </ol>
-            <div className="field">
-              <label>ID klienta OAuth</label>
-              <input value={clientId} onChange={e => setClientId(e.target.value)} placeholder="…apps.googleusercontent.com" />
+            <div className="ad-way">
+              <div className="ad-set-row"><b>Servisní účet</b><span className="ad-chip ok">doporučeno</span></div>
+              <p className="muted small">
+                Bez přihlašovací obrazovky a bez ověřování aplikace u Googlu. Klíč nevyprší.
+              </p>
+              <ol className="ad-steps">
+                <li>V Google Cloud Console (projekt s Google Ads API) otevři <b>IAM &amp; Admin → Service Accounts</b> a dej <b>Create service account</b> (stačí název, role žádné).</li>
+                <li>U něj <b>Keys → Add key → Create new key → JSON</b>. Stáhne se soubor s klíčem.</li>
+                <li>Soubor nahraj tady. Aplikace pak ukáže e-mail servisního účtu.</li>
+                <li>V Google Ads: <b>Správce → Přístup a zabezpečení → +</b>, vlož ten e-mail a dej přístup <b>Standardní</b> (bez něj nepůjde Použít, jen čtení).</li>
+              </ol>
+              <label className="btn primary ad-file">
+                Nahrát klíč (JSON)
+                <input type="file" accept=".json,application/json" onChange={async e => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  try {
+                    onStatus(await api.ads.service(await file.text()));
+                    toast('Klíč uložený — teď přidej servisní účet jako uživatele v Google Ads', 'info');
+                  } catch (err: any) { toast(err.message, 'error'); }
+                }} />
+              </label>
             </div>
-            <div className="field">
-              <label>Tajný klíč klienta {status.google.hasSecret && <small>(uložený — vyplň jen pro změnu)</small>}</label>
-              <input type="password" value={secret} onChange={e => setSecret(e.target.value)} autoComplete="off" />
-            </div>
-            <button className="btn primary" onClick={connect}
-              disabled={!!busy || !clientId.trim() || (!secret.trim() && !status.google.hasSecret)}>
-              {busy === 'connect' ? 'Čekám na prohlížeč…' : 'Přihlásit Google'}
-            </button>
+            <details className="ad-adv">
+              <summary>Nebo přihlášení přes prohlížeč (OAuth)</summary>
+              <p className="muted small">
+                Chce aplikaci v Google Cloudu ve stavu <b>In production</b> — k tomu Google vyžaduje značku, domovskou stránku
+                a podmínky. Ve stavu Testing přihlášení po 7 dnech vyprší.
+              </p>
+              <div className="field">
+                <label>ID klienta OAuth</label>
+                <input value={clientId} onChange={e => setClientId(e.target.value)} placeholder="…apps.googleusercontent.com" />
+              </div>
+              <div className="field">
+                <label>Tajný klíč klienta {status.google.hasSecret && <small>(uložený — vyplň jen pro změnu)</small>}</label>
+                <input type="password" value={secret} onChange={e => setSecret(e.target.value)} autoComplete="off" />
+              </div>
+              <button className="btn" onClick={connect}
+                disabled={!!busy || !clientId.trim() || (!secret.trim() && !status.google.hasSecret)}>
+                {busy === 'connect' ? 'Čekám na prohlížeč…' : 'Přihlásit Google'}
+              </button>
+            </details>
           </>
         )}
         <details className="ad-adv">

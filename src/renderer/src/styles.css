@@ -11178,6 +11178,10 @@ button.ad-seg.on { border-color: currentColor; }
 .ad-change-title { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
 .ad-pad { padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 5px; }
 .ad-guards { display: flex; flex-direction: column; gap: 8px; }
+.ad-way { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.ad-way p { margin: 0; }
+.ad-file { position: relative; align-self: flex-start; cursor: pointer; }
+.ad-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .ad-guards .ad-inline input { width: 80px; }
 
 @media (max-width: 1100px) {

@@ -163,6 +163,8 @@ export interface AdsStatus {
     /** Má tenhle Mac přihlášení (refresh token) */
     connected: boolean;
     hasSecret: boolean;
+    /** E-mail servisního účtu, když se tenhle Mac prokazuje klíčem; jinak prázdné */
+    service: string;
     account: string;
     lastFetch: string;
     lastError: string;

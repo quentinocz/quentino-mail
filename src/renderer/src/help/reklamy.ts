@@ -28,10 +28,11 @@ export const ADS: HelpTopic = {
       title: 'První připojení Google Ads',
       when: 'Jednou — stačí na jednom Macu, ostatní si data vezmou ze sdílené složky.',
       steps: [
-        { text: 'Otevři záložku [Nastavení]. Postup v Google Cloudu je tam po bodech: zapnout Google Ads API, '
-            + 'požádat o přístup **Explorer** a vytvořit klienta OAuth typu **Desktop app**.', area: 'tabs' },
-        { text: 'Vlož ID klienta a tajný klíč a klikni na [Přihlásit Google]. Otevře se prohlížeč; po přihlášení '
-            + 'se vrať do aplikace.', area: 'tabs' },
+        { text: 'Otevři záložku [Nastavení]. V Google Cloudu (projekt se zapnutým Google Ads API a přístupem **Explorer**) '
+            + 'založ servisní účet a stáhni k němu klíč ve formátu JSON — postup je v Nastavení po bodech.', area: 'tabs' },
+        { text: 'Klikni na [Nahrát klíč (JSON)] a vyber stažený soubor. Aplikace ukáže e-mail servisního účtu.', area: 'tabs' },
+        { text: 'V Google Ads ten e-mail přidej jako uživatele (Správce → Přístup a zabezpečení) s přístupem **Standardní**. '
+            + 'Bez přihlašovací obrazovky a bez ověřování aplikace — klíč nevyprší.', area: 'tabs' },
         { text: '[Vybrat účet] ukáže účty, ke kterým máš přístup — klikni na účet Quentina.', area: 'tabs' },
         { text: 'V hlavičce klikni na [Načíst data]. Poprvé se stáhne 90 dní, pak už to běží samo každou noc.', area: 'status' }
       ]

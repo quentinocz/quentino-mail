@@ -731,6 +731,7 @@ export function registerIpc() {
   handle('ads:config', (patch: any) => ads.saveConfig(patch ?? {}));
   handle('ads:connect', (clientId: string, secret?: string) => ads.connectGoogle(String(clientId ?? ''), secret));
   handle('ads:disconnect', () => ads.disconnectGoogle());
+  handle('ads:service', (json: string) => ads.connectService(String(json ?? '')));
   handle('ads:customers', () => ads.googleCustomers());
   handle('ads:fetch', (days?: number) => ads.fetchGoogle(days ? Number(days) : undefined));
   handle('ads:feed', () => ads.publishFeed());

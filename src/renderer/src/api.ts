@@ -1414,6 +1414,8 @@ export const api = {
     /** Otevře prohlížeč s přihlášením Google; tajný klíč se uloží jen v tomhle Macu */
     connect: (clientId: string, secret?: string) => call<AdsStatus>('ads:connect', clientId, secret),
     disconnect: () => call<AdsStatus>('ads:disconnect'),
+    /** Klíč servisního účtu (obsah JSON souboru) — uloží se jen v tomhle Macu */
+    service: (json: string) => call<AdsStatus>('ads:service', json),
     customers: () => call<AdsGoogleCustomer[]>('ads:customers'),
     fetch: (days?: number) => call<string>('ads:fetch', days),
     publishFeed: () => call<string>('ads:feed'),

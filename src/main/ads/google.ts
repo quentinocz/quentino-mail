@@ -52,8 +52,90 @@ function writeSecret(key: string, value: string): void {
   setSetting(key, value ? encrypt(value) : '');
 }
 
-export function googleSecrets(): { hasSecret: boolean; connected: boolean } {
-  return { hasSecret: !!readSecret(SECRET_KEY), connected: !!readSecret(REFRESH_KEY) };
+const SERVICE_KEY = 'adsGoogleService';
+
+export function googleSecrets(): { hasSecret: boolean; connected: boolean; service: string } {
+  const service = serviceKey();
+  return {
+    hasSecret: !!readSecret(SECRET_KEY),
+    connected: !!readSecret(REFRESH_KEY) || !!service,
+    service: service?.client_email ?? ''
+  };
+}
+
+/* ---------- servisní účet ---------- */
+
+/*
+ * Servisní účet místo přihlášení přes prohlížeč.
+ *
+ * Přihlášení přes OAuth chce mít aplikaci v Google Cloudu „In production",
+ * a to Google podmiňuje vyplněním značky, domovské stránky a podmínek.
+ * Ve stavu Testing přihlášení po sedmi dnech vyprší. Servisní účet nic
+ * z toho nepotřebuje: v Google Ads se přidá jako uživatel (Správce →
+ * Přístup a zabezpečení) a aplikace se prokazuje klíčem z JSON souboru.
+ * Klíč nevyprší a není potřeba žádný prohlížeč.
+ *
+ * Klíč je tajný jako heslo — ukládá se šifrovaně v tomhle Macu a do
+ * sdílené složky nejde.
+ */
+interface ServiceKey { client_email: string; private_key: string; private_key_id?: string }
+
+function serviceKey(): ServiceKey | null {
+  const raw = readSecret(SERVICE_KEY);
+  if (!raw) return null;
+  try {
+    const key = JSON.parse(raw);
+    return key?.client_email && key?.private_key ? key : null;
+  } catch { return null; }
+}
+
+/** Uloží klíč servisního účtu z JSON souboru a vrátí jeho e-mail. */
+export function saveServiceKey(json: string): string {
+  let key: any;
+  try { key = JSON.parse(json); } catch { throw new Error('Soubor není platný JSON.'); }
+  if (key?.type !== 'service_account' || !key.client_email || !key.private_key) {
+    throw new Error('Tohle není klíč servisního účtu (chybí type „service_account", client_email nebo private_key).');
+  }
+  // Zkusit podepsat hned — vadný klíč se má ozvat teď, ne v noci při stahování
+  try {
+    crypto.createSign('RSA-SHA256').update('test').sign(key.private_key);
+  } catch {
+    throw new Error('Soukromý klíč v souboru nejde použít — stáhni v Google Cloudu nový klíč (JSON).');
+  }
+  writeSecret(SERVICE_KEY, JSON.stringify({
+    client_email: key.client_email, private_key: key.private_key, private_key_id: key.private_key_id ?? ''
+  }));
+  cachedToken = null;
+  return key.client_email;
+}
+
+/** Podepsané prohlášení (JWT) pro výměnu za přístupový token. */
+export function serviceAssertion(key: ServiceKey, now = Math.floor(Date.now() / 1000)): string {
+  const enc = (obj: unknown) => base64url(Buffer.from(JSON.stringify(obj)));
+  const header = enc({ alg: 'RS256', typ: 'JWT', ...(key.private_key_id ? { kid: key.private_key_id } : {}) });
+  const claims = enc({ iss: key.client_email, scope: SCOPE, aud: TOKEN_URL, iat: now, exp: now + 3600 });
+  const signature = base64url(crypto.createSign('RSA-SHA256').update(`${header}.${claims}`).sign(key.private_key));
+  return `${header}.${claims}.${signature}`;
+}
+
+async function serviceToken(key: ServiceKey): Promise<string> {
+  const res = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: serviceAssertion(key)
+    }).toString()
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (!res.ok || !json.access_token) {
+    if (json.error === 'invalid_grant') {
+      throw new Error('Google odmítl klíč servisního účtu — klíč byl v Google Cloudu smazaný nebo zakázaný. Nahraj nový.');
+    }
+    throw new Error(`Google nevydal přístupový token: ${json.error_description ?? json.error ?? res.status}`);
+  }
+  cachedToken = { token: json.access_token, until: Date.now() + (Number(json.expires_in) || 3000) * 1000 - 60_000 };
+  return cachedToken.token;
 }
 
 export function saveGoogleSecret(secret: string): void {
@@ -66,6 +148,7 @@ export function saveDeveloperToken(token: string): void {
 
 export function forgetGoogle(): void {
   writeSecret(REFRESH_KEY, '');
+  writeSecret(SERVICE_KEY, '');
   cachedToken = null;
 }
 
@@ -177,6 +260,8 @@ let cachedToken: { token: string; until: number } | null = null;
 
 async function accessToken(cfg: AdsConfig): Promise<string> {
   if (cachedToken && cachedToken.until > Date.now()) return cachedToken.token;
+  const service = serviceKey();
+  if (service) return serviceToken(service);
   const refresh = readSecret(REFRESH_KEY);
   const secret = readSecret(SECRET_KEY);
   if (!refresh) throw new Error('Tenhle Mac není přihlášený ke Google Ads.');
@@ -198,7 +283,8 @@ async function accessToken(cfg: AdsConfig): Promise<string> {
      * to nepomůže, je potřeba se přihlásit.
      */
     if (json.error === 'invalid_grant') {
-      forgetGoogle();
+      writeSecret(REFRESH_KEY, '');
+      cachedToken = null;
       throw new Error('Přihlášení ke Google Ads vypršelo — přihlas se znovu v Nastavení. '
         + 'Pokud se to opakuje po týdnu, je aplikace v Google Cloudu ve stavu Testing; přepni ji na In production.');
     }
