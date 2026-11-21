@@ -320,6 +320,28 @@ function alerts(
   const g = google.googleSecrets();
   const anyAds = ads.length > 0;
 
+  // Tempo útraty proti měsíčnímu stropu (Pojistky): kam to dojde, když to půjde dál stejně
+  if (cfg.guards.monthlyBudget > 0) {
+    const today = localDay();
+    const monthStart = `${today.slice(0, 8)}01`;
+    const daysInMonth = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
+    const done = Number(today.slice(8, 10)) - 1; // dnešek je rozdělaný
+    if (done >= 3) {
+      const spent = campaignDays(cfg, monthStart, shiftDay(today, -1), 'all').reduce((sum, r) => sum + r.cost, 0);
+      const projected = (spent / done) * daysInMonth;
+      const cap = cfg.guards.monthlyBudget;
+      const fmt = (n: number) => `${Math.round(n).toLocaleString('cs-CZ')} Kč`;
+      if (projected > cap * 1.02) {
+        out.push({ level: 'warn', title: `Tempo útraty přetáhne měsíční strop`, text:
+          `Zatím ${fmt(spent)} za ${done} dní; stejným tempem to na konci měsíce bude ${fmt(projected)} při stropu ${fmt(cap)}. `
+          + 'Návrhy na přidání rozpočtu se teď nenabízejí; zvaž ubrat nebo strop zvednout v Nastavení.' });
+      } else if (projected < cap * 0.7) {
+        out.push({ level: 'info', title: 'Útrata je pod měsíčním stropem', text:
+          `Stejným tempem ${fmt(projected)} z ${fmt(cap)}. Je prostor přidat kampaním, které drží cíl.` });
+      }
+    }
+  }
+
   if (cfg.autonomy === 'guarded' && cfg.autopilot.pausedAt) {
     out.push({ level: 'bad', title: 'Autopilot se zabrzdil', text: `${cfg.autopilot.pausedReason} Znovu ho pustíš v Nastavení.` });
   }

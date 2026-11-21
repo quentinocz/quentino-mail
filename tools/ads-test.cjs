@@ -1045,6 +1045,15 @@ if (fs.existsSync(feedFile)) {
     check('  a zamčený nejde zapnout (řekne proč)', [/ještě nejde zapnout/.test(chyba), store.getAdsConfig().autonomy], [true, 'suggest']);
   }
 
+  // Tempo útraty proti měsíčnímu stropu
+  if (Number(econ.localDay().slice(8, 10)) > 4) {
+    const g0 = store.getAdsConfig().guards;
+    store.saveAdsConfig({ guards: { ...g0, monthlyBudget: 1 } });
+    check('tempo útraty: upozorní, že strop přetáhne', ads.overview(30, 'all').alerts.some(a => /přetáhne měsíční strop/.test(a.title)), true);
+    store.saveAdsConfig({ guards: { ...g0, monthlyBudget: 0 } });
+    check('  bez stropu nic', ads.overview(30, 'all').alerts.some(a => /strop/.test(a.title)), false);
+  }
+
   // Report nad skutečnými daty doběhne; signály pro Přehled dne
   {
     const rep = require(path.join(DIST, 'ads/report.js'));
