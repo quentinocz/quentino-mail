@@ -457,6 +457,12 @@ console.log('\nSklik');
   ]);
   check('statistiky: den, koruny, prázdné dny pryč', rep.map(r => [r.date, r.cost, r.conversions, r.value]),
     [['2026-11-18', 412.5, 3, 2970]]);
+  check('  datum i ve tvaru XML-RPC (20261118T00:00:00)',
+    sk.parseSklikReport([{ id: 1, stats: [{ date: '20261118T00:00:00', clicks: 1 }] }]).map(r => r.date), ['2026-11-18']);
+  check('chyba 400 řekne, které pole chybí', sk.explainSklik(400, { status: 400, statusMessage: 'Bad arguments',
+    diagnostics: [{ id: 'missing_struct_field', field: 'offset', problemMessage: 'Field offset must be present' }] }),
+    'Sklik: Bad arguments (missing_struct_field – pole offset – Field offset must be present)');
+  check('token pro Fenix: rada vytvořit token pro Drak', /Drak/.test(sk.explainSklik(401, { status: 401 })), true);
   const ex = (date) => ({ id: '11', date, cost: 1, clicks: 1, impressions: 1, conversions: 0, value: 0, exhausted: 1 });
   check('omezeno rozpočtem: aspoň 3× za posledních 7 dní došel rozpočet',
     [...sk.limitedFrom([ex('2026-11-17'), ex('2026-11-18'), ex('2026-11-19')], '2026-11-20')], ['11']);
@@ -478,7 +484,23 @@ console.log('\nSklik');
     skCalls.push({ method, body });
     const reply = (json) => ({ ok: true, status: 200, json: async () => ({ status: 200, session: 'S2', ...json }) });
     if (method === 'client.loginByToken') return reply({ session: 'S1' });
-    if (method === 'campaigns.list') return reply({ campaigns: [{ id: 11, budget: { id: 501, dayBudget: skBudget } }] });
+    if (method === 'campaigns.list') {
+      // Jako skutečný Sklik: bez offset/limit vrátí Bad arguments
+      const opts = body[2] || {};
+      if (opts.offset == null || opts.limit == null) {
+        return { ok: false, status: 400, json: async () => ({ status: 400, statusMessage: 'Bad arguments',
+          diagnostics: [{ id: 'missing_struct_field', field: 'offset', problemMessage: 'Field offset must be present' }] }) };
+      }
+      return reply({ campaigns: [{ id: 11, type: 'zbozi', budget: { id: 501, dayBudget: skBudget } }] });
+    }
+    if (method === 'campaigns.createReport') return reply({ reportId: 'R1', totalCount: 1 });
+    if (method === 'campaigns.readReport') {
+      return reply({ report: [{ id: 11, stats: [{ date: econ.shiftDay(econ.localDay(), -2), totalMoney: 123400, clicks: 10, impressions: 100 }] }] });
+    }
+    if (method === 'campaigns.update' && !body[1][0].type) {
+      return { ok: false, status: 400, json: async () => ({ status: 400, statusMessage: 'Bad arguments',
+        diagnostics: [{ id: 'missing_struct_field', field: 'campaigns[0].type' }] }) };
+    }
     if (method === 'campaigns.update') { skBudget = body[1][0].dayBudget; return reply({}); }
     return reply({});
   };
@@ -496,7 +518,11 @@ console.log('\nSklik');
   const upd = skCalls.find(c => c.method === 'campaigns.update');
   check('použít: přihlášení tokenem, rozpočet v haléřích, session v prvním parametru',
     [skCalls[0].method, skCalls[0].body, upd.body[1], upd.body[0].session, done.status],
-    ['client.loginByToken', ['sk-token'], [{ id: 11, dayBudget: 30000 }], 'S2', 'applied']);
+    ['client.loginByToken', ['sk-token'], [{ id: 11, type: 'zbozi', dayBudget: 30000 }], 'S2', 'applied']);
+  const tested = await sk.sklikTest('');
+  const rr = skCalls.filter(c => c.method === 'campaigns.readReport').pop();
+  check('zkouška připojení: počet kampaní a útrata za 7 dní (1 234 Kč z haléřů)', [/1 kampaní/.test(tested), /1\s234 Kč/.test(tested)], [true, true]);
+  check('  čtení reportu má offset a limit (stránka zmenšená podle počtu dní)', [rr.body[2].offset, rr.body[2].limit > 0 && rr.body[2].limit <= 100], [0, true]);
   const skChange = prop.allChanges().find(c => c.proposalId === skP.id);
   await prop.revertChange(store.getAdsConfig(), skChange.id, async () => {});
   check('vrátit: rozpočet je zase 250 Kč', skBudget, 25000);

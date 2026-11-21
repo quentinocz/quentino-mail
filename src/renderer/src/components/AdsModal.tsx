@@ -1318,7 +1318,7 @@ function SklikSection({ status, onStatus, busy, setBusy }: {
       {status.sklik?.lastError && <div className="ad-alert bad ad-card">{status.sklik.lastError}</div>}
       {!has && (
         <ol className="ad-steps">
-          <li>Ve Skliku otevři <b>Nastavení účtu → Správa API tokenů</b> a vytvoř nový token.</li>
+          <li>Ve Skliku otevři <b>Nastavení účtu → Správa API tokenů</b> a vytvoř token pro <b>API Drak</b> (ne Fenix — to je jiné API).</li>
           <li>Vlož ho sem a dej <b>Uložit a vyzkoušet</b>. Token je tajný jako heslo — uloží se zašifrovaně a na ostatní Macy ho přenese trezor.</li>
         </ol>
       )}

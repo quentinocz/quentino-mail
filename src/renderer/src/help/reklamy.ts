@@ -42,7 +42,9 @@ export const ADS: HelpTopic = {
       title: 'Připojit Sklik',
       when: 'Jednou — token se na ostatní Macy přenese trezorem.',
       steps: [
-        { text: 'Ve Skliku otevři **Nastavení účtu → Správa API tokenů** a vytvoř token.', area: 'tabs' },
+        { text: 'Ve Skliku otevři **Nastavení účtu → Správa API tokenů** a vytvoř token pro **API Drak** (token pro Fenix '
+            + 'je pro jiné API a přihlášení odmítne).', area: 'tabs' },
+        { text: 'Zkouška ukáže počet kampaní a útratu za posledních 7 dní — porovnej ji s číslem ve Skliku.', area: 'tabs' },
         { text: 'V záložce [Nastavení] ho vlož do sekce **Sklik** a klikni na [Uložit a vyzkoušet]. Špatný token se neuloží.', area: 'tabs' },
         { text: 'Číslo spravovaného účtu vyplň, jen když token patří agentuře nebo jinému účtu.', area: 'tabs' },
         { text: 'Sklik se pak stahuje spolu s Googlem a je vidět v dlaždici systémů i v kampaních. Návrhy u něj mění jen '

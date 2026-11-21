@@ -6,9 +6,16 @@
  * `POST https://api.sklik.cz/drak/json/v5/<metoda>` a v těle pole
  * parametrů v pořadí podle dokumentace. Prvním parametrem je skoro vždy
  * `{ session, userId? }` — session se získá z API tokenu metodou
- * `client.loginByToken`. Token se vytváří v Skliku (Nastavení účtu → API)
- * a je tajný jako heslo: ukládá se šifrovaně a mezi Macy ho přenáší jen
- * trezor.
+ * `client.loginByToken`. Token se vytváří v Skliku (Nastavení účtu →
+ * Správa API tokenů — token pro **Drak**; token pro Fenix je pro jiné API
+ * a loginByToken ho odmítne) a je tajný jako heslo: ukládá se šifrovaně
+ * a mezi Macy ho přenáší jen trezor.
+ *
+ * Povinné položky se v dokumentaci poznají jen tak, že u nich chybí
+ * „(optional)". Patrik (21. 11.) dostal „Bad arguments", protože
+ * campaigns.list chce v displayOptions vždy offset a limit — proto se tu
+ * stránkuje i tam, kde by stačil jeden dotaz, a chyba 400 vypisuje
+ * diagnostiku (které pole chybí), ne jen obecnou hlášku.
  *
  * Peníze jsou v haléřích; tady se hned přepočítají na koruny, aby zbytek
  * modulu počítal stejně jako u Googlu. Konverze a jejich hodnota jsou to,
@@ -43,13 +50,20 @@ let session: { value: string; until: number } | null = null;
 /** Srozumitelná chyba z odpovědi Drak */
 export function explainSklik(status: number, json: any): string {
   const code = Number(json?.status ?? status);
-  const diag = Array.isArray(json?.diagnostics) ? json.diagnostics.map((d: any) => d?.id ?? d?.diagnostic ?? '').filter(Boolean) : [];
-  if (code === 401) return 'Sklik odmítl přihlášení — token je neplatný nebo zrušený. Vytvoř v Skliku nový (Nastavení účtu → API).';
+  const list = Array.isArray(json?.diagnostics) ? json.diagnostics : [];
+  const diag = list.map((d: any) => d?.id ?? d?.diagnostic ?? '').filter(Boolean);
+  // Lidsky: id + co chybí (field) nebo text problému
+  const detail = list.map((d: any) => [d?.id, d?.field ? `pole ${d.field}` : '', d?.problemMessage].filter(Boolean).join(' – '))
+    .filter(Boolean).join('; ');
+  if (code === 401) {
+    return 'Sklik odmítl přihlášení — token je neplatný nebo zrušený, nebo je to token pro Fenix. '
+      + 'V Skliku (Nastavení účtu → Správa API tokenů) vytvoř token pro API Drak.';
+  }
   if (code === 403) return 'Sklik: k účtu není přístup. Když se spravuje cizí účet, vyplň jeho číslo (userId).';
   if (code === 429) return 'Sklik: příliš mnoho dotazů naráz. Zkusí se to znovu při dalším běhu.';
   if (diag.includes('campaign_dayBudget_is_too_low')) return 'Sklik: denní rozpočet je pod minimem, které Sklik dovolí.';
   if (diag.includes('campaign_dayBudget_is_too_high')) return 'Sklik: denní rozpočet je nad maximem, které Sklik dovolí.';
-  return `Sklik: ${json?.statusMessage ?? `HTTP ${status}`}${diag.length ? ` (${diag.join(', ')})` : ''}`;
+  return `Sklik: ${json?.statusMessage ?? `HTTP ${status}`}${detail ? ` (${detail})` : ''}`;
 }
 
 async function call(method: string, params: unknown[]): Promise<any> {
@@ -147,8 +161,10 @@ export function parseSklikReport(report: any[]): (DayRow & { exhausted: number }
     const id = String(entry?.id ?? entry?.campaignId ?? '');
     if (!id) continue;
     for (const st of Array.isArray(entry.stats) ? entry.stats : []) {
-      const date = String(st?.date ?? '').slice(0, 10);
-      if (!date) continue;
+      // Datum chodí jako 2026-11-18, 2026-11-18T00:00:00+01:00 nebo (XML-RPC styl) 20261118T00:00:00
+      const m = String(st?.date ?? '').match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+      if (!m) continue;
+      const date = `${m[1]}-${m[2]}-${m[3]}`;
       const row = {
         date, id,
         exhausted: Number(st.exhaustedBudget) || 0,
@@ -166,12 +182,22 @@ export function parseSklikReport(report: any[]): (DayRow & { exhausted: number }
 
 /* ---------- volání ---------- */
 
-export async function sklikCampaigns(userId = ''): Promise<CampaignInfo[]> {
+/** Surové kampaně (po stránkách — offset a limit jsou v campaigns.list povinné) */
+async function listRaw(userId: string, filter: Record<string, unknown>, columns: string[]): Promise<any[]> {
   const u = await user(userId);
-  const json = await call('campaigns.list', [u, { isDeleted: false }, {
-    displayColumns: ['id', 'name', 'status', 'type', 'budget.id', 'budget.dayBudget']
-  }]);
-  return markShared(parseSklikCampaigns(json.campaigns));
+  const out: any[] = [];
+  for (let offset = 0; offset < 5000; offset += 100) {
+    const json = await call('campaigns.list', [u, filter, { offset, limit: 100, displayColumns: columns }]);
+    const page = Array.isArray(json.campaigns) ? json.campaigns : [];
+    out.push(...page);
+    if (page.length < 100) break;
+  }
+  return out;
+}
+
+export async function sklikCampaigns(userId = ''): Promise<CampaignInfo[]> {
+  const raw = await listRaw(userId, { isDeleted: false }, ['id', 'name', 'status', 'type', 'budget.id', 'budget.dayBudget']);
+  return markShared(parseSklikCampaigns(raw));
 }
 
 export async function sklikDays(from: string, to: string, userId = ''): Promise<(DayRow & { exhausted: number })[]> {
@@ -183,9 +209,16 @@ export async function sklikDays(from: string, to: string, userId = ''): Promise<
   if (!reportId) return [];
   const total = Number(created.totalCount) || 0;
   const rows: (DayRow & { exhausted: number })[] = [];
-  for (let offset = 0; offset < Math.max(total, 1); offset += 100) {
+  /*
+   * Sklik omezuje počet řádků jednoho čtení (kampaně × dny). Při 90 dnech
+   * by 100 kampaní na stránku dalo 9 000 řádků; tady se stránka zmenší tak,
+   * aby se vešla i do skromného limitu.
+   */
+  const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1);
+  const pageSize = Math.max(1, Math.min(100, Math.floor(3000 / days)));
+  for (let offset = 0; offset < Math.max(total, 1); offset += pageSize) {
     const json = await call('campaigns.readReport', [u, reportId, {
-      offset, limit: 100, allowEmptyStatistics: false,
+      offset, limit: pageSize, allowEmptyStatistics: false,
       displayColumns: ['id', 'name', 'impressions', 'clicks', 'totalMoney', 'conversions', 'conversionValue', 'exhaustedBudget']
     }]);
     rows.push(...parseSklikReport(json.report));
@@ -196,26 +229,45 @@ export async function sklikDays(from: string, to: string, userId = ''): Promise<
 
 /** Denní rozpočet kampaně (Kč) — kontrola před zápisem */
 export async function sklikBudgetNow(campaignId: string, userId = ''): Promise<number | null> {
-  const u = await user(userId);
-  const json = await call('campaigns.list', [u, { ids: [Number(campaignId)] }, {
-    displayColumns: ['id', 'budget.dayBudget']
-  }]);
-  const c = (json.campaigns ?? [])[0];
-  return c?.budget?.dayBudget != null ? kc(c.budget.dayBudget) : null;
+  return (await campaignNow(campaignId, userId)).budget;
+}
+
+async function campaignNow(campaignId: string, userId: string): Promise<{ budget: number | null; type: string }> {
+  const raw = await listRaw(userId, { ids: [Number(campaignId)] }, ['id', 'type', 'budget.dayBudget']);
+  const c = raw[0];
+  return { budget: c?.budget?.dayBudget != null ? kc(c.budget.dayBudget) : null, type: String(c?.type ?? '') };
 }
 
 /**
  * Změna denního rozpočtu. Sklik nemá „naoko" pro update, takže přesnost
  * hlídá kontrola aktuální hodnoty před zápisem (proposals.execute).
+ * campaigns.update chce u kampaně vždy i `type` (měnit ho nejde, ale bez
+ * něj vrátí Bad arguments) — přečte se těsně před zápisem.
  */
 export async function sklikSetBudget(campaignId: string, kcPerDay: number, userId = ''): Promise<void> {
+  const { type } = await campaignNow(campaignId, userId);
+  if (!type) throw new Error(`Sklik: kampaň ${campaignId} se nenašla.`);
   const u = await user(userId);
-  await call('campaigns.update', [u, [{ id: Number(campaignId), dayBudget: Math.round(kcPerDay) * 100 }]]);
+  await call('campaigns.update', [u, [{ id: Number(campaignId), type, dayBudget: Math.round(kcPerDay) * 100 }]]);
 }
 
-/** Zkouška připojení pro Nastavení */
+/**
+ * Zkouška připojení pro Nastavení. Kromě počtu kampaní ukáže i útratu za
+ * posledních 7 dní — podle ní se pozná, že čísla sedí se Sklikem
+ * (haléře vs. koruny), dřív než se z nich začne počítat zisk.
+ */
 export async function sklikTest(userId = ''): Promise<string> {
   session = null;
   const list = await sklikCampaigns(userId);
-  return `${list.length} kampaní (${list.filter(c => c.status === 'ENABLED').length} aktivních)`;
+  const to = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+  let spend = '';
+  try {
+    const days = await sklikDays(from, to, userId);
+    const cost = days.filter(d => d.date < to).reduce((s, d) => s + d.cost, 0);
+    spend = `, útrata za posledních 7 dní ${Math.round(cost).toLocaleString('cs-CZ')} Kč — porovnej se Sklikem`;
+  } catch (err: any) {
+    spend = ` (statistiky zatím nejdou: ${err?.message ?? err})`;
+  }
+  return `${list.length} kampaní (${list.filter(c => c.status === 'ENABLED').length} aktivních)${spend}`;
 }
