@@ -592,6 +592,109 @@ export async function mutate(
   };
 }
 
+/* ---------- nová kampaň Nákupy pro segment ---------- */
+
+/** Geocíle Googlu podle trhu (Česko, Slovensko); .com bez omezení */
+export const GEO_OF_MARKET: Record<string, number[]> = { cz: [2203], sk: [2703], en: [] };
+
+type CreateOp = Extract<AdsOp, { kind: 'campaign-create' }>;
+
+/**
+ * Operace pro GoogleAdsService.Mutate: rozpočet, kampaň (pozastavená),
+ * cílení na zemi, sestava, reklama na produkt a strom skupin produktů
+ * „custom_label_0 = segment, ostatní vyloučit". Všechno s dočasnými
+ * zápornými ID v jednom požadavku — buď vznikne celé, nebo nic, a v účtu
+ * nezůstane půlka kampaně.
+ *
+ * Kampaň vzniká **pozastavená**: Patrik ji před spuštěním uvidí v Google
+ * Ads (náhled produktů, rozpočet, cíl) a zapne ji sám. Proto i vrácení
+ * je bezpečné — pozastavená kampaň nic neutratila.
+ */
+export function shoppingCampaignOps(customerId: string, op: CreateOp, rate = 1): any[] {
+  const cid = customerId.replace(/\D/g, '');
+  const budget = `customers/${cid}/campaignBudgets/-1`;
+  const campaign = `customers/${cid}/campaigns/-2`;
+  const adGroup = `customers/${cid}/adGroups/-3`;
+  const root = `customers/${cid}/adGroupCriteria/-3~-4`;
+  const micros = (kc: number) => String(Math.max(1, Math.round(kc / rate)) * 1_000_000);
+  const shopping: any = { merchantId: op.merchantId, campaignPriority: 0, enableLocal: false };
+  if (op.feedLabel) shopping.feedLabel = op.feedLabel;
+  return [
+    { campaignBudgetOperation: { create: {
+      resourceName: budget, name: `${op.name} – rozpočet`, amountMicros: micros(op.budget),
+      deliveryMethod: 'STANDARD', explicitlyShared: false
+    } } },
+    { campaignOperation: { create: {
+      resourceName: campaign, name: op.name, status: 'PAUSED', advertisingChannelType: 'SHOPPING',
+      campaignBudget: budget, shoppingSetting: shopping,
+      targetRoas: { targetRoas: Math.round(op.troas * 100) / 100 },
+      networkSettings: { targetGoogleSearch: true, targetSearchNetwork: false, targetContentNetwork: false },
+      // EU: povinné prohlášení u nové kampaně (bez něj FieldError.REQUIRED)
+      containsEuPoliticalAdvertising: 'DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING'
+    } } },
+    ...op.geo.map(id => ({ campaignCriterionOperation: { create: {
+      campaign, location: { geoTargetConstant: `geoTargetConstants/${id}` }
+    } } })),
+    { adGroupOperation: { create: {
+      resourceName: adGroup, name: `${op.segment} – produkty`, campaign, type: 'SHOPPING_PRODUCT_ADS', status: 'ENABLED',
+      cpcBidMicros: micros(10)
+    } } },
+    { adGroupAdOperation: { create: { adGroup, status: 'ENABLED', ad: { shoppingProductAd: {} } } } },
+    { adGroupCriterionOperation: { create: {
+      resourceName: root, adGroup, status: 'ENABLED', listingGroup: { type: 'SUBDIVISION' }
+    } } },
+    { adGroupCriterionOperation: { create: {
+      adGroup, status: 'ENABLED', cpcBidMicros: micros(10),
+      listingGroup: { type: 'UNIT', parentAdGroupCriterion: root,
+        caseValue: { productCustomAttribute: { index: 'INDEX0', value: op.segment } } }
+    } } },
+    // „Ostatní" (stejný druh dělení, bez hodnoty) — povinné, tady vyloučené
+    { adGroupCriterionOperation: { create: {
+      adGroup, status: 'ENABLED', negative: true,
+      listingGroup: { type: 'UNIT', parentAdGroupCriterion: root,
+        caseValue: { productCustomAttribute: { index: 'INDEX0' } } }
+    } } }
+  ];
+}
+
+/** Vytvoří kampaň (nebo jen ověří, s validateOnly). Vrací ID kampaně a rozpočtu. */
+export async function createShoppingCampaign(cfg: AdsConfig, customerId: string, op: CreateOp, validateOnly: boolean, rate = 1):
+  Promise<{ campaignId: string; budgetId: string }> {
+  const id = customerId.replace(/\D/g, '');
+  const token = await accessToken(cfg);
+  const res = await fetch(`${API}/${cfg.google.apiVersion}/customers/${id}/googleAds:mutate`, {
+    method: 'POST',
+    headers: headers(cfg, token),
+    body: JSON.stringify({ mutateOperations: shoppingCampaignOps(id, op, rate), validateOnly, partialFailure: false })
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(explainError(res.status, json));
+  const results: any[] = Array.isArray(json.mutateOperationResponses) ? json.mutateOperationResponses : [];
+  const last = (name: string | undefined) => String(name ?? '').split('/').pop() ?? '';
+  return {
+    budgetId: last(results.find(r => r.campaignBudgetResult)?.campaignBudgetResult?.resourceName),
+    campaignId: last(results.find(r => r.campaignResult)?.campaignResult?.resourceName)
+  };
+}
+
+/** Kampaň se stejným názvem (kromě odstraněných) — dvakrát stejnou nezakládat */
+export async function campaignNamed(cfg: AdsConfig, customerId: string, name: string): Promise<string> {
+  const safe = name.replace(/\\/g, '').replace(/'/g, "\\'");
+  const rows = await gaql(cfg, `SELECT campaign.id FROM campaign WHERE campaign.name = '${safe}' AND campaign.status != 'REMOVED'`, customerId);
+  return String(rows[0]?.campaign?.id ?? '');
+}
+
+/** Odstraní kampaň a pak její rozpočet (vrácení nové kampaně) */
+export async function removeCampaign(cfg: AdsConfig, customerId: string, campaignId: string, budgetId: string): Promise<void> {
+  const cid = customerId.replace(/\D/g, '');
+  await mutate(cfg, 'campaigns', [{ remove: `customers/${cid}/campaigns/${campaignId}` }], false, cid);
+  if (budgetId) {
+    // Rozpočet bez kampaně nic nestojí; když ho Google nechce smazat hned, nevadí
+    try { await mutate(cfg, 'campaignBudgets', [{ remove: `customers/${cid}/campaignBudgets/${budgetId}` }], false, cid); }
+    catch { /* zůstane prázdný rozpočet */ }
+  }
+}
+
 /** Aktuální rozpočet a cíl kampaně — kontrola před zápisem. */
 export async function readCampaignNow(cfg: AdsConfig, campaignId: string, customerId: string):
   Promise<{ budget: number | null; targetRoas: number | null }> {

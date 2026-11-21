@@ -747,6 +747,7 @@ export function registerIpc() {
   handle('ads:metaUse', (account: any, market: string) => ads.metaUse(account, String(market || 'cz')));
   handle('ads:metaOff', () => ads.disconnectMeta());
   handle('ads:autopilotResume', () => ads.resumeAutopilot());
+  handle('ads:newCampaign', (market: string) => ads.proposeSegmentCampaign(String(market || 'cz')));
   handle('ads:seasons', (market?: string) => ads.seasons(String(market || 'all')));
   handle('ads:seasonPlan', (eventId: string, save?: boolean, market?: string) =>
     ads.seasonPlan(String(eventId ?? ''), !!save, String(market || 'all')));

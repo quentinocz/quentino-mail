@@ -1433,6 +1433,8 @@ export const api = {
     metaConnect: (token: string) => call<AdsMetaAccount[]>('ads:metaConnect', token),
     metaUse: (account: AdsMetaAccount, market: string) => call<{ status: AdsStatus; message: string }>('ads:metaUse', account, market),
     metaOff: () => call<AdsStatus>('ads:metaOff'),
+    /** Návrh nové kampaně Nákupy pro hvězdy trhu (vznikne pozastavená až po Použít) */
+    newCampaign: (market: string) => call<AdsProposal>('ads:newCampaign', market),
     /** Pustit zabrzděného autopilota znovu */
     autopilotResume: () => call<AdsStatus>('ads:autopilotResume'),
     seasons: (market = 'all') => call<AdsSeasons>('ads:seasons', market),

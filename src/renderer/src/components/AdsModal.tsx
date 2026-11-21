@@ -258,6 +258,9 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
           {tab === 'proposals' && status && (
             <Proposals data={proposals} status={status} onChanged={load} busy={busy} setBusy={setBusy} />
           )}
+          {tab === 'campaigns' && status && (
+            <NewCampaignBar market={market} status={status} onChanged={load} onProposals={() => setTab('proposals')} />
+          )}
           {tab === 'campaigns' && <Campaigns rows={campaigns} />}
           {tab === 'products' && <Products data={products} />}
           {tab === 'seasons' && status && (
@@ -782,11 +785,16 @@ function Today({ overview, status, proposals, onSettings, onProposals, onChanged
 
 const TYPE_LABEL: Record<string, string> = {
   PERFORMANCE_MAX: 'Performance Max', SHOPPING: 'Nákupy', SEARCH: 'Vyhledávání', DISPLAY: 'Obsahová síť',
-  VIDEO: 'Video', DEMAND_GEN: 'Demand Gen', SMART: 'Chytrá', LOCAL: 'Místní'
+  VIDEO: 'Video', DEMAND_GEN: 'Demand Gen', SMART: 'Chytrá', LOCAL: 'Místní',
+  // Meta podle cíle kampaně
+  SALES: 'Prodeje', TRAFFIC: 'Návštěvnost', AWARENESS: 'Povědomí', ENGAGEMENT: 'Interakce', LEADS: 'Potenciální zákazníci'
 };
 const BIDDING_LABEL: Record<string, string> = {
   MAXIMIZE_CONVERSION_VALUE: 'max. hodnota', TARGET_ROAS: 'cílové ROAS', MAXIMIZE_CONVERSIONS: 'max. konverze',
-  TARGET_CPA: 'cílová CPA', MANUAL_CPC: 'ruční CPC', TARGET_SPEND: 'max. kliky', MAXIMIZE_CLICKS: 'max. kliky'
+  TARGET_CPA: 'cílová CPA', MANUAL_CPC: 'ruční CPC', TARGET_SPEND: 'max. kliky', MAXIMIZE_CLICKS: 'max. kliky',
+  // Meta
+  LOWEST_COST_WITHOUT_CAP: 'nejnižší cena', LOWEST_COST_WITH_BID_CAP: 'strop nabídky', COST_CAP: 'strop ceny',
+  LOWEST_COST_WITH_MIN_ROAS: 'min. ROAS'
 };
 
 const TYPE_TERM: Record<string, string> = { PERFORMANCE_MAX: 'pmax', SHOPPING: 'shopping', SEARCH: 'search' };
@@ -805,6 +813,45 @@ const campaignValue = (row: AdsCampaignRow, key: string): number | string | null
     default: return null;
   }
 };
+
+/**
+ * Nad tabulkou kampaní: návrh vlastní kampaně Nákupy pro hvězdy trhu.
+ * Nic nezakládá hned — vznikne návrh, a teprve Použít kampaň vytvoří
+ * (pozastavenou).
+ */
+function NewCampaignBar({ market, status, onChanged, onProposals }: {
+  market: string; status: AdsStatus; onChanged: () => void; onProposals: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const googleMarkets = [...new Set(status.config.google.accounts.filter(a => a.enabled).map(a => a.market))];
+  const [pick, setPick] = useState(market !== 'all' ? market : googleMarkets[0] ?? 'cz');
+  useEffect(() => { if (market !== 'all') setPick(market); }, [market]);
+  if (!status.google.connected || !googleMarkets.length) return null;
+  return (
+    <div className="ad-card ad-newcamp">
+      <div>
+        <b>Vlastní kampaň pro hvězdy</b>
+        <div className="muted small">Produkty, které vydělávají a mají dost prodejů, dostanou vlastní rozpočet a cíl podle své marže.
+          Vznikne návrh; po Použít se kampaň založí pozastavená.</div>
+      </div>
+      {market === 'all' && googleMarkets.length > 1 && (
+        <select className="ad-period" value={pick} onChange={e => setPick(e.target.value)}>
+          {googleMarkets.map(m => <option key={m} value={m}>{MARKET_LABELS[m] ?? m}</option>)}
+        </select>
+      )}
+      <button className="btn small" disabled={busy} onClick={async () => {
+        setBusy(true);
+        try {
+          await api.ads.newCampaign(pick);
+          toast('Návrh nové kampaně je v Návrzích', 'info');
+          onChanged();
+          onProposals();
+        } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); }
+      }}>Navrhnout kampaň</button>
+    </div>
+  );
+}
 
 function Campaigns({ rows }: { rows: AdsCampaignRow[] | null }) {
   const { sorted, sort, toggle } = useSort(rows ?? [], { key: 'cost', dir: 'desc' }, campaignValue);
@@ -1078,7 +1125,7 @@ function Products({ data }: { data: AdsProducts | null }) {
 
 const KIND_LABEL: Record<string, string> = {
   'budget-up': 'Rozpočet', 'budget-down': 'Rozpočet', 'roas-up': 'Cílové ROAS', 'roas-down': 'Cílové ROAS',
-  'roas-set': 'Cílové ROAS', negatives: 'Vylučující slova', exclude: 'Produkty'
+  'roas-set': 'Cílové ROAS', negatives: 'Vylučující slova', exclude: 'Produkty', 'campaign-new': 'Nová kampaň'
 };
 
 function Confidence({ n }: { n: number }) {
@@ -1139,6 +1186,17 @@ function OpsList({ p }: { p: AdsProposal }) {
             return <li key={i}>Vyloučit „<b>{op.text}</b>" (frázová shoda) <span className="muted">· {op.clicks} kliků, {kc(op.cost)}</span></li>;
           case 'exclude':
             return <li key={i}>Vyřadit {op.codes.length} produktů na {op.days} dní: <span className="muted">{op.codes.slice(0, 8).join(', ')}{op.codes.length > 8 ? '…' : ''}</span></li>;
+          case 'campaign-create':
+            return (
+              <React.Fragment key={i}>
+                <li>Založit <b>pozastavenou</b> kampaň Nákupy „<b>{op.name}</b>"</li>
+                <li>Denní rozpočet <b>{kc(op.budget)}</b>, cílové ROAS <b>{Math.round(op.troas * 100)} %</b></li>
+                <li>Produkty: custom_label_0 = <b>{op.segment}</b>, ostatní vyloučené
+                  <span className="muted"> · Merchant Center {op.merchantId}{op.feedLabel ? `, feed ${op.feedLabel}` : ''}</span></li>
+              </React.Fragment>
+            );
+          case 'campaign-remove':
+            return <li key={i}>Odstranit kampaň „<b>{op.name}</b>" i s jejím rozpočtem</li>;
           default:
             return null;
         }
@@ -1167,7 +1225,11 @@ function ProposalCard({ p, status, compact = false, onChanged }: {
           <span className="ad-market" data-tip={ADS_TERMS.market}>{MARKET_LABELS[p.market] ?? p.market}</span>
         )}
         {p.system === 'sklik' && <span className="ad-badge sklik" data-tip="Sklik">S</span>}
-        {fromAdvisor(p) ? (
+        {p.kind === 'campaign-new' ? (
+          <span className="ad-chip info" data-tip="Nová kampaň — odhad v korunách se ukáže až z jejích vlastních dat. Vzniká pozastavená.">
+            vznikne pozastavená
+          </span>
+        ) : fromAdvisor(p) ? (
           <span className="ad-chip info" data-tip={p.fingerprint.includes('|plan|')
             ? 'Krok sezónního plánu (záložka Sezóny) — odhad v korunách u něj není, prošel ale stejnými pojistkami jako ostatní návrhy.'
             : 'Navrhl poradce na tvou otázku — odhad v korunách u něj není, prošel ale stejnými pojistkami jako ostatní návrhy.'}>
@@ -1885,6 +1947,25 @@ function Settings({ status, onStatus, busy, setBusy }: {
             <label>Manažerský účet (MCC), přes který se k účtu chodí</label>
             <input defaultValue={cfg.google.loginCustomerId} placeholder="prázdné = přímo"
               onBlur={e => { if (e.target.value !== cfg.google.loginCustomerId) void save({ google: { ...cfg.google, loginCustomerId: e.target.value.replace(/\D/g, '') } }); }} />
+          </div>
+          <div className="field">
+            <label>ID účtu Merchant Center <small>(pro nové kampaně Nákupy)</small></label>
+            <input defaultValue={cfg.google.merchantId} placeholder="např. 123456789"
+              onBlur={e => { const v = e.target.value.replace(/\D/g, ''); if (v !== cfg.google.merchantId) void save({ google: { ...cfg.google, merchantId: v } }); }} />
+          </div>
+          <div className="field">
+            <label>Štítek feedu po trzích <small>(feed label v Merchant Center; prázdné = produkty ze všech feedů)</small></label>
+            <div className="ad-set-row">
+              {cfg.markets.map(m => (
+                <label key={m} className="ad-inline">{MARKET_LABELS[m] ?? m}
+                  <input defaultValue={cfg.google.feedLabels[m] ?? ''} placeholder={m.toUpperCase()} style={{ width: 70 }}
+                    onBlur={e => {
+                      const v = e.target.value.trim();
+                      if (v !== (cfg.google.feedLabels[m] ?? '')) void save({ google: { ...cfg.google, feedLabels: { ...cfg.google.feedLabels, [m]: v } } });
+                    }} />
+                </label>
+              ))}
+            </div>
           </div>
           <div className="field">
             <label>Verze API</label>

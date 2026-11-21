@@ -485,6 +485,12 @@ for (const okno of OKNA) {
     `${dolu.slice(0, 3).join(', ')} … / ${nahoru.slice(0, 3).join(', ')} …`);
   say('  a pojmy mají vysvětlivky (tečkované podtržení s bublinou)',
     await page.locator('.ad-modal th[data-tip*="Bod zlomu ="]').count() > 0 && await page.locator('.ad-seg[data-tip*="Žrouti ="]').count() > 0);
+  // Kampaně: nad tabulkou návrh vlastní kampaně pro hvězdy
+  await page.locator('.ad-tabs button', { hasText: 'Kampaně' }).click();
+  await page.waitForSelector('.ad-newcamp', { timeout: 4000 }).catch(() => {});
+  say('Reklamy › Kampaně: nabídka vlastní kampaně pro hvězdy a kampaně všech tří systémů',
+    await page.locator('.ad-newcamp button', { hasText: 'Navrhnout kampaň' }).count() === 1
+      && await page.locator('.ad-table tbody tr').count() >= 3);
   // Dnes: nahoře „Čeká na tebe" se třemi návrhy a odkazem na ostatní
   await page.locator('.ad-tabs button', { hasText: 'Dnes' }).click();
   await page.waitForSelector('.ad-side .ad-prop', { timeout: 4000 }).catch(() => {});

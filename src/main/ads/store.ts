@@ -123,7 +123,11 @@ export function normalizeConfig(raw: any): AdsConfig {
       // Stejný účet dvakrát by stáhl a sečetl totéž dvakrát
       const seen = new Set<string>();
       accounts = accounts.filter(one => (seen.has(one.id) ? false : (seen.add(one.id), true)));
-      return { ...g, accounts };
+      const labels: Record<string, string> = {};
+      for (const [m, v] of Object.entries(g.feedLabels && typeof g.feedLabels === 'object' ? g.feedLabels : {})) {
+        if (['cz', 'sk', 'en'].includes(m) && String(v ?? '').trim()) labels[m] = String(v).trim();
+      }
+      return { ...g, accounts, merchantId: String(g.merchantId ?? '').replace(/\D/g, ''), feedLabels: labels };
     })(),
     feedToken: typeof src.feedToken === 'string' ? src.feedToken : '',
     updatedAt: typeof src.updatedAt === 'string' ? src.updatedAt : ''

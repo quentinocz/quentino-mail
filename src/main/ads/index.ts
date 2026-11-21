@@ -27,7 +27,7 @@ import { segmentProducts, marginBand, supplementalTsv } from './segments';
 import * as google from './google';
 import * as sklik from './sklik';
 import * as meta from './meta';
-import { generate, vocabularyOf, EngineCampaign } from './engine';
+import { generate, vocabularyOf, EngineCampaign, roasForPno } from './engine';
 import * as prop from './proposals';
 import * as chat from './chat';
 import * as seas from './seasons';
@@ -878,6 +878,70 @@ export function proposals(): AdsProposals {
 }
 
 const feedAfter = async () => { if (webStorage().key) await publishFeed(); };
+
+/* ---------- nová kampaň pro segment ---------- */
+
+/**
+ * Návrh nové kampaně Nákupy jen pro hvězdy jednoho trhu.
+ *
+ * Proč: hvězdy (vydělávají a mají dost dat) se v jedné velké kampani dělí
+ * o rozpočet se vším ostatním. Vlastní kampaň jim dá rozpočet, který jim
+ * nedojde, a cíl návratnosti podle jejich marže. Kampaň vybírá produkty
+ * podle custom_label_0 = hvezdy z doplňkového feedu, takže se složení
+ * mění samo s každým přepočtem segmentů.
+ *
+ * Rozpočet = jejich dosavadní denní útrata + 30 % (aby měly kam růst),
+ * cíl ROAS z marže hvězd a cíle zisku.
+ */
+export function proposeSegmentCampaign(market: string): AdsProposal {
+  const cfg = getAdsConfig();
+  if (!cfg.google.merchantId) throw new Error('Doplň v Nastavení → Google Ads → Pokročilé ID účtu Merchant Center.');
+  const account = activeAccounts(cfg).find(a => a.market === market);
+  if (!account) throw new Error(`Pro trh ${MARKET_NAME[market] ?? market} není zapnutý účet Google Ads.`);
+  if (!webStorage().key || !getSetting('adsFeedPublished', '')) {
+    throw new Error('Kampaň vybírá produkty podle doplňkového feedu se segmenty — nejdřív ho vystav a přidej do Merchant Center (Nastavení).');
+  }
+  const rows = products(30, market).rows.filter(p => p.segment === 'hvezdy');
+  if (rows.length < 3) throw new Error(`Hvězd je na trhu ${MARKET_NAME[market] ?? market} zatím ${rows.length} — vlastní kampaň má smysl od tří.`);
+  const name = `Quentino · Hvězdy · ${MARKET_NAME[market] ?? market} (Nákupy)`;
+  const existing = getDb().prepare("SELECT id FROM ads_campaigns WHERE system = 'google' AND name = ? AND account = ?").get(name, account.id);
+  if (existing) throw new Error(`Kampaň „${name}" už v účtu je.`);
+  const cost = rows.reduce((s, p) => s + p.cost, 0);
+  const value = rows.reduce((s, p) => s + p.value, 0);
+  const marginW = rows.reduce((s, p) => s + (p.margin ?? cfg.fallbackMargin) * Math.max(1, p.value), 0)
+    / Math.max(1, rows.reduce((s, p) => s + Math.max(1, p.value), 0));
+  const target = targetPno(marginW, cfg.targetProfitShare) ?? 0;
+  if (!(target > 0)) throw new Error('Marže hvězd nestačí na cíl zisku — vlastní kampaň by ho nedržela.');
+  const troas = Math.round(roasForPno(cfg, target, market) * 10) / 10;
+  const budget = Math.max(100, Math.round(((cost / 30) * 1.3) / 10) * 10);
+  const pno = value > 0 ? cost / value : null;
+  const draft = {
+    fingerprint: `campaign-new|google|${account.id}|hvezdy`,
+    system: 'google' as const, market, notBefore: '', kind: 'campaign-new' as const,
+    targetId: account.id, targetName: name,
+    title: `Nová kampaň: ${name} — ${rows.length} hvězd, ${kc(budget)} denně, cílové ROAS ${Math.round(troas * 100)} %`,
+    plain: `Hvězdy (${rows.length} produktů, které vydělávají a mají dost prodejů) teď soutěží o rozpočet se vším ostatním. `
+      + `Vlastní kampaň Nákupy jim dá ${kc(budget)} denně a cíl návratnosti podle jejich marže. Vznikne pozastavená — `
+      + 'v Google Ads ji zkontroluješ (produkty, rozpočet) a zapneš. Produkty vybírá podle segmentu z feedu, takže se složení '
+      + 'samo mění. Zvaž, jestli hvězdy pak v ostatních kampaních vyloučit (custom_label_0 = hvezdy), ať si nekonkurují.',
+    why: `Hvězdy za 30 dní: útrata ${kc(cost)}, hodnota konverzí ${kc(value)}${pno != null ? `, PNO ${Math.round(pno * 1000) / 10} %` : ''}; `
+      + `marže ${Math.round(marginW * 100)} %, cílové PNO ${Math.round(target * 1000) / 10} %.`,
+    impact: 0, confidence: Math.min(4, Math.max(1, Math.floor(rows.reduce((s, p) => s + p.conversions, 0) / 25) + 1)),
+    ops: [{
+      kind: 'campaign-create' as const, account: account.id, market, name, budget, troas, segment: 'hvezdy',
+      merchantId: cfg.google.merchantId, feedLabel: cfg.google.feedLabels[market] ?? '', geo: google.GEO_OF_MARKET[market] ?? []
+    }]
+  };
+  // Stejný návrh už čeká — nezakládat druhý
+  const waiting = prop.proposalsView(() => ({ margin: 0, cost: n => n, value: n => n })).open
+    .find(p => p.fingerprint === draft.fingerprint);
+  if (waiting) return waiting;
+  const [saved] = prop.saveChat([draft]);
+  emit({ proposals: 1 });
+  return saved;
+}
+
+const kc = (n: number) => `${Math.round(n).toLocaleString('cs-CZ')} Kč`;
 
 /* ---------- autopilot ---------- */
 

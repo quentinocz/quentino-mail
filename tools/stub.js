@@ -733,7 +733,7 @@
             { id: '1234567890', name: 'Quentino CZ', currency: 'CZK', market: 'cz', enabled: true },
             { id: '2345678901', name: 'Quentino SK', currency: 'EUR', market: 'sk', enabled: true }],
           customerId: '', customerName: '', loginCustomerId: '', clientId: 'x.apps.googleusercontent.com',
-          apiVersion: 'v26', currency: 'CZK' }, feedToken: 'a1b2c3', updatedAt: '2026-11-19T10:00:00Z' },
+          apiVersion: 'v26', currency: 'CZK', merchantId: '123456789', feedLabels: { cz: 'CZ' } }, feedToken: 'a1b2c3', updatedAt: '2026-11-19T10:00:00Z' },
       google: { connected: true, hasSecret: true, service: 'reklamy@quentino.iam.gserviceaccount.com', accountErrors: {}, account: 'Quentino CZ, Quentino SK', lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
       autopilot: { eligible: false, missing: ['ještě 16 dní návrhů (4 týdny)', 'ještě 6 vyhodnocených změn (aspoň 10)'],
         daysOfProposals: 12, evaluated: 4, better: 3, active: false, lastRun: null },
@@ -847,6 +847,9 @@
       notes: ['„Nákupy – Ponožky" teď nedrží cíl (PNO 72,2 % při cíli 15 %) — v sezóně by prodělala víc.']
     },
     'ads:seasonDrop': 6,
+    'ads:newCampaign': { id: 'n1', fingerprint: 'campaign-new|google|1234567890|hvezdy', kind: 'campaign-new', system: 'google',
+      market: 'cz', targetId: '1234567890', targetName: 'Quentino · Hvězdy · CZ (Nákupy)', title: 'Nová kampaň', plain: '', why: '',
+      impact: 0, confidence: 3, ops: [], status: 'open', snoozeUntil: '', error: '', createdAt: '', updatedAt: '', decidedBy: '' },
     'ads:metaConnect': [
       { id: 'act_1234567', name: 'Quentino Meta', currency: 'CZK', active: true },
       { id: 'act_7654321', name: 'Starý účet', currency: 'EUR', active: false }],

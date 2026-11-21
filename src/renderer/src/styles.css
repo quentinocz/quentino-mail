@@ -11268,6 +11268,8 @@ button.ad-seg.on { border-color: currentColor; }
 .ad-unlock-row i.low { background: #d99a1b; }
 .ad-autopilot .ad-inline input { width: 56px; }
 .ad-meta-accounts { display: flex; flex-direction: column; gap: 6px; }
+.ad-newcamp { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 12px; }
+.ad-newcamp > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ad-meta-accounts .ad-account > div { flex: 1; min-width: 0; }
 
 @media (max-width: 1100px) {

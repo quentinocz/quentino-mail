@@ -148,6 +148,18 @@ export const ADS: HelpTopic = {
       ]
     },
     {
+      title: 'Vlastní kampaň pro hvězdy',
+      when: 'Když je hvězd aspoň pár a feed se segmenty je v Merchant Center.',
+      steps: [
+        { text: 'V [Nastavení] → Google Ads → Pokročilé doplň **ID účtu Merchant Center** (a případně štítek feedu po trzích).', area: 'tabs' },
+        { text: 'V záložce [Kampaně] klikni na [Navrhnout kampaň]. Vznikne návrh: rozpočet podle dosavadní útraty hvězd + 30 %, '
+            + 'cílové ROAS podle jejich marže.', area: 'tabs' },
+        { text: '[Použít] kampaň založí **pozastavenou** — produkty vybírá podle custom_label_0 = hvezdy z doplňkového feedu. '
+            + 'V Google Ads ji zkontroluj a zapni.', area: 'tabs' },
+        { text: 'Dokud kampaň stojí, jde v Historii změn vrátit (smaže se). Zapnutou kampaň aplikace nesmaže.', area: 'tabs' }
+      ]
+    },
+    {
       title: 'Segmenty do Google Merchant Center',
       when: 'Jednou, aby se daly kampaně rozdělit podle segmentů.',
       steps: [

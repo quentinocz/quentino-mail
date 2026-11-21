@@ -181,7 +181,7 @@ export function saveGenerated(drafts: ProposalDraft[], system: AdsSystem = 'goog
     const open = d.prepare("SELECT * FROM ads_proposals WHERE status = 'open' AND system = ?").all(system) as any[];
     for (const row of open) {
       // Návrhy z poradce engine nevyrábí — zastarat by tedy neměly jen proto, že je nový běh nezopakoval
-      if (seen.has(row.fingerprint) || /\|(chat|plan)\|/.test(String(row.fingerprint))) continue;
+      if (seen.has(row.fingerprint) || /\|(chat|plan)\|/.test(String(row.fingerprint)) || row.kind === 'campaign-new') continue;
       writeProposal({ ...toProposal(row), status: 'stale', error: 'Podmínky se změnily — návrh už neplatí.', updatedAt: at });
     }
   })();
@@ -329,6 +329,24 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
     }
   }
   ops = ops.filter(op => !isMeta(op));
+
+  // Nová kampaň / její odstranění: vlastní požadavek, ne úprava existující
+  const creates = ops.filter((op): op is Extract<AdsOp, { kind: 'campaign-create' }> => op.kind === 'campaign-create');
+  const removes = ops.filter((op): op is Extract<AdsOp, { kind: 'campaign-remove' }> => op.kind === 'campaign-remove');
+  for (const op of creates) {
+    const existing = await google.campaignNamed(cfg, op.account, op.name);
+    if (existing) throw new StaleError(`Kampaň „${op.name}" už v účtu je (ID ${existing}) — druhou stejnou nezakládám.`);
+    await google.createShoppingCampaign(cfg, op.account, op, true, rateOf(cfg, accountInfo(cfg, op.account)));
+  }
+  for (const op of removes) {
+    // Vrácení smí smazat jen kampaň, která pořád stojí — běžící kampaň by smazání připravilo o data i prodeje
+    const rows = await google.gaql(cfg, `SELECT campaign.id, campaign.status FROM campaign WHERE campaign.id = ${op.campaignId.replace(/\D/g, '')}`, op.account);
+    const state = String(rows[0]?.campaign?.status ?? '');
+    if (state && state !== 'PAUSED' && state !== 'REMOVED') {
+      throw new StaleError(`Kampaň „${op.name}" už běží — vracet ji smazáním nebudu. Pozastav nebo odstraň ji v Google Ads.`);
+    }
+  }
+  ops = ops.filter(op => op.kind !== 'campaign-create' && op.kind !== 'campaign-remove');
   for (const op of ops) {
     if (op.kind !== 'budget' && op.kind !== 'troas') continue;
     const account = accountOfOp(cfg, op);
@@ -373,6 +391,14 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
     if (op.kind !== 'budget') continue;
     await meta.metaSetBudget(op.campaignId, op.to / metaRate);
     undo.push({ ...op, from: op.to, to: op.from });
+  }
+  for (const op of creates) {
+    const made = await google.createShoppingCampaign(cfg, op.account, op, false, rateOf(cfg, accountInfo(cfg, op.account)));
+    undo.push({ kind: 'campaign-remove', account: op.account, campaignId: made.campaignId, budgetId: made.budgetId, name: op.name });
+    notes.push(`Kampaň „${op.name}" je v účtu jako pozastavená — zkontroluj ji v Google Ads a zapni.`);
+  }
+  for (const op of removes) {
+    await google.removeCampaign(cfg, op.account, op.campaignId, op.budgetId);
   }
   for (const g of groups.values()) {
     const result = await google.mutate(cfg, g.service as any, g.items.map(x => x.mutation), false, g.account);

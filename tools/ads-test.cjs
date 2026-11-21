@@ -599,6 +599,68 @@ console.log('\nMeta');
   store.saveAdsConfig({ meta: { enabled: false, accountId: '', name: 'Meta', currency: 'CZK', market: 'cz' } });
 }
 
+/* ---------- nová kampaň pro hvězdy ---------- */
+console.log('\nNová kampaň Nákupy pro segment');
+{
+  const g3 = require(path.join(DIST, 'ads/google.js'));
+  const op = { kind: 'campaign-create', account: '1234567890', market: 'cz', name: 'Quentino · Hvězdy · CZ (Nákupy)', budget: 500,
+    troas: 6.24, segment: 'hvezdy', merchantId: '999', feedLabel: 'CZ', geo: [2203] };
+  const ops = g3.shoppingCampaignOps('123-456-7890', op);
+  const camp = ops.find(o => o.campaignOperation).campaignOperation.create;
+  check('kampaň: pozastavená, Nákupy, Merchant Center a feed, cíl ROAS, prohlášení EU',
+    [camp.status, camp.advertisingChannelType, camp.shoppingSetting.merchantId, camp.shoppingSetting.feedLabel, camp.targetRoas.targetRoas,
+      camp.containsEuPoliticalAdvertising, camp.networkSettings.targetContentNetwork],
+    ['PAUSED', 'SHOPPING', '999', 'CZ', 6.24, 'DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING', false]);
+  const units = ops.filter(o => o.adGroupCriterionOperation?.create.listingGroup.type === 'UNIT').map(o => o.adGroupCriterionOperation.create);
+  check('strom produktů: hvězdy ano, „ostatní" (stejný druh dělení bez hodnoty) vyloučené',
+    units.map(u => [u.listingGroup.caseValue.productCustomAttribute.index, u.listingGroup.caseValue.productCustomAttribute.value ?? null, !!u.negative]),
+    [['INDEX0', 'hvezdy', false], ['INDEX0', null, true]]);
+  check('  dočasná ID drží celek pohromadě (rozpočet −1, kampaň −2, sestava −3, kořen −3~−4)',
+    [camp.campaignBudget.endsWith('/campaignBudgets/-1'), units[0].listingGroup.parentAdGroupCriterion.endsWith('/adGroupCriteria/-3~-4'),
+      ops.some(o => o.campaignCriterionOperation?.create.location.geoTargetConstant === 'geoTargetConstants/2203')], [true, true, true]);
+  check('  rozpočet v měně účtu (500 Kč v eurovém účtu = 20 €)',
+    g3.shoppingCampaignOps('1', op, 25).find(o => o.campaignBudgetOperation).campaignBudgetOperation.create.amountMicros, '20000000');
+
+  // Zápis: kontrola názvu, naoko, doopravdy; vrácení kampaň odstraní
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('adsGoogleRefresh','r'),('adsGoogleSecret','s')").run();
+  const seen = [];
+  let exists = false;
+  let running = false;
+  global.fetch = async (url, init = {}) => {
+    const u = String(url);
+    const body = init.body && !u.includes('oauth2') ? JSON.parse(init.body) : null;
+    seen.push({ u, body });
+    const reply = (json) => ({ ok: true, status: 200, json: async () => json });
+    if (u.includes('oauth2')) return reply({ access_token: 't', expires_in: 3600 });
+    if (u.endsWith('googleAds:search')) return reply({ results: exists ? [{ campaign: { id: '55', status: running ? 'ENABLED' : 'PAUSED' } }] : [] });
+    if (u.endsWith('googleAds:mutate')) {
+      if (!body.validateOnly) exists = true;
+      return reply(body.validateOnly ? {} : { mutateOperationResponses: [
+        { campaignBudgetResult: { resourceName: 'customers/1234567890/campaignBudgets/77' } },
+        { campaignResult: { resourceName: 'customers/1234567890/campaigns/55' } }] });
+    }
+    if (u.endsWith('campaigns:mutate')) { exists = false; return reply({ results: [{ resourceName: 'x' }] }); }
+    return reply({ results: [{ resourceName: 'x' }] });
+  };
+  const res = await prop.execute(store.getAdsConfig(), [op]);
+  const muts = seen.filter(x => x.u.endsWith('googleAds:mutate'));
+  check('založení: nejdřív naoko, pak doopravdy, jedním požadavkem; vrácení = odstranit kampaň 55 i rozpočet 77',
+    [muts.map(m => m.body.validateOnly), res.undo[0].kind, res.undo[0].campaignId, res.undo[0].budgetId, /pozastavená/.test(res.note)],
+    [[true, false], 'campaign-remove', '55', '77', true]);
+  let dup = '';
+  try { await prop.execute(store.getAdsConfig(), [op]); } catch (e) { dup = e.message; }
+  check('  druhou stejnou kampaň nezaloží', /už v účtu je/.test(dup), true);
+  running = true;
+  let live = '';
+  try { await prop.execute(store.getAdsConfig(), res.undo); } catch (e) { live = e.message; }
+  check('  zapnutou kampaň vrácení nesmaže', [/už běží/.test(live), exists], [true, true]);
+  running = false;
+  await prop.execute(store.getAdsConfig(), res.undo);
+  check('  vrácení pozastavenou kampaň odstraní', [exists, seen.filter(x => x.u.endsWith('campaigns:mutate')).pop().body.operations[0].remove],
+    [false, 'customers/1234567890/campaigns/55']);
+  db.prepare("UPDATE settings SET value = '' WHERE key = 'adsGoogleRefresh'").run();
+}
+
 /* ---------- poradce ---------- */
 console.log('\nPoradce: kroky z chatu → návrhy');
 {
@@ -929,6 +991,13 @@ if (fs.existsSync(feedFile)) {
     check('sezóny: kalendář má události a index 53 týdnů', [sv.events.length > 3, sv.index.length], [true, 53]);
     const pv = ads.seasonPlan(sv.events[0].id, false, 'all');
     check('  náhled plánu doběhne a nic neuloží', [Array.isArray(pv.steps), pv.saved], [true, 0]);
+  }
+
+  // Nová kampaň: bez Merchant Center ID řekne, co doplnit
+  {
+    let chyba = '';
+    try { ads.proposeSegmentCampaign('cz'); } catch (e) { chyba = e.message; }
+    check('nová kampaň bez ID Merchant Center: srozumitelná rada', /Merchant Center/.test(chyba), true);
   }
 
   // Autopilot: dokud není odemčený a zapnutý, noční kolo nic nedělá a zapnout ho nejde

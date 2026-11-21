@@ -145,6 +145,10 @@ export interface AdsConfig {
     /** Verze API, např. v26 */
     apiVersion: string;
     currency: string;
+    /** ID účtu Merchant Center — potřeba pro nové kampaně Nákupy */
+    merchantId: string;
+    /** Štítek feedu (feed label) po trzích, např. { cz: 'CZ' }; prázdné = produkty ze všech feedů */
+    feedLabels: Record<string, string>;
   };
   /** Náhodná část adresy doplňkového feedu se segmenty */
   feedToken: string;
@@ -178,9 +182,17 @@ export type AdsOp =
   | { kind: 'negative'; campaignId: string; text: string; match: 'PHRASE' | 'EXACT'; cost: number; clicks: number; account?: string }
   | { kind: 'negative-remove'; campaignId: string; resource: string; text: string; account?: string }
   | { kind: 'exclude'; codes: string[]; days: number }
-  | { kind: 'exclude-remove'; codes: string[] };
+  | { kind: 'exclude-remove'; codes: string[] }
+  /** Nová kampaň Nákupy jen pro jeden segment (custom_label_0) — vzniká pozastavená */
+  | {
+    kind: 'campaign-create'; account: string; market: string; name: string; budget: number; troas: number;
+    segment: string; merchantId: string; feedLabel: string; geo: number[];
+  }
+  /** Vrácení nové kampaně: odstranit ji i s jejím rozpočtem */
+  | { kind: 'campaign-remove'; account: string; campaignId: string; budgetId: string; name: string };
 
-export type AdsProposalKind = 'budget-up' | 'budget-down' | 'roas-up' | 'roas-down' | 'roas-set' | 'negatives' | 'exclude';
+export type AdsProposalKind = 'budget-up' | 'budget-down' | 'roas-up' | 'roas-down' | 'roas-set' | 'negatives' | 'exclude'
+  | 'campaign-new';
 
 export type AdsProposalStatus = 'open' | 'approved' | 'applied' | 'dismissed' | 'snoozed' | 'never' | 'failed' | 'stale';
 
@@ -519,7 +531,9 @@ export const DEFAULT_ADS_CONFIG: AdsConfig = {
     loginCustomerId: '',
     clientId: '',
     apiVersion: 'v26',
-    currency: 'CZK'
+    currency: 'CZK',
+    merchantId: '',
+    feedLabels: {}
   },
   feedToken: '',
   updatedAt: ''
