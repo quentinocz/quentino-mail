@@ -301,6 +301,40 @@ export interface AdsSeasonPlan {
   saved: number;
 }
 
+/** Zjištění v reportu — věta a čísla, ze kterých plyne */
+export interface AdsFinding {
+  kind: 'up' | 'down' | 'watch' | 'info';
+  text: string;
+  basis: string;
+}
+
+/** Report za týden nebo měsíc (uzavřené období) */
+export interface AdsReport {
+  kind: 'week' | 'month';
+  /** 0 = poslední uzavřené období, 1 = to před ním… */
+  offset: number;
+  /** „Týden 17.–23. 11. 2026", „Listopad 2026" */
+  label: string;
+  from: string;
+  to: string;
+  prevFrom: string;
+  prevTo: string;
+  market: string;
+  overview: AdsOverview;
+  /** Požadovaný podíl zisku po reklamě na obratu */
+  target: number;
+  best: AdsCampaignRow[];
+  worst: AdsCampaignRow[];
+  stars: AdsProductRow[];
+  eaters: AdsProductRow[];
+  /** Změny v účtech během období (s vyhodnocením, když už je) */
+  changes: { at: string; title: string; device: string; verdict: string; reverted: boolean }[];
+  stats: { applied: number; autopilot: number; dismissed: number; open: number };
+  findings: AdsFinding[];
+  /** Shrnutí od poradce, když už se o něj někdo řekl (uložené u reportu) */
+  summary: string;
+}
+
 /** Jedna zpráva v rozhovoru s poradcem */
 export interface AdsChatTurn {
   role: 'user' | 'assistant';

@@ -11270,6 +11270,34 @@ button.ad-seg.on { border-color: currentColor; }
 .ad-meta-accounts { display: flex; flex-direction: column; gap: 6px; }
 .ad-newcamp { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 12px; }
 .ad-newcamp > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+/* Report: uzavřený týden / měsíc */
+.ad-report { display: flex; flex-direction: column; gap: 12px; }
+.ad-report-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ad-report-label { font-size: 15px; min-width: 190px; text-align: center; }
+.ad-report-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.ad-report-box { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ad-report-box .ad-prop-head, .ad-report-summary .ad-prop-head { margin: 0; }
+.ad-report-summary { padding: 12px 16px; font-size: 13px; line-height: 1.55; background: var(--accent-soft); border-color: transparent; }
+.ad-report-summary ul { margin: 4px 0 0; padding-left: 18px; }
+.ad-report-summary p { margin: 0 0 6px; }
+.ad-findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.ad-findings li { position: relative; padding-left: 16px; display: flex; flex-direction: column; font-size: 13px; }
+.ad-findings li::before { content: ''; position: absolute; left: 2px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.ad-findings li.up::before { background: var(--ok); }
+.ad-findings li.down::before { background: var(--danger); }
+.ad-findings li.watch::before { background: #d99a1b; }
+.ad-findings small { color: var(--text-3); font-size: 11.5px; }
+.ad-mini { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
+.ad-mini td, .ad-mini th { padding: 5px 4px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ad-mini th { font-size: 10.5px; text-transform: uppercase; color: var(--text-3); text-align: left; font-weight: 700; }
+.ad-mini .r { text-align: right; width: 22%; font-variant-numeric: tabular-nums; }
+.ad-mini .neg, .ad-report-list .neg { color: var(--danger); }
+.ad-mini .ad-badge { width: 16px; height: 16px; font-size: 9px; vertical-align: -3px; }
+.ad-report-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.ad-report-list li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border); padding: 4px 0; }
+.ad-report-list li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ad-report-list li b { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ad-meta-accounts .ad-account > div { flex: 1; min-width: 0; }
 
 @media (max-width: 1100px) {

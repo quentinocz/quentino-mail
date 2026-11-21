@@ -92,6 +92,17 @@ export const ADS: HelpTopic = {
       ]
     },
     {
+      title: 'Týdenní a měsíční report',
+      when: 'V pondělí za minulý týden, na začátku měsíce za minulý měsíc.',
+      steps: [
+        { text: 'Otevři záložku [Report]. Přepínač **Týden / Měsíc** bere uzavřené období (pondělí–neděle, kalendářní měsíc) '
+            + 'a šipkami jde o období zpátky. Čísla se srovnávají s obdobím těsně před ním.', area: 'tabs' },
+        { text: '**Zjištění** jsou spočítaná z čísel — pod každým je, z kterých plyne. Nejsou to dojmy modelu.', area: 'tabs' },
+        { text: '[Shrnutí od poradce] napíše pár vět pro laika: jak období dopadlo, co táhlo, co brzdilo a co dál. Uloží se k reportu.', area: 'tabs' },
+        { text: '[Uložit PDF] vysází celý report na A4 — dá se poslat dál.', area: 'tabs' }
+      ]
+    },
+    {
       title: 'Připravit rozpočty na sezónu',
       when: 'Pár týdnů před Vánoci, Valentýnem, plesy nebo Dnem otců.',
       steps: [
@@ -172,6 +183,7 @@ export const ADS: HelpTopic = {
   ],
   tips: [
     'Rozhovor s poradcem vydrží přepínání záložek; [Nový rozhovor] začne znovu.',
+    'Krátký stav reklamy (zisk po reklamě za 7 dní, čekající návrhy) je i v Přehledu dne.',
     'Podtržené pojmy (PNO, ROAS, bod zlomu…) a štítky segmentů vysvětlí po najetí myší, co znamenají.',
     'V hlavičce jde přepnout **Všechny trhy / CZ / SK / .com**. Každý trh má cílové PNO podle své marže.',
     'Tabulky produktů a kampaní se řadí klikem na hlavičku sloupce; druhý klik obrátí pořadí.',

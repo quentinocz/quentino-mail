@@ -661,6 +661,43 @@ console.log('\nNová kampaň Nákupy pro segment');
   db.prepare("UPDATE settings SET value = '' WHERE key = 'adsGoogleRefresh'").run();
 }
 
+/* ---------- report ---------- */
+console.log('\nReport');
+{
+  // Modul reportu tahá index (Electron) — pro čistá data stačí jeho funkce s napodobeným indexem
+  const idxPath = require.resolve(path.join(DIST, 'ads/index.js'));
+  const realIdx = require.cache[idxPath];
+  require.cache[idxPath] = { id: idxPath, filename: idxPath, loaded: true, exports: {} };
+  const rep = require(path.join(DIST, 'ads/report.js'));
+  if (realIdx) require.cache[idxPath] = realIdx; else delete require.cache[idxPath];
+  // Report s napodobeným indexem jen tady — celý průchod níž si ho načte se skutečným
+  delete require.cache[require.resolve(path.join(DIST, 'ads/report.js'))];
+  const w = rep.reportRange('week', 0, '2026-11-21');
+  check('týden: minulé pondělí–neděle a týden před ním', [w.from, w.to, w.prevFrom, w.prevTo], ['2026-11-09', '2026-11-15', '2026-11-02', '2026-11-08']);
+  check('  o týden dřív', [rep.reportRange('week', 1, '2026-11-21').from, rep.reportRange('week', 0, '2026-11-16').from], ['2026-11-02', '2026-11-09']);
+  const m = rep.reportRange('month', 0, '2026-11-21');
+  check('měsíc: minulý kalendářní a ten před ním', [m.from, m.to, m.prevFrom, m.prevTo, m.label], ['2026-10-01', '2026-10-31', '2026-09-01', '2026-09-30', 'Říjen 2026']);
+  const j = rep.reportRange('month', 0, '2026-01-15');
+  check('  přes Nový rok (prosinec 2025, před ním listopad)', [j.from, j.to, j.prevFrom, j.label], ['2025-12-01', '2025-12-31', '2025-11-01', 'Prosinec 2025']);
+  const ov = {
+    profitAfterAds: { value: 52000, prev: 47800 }, revenue: { value: 121000, prev: 112400 }, cost: { value: 15000, prev: 10000 },
+    orders: { value: 1, prev: 1 }, profitShare: 0.43, systems: [{ system: 'meta', connected: true, cost: 800, pno: 0.2, targetPno: 0.08 }],
+    markets: [{ market: 'cz', cost: 1, profitAfterAds: 5 }, { market: 'sk', cost: 2100, profitAfterAds: -300 }],
+    alerts: [{ level: 'bad', title: 'Nefunguje měření' }]
+  };
+  const f = rep.findingsOf(ov, 0.5, { worst: [{ name: 'Ponožky', profit: -768 }], eaters: [{ cost: 320 }], evaluated: 4, better: 3 });
+  check('zjištění: růst zisku, pod cílem, náklady rychleji než obrat, Meta nad cílem, SK prodělal, ztrátová kampaň, žrouti, úspěšnost, měření',
+    f.map(x => x.kind), ['up', 'watch', 'watch', 'watch', 'down', 'down', 'watch', 'up', 'watch']);
+  check('  každé má čísla, ze kterých plyne', f.every(x => x.basis.length > 3), true);
+
+  const html = require(path.join(DIST, 'ads/reportpdf.js')).reportHtml({ kind: 'week', label: 'Týden', from: 'a', to: 'b', prevFrom: 'c', prevTo: 'd',
+    market: 'all', target: 0.5, overview: { ...ov, shopPno: 0.1, targetPno: 0.08, systems: [], markets: [] },
+    best: [{ system: 'google', market: 'cz', name: '<script>x</script>', cost: 1, value: 1, profit: 1, pno: 0.1, targetPno: 0.1 }], worst: [],
+    stars: [], eaters: [], changes: [], stats: {}, findings: f, summary: '- **Zisk** <b>vzrostl</b>' });
+  check('PDF: názvy z účtu ani text poradce nemůžou vložit HTML', [html.includes('<script>x'), html.includes('<b>Zisk</b>'), html.includes('&lt;b&gt;vzrostl')],
+    [false, true, true]);
+}
+
 /* ---------- poradce ---------- */
 console.log('\nPoradce: kroky z chatu → návrhy');
 {
@@ -1006,6 +1043,14 @@ if (fs.existsSync(feedFile)) {
     let chyba = '';
     try { ads.saveConfig({ autonomy: 'guarded' }); } catch (e) { chyba = e.message; }
     check('  a zamčený nejde zapnout (řekne proč)', [/ještě nejde zapnout/.test(chyba), store.getAdsConfig().autonomy], [true, 'suggest']);
+  }
+
+  // Report nad skutečnými daty doběhne; signály pro Přehled dne
+  {
+    const rep = require(path.join(DIST, 'ads/report.js'));
+    const r = rep.report('week', 0, 'all');
+    check('report za minulý týden nad skutečnými daty doběhne', [typeof r.label, Array.isArray(r.findings), r.overview.days], ['string', true, 7]);
+    check('  signály pro Přehled dne jsou pole', Array.isArray(rep.adsDigestSignals()), true);
   }
 
   // Engine nad skutečným katalogem doběhne a dá přehled pro okno

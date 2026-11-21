@@ -1778,6 +1778,17 @@ export async function digestReport(force = false): Promise<DigestReport> {
   if (ga4 && !ga4.error) facts.signals = [...facts.signals, ...ga4Signals(ga4)];
 
   /*
+   * Reklamy: jak si vedly za týden (zisk po reklamě proti cíli, čekající
+   * návrhy, červená upozornění). Načítá se až tady — modul Reklamy čte
+   * katalog i objednávky a nahoře by zbytečně zdržel start. Bez dat
+   * z reklam nepřidá nic.
+   */
+  try {
+    const ads = require('./ads/report');
+    facts.signals = [...facts.signals, ...ads.adsDigestSignals()];
+  } catch { /* reklamy jsou doplněk přehledu */ }
+
+  /*
    * Než se začne počítat, mrkne se do sdílené složky. Postřeh dne je pro
    * všechna zařízení stejný a stojí volání modelu — když ho ráno udělal
    * počítač, telefon ho má převzít, ne zaplatit podruhé. Živý posel to

@@ -442,6 +442,7 @@ for (const okno of OKNA) {
     { label: 'Kampaně', must: '.ad-table', shot: 'reklamy-kampane' },
     { label: 'Produkty', must: '.ad-map', shot: 'reklamy-produkty' },
     { label: 'Návrhy', must: '.ad-prop', shot: 'reklamy-navrhy' },
+    { label: 'Report', must: '.ad-findings', shot: 'reklamy-report' },
     { label: 'Sezóny', must: '.ad-season-chart', shot: 'reklamy-sezony' },
     { label: 'Poradce', must: '.ad-advisor', shot: 'reklamy-poradce' },
     { label: 'Nastavení', must: '.ad-settings', shot: 'reklamy-nastaveni' }
@@ -514,6 +515,12 @@ for (const okno of OKNA) {
     await page.locator('.ad-msg.user').count() === 1 && await page.locator('.ad-msg.assistant b').count() > 0
       && await page.locator('.ad-msg.assistant li').count() >= 2 && await page.locator('.ad-msg-notes li').count() === 1);
   await page.screenshot({ path: path.join(SHOTS, 'reklamy-poradce-odpoved.png') });
+  // Report: zjištění s čísly, systémy, kampaně; přepnutí na měsíc a zpět
+  await page.locator('.ad-tabs button', { hasText: 'Report' }).click();
+  await page.waitForSelector('.ad-findings li', { timeout: 4000 }).catch(() => {});
+  say('Reklamy › Report: období, zjištění s čísly, systémy a kampaně',
+    (await page.locator('.ad-report-label').innerText()).includes('Týden') && await page.locator('.ad-findings li small').count() === 3
+      && await page.locator('.ad-report .ad-mini').count() >= 3 && await page.locator('.ad-report-bar button', { hasText: 'Uložit PDF' }).count() === 1);
   // Sezóny: index s 53 týdny, karty událostí a náhled plánu po kliknutí
   await page.locator('.ad-tabs button', { hasText: 'Sezóny' }).click();
   await page.waitForSelector('.ad-season', { timeout: 4000 }).catch(() => {});

@@ -67,6 +67,8 @@ import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
 import * as ads from './ads';
+import * as adsReport from './ads/report';
+import { reportToPdf as adsReportPdf } from './ads/reportpdf';
 import { vaultStatus, setVaultPassphrase, forgetVaultPassphrase } from './vault';
 import * as banners from './banners';
 import * as zkusebna from './zkusebna';
@@ -747,6 +749,12 @@ export function registerIpc() {
   handle('ads:metaUse', (account: any, market: string) => ads.metaUse(account, String(market || 'cz')));
   handle('ads:metaOff', () => ads.disconnectMeta());
   handle('ads:autopilotResume', () => ads.resumeAutopilot());
+  handle('ads:report', (kind: string, offset: number, market?: string) =>
+    adsReport.report(kind === 'month' ? 'month' : 'week', Number(offset) || 0, String(market || 'all')));
+  handle('ads:reportSummary', (kind: string, offset: number, market?: string) =>
+    adsReport.reportSummary(kind === 'month' ? 'month' : 'week', Number(offset) || 0, String(market || 'all')));
+  handle('ads:reportPdf', (kind: string, offset: number, market?: string) =>
+    adsReportPdf(adsReport.report(kind === 'month' ? 'month' : 'week', Number(offset) || 0, String(market || 'all'))));
   handle('ads:newCampaign', (market: string) => ads.proposeSegmentCampaign(String(market || 'cz')));
   handle('ads:seasons', (market?: string) => ads.seasons(String(market || 'all')));
   handle('ads:seasonPlan', (eventId: string, save?: boolean, market?: string) =>

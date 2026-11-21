@@ -35,7 +35,7 @@ import type {
   UpdateState
 } from '@shared/types';
 import type {
-  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan, AdsMetaAccount,
+  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan, AdsMetaAccount, AdsReport,
   AdsProposals, AdsProposal, AdsChange
 } from '@shared/ads';
 import type { ToolWindowId } from '@shared/windows';
@@ -1433,6 +1433,11 @@ export const api = {
     metaConnect: (token: string) => call<AdsMetaAccount[]>('ads:metaConnect', token),
     metaUse: (account: AdsMetaAccount, market: string) => call<{ status: AdsStatus; message: string }>('ads:metaUse', account, market),
     metaOff: () => call<AdsStatus>('ads:metaOff'),
+    /** Report za uzavřený týden/měsíc; offset 0 = poslední uzavřené období */
+    report: (kind: 'week' | 'month', offset = 0, market = 'all') => call<AdsReport>('ads:report', kind, offset, market),
+    reportSummary: (kind: 'week' | 'month', offset = 0, market = 'all') => call<string>('ads:reportSummary', kind, offset, market),
+    /** Uloží report do PDF (dialog); vrací cestu nebo null */
+    reportPdf: (kind: 'week' | 'month', offset = 0, market = 'all') => call<string | null>('ads:reportPdf', kind, offset, market),
     /** Návrh nové kampaně Nákupy pro hvězdy trhu (vznikne pozastavená až po Použít) */
     newCampaign: (market: string) => call<AdsProposal>('ads:newCampaign', market),
     /** Pustit zabrzděného autopilota znovu */

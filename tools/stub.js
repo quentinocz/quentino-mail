@@ -847,6 +847,43 @@
       notes: ['„Nákupy – Ponožky" teď nedrží cíl (PNO 72,2 % při cíli 15 %) — v sezóně by prodělala víc.']
     },
     'ads:seasonDrop': 6,
+    'ads:report': (function () {
+      var camp = function (sys, id, name, profit, pno) { return { system: sys, account: '', market: 'cz', id: id, name: name, type: 'SEARCH',
+        status: 'ENABLED', budget: 100, bidding: 'MANUAL_CPC', targetRoas: null, cost: 2000, clicks: 100, conversions: 10, value: 20000,
+        profit: profit, pno: pno, targetPno: 0.08 }; };
+      var prod = function (code, title, profit, cost) { return { code: code, title: title, image: null, category: 'Kšandy', segment: 'hvezdy',
+        why: '', margin: 0.7, marginEstimated: false, stock: 4, cost: cost, clicks: 20, impressions: 900, conversions: 3, value: 4000,
+        profit: profit, pno: 0.1, breakEven: 0.7, targetPno: 0.2, sold: 5 }; };
+      return {
+        kind: 'week', offset: 0, label: 'Týden 9.–15. 11. 2026', from: '2026-11-09', to: '2026-11-15', prevFrom: '2026-11-02', prevTo: '2026-11-08',
+        market: 'all', target: 0.5,
+        overview: {
+          from: '2026-11-09', to: '2026-11-15', days: 7, market: 'all',
+          markets: [{ market: 'cz', revenue: 104000, cost: 9600, profitAfterAds: 52300, pno: 0.092, targetPno: 0.08 },
+            { market: 'sk', revenue: 17000, cost: 2100, profitAfterAds: -300, pno: 0.124, targetPno: 0.06 }],
+          profitAfterAds: { value: 52000, prev: 47800 }, revenue: { value: 121000, prev: 112400 }, cost: { value: 11700, prev: 10900 },
+          orders: { value: 109, prev: 101 }, profitShare: 0.43, shopPno: 0.097, margin: 0.58, targetPno: 0.08,
+          systems: [
+            { system: 'google', connected: true, cost: 9500, value: 71000, conversions: 60, profit: 31700, pno: 0.134, targetPno: 0.08, daily: [] },
+            { system: 'sklik', connected: true, cost: 1400, value: 11800, conversions: 10, profit: 5400, pno: 0.119, targetPno: 0.08, daily: [] },
+            { system: 'meta', connected: true, cost: 800, value: 4200, conversions: 3, profit: 1600, pno: 0.19, targetPno: 0.08, daily: [] }],
+          daily: [], alerts: [], estimatedOrders: 12
+        },
+        best: [camp('google', '1', 'PMax – celý katalog CZ', 24800, 0.12), camp('sklik', '9001', 'Zboží.cz – celý katalog', 5400, 0.119)],
+        worst: [camp('google', '5', 'Nákupy – Ponožky', -768, 0.72), camp('meta', '120', 'Advantage+ nákupy – kšandy', 1600, 0.19)],
+        stars: [prod('K1', 'Bordó pánské široké kšandy', 3200, 400), prod('M2', 'Tmavě modrý motýlek', 2100, 300)],
+        eaters: [prod('P9', 'Ponožky veselé – lama', -320, 320)],
+        changes: [{ at: '2026-11-12T03:10:00Z', title: 'Přidat rozpočet: PMax – celý katalog CZ 1 100 Kč → 1 320 Kč denně', device: 'MacBook Patrik', verdict: 'pending', reverted: false }],
+        stats: { applied: 1, autopilot: 0, dismissed: 2, open: 4 },
+        findings: [
+          { kind: 'up', text: 'Zisk po reklamě vzrostl o 8,8 % proti předchozímu období.', basis: '52 000 Kč proti 47 800 Kč' },
+          { kind: 'watch', text: 'Pod cílem: po reklamě zůstalo 43 % z obratu, cíl je 50 %.', basis: 'zisk po reklamě 52 000 Kč z obratu 121 000 Kč' },
+          { kind: 'down', text: 'Trh SK po reklamě prodělal.', basis: 'zisk po reklamě −300 Kč, útrata 2 100 Kč' }],
+        summary: ''
+      };
+    })(),
+    'ads:reportSummary': '- Zisk po reklamě **52 000 Kč**, o 9 % víc než týden předtím.\n- Slovensko prodělalo — zvaž ubrat rozpočet.',
+    'ads:reportPdf': null,
     'ads:newCampaign': { id: 'n1', fingerprint: 'campaign-new|google|1234567890|hvezdy', kind: 'campaign-new', system: 'google',
       market: 'cz', targetId: '1234567890', targetName: 'Quentino · Hvězdy · CZ (Nákupy)', title: 'Nová kampaň', plain: '', why: '',
       impact: 0, confidence: 3, ops: [], status: 'open', snoozeUntil: '', error: '', createdAt: '', updatedAt: '', decidedBy: '' },

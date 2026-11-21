@@ -193,18 +193,23 @@ function marginsByMarket(cfg: AdsConfig, orders: OrderMoney[]): Map<string, numb
 
 /* ---------- přehled ---------- */
 
-function period(days: number): { from: string; to: string; prevFrom: string; prevTo: string } {
+const spanDays = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
+
+/** Období a stejně dlouhé období před ním (pro srovnání) */
+export interface AdsRange { from: string; to: string; prevFrom: string; prevTo: string }
+
+function period(days: number): AdsRange {
   // Končí se včerejškem: dnešek je rozdělaný a srovnával by se celý den s půlkou
   const to = shiftDay(localDay(), -1);
   const from = shiftDay(to, -(days - 1));
   return { from, to, prevFrom: shiftDay(from, -days), prevTo: shiftDay(from, -1) };
 }
 
-export function overview(daysWanted = 30, scope = 'all'): AdsOverview {
+export function overview(daysWanted = 30, scope = 'all', range?: AdsRange): AdsOverview {
   const cfg = getAdsConfig();
   migrateItems(cfg);
-  const days = Math.min(365, Math.max(7, Math.round(daysWanted) || 30));
-  const { from, to, prevFrom, prevTo } = period(days);
+  const days = range ? spanDays(range.from, range.to) : Math.min(365, Math.max(7, Math.round(daysWanted) || 30));
+  const { from, to, prevFrom, prevTo } = range ?? period(days);
   const catalog = loadCatalog(cfg);
   const orders = ordersBetween(cfg, catalog, prevFrom, to, scope);
   const now = orders.filter(o => o.date >= from);
@@ -368,11 +373,11 @@ function alerts(
 
 /* ---------- kampaně ---------- */
 
-export function campaigns(daysWanted = 30, scope = 'all'): AdsCampaignRow[] {
+export function campaigns(daysWanted = 30, scope = 'all', range?: AdsRange): AdsCampaignRow[] {
   const cfg = getAdsConfig();
   migrateItems(cfg);
   const days = Math.min(365, Math.max(7, Math.round(daysWanted) || 30));
-  const { from, to } = period(days);
+  const { from, to } = range ?? period(days);
   const catalog = loadCatalog(cfg);
   const margins = marginsByMarket(cfg, ordersBetween(cfg, catalog, from, to, 'all'));
   const markets = new Set(marketsOf(cfg, scope));
@@ -439,11 +444,11 @@ function ages(): Map<string, number> {
   return out;
 }
 
-export function products(daysWanted = 30, scope = 'all'): AdsProducts {
+export function products(daysWanted = 30, scope = 'all', range?: AdsRange): AdsProducts {
   const cfg = getAdsConfig();
   migrateItems(cfg);
   const days = Math.min(365, Math.max(7, Math.round(daysWanted) || 30));
-  const { from, to } = period(days);
+  const { from, to } = range ?? period(days);
   const catalog = loadCatalog(cfg);
   const markets = new Set(marketsOf(cfg, scope));
 
