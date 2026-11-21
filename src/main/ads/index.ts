@@ -18,7 +18,7 @@ import type { ShopOrder } from '../../shared/types';
 import {
   AdsConfig, AdsStatus, AdsOverview, AdsSystemTile, AdsAlert, AdsDay, AdsCampaignRow,
   AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod, AdsGoogleCustomer, AdsProposals, AdsChange,
-  AdsProposal, AdsAccount, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan, AdsAutopilotState
+  AdsProposal, AdsAccount, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan, AdsAutopilotState, AdsMetaAccount
 } from '../../shared/ads';
 import {
   orderMoney, marginTable, productMargin, targetPno, shiftDay, localDay, PriceInfo, OrderMoney
@@ -26,6 +26,7 @@ import {
 import { segmentProducts, marginBand, supplementalTsv } from './segments';
 import * as google from './google';
 import * as sklik from './sklik';
+import * as meta from './meta';
 import { generate, vocabularyOf, EngineCampaign } from './engine';
 import * as prop from './proposals';
 import * as chat from './chat';
@@ -238,7 +239,7 @@ export function overview(daysWanted = 30, scope = 'all'): AdsOverview {
     });
   }
 
-  // Systémy — Google a Sklik; Meta zatím jako nepřipojená dlaždice
+  // Systémy — Google, Sklik, Meta (nepřipojený jako prázdná dlaždice s odkazem do Nastavení)
   const g = google.googleSecrets();
   const systems: AdsSystemTile[] = (['google', 'sklik', 'meta'] as const).map(system => {
     const rows = adsNow.filter(r => r.system === system);
@@ -258,7 +259,8 @@ export function overview(daysWanted = 30, scope = 'all'): AdsOverview {
     return {
       system,
       connected: system === 'google' ? (g.connected || rows.length > 0)
-        : system === 'sklik' ? (cfg.sklik.enabled || rows.length > 0) : rows.length > 0,
+        : system === 'sklik' ? (cfg.sklik.enabled || rows.length > 0)
+          : (cfg.meta.enabled && !!cfg.meta.accountId) || rows.length > 0,
       cost: agg.cost,
       value: agg.value,
       conversions: agg.conversions,
@@ -680,11 +682,46 @@ export function fetchSklik(daysBack?: number): Promise<string> {
   return fetchingSklik;
 }
 
+let fetchingMeta: Promise<string> | null = null;
+
+/**
+ * Stáhne kampaně a výkon z Mety. Stejné okno jako ostatní (28 dní, poprvé
+ * 90): Meta konverze dopisuje zpětně podle atribučního okna.
+ */
+export function fetchMeta(daysBack?: number): Promise<string> {
+  if (fetchingMeta) return fetchingMeta;
+  fetchingMeta = (async () => {
+    const cfg = getAdsConfig();
+    if (!cfg.meta.enabled || !cfg.meta.accountId) throw new Error('Meta není v Nastavení zapnutá.');
+    if (!meta.metaToken()) throw new Error('Tenhle Mac nemá uložený token Meta.');
+    const to = localDay();
+    const at = new Date().toISOString();
+    try {
+      const any = getDb().prepare("SELECT 1 FROM ads_campaign_day WHERE system = 'meta' LIMIT 1").get();
+      const from = shiftDay(to, -((daysBack ?? (any ? 28 : 90)) - 1));
+      const list = await meta.metaCampaigns(cfg.meta.accountId);
+      const days = await meta.metaDays(cfg.meta.accountId, from, to);
+      saveCampaigns('meta', list, at, 'meta');
+      saveDays('ads_campaign_day', 'meta', from, to, days, at, 'meta');
+      setSetting('adsMetaFetched', at);
+      setSetting('adsMetaError', '');
+      try { syncStats('meta'); } catch { /* složka příště */ }
+      emit({ fetched: at });
+      return `Meta: ${list.length} kampaní`;
+    } catch (err: any) {
+      setSetting('adsMetaError', String(err?.message ?? err));
+      throw err;
+    }
+  })().finally(() => { fetchingMeta = null; });
+  return fetchingMeta;
+}
+
 /** Co se má stahovat na tomhle Macu */
-function sources(cfg: AdsConfig): { google: boolean; sklik: boolean } {
+function sources(cfg: AdsConfig): { google: boolean; sklik: boolean; meta: boolean } {
   return {
     google: google.googleSecrets().connected && activeAccounts(cfg).length > 0,
-    sklik: cfg.sklik.enabled && !!sklik.sklikToken()
+    sklik: cfg.sklik.enabled && !!sklik.sklikToken(),
+    meta: cfg.meta.enabled && !!cfg.meta.accountId && !!meta.metaToken()
   };
 }
 
@@ -695,8 +732,8 @@ function sources(cfg: AdsConfig): { google: boolean; sklik: boolean } {
 export async function fetchAll(daysBack?: number): Promise<string> {
   const cfg = getAdsConfig();
   const src = sources(cfg);
-  if (!src.google && !src.sklik) {
-    throw new Error('Tenhle Mac nemá připojený Google Ads ani Sklik (Reklamy → Nastavení).');
+  if (!src.google && !src.sklik && !src.meta) {
+    throw new Error('Tenhle Mac nemá připojený Google Ads, Sklik ani Metu (Reklamy → Nastavení).');
   }
   const done: string[] = [];
   const errors: string[] = [];
@@ -705,6 +742,9 @@ export async function fetchAll(daysBack?: number): Promise<string> {
   }
   if (src.sklik) {
     try { done.push(await fetchSklik(daysBack)); } catch (err: any) { errors.push(String(err?.message ?? err)); }
+  }
+  if (src.meta) {
+    try { done.push(await fetchMeta(daysBack)); } catch (err: any) { errors.push(String(err?.message ?? err)); }
   }
   if (!done.length) throw new Error(errors.join(' · '));
   return [...done, ...errors.map(e => `chyba — ${e}`)].join(', ');
@@ -743,7 +783,7 @@ export function runEngine(): number {
   const catalog = loadCatalog(cfg);
   const { from, to } = period(30);
   const margins = marginsByMarket(cfg, ordersBetween(cfg, catalog, from, to, 'all'));
-  const meta = new Map((getDb().prepare(
+  const budgets = new Map((getDb().prepare(
     "SELECT system, id, budget_id, budget_shared, limited FROM ads_campaigns"
   ).all() as any[]).map(r => [`${r.system}|${r.id}`, r]));
   const everything = campaigns(30, 'all');
@@ -762,18 +802,22 @@ export function runEngine(): number {
   const blocked = prop.blockedFingerprints(today);
 
   // Google po trzích, Sklik zvlášť (jen CZ) — každý systém má své návrhy
-  const runs: { system: 'google' | 'sklik'; market: string }[] = [
+  const runs: { system: 'google' | 'sklik' | 'meta'; market: string }[] = [
     ...[...new Set(activeAccounts(cfg).map(a => a.market))].filter(m => cfg.markets.includes(m))
       .map(market => ({ system: 'google' as const, market })),
-    ...(cfg.sklik.enabled && cfg.markets.includes('cz') ? [{ system: 'sklik' as const, market: 'cz' }] : [])
+    ...(cfg.sklik.enabled && cfg.markets.includes('cz') ? [{ system: 'sklik' as const, market: 'cz' }] : []),
+    ...(cfg.meta.enabled && cfg.meta.accountId && cfg.markets.includes(cfg.meta.market)
+      ? [{ system: 'meta' as const, market: cfg.meta.market }] : [])
   ];
-  const drafts = { google: [] as ReturnType<typeof generate>, sklik: [] as ReturnType<typeof generate> };
+  const drafts = {
+    google: [] as ReturnType<typeof generate>, sklik: [] as ReturnType<typeof generate>, meta: [] as ReturnType<typeof generate>
+  };
   let feedDone = false;
   runs.forEach(({ system, market }) => {
     const all = everything.filter(r => r.system === system);
     const margin = margins.get(market) ?? cfg.fallbackMargin;
     const list: EngineCampaign[] = all.filter(r => r.market === market).map(r => {
-      const m = meta.get(`${system}|${r.id}`);
+      const m = budgets.get(`${system}|${r.id}`);
       return {
         id: r.id, account: r.account, name: r.name, type: r.type, status: r.status, bidding: r.bidding,
         targetRoas: r.targetRoas, budget: r.budget, budgetId: m?.budget_id ?? '',
@@ -805,7 +849,9 @@ export function runEngine(): number {
   });
   drafts.google.sort((a, b) => b.impact - a.impact);
   drafts.sklik.sort((a, b) => b.impact - a.impact);
-  const fresh = prop.saveGenerated(drafts.google, 'google') + prop.saveGenerated(drafts.sklik, 'sklik');
+  drafts.meta.sort((a, b) => b.impact - a.impact);
+  const fresh = prop.saveGenerated(drafts.google, 'google') + prop.saveGenerated(drafts.sklik, 'sklik')
+    + prop.saveGenerated(drafts.meta, 'meta');
   setSetting('adsProposalsAt', new Date().toISOString());
   try { prop.shareProposals(); } catch { /* složka příště */ }
   emit({ proposals: fresh });
@@ -977,7 +1023,7 @@ export async function tick(): Promise<void> {
   try {
     // Převzít, co udělaly jiné Macy, se dá kdykoli — běh sám až po třetí
     try { if (syncConfig()) emit(); } catch { /* složka příště */ }
-    try { if (syncStats('google') + syncStats('sklik') > 0) emit(); } catch { /* složka příště */ }
+    try { if (syncStats('google') + syncStats('sklik') + syncStats('meta') > 0) emit(); } catch { /* složka příště */ }
     try { if (prop.shareProposals()) emit(); } catch { /* složka příště */ }
     // Návrhy schválené na Macu bez přihlášení provede ten přihlášený
     try { if (await prop.applyApproved(getAdsConfig(), feedAfter) > 0) emit(); } catch { /* stav je u návrhu */ }
@@ -985,7 +1031,7 @@ export async function tick(): Promise<void> {
     const day = localDay(now);
     if (lastRun()?.day === day) return;
     const src = sources(getAdsConfig());
-    if (!src.google && !src.sklik) return;
+    if (!src.google && !src.sklik && !src.meta) return;
     const mark = { day, device: deviceLabel(), finishedAt: '', result: '', error: '' };
     try {
       mark.result = await fetchAll();
@@ -1076,15 +1122,15 @@ export function seasonPlan(eventId: string, save = false, scope = 'all'): AdsSea
   migrateItems(cfg);
   const catalog = loadCatalog(cfg);
   const { today, idx } = seasonIndexOf(cfg, catalog, scope);
-  const meta = new Map((getDb().prepare(
+  const metaOf = new Map((getDb().prepare(
     'SELECT system, id, budget_id, budget_shared FROM ads_campaigns'
   ).all() as any[]).map(r => [`${r.system}|${r.id}`, r]));
   const list: seas.PlanCampaign[] = campaigns(30, scope)
-    .filter(c => c.system === 'google' || c.system === 'sklik')
+    .filter(c => c.system === 'google' || c.system === 'sklik' || c.system === 'meta')
     .map(c => {
-      const m = meta.get(`${c.system}|${c.id}`);
+      const m = metaOf.get(`${c.system}|${c.id}`);
       return {
-        system: c.system as 'google' | 'sklik', id: c.id, account: c.account, market: c.market, name: c.name,
+        system: c.system as 'google' | 'sklik' | 'meta', id: c.id, account: c.account, market: c.market, name: c.name,
         status: c.status, budget: c.budget, budgetId: String(m?.budget_id ?? ''), budgetShared: !!m?.budget_shared,
         pno: c.pno, targetPno: c.targetPno, conversions: c.conversions
       };
@@ -1126,7 +1172,7 @@ export async function askAdvisor(history: AdsChatTurn[], question: string, scope
   const today = localDay();
   const monthStart = `${today.slice(0, 8)}01`;
   const lastDay = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
-  const meta = new Map((getDb().prepare(
+  const budgets = new Map((getDb().prepare(
     'SELECT system, id, budget_id, budget_shared, limited FROM ads_campaigns'
   ).all() as any[]).map(r => [`${r.system}|${r.id}`, {
     budgetId: String(r.budget_id ?? ''), budgetShared: !!r.budget_shared, limited: !!r.limited
@@ -1136,7 +1182,7 @@ export async function askAdvisor(history: AdsChatTurn[], question: string, scope
     cfg, today,
     overview: overview(30, scope),
     campaigns: campaigns(30, scope),
-    meta,
+    meta: budgets,
     products: products(30, scope).rows,
     open: view.open,
     changes: view.changes,
@@ -1184,6 +1230,11 @@ export function status(): AdsStatus {
       hasToken: !!sklik.sklikToken(),
       lastFetch: getSetting('adsSklikFetched', '') || '',
       lastError: getSetting('adsSklikError', '') || ''
+    },
+    meta: {
+      hasToken: !!meta.metaToken(),
+      lastFetch: getSetting('adsMetaFetched', '') || '',
+      lastError: getSetting('adsMetaError', '') || ''
     },
     lastRun: lastRun(),
     shared: isShared(),
@@ -1243,6 +1294,41 @@ export async function connectSklik(token: string, userId: string): Promise<{ sta
     if (clean) sklik.saveSklikToken(before);
     throw err;
   }
+}
+
+/**
+ * Uloží token Meta a načte reklamní účty, ke kterým má přístup. Token
+ * se uloží jen tehdy, když Meta účty vrátí (špatný token = chyba, nic se
+ * nezmění).
+ */
+export async function metaConnect(token: string): Promise<AdsMetaAccount[]> {
+  const before = meta.metaToken();
+  const clean = String(token ?? '').trim();
+  if (clean) meta.saveMetaToken(clean);
+  try {
+    const list = await meta.metaAccounts();
+    setSetting('adsMetaError', '');
+    emit();
+    return list;
+  } catch (err) {
+    if (clean) meta.saveMetaToken(before);
+    throw err;
+  }
+}
+
+/** Vybere reklamní účet Meta, vyzkouší ho a zapne stahování */
+export async function metaUse(account: AdsMetaAccount, market: string): Promise<{ status: AdsStatus; message: string }> {
+  const message = await meta.metaTest(account.id);
+  saveAdsConfig({ meta: { enabled: true, accountId: account.id, name: account.name || 'Meta',
+    currency: account.currency || 'CZK', market: market || 'cz' } });
+  emit();
+  return { status: status(), message };
+}
+
+export function disconnectMeta(): AdsStatus {
+  meta.saveMetaToken('');
+  emit();
+  return status();
 }
 
 export function disconnectSklik(): AdsStatus {

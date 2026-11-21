@@ -13,7 +13,7 @@ export const ADS: HelpTopic = {
   title: 'Reklamy',
   icon: 'megaphone',
   color: '#5e8a2f',
-  intro: 'Kolik reklama opravdu vydělává: výkon z Google Ads a Skliku spárovaný s objednávkami z Upgates a nákupními '
+  intro: 'Kolik reklama opravdu vydělává: výkon z Google Ads, Skliku a Mety spárovaný s objednávkami z Upgates a nákupními '
     + 'cenami z katalogu. Každou noc spočítá návrhy změn; do účtu se zapíše jen to, co potvrdíš, a každá změna jde vrátit.',
   areas: [
     { id: 'tabs', label: 'Záložky a období', x: 0, y: 0, w: 12, h: 1, target: '.ad-tabs' },
@@ -49,6 +49,20 @@ export const ADS: HelpTopic = {
         { text: 'Číslo spravovaného účtu vyplň, jen když token patří agentuře nebo jinému účtu.', area: 'tabs' },
         { text: 'Sklik se pak stahuje spolu s Googlem a je vidět v dlaždici systémů i v kampaních. Návrhy u něj mění jen '
             + '**denní rozpočet** — nabídky a cíle zůstávají ve Skliku.', area: 'systems' }
+      ]
+    },
+    {
+      title: 'Připojit Metu (Facebook a Instagram)',
+      when: 'Jednou — token se na ostatní Macy přenese trezorem.',
+      steps: [
+        { text: 'V Business Manageru: **Nastavení firmy → Uživatelé → Systémoví uživatelé**. Přidej systémového uživatele '
+            + 'a v **Přiřadit aktiva** mu dej reklamní účet s plnou kontrolou.', area: 'tabs' },
+        { text: '**Vygenerovat token** s oprávněními **ads_read** a **ads_management** a platností Nikdy. Token nevyprší '
+            + 'a nepotřebuje přihlašovací okno.', area: 'tabs' },
+        { text: 'V [Nastavení] ho vlož do sekce **Meta**, klikni na [Načíst účty], vyber trh a u účtu dej [Použít]. '
+            + 'Zkouška ukáže útratu za 7 dní — porovnej ji se Správcem reklam.', area: 'tabs' },
+        { text: 'Návrhy u Mety mění jen **denní rozpočet kampaní s rozpočtem na kampani** (Advantage+). Kampaně '
+            + 's rozpočty po sadách reklam se jen čtou.', area: 'systems' }
       ]
     },
     {

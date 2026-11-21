@@ -205,7 +205,7 @@ export function eventsView(idx: SeasonIndex, today: string): AdsSeasonEvent[] {
 /* ---------- plán rozpočtů ---------- */
 
 export interface PlanCampaign {
-  system: 'google' | 'sklik';
+  system: 'google' | 'sklik' | 'meta';
   id: string;
   account: string;
   market: string;
@@ -258,6 +258,7 @@ export function planEvent(
   let addedDaily = 0;
   for (const c of campaigns) {
     if (c.status !== 'ENABLED' || !c.budget) continue;
+    if (c.system === 'meta' && !c.budgetId) { notes.push(`„${c.name}" (Meta) má rozpočty po sadách reklam — v plánu není.`); continue; }
     if (c.budgetShared || !c.budgetId) { notes.push(`„${c.name}" má sdílený rozpočet — v plánu není.`); continue; }
     if (c.pno == null || c.targetPno == null || c.conversions < 3) {
       notes.push(`„${c.name}" má za 30 dní málo prodejů — přidávat se jí nebude.`);

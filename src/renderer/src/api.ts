@@ -35,7 +35,7 @@ import type {
   UpdateState
 } from '@shared/types';
 import type {
-  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan,
+  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan, AdsMetaAccount,
   AdsProposals, AdsProposal, AdsChange
 } from '@shared/ads';
 import type { ToolWindowId } from '@shared/windows';
@@ -1429,6 +1429,10 @@ export const api = {
     /** Uloží API token Skliku a vyzkouší ho (špatný se neuloží); prázdný token = nechat stávající */
     sklik: (token: string, userId: string) => call<{ status: AdsStatus; message: string }>('ads:sklik', token, userId),
     sklikOff: () => call<AdsStatus>('ads:sklikOff'),
+    /** Uloží token Meta (prázdný = nechat stávající) a vrátí reklamní účty, ke kterým má přístup */
+    metaConnect: (token: string) => call<AdsMetaAccount[]>('ads:metaConnect', token),
+    metaUse: (account: AdsMetaAccount, market: string) => call<{ status: AdsStatus; message: string }>('ads:metaUse', account, market),
+    metaOff: () => call<AdsStatus>('ads:metaOff'),
     /** Pustit zabrzděného autopilota znovu */
     autopilotResume: () => call<AdsStatus>('ads:autopilotResume'),
     seasons: (market = 'all') => call<AdsSeasons>('ads:seasons', market),

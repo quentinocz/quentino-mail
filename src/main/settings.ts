@@ -315,7 +315,7 @@ const VOLATILE_SETTING_PREFIXES = [
    * modulu (adsConfig) přenášet patří, tohle je zpráva o posledním běhu
    * na konkrétním Macu.
    */
-  'adsGoogleFetched', 'adsGoogleError', 'adsAccountErrors', 'adsSklikFetched', 'adsSklikError', 'adsAutopilotLast', 'adsFeedPublished', 'adsProposalsAt',
+  'adsGoogleFetched', 'adsGoogleError', 'adsAccountErrors', 'adsSklikFetched', 'adsSklikError', 'adsAutopilotLast', 'adsMetaFetched', 'adsMetaError', 'adsFeedPublished', 'adsProposalsAt',
   'adsItemsMigrated',
   /*
    * Trezor sdíleného nastavení: heslo k němu a razítka změn jsou vlastnost

@@ -726,6 +726,7 @@
         markets: ['cz', 'sk'], shipping: [], defaultShipCost: 79, fallbackMargin: 0.6, autonomy: 'suggest',
         guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
         sklik: { enabled: true, userId: '', name: 'Sklik' },
+        meta: { enabled: true, accountId: 'act_1234567', name: 'Quentino Meta', currency: 'CZK', market: 'cz' },
         autopilot: { kinds: ['budget-up', 'budget-down', 'negatives', 'exclude'], maxPerNight: 3, minConfidence: 2,
           seasonPlans: true, pausedAt: '', pausedReason: '' },
         google: { accounts: [
@@ -736,6 +737,7 @@
       google: { connected: true, hasSecret: true, service: 'reklamy@quentino.iam.gserviceaccount.com', accountErrors: {}, account: 'Quentino CZ, Quentino SK', lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
       autopilot: { eligible: false, missing: ['ještě 16 dní návrhů (4 týdny)', 'ještě 6 vyhodnocených změn (aspoň 10)'],
         daysOfProposals: 12, evaluated: 4, better: 3, active: false, lastRun: null },
+      meta: { hasToken: true, lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
       sklik: { hasToken: true, lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
       lastRun: { day: '2026-11-20', device: 'MacBook Patrik (1a2b3c4d)', finishedAt: new Date(Date.now() - 5 * 3600e3).toISOString(), result: '6 kampaní', error: '' },
       shared: true,
@@ -765,7 +767,7 @@
         systems: [
           { system: 'google', connected: true, cost: 49600, value: 367000, conversions: 281, profit: 163260, pno: 0.135, targetPno: 0.08, daily: spark },
           { system: 'sklik', connected: true, cost: 6200, value: 51800, conversions: 44, profit: 23840, pno: 0.12, targetPno: 0.08, daily: spark.map(function (d) { return { date: d.date, cost: Math.round(d.cost / 8), value: Math.round(d.value / 7) }; }) },
-          { system: 'meta', connected: false, cost: 0, value: 0, conversions: 0, profit: 0, pno: null, targetPno: 0.08, daily: off }
+          { system: 'meta', connected: true, cost: 3900, value: 23400, conversions: 17, profit: 9670, pno: 0.167, targetPno: 0.08, daily: spark.map(function (d) { return { date: d.date, cost: Math.round(d.cost / 12), value: Math.round(d.value / 14) }; }) }
         ],
         daily: daily,
         alerts: [
@@ -777,6 +779,7 @@
       };
     })(),
     'ads:campaigns': [
+      { system: 'meta', account: 'meta', market: 'cz', id: '120200001', name: 'Advantage+ nákupy – kšandy', type: 'SALES', status: 'ENABLED', budget: 150, bidding: 'LOWEST_COST_WITHOUT_CAP', targetRoas: null, cost: 3900, clicks: 1800, conversions: 17, value: 23400, profit: 9670, pno: 0.167, targetPno: 0.08 },
       { system: 'sklik', account: 'sklik', market: 'cz', id: '9001', name: 'Zboží.cz – celý katalog', type: 'SHOPPING', status: 'ENABLED', budget: 220, bidding: 'MANUAL_CPC', targetRoas: null, cost: 6200, clicks: 3100, conversions: 44, value: 51800, profit: 23840, pno: 0.12, targetPno: 0.08 },
       { system: 'google', account: '1234567890', market: 'cz', id: '1', name: 'PMax – celý katalog CZ', type: 'PERFORMANCE_MAX', status: 'ENABLED', budget: 1100, bidding: 'MAXIMIZE_CONVERSION_VALUE', targetRoas: 6, cost: 31200, clicks: 9800, conversions: 188, value: 246000, profit: 111480, pno: 0.127, targetPno: 0.08 },
       { system: 'google', account: '1234567890', market: 'cz', id: '2', name: 'Vyhledávání – Kšandy', type: 'SEARCH', status: 'ENABLED', budget: 250, bidding: 'TARGET_ROAS', targetRoas: 7, cost: 7400, clicks: 2100, conversions: 41, value: 58900, profit: 26760, pno: 0.126, targetPno: 0.08 },
@@ -844,6 +847,9 @@
       notes: ['„Nákupy – Ponožky" teď nedrží cíl (PNO 72,2 % při cíli 15 %) — v sezóně by prodělala víc.']
     },
     'ads:seasonDrop': 6,
+    'ads:metaConnect': [
+      { id: 'act_1234567', name: 'Quentino Meta', currency: 'CZK', active: true },
+      { id: 'act_7654321', name: 'Starý účet', currency: 'EUR', active: false }],
     'ads:ask': {
       answer: 'Za posledních 30 dní je **zisk po reklamě 48 %** z obratu — cíl je 50 %, chybí tedy zhruba 10 000 Kč.\n\n'
         + 'Kde to brzdí:\n- **Nákupy – Ponožky** utrácí 72 Kč ze 100 Kč tržby, ale na ponožkách vyděláme jen 55 Kč.\n'

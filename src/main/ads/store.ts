@@ -74,6 +74,13 @@ export function normalizeConfig(raw: any): AdsConfig {
       pausedAt: String(src.autopilot?.pausedAt ?? ''),
       pausedReason: String(src.autopilot?.pausedReason ?? '')
     },
+    meta: {
+      enabled: !!src.meta?.enabled,
+      accountId: /^act_\d+$/.test(String(src.meta?.accountId ?? '')) ? String(src.meta.accountId) : '',
+      name: String(src.meta?.name ?? 'Meta') || 'Meta',
+      currency: String(src.meta?.currency ?? 'CZK').toUpperCase() || 'CZK',
+      market: ['cz', 'sk', 'en'].includes(String(src.meta?.market)) ? String(src.meta.market) : 'cz'
+    },
     sklik: {
       enabled: !!src.sklik?.enabled,
       userId: String(src.sklik?.userId ?? '').replace(/\D/g, ''),
@@ -130,6 +137,7 @@ export function normalizeConfig(raw: any): AdsConfig {
 function withAccountMarkets(cfg: AdsConfig): AdsConfig {
   const extra = cfg.google.accounts.filter(a => a.enabled).map(a => a.market)
     .concat(cfg.sklik.enabled ? ['cz'] : [])
+    .concat(cfg.meta.enabled && cfg.meta.accountId ? [cfg.meta.market] : [])
     .filter((m, i, all) => !cfg.markets.includes(m) && all.indexOf(m) === i);
   return extra.length ? { ...cfg, markets: [...cfg.markets, ...extra] } : cfg;
 }
@@ -187,6 +195,11 @@ export function accountInfo(cfg: AdsConfig, id: string): AdsAccount {
   // Sklik je jeden účet českého trhu v korunách
   if (id === 'sklik') {
     return { id: 'sklik', name: cfg.sklik.name || 'Sklik', currency: 'CZK', market: 'cz', enabled: cfg.sklik.enabled };
+  }
+  // Meta: jeden reklamní účet s vlastní měnou a trhem
+  if (id === 'meta') {
+    return { id: 'meta', name: cfg.meta.name || 'Meta', currency: cfg.meta.currency, market: cfg.meta.market,
+      enabled: cfg.meta.enabled && !!cfg.meta.accountId };
   }
   const clean = String(id ?? '').replace(/\D/g, '');
   return cfg.google.accounts.find(one => one.id === clean)

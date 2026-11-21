@@ -140,9 +140,9 @@ v bloku DATA — nic si nevymýšlej, a když data na odpověď nestačí, řekn
 
 Když se uživatel ptá, odpověz. Když chce něco změnit nebo naplánovat (nebo je změna zjevně výhodná a on se ptá „co dělat"),
 přidej kroky do "actions". Kroky se NEPROVÁDĚJÍ samy — z každého vznikne návrh, který uživatel schválí. Povolené kroky:
-- {"type":"budget","system":"google|sklik","campaignId":"…","to":1200,"date":"YYYY-MM-DD","reason":"…"} — denní rozpočet v Kč.
+- {"type":"budget","system":"google|sklik|meta","campaignId":"…","to":1200,"date":"YYYY-MM-DD","reason":"…"} — denní rozpočet v Kč.
   Jeden krok smí změnit rozpočet nejvýš o pojistky.maxBudgetStep (0.2 = 20 %); větší změnu rozlož do víc kroků s datem.
-  Nesahej na sdílené rozpočty. Sklik umí jen tohle.
+  Nesahej na sdílené rozpočty (ani na kampaně Mety s rozpočty po sadách reklam). Sklik a Meta umí jen tohle.
 - {"type":"troas","campaignId":"…","to":6.5,"date":"…","reason":"…"} — cílové ROAS jako násobek (6.5 = 650 %), jen Google
   a jen u nabízení MAXIMIZE_CONVERSION_VALUE / TARGET_ROAS. Krok nejvýš o pojistky.maxRoasStep. Vyšší ROAS = přísnější.
 - {"type":"negative","campaignId":"…","words":["bazar"],"reason":"…"} — vylučující slova (jen Google). Nikdy ne slova,
@@ -227,6 +227,7 @@ export function draftsFrom(actions: ChatAction[], ctx: ChatContext, question: st
       if (!c) { notes.push(`Kampaň ${a.campaignId ?? '?'} v datech není — rozpočet jsem nenavrhl.`); continue; }
       const m = ctx.meta.get(key(c.system, c.id));
       if (c.status !== 'ENABLED') { notes.push(`„${c.name}" neběží — rozpočet pozastavené kampaně nemá smysl měnit.`); continue; }
+      if (c.system === 'meta' && !m?.budgetId) { notes.push(`„${c.name}" má rozpočty po sadách reklam — ty se mění ve Správci reklam, ne přes kampaň.`); continue; }
       if (m?.budgetShared || !m?.budgetId) { notes.push(`„${c.name}" má sdílený rozpočet — změna by se týkala i jiných kampaní, proto ji nenavrhuji.`); continue; }
       const from = budgetAfter.get(key(c.system, c.id)) ?? c.budget;
       const wanted = Number(a.to);

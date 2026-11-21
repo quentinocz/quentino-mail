@@ -542,6 +542,63 @@ console.log('\nSklik');
 }
 
 
+/* ---------- Meta ---------- */
+console.log('\nMeta');
+{
+  const mt = require(path.join(DIST, 'ads/meta.js'));
+  check('účty: act_ předpona, měna, aktivní', mt.parseAccounts([{ account_id: '123', name: 'Q', currency: 'eur', account_status: 1 },
+    { id: 'act_9', name: 'Starý', account_status: 2 }]).map(a => [a.id, a.currency, a.active]), [['act_123', 'EUR', true], ['act_9', 'CZK', false]]);
+  const camps = mt.parseMetaCampaigns([
+    { id: '1', name: 'A+', objective: 'OUTCOME_SALES', effective_status: 'ACTIVE', daily_budget: '15000' },
+    { id: '2', name: 'ABO', objective: 'OUTCOME_TRAFFIC', effective_status: 'PAUSED' }]);
+  check('kampaně: rozpočet z nejmenších jednotek, ABO bez rozpočtu kampaně (nejde měnit), stav',
+    camps.map(c => [c.type, c.status, c.budget, c.budgetId]), [['SALES', 'ENABLED', 150, '1'], ['TRAFFIC', 'PAUSED', null, '']]);
+  const ins = mt.parseMetaInsights([{ date_start: '2026-11-18', campaign_id: '1', spend: '412.50', clicks: '30', impressions: '2000',
+    actions: [{ action_type: 'link_click', value: '30' }, { action_type: 'omni_purchase', value: '3' }, { action_type: 'purchase', value: '3' },
+      { action_type: 'offsite_conversion.fb_pixel_purchase', value: '3' }],
+    action_values: [{ action_type: 'omni_purchase', value: '2970' }, { action_type: 'purchase', value: '2970' }] }]);
+  check('výkon: útrata v celých jednotkách, nákup pod víc typy se nezdvojí', ins.map(r => [r.cost, r.conversions, r.value]), [[412.5, 3, 2970]]);
+  check('chyba 190 = neplatný token, rada co dál', /systémového uživatele/.test(mt.explainMeta(400, { error: { code: 190 } })), true);
+  check('chyba oprávnění radí ads_read / ads_management', /ads_management/.test(mt.explainMeta(403, { error: { code: 200 } })), true);
+
+  // Napodobená Meta: stránkování, token v hlavičce (ne v adrese), zápis rozpočtu v měně účtu
+  const calls = [];
+  let budget = 10000; // 100 € v centech
+  global.fetch = async (url, init = {}) => {
+    const u = new URL(String(url));
+    calls.push({ url: u, init });
+    const reply = (json) => ({ ok: true, status: 200, json: async () => json });
+    if (u.pathname.endsWith('/me/adaccounts')) {
+      return u.searchParams.get('after')
+        ? reply({ data: [{ account_id: '2', name: 'Druhý', currency: 'EUR', account_status: 1 }] })
+        : reply({ data: [{ account_id: '1', name: 'První', currency: 'EUR', account_status: 1 }],
+          paging: { next: 'https://graph.facebook.com/v26.0/me/adaccounts?after=x&access_token=TAJNE' } });
+    }
+    if ((init.method ?? 'GET') === 'POST') { budget = Number(new URLSearchParams(String(init.body)).get('daily_budget')); return reply({ success: true }); }
+    if (u.pathname.endsWith('/120')) return reply({ id: '120', daily_budget: String(budget) });
+    return reply({ data: [] });
+  };
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('adsMetaToken', 'meta-token')").run();
+  const accs = await mt.metaAccounts();
+  check('účty přes všechny stránky', accs.map(a => a.id), ['act_1', 'act_2']);
+  check('  token jde v hlavičce, v adrese není (ani z odkazu na další stránku)',
+    [calls.every(c => c.init.headers.Authorization === 'Bearer meta-token'), calls.some(c => c.url.search.includes('access_token'))], [true, false]);
+  store.saveAdsConfig({ meta: { enabled: true, accountId: 'act_1', name: 'Meta', currency: 'EUR', market: 'sk' } });
+  check('účet meta = trh a měna z Nastavení', store.accountInfo(store.getAdsConfig(), 'meta'),
+    { id: 'meta', name: 'Meta', currency: 'EUR', market: 'sk', enabled: true });
+  const rate = store.getAdsConfig().eurRate;
+  const mDraft = { fingerprint: 'budget-up|meta|120', kind: 'budget-up', targetId: '120', targetName: 'A+', title: 'Přidat',
+    why: '', plain: '', impact: 100, confidence: 2, ops: [{ kind: 'budget', campaignId: '120', budgetId: '120', from: 100 * rate, to: 120 * rate, account: 'meta' }] };
+  prop.saveGenerated([mDraft], 'meta');
+  const mp = prop.proposalsView(MONEY).open.find(p => p.fingerprint === 'budget-up|meta|120');
+  const mdone = await prop.applyProposal(store.getAdsConfig(), mp.id, async () => {});
+  check('zápis: kontrola stavu v korunách, rozpočet do Mety v centech eur (120 € = 12000)', [mdone.status, budget], ['applied', 12000]);
+  await prop.revertChange(store.getAdsConfig(), prop.allChanges().find(c => c.proposalId === mp.id).id, async () => {});
+  check('vrátit: zase 100 €', budget, 10000);
+  db.prepare("UPDATE settings SET value = '' WHERE key = 'adsMetaToken'").run();
+  store.saveAdsConfig({ meta: { enabled: false, accountId: '', name: 'Meta', currency: 'CZK', market: 'cz' } });
+}
+
 /* ---------- poradce ---------- */
 console.log('\nPoradce: kroky z chatu → návrhy');
 {

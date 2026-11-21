@@ -121,7 +121,7 @@ const ALLOWED_INVOKE = [
   // Reklamy: přehled, kampaně, produkty, nastavení a připojení Google Ads
   'ads:status', 'ads:overview', 'ads:campaigns', 'ads:products', 'ads:ship', 'ads:config',
   'ads:connect', 'ads:disconnect', 'ads:customers', 'ads:fetch', 'ads:feed',
-  'ads:service', 'ads:sklik', 'ads:sklikOff', 'ads:ask', 'ads:seasons', 'ads:seasonPlan', 'ads:seasonDrop', 'ads:autopilotResume', 'ads:proposals', 'ads:engine', 'ads:apply', 'ads:decide', 'ads:revert',
+  'ads:service', 'ads:sklik', 'ads:sklikOff', 'ads:ask', 'ads:seasons', 'ads:seasonPlan', 'ads:seasonDrop', 'ads:autopilotResume', 'ads:metaConnect', 'ads:metaUse', 'ads:metaOff', 'ads:proposals', 'ads:engine', 'ads:apply', 'ads:decide', 'ads:revert',
   'webtexts:state', 'webtexts:load', 'webtexts:save', 'webtexts:delete', 'webtexts:toggle',
   'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate', 'webtexts:href',
   'zk:prehled', 'zk:vrstvy', 'zk:kroky', 'zk:generuj-postavu', 'zk:generuj-vrstvu',

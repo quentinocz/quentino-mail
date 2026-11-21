@@ -523,6 +523,12 @@ for (const okno of OKNA) {
   await page.locator('.ad-tabs button', { hasText: 'Nastavení' }).click();
   say('Reklamy › Nastavení: sekce Sklik s tokenem jako heslo',
     await page.locator('.ad-sklik input[type="password"]').count() === 1);
+  await page.locator('.ad-meta button', { hasText: 'Změnit účet' }).click();
+  await page.waitForSelector('.ad-meta-accounts .ad-account', { timeout: 4000 }).catch(() => {});
+  say('Reklamy › Nastavení: Meta s tokenem jako heslo a výběrem reklamního účtu',
+    await page.locator('.ad-meta input[type="password"]').count() === 1 && await page.locator('.ad-meta-accounts .ad-account').count() === 2);
+  await page.locator('.ad-meta').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS, 'reklamy-meta.png') });
   say('  autopilot je zamčený a ukazuje, kolik chybí do odemčení',
     await page.locator('.ad-autopilot input[type="radio"]:disabled').count() === 1 && await page.locator('.ad-unlock-row').count() === 3);
   await page.locator('.ad-autopilot').scrollIntoViewIfNeeded();

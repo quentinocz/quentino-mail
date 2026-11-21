@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod,
   AdsGoogleCustomer, AdsConfig, AdsSystemTile, AdsProposals, AdsProposal, AdsChange, AdsGuards, AdsAccount,
-  AdsChatTurn, AdsSeasons, AdsSeasonPlan, AdsSeasonEvent
+  AdsChatTurn, AdsSeasons, AdsSeasonPlan, AdsSeasonEvent, AdsMetaAccount
 } from '@shared/ads';
 import { SEGMENT_LABELS, MARKET_LABELS, guessMarket } from '@shared/ads';
 import { api } from '../api';
@@ -30,7 +30,7 @@ type Tab = 'today' | 'campaigns' | 'products' | 'proposals' | 'seasons' | 'advis
 
 const SYSTEM_LABEL: Record<string, string> = { google: 'Google Ads', sklik: 'Sklik', meta: 'Meta' };
 const SYSTEM_SHORT: Record<string, string> = { google: 'G', sklik: 'S', meta: 'M' };
-const SYSTEM_PHASE: Record<string, string> = { sklik: 'připoj v Nastavení', meta: 'připojí se ve fázi 4' };
+const SYSTEM_PHASE: Record<string, string> = { sklik: 'připoj v Nastavení', meta: 'připoj v Nastavení' };
 
 const SEGMENT_ORDER: AdsSegment[] = ['hvezdy', 'pracanti', 'zrouti', 'spici', 'novinky', 'doprodej', 'vyprodano'];
 
@@ -200,7 +200,8 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const connected = !!status?.google.connected || (!!status?.sklik?.hasToken && !!status?.config.sklik.enabled);
+  const connected = !!status?.google.connected || (!!status?.sklik?.hasToken && !!status?.config.sklik.enabled)
+    || (!!status?.meta?.hasToken && !!status?.config.meta.enabled);
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -598,7 +599,7 @@ function StatusLine({ status }: { status: AdsStatus }) {
   const run = status.lastRun;
   return (
     <div className="ad-status">
-      <span className={`ad-dot ${status.google.lastError || status.sklik?.lastError ? 'bad' : run ? 'ok' : ''}`} />
+      <span className={`ad-dot ${status.google.lastError || status.sklik?.lastError || status.meta?.lastError ? 'bad' : run ? 'ok' : ''}`} />
       <span>
         <b>{status.autopilot?.active
           ? 'Autopilot v mezích — malé změny dělá sám v noci, každá jde vrátit.'
@@ -1113,9 +1114,13 @@ function TrackCard({ proposals }: { proposals: AdsProposals | null }) {
 /** Umí tenhle Mac operace zapsat (Google přihlášený, Sklik s tokenem)? Feed zvládne každý. */
 function canWriteHere(ops: AdsProposal['ops'], status: AdsStatus): boolean {
   const api = ops.filter(op => op.kind !== 'exclude' && op.kind !== 'exclude-remove');
-  const sklik = api.some(op => 'account' in op && op.account === 'sklik');
-  const google = api.some(op => !('account' in op && op.account === 'sklik'));
-  return (!sklik || (!!status.sklik?.hasToken && status.config.sklik.enabled)) && (!google || status.google.connected);
+  const acc = (op: AdsProposal['ops'][number]) => ('account' in op ? op.account ?? '' : '');
+  const sklik = api.some(op => acc(op) === 'sklik');
+  const meta = api.some(op => acc(op) === 'meta');
+  const google = api.some(op => acc(op) !== 'sklik' && acc(op) !== 'meta');
+  return (!sklik || (!!status.sklik?.hasToken && status.config.sklik.enabled))
+    && (!meta || (!!status.meta?.hasToken && status.config.meta.enabled))
+    && (!google || status.google.connected);
 }
 
 const fromAdvisor = (p: AdsProposal) => /\|(chat|plan)\|/.test(p.fingerprint);
@@ -1634,6 +1639,101 @@ function SklikSection({ status, onStatus, busy, setBusy }: {
   );
 }
 
+/**
+ * Meta: token systémového uživatele z Business Manageru, výběr reklamního
+ * účtu a jeho trhu. Token se uloží jen tehdy, když Meta vrátí účty.
+ */
+function MetaSection({ status, onStatus, busy, setBusy }: {
+  status: AdsStatus; onStatus: (s: AdsStatus) => void; busy: string; setBusy: (s: string) => void;
+}) {
+  const toast = useToast();
+  const cfg = status.config;
+  const [token, setToken] = useState('');
+  const [accounts, setAccounts] = useState<AdsMetaAccount[] | null>(null);
+  const [market, setMarket] = useState(cfg.meta.market || 'cz');
+  const has = !!status.meta?.hasToken;
+  const linked = has && cfg.meta.enabled && !!cfg.meta.accountId;
+
+  const load = async () => {
+    setBusy('meta');
+    try {
+      setAccounts(await api.ads.metaConnect(token));
+      setToken('');
+      onStatus(await api.ads.status());
+    } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(''); }
+  };
+  const use = async (a: AdsMetaAccount) => {
+    setBusy('meta');
+    try {
+      const res = await api.ads.metaUse(a, market);
+      onStatus(res.status);
+      setAccounts(null);
+      toast(`Meta připojena: ${res.message}`, 'info');
+    } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(''); }
+  };
+
+  return (
+    <section className="ad-card ad-set ad-meta">
+      <h3><span className="ad-badge meta">M</span> Meta (Facebook a Instagram)</h3>
+      {linked ? (
+        <p>Účet <b>{cfg.meta.name}</b> ({cfg.meta.accountId.replace('act_', '')} · {cfg.meta.currency} · {MARKET_LABELS[cfg.meta.market] ?? cfg.meta.market}).
+          {' '}Poslední stažení: {relTime(status.meta.lastFetch)}.</p>
+      ) : (
+        <p className="muted">
+          Reklamy na Facebooku a Instagramu se započítají do zisku po reklamě. Návrhy umí měnit <b>denní rozpočet kampaní</b>
+          s rozpočtem na kampani (Advantage+); kampaně s rozpočty po sadách reklam se jen čtou.
+        </p>
+      )}
+      {status.meta?.lastError && <div className="ad-alert bad ad-card">{status.meta.lastError}</div>}
+      {!has && (
+        <ol className="ad-steps">
+          <li>V Business Manageru otevři <b>Nastavení firmy → Uživatelé → Systémoví uživatelé</b>, přidej uživatele (role Správce)
+            a v <b>Přiřadit aktiva</b> mu dej reklamní účet s plnou kontrolou.</li>
+          <li><b>Vygenerovat token</b> — aplikace podle tvé volby, oprávnění <b>ads_read</b> a <b>ads_management</b>, platnost Nikdy.</li>
+          <li>Token vlož sem a dej <b>Načíst účty</b>. Je tajný jako heslo — uloží se zašifrovaně a na ostatní Macy ho přenese trezor.</li>
+        </ol>
+      )}
+      <div className="field">
+        <label>Token systémového uživatele {has && <small>(uložený — vyplň jen pro změnu)</small>}</label>
+        <input type="password" value={token} onChange={e => setToken(e.target.value)} autoComplete="off" />
+      </div>
+      <div className="ad-set-row">
+        <button className="btn primary" onClick={load} disabled={!!busy || (!token.trim() && !has)}>
+          {busy === 'meta' ? 'Načítám…' : linked ? 'Změnit účet' : 'Načíst účty'}
+        </button>
+        {linked && (
+          <label className="ad-check">
+            <input type="checkbox" checked={cfg.meta.enabled}
+              onChange={async e => { onStatus(await api.ads.config({ meta: { ...cfg.meta, enabled: e.target.checked } })); }} />
+            Stahovat Metu
+          </label>
+        )}
+        {has && <button className="btn ghost" onClick={async () => onStatus(await api.ads.metaOff())}>Odebrat token z tohoto Macu</button>}
+      </div>
+      {accounts && (
+        <div className="ad-meta-accounts">
+          <div className="ad-set-row">
+            <span className="muted small">Trh účtu:</span>
+            <select value={market} onChange={e => setMarket(e.target.value)}>
+              {(['cz', 'sk', 'en'] as const).map(m => <option key={m} value={m}>{MARKET_LABELS[m] ?? m}</option>)}
+            </select>
+          </div>
+          {accounts.length === 0 && <div className="muted small">Token nemá přístup k žádnému reklamnímu účtu — přiřaď ho systémovému uživateli.</div>}
+          {accounts.map(a => (
+            <div key={a.id} className="ad-account">
+              <div>
+                <b>{a.name}</b>
+                <div className="muted small">{a.id.replace('act_', '')} · {a.currency}{a.active ? '' : ' · neaktivní'}</div>
+              </div>
+              <button className="btn small" disabled={!!busy} onClick={() => void use(a)}>Použít</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Settings({ status, onStatus, busy, setBusy }: {
   status: AdsStatus; onStatus: (s: AdsStatus) => void; busy: string; setBusy: (s: string) => void;
 }) {
@@ -1795,6 +1895,7 @@ function Settings({ status, onStatus, busy, setBusy }: {
       </section>
 
       <SklikSection status={status} onStatus={onStatus} busy={busy} setBusy={setBusy} />
+      <MetaSection status={status} onStatus={onStatus} busy={busy} setBusy={setBusy} />
 
       <section className="ad-card ad-set">
         <h3>Cíl</h3>

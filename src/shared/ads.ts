@@ -105,6 +105,18 @@ export interface AdsConfig {
   autonomy: AdsAutonomy;
   /** Pojistky pro návrhy i autopilota */
   guards: AdsGuards;
+  /**
+   * Meta (Facebook a Instagram reklamy). Jeden reklamní účet, patří jednomu
+   * trhu; token systémového uživatele je v klíčence (a v trezoru).
+   */
+  meta: {
+    enabled: boolean;
+    /** act_… */
+    accountId: string;
+    name: string;
+    currency: string;
+    market: string;
+  };
   /** Co smí autopilot sám (sdílené mezi Macy, včetně zabrzdění) */
   autopilot: AdsAutopilotConfig;
   /**
@@ -287,6 +299,8 @@ export interface AdsChatTurn {
   notes?: string[];
 }
 
+export interface AdsMetaAccount { id: string; name: string; currency: string; active: boolean }
+
 export interface AdsChatReply {
   answer: string;
   proposals: AdsProposal[];
@@ -311,6 +325,11 @@ export interface AdsStatus {
   };
   sklik: {
     /** Je na tomhle Macu uložený API token */
+    hasToken: boolean;
+    lastFetch: string;
+    lastError: string;
+  };
+  meta: {
     hasToken: boolean;
     lastFetch: string;
     lastError: string;
@@ -488,6 +507,7 @@ export const DEFAULT_ADS_CONFIG: AdsConfig = {
   autonomy: 'suggest',
   guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
   sklik: { enabled: false, userId: '', name: 'Sklik' },
+  meta: { enabled: false, accountId: '', name: 'Meta', currency: 'CZK', market: 'cz' },
   autopilot: {
     kinds: ['budget-up', 'budget-down', 'negatives', 'exclude'], maxPerNight: 3, minConfidence: 2,
     seasonPlans: true, pausedAt: '', pausedReason: ''

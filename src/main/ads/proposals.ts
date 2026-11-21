@@ -31,6 +31,7 @@ import type {
 import type { ProposalDraft } from './engine';
 import * as google from './google';
 import * as sklik from './sklik';
+import * as meta from './meta';
 import { shiftDay, localDay } from './economics';
 import { accountInfo } from './store';
 
@@ -313,6 +314,21 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
     }
   }
   ops = ops.filter(op => !isSklik(op));
+
+  // Meta: taky jen denní rozpočty, v měně účtu (op je v korunách)
+  const isMeta = (op: AdsOp) => 'account' in op && op.account === 'meta';
+  const metaOps = ops.filter(isMeta);
+  const metaRate = rateOf(cfg, accountInfo(cfg, 'meta'));
+  for (const op of metaOps) {
+    if (op.kind !== 'budget') throw new Error('V Metě umí aplikace měnit jen denní rozpočet kampaně.');
+    const now = await meta.metaBudgetNow(op.campaignId);
+    const current = now != null ? now * metaRate : null;
+    if (current == null || Math.abs(current - op.from) > Math.max(1, op.from * 0.01)) {
+      throw new StaleError(`Rozpočet v Metě je teď ${current == null ? 'nastavený po sadách reklam' : `${Math.round(current)} Kč`}, `
+        + `návrh počítal s ${Math.round(op.from)} Kč — někdo ho mezitím změnil.`);
+    }
+  }
+  ops = ops.filter(op => !isMeta(op));
   for (const op of ops) {
     if (op.kind !== 'budget' && op.kind !== 'troas') continue;
     const account = accountOfOp(cfg, op);
@@ -353,6 +369,11 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
     await sklik.sklikSetBudget(op.campaignId, op.to, cfg.sklik.userId);
     undo.push({ ...op, from: op.to, to: op.from });
   }
+  for (const op of metaOps) {
+    if (op.kind !== 'budget') continue;
+    await meta.metaSetBudget(op.campaignId, op.to / metaRate);
+    undo.push({ ...op, from: op.to, to: op.from });
+  }
   for (const g of groups.values()) {
     const result = await google.mutate(cfg, g.service as any, g.items.map(x => x.mutation), false, g.account);
     if (result.partial) notes.push(result.partial);
@@ -378,11 +399,14 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
 function canWrite(cfg: AdsConfig, ops?: AdsOp[]): boolean {
   const googleOk = google.googleSecrets().connected && cfg.google.accounts.some(one => one.enabled);
   const sklikOk = cfg.sklik.enabled && !!sklik.sklikToken();
-  if (!ops) return googleOk || sklikOk;
+  const metaOk = cfg.meta.enabled && !!cfg.meta.accountId && !!meta.metaToken();
+  if (!ops) return googleOk || sklikOk || metaOk;
   const api = ops.filter(op => op.kind !== 'exclude' && op.kind !== 'exclude-remove');
-  const needSklik = api.some(op => 'account' in op && op.account === 'sklik');
-  const needGoogle = api.some(op => !('account' in op && op.account === 'sklik'));
-  return (!needSklik || sklikOk) && (!needGoogle || googleOk);
+  const acc = (op: AdsOp) => ('account' in op ? op.account ?? '' : '');
+  const needSklik = api.some(op => acc(op) === 'sklik');
+  const needMeta = api.some(op => acc(op) === 'meta');
+  const needGoogle = api.some(op => acc(op) !== 'sklik' && acc(op) !== 'meta');
+  return (!needSklik || sklikOk) && (!needMeta || metaOk) && (!needGoogle || googleOk);
 }
 
 /**
@@ -442,9 +466,9 @@ export async function revertChange(
   if (change.revertedAt) throw new Error('Tahle změna už je vrácená.');
   if (change.revertOf) throw new Error('Vrácení se nevrací — udělej nový návrh.');
   if (!canWrite(cfg, change.undo)) {
-    throw new Error(change.system === 'sklik'
-      ? 'Vrátit jde jen na Macu s uloženým tokenem Skliku.'
-      : 'Vrátit jde jen na Macu přihlášeném ke Google Ads.');
+    throw new Error(change.system === 'sklik' ? 'Vrátit jde jen na Macu s uloženým tokenem Skliku.'
+      : change.system === 'meta' ? 'Vrátit jde jen na Macu s uloženým tokenem Meta.'
+        : 'Vrátit jde jen na Macu přihlášeném ke Google Ads.');
   }
   const { undo } = await execute(cfg, change.undo);
   const at = new Date().toISOString();

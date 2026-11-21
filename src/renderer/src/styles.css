@@ -11267,6 +11267,8 @@ button.ad-seg.on { border-color: currentColor; }
 .ad-unlock-row i { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--ok); max-width: 100%; display: block; }
 .ad-unlock-row i.low { background: #d99a1b; }
 .ad-autopilot .ad-inline input { width: 56px; }
+.ad-meta-accounts { display: flex; flex-direction: column; gap: 6px; }
+.ad-meta-accounts .ad-account > div { flex: 1; min-width: 0; }
 
 @media (max-width: 1100px) {
   .ad-today { grid-template-columns: minmax(0, 1fr); }

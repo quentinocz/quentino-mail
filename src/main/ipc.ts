@@ -743,6 +743,9 @@ export function registerIpc() {
   handle('ads:fetch', (days?: number) => ads.fetchAll(days ? Number(days) : undefined));
   handle('ads:sklik', (token: string, userId: string) => ads.connectSklik(String(token ?? ''), String(userId ?? '')));
   handle('ads:sklikOff', () => ads.disconnectSklik());
+  handle('ads:metaConnect', (token: string) => ads.metaConnect(String(token ?? '')));
+  handle('ads:metaUse', (account: any, market: string) => ads.metaUse(account, String(market || 'cz')));
+  handle('ads:metaOff', () => ads.disconnectMeta());
   handle('ads:autopilotResume', () => ads.resumeAutopilot());
   handle('ads:seasons', (market?: string) => ads.seasons(String(market || 'all')));
   handle('ads:seasonPlan', (eventId: string, save?: boolean, market?: string) =>
