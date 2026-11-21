@@ -726,12 +726,16 @@
         markets: ['cz', 'sk'], shipping: [], defaultShipCost: 79, fallbackMargin: 0.6, autonomy: 'suggest',
         guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
         sklik: { enabled: true, userId: '', name: 'Sklik' },
+        autopilot: { kinds: ['budget-up', 'budget-down', 'negatives', 'exclude'], maxPerNight: 3, minConfidence: 2,
+          seasonPlans: true, pausedAt: '', pausedReason: '' },
         google: { accounts: [
             { id: '1234567890', name: 'Quentino CZ', currency: 'CZK', market: 'cz', enabled: true },
             { id: '2345678901', name: 'Quentino SK', currency: 'EUR', market: 'sk', enabled: true }],
           customerId: '', customerName: '', loginCustomerId: '', clientId: 'x.apps.googleusercontent.com',
           apiVersion: 'v26', currency: 'CZK' }, feedToken: 'a1b2c3', updatedAt: '2026-11-19T10:00:00Z' },
       google: { connected: true, hasSecret: true, service: 'reklamy@quentino.iam.gserviceaccount.com', accountErrors: {}, account: 'Quentino CZ, Quentino SK', lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
+      autopilot: { eligible: false, missing: ['ještě 16 dní návrhů (4 týdny)', 'ještě 6 vyhodnocených změn (aspoň 10)'],
+        daysOfProposals: 12, evaluated: 4, better: 3, active: false, lastRun: null },
       sklik: { hasToken: true, lastFetch: new Date(Date.now() - 5 * 3600e3).toISOString(), lastError: '' },
       lastRun: { day: '2026-11-20', device: 'MacBook Patrik (1a2b3c4d)', finishedAt: new Date(Date.now() - 5 * 3600e3).toISOString(), result: '6 kampaní', error: '' },
       shared: true,
@@ -803,6 +807,43 @@
         counts: { hvezdy: 38, pracanti: 214, zrouti: 12, spici: 611, novinky: 27, doprodej: 44, vyprodano: 429 },
         unmatched: [{ itemId: 'ps99old', cost: 120 }] };
     })(),
+    'ads:seasons': (function () {
+      var idx = [];
+      for (var w = 0; w < 53; w++) {
+        var v = 1 + 0.15 * Math.sin(w / 4) + (w >= 4 && w <= 7 ? 0.35 : 0) + (w >= 46 && w <= 50 ? 0.5 + (w - 46) * 0.15 : 0) - (w >= 28 && w <= 32 ? 0.3 : 0);
+        idx.push(Math.round(v * 100) / 100);
+      }
+      var kat = idx.map(function (v, w) { return Math.round((v + (w >= 18 && w <= 37 ? 0.3 : -0.1)) * 100) / 100; });
+      return {
+        today: '2026-11-21', index: idx, weeks: 104, years: [2024, 2025],
+        categories: [{ name: 'Kšandy', index: kat }, { name: 'Motýlky', index: idx }],
+        events: [
+          { id: 'black-friday-2026', name: 'Black Friday', start: '2026-11-20', peak: '2026-11-27', end: '2026-11-30',
+            note: 'Čtvrtý pátek v listopadu až Cyber Monday. Lidé srovnávají ceny — pomáhá sleva v reklamě i na webu.',
+            uplift: 1.42, fromHistory: true, planned: 0, running: true },
+          { id: 'vanoce-2026', name: 'Vánoce', start: '2026-11-28', peak: '2026-12-12', end: '2026-12-19',
+            note: 'Nejsilnější období roku. Po 19. 12. už většina zásilek pod stromeček nedojde — rozpočty dolů.',
+            uplift: 1.78, fromHistory: true, planned: 6, running: false },
+          { id: 'plesy-2027', name: 'Plesová sezóna', start: '2027-01-05', peak: '2027-01-31', end: '2027-02-25',
+            note: 'Motýlky, kšandy a kapesníčky k obleku. Nejvíc se nakupuje týden až dva před plesem.',
+            uplift: 1.31, fromHistory: true, planned: 0, running: false },
+          { id: 'valentyn-2027', name: 'Valentýn', start: '2027-02-01', peak: '2027-02-10', end: '2027-02-12',
+            note: 'Dárky pro muže. Po 11. 2. už zásilka do 14. 2. nemusí dojít — rozpočet se pak vrací.',
+            uplift: 1.3, fromHistory: false, planned: 0, running: false }
+        ]
+      };
+    })(),
+    'ads:seasonPlan': {
+      eventId: 'plesy-2027', uplift: 1.31, saved: 0,
+      steps: [
+        { date: '2026-12-28', kind: 'budget-up', system: 'google', title: 'Plesová sezóna: přidat rozpočet PMax – celý katalog CZ 1 100 Kč → 1 320 Kč denně (od 28. 12.)', plain: '' },
+        { date: '2027-01-01', kind: 'budget-up', system: 'google', title: 'Plesová sezóna: přidat rozpočet PMax – celý katalog CZ 1 320 Kč → 1 441 Kč denně (od 1. 1.)', plain: '' },
+        { date: '2027-01-05', kind: 'budget-up', system: 'sklik', title: 'Plesová sezóna: přidat rozpočet Zboží.cz – celý katalog 220 Kč → 264 Kč denně (od 5. 1.)', plain: '' },
+        { date: '2027-02-26', kind: 'budget-down', system: 'google', title: 'Plesová sezóna: ubrat rozpočet PMax – celý katalog CZ 1 441 Kč → 1 153 Kč denně (od 26. 2.)', plain: '' }
+      ],
+      notes: ['„Nákupy – Ponožky" teď nedrží cíl (PNO 72,2 % při cíli 15 %) — v sezóně by prodělala víc.']
+    },
+    'ads:seasonDrop': 6,
     'ads:ask': {
       answer: 'Za posledních 30 dní je **zisk po reklamě 48 %** z obratu — cíl je 50 %, chybí tedy zhruba 10 000 Kč.\n\n'
         + 'Kde to brzdí:\n- **Nákupy – Ponožky** utrácí 72 Kč ze 100 Kč tržby, ale na ponožkách vyděláme jen 55 Kč.\n'

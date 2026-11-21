@@ -180,7 +180,7 @@ export function saveGenerated(drafts: ProposalDraft[], system: AdsSystem = 'goog
     const open = d.prepare("SELECT * FROM ads_proposals WHERE status = 'open' AND system = ?").all(system) as any[];
     for (const row of open) {
       // Návrhy z poradce engine nevyrábí — zastarat by tedy neměly jen proto, že je nový běh nezopakoval
-      if (seen.has(row.fingerprint) || String(row.fingerprint).includes('|chat|')) continue;
+      if (seen.has(row.fingerprint) || /\|(chat|plan)\|/.test(String(row.fingerprint))) continue;
       writeProposal({ ...toProposal(row), status: 'stale', error: 'Podmínky se změnily — návrh už neplatí.', updatedAt: at });
     }
   })();
@@ -213,6 +213,38 @@ export function saveChat(drafts: (ProposalDraft & { system: AdsSystem; notBefore
   return out;
 }
 
+/**
+ * Zruší dosavadní kroky sezónního plánu události (čekající i naplánované),
+ * aby nový plán nezdvojil kroky starého. Provedené změny zůstávají.
+ */
+export function dropPlan(eventId: string): number {
+  const rows = getDb().prepare(
+    "SELECT * FROM ads_proposals WHERE status IN ('open','snoozed','failed','stale') AND fingerprint LIKE ?"
+  ).all(`%|plan|${eventId}|%`) as any[];
+  const at = new Date().toISOString();
+  for (const row of rows) {
+    writeProposal({ ...toProposal(row), status: 'dismissed', error: 'Nahrazeno novým plánem.', updatedAt: at, decidedBy: deviceLabel() });
+  }
+  if (rows.length) shareSoon();
+  return rows.length;
+}
+
+/** Kolik kroků plánu události ještě čeká (naplánované, otevřené, schválené) */
+export function planCount(eventId: string): number {
+  return Number((getDb().prepare(
+    "SELECT COUNT(*) AS n FROM ads_proposals WHERE status IN ('open','snoozed','approved') AND fingerprint LIKE ?"
+  ).get(`%|plan|${eventId}|%`) as any)?.n ?? 0);
+}
+
+/**
+ * Dá se s návrhem teď něco dělat? Otevřený, nepovedený, nebo odložený,
+ * jehož den už přišel — v okně je mezi otevřenými (krok sezónního plánu,
+ * „Odložit" po týdnu) a Použít na něm musí fungovat.
+ */
+function actionable(p: AdsProposal, today = localDay()): boolean {
+  return p.status === 'open' || p.status === 'failed' || (p.status === 'snoozed' && p.snoozeUntil <= today);
+}
+
 /* ---------- rozhodnutí ---------- */
 
 export type Decision = 'approve' | 'dismiss' | 'snooze' | 'never' | 'reopen';
@@ -224,7 +256,7 @@ export function decide(id: string, decision: Decision): AdsProposal {
   const status: Record<Decision, AdsProposalStatus> = {
     approve: 'approved', dismiss: 'dismissed', snooze: 'snoozed', never: 'never', reopen: 'open'
   };
-  if (decision === 'approve' && !['open', 'failed'].includes(p.status)) {
+  if (decision === 'approve' && !actionable(p)) {
     throw new Error('Tenhle návrh už není otevřený.');
   }
   const next: AdsProposal = {
@@ -358,22 +390,23 @@ function canWrite(cfg: AdsConfig, ops?: AdsOp[]): boolean {
  * a provede ho přihlášený Mac při další kontrole.
  */
 export async function applyProposal(
-  cfg: AdsConfig, id: string, afterFeed: () => Promise<unknown>
+  cfg: AdsConfig, id: string, afterFeed: () => Promise<unknown>, by = ''
 ): Promise<AdsProposal> {
   const p = getProposal(id);
   if (!p) throw new Error('Návrh nenalezen.');
-  if (!['open', 'approved', 'failed'].includes(p.status)) throw new Error('Tenhle návrh už není otevřený.');
+  if (p.status !== 'approved' && !actionable(p)) throw new Error('Tenhle návrh už není otevřený.');
   if (!canWrite(cfg, p.ops)) {
     return decide(id, 'approve');
   }
+  const who = by || deviceLabel();
   const at = new Date().toISOString();
   try {
     const { undo, note } = await execute(cfg, p.ops);
     writeChange({
       id: idOf(`${p.id}|${at}|${deviceId()}`), proposalId: p.id, revertOf: '', kind: p.kind, system: p.system,
-      targetId: p.targetId, targetName: p.targetName, title: p.title, ops: p.ops, undo, at, device: deviceLabel()
+      targetId: p.targetId, targetName: p.targetName, title: p.title, ops: p.ops, undo, at, device: who
     });
-    const done: AdsProposal = { ...p, status: 'applied', updatedAt: at, decidedBy: deviceLabel(), error: note };
+    const done: AdsProposal = { ...p, status: 'applied', updatedAt: at, decidedBy: who, error: note };
     writeProposal(done);
     if (p.ops.some(op => op.kind === 'exclude')) await afterFeed().catch(() => {});
     shareSoon();
@@ -467,7 +500,7 @@ export function proposalsView(money: EvalMoney): AdsProposals {
   const open = rows.filter(p => p.status === 'open' || (p.status === 'snoozed' && p.snoozeUntil <= today)
     || p.status === 'failed');
   // Kroky plánu z poradce, které čekají na svůj den — zvlášť, ať je nevytlačí historie
-  const planned = rows.filter(p => p.status === 'snoozed' && p.snoozeUntil > today && p.fingerprint.includes('|chat|'))
+  const planned = rows.filter(p => p.status === 'snoozed' && p.snoozeUntil > today && /\|(chat|plan)\|/.test(p.fingerprint))
     .sort((a, b) => a.snoozeUntil.localeCompare(b.snoozeUntil));
   const decided = rows
     .filter(p => !open.includes(p) && !planned.includes(p) && p.status !== 'approved')

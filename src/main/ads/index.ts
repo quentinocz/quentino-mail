@@ -18,7 +18,7 @@ import type { ShopOrder } from '../../shared/types';
 import {
   AdsConfig, AdsStatus, AdsOverview, AdsSystemTile, AdsAlert, AdsDay, AdsCampaignRow,
   AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod, AdsGoogleCustomer, AdsProposals, AdsChange,
-  AdsProposal, AdsAccount, AdsChatTurn, AdsChatReply
+  AdsProposal, AdsAccount, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan, AdsAutopilotState
 } from '../../shared/ads';
 import {
   orderMoney, marginTable, productMargin, targetPno, shiftDay, localDay, PriceInfo, OrderMoney
@@ -29,6 +29,8 @@ import * as sklik from './sklik';
 import { generate, vocabularyOf, EngineCampaign } from './engine';
 import * as prop from './proposals';
 import * as chat from './chat';
+import * as seas from './seasons';
+import * as auto from './autopilot';
 import { ask } from '../ai';
 import { getSettings } from '../settings';
 import {
@@ -310,6 +312,10 @@ function alerts(
   const out: AdsAlert[] = [];
   const g = google.googleSecrets();
   const anyAds = ads.length > 0;
+
+  if (cfg.autonomy === 'guarded' && cfg.autopilot.pausedAt) {
+    out.push({ level: 'bad', title: 'Autopilot se zabrzdil', text: `${cfg.autopilot.pausedReason} Znovu ho pustíš v Nastavení.` });
+  }
 
   if (!anyAds) {
     out.push(g.connected
@@ -812,7 +818,8 @@ export function proposals(): AdsProposals {
   const catalog = loadCatalog(cfg);
   const { from, to } = period(30);
   const margins = marginsByMarket(cfg, ordersBetween(cfg, catalog, from, to, 'all'));
-  const accountOf = new Map((getDb().prepare("SELECT id, account FROM ads_campaigns WHERE system = 'google'")
+  // Všechny systémy — Sklik má účet 'sklik' (ID kampaní se mezi systémy nepotkají: Google má delší)
+  const accountOf = new Map((getDb().prepare('SELECT id, account FROM ads_campaigns')
     .all() as any[]).map(r => [String(r.id), String(r.account ?? '')]));
   return prop.proposalsView(campaignId => {
     const acc: AdsAccount = accountInfo(cfg, accountOf.get(campaignId) ?? '');
@@ -825,6 +832,56 @@ export function proposals(): AdsProposals {
 }
 
 const feedAfter = async () => { if (webStorage().key) await publishFeed(); };
+
+/* ---------- autopilot ---------- */
+
+function firstProposalAt(): string {
+  return String((getDb().prepare('SELECT MIN(created_at) AS at FROM ads_proposals').get() as any)?.at ?? '');
+}
+
+function autopilotLast(): { at: string; applied: string[] } | null {
+  try { return JSON.parse(getSetting('adsAutopilotLast', '') || 'null'); } catch { return null; }
+}
+
+export function autopilotState(view = proposals()): AdsAutopilotState {
+  return auto.autopilotState(getAdsConfig(), view.changes, firstProposalAt(), localDay(), autopilotLast());
+}
+
+/**
+ * Noční kolo autopilota (po stažení dat a přepočtu návrhů). Nejdřív
+ * brzda, pak nejvýš pár návrhů podle odhadu. Vrací krátký výsledek do
+ * záznamu nočního běhu (ten vidí všechny Macy).
+ */
+export async function autopilotNight(): Promise<string> {
+  const cfg = getAdsConfig();
+  const view = proposals();
+  const state = auto.autopilotState(cfg, view.changes, firstProposalAt(), localDay(), autopilotLast());
+  if (!state.active) return '';
+  const reason = auto.brake(view.changes);
+  if (reason) {
+    saveAdsConfig({ autopilot: { ...cfg.autopilot, pausedAt: new Date().toISOString(), pausedReason: reason } });
+    emit();
+    return 'autopilot se zabrzdil';
+  }
+  const applied: string[] = [];
+  for (const p of auto.pick(cfg, view.open)) {
+    try {
+      const done = await prop.applyProposal(cfg, p.id, feedAfter, `${auto.AUTOPILOT_PREFIX} · ${deviceLabel()}`);
+      if (done.status === 'applied' || done.status === 'approved') applied.push(p.title);
+    } catch { /* stav (zastaralé, chyba) je u návrhu */ }
+  }
+  setSetting('adsAutopilotLast', JSON.stringify({ at: new Date().toISOString(), applied }));
+  if (applied.length) emit();
+  return applied.length ? `autopilot: ${applied.length} změn` : 'autopilot: nic k použití';
+}
+
+/** Pustit zabrzděného autopilota znovu */
+export function resumeAutopilot(): AdsStatus {
+  const cfg = getAdsConfig();
+  saveAdsConfig({ autopilot: { ...cfg.autopilot, pausedAt: '', pausedReason: '' } });
+  emit();
+  return status();
+}
 
 export async function applyProposal(id: string): Promise<AdsProposal> {
   const result = await prop.applyProposal(getAdsConfig(), id, feedAfter);
@@ -938,6 +995,12 @@ export async function tick(): Promise<void> {
       } catch (err: any) {
         mark.result += `, návrhy: ${err?.message ?? err}`;
       }
+      try {
+        const ap = await autopilotNight();
+        if (ap) mark.result += `, ${ap}`;
+      } catch (err: any) {
+        mark.result += `, autopilot: ${err?.message ?? err}`;
+      }
       if (webStorage().key) {
         try { await publishFeed(); mark.result += ', feed vystaven'; } catch (err: any) {
           mark.result += `, feed: ${err?.message ?? err}`;
@@ -952,6 +1015,98 @@ export async function tick(): Promise<void> {
   } finally {
     nightly = false;
   }
+}
+
+/* ---------- sezóny ---------- */
+
+/** Hlavní kategorie z cesty v katalogu („Kšandy > Široké" → „Kšandy") */
+const topCategory = (category: string) => String(category ?? '').split(/\s*[>|/]\s*/)[0].trim() || 'Ostatní';
+
+/**
+ * Denní tržby (bez DPH) ze všech objednávek — celkem a po hlavních
+ * kategoriích. Bere se celá historie, kterou aplikace má: sezónní index
+ * chce aspoň rok, nejlépe víc.
+ */
+function dailySales(cfg: AdsConfig, catalog: Catalog, scope: string): { total: Map<string, number>; byCategory: Map<string, Map<string, number>> } {
+  const categoryOf = new Map(catalog.products.map(p => [p.code, topCategory(p.category)]));
+  const total = new Map<string, number>();
+  const byCategory = new Map<string, Map<string, number>>();
+  for (const o of ordersBetween(cfg, catalog, '2000-01-01', localDay(), scope)) {
+    total.set(o.date, (total.get(o.date) ?? 0) + o.revenue);
+    for (const line of o.lines) {
+      const cat = categoryOf.get(line.product) ?? 'Ostatní';
+      const map = byCategory.get(cat) ?? new Map<string, number>();
+      map.set(o.date, (map.get(o.date) ?? 0) + line.revenue);
+      byCategory.set(cat, map);
+    }
+  }
+  return { total, byCategory };
+}
+
+function seasonIndexOf(cfg: AdsConfig, catalog: Catalog, scope: string) {
+  const today = localDay();
+  const sales = dailySales(cfg, catalog, scope);
+  return { today, sales, idx: seas.seasonIndex(sales.total, today) };
+}
+
+export function seasons(scope = 'all'): AdsSeasons {
+  const cfg = getAdsConfig();
+  const catalog = loadCatalog(cfg);
+  const { today, sales, idx } = seasonIndexOf(cfg, catalog, scope);
+  // Kategorie s největší tržbou — víc jich graf nepřehledně zahltí
+  const top = [...sales.byCategory.entries()]
+    .map(([name, map]) => ({ name, map, sum: [...map.values()].reduce((s, v) => s + v, 0) }))
+    .sort((a, b) => b.sum - a.sum).slice(0, 6);
+  return {
+    today,
+    index: idx.index,
+    categories: top.map(c => ({ name: c.name, index: seas.seasonIndex(c.map, today).index })),
+    weeks: idx.weeks,
+    years: idx.years,
+    events: seas.eventsView(idx, today).map(e => ({ ...e, planned: prop.planCount(e.id) }))
+  };
+}
+
+/**
+ * Plán rozpočtů na událost. Bez `save` jen náhled; s ním se dosavadní
+ * kroky téže události zruší a nové se uloží jako naplánované návrhy.
+ */
+export function seasonPlan(eventId: string, save = false, scope = 'all'): AdsSeasonPlan {
+  const cfg = getAdsConfig();
+  migrateItems(cfg);
+  const catalog = loadCatalog(cfg);
+  const { today, idx } = seasonIndexOf(cfg, catalog, scope);
+  const meta = new Map((getDb().prepare(
+    'SELECT system, id, budget_id, budget_shared FROM ads_campaigns'
+  ).all() as any[]).map(r => [`${r.system}|${r.id}`, r]));
+  const list: seas.PlanCampaign[] = campaigns(30, scope)
+    .filter(c => c.system === 'google' || c.system === 'sklik')
+    .map(c => {
+      const m = meta.get(`${c.system}|${c.id}`);
+      return {
+        system: c.system as 'google' | 'sklik', id: c.id, account: c.account, market: c.market, name: c.name,
+        status: c.status, budget: c.budget, budgetId: String(m?.budget_id ?? ''), budgetShared: !!m?.budget_shared,
+        pno: c.pno, targetPno: c.targetPno, conversions: c.conversions
+      };
+    });
+  const plan = seas.planEvent(cfg, eventId, list, idx, today);
+  let saved = 0;
+  if (save) {
+    prop.dropPlan(eventId);
+    saved = prop.saveChat(plan.drafts).length;
+    emit({ proposals: saved });
+  }
+  return {
+    eventId, uplift: plan.uplift, notes: plan.notes, saved,
+    steps: plan.drafts.map(d => ({ date: d.notBefore, title: d.title, plain: d.plain, system: d.system, kind: d.kind }))
+  };
+}
+
+/** Zruší naplánované kroky události */
+export function dropSeasonPlan(eventId: string): number {
+  const n = prop.dropPlan(eventId);
+  emit();
+  return n;
 }
 
 /* ---------- poradce ---------- */
@@ -988,7 +1143,13 @@ export async function askAdvisor(history: AdsChatTurn[], question: string, scope
     vocabulary: vocabularyOf(catalog.products.map(p => p.title)),
     margins: Object.fromEntries([...margins].map(([m, v]) => [m, Math.round(v * 1000) / 1000])),
     monthSpend: campaignDays(cfg, monthStart, today, 'all').reduce((s, r) => s + r.cost, 0),
-    daysLeft: lastDay - Number(today.slice(8, 10)) + 1
+    daysLeft: lastDay - Number(today.slice(8, 10)) + 1,
+    seasons: (() => {
+      try {
+        const { idx } = seasonIndexOf(cfg, catalog, scope);
+        return seas.eventsView(idx, today).slice(0, 6);
+      } catch { return []; }
+    })()
   };
   const s = getSettings();
   const text = await ask(s.insightModel || s.draftModel, chat.SYSTEM,
@@ -1009,6 +1170,7 @@ export function status(): AdsStatus {
   const catalog = loadCatalog(cfg);
   return {
     config: cfg,
+    autopilot: autopilotState(),
     google: {
       connected: g.connected,
       hasSecret: g.hasSecret,
@@ -1032,6 +1194,10 @@ export function status(): AdsStatus {
 }
 
 export function saveConfig(patch: Partial<AdsConfig>): AdsStatus {
+  if (patch.autonomy === 'guarded' && getAdsConfig().autonomy !== 'guarded') {
+    const state = autopilotState();
+    if (!state.eligible) throw new Error(`Autopilot ještě nejde zapnout: ${state.missing.join(', ')}.`);
+  }
   saveAdsConfig(patch);
   emit();
   return status();

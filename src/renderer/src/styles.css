@@ -11226,6 +11226,48 @@ button.ad-seg.on { border-color: currentColor; }
   border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); box-sizing: border-box; }
 .ad-chat-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
+/* Sezóny: index po týdnech roku, pásy událostí, karty s plánem */
+.ad-seasons { display: flex; flex-direction: column; gap: 12px; }
+.ad-season-box { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.ad-season-box .ad-prop-head { margin: 0; }
+.ad-season-chart { position: relative; }
+.ad-season-chart svg { width: 100%; height: 140px; display: block; }
+.ad-season-chart .bar { fill: rgba(124, 92, 255, .35); }
+.ad-season-chart .bar.hi { fill: rgba(47, 158, 110, .65); }
+.ad-season-chart .bar.lo { fill: rgba(229, 72, 77, .35); }
+.ad-season-chart .band { fill: rgba(217, 154, 27, .12); }
+.ad-season-chart .avg { stroke: var(--text-3); stroke-width: .3; stroke-dasharray: 1 1; vector-effect: non-scaling-stroke; }
+.ad-season-chart .today { stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.ad-season-hover { position: absolute; inset: 0 0 18px; display: flex; }
+.ad-season-hover span { flex: 1; }
+.ad-season-hover span:hover { background: rgba(124, 92, 255, .08); }
+.ad-season-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-top: 4px; }
+.ad-season-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-2); }
+.ad-season-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ad-sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.ad-sw.hi { background: rgba(47, 158, 110, .65); }
+.ad-sw.lo { background: rgba(229, 72, 77, .35); }
+.ad-sw.band { background: rgba(217, 154, 27, .25); }
+.ad-sw.today { background: var(--accent); width: 3px; }
+.ad-season-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.ad-season { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.ad-season.running { border-color: rgba(217, 154, 27, .6); }
+.ad-season-name { font-size: 14px; }
+.ad-season-plan { border-top: 1px solid var(--border); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.ad-season-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ad-season-steps li { display: flex; align-items: center; gap: 6px; }
+.ad-season-steps li.up .ad-chip { background: rgba(47, 158, 110, .13); color: var(--ok); }
+.ad-season-steps li.down .ad-chip { background: rgba(229, 72, 77, .1); color: var(--danger); }
+
+/* Autopilot: postup k odemčení a co smí sám */
+.ad-wrap { flex-wrap: wrap; }
+.ad-autopilot .ad-alert .btn { align-self: flex-start; margin-top: 4px; }
+.ad-unlock { display: flex; flex-direction: column; gap: 6px; }
+.ad-unlock-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 12.5px; }
+.ad-unlock-row i { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--ok); max-width: 100%; display: block; }
+.ad-unlock-row i.low { background: #d99a1b; }
+.ad-autopilot .ad-inline input { width: 56px; }
+
 @media (max-width: 1100px) {
   .ad-today { grid-template-columns: minmax(0, 1fr); }
   .ad-proposals { grid-template-columns: minmax(0, 1fr); }

@@ -78,6 +78,19 @@ export const ADS: HelpTopic = {
       ]
     },
     {
+      title: 'Připravit rozpočty na sezónu',
+      when: 'Pár týdnů před Vánoci, Valentýnem, plesy nebo Dnem otců.',
+      steps: [
+        { text: 'Otevři záložku [Sezóny]. Graf ukazuje, ve kterých týdnech roku se z vašich objednávek prodává víc '
+            + '(zeleně) a míň (červeně) než v průměrném týdnu; jde přepnout i na hlavní kategorie.', area: 'tabs' },
+        { text: 'U události klikni na [Navrhnout plán]. Aplikace navrhne kroky: rozpočet **ziskových** kampaní nahoru '
+            + 'po malých krocích do začátku události a po konci zpátky. Kampaně, které nedrží cíl, vynechá a řekne proč.', area: 'tabs' },
+        { text: '[Uložit do Návrhů] uloží kroky jako naplánované — každý se v Návrzích nabídne ke schválení ve svůj den.', area: 'tabs' },
+        { text: 'Bez roku objednávek se navýšení odhaduje (u události je „odhad"); s historií se počítá z toho, '
+            + 'o kolik víc se v tom období prodávalo proti posledním týdnům.', area: 'tabs' }
+      ]
+    },
+    {
       title: 'Zeptat se poradce a naplánovat sezónu',
       when: 'Když chceš vědět proč, nebo co udělat — třeba před Vánoci.',
       steps: [
@@ -88,6 +101,19 @@ export const ADS: HelpTopic = {
         { text: 'Plán (třeba „přidat 1. 12., ubrat 27. 12.") vznikne jako **naplánované kroky**: v Návrzích čekají '
             + 'pod sebou s datem a ve svůj den se nabídnou k použití.', area: 'tabs' },
         { text: 'Poradce dodržuje pojistky: velkou změnu rozdělí do víc kroků a pod odpovědí napíše, co a proč neprošlo.', area: 'tabs' }
+      ]
+    },
+    {
+      title: 'Autopilot v mezích',
+      when: 'Po čtyřech týdnech návrhů, když se ukáže, že fungují.',
+      steps: [
+        { text: 'V [Nastavení] v sekci **Samostatnost** je vidět, kolik chybí do odemčení: 4 týdny návrhů, aspoň '
+            + '10 vyhodnocených změn a aspoň 70 % z nich vyšlo.', area: 'tabs' },
+        { text: 'Po odemčení přepni na **Autopilot v mezích** a zaškrtni, co smí sám (výchozí rozpočty, vylučující slova '
+            + 'a vyřazení žroutů). Každou noc použije nejvýš pár návrhů s dost daty a kladným odhadem.', area: 'tabs' },
+        { text: 'Jeho změny jsou v Historii změn podepsané „Autopilot" a jdou vrátit jako každé jiné.', area: 'tabs' },
+        { text: 'Když ze tří jeho posledních změn vyjdou dvě hůř, sám se zabrzdí a v Dnes se objeví červené upozornění. '
+            + 'Pustíš ho znovu tlačítkem [Pustit znovu].', area: 'side' }
       ]
     },
     {

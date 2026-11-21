@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod,
   AdsGoogleCustomer, AdsConfig, AdsSystemTile, AdsProposals, AdsProposal, AdsChange, AdsGuards, AdsAccount,
-  AdsChatTurn
+  AdsChatTurn, AdsSeasons, AdsSeasonPlan, AdsSeasonEvent
 } from '@shared/ads';
 import { SEGMENT_LABELS, MARKET_LABELS, guessMarket } from '@shared/ads';
 import { api } from '../api';
@@ -26,7 +26,7 @@ import { ADS_TERMS, SEGMENT_HELP } from '../adsTerms';
  * tom, co se ukáže, že odhady návrhů vycházejí.
  */
 
-type Tab = 'today' | 'campaigns' | 'products' | 'proposals' | 'advisor' | 'settings';
+type Tab = 'today' | 'campaigns' | 'products' | 'proposals' | 'seasons' | 'advisor' | 'settings';
 
 const SYSTEM_LABEL: Record<string, string> = { google: 'Google Ads', sklik: 'Sklik', meta: 'Meta' };
 const SYSTEM_SHORT: Record<string, string> = { google: 'G', sklik: 'S', meta: 'M' };
@@ -215,6 +215,7 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
             <button className={tab === 'proposals' ? 'active' : ''} onClick={() => setTab('proposals')}>
               Návrhy{proposals && proposals.open.length > 0 && <b className="ad-count">{proposals.open.length}</b>}
             </button>
+            <button className={tab === 'seasons' ? 'active' : ''} onClick={() => setTab('seasons')}>Sezóny</button>
             <button className={tab === 'advisor' ? 'active' : ''} onClick={() => setTab('advisor')}>Poradce</button>
             <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Nastavení</button>
           </div>
@@ -226,7 +227,7 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
               {markets.map(m => <option key={m} value={m}>{MARKET_LABELS[m] ?? m}</option>)}
             </select>
           )}
-          {tab !== 'settings' && tab !== 'proposals' && tab !== 'advisor' && (
+          {tab !== 'settings' && tab !== 'proposals' && tab !== 'advisor' && tab !== 'seasons' && (
             <select className="ad-period" value={days} onChange={e => setDays(Number(e.target.value))}
               data-tip="Období končí včerejškem — dnešek je rozdělaný a srovnával by se celý den s půlkou">
               <option value={7}>7 dní</option>
@@ -258,6 +259,9 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
           )}
           {tab === 'campaigns' && <Campaigns rows={campaigns} />}
           {tab === 'products' && <Products data={products} />}
+          {tab === 'seasons' && status && (
+            <Seasons market={market} onChanged={load} onProposals={() => setTab('proposals')} />
+          )}
           {tab === 'advisor' && status && (
             <Advisor turns={chat} setTurns={setChat} market={market} status={status} onChanged={load}
               onProposals={() => setTab('proposals')} />
@@ -266,6 +270,187 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
             <Settings status={status} onStatus={setStatus} busy={busy} setBusy={setBusy} />
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- sezóny ---------- */
+
+const MONTHS = ['led', 'úno', 'bře', 'dub', 'kvě', 'čvn', 'čvc', 'srp', 'zář', 'říj', 'lis', 'pro'];
+const weekOf = (day: string) => {
+  const d = new Date(`${day}T12:00:00Z`);
+  return Math.min(52, Math.floor((d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1, 12)) / 86_400_000 / 7));
+};
+const shortDate = (day: string) => `${Number(day.slice(8, 10))}. ${Number(day.slice(5, 7))}.`;
+
+/** Sezónní index po týdnech roku s pásy událostí a dneškem */
+function SeasonChart({ index, events, today }: { index: (number | null)[]; events: AdsSeasonEvent[]; today: string }) {
+  const max = Math.max(1.5, ...index.map(v => v ?? 0));
+  const w = 100 / 53;
+  const year = Number(today.slice(0, 4));
+  // Pásy jen pro události, které jsou letos nebo nejbližší příští rok (jinak by se kryly)
+  const bands = events.filter((e, i, all) => all.findIndex(x => x.name === e.name) === i);
+  const tw = weekOf(today);
+  return (
+    <div className="ad-season-chart">
+      <svg viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden>
+        {bands.map(e => {
+          const a = weekOf(e.start);
+          const b = weekOf(e.end);
+          const segs = a <= b ? [[a, b]] : [[a, 52], [0, b]];
+          return segs.map(([x1, x2], k) => (
+            <rect key={`${e.id}${k}`} x={x1 * w} width={(x2 - x1 + 1) * w} y={0} height={40} className="band" />
+          ));
+        })}
+        <line x1={0} x2={100} y1={40 - (1 / max) * 38} y2={40 - (1 / max) * 38} className="avg" />
+        {index.map((v, i) => v == null ? null : (
+          <rect key={i} x={i * w + w * 0.15} width={w * 0.7} y={40 - (v / max) * 38} height={(v / max) * 38}
+            className={`bar ${v >= 1.2 ? 'hi' : v <= 0.8 ? 'lo' : ''}`} />
+        ))}
+        <line x1={(tw + 0.5) * w} x2={(tw + 0.5) * w} y1={0} y2={40} className="today" />
+      </svg>
+      <div className="ad-season-hover">
+        {index.map((v, i) => {
+          const start = new Date(Date.UTC(year, 0, 1 + i * 7)).toISOString().slice(0, 10);
+          return <span key={i} data-tip={v == null ? `Týden od ${shortDate(start)}: bez dat`
+            : `Týden od ${shortDate(start)}: ${v.toLocaleString('cs-CZ')}× průměrného týdne`} />;
+        })}
+      </div>
+      <div className="ad-season-axis">{MONTHS.map(m => <span key={m}>{m}</span>)}</div>
+    </div>
+  );
+}
+
+function SeasonCard({ e, market, onChanged, onProposals }: {
+  e: AdsSeasonEvent; market: string; onChanged: () => void; onProposals: () => void;
+}) {
+  const toast = useToast();
+  const [plan, setPlan] = useState<AdsSeasonPlan | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try { await fn(); } catch (err: any) { toast(err.message, 'error'); } finally { setBusy(false); }
+  };
+  const ups = plan?.steps.filter(s => s.kind === 'budget-up').length ?? 0;
+  return (
+    <div className={`ad-card ad-season ${e.running ? 'running' : ''}`}>
+      <div className="ad-prop-top">
+        <b className="ad-season-name">{e.name}</b>
+        <span className="ad-chip">{shortDate(e.start)} – {shortDate(e.end)}</span>
+        {e.running && <span className="ad-chip warn">právě běží</span>}
+        <span className={`ad-chip ${e.uplift >= 1.15 ? 'ok' : ''}`}
+          data-tip={e.fromHistory
+            ? 'Z vašich objednávek: kolikrát víc se v tomhle období prodává než v průměrném týdnu roku.'
+            : 'Odhad — na vlastní historii je potřeba aspoň rok objednávek.'}>
+          {e.uplift >= 1 ? '+' : '−'}{Math.abs(Math.round((e.uplift - 1) * 100))} % prodejů{e.fromHistory ? '' : ' (odhad)'}
+        </span>
+        {e.planned > 0 && <span className="ad-chip info">naplánováno {e.planned} kroků</span>}
+      </div>
+      <div className="ad-prop-plain">{e.note}</div>
+      {plan && (
+        <div className="ad-season-plan">
+          {plan.steps.length === 0
+            ? <div className="muted small">Žádná kampaň teď nedrží cíl tak, aby se jí vyplatilo v sezóně přidat.</div>
+            : (
+              <>
+                <div className="small">
+                  Ziskovým kampaním rozpočet nahoru o {Math.round((plan.uplift - 1) * 100)} % ve {ups} krocích, po konci zpátky.
+                  Každý krok je návrh, který se ve svůj den nabídne ke schválení.
+                </div>
+                <ul className="ad-season-steps">
+                  {plan.steps.map((s, i) => (
+                    <li key={i} className={s.kind === 'budget-up' ? 'up' : 'down'}>
+                      <span className="ad-chip">{shortDate(s.date)}</span>
+                      {s.system === 'sklik' && <span className="ad-badge sklik">S</span>}
+                      <span>{s.title.replace(/^[^:]+: /, '').replace(/ \(od [^)]+\)$/, '')}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          {plan.notes.length > 0 && <ul className="ad-msg-notes">{plan.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+        </div>
+      )}
+      <div className="ad-prop-btns">
+        {!plan && (
+          <button className="btn small" disabled={busy}
+            onClick={() => run(async () => setPlan(await api.ads.seasonPlan(e.id, false, market)))}>
+            {e.planned > 0 ? 'Navrhnout znovu' : 'Navrhnout plán'}
+          </button>
+        )}
+        {plan && plan.steps.length > 0 && (
+          <button className="btn primary small" disabled={busy} onClick={() => run(async () => {
+            const res = await api.ads.seasonPlan(e.id, true, market);
+            toast(`Naplánováno ${res.saved} kroků — najdeš je v Návrzích`, 'info');
+            setPlan(null);
+            onChanged();
+          })}>{e.planned > 0 ? 'Nahradit plán' : 'Uložit do Návrhů'}</button>
+        )}
+        {plan && <button className="btn ghost small" onClick={() => setPlan(null)}>Zavřít</button>}
+        {!plan && e.planned > 0 && (
+          <>
+            <button className="btn ghost small" onClick={onProposals}>Zobrazit v Návrzích</button>
+            <button className="btn ghost small" disabled={busy} onClick={() => run(async () => {
+              await api.ads.seasonDrop(e.id);
+              toast('Plán zrušený', 'info');
+              onChanged();
+            })}>Zrušit plán</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sezóny: kdy se prodává víc (z vlastních objednávek) a plán rozpočtů
+ * na nejbližší události — kroky se uloží jako naplánované návrhy.
+ */
+function Seasons({ market, onChanged, onProposals }: { market: string; onChanged: () => void; onProposals: () => void }) {
+  const toast = useToast();
+  const [data, setData] = useState<AdsSeasons | null>(null);
+  const [cat, setCat] = useState('');
+  const load = useCallback(async () => {
+    try { setData(await api.ads.seasons(market)); } catch (e: any) { toast(e.message, 'error'); }
+  }, [market, toast]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => api.on('ads:changed', () => { void load(); }), [load]);
+  if (!data) return <div className="ad-empty">Načítám…</div>;
+  const series = cat ? data.categories.find(c => c.name === cat)?.index ?? data.index : data.index;
+  const changed = () => { void load(); onChanged(); };
+  return (
+    <div className="ad-seasons">
+      <section className="ad-card ad-season-box">
+        <div className="ad-prop-head">
+          <b>Kdy se prodává víc</b>
+          <span className="muted small">
+            {data.weeks >= 40
+              ? `z objednávek ${data.years.join(', ')} · ${data.weeks} týdnů · 1 = průměrný týden`
+              : 'na sezónní index je potřeba aspoň rok objednávek — u událostí je zatím odhad'}
+          </span>
+          <span style={{ flex: 1 }} />
+          {data.categories.length > 0 && (
+            <select className="ad-period" value={cat} onChange={e => setCat(e.target.value)}
+              data-tip="Kšandy mají jinou sezónu než ponožky — index jde vidět i po hlavních kategoriích">
+              <option value="">Celý e-shop</option>
+              {data.categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+            </select>
+          )}
+        </div>
+        <SeasonChart index={series} events={data.events} today={data.today} />
+        <div className="ad-season-legend">
+          <span><i className="ad-sw hi" /> silný týden (1,2× a víc)</span>
+          <span><i className="ad-sw lo" /> slabý týden</span>
+          <span><i className="ad-sw band" /> sezónní událost</span>
+          <span><i className="ad-sw today" /> dnes</span>
+        </div>
+      </section>
+      <div className="ad-prop-head"><b>Nejbližší události</b>
+        <span className="muted small">plán přidá rozpočet jen kampaním, které drží cíl, a po konci ho vrátí</span>
+      </div>
+      <div className="ad-season-list">
+        {data.events.map(e => <SeasonCard key={e.id} e={e} market={market} onChanged={changed} onProposals={onProposals} />)}
       </div>
     </div>
   );
@@ -415,7 +600,9 @@ function StatusLine({ status }: { status: AdsStatus }) {
     <div className="ad-status">
       <span className={`ad-dot ${status.google.lastError || status.sklik?.lastError ? 'bad' : run ? 'ok' : ''}`} />
       <span>
-        <b>Mění jen to, co schválíš — každá změna jde vrátit.</b>{' '}
+        <b>{status.autopilot?.active
+          ? 'Autopilot v mezích — malé změny dělá sám v noci, každá jde vrátit.'
+          : 'Mění jen to, co schválíš — každá změna jde vrátit.'}</b>{' '}
         {run
           ? <>Noční běh {relTime(run.finishedAt)} ({run.device.replace(/\s*\([^)]*\)$/, '')}){run.error ? ` — chyba: ${run.error}` : ''}</>
           : 'Noční běh zatím neproběhl.'}
@@ -931,7 +1118,7 @@ function canWriteHere(ops: AdsProposal['ops'], status: AdsStatus): boolean {
   return (!sklik || (!!status.sklik?.hasToken && status.config.sklik.enabled)) && (!google || status.google.connected);
 }
 
-const fromAdvisor = (p: AdsProposal) => p.fingerprint.includes('|chat|');
+const fromAdvisor = (p: AdsProposal) => /\|(chat|plan)\|/.test(p.fingerprint);
 
 /** Co se přesně změní — řádek po operaci */
 function OpsList({ p }: { p: AdsProposal }) {
@@ -976,8 +1163,10 @@ function ProposalCard({ p, status, compact = false, onChanged }: {
         )}
         {p.system === 'sklik' && <span className="ad-badge sklik" data-tip="Sklik">S</span>}
         {fromAdvisor(p) ? (
-          <span className="ad-chip info" data-tip="Navrhl poradce na tvou otázku — odhad v korunách u něj není, prošel ale stejnými pojistkami jako ostatní návrhy.">
-            z poradce
+          <span className="ad-chip info" data-tip={p.fingerprint.includes('|plan|')
+            ? 'Krok sezónního plánu (záložka Sezóny) — odhad v korunách u něj není, prošel ale stejnými pojistkami jako ostatní návrhy.'
+            : 'Navrhl poradce na tvou otázku — odhad v korunách u něj není, prošel ale stejnými pojistkami jako ostatní návrhy.'}>
+            {p.fingerprint.includes('|plan|') ? 'sezónní plán' : 'z poradce'}
           </span>
         ) : (
           <>
@@ -1111,7 +1300,7 @@ function Proposals({ data, status, onChanged, busy, setBusy }: {
         )}
         {planned.length > 0 && (
           <>
-            <div className="ad-prop-head"><b>Naplánované kroky</b><span className="muted small">z poradce — v návrzích se objeví v daný den</span></div>
+            <div className="ad-prop-head"><b>Naplánované kroky</b><span className="muted small">z poradce a sezónních plánů — k použití se nabídnou v daný den</span></div>
             {planned.map(p => (
               <div key={p.id} className="ad-card ad-prop planned">
                 <div className="ad-prop-top">
@@ -1243,6 +1432,102 @@ function AccountsBlock({ cfg, status, customers, busy, onLoad, onSave }: {
         </div>
       )}
     </div>
+  );
+}
+
+const AUTOPILOT_KIND_LABEL: [AdsProposal['kind'], string][] = [
+  ['budget-up', 'Přidat rozpočet'], ['budget-down', 'Ubrat rozpočet'], ['negatives', 'Vylučující slova'],
+  ['exclude', 'Vyřadit žrouty'], ['roas-up', 'Přísnější cíl ROAS'], ['roas-down', 'Volnější cíl ROAS']
+];
+
+/**
+ * Samostatnost: Jen návrhy, nebo autopilot v mezích. Autopilot jde zapnout
+ * až po odemčení (4 týdny, 10 vyhodnocených změn, ≥ 70 % vyšlo) — do té
+ * doby je vidět, kolik ještě chybí.
+ */
+function AutopilotSection({ status, onStatus }: { status: AdsStatus; onStatus: (s: AdsStatus) => void }) {
+  const toast = useToast();
+  const cfg = status.config;
+  const st = status.autopilot;
+  const ap = cfg.autopilot;
+  const on = cfg.autonomy === 'guarded';
+  const save = async (patch: Partial<AdsConfig>, note = 'Uloženo') => {
+    try { onStatus(await api.ads.config(patch)); toast(note, 'info'); } catch (e: any) { toast(e.message, 'error'); }
+  };
+  const setAp = (patch: Partial<AdsConfig['autopilot']>) => save({ autopilot: { ...ap, ...patch } });
+  const ratio = st.evaluated ? Math.round((st.better / st.evaluated) * 100) : 0;
+  return (
+    <section className="ad-card ad-set ad-autopilot">
+      <h3>Samostatnost</h3>
+      <div className="ad-set-row">
+        <label className="ad-check">
+          <input type="radio" checked={!on} onChange={() => void save({ autonomy: 'suggest' }, 'Jen návrhy')} /> Jen návrhy
+        </label>
+        <label className={`ad-check ${st.eligible || on ? '' : 'dim'}`}
+          data-tip={st.eligible ? 'Malé změny podle pravidel udělá sám v nočním běhu' : `Ještě chybí: ${st.missing.join(', ')}`}>
+          <input type="radio" checked={on} disabled={!st.eligible && !on}
+            onChange={() => void save({ autonomy: 'guarded' }, 'Autopilot zapnutý')} /> Autopilot v mezích
+        </label>
+      </div>
+      {!st.eligible && (
+        <div className="ad-unlock">
+          <div className="muted small">Autopilot se odemkne, až se ukáže, že návrhy fungují:</div>
+          <div className="ad-unlock-row"><span>Návrhy běží</span><b>{Math.min(st.daysOfProposals, 28)} / 28 dní</b>
+            <i style={{ width: `${Math.min(100, (st.daysOfProposals / 28) * 100)}%` }} /></div>
+          <div className="ad-unlock-row"><span>Vyhodnocené změny</span><b>{Math.min(st.evaluated, 10)} / 10</b>
+            <i style={{ width: `${Math.min(100, st.evaluated * 10)}%` }} /></div>
+          <div className="ad-unlock-row"><span>Vyšlo (aspoň 70 %)</span><b>{st.evaluated ? `${ratio} %` : '—'}</b>
+            <i className={ratio >= 70 ? '' : 'low'} style={{ width: `${st.evaluated ? ratio : 0}%` }} /></div>
+        </div>
+      )}
+      {on && ap.pausedAt && (
+        <div className="ad-alert bad ad-card">
+          <b>Autopilot se zabrzdil</b>
+          <div>{ap.pausedReason}</div>
+          <button className="btn small" onClick={async () => {
+            try { onStatus(await api.ads.autopilotResume()); toast('Autopilot zase běží', 'info'); } catch (e: any) { toast(e.message, 'error'); }
+          }}>Pustit znovu</button>
+        </div>
+      )}
+      {(on || st.eligible) && (
+        <>
+          <div className="muted small">Co smí sám (každou noc po stažení dat; každá změna je v Historii a jde vrátit):</div>
+          <div className="ad-set-row ad-wrap">
+            {AUTOPILOT_KIND_LABEL.map(([kind, label]) => (
+              <label key={kind} className="ad-check">
+                <input type="checkbox" checked={ap.kinds.includes(kind)}
+                  onChange={e => void setAp({ kinds: e.target.checked ? [...ap.kinds, kind] : ap.kinds.filter(k => k !== kind) })} />
+                {label}
+              </label>
+            ))}
+          </div>
+          <div className="ad-set-row ad-wrap">
+            <label className="ad-inline">Nejvýš
+              <input type="number" min={1} max={10} defaultValue={ap.maxPerNight}
+                onBlur={e => { const n = Number(e.target.value); if (n !== ap.maxPerNight) void setAp({ maxPerNight: n }); }} />
+              změn za noc</label>
+            <label className="ad-inline" data-tip={ADS_TERMS.confidence}>Jistota aspoň
+              <input type="number" min={1} max={4} defaultValue={ap.minConfidence}
+                onBlur={e => { const n = Number(e.target.value); if (n !== ap.minConfidence) void setAp({ minConfidence: n }); }} />
+              ze 4</label>
+            <label className="ad-check">
+              <input type="checkbox" checked={ap.seasonPlans} onChange={e => void setAp({ seasonPlans: e.target.checked })} />
+              Kroky sezónních plánů ve svůj den
+            </label>
+          </div>
+          <p className="muted small">
+            Sám použije jen návrhy s kladným odhadem — „drží cíl za cenu zisku" a návrhy poradce nechá tobě.
+            Když ze tří jeho posledních změn vyjdou dvě hůř, sám se zabrzdí.
+          </p>
+          {st.lastRun && (
+            <div className="small">
+              Poslední noc ({relTime(st.lastRun.at)}): {st.lastRun.applied.length
+                ? st.lastRun.applied.join(' · ') : 'nic k použití'}
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -1543,14 +1828,9 @@ function Settings({ status, onStatus, busy, setBusy }: {
             </label>
           ))}
         </div>
-        <div className="ad-set-row">
-          <span className="muted">Samostatnost:</span>
-          <label className="ad-check"><input type="radio" checked readOnly /> Jen návrhy</label>
-          <label className="ad-check dim" data-tip="Zapne se po 4 týdnech návrhů, když aspoň 70 % odhadů vyjde">
-            <input type="radio" disabled /> Autopilot v mezích
-          </label>
-        </div>
       </section>
+
+      <AutopilotSection status={status} onStatus={onStatus} />
 
       <GuardsSection guards={cfg.guards} onSave={guards => save({ guards }, 'Pojistky uložené')} />
 

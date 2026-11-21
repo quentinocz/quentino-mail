@@ -20,7 +20,7 @@
 import crypto from 'crypto';
 import type {
   AdsConfig, AdsOp, AdsProposalKind, AdsSystem, AdsCampaignRow, AdsProductRow, AdsOverview,
-  AdsProposal, AdsChange
+  AdsProposal, AdsChange, AdsSeasonEvent
 } from '../../shared/ads';
 import type { ProposalDraft } from './engine';
 import { stem, plainWord, roasForPno } from './engine';
@@ -58,6 +58,8 @@ export interface ChatContext {
   margins: Record<string, number>;
   monthSpend: number;
   daysLeft: number;
+  /** Nejbližší sezónní události s odhadem navýšení prodejů */
+  seasons?: AdsSeasonEvent[];
 }
 
 export interface ChatDraft extends ProposalDraft {
@@ -122,6 +124,8 @@ export function contextText(ctx: ChatContext): string {
       kod: p.code, nazev: p.title, segment: p.segment, marze: r2(p.margin), naklady: Math.round(p.cost),
       hodnota: Math.round(p.value), zisk: Math.round(p.profit), pno: r2(p.pno), sklad: p.stock
     })),
+    sezony: (ctx.seasons ?? []).map(e => ({ udalost: e.name, od: e.start, vrchol: e.peak, do: e.end,
+      prodejeProtiPrumernemuTydnu: e.uplift, zHistorie: e.fromHistory, poznamka: e.note })),
     otevreneNavrhy: ctx.open.slice(0, 15).map(p => p.title),
     posledniZmeny: ctx.changes.slice(0, 10).map(c => `${c.at.slice(0, 10)} ${c.title}${c.revertedAt ? ' (vráceno)' : ''}`)
   };
@@ -144,6 +148,9 @@ přidej kroky do "actions". Kroky se NEPROVÁDĚJÍ samy — z každého vznikne
 - {"type":"negative","campaignId":"…","words":["bazar"],"reason":"…"} — vylučující slova (jen Google). Nikdy ne slova,
   která jsou v názvech produktů.
 - {"type":"exclude","codes":["KOD"],"days":30,"reason":"…"} — dočasně vyřadit produkty z reklam (přes feed).
+Blok "sezony" říká, které události se blíží a kolikrát víc se v nich prodává než v průměrném týdnu (z objednávek
+e-shopu, nebo odhad). U plánu sezóny přidávej jen kampaním, které drží cíl, a nezapomeň na kroky zpátky po konci.
+Záložka Sezóny umí takový plán postavit i sama — můžeš na ni odkázat.
 "date" vynech, když má krok platit hned; pro plán (sezóna, akce) dej den, od kdy má platit (nejvýš 120 dní dopředu).
 "reason" piš jednou dvěma větami pro laika: co se změní a proč to vydělá (nebo ušetří).
 

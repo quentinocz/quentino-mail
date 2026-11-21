@@ -600,6 +600,110 @@ console.log('\nPoradce: kroky z chatu → návrhy');
 }
 
 
+/* ---------- sezóny ---------- */
+console.log('\nSezóny');
+{
+  const seas = require(path.join(DIST, 'ads/seasons.js'));
+  const ev = seas.upcomingEvents('2026-11-21');
+  const byId = Object.fromEntries(ev.map(e => [`${e.def.id}-${e.year}`, e]));
+  check('Black Friday 2026 = čtvrtý pátek v listopadu (27. 11.), Den otců 2027 = třetí neděle v červnu (20. 6.)',
+    [byId['black-friday-2026'].peak, byId['den-otcu-2027'].end], ['2026-11-27', '2027-06-17']);
+  check('  proběhlé události v kalendáři nejsou, další rok ano', [!!byId['valentyn-2026'], !!byId['valentyn-2027'], !!byId['vanoce-2026']], [false, true, true]);
+
+  // Dva roky objednávek: běžný týden 1 000 Kč denně, prosinec do 19. 12. dvojnásobek
+  const daily = new Map();
+  for (let d = '2024-01-01'; d < '2026-01-01'; d = econ.shiftDay(d, 1)) {
+    const dec = d.slice(5, 7) === '12' && d.slice(8, 10) <= '19';
+    daily.set(d, dec ? 2000 : 1000);
+  }
+  const idx = seas.seasonIndex(daily, '2026-11-21');
+  check('sezónní index: běžný týden ≈ 1, prosinec ≈ 2× (dva roky dat)',
+    [idx.years, Math.round(idx.index[20] * 10) / 10, idx.index[49] > 1.7], [[2024, 2025], 1, true]);
+  check('  poslední neúplný týden roku nevypadá jako propad', idx.index[52] > 0.9, true);
+  check('  navýšení na Vánoce z historie', seas.upliftFrom(idx, '2026-12-01', '2026-12-14') > 1.5, true);
+  check('  bez roku dat se z historie nepočítá', seas.upliftFrom(seas.seasonIndex(new Map([['2026-11-01', 5]]), '2026-11-21'), '2026-12-01', '2026-12-14'), null);
+
+  const pc = (over) => ({ system: 'google', id: '1', account: '111', market: 'cz', name: 'PMax', status: 'ENABLED', budget: 1000,
+    budgetId: '77', budgetShared: false, pno: 0.1, targetPno: 0.15, conversions: 40, ...over });
+  const empty = seas.seasonIndex(new Map(), '2026-11-21');
+  const plan = seas.planEvent(DEFAULT_ADS_CONFIG, 'vanoce-2026',
+    [pc({}), pc({ id: '2', name: 'Ztrátová', pno: 0.4 }), pc({ id: '3', name: 'Sdílená', budgetShared: true })], empty, '2026-11-21');
+  check('plán Vánoc bez historie: odhad +60 %, nahoru po max. 20 % do začátku, dolů po konci',
+    plan.drafts.map(d => [d.notBefore, d.ops[0].from, d.ops[0].to]),
+    [['2026-11-22', 1000, 1200], ['2026-11-24', 1200, 1440], ['2026-11-28', 1440, 1600],
+      ['2026-12-20', 1600, 1280], ['2026-12-22', 1280, 1024], ['2026-12-24', 1024, 1000]]);
+  check('  prodělávající a sdílená kampaň v plánu nejsou (a řekne se proč)',
+    [plan.drafts.every(d => d.targetId === '1'), plan.notes.length], [true, 2]);
+  check('  kroky jsou naplánované návrhy s otiskem plánu', plan.drafts[0].fingerprint.startsWith('budget-up|google|1|plan|vanoce-2026|0|'), true);
+  const soon = seas.planEvent(DEFAULT_ADS_CONFIG, 'black-friday-2026', [pc({})], empty, '2026-11-21');
+  check('  blízká událost: kroky se nesmrsknou do jednoho dne (pojistka platí)',
+    new Set(soon.drafts.filter(d => d.kind === 'budget-up').map(d => d.notBefore)).size,
+    soon.drafts.filter(d => d.kind === 'budget-up').length);
+
+  // Uložení a nový plán: staré kroky se zruší, nezdvojí se
+  const first = prop.saveChat(plan.drafts);
+  check('uložené kroky čekají v Naplánovaných', [prop.planCount('vanoce-2026'), prop.proposalsView(MONEY).planned.length >= 6], [6, true]);
+  check('  nový plán téže události staré kroky zruší', [prop.dropPlan('vanoce-2026'), prop.planCount('vanoce-2026')], [6, 0]);
+  check('  a engine plán nezahodí', (prop.saveChat(plan.drafts.slice(0, 1)), prop.saveGenerated([], 'google'), prop.planCount('vanoce-2026')), 1);
+  prop.dropPlan('vanoce-2026');
+  void first;
+}
+
+
+/* ---------- autopilot ---------- */
+console.log('\nAutopilot');
+{
+  const auto = require(path.join(DIST, 'ads/autopilot.js'));
+  const acfg = JSON.parse(JSON.stringify(DEFAULT_ADS_CONFIG));
+  const ch = (verdict, over = {}) => ({ id: Math.random().toString(36).slice(2), revertOf: '', title: 'x', targetName: 'K',
+    at: '2026-10-01T03:00:00Z', device: 'Mac', evaluation: { verdict, before: 0, after: 0, days: 14 }, ...over });
+  const ten = [...Array(8)].map(() => ch('better')).concat([ch('worse'), ch('same')]);
+  let st = auto.autopilotState(acfg, ten, '2026-10-01T00:00:00Z', '2026-11-21', null);
+  check('odemčený: 4 týdny, 10 vyhodnocených, 90 % vyšlo', [st.eligible, st.missing, st.active], [true, [], false]);
+  st = auto.autopilotState(acfg, ten.slice(0, 6), '2026-11-10T00:00:00Z', '2026-11-21', null);
+  check('zamčený: řekne, kolik dní a změn chybí', [st.eligible, st.missing.length], [false, 2]);
+  st = auto.autopilotState(acfg, [...Array(6)].map(() => ch('worse')).concat([...Array(5)].map(() => ch('better'))), '2026-10-01', '2026-11-21', null);
+  check('pod 70 % úspěšnosti zůstane zamčený', [st.eligible, /45 %/.test(st.missing[0])], [false, true]);
+  st = auto.autopilotState({ ...acfg, autonomy: 'guarded', autopilot: { ...acfg.autopilot, pausedAt: 'x' } }, ten, '2026-10-01', '2026-11-21', null);
+  check('zabrzděný neběží', st.active, false);
+
+  const P = (over) => ({ id: Math.random().toString(36).slice(2), fingerprint: 'budget-up|google|1', kind: 'budget-up', status: 'open',
+    impact: 500, confidence: 3, snoozeUntil: '', ...over });
+  const picked = auto.pick(acfg, [
+    P({ id: 'a', impact: 300 }), P({ id: 'b', impact: 900 }), P({ id: 'drzi', impact: -200 }), P({ id: 'malo', confidence: 1 }),
+    P({ id: 'roas', kind: 'roas-up' }), P({ id: 'chat', fingerprint: 'budget-up|google|1|chat|x' }),
+    P({ id: 'plan', fingerprint: 'budget-up|google|1|plan|vanoce-2026|0|x', status: 'snoozed', impact: 0, confidence: 1 }),
+    P({ id: 'odlozeny', status: 'snoozed' })]);
+  check('vybere: krok plánu první, pak podle odhadu; ne „drží cíl", málo dat, ROAS, poradce ani ručně odložené; nejvýš 3',
+    picked.map(p => p.id), ['plan', 'b', 'a']);
+
+  const mine = (verdict, at) => ch(verdict, { device: 'Autopilot · Mac', at });
+  check('brzda: dvě ze tří posledních změn autopilota hůř',
+    !!auto.brake([mine('worse', '2026-11-01'), mine('better', '2026-11-02'), mine('worse', '2026-11-03'), ch('worse')]), true);
+  check('  jedna špatná nestačí, a ručních změn se netýká',
+    !!auto.brake([mine('worse', '2026-11-01'), mine('better', '2026-11-02'), mine('better', '2026-11-03'), ch('worse'), ch('worse')]), false);
+
+  // Krok plánu, jehož den přišel, jde použít — a změna je v deníku podepsaná autopilotem
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('adsGoogleRefresh','r'),('adsGoogleSecret','s')").run();
+  let bnow = 1000;
+  global.fetch = async (url, init = {}) => {
+    const body = init.body && !String(url).includes('oauth2') ? JSON.parse(init.body) : null;
+    const reply = (json) => ({ ok: true, status: 200, json: async () => json });
+    if (String(url).includes('oauth2')) return reply({ access_token: 't', expires_in: 3600 });
+    if (String(url).endsWith('googleAds:search')) return reply({ results: [{ campaign: { id: '1' }, campaignBudget: { amountMicros: String(bnow * 1e6) } }] });
+    if (body && !body.validateOnly) bnow = Number(body.operations[0].update.amountMicros) / 1e6;
+    return reply({ results: [{ resourceName: 'x' }] });
+  };
+  const [step] = prop.saveChat([{ fingerprint: 'budget-up|google|1|plan|test-2026|0|z', system: 'google', market: 'cz',
+    notBefore: econ.localDay(), kind: 'budget-up', targetId: '1', targetName: 'PMax', title: 'Plán', plain: '', why: '',
+    impact: 0, confidence: 1, ops: [{ kind: 'budget', campaignId: '1', budgetId: '77', from: 1000, to: 1200, account: '1234567890' }] }]);
+  const done = await prop.applyProposal(store.getAdsConfig(), step.id, async () => {}, 'Autopilot · Mac');
+  check('krok plánu ve svůj den jde použít a v deníku je podepsaný autopilotem',
+    [step.status, done.status, bnow, prop.allChanges().find(c => c.proposalId === step.id).device], ['snoozed', 'applied', 1200, 'Autopilot · Mac']);
+  db.prepare("UPDATE settings SET value = '' WHERE key = 'adsGoogleRefresh'").run();
+}
+
+
 /* ---------- celý průchod nad skutečným katalogem ---------- */
 /*
  * Katalog e-shopu v repozitáři není (je to celý feed s cenami). Když je po
@@ -760,6 +864,22 @@ if (fs.existsSync(feedFile)) {
     check('  a z odpovědi vznikne návrh (10 € = 250 Kč → nejvýš −20 % = 200 Kč)', [reply.answer, reply.proposals.map(p => [p.kind, p.ops[0].to, p.market])],
       ['Slovensko prodělává.', [['budget-down', 200, 'sk']]]);
     for (const p of reply.proposals) require(path.join(DIST, 'ads/proposals.js')).decide(p.id, 'dismiss');
+  }
+
+  // Sezóny nad skutečnými daty: přehled i náhled plánu doběhnou
+  {
+    const sv = ads.seasons('all');
+    check('sezóny: kalendář má události a index 53 týdnů', [sv.events.length > 3, sv.index.length], [true, 53]);
+    const pv = ads.seasonPlan(sv.events[0].id, false, 'all');
+    check('  náhled plánu doběhne a nic neuloží', [Array.isArray(pv.steps), pv.saved], [true, 0]);
+  }
+
+  // Autopilot: dokud není odemčený a zapnutý, noční kolo nic nedělá a zapnout ho nejde
+  {
+    check('autopilot: vypnutý v nočním běhu nic nedělá', await ads.autopilotNight(), '');
+    let chyba = '';
+    try { ads.saveConfig({ autonomy: 'guarded' }); } catch (e) { chyba = e.message; }
+    check('  a zamčený nejde zapnout (řekne proč)', [/ještě nejde zapnout/.test(chyba), store.getAdsConfig().autonomy], [true, 'suggest']);
   }
 
   // Engine nad skutečným katalogem doběhne a dá přehled pro okno

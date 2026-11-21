@@ -442,6 +442,7 @@ for (const okno of OKNA) {
     { label: 'Kampaně', must: '.ad-table', shot: 'reklamy-kampane' },
     { label: 'Produkty', must: '.ad-map', shot: 'reklamy-produkty' },
     { label: 'Návrhy', must: '.ad-prop', shot: 'reklamy-navrhy' },
+    { label: 'Sezóny', must: '.ad-season-chart', shot: 'reklamy-sezony' },
     { label: 'Poradce', must: '.ad-advisor', shot: 'reklamy-poradce' },
     { label: 'Nastavení', must: '.ad-settings', shot: 'reklamy-nastaveni' }
   ];
@@ -507,9 +508,25 @@ for (const okno of OKNA) {
     await page.locator('.ad-msg.user').count() === 1 && await page.locator('.ad-msg.assistant b').count() > 0
       && await page.locator('.ad-msg.assistant li').count() >= 2 && await page.locator('.ad-msg-notes li').count() === 1);
   await page.screenshot({ path: path.join(SHOTS, 'reklamy-poradce-odpoved.png') });
+  // Sezóny: index s 53 týdny, karty událostí a náhled plánu po kliknutí
+  await page.locator('.ad-tabs button', { hasText: 'Sezóny' }).click();
+  await page.waitForSelector('.ad-season', { timeout: 4000 }).catch(() => {});
+  const sloupcu = await page.locator('.ad-season-chart rect.bar').count();
+  await page.locator('.ad-season', { hasText: 'Plesová sezóna' }).locator('button', { hasText: 'Navrhnout plán' }).click();
+  await page.waitForSelector('.ad-season-steps li', { timeout: 4000 }).catch(() => {});
+  say('Reklamy › Sezóny: graf týdnů, události a náhled plánu s kroky nahoru i dolů',
+    sloupcu === 53 && await page.locator('.ad-season').count() === 4
+      && await page.locator('.ad-season-steps li.up').count() === 3 && await page.locator('.ad-season-steps li.down').count() === 1,
+    `${sloupcu} sloupců`);
+  say('  u naplánované události jde plán zrušit', await page.locator('.ad-season', { hasText: 'Vánoce' }).locator('button', { hasText: 'Zrušit plán' }).count() === 1);
+  await page.screenshot({ path: path.join(SHOTS, 'reklamy-sezony-plan.png') });
   await page.locator('.ad-tabs button', { hasText: 'Nastavení' }).click();
   say('Reklamy › Nastavení: sekce Sklik s tokenem jako heslo',
     await page.locator('.ad-sklik input[type="password"]').count() === 1);
+  say('  autopilot je zamčený a ukazuje, kolik chybí do odemčení',
+    await page.locator('.ad-autopilot input[type="radio"]:disabled').count() === 1 && await page.locator('.ad-unlock-row').count() === 3);
+  await page.locator('.ad-autopilot').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS, 'reklamy-autopilot.png') });
   await page.close();
 }
 

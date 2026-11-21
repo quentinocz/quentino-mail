@@ -11,6 +11,35 @@ export type AdsSystem = 'google' | 'sklik' | 'meta';
 /** Jak moc smí modul měnit kampaně sám. Ve fázi 1 jen čte. */
 export type AdsAutonomy = 'suggest' | 'guarded' | 'full';
 
+export interface AdsAutopilotConfig {
+  /** Druhy návrhů, které smí použít sám */
+  kinds: AdsProposalKind[];
+  /** Nejvýš tolik změn za jednu noc */
+  maxPerNight: number;
+  /** Jen návrhy s aspoň takovou jistotou (1–4 tečky) */
+  minConfidence: number;
+  /** Kroky sezónních plánů smí použít ve svůj den */
+  seasonPlans: boolean;
+  /** Zabrzděný autopilot (po sérii nevydařených změn) — kdy a proč */
+  pausedAt: string;
+  pausedReason: string;
+}
+
+/** Stav autopilota pro okno — počítá se z historie změn */
+export interface AdsAutopilotState {
+  /** Odemčený: 4 týdny návrhů, aspoň 10 vyhodnocených změn, ≥ 70 % vyšlo */
+  eligible: boolean;
+  /** Co ještě chybí k odemčení (prázdné = nic) */
+  missing: string[];
+  daysOfProposals: number;
+  evaluated: number;
+  better: number;
+  /** Zapnutý a běží (zapnutý, odemčený a nezabrzděný) */
+  active: boolean;
+  /** Poslední noc: kolik a co udělal */
+  lastRun: { at: string; applied: string[] } | null;
+}
+
 /** Účet Google Ads a trh, ke kterému patří */
 export interface AdsAccount {
   /** Číslo účtu bez pomlček */
@@ -72,9 +101,12 @@ export interface AdsConfig {
   defaultShipCost: number;
   /** Marže pro produkty bez nákupní ceny, když ji nejde odhadnout z kategorie */
   fallbackMargin: number;
+  /** 'suggest' = jen návrhy, 'guarded' = autopilot v mezích (jde zapnout až po odemčení) */
   autonomy: AdsAutonomy;
-  /** Pojistky pro návrhy (a později autopilot) */
+  /** Pojistky pro návrhy i autopilota */
   guards: AdsGuards;
+  /** Co smí autopilot sám (sdílené mezi Macy, včetně zabrzdění) */
+  autopilot: AdsAutopilotConfig;
   /**
    * Sklik (Seznam). Jen český trh, účet v korunách. Token je v klíčence
    * (a v trezoru), tady jen to, co tajné není.
@@ -203,6 +235,48 @@ export interface AdsProposals {
   excluded: { code: string; until: string }[];
 }
 
+/** Událost v sezónním kalendáři (Valentýn, Vánoce…) */
+export interface AdsSeasonEvent {
+  /** Událost a rok, např. vanoce-2026 */
+  id: string;
+  name: string;
+  /** Odkdy přidávat, vrchol, dokdy (poslední den, kdy se vyplatí) */
+  start: string;
+  peak: string;
+  end: string;
+  note: string;
+  /** Kolikrát víc se v období prodává než v průměrném týdnu */
+  uplift: number;
+  /** Navýšení je z vlastních objednávek (jinak odhad) */
+  fromHistory: boolean;
+  /** Kolik kroků plánu je naplánovaných nebo čeká */
+  planned: number;
+  /** Událost už běží */
+  running: boolean;
+}
+
+export interface AdsSeasons {
+  today: string;
+  /** Sezónní index po týdnech roku (53 hodnot; 1 = průměrný týden) */
+  index: (number | null)[];
+  /** Index hlavních kategorií — kšandy mají jinou sezónu než ponožky */
+  categories: { name: string; index: (number | null)[] }[];
+  /** Kolik týdnů historie za indexem stojí a z kterých let */
+  weeks: number;
+  years: number[];
+  events: AdsSeasonEvent[];
+}
+
+export interface AdsSeasonPlan {
+  eventId: string;
+  /** Navýšení rozpočtů ve vrcholu (1,4 = o 40 %) */
+  uplift: number;
+  steps: { date: string; title: string; plain: string; system: AdsSystem; kind: AdsProposalKind }[];
+  notes: string[];
+  /** Při uložení: kolik kroků se zapsalo do Návrhů */
+  saved: number;
+}
+
 /** Jedna zpráva v rozhovoru s poradcem */
 export interface AdsChatTurn {
   role: 'user' | 'assistant';
@@ -222,6 +296,7 @@ export interface AdsChatReply {
 /** Stav připojení a posledního běhu — mění se na každém Macu jinak. */
 export interface AdsStatus {
   config: AdsConfig;
+  autopilot: AdsAutopilotState;
   google: {
     /** Má tenhle Mac přihlášení (refresh token) */
     connected: boolean;
@@ -413,6 +488,10 @@ export const DEFAULT_ADS_CONFIG: AdsConfig = {
   autonomy: 'suggest',
   guards: { maxBudgetStep: 0.2, maxRoasStep: 0.15, cooldownDays: 7, minConversions: 20, monthlyBudget: 0 },
   sklik: { enabled: false, userId: '', name: 'Sklik' },
+  autopilot: {
+    kinds: ['budget-up', 'budget-down', 'negatives', 'exclude'], maxPerNight: 3, minConfidence: 2,
+    seasonPlans: true, pausedAt: '', pausedReason: ''
+  },
   google: {
     accounts: [],
     customerId: '',

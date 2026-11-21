@@ -30,6 +30,9 @@ const CONFIG_KEY = 'adsConfig';
 
 /* ---------- nastavení ---------- */
 
+/** Druhy návrhů, které autopilot smí dělat — nastavit cíl ROAS poprvé (roas-set) vždy jen člověk */
+const AUTOPILOT_KINDS = ['budget-up', 'budget-down', 'negatives', 'exclude', 'roas-up', 'roas-down'];
+
 /**
  * Doplní chybějící klíče z výchozího nastavení. Nastavení uložené starší
  * verzí nemá všechny klíče a `undefined` v cíli zisku by tiše rozbil
@@ -60,7 +63,17 @@ export function normalizeConfig(raw: any): AdsConfig {
       : [],
     defaultShipCost: numIn(src.defaultShipCost, 0, 10_000, base.defaultShipCost),
     fallbackMargin: numIn(src.fallbackMargin, 0, 0.95, base.fallbackMargin),
-    autonomy: ['suggest', 'guarded', 'full'].includes(src.autonomy) ? src.autonomy : base.autonomy,
+    autonomy: ['suggest', 'guarded'].includes(src.autonomy) ? src.autonomy : base.autonomy,
+    autopilot: {
+      kinds: Array.isArray(src.autopilot?.kinds)
+        ? src.autopilot.kinds.filter((k: string) => AUTOPILOT_KINDS.includes(k))
+        : base.autopilot.kinds,
+      maxPerNight: Math.round(numIn(src.autopilot?.maxPerNight, 1, 10, base.autopilot.maxPerNight)),
+      minConfidence: Math.round(numIn(src.autopilot?.minConfidence, 1, 4, base.autopilot.minConfidence)),
+      seasonPlans: src.autopilot?.seasonPlans == null ? base.autopilot.seasonPlans : !!src.autopilot.seasonPlans,
+      pausedAt: String(src.autopilot?.pausedAt ?? ''),
+      pausedReason: String(src.autopilot?.pausedReason ?? '')
+    },
     sklik: {
       enabled: !!src.sklik?.enabled,
       userId: String(src.sklik?.userId ?? '').replace(/\D/g, ''),
