@@ -107,7 +107,8 @@ export function normalizeConfig(raw: any): AdsConfig {
             name: String(one.name ?? ''),
             currency: String(one.currency ?? 'CZK') || 'CZK',
             market: ['cz', 'sk', 'en'].includes(one.market) ? one.market : 'cz',
-            enabled: one.enabled !== false
+            enabled: one.enabled !== false,
+            login: String(one.login ?? '').replace(/\D/g, '')
           }))
         : [];
       /*

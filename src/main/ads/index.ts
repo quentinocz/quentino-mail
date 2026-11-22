@@ -632,6 +632,21 @@ export function fetchGoogle(daysBack?: number): Promise<string> {
     const done: string[] = [];
     for (const acc of accounts) {
       try {
+        /*
+         * Bez přístupu k účtu se zkusí najít manažerský účet (MCC), přes
+         * který přístup je, a zapamatuje se u účtu. Patrik (22. 11.): český
+         * účet šel přímo, slovenský najednou „nemá přístup" — byl pod MCC.
+         */
+        try {
+          await google.gaql(cfg, 'SELECT customer.id FROM customer LIMIT 1', acc.id);
+        } catch (err: any) {
+          if (err?.code !== 'USER_PERMISSION_DENIED') throw err;
+          const manager = await google.findManager(cfg, acc.id);
+          if (!manager) throw err;
+          const fresh = getAdsConfig();
+          saveAdsConfig({ google: { ...fresh.google, accounts: fresh.google.accounts.map(a => (a.id === acc.id ? { ...a, login: manager } : a)) } });
+          cfg.google.accounts = getAdsConfig().google.accounts;
+        }
         const any = getDb().prepare("SELECT 1 FROM ads_campaign_day WHERE system = 'google' AND account = ? LIMIT 1").get(acc.id);
         const back = daysBack ?? (any ? 28 : 90);
         const from = shiftDay(to, -(back - 1));

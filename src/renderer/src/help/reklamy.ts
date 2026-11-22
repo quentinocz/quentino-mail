@@ -35,6 +35,8 @@ export const ADS: HelpTopic = {
             + 'Bez přihlašovací obrazovky a bez ověřování aplikace — klíč nevyprší.', area: 'tabs' },
         { text: '[Načíst účty] ukáže účty, ke kterým má servisní účet přístup. Přidej **každý trh zvlášť** — český, '
             + 'slovenský, později .com — a u každého zkontroluj, ke kterému trhu patří.', area: 'tabs' },
+        { text: 'Když je účet pod **manažerským účtem (MCC)** a servisní účet je přidaný jen tam, aplikace MCC při stažení '
+            + 'najde sama a zapíše ho k účtu (pole MCC u účtu). Každý účet může mít jiný — nebo žádný.', area: 'tabs' },
         { text: 'V hlavičce klikni na [Načíst data]. Poprvé se stáhne 90 dní, pak už to běží samo každou noc.', area: 'status' }
       ]
     },

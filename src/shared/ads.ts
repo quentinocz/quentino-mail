@@ -44,6 +44,8 @@ export interface AdsAutopilotState {
 export interface AdsAccount {
   /** Číslo účtu bez pomlček */
   id: string;
+  /** Manažerský účet (MCC), přes který se k účtu chodí; prázdné = přímo (nebo společné z Pokročilého) */
+  login?: string;
   name: string;
   /** Měna účtu (CZK, EUR…) — částky se přepočítají na koruny */
   currency: string;

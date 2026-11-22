@@ -304,10 +304,22 @@ async function accessToken(cfg: AdsConfig): Promise<string> {
  * „PERMISSION_DENIED" a neví, jestli chybí přístup projektu, nebo práva
  * v účtu. Nejčastější případy mají vlastní větu.
  */
+/** Kód chyby z odpovědi (USER_PERMISSION_DENIED…) — podle něj se dá zkusit jiná cesta */
+export function errorCode(body: any): string {
+  const err = Array.isArray(body) ? body[0]?.error : body?.error;
+  const detail = err?.details?.[0]?.errors?.[0];
+  return detail?.errorCode ? String(Object.values(detail.errorCode)[0] ?? '') : '';
+}
+
+/** Chyba Google Ads i s kódem, aby šla poznat od ostatních */
+function fail(status: number, json: any): Error {
+  return Object.assign(new Error(explainError(status, json)), { code: errorCode(json) });
+}
+
 export function explainError(status: number, body: any): string {
   const err = Array.isArray(body) ? body[0]?.error : body?.error;
   const detail = err?.details?.[0]?.errors?.[0];
-  const code = detail?.errorCode ? Object.values(detail.errorCode)[0] : '';
+  const code = errorCode(body);
   const message = detail?.message ?? err?.message ?? `HTTP ${status}`;
   switch (code) {
     case 'CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION':
@@ -315,8 +327,9 @@ export function explainError(status: number, body: any): string {
       return 'Projekt v Google Cloudu ještě nemá přístup ke skutečným účtům. V Cloud Console → Google Ads API '
         + '→ Overview požádej o úroveň Explorer; do té doby jdou číst jen testovací účty.';
     case 'USER_PERMISSION_DENIED':
-      return 'Přihlášený uživatel nemá k účtu přístup. Když se k účtu chodí přes manažerský účet (MCC), '
-        + 'vyplň v Nastavení jeho číslo.';
+      return 'K účtu není přístup. Servisní účet (jeho e-mail) musí být v tom účtu Google Ads přidaný jako uživatel — '
+        + 'nebo v manažerském účtu (MCC), pod kterým účet je; ten aplikace najde sama. Číslo MCC jde vyplnit i ručně '
+        + 'u účtu v Nastavení → Účty a trhy.';
     case 'CUSTOMER_NOT_ENABLED':
       return 'Účet Google Ads není aktivní (zrušený nebo nedokončené nastavení).';
     case 'RESOURCE_EXHAUSTED':
@@ -329,12 +342,23 @@ export function explainError(status: number, body: any): string {
   }
 }
 
-function headers(cfg: AdsConfig, token: string): Record<string, string> {
+/**
+ * Přes který manažerský účet (MCC) se k účtu chodí. Každý účet může mít
+ * vlastní: Patrik (22. 11.) měl český účet přímo a slovenský pod MCC —
+ * jedno společné číslo by jeden z nich vždycky odřízlo.
+ */
+function loginFor(cfg: AdsConfig, customerId: string): string {
+  const id = String(customerId ?? '').replace(/\D/g, '');
+  const own = cfg.google.accounts.find(a => a.id === id)?.login ?? '';
+  return String(own || cfg.google.loginCustomerId || '').replace(/\D/g, '');
+}
+
+function headers(cfg: AdsConfig, token: string, customerId = '', loginOverride?: string): Record<string, string> {
   const out: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json'
   };
-  const login = cfg.google.loginCustomerId.replace(/\D/g, '');
+  const login = loginOverride !== undefined ? loginOverride.replace(/\D/g, '') : loginFor(cfg, customerId);
   if (login) out['login-customer-id'] = login;
   const dev = readSecret(DEVTOKEN_KEY);
   if (dev) out['developer-token'] = dev;
@@ -342,7 +366,9 @@ function headers(cfg: AdsConfig, token: string): Record<string, string> {
 }
 
 /** Dotaz GAQL s listováním po stránkách. */
-export async function gaql(cfg: AdsConfig, query: string, customerId = cfg.google.accounts[0]?.id ?? cfg.google.customerId): Promise<any[]> {
+export async function gaql(
+  cfg: AdsConfig, query: string, customerId = cfg.google.accounts[0]?.id ?? cfg.google.customerId, loginOverride?: string
+): Promise<any[]> {
   const id = customerId.replace(/\D/g, '');
   if (!id) throw new Error('Není vybraný účet Google Ads.');
   const token = await accessToken(cfg);
@@ -352,11 +378,11 @@ export async function gaql(cfg: AdsConfig, query: string, customerId = cfg.googl
   for (let page = 0; page < 50; page++) {
     const res = await fetch(url, {
       method: 'POST',
-      headers: headers(cfg, token),
+      headers: headers(cfg, token, id, loginOverride),
       body: JSON.stringify(pageToken ? { query, pageToken } : { query })
     });
     const json: any = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(explainError(res.status, json));
+    if (!res.ok) throw fail(res.status, json);
     rows.push(...(json.results ?? []));
     pageToken = json.nextPageToken ?? '';
     if (!pageToken) break;
@@ -368,16 +394,17 @@ export async function gaql(cfg: AdsConfig, query: string, customerId = cfg.googl
 export async function listCustomers(cfg: AdsConfig): Promise<AdsGoogleCustomer[]> {
   const token = await accessToken(cfg);
   const res = await fetch(`${API}/${cfg.google.apiVersion}/customers:listAccessibleCustomers`, {
-    headers: headers(cfg, token)
+    headers: headers(cfg, token, '', '')
   });
   const json: any = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(explainError(res.status, json));
+  if (!res.ok) throw fail(res.status, json);
   const ids: string[] = (json.resourceNames ?? []).map((name: string) => name.split('/')[1]).filter(Boolean);
   const out: AdsGoogleCustomer[] = [];
   for (const id of ids.slice(0, 20)) {
     try {
+      // Účty z listAccessibleCustomers jsou přístupné přímo — bez MCC v hlavičce
       const rows = await gaql(cfg, 'SELECT customer.id, customer.descriptive_name, customer.currency_code, '
-        + 'customer.manager FROM customer LIMIT 1', id);
+        + 'customer.manager FROM customer LIMIT 1', id, '');
       const c = rows[0]?.customer ?? {};
       out.push({ id, name: c.descriptiveName ?? '', currency: c.currencyCode ?? '', manager: !!c.manager });
     } catch {
@@ -386,6 +413,29 @@ export async function listCustomers(cfg: AdsConfig): Promise<AdsGoogleCustomer[]
     }
   }
   return out;
+}
+
+/**
+ * Najde manažerský účet, přes který je k účtu přístup: zkusí každý
+ * přímo přístupný účet jako login-customer-id. Vrací jeho číslo, nebo
+ * prázdné (pak opravdu chybí přístup a musí se přidat servisní účet).
+ */
+export async function findManager(cfg: AdsConfig, customerId: string): Promise<string> {
+  const target = customerId.replace(/\D/g, '');
+  const token = await accessToken(cfg);
+  const res = await fetch(`${API}/${cfg.google.apiVersion}/customers:listAccessibleCustomers`, {
+    headers: headers(cfg, token, '', '')
+  });
+  const json: any = await res.json().catch(() => ({}));
+  if (!res.ok) return '';
+  const ids: string[] = (json.resourceNames ?? []).map((name: string) => name.split('/')[1]).filter((id: string) => id && id !== target);
+  for (const id of ids.slice(0, 20)) {
+    try {
+      await gaql(cfg, 'SELECT customer.id FROM customer LIMIT 1', target, id);
+      return id;
+    } catch { /* tenhle manažer to není */ }
+  }
+  return '';
 }
 
 /* ---------- převod odpovědí ---------- */
@@ -581,11 +631,11 @@ export async function mutate(
   const token = await accessToken(cfg);
   const res = await fetch(`${API}/${cfg.google.apiVersion}/customers/${id}/${service}:mutate`, {
     method: 'POST',
-    headers: headers(cfg, token),
+    headers: headers(cfg, token, id),
     body: JSON.stringify({ operations, validateOnly, partialFailure: service === 'campaignCriteria' })
   });
   const json: any = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(explainError(res.status, json));
+  if (!res.ok) throw fail(res.status, json);
   return {
     resources: (json.results ?? []).map((one: any) => String(one?.resourceName ?? '')),
     partial: json.partialFailureError?.message ?? ''
@@ -664,11 +714,11 @@ export async function createShoppingCampaign(cfg: AdsConfig, customerId: string,
   const token = await accessToken(cfg);
   const res = await fetch(`${API}/${cfg.google.apiVersion}/customers/${id}/googleAds:mutate`, {
     method: 'POST',
-    headers: headers(cfg, token),
+    headers: headers(cfg, token, id),
     body: JSON.stringify({ mutateOperations: shoppingCampaignOps(id, op, rate), validateOnly, partialFailure: false })
   });
   const json: any = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(explainError(res.status, json));
+  if (!res.ok) throw fail(res.status, json);
   const results: any[] = Array.isArray(json.mutateOperationResponses) ? json.mutateOperationResponses : [];
   const last = (name: string | undefined) => String(name ?? '').split('/').pop() ?? '';
   return {

@@ -1639,7 +1639,14 @@ function AccountsBlock({ cfg, status, customers, busy, onLoad, onSave }: {
           </label>
           <div className="ad-account-name">
             <b>{a.name || 'Účet bez názvu'}</b>
-            <span className="muted small">{fmt(a.id)} · {a.currency}</span>
+            <span className="muted small">{fmt(a.id)} · {a.currency}
+              {' · '}
+              <span className="ad-term" data-tip="Manažerský účet (MCC), přes který se k účtu chodí. Když k účtu není přímý přístup, aplikace ho při stažení najde a doplní sama; jde ho i přepsat (prázdné = přímo).">
+                MCC
+              </span>{' '}
+              <input className="ad-login" defaultValue={a.login ? fmt(a.login) : ''} placeholder="přímo"
+                onBlur={e => { const v = e.target.value.replace(/\D/g, ''); if (v !== (a.login ?? '')) update(a.id, { login: v }); }} />
+            </span>
             {status.google.accountErrors?.[a.id] && <span className="ad-prop-err">{status.google.accountErrors[a.id]}</span>}
           </div>
           <select value={a.market} onChange={e => update(a.id, { market: e.target.value })}
@@ -2124,7 +2131,7 @@ function Settings({ status, onStatus, busy, setBusy }: {
         <details className="ad-adv">
           <summary>Pokročilé</summary>
           <div className="field">
-            <label>Manažerský účet (MCC), přes který se k účtu chodí</label>
+            <label>Společný manažerský účet (MCC) <small>(pro účty bez vlastního — ten jde nastavit u účtu v Účtech a trzích)</small></label>
             <input defaultValue={cfg.google.loginCustomerId} placeholder="prázdné = přímo"
               onBlur={e => { if (e.target.value !== cfg.google.loginCustomerId) void save({ google: { ...cfg.google, loginCustomerId: e.target.value.replace(/\D/g, '') } }); }} />
           </div>

@@ -542,6 +542,42 @@ console.log('\nSklik');
 }
 
 
+/* ---------- přístup přes manažerský účet (MCC) ---------- */
+console.log('\nManažerský účet po účtech');
+{
+  const gg = require(path.join(DIST, 'ads/google.js'));
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('adsGoogleRefresh','r'),('adsGoogleSecret','s')").run();
+  const base = store.getAdsConfig();
+  store.saveAdsConfig({ google: { ...base.google, loginCustomerId: '', accounts: [
+    { id: '1111111111', name: 'CZ', currency: 'CZK', market: 'cz', enabled: true, login: '' },
+    { id: '2222222222', name: 'SK', currency: 'EUR', market: 'sk', enabled: true, login: '' }] } });
+  const denied = { ok: false, status: 403, json: async () => ({ error: { details: [{ errors: [{ errorCode: { authorizationError: 'USER_PERMISSION_DENIED' }, message: 'x' }] }] } }) };
+  const sent = [];
+  global.fetch = async (url, init = {}) => {
+    const u = String(url);
+    const login = init.headers?.['login-customer-id'] ?? '';
+    sent.push({ u, login });
+    const reply = (json) => ({ ok: true, status: 200, json: async () => json });
+    if (u.includes('oauth2')) return reply({ access_token: 't', expires_in: 3600 });
+    if (u.endsWith('customers:listAccessibleCustomers')) return reply({ resourceNames: ['customers/1111111111', 'customers/9999999999'] });
+    // SK jde jen přes MCC 9999999999
+    if (u.includes('/customers/2222222222/') && login !== '9999999999') return denied;
+    return reply({ results: [] });
+  };
+  let err = null;
+  try { await gg.gaql(store.getAdsConfig(), 'SELECT customer.id FROM customer', '2222222222'); } catch (e) { err = e; }
+  check('bez přístupu: chyba nese kód a radí přidat servisní účet nebo MCC', [err?.code, /servisní účet/i.test(err?.message ?? '')], ['USER_PERMISSION_DENIED', true]);
+  check('MCC se najde mezi přímo přístupnými účty', await gg.findManager(store.getAdsConfig(), '2222222222'), '9999999999');
+  const c2 = store.getAdsConfig();
+  c2.google.accounts[1].login = '9999999999';
+  sent.length = 0;
+  await gg.gaql(c2, 'SELECT customer.id FROM customer', '2222222222');
+  await gg.gaql(c2, 'SELECT customer.id FROM customer', '1111111111');
+  check('každý účet jde přes svůj MCC (SK přes 9999…, CZ přímo)', sent.filter(x => x.u.includes('googleAds:search')).map(x => x.login), ['9999999999', '']);
+  store.saveAdsConfig({ google: { ...base.google } });
+  db.prepare("UPDATE settings SET value = '' WHERE key = 'adsGoogleRefresh'").run();
+}
+
 /* ---------- Meta ---------- */
 console.log('\nMeta');
 {
