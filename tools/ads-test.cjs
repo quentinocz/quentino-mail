@@ -798,7 +798,18 @@ console.log('\nSezóny');
 
   // Uložení a nový plán: staré kroky se zruší, nezdvojí se
   const first = prop.saveChat(plan.drafts);
-  check('uložené kroky čekají v Naplánovaných', [prop.planCount('vanoce-2026'), prop.proposalsView(MONEY).planned.length >= 6], [6, true]);
+  /*
+   * Plán je spočítaný k pevnému dni (21. 11.), ale Naplánované se řídí
+   * skutečným dneškem: krok, jehož den už přišel, je mezi otevřenými.
+   * Test 22. 11. na CI padal, protože první krok (22. 11.) čekal
+   * v Naplánovaných — počítá se proto podle skutečného data.
+   */
+  const realToday = econ.localDay();
+  const viewNow = prop.proposalsView(MONEY);
+  const ids = new Set(first.map(p => p.id));
+  check('uložené kroky čekají v Naplánovaných, a ty, jejichž den přišel, jsou mezi otevřenými',
+    [prop.planCount('vanoce-2026'), viewNow.planned.filter(p => ids.has(p.id)).length, viewNow.open.filter(p => ids.has(p.id)).length],
+    [6, plan.drafts.filter(d => d.notBefore > realToday).length, plan.drafts.filter(d => d.notBefore <= realToday).length]);
   check('  nový plán téže události staré kroky zruší', [prop.dropPlan('vanoce-2026'), prop.planCount('vanoce-2026')], [6, 0]);
   check('  a engine plán nezahodí', (prop.saveChat(plan.drafts.slice(0, 1)), prop.saveGenerated([], 'google'), prop.planCount('vanoce-2026')), 1);
   prop.dropPlan('vanoce-2026');
