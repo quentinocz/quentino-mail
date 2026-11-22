@@ -190,11 +190,13 @@ export type AdsOp =
     kind: 'campaign-create'; account: string; market: string; name: string; budget: number; troas: number;
     segment: string; merchantId: string; feedLabel: string; geo: number[];
   }
+  /** Pozastavit / zapnout kampaň (Google, Sklik, Meta) */
+  | { kind: 'status'; campaignId: string; from: 'ENABLED' | 'PAUSED'; to: 'ENABLED' | 'PAUSED'; account?: string }
   /** Vrácení nové kampaně: odstranit ji i s jejím rozpočtem */
   | { kind: 'campaign-remove'; account: string; campaignId: string; budgetId: string; name: string };
 
 export type AdsProposalKind = 'budget-up' | 'budget-down' | 'roas-up' | 'roas-down' | 'roas-set' | 'negatives' | 'exclude'
-  | 'campaign-new';
+  | 'campaign-new' | 'campaign-pause' | 'campaign-enable';
 
 export type AdsProposalStatus = 'open' | 'approved' | 'applied' | 'dismissed' | 'snoozed' | 'never' | 'failed' | 'stale';
 
@@ -335,6 +337,25 @@ export interface AdsReport {
   findings: AdsFinding[];
   /** Shrnutí od poradce, když už se o něj někdo řekl (uložené u reportu) */
   summary: string;
+  /** Příběh nahoře: jak období dopadlo, proč a co dál (z pravidel) */
+  story: AdsReportStory;
+  /** Předchozí období po dnech — do grafu proti tomuto */
+  prevDaily: AdsDay[];
+  /** Všechny kampaně s útratou: zisk proti předchozímu období a průběh po dnech */
+  all: AdsReportCampaign[];
+}
+
+export interface AdsReportStory {
+  tone: 'good' | 'mixed' | 'bad';
+  headline: string;
+  why: string[];
+  next: string[];
+}
+
+export interface AdsReportCampaign extends AdsCampaignRow {
+  prevProfit: number | null;
+  prevCost: number;
+  series: { date: string; cost: number; value: number }[];
 }
 
 /** Jedna zpráva v rozhovoru s poradcem */
@@ -345,11 +366,27 @@ export interface AdsChatTurn {
   proposals?: AdsProposal[];
   /** U odpovědi: kroky, které neprošly pravidly, a proč */
   notes?: string[];
+  /** U odpovědi: co si poradce dohledal (pro „Podívané do dat") */
+  steps?: string[];
+  at?: string;
 }
 
 export interface AdsMetaAccount { id: string; name: string; currency: string; active: boolean }
 
+/** Rozhovor s poradcem (uložený, sdílený mezi Macy) */
+export interface AdsChat {
+  id: string;
+  title: string;
+  turns: AdsChatTurn[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdsChatSummary { id: string; title: string; updatedAt: string; turns: number }
+
 export interface AdsChatReply {
+  /** Rozhovor po odpovědi (i s otázkou) */
+  chat?: AdsChat;
   answer: string;
   proposals: AdsProposal[];
   notes: string[];

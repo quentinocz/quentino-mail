@@ -140,6 +140,17 @@ CREATE TABLE IF NOT EXISTS ads_proposals (
 -- Deník změn v účtech. Řádek se nikdy nepřepisuje: vrácení je nová změna
 -- s odkazem na tu původní (revert_of). Díky tomu si Macy deníky jen
 -- sjednocují a nemohou si navzájem přepsat historii.
+-- Rozhovory s poradcem. Sdílí se mezi Macy (každý Mac zapisuje svůj soubor,
+-- čte všechny, novější verze rozhovoru vyhrává); smazání = deleted = 1.
+CREATE TABLE IF NOT EXISTS ads_chats (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  turns_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT '',
+  deleted INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS ads_changes (
   id TEXT PRIMARY KEY,
   proposal_id TEXT NOT NULL DEFAULT '',

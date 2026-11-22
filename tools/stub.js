@@ -851,6 +851,19 @@
       var camp = function (sys, id, name, profit, pno) { return { system: sys, account: '', market: 'cz', id: id, name: name, type: 'SEARCH',
         status: 'ENABLED', budget: 100, bidding: 'MANUAL_CPC', targetRoas: null, cost: 2000, clicks: 100, conversions: 10, value: 20000,
         profit: profit, pno: pno, targetPno: 0.08 }; };
+      var days = function (shift, k) {
+        var out = [];
+        for (var i = 0; i < 7; i++) {
+          var date = new Date(Date.UTC(2026, 10, 9 + i + shift)).toISOString().slice(0, 10);
+          var v = 1 + 0.3 * Math.sin(i + shift);
+          out.push({ date: date, orders: Math.round(15 * v * k), revenue: Math.round(17000 * v * k), profit: Math.round(9200 * v * k),
+            cost: Math.round(1650 + 200 * Math.cos(i)), conversions: Math.round(10 * v) });
+        }
+        return out;
+      };
+      var series = function (cost, value) {
+        return days(0, 1).map(function (d, i) { return { date: d.date, cost: Math.round(cost * (1 + 0.2 * Math.sin(i))), value: Math.round(value * (1 + 0.35 * Math.cos(i))) }; });
+      };
       var prod = function (code, title, profit, cost) { return { code: code, title: title, image: null, category: 'Kšandy', segment: 'hvezdy',
         why: '', margin: 0.7, marginEstimated: false, stock: 4, cost: cost, clicks: 20, impressions: 900, conversions: 3, value: 4000,
         profit: profit, pno: 0.1, breakEven: 0.7, targetPno: 0.2, sold: 5 }; };
@@ -867,7 +880,7 @@
             { system: 'google', connected: true, cost: 9500, value: 71000, conversions: 60, profit: 31700, pno: 0.134, targetPno: 0.08, daily: [] },
             { system: 'sklik', connected: true, cost: 1400, value: 11800, conversions: 10, profit: 5400, pno: 0.119, targetPno: 0.08, daily: [] },
             { system: 'meta', connected: true, cost: 800, value: 4200, conversions: 3, profit: 1600, pno: 0.19, targetPno: 0.08, daily: [] }],
-          daily: [], alerts: [], estimatedOrders: 12
+          daily: days(0, 1), alerts: [], estimatedOrders: 12
         },
         best: [camp('google', '1', 'PMax – celý katalog CZ', 24800, 0.12), camp('sklik', '9001', 'Zboží.cz – celý katalog', 5400, 0.119)],
         worst: [camp('google', '5', 'Nákupy – Ponožky', -768, 0.72), camp('meta', '120', 'Advantage+ nákupy – kšandy', 1600, 0.19)],
@@ -879,7 +892,17 @@
           { kind: 'up', text: 'Zisk po reklamě vzrostl o 8,8 % proti předchozímu období.', basis: '52 000 Kč proti 47 800 Kč' },
           { kind: 'watch', text: 'Pod cílem: po reklamě zůstalo 43 % z obratu, cíl je 50 %.', basis: 'zisk po reklamě 52 000 Kč z obratu 121 000 Kč' },
           { kind: 'down', text: 'Trh SK po reklamě prodělal.', basis: 'zisk po reklamě −300 Kč, útrata 2 100 Kč' }],
-        summary: ''
+        summary: '',
+        story: { tone: 'mixed', headline: 'Týden se smíšeným výsledkem: zisk po reklamě 52 000 Kč (+8,8 % proti předchozímu), 43 % z obratu při cíli 50 %.',
+          why: ['Trh SK po reklamě prodělal.', 'Pod cílem: po reklamě zůstalo 43 % z obratu, cíl je 50 %.', 'Zisk po reklamě vzrostl o 8,8 % proti předchozímu období.'],
+          next: ['Kampaň „Nákupy – Ponožky" prodělala −768 Kč — zeptej se poradce, jestli ubrat rozpočet nebo zpřísnit cíl.',
+            'Trh SK po reklamě prodělal — zkontroluj jeho kampaně a cílové PNO.', 'Projdi 4 čekající návrhy v záložce Návrhy.'] },
+        prevDaily: days(-7, 0.9),
+        all: [
+          Object.assign(camp('google', '1', 'PMax – celý katalog CZ', 24800, 0.12), { cost: 6400, value: 52000, prevProfit: 21000, prevCost: 6100, series: series(900, 7400) }),
+          Object.assign(camp('sklik', '9001', 'Zboží.cz – celý katalog', 5400, 0.119), { cost: 1400, value: 11800, prevProfit: 5900, prevCost: 1300, series: series(200, 1700) }),
+          Object.assign(camp('meta', '120', 'Advantage+ nákupy – kšandy', 1600, 0.19), { cost: 800, value: 4200, prevProfit: null, prevCost: 0, series: series(110, 600) }),
+          Object.assign(camp('google', '5', 'Nákupy – Ponožky', -768, 0.72), { cost: 900, value: 1250, prevProfit: -300, prevCost: 700, series: series(130, 180) })]
       };
     })(),
     'ads:reportSummary': '- Zisk po reklamě **52 000 Kč**, o 9 % víc než týden předtím.\n- Slovensko prodělalo — zvaž ubrat rozpočet.',
@@ -890,14 +913,26 @@
     'ads:metaConnect': [
       { id: 'act_1234567', name: 'Quentino Meta', currency: 'CZK', active: true },
       { id: 'act_7654321', name: 'Starý účet', currency: 'EUR', active: false }],
-    'ads:ask': {
-      answer: 'Za posledních 30 dní je **zisk po reklamě 48 %** z obratu — cíl je 50 %, chybí tedy zhruba 10 000 Kč.\n\n'
-        + 'Kde to brzdí:\n- **Nákupy – Ponožky** utrácí 72 Kč ze 100 Kč tržby, ale na ponožkách vyděláme jen 55 Kč.\n'
+    'ads:ask': (function () {
+      var answer = 'Za posledních 30 dní je **zisk po reklamě 48 %** z obratu — cíl je 50 %, chybí zhruba 10 000 Kč.\n\n'
+        + '### Co brzdí\n- **Nákupy – Ponožky** utrácí 72 Kč ze 100 Kč tržby, ale na ponožkách vyděláme jen 55 Kč.\n'
         + '- Slovensko má PNO (podíl nákladů na reklamu z tržby) 11,5 % při cíli 6 %.\n\n'
-        + 'Navrhl jsem dva kroky — najdeš je níž i v záložce Návrhy.',
-      proposals: [],
-      notes: ['„Brand" má sdílený rozpočet — změna by se týkala i jiných kampaní, proto ji nenavrhuji.']
-    },
+        + '### Co udělat\n1. Ubrat rozpočet Ponožkám o 20 %.\n2. Na Slovensku přísnější cíl návratnosti.\n\n'
+        + 'Návrhy najdeš pod odpovědí i v záložce Návrhy.';
+      var prop = { id: '1', fingerprint: 'budget-down|google|5|chat|ab', kind: 'budget-down', system: 'google', market: 'cz',
+        targetId: '5', targetName: 'Nákupy – Ponožky', title: 'Ubrat rozpočet: Nákupy – Ponožky 120 Kč → 96 Kč denně',
+        plain: 'Ponožky prodělávají — ubrat 24 Kč denně, dokud se nezlepší.', why: 'Z poradce', impact: 0, confidence: 1,
+        ops: [{ kind: 'budget', campaignId: '5', budgetId: '9', from: 120, to: 96 }], status: 'open', snoozeUntil: '', error: '',
+        createdAt: '', updatedAt: '', decidedBy: '' };
+      var turns = [
+        { role: 'user', text: 'Jak si stojíme proti cíli za posledních 30 dní a co nás nejvíc brzdí?' },
+        { role: 'assistant', text: answer, steps: ['Přehled období', 'Kampaně', 'Návrhy změn'], proposals: [prop],
+          notes: ['„Brand" má sdílený rozpočet — změna by se týkala i jiných kampaní, proto ji nenavrhuji.'] }];
+      return { chat: { id: 'c1', title: 'Jak si stojíme proti cíli', turns: turns, createdAt: '', updatedAt: new Date().toISOString() },
+        answer: answer, proposals: [prop], notes: turns[1].notes };
+    })(),
+    'ads:chats': [{ id: 'c0', title: 'Plán na Vánoce', updatedAt: new Date(Date.now() - 86400e3).toISOString(), turns: 4 }],
+    'ads:chat': { id: 'c0', title: 'Plán na Vánoce', turns: [{ role: 'user', text: 'Plán na Vánoce?' }, { role: 'assistant', text: 'Hotovo.' }], createdAt: '', updatedAt: '' },
     'ads:proposals': (function () {
       var now = new Date().toISOString();
       var p = function (id, kind, title, why, impact, conf, ops) {
@@ -2617,6 +2652,10 @@
        */
       if (channel === 'events:list' || channel === 'events:save' || channel === 'events:delete') {
         return Promise.resolve({ ok: true, data: answers['events:list'] });
+      }
+      // Poradce: rozhovor podle ID — ten z odpovědi, ne ten ze seznamu
+      if (channel === 'ads:chat') {
+        return Promise.resolve({ ok: true, data: arg === 'c1' ? answers['ads:ask'].chat : answers['ads:chat'] });
       }
       if (channel === 'tool:arg') {
         return Promise.resolve({ ok: true, data: window.__toolArg || '' });

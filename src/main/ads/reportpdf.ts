@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { app, dialog, BrowserWindow } from 'electron';
-import type { AdsReport, AdsCampaignRow, AdsProductRow } from '../../shared/ads';
+import type { AdsReport, AdsProductRow } from '../../shared/ads';
 import { MARKET_LABELS } from '../../shared/ads';
 import { callerWindow } from '../caller';
 
@@ -35,18 +35,42 @@ function delta(now: number, prev: number, invert = false): string {
   return `<span class="${good ? 'ok' : 'bad'}">${c >= 0 ? '+' : ''}${Math.round(c * 100)} %</span>`;
 }
 
-function campaignTable(rows: AdsCampaignRow[]): string {
-  if (!rows.length) return '<div class="muted">—</div>';
-  return `<table><thead><tr><th>Kampaň</th><th>Systém</th><th class="r">Útrata</th><th class="r">Hodnota</th><th class="r">Zisk</th><th class="r">PNO / cíl</th></tr></thead><tbody>
-    ${rows.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.system)}${c.market ? ` · ${esc(MARKET_LABELS[c.market] ?? c.market)}` : ''}</td>
-      <td class="r">${kc(c.cost)}</td><td class="r">${kc(c.value)}</td><td class="r ${c.profit < 0 ? 'bad' : ''}">${kc(c.profit)}</td>
-      <td class="r">${pct(c.pno)} / ${pct(c.targetPno)}</td></tr>`).join('')}
-  </tbody></table>`;
-}
-
 function productList(rows: AdsProductRow[], what: 'profit' | 'cost'): string {
   if (!rows.length) return '<div class="muted">—</div>';
   return `<ul class="plain">${rows.map(p => `<li>${esc(p.title)} <span class="muted">· ${what === 'profit' ? `zisk ${kc(p.profit)}` : `útrata ${kc(p.cost)}`}</span></li>`).join('')}</ul>`;
+}
+
+function chart(r: AdsReport): string {
+  const now = r.overview.daily ?? [];
+  if (now.length < 2) return '<div class="muted">—</div>';
+  const prev = (r.prevDaily ?? []).slice(0, now.length);
+  const after = (d: { profit: number; cost: number }) => d.profit - d.cost;
+  const vals = [...now.map(after), ...prev.map(after), ...now.map(d => d.cost), 0];
+  const max = Math.max(1, ...vals);
+  const min = Math.min(0, ...vals);
+  const y = (v: number) => (4 + (1 - (v - min) / (max - min)) * 82).toFixed(1);
+  const w = 100 / now.length;
+  const line = (list: typeof now) => list.map((d, i) => `${((i + 0.5) * w).toFixed(2)},${y(after(d))}`).join(' ');
+  return `<svg class="chart" viewBox="0 0 100 90" preserveAspectRatio="none">
+    ${now.map((d, i) => `<rect x="${(i * w + w * 0.25).toFixed(2)}" width="${(w * 0.5).toFixed(2)}" y="${y(Math.max(0, d.cost))}" height="${Math.max(0, Number(y(0)) - Number(y(d.cost))).toFixed(1)}" fill="rgba(229,72,77,.3)"/>`).join('')}
+    ${prev.length > 1 ? `<polyline points="${line(prev)}" fill="none" stroke="#999" stroke-width="0.6" stroke-dasharray="2 1.5" vector-effect="non-scaling-stroke"/>` : ''}
+    <polyline points="${line(now)}" fill="none" stroke="#2f9e6e" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+  </svg><div class="muted" style="font-size:9.5px">Zelená = toto období, šedá = předchozí, červené sloupce = náklady na reklamu.</div>`;
+}
+
+function allTable(r: AdsReport): string {
+  const rows = r.all ?? [...r.best, ...r.worst];
+  if (!rows.length) return '<div class="muted">—</div>';
+  return `<table><thead><tr><th>Kampaň</th><th>Systém</th><th class="r">Útrata</th><th class="r">Hodnota</th><th class="r">Zisk</th>
+    <th class="r">Proti předchozímu</th><th class="r">PNO / cíl</th></tr></thead><tbody>
+    ${rows.map((c: any) => {
+      const delta = c.prevProfit == null ? null : c.profit - c.prevProfit;
+      return `<tr><td>${esc(c.name)}</td><td>${esc(c.system)}${c.market ? ` · ${esc(MARKET_LABELS[c.market] ?? c.market)}` : ''}</td>
+        <td class="r">${kc(c.cost)}</td><td class="r">${kc(c.value)}</td><td class="r ${c.profit < 0 ? 'bad' : ''}">${kc(c.profit)}</td>
+        <td class="r ${delta == null ? 'muted' : delta >= 0 ? 'ok' : 'bad'}">${delta == null ? 'nová' : `${delta >= 0 ? '+' : '−'}${kc(Math.abs(delta))}`}</td>
+        <td class="r">${pct(c.pno)} / ${pct(c.targetPno)}</td></tr>`;
+    }).join('')}
+  </tbody></table>`;
 }
 
 export function reportHtml(r: AdsReport): string {
@@ -74,8 +98,17 @@ export function reportHtml(r: AdsReport): string {
     .summary { background: #f5f3fb; border-radius: 8px; padding: 8px 12px; } .summary ul { margin: 4px 0; padding-left: 16px; }
     ul.plain { margin: 0; padding-left: 14px; }
     .foot { margin-top: 14px; color: #999; font-size: 9.5px; }
+    .story { border-left: 4px solid #999; background: #f7f7f9; border-radius: 6px; padding: 8px 12px; margin: 6px 0 10px; }
+    .story.good { border-color: #2f9e6e; background: #f1f8f4; } .story.mixed { border-color: #d99a1b; background: #fdf7ec; }
+    .story.bad { border-color: #e5484d; background: #fdf1f1; }
+    .story .head { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+    .story .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .story ul, .story ol { margin: 2px 0 0; padding-left: 16px; }
+    svg.chart { width: 100%; height: 90px; }
   </style></head><body>
     <h1>Reklamy — ${esc(r.label)}</h1>
+    ${r.story ? `<div class="story ${r.story.tone}"><div class="head">${esc(r.story.headline)}</div>
+      <div class="cols"><div><b>Proč</b><ul>${r.story.why.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>
+      <div><b>Co dál</b><ol>${r.story.next.map(n => `<li>${esc(n)}</li>`).join('')}</ol></div></div></div>` : ''}
     <div class="sub">${esc(r.from)} až ${esc(r.to)} · ${r.market === 'all' ? 'všechny trhy' : esc(MARKET_LABELS[r.market] ?? r.market)}
       · srovnání s ${esc(r.prevFrom)} až ${esc(r.prevTo)} · cíl zisku po reklamě ${pct(r.target)} z obratu</div>
     <div class="kpis">
@@ -86,6 +119,7 @@ export function reportHtml(r: AdsReport): string {
     </div>
     <div class="sub" style="margin-top:6px">Podíl zisku po reklamě: <b>${pct(o.profitShare)}</b> · PNO e-shopu ${pct(o.shopPno)} (cíl ${pct(o.targetPno)})</div>
     ${r.summary ? `<h2>Shrnutí poradce</h2><div class="summary">${rich(r.summary)}</div>` : ''}
+    <h2>Zisk po reklamě po dnech</h2>${chart(r)}
     <h2>Zjištění</h2>
     <ul class="find">${r.findings.map(f => `<li class="${f.kind}">${esc(f.text)}<span class="b">${esc(f.basis)}</span></li>`).join('') || '<li class="info">Bez výrazných změn.</li>'}</ul>
     <h2>Systémy a trhy</h2>
@@ -97,8 +131,7 @@ export function reportHtml(r: AdsReport): string {
       ${o.markets.map(m => `<tr><td>${esc(MARKET_LABELS[m.market] ?? m.market)}</td><td class="r">${kc(m.revenue)}</td><td class="r">${kc(m.cost)}</td>
         <td class="r ${m.profitAfterAds < 0 ? 'bad' : ''}">${kc(m.profitAfterAds)}</td><td class="r">${pct(m.pno)} / ${pct(m.targetPno)}</td></tr>`).join('')}
     </tbody></table>` : ''}
-    <h2>Nejvýnosnější kampaně</h2>${campaignTable(r.best)}
-    <h2>Nejslabší kampaně</h2>${campaignTable(r.worst)}
+    <h2>Kampaně</h2>${allTable(r)}
     <div class="cols">
       <div><h2>Hvězdy</h2>${productList(r.stars, 'profit')}</div>
       <div><h2>Žrouti</h2>${productList(r.eaters, 'cost')}</div>

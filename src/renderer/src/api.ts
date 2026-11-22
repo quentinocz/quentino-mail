@@ -35,7 +35,7 @@ import type {
   UpdateState
 } from '@shared/types';
 import type {
-  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan, AdsMetaAccount, AdsReport,
+  AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer, AdsChatTurn, AdsChatReply, AdsChat, AdsChatSummary, AdsSeasons, AdsSeasonPlan, AdsMetaAccount, AdsReport,
   AdsProposals, AdsProposal, AdsChange
 } from '@shared/ads';
 import type { ToolWindowId } from '@shared/windows';
@@ -1447,8 +1447,12 @@ export const api = {
     seasonPlan: (eventId: string, save = false, market = 'all') => call<AdsSeasonPlan>('ads:seasonPlan', eventId, save, market),
     seasonDrop: (eventId: string) => call<number>('ads:seasonDrop', eventId),
     /** Poradce: odpověď a návrhy, které z ní vznikly (nic se neprovádí samo) */
-    ask: (history: AdsChatTurn[], question: string, market = 'all') =>
-      call<AdsChatReply>('ads:ask', history, question, market),
+    ask: (chatId: string | null, question: string, market = 'all') =>
+      call<AdsChatReply>('ads:ask', chatId, question, market),
+    chats: () => call<AdsChatSummary[]>('ads:chats'),
+    chat: (id: string) => call<AdsChat | null>('ads:chat', id),
+    chatDelete: (id: string) => call<AdsChatSummary[]>('ads:chatDelete', id),
+    chatRename: (id: string, title: string) => call<AdsChatSummary[]>('ads:chatRename', id, title),
     fetch: (days?: number) => call<string>('ads:fetch', days),
     publishFeed: () => call<string>('ads:feed'),
     proposals: () => call<AdsProposals>('ads:proposals'),

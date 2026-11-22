@@ -68,6 +68,8 @@ import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
 import * as ads from './ads';
 import * as adsReport from './ads/report';
+import * as adsAdvisor from './ads/advisor';
+import * as adsChats from './ads/chats';
 import { reportToPdf as adsReportPdf } from './ads/reportpdf';
 import { vaultStatus, setVaultPassphrase, forgetVaultPassphrase } from './vault';
 import * as banners from './banners';
@@ -760,8 +762,12 @@ export function registerIpc() {
   handle('ads:seasonPlan', (eventId: string, save?: boolean, market?: string) =>
     ads.seasonPlan(String(eventId ?? ''), !!save, String(market || 'all')));
   handle('ads:seasonDrop', (eventId: string) => ads.dropSeasonPlan(String(eventId ?? '')));
-  handle('ads:ask', (history: any, question: string, market?: string) =>
-    ads.askAdvisor(Array.isArray(history) ? history : [], String(question ?? ''), String(market || 'all')));
+  handle('ads:ask', (chatId: string | null, question: string, market?: string) =>
+    adsAdvisor.ask(chatId ? String(chatId) : null, String(question ?? ''), String(market || 'all')));
+  handle('ads:chats', () => adsChats.listChats());
+  handle('ads:chat', (id: string) => adsChats.getChat(String(id ?? '')));
+  handle('ads:chatDelete', (id: string) => { adsChats.deleteChat(String(id ?? '')); return adsChats.listChats(); });
+  handle('ads:chatRename', (id: string, title: string) => { adsChats.renameChat(String(id ?? ''), String(title ?? '')); return adsChats.listChats(); });
   handle('ads:feed', () => ads.publishFeed());
   // Fáze 2: návrhy změn — zápis do účtu jen po kliknutí na Použít
   handle('ads:proposals', () => ads.proposals());

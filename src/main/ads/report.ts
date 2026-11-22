@@ -15,11 +15,11 @@
 import { getSetting, setSetting } from '../db';
 import { ask } from '../ai';
 import { getSettings } from '../settings';
-import type { AdsReport, AdsFinding, AdsOverview } from '../../shared/ads';
+import type { AdsReport, AdsFinding, AdsOverview, AdsReportStory, AdsReportCampaign, AdsSeasonEvent } from '../../shared/ads';
 import { MARKET_LABELS } from '../../shared/ads';
 import { shiftDay, localDay } from './economics';
 import { isAutopilot } from './autopilot';
-import { overview, campaigns, products, proposals, AdsRange } from './index';
+import { overview, campaigns, products, proposals, seasons, campaignSeries, AdsRange } from './index';
 import { getAdsConfig } from './store';
 
 const MONTHS = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec'];
@@ -135,6 +135,52 @@ export function findingsOf(o: AdsOverview, target: number, extra: {
   return out;
 }
 
+/**
+ * Příběh nahoře v reportu: jedna věta, jak období dopadlo, proč (nejdůležitější
+ * zjištění) a co dál (konkrétní kroky). Patrik (22. 11.): „moc čísel, chybí
+ * příběh" — čísla zůstávají pod tím, ale první je odpověď na otázku „dobré,
+ * nebo špatné, a co s tím".
+ */
+export function storyOf(input: {
+  kind: 'week' | 'month'; o: AdsOverview; target: number; findings: AdsFinding[];
+  worst: { name: string; profit: number }[]; eaters: { cost: number }[]; open: number;
+  season: AdsSeasonEvent | null;
+}): AdsReportStory {
+  const { o, target } = input;
+  const p = o.profitAfterAds;
+  const change = p.prev ? (p.value - p.prev) / Math.abs(p.prev) : null;
+  const share = o.profitShare;
+  const lossMarket = o.markets.find(m => m.cost > 0 && m.profitAfterAds < 0);
+  const bad = (share != null && share < target * 0.8) || (change != null && change <= -0.15) || p.value < 0;
+  const good = !bad && share != null && share >= target && (change == null || change >= -0.05);
+  const tone: AdsReportStory['tone'] = bad ? 'bad' : good ? 'good' : 'mixed';
+  const period = input.kind === 'week' ? 'týden' : 'měsíc';
+  const word = tone === 'good' ? `Dobrý ${period}` : tone === 'bad' ? `Slabší ${period}` : `${period[0].toUpperCase()}${period.slice(1)} se smíšeným výsledkem`;
+  const headline = `${word}: zisk po reklamě ${kc(p.value)}`
+    + `${change != null ? ` (${change >= 0 ? '+' : '−'}${pct(Math.abs(change))} proti předchozímu)` : ''}`
+    + `${share != null ? `, ${pct(share)} z obratu při cíli ${pct(target)}` : ''}.`;
+
+  // Proč: nejdřív to, co brzdí, pak co táhne — nejvýš tři věty
+  const order = { down: 0, watch: 1, up: 2, info: 3 } as const;
+  const why = [...input.findings].sort((a, b) => order[a.kind] - order[b.kind]).slice(0, 3).map(f => f.text);
+
+  const next: string[] = [];
+  const lossy = input.worst.find(w => w.profit < 0);
+  if (lossy) next.push(`Kampaň „${lossy.name}" prodělala ${kc(lossy.profit)} — zeptej se poradce, jestli ubrat rozpočet nebo zpřísnit cíl.`);
+  if (lossMarket) next.push(`Trh ${MARKET_LABELS[lossMarket.market] ?? lossMarket.market} po reklamě prodělal — zkontroluj jeho kampaně a cílové PNO.`);
+  const eaten = input.eaters.reduce((s, e) => s + e.cost, 0);
+  if (eaten >= 300) next.push(`Vyřaď žrouty (${input.eaters.length} produktů za ${kc(eaten)}) — návrh najdeš v Návrzích.`);
+  if (share != null && share < target && o.revenue.value > 0) {
+    next.push(`Na cíl chybí ${kc((target - share) * o.revenue.value)} zisku — nejrychleji pomůže ubrat tam, kde PNO převyšuje marži.`);
+  }
+  if (input.open > 0) next.push(`Projdi ${input.open} ${input.open === 1 ? 'čekající návrh' : input.open < 5 ? 'čekající návrhy' : 'čekajících návrhů'} v záložce Návrhy.`);
+  if (input.season && !input.season.planned) {
+    next.push(`Blíží se ${input.season.name} (od ${Number(input.season.start.slice(8, 10))}. ${Number(input.season.start.slice(5, 7))}.) — naplánuj rozpočty v záložce Sezóny.`);
+  }
+  if (tone === 'good' && next.length < 2) next.push('Kampaně, které drží cíl, snesou víc peněz — zeptej se poradce, kde přidat.');
+  return { tone, headline, why, next: next.slice(0, 3) };
+}
+
 const SUMMARY_KEY = 'adsReportSummaries';
 
 function summaries(): Record<string, { text: string; at: string }> {
@@ -161,6 +207,23 @@ export function report(kind: 'week' | 'month' = 'week', offset = 0, scope = 'all
   }));
   const decided = [...view.decided, ...view.open];
   const evaluated = view.changes.filter(c => !c.revertOf && c.evaluation && c.evaluation.verdict !== 'pending');
+  const findings = findingsOf(o, cfg.targetProfitShare, {
+    worst, eaters, evaluated: evaluated.length, better: evaluated.filter(c => c.evaluation!.verdict !== 'worse').length
+  });
+  // Předchozí období: po dnech do grafu a zisk kampaní pro srovnání
+  const prevRange: AdsRange = { from: range.prevFrom, to: range.prevTo, prevFrom: range.prevFrom, prevTo: range.prevTo };
+  const prevDaily = overview(30, scope, prevRange).daily;
+  const prevCamps = new Map(campaigns(30, scope, prevRange).map(c => [`${c.system}|${c.id}`, c]));
+  const series = campaignSeries(range, scope);
+  const all: AdsReportCampaign[] = rows.map(c => {
+    const prev = prevCamps.get(`${c.system}|${c.id}`);
+    return { ...c, prevProfit: prev ? prev.profit : null, prevCost: prev?.cost ?? 0, series: series.get(`${c.system}|${c.id}`) ?? [] };
+  }).sort((a, b) => b.cost - a.cost);
+  let season: AdsSeasonEvent | null = null;
+  try {
+    const soon = localDay();
+    season = seasons(scope).events.find(e => !e.running && e.start > soon && e.start <= shiftDay(soon, 21)) ?? null;
+  } catch { season = null; }
   return {
     kind, offset: Math.max(0, Math.round(offset) || 0), label: range.label,
     from: range.from, to: range.to, prevFrom: range.prevFrom, prevTo: range.prevTo, market: scope || 'all',
@@ -171,10 +234,11 @@ export function report(kind: 'week' | 'month' = 'week', offset = 0, scope = 'all
       dismissed: decided.filter(p => p.status === 'dismissed' && inRange(p.updatedAt)).length,
       open: view.open.length
     },
-    findings: findingsOf(o, cfg.targetProfitShare, {
-      worst, eaters, evaluated: evaluated.length, better: evaluated.filter(c => c.evaluation!.verdict !== 'worse').length
-    }),
-    summary: summaries()[keyOf(kind, range.from, scope || 'all')]?.text ?? ''
+    findings,
+    summary: summaries()[keyOf(kind, range.from, scope || 'all')]?.text ?? '',
+    story: storyOf({ kind, o, target: cfg.targetProfitShare, findings, worst, eaters, open: view.open.length, season }),
+    prevDaily,
+    all
   };
 }
 

@@ -18,7 +18,7 @@ import type { ShopOrder } from '../../shared/types';
 import {
   AdsConfig, AdsStatus, AdsOverview, AdsSystemTile, AdsAlert, AdsDay, AdsCampaignRow,
   AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod, AdsGoogleCustomer, AdsProposals, AdsChange,
-  AdsProposal, AdsAccount, AdsChatTurn, AdsChatReply, AdsSeasons, AdsSeasonPlan, AdsAutopilotState, AdsMetaAccount
+  AdsProposal, AdsAccount, AdsSeasons, AdsSeasonPlan, AdsAutopilotState, AdsMetaAccount
 } from '../../shared/ads';
 import {
   orderMoney, marginTable, productMargin, targetPno, shiftDay, localDay, PriceInfo, OrderMoney
@@ -30,10 +30,9 @@ import * as meta from './meta';
 import { generate, vocabularyOf, EngineCampaign, roasForPno } from './engine';
 import * as prop from './proposals';
 import * as chat from './chat';
+import * as chatsStore from './chats';
 import * as seas from './seasons';
 import * as auto from './autopilot';
-import { ask } from '../ai';
-import { getSettings } from '../settings';
 import {
   getAdsConfig, saveAdsConfig, saveCampaigns, saveDays, syncConfig, syncStats, isShared,
   lastRun, markRun, writeLocal, activeAccounts, accountInfo, accountCzk, accountValue, migrateItems
@@ -1131,6 +1130,7 @@ export async function tick(): Promise<void> {
     try { if (syncConfig()) emit(); } catch { /* složka příště */ }
     try { if (syncStats('google') + syncStats('sklik') + syncStats('meta') > 0) emit(); } catch { /* složka příště */ }
     try { if (prop.shareProposals()) emit(); } catch { /* složka příště */ }
+    try { if (chatsStore.shareChats()) emit({ chats: true }); } catch { /* složka příště */ }
     // Návrhy schválené na Macu bez přihlášení provede ten přihlášený
     try { if (await prop.applyApproved(getAdsConfig(), feedAfter) > 0) emit(); } catch { /* stav je u návrhu */ }
     if (now.getHours() < 3) return;
@@ -1264,12 +1264,11 @@ export function dropSeasonPlan(eventId: string): number {
 /* ---------- poradce ---------- */
 
 /**
- * Otázka na poradce. Odpověď je text a z navržených kroků rovnou návrhy
- * (ty jdou přes stejné pojistky a kontroly jako návrhy enginu).
+ * Kontext pro poradce: kampaně s rozpočty, produkty, slovník katalogu,
+ * marže, útrata měsíce a sezóny — z toho se ověřují kroky, které poradce
+ * navrhne (chat.draftsFrom), stejně přísně jako u enginu.
  */
-export async function askAdvisor(history: AdsChatTurn[], question: string, scope = 'all'): Promise<AdsChatReply> {
-  const q = String(question ?? '').trim();
-  if (!q) throw new Error('Napiš otázku.');
+export function chatContext(scope = 'all'): chat.ChatContext {
   const cfg = getAdsConfig();
   migrateItems(cfg);
   const catalog = loadCatalog(cfg);
@@ -1284,12 +1283,13 @@ export async function askAdvisor(history: AdsChatTurn[], question: string, scope
     budgetId: String(r.budget_id ?? ''), budgetShared: !!r.budget_shared, limited: !!r.limited
   }]));
   const view = proposals();
-  const ctx: chat.ChatContext = {
+  return {
     cfg, today,
     overview: overview(30, scope),
-    campaigns: campaigns(30, scope),
+    // Kampaně všech trhů — krok může mířit i mimo vybraný trh
+    campaigns: campaigns(30, 'all'),
     meta: budgets,
-    products: products(30, scope).rows,
+    products: products(30, 'all').rows,
     open: view.open,
     changes: view.changes,
     vocabulary: vocabularyOf(catalog.products.map(p => p.title)),
@@ -1303,14 +1303,75 @@ export async function askAdvisor(history: AdsChatTurn[], question: string, scope
       } catch { return []; }
     })()
   };
-  const s = getSettings();
-  const text = await ask(s.insightModel || s.draftModel, chat.SYSTEM,
-    chat.userMessage(ctx, (history ?? []).map(t => ({ role: t.role, text: t.text })), q), 6000);
-  const reply = chat.parseReply(text);
-  const { drafts, notes } = chat.draftsFrom(reply.actions, ctx, q);
-  const created = prop.saveChat(drafts);
-  if (created.length) emit({ proposals: created.length });
-  return { answer: reply.answer || 'Odpověď nepřišla — zkus otázku položit jinak.', proposals: created, notes };
+}
+
+/** Rozsah pro poradce: od–do, nebo posledních N dní (končí včerejškem) */
+export function rangeOf(days?: number, from?: string, to?: string): AdsRange {
+  const ok = (d?: string) => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (ok(from) && ok(to) && from! <= to!) {
+    const n = spanDays(from!, to!);
+    return { from: from!, to: to!, prevFrom: shiftDay(from!, -n), prevTo: shiftDay(from!, -1) };
+  }
+  return period(Math.min(365, Math.max(1, Math.round(days ?? 30) || 30)));
+}
+
+/** Objednávky v období: součty, po týdnech a nejprodávanější produkty (bez DPH) */
+export function ordersSummary(range: AdsRange, scope = 'all') {
+  const cfg = getAdsConfig();
+  const catalog = loadCatalog(cfg);
+  const list = ordersBetween(cfg, catalog, range.from, range.to, scope);
+  const titles = new Map(catalog.products.map(p => [p.code, p.title]));
+  const byWeek = new Map<string, { orders: number; revenue: number; profit: number }>();
+  const byProduct = new Map<string, { qty: number; revenue: number }>();
+  for (const o of list) {
+    const d = new Date(`${o.date}T12:00:00Z`);
+    const monday = shiftDay(o.date, -((d.getUTCDay() + 6) % 7));
+    const w = byWeek.get(monday) ?? { orders: 0, revenue: 0, profit: 0 };
+    w.orders++; w.revenue += o.revenue + o.fees; w.profit += o.profit;
+    byWeek.set(monday, w);
+    for (const l of o.lines) {
+      const p = byProduct.get(l.product) ?? { qty: 0, revenue: 0 };
+      p.qty += l.quantity; p.revenue += l.revenue;
+      byProduct.set(l.product, p);
+    }
+  }
+  const r = (n: number) => Math.round(n);
+  return {
+    od: range.from, do: range.to,
+    objednavky: list.length,
+    obrat: r(list.reduce((s, o) => s + o.revenue + o.fees, 0)),
+    ziskPredReklamou: r(list.reduce((s, o) => s + o.profit, 0)),
+    poTrzich: [...new Set(list.map(o => o.market))].map(m => {
+      const x = list.filter(o => o.market === m);
+      return { trh: m, objednavky: x.length, obrat: r(x.reduce((s, o) => s + o.revenue + o.fees, 0)) };
+    }),
+    poTydnech: [...byWeek].sort().map(([od, w]) => ({ od, objednavky: w.orders, obrat: r(w.revenue), zisk: r(w.profit) })),
+    nejprodavanejsi: [...byProduct].sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 15)
+      .map(([code, p]) => ({ kod: code, nazev: titles.get(code) ?? code, kusu: p.qty, trzba: r(p.revenue) }))
+  };
+}
+
+/** Všechny kampaně po dnech v období (klíč system|id) — pro trend v reportu */
+export function campaignSeries(range: AdsRange, scope = 'all'): Map<string, { date: string; cost: number; value: number }[]> {
+  const out = new Map<string, { date: string; cost: number; value: number }[]>();
+  for (const r of campaignDays(getAdsConfig(), range.from, range.to, scope)) {
+    const key = `${r.system}|${r.campaign_id}`;
+    const list = out.get(key) ?? [];
+    const day = list.find(x => x.date === r.date);
+    if (day) { day.cost += r.cost; day.value += r.value; } else list.push({ date: r.date, cost: r.cost, value: r.value });
+    out.set(key, list);
+  }
+  for (const list of out.values()) list.sort((a, b) => a.date.localeCompare(b.date));
+  return out;
+}
+
+/** Jedna kampaň po dnech (Kč bez DPH) */
+export function campaignDaily(system: string, campaignId: string, range: AdsRange) {
+  const cfg = getAdsConfig();
+  return campaignDays(cfg, range.from, range.to, 'all')
+    .filter(r => r.system === system && r.campaign_id === String(campaignId))
+    .map(r => ({ den: r.date, naklady: Math.round(r.cost), kliky: r.clicks, konverze: Math.round(r.conversions * 10) / 10, hodnota: Math.round(r.value) }))
+    .sort((a, b) => a.den.localeCompare(b.den));
 }
 
 /* ---------- stav pro okno ---------- */

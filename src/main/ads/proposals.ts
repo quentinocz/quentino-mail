@@ -305,8 +305,15 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
   // Sklik: jen denní rozpočty a ty se zapisují po jednom (Sklik nemá zápis „naoko")
   const isSklik = (op: AdsOp) => 'account' in op && op.account === 'sklik';
   const sklikOps = ops.filter(isSklik);
+  const staleStatus = (where: string, now: string, op: Extract<AdsOp, { kind: 'status' }>) => {
+    if (now !== op.from) {
+      throw new StaleError(`Kampaň je ${where} teď ${now === 'PAUSED' ? 'pozastavená' : now === 'ENABLED' ? 'zapnutá' : 'v jiném stavu'}, `
+        + `návrh počítal s ${op.from === 'PAUSED' ? 'pozastavenou' : 'zapnutou'} — někdo ji mezitím změnil.`);
+    }
+  };
   for (const op of sklikOps) {
-    if (op.kind !== 'budget') throw new Error('Ve Skliku umí aplikace měnit jen denní rozpočet kampaně.');
+    if (op.kind === 'status') { staleStatus('ve Skliku', await sklik.sklikStatusNow(op.campaignId, cfg.sklik.userId), op); continue; }
+    if (op.kind !== 'budget') throw new Error('Ve Skliku umí aplikace měnit jen denní rozpočet a stav kampaně.');
     const current = await sklik.sklikBudgetNow(op.campaignId, cfg.sklik.userId);
     if (current == null || Math.abs(current - op.from) > Math.max(1, op.from * 0.01)) {
       throw new StaleError(`Rozpočet ve Skliku je teď ${current == null ? 'neznámý' : `${Math.round(current)} Kč`}, `
@@ -320,7 +327,8 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
   const metaOps = ops.filter(isMeta);
   const metaRate = rateOf(cfg, accountInfo(cfg, 'meta'));
   for (const op of metaOps) {
-    if (op.kind !== 'budget') throw new Error('V Metě umí aplikace měnit jen denní rozpočet kampaně.');
+    if (op.kind === 'status') { staleStatus('v Metě', await meta.metaStatusNow(op.campaignId), op); continue; }
+    if (op.kind !== 'budget') throw new Error('V Metě umí aplikace měnit jen denní rozpočet a stav kampaně.');
     const now = await meta.metaBudgetNow(op.campaignId);
     const current = now != null ? now * metaRate : null;
     if (current == null || Math.abs(current - op.from) > Math.max(1, op.from * 0.01)) {
@@ -348,10 +356,12 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
   }
   ops = ops.filter(op => op.kind !== 'campaign-create' && op.kind !== 'campaign-remove');
   for (const op of ops) {
-    if (op.kind !== 'budget' && op.kind !== 'troas') continue;
+    if (op.kind !== 'budget' && op.kind !== 'troas' && op.kind !== 'status') continue;
     const account = accountOfOp(cfg, op);
     const now = await google.readCampaignNow(cfg, op.campaignId, account.id);
-    if (op.kind === 'budget') {
+    if (op.kind === 'status') {
+      staleStatus('v Google Ads', now.status, op);
+    } else if (op.kind === 'budget') {
       const current = now.budget != null ? now.budget * rateOf(cfg, account) : null;
       if (current == null || Math.abs(current - op.from) > Math.max(1, op.from * 0.01)) {
         throw new StaleError(`Rozpočet je teď ${current == null ? 'neznámý' : `${Math.round(current)} Kč`}, `
@@ -383,11 +393,21 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
   const undo: AdsOp[] = [];
   const notes: string[] = [];
   for (const op of sklikOps) {
+    if (op.kind === 'status') {
+      await sklik.sklikSetStatus(op.campaignId, op.to, cfg.sklik.userId);
+      undo.push({ ...op, from: op.to, to: op.from });
+      continue;
+    }
     if (op.kind !== 'budget') continue;
     await sklik.sklikSetBudget(op.campaignId, op.to, cfg.sklik.userId);
     undo.push({ ...op, from: op.to, to: op.from });
   }
   for (const op of metaOps) {
+    if (op.kind === 'status') {
+      await meta.metaSetStatus(op.campaignId, op.to);
+      undo.push({ ...op, from: op.to, to: op.from });
+      continue;
+    }
     if (op.kind !== 'budget') continue;
     await meta.metaSetBudget(op.campaignId, op.to / metaRate);
     undo.push({ ...op, from: op.to, to: op.from });
@@ -407,6 +427,7 @@ export async function execute(cfg: AdsConfig, ops: AdsOp[]): Promise<{ undo: Ads
       const op = x.op;
       if (op.kind === 'budget') undo.push({ ...op, from: op.to, to: op.from });
       else if (op.kind === 'troas') undo.push({ ...op, from: op.to, to: op.from ?? 0 });
+      else if (op.kind === 'status') undo.push({ ...op, from: op.to, to: op.from });
       else if (op.kind === 'negative' && result.resources[i]) {
         undo.push({ kind: 'negative-remove', campaignId: op.campaignId, resource: result.resources[i], text: op.text, account: g.account });
       }

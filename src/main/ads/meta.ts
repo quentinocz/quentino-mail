@@ -191,6 +191,16 @@ export async function metaSetBudget(campaignId: string, perDay: number): Promise
   await graph(String(campaignId), { daily_budget: String(Math.round(perDay * 100)) }, 'POST');
 }
 
+/** Stav kampaně řečí modulu (ENABLED / PAUSED) — nastavený stav, ne doručování */
+export async function metaStatusNow(campaignId: string): Promise<string> {
+  const json = await graph(String(campaignId), { fields: 'status' });
+  return String(json.status ?? '') === 'ACTIVE' ? 'ENABLED' : json.status ? 'PAUSED' : '';
+}
+
+export async function metaSetStatus(campaignId: string, to: 'ENABLED' | 'PAUSED'): Promise<void> {
+  await graph(String(campaignId), { status: to === 'PAUSED' ? 'PAUSED' : 'ACTIVE' }, 'POST');
+}
+
 /** Zkouška: účet, počet kampaní a útrata za 7 dní (ať jde porovnat se Správcem reklam) */
 export async function metaTest(accountId: string): Promise<string> {
   const list = await metaCampaigns(accountId);

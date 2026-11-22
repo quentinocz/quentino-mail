@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsProductRow, AdsSegment, AdsShipMethod,
   AdsGoogleCustomer, AdsConfig, AdsSystemTile, AdsProposals, AdsProposal, AdsChange, AdsGuards, AdsAccount,
-  AdsChatTurn, AdsSeasons, AdsSeasonPlan, AdsSeasonEvent, AdsMetaAccount, AdsReport
+  AdsChatTurn, AdsChatSummary, AdsSeasons, AdsSeasonPlan, AdsSeasonEvent, AdsMetaAccount, AdsReport, AdsReportCampaign
 } from '@shared/ads';
 import { SEGMENT_LABELS, MARKET_LABELS, guessMarket } from '@shared/ads';
 import { api } from '../api';
@@ -165,8 +165,8 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
   const [products, setProducts] = useState<AdsProducts | null>(null);
   const [proposals, setProposals] = useState<AdsProposals | null>(null);
   const [busy, setBusy] = useState('');
-  // Rozhovor s poradcem přežije přepnutí záložky (ne zavření okna)
-  const [chat, setChat] = useState<AdsChatTurn[]>([]);
+  // Otevřený rozhovor s poradcem přežije přepnutí záložky; rozhovory samy jsou uložené
+  const [chatId, setChatId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -251,7 +251,7 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
 
         {status && <StatusLine status={status} />}
 
-        <div className="ad-body">
+        <div className={`ad-body ${tab === 'advisor' ? 'ad-body-chat' : ''}`}>
           {tab === 'today' && (
             <Today overview={overview} status={status} proposals={proposals} onSettings={() => setTab('settings')}
               onProposals={() => setTab('proposals')} onChanged={load} />
@@ -269,8 +269,8 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
             <Seasons market={market} onChanged={load} onProposals={() => setTab('proposals')} />
           )}
           {tab === 'advisor' && status && (
-            <Advisor turns={chat} setTurns={setChat} market={market} status={status} onChanged={load}
-              onProposals={() => setTab('proposals')} />
+            <Advisor chatId={chatId} setChatId={setChatId} market={market} status={status} proposals={proposals}
+              onChanged={load} onProposals={() => setTab('proposals')} />
           )}
           {tab === 'settings' && status && (
             <Settings status={status} onStatus={setStatus} busy={busy} setBusy={setBusy} />
@@ -290,9 +290,134 @@ const SYS_NAME: Record<string, string> = { google: 'Google Ads', sklik: 'Sklik',
 const VERDICT_LABEL: Record<string, string> = { better: 'vyšlo', worse: 'nevyšlo', same: 'beze změny', pending: 'vyhodnotí se' };
 
 /**
- * Report za uzavřený týden nebo měsíc: čísla proti předchozímu období,
- * zjištění (z pravidel, s čísly), nejlepší a nejslabší kampaně, hvězdy,
- * žrouti a změny v účtech. Shrnutí poradce na požádání, PDF na poslání.
+ * Graf období: zisk po reklamě po dnech (čára) proti předchozímu období
+ * (přerušovaná) a náklady na reklamu (sloupce). Dny se zarovnají podle
+ * pořadí — 1. den týdne proti 1. dni předchozího.
+ */
+function ReportChart({ now, prev }: { now: AdsOverview['daily']; prev: AdsOverview['daily'] }) {
+  if (!now.length) return <div className="muted small">Bez dat.</div>;
+  const after = (d: AdsOverview['daily'][number]) => d.profit - d.cost;
+  const vals = [...now.map(after), ...prev.map(after), ...now.map(d => d.cost), 0];
+  const max = Math.max(1, ...vals);
+  const min = Math.min(0, ...vals);
+  const H = 120;
+  const y = (v: number) => 8 + (1 - (v - min) / (max - min)) * (H - 16);
+  const w = 100 / now.length;
+  const line = (list: AdsOverview['daily']) => list.slice(0, now.length)
+    .map((d, i) => `${(i + 0.5) * w},${y(after(d))}`).join(' ');
+  return (
+    <div className="ad-rchart">
+      <svg viewBox={`0 0 100 ${H}`} preserveAspectRatio="none" aria-hidden>
+        <line x1={0} x2={100} y1={y(0)} y2={y(0)} className="zero" />
+        {now.map((d, i) => (
+          <rect key={d.date} x={i * w + w * 0.25} width={w * 0.5} y={y(Math.max(0, d.cost))} height={Math.max(0, y(0) - y(d.cost))} className="cost" />
+        ))}
+        {prev.length > 1 && <polyline points={line(prev)} className="prev" />}
+        <polyline points={line(now)} className="now" />
+      </svg>
+      <div className="ad-daily-hover">
+        {now.map((d, i) => (
+          <span key={d.date} data-tip={`${dayLabel(d.date)}: zisk po reklamě ${kc(after(d))}, reklama ${kc(d.cost)}, ${d.orders} obj.`
+            + (prev[i] ? ` · předchozí období ${kc(after(prev[i]))}` : '')} />
+        ))}
+      </div>
+      <div className="ad-daily-axis"><span>{dayLabel(now[0].date)}</span><span>{dayLabel(now[now.length - 1].date)}</span></div>
+    </div>
+  );
+}
+
+/** Malá křivka kampaně: útrata (červeně) a hodnota konverzí (zeleně) */
+function MiniTrend({ series }: { series: AdsReportCampaign['series'] }) {
+  if (series.length < 2) return <span className="muted small">—</span>;
+  const max = Math.max(1, ...series.map(d => Math.max(d.cost, d.value)));
+  const pts = (k: 'cost' | 'value') => series.map((d, i) => `${(i / (series.length - 1)) * 60},${20 - (d[k] / max) * 18}`).join(' ');
+  return (
+    <svg className="ad-mini-trend" viewBox="0 0 60 22" preserveAspectRatio="none" aria-hidden>
+      <polyline points={pts('value')} className="v" /><polyline points={pts('cost')} className="c" />
+    </svg>
+  );
+}
+
+const reportCampValue = (row: AdsReportCampaign, key: string): number | string | null => {
+  if (key === 'delta') return row.prevProfit == null ? null : row.profit - row.prevProfit;
+  if (key === 'system') return row.system;
+  return campaignValue(row, key);
+};
+
+/** Všechny kampaně období: řazení, trend, srovnání s předchozím, rozbalení po dnech */
+function ReportCampaigns({ rows }: { rows: AdsReportCampaign[] }) {
+  const { sorted, sort, toggle } = useSort(rows, { key: 'cost', dir: 'desc' }, reportCampValue);
+  const [open, setOpen] = useState('');
+  if (!rows.length) return <div className="muted small">V tomhle období žádná kampaň neutrácela.</div>;
+  return (
+    <table className="ad-table ad-rcamps">
+      <thead>
+        <tr>
+          <SortTh k="name" sort={sort} onSort={toggle} firstDir="asc">Kampaň</SortTh>
+          <SortTh k="cost" sort={sort} onSort={toggle} right>Útrata</SortTh>
+          <SortTh k="value" sort={sort} onSort={toggle} right tip={ADS_TERMS.value}>Hodnota</SortTh>
+          <SortTh k="profit" sort={sort} onSort={toggle} right tip="Hodnota konverzí × marže − útrata">Zisk</SortTh>
+          <SortTh k="delta" sort={sort} onSort={toggle} right tip="Zisk kampaně proti předchozímu stejně dlouhému období">Proti předchozímu</SortTh>
+          <SortTh k="pno" sort={sort} onSort={toggle} right tip={`${ADS_TERMS.pno} Cíl: ${ADS_TERMS.targetPno}`}>PNO / cíl</SortTh>
+          <th className="r" data-tip="Útrata (červeně) a hodnota konverzí (zeleně) po dnech">Průběh</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map(c => {
+          const key = `${c.system}|${c.id}`;
+          const delta = c.prevProfit == null ? null : c.profit - c.prevProfit;
+          const over = c.pno != null && c.targetPno != null && c.pno > c.targetPno;
+          return (
+            <React.Fragment key={key}>
+              <tr className={`ad-rcamp ${open === key ? 'open' : ''}`} onClick={() => setOpen(open === key ? '' : key)}>
+                <td>
+                  <div className="ad-name">
+                    <span className={`ad-badge ${c.system}`}>{SYSTEM_SHORT[c.system]}</span>
+                    <span className="ad-ptitle">{c.name}</span>
+                    {c.status !== 'ENABLED' && <span className="ad-chip">stojí</span>}
+                    {c.market && <span className="ad-market">{MARKET_LABELS[c.market] ?? c.market}</span>}
+                  </div>
+                </td>
+                <td className="r">{kc(c.cost)}</td>
+                <td className="r">{kc(c.value)}</td>
+                <td className={`r ${c.profit < 0 ? 'neg' : ''}`}><b>{kc(c.profit)}</b></td>
+                <td className={`r ${delta == null ? 'muted' : delta >= 0 ? 'pos' : 'neg'}`}>
+                  {delta == null ? 'nová' : `${delta >= 0 ? '+' : '−'}${kc(Math.abs(delta))}`}
+                </td>
+                <td className={`r ${over ? 'neg' : ''}`}>{pct(c.pno)} / {pct(c.targetPno, 0)}</td>
+                <td className="r"><MiniTrend series={c.series} /></td>
+              </tr>
+              {open === key && (
+                <tr className="ad-rcamp-days">
+                  <td colSpan={7}>
+                    <div className="ad-rdays">
+                      <table>
+                        <thead><tr><th />{c.series.map(d => <th key={d.date}>{dayLabel(d.date)}</th>)}</tr></thead>
+                        <tbody>
+                          <tr><th>Útrata</th>{c.series.map(d => <td key={d.date} className="neg">{num(d.cost)}</td>)}</tr>
+                          <tr><th>Hodnota</th>{c.series.map(d => <td key={d.date} className="pos">{num(d.value)}</td>)}</tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="muted small">
+                      Útrata a hodnota konverzí po dnech. Předchozí období: útrata {kc(c.prevCost)}
+                      {c.prevProfit != null ? `, zisk ${kc(c.prevProfit)}` : ''}.
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Report za uzavřený týden nebo měsíc. Nahoře příběh (jak to dopadlo, proč,
+ * co dál), pod ním čísla, graf proti předchozímu období a všechny kampaně
+ * s trendem. Shrnutí poradce na požádání, PDF na poslání.
  */
 function Report({ market }: { market: string }) {
   const toast = useToast();
@@ -300,6 +425,7 @@ function Report({ market }: { market: string }) {
   const [offset, setOffset] = useState(0);
   const [data, setData] = useState<AdsReport | null>(null);
   const [busy, setBusy] = useState('');
+  const [allFindings, setAllFindings] = useState(false);
   const load = useCallback(async () => {
     try { setData(await api.ads.report(kind, offset, market)); } catch (e: any) { toast(e.message, 'error'); }
   }, [kind, offset, market, toast]);
@@ -317,6 +443,8 @@ function Report({ market }: { market: string }) {
   };
 
   const o = data?.overview;
+  const sys = o?.systems.filter(x => x.connected && (x.cost > 0 || x.value > 0)) ?? [];
+  const sysMax = Math.max(1, ...sys.map(x => Math.max(x.cost, x.profit, 0)));
   return (
     <div className="ad-report">
       <div className="ad-report-bar">
@@ -324,25 +452,49 @@ function Report({ market }: { market: string }) {
           <button className={kind === 'week' ? 'active' : ''} onClick={() => { setKind('week'); setOffset(0); }}>Týden</button>
           <button className={kind === 'month' ? 'active' : ''} onClick={() => { setKind('month'); setOffset(0); }}>Měsíc</button>
         </div>
-        <button className="icon-btn" onClick={() => setOffset(offset + 1)} data-tip="Předchozí období"><Icon name="chevron-left" size={16} /></button>
-        <b className="ad-report-label">{data?.label ?? '…'}</b>
-        <button className="icon-btn" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 1))} data-tip="Další období">
-          <Icon name="chevron-right" size={16} /></button>
+        <div className="ad-report-nav">
+          <button className="icon-btn" onClick={() => setOffset(offset + 1)} data-tip="Předchozí období"><Icon name="chevron-left" size={16} /></button>
+          <b className="ad-report-label">{data?.label ?? '…'}</b>
+          <button className="icon-btn" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 1))} data-tip="Další období">
+            <Icon name="chevron-right" size={16} /></button>
+        </div>
         <span style={{ flex: 1 }} />
-        {data && !data.summary && (
-          <button className="btn small" disabled={!!busy} onClick={summarize}
-            data-tip="Poradce napíše pár vět: jak období dopadlo, co táhlo, co brzdilo a co dál. Uloží se k reportu.">
-            {busy === 'summary' ? 'Píšu shrnutí…' : 'Shrnutí od poradce'}
-          </button>
-        )}
-        <button className="btn ghost small" disabled={!!busy || !data} onClick={pdf}>{busy === 'pdf' ? 'Ukládám…' : 'Uložit PDF'}</button>
+        <button className="btn ghost small" disabled={!!busy || !data} onClick={pdf}>
+          <Icon name="download" size={13} /> {busy === 'pdf' ? 'Ukládám…' : 'Uložit PDF'}
+        </button>
       </div>
       {!data || !o ? <div className="ad-empty">Načítám…</div> : (
         <>
-          <div className="muted small">
-            {data.from} až {data.to} · srovnání s {data.prevFrom} až {data.prevTo}
-            {data.market !== 'all' ? ` · ${MARKET_LABELS[data.market] ?? data.market}` : ' · všechny trhy'}
-          </div>
+          <section className={`ad-card ad-story ${data.story.tone}`}>
+            <div className="ad-story-head">
+              <span className="ad-story-dot" />
+              <h3>{data.story.headline}</h3>
+            </div>
+            <div className="ad-story-cols">
+              <div>
+                <div className="ad-h">Proč</div>
+                {data.story.why.length ? <ul>{data.story.why.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                  : <div className="muted small">Bez výrazných změn proti předchozímu období.</div>}
+              </div>
+              <div>
+                <div className="ad-h">Co dál</div>
+                {data.story.next.length ? <ol>{data.story.next.map((n, i) => <li key={i}>{n}</li>)}</ol>
+                  : <div className="muted small">Teď není co měnit.</div>}
+              </div>
+            </div>
+            {data.summary ? (
+              <div className="ad-story-ai">
+                <div className="ad-h"><Icon name="sparkles" size={12} /> Poradce</div>
+                <RichText text={data.summary} />
+              </div>
+            ) : (
+              <button className="btn small ad-story-ask" disabled={!!busy} onClick={summarize}
+                data-tip="Poradce napíše pár vět vlastními slovy: co táhlo, co brzdilo a co dál. Uloží se k reportu.">
+                <Icon name="sparkles" size={13} /> {busy === 'summary' ? 'Píšu…' : 'Rozepsat poradcem'}
+              </button>
+            )}
+          </section>
+
           <div className="ad-kpis">
             <div className="ad-card ad-kpi hero">
               <div className="ad-h"><Term k="profitAfterAds">Zisk po reklamě</Term></div>
@@ -363,33 +515,31 @@ function Report({ market }: { market: string }) {
               <div className="ad-d"><span className="muted">cíl {pct(o.targetPno, 0)}</span></div>
             </div>
           </div>
-          {data.summary && (
-            <section className="ad-card ad-report-summary">
-              <div className="ad-prop-head"><b>Shrnutí poradce</b></div>
-              <RichText text={data.summary} />
-            </section>
-          )}
-          <div className="ad-report-cols">
+
+          <div className="ad-report-cols wide">
             <section className="ad-card ad-report-box">
-              <div className="ad-prop-head"><b>Zjištění</b><span className="muted small">spočítané z čísel — pod každým je, z kterých</span></div>
-              {data.findings.length === 0 && <div className="muted small">Bez výrazných změn proti předchozímu období.</div>}
-              <ul className="ad-findings">
-                {data.findings.map((f, i) => (
-                  <li key={i} className={f.kind}><span>{f.text}</span><small>{f.basis}</small></li>
-                ))}
-              </ul>
+              <div className="ad-prop-head"><b>Zisk po reklamě po dnech</b>
+                <span className="ad-legend-inline small">
+                  <i className="now" /> toto období <i className="prev" /> předchozí <i className="cost" /> náklady na reklamu
+                </span>
+              </div>
+              <ReportChart now={o.daily} prev={data.prevDaily} />
             </section>
             <section className="ad-card ad-report-box">
-              <div className="ad-prop-head"><b>Systémy</b></div>
-              <table className="ad-mini">
-                <thead><tr><th /><th className="r">Útrata</th><th className="r">Zisk z konverzí</th><th className="r">PNO / cíl</th></tr></thead>
-                <tbody>
-                  {o.systems.filter(s => s.connected).map(s => (
-                    <tr key={s.system}><td>{SYS_NAME[s.system]}</td><td className="r">{kc(s.cost)}</td>
-                      <td className="r">{kc(s.profit)}</td><td className="r">{pct(s.pno)} / {pct(s.targetPno, 0)}</td></tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="ad-prop-head"><b>Systémy</b><span className="muted small">útrata a zisk z konverzí</span></div>
+              {sys.length === 0 && <div className="muted small">V tomhle období bez útraty.</div>}
+              {sys.map(x => (
+                <div key={x.system} className="ad-sysbar">
+                  <div className="ad-sysbar-name"><span className={`ad-badge ${x.system}`}>{SYSTEM_SHORT[x.system]}</span> {SYS_NAME[x.system]}
+                    <span className={`muted small ${x.pno != null && x.targetPno != null && x.pno > x.targetPno ? 'neg' : ''}`}>PNO {pct(x.pno)}</span>
+                  </div>
+                  <div className="ad-sysbar-row"><span className="lbl">útrata</span>
+                    <span className="track"><i className="c" style={{ width: `${(x.cost / sysMax) * 100}%` }} /></span><span className="num">{kc(x.cost)}</span></div>
+                  <div className="ad-sysbar-row"><span className="lbl">zisk</span>
+                    <span className="track"><i className={x.profit >= 0 ? 'p' : 'n'} style={{ width: `${(Math.abs(x.profit) / sysMax) * 100}%` }} /></span>
+                    <span className={`num ${x.profit < 0 ? 'neg' : ''}`}>{kc(x.profit)}</span></div>
+                </div>
+              ))}
               {o.markets.length > 1 && (
                 <table className="ad-mini">
                   <thead><tr><th>Trh</th><th className="r">Obrat</th><th className="r">Náklady</th><th className="r">Zisk po reklamě</th></tr></thead>
@@ -403,26 +553,12 @@ function Report({ market }: { market: string }) {
               )}
             </section>
           </div>
-          <div className="ad-report-cols">
-            {([['Nejvýnosnější kampaně', data.best], ['Nejslabší kampaně', data.worst]] as const).map(([title, rows]) => (
-              <section key={title} className="ad-card ad-report-box">
-                <div className="ad-prop-head"><b>{title}</b></div>
-                {rows.length === 0 ? <div className="muted small">V tomhle období bez útraty.</div> : (
-                  <table className="ad-mini">
-                    <tbody>
-                      {rows.map(c => (
-                        <tr key={`${c.system}${c.id}`}>
-                          <td><span className={`ad-badge ${c.system}`}>{SYSTEM_SHORT[c.system]}</span> {c.name}</td>
-                          <td className={`r ${c.profit < 0 ? 'neg' : ''}`}>{kc(c.profit)}</td>
-                          <td className="r muted">{pct(c.pno)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </section>
-            ))}
-          </div>
+
+          <section className="ad-card ad-report-box">
+            <div className="ad-prop-head"><b>Kampaně</b><span className="muted small">klik na řádek ukáže dny · řazení klikem na hlavičku</span></div>
+            <ReportCampaigns rows={data.all} />
+          </section>
+
           <div className="ad-report-cols">
             <section className="ad-card ad-report-box">
               <div className="ad-prop-head"><b>Hvězdy</b><span className="muted small">nejvíc vydělaly</span></div>
@@ -437,22 +573,38 @@ function Report({ market }: { market: string }) {
               )}
             </section>
           </div>
-          <section className="ad-card ad-report-box">
-            <div className="ad-prop-head"><b>Změny v účtech</b>
-              <span className="muted small">
-                {cs(data.stats.applied, 'změna', 'změny', 'změn')}{data.stats.autopilot ? `, z toho ${data.stats.autopilot} autopilot` : ''}
-                {' · '}{cs(data.stats.dismissed, 'zamítnutý návrh', 'zamítnuté návrhy', 'zamítnutých návrhů')}
-              </span>
-            </div>
-            {data.changes.length === 0 ? <div className="muted small">V tomhle období se v účtech nic neměnilo.</div> : (
-              <ul className="ad-report-list">
-                {data.changes.map((c, i) => (
-                  <li key={i}><span>{new Date(c.at).toLocaleDateString('cs-CZ')} · {c.title} <span className="muted">· {c.device}</span></span>
-                    <b>{c.reverted ? 'vráceno' : VERDICT_LABEL[c.verdict] ?? ''}</b></li>
+
+          <div className="ad-report-cols">
+            <section className="ad-card ad-report-box">
+              <div className="ad-prop-head"><b>Změny v účtech</b>
+                <span className="muted small">
+                  {cs(data.stats.applied, 'změna', 'změny', 'změn')}{data.stats.autopilot ? `, z toho ${data.stats.autopilot} autopilot` : ''}
+                  {' · '}{cs(data.stats.dismissed, 'zamítnutý návrh', 'zamítnuté návrhy', 'zamítnutých návrhů')}
+                </span>
+              </div>
+              {data.changes.length === 0 ? <div className="muted small">V tomhle období se v účtech nic neměnilo.</div> : (
+                <ul className="ad-report-list">
+                  {data.changes.map((c, i) => (
+                    <li key={i}><span>{new Date(c.at).toLocaleDateString('cs-CZ')} · {c.title}</span>
+                      <b>{c.reverted ? 'vráceno' : VERDICT_LABEL[c.verdict] ?? ''}</b></li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            <section className="ad-card ad-report-box">
+              <div className="ad-prop-head"><b>Všechna zjištění</b><span className="muted small">spočítaná z čísel</span>
+                {data.findings.length > 4 && (
+                  <button className="linkish small" onClick={() => setAllFindings(!allFindings)}>{allFindings ? 'méně' : 'všechna'}</button>
+                )}
+              </div>
+              {data.findings.length === 0 && <div className="muted small">Bez výrazných změn.</div>}
+              <ul className="ad-findings">
+                {data.findings.slice(0, allFindings ? 99 : 4).map((f, i) => (
+                  <li key={i} className={f.kind}><span>{f.text}</span><small>{f.basis}</small></li>
                 ))}
               </ul>
-            )}
-          </section>
+            </section>
+          </div>
         </>
       )}
     </div>
@@ -643,135 +795,245 @@ function Seasons({ market, onChanged, onProposals }: { market: string; onChanged
 /* ---------- poradce ---------- */
 
 /**
- * Text odpovědi: odstavce, odrážky „- " a **tučně**. Bez HTML z modelu —
- * odpověď se skládá z React prvků, takže v ní nic nespustí skript.
+ * Text odpovědi: odstavce, nadpisy „### ", odrážky „- ", číslované
+ * seznamy „1. " a **tučně**. Bez HTML z modelu — odpověď se skládá
+ * z React prvků, takže v ní nic nespustí skript. Čte se po řádcích, aby
+ * smíšený blok (věta a pod ní odrážky) nevypadal rozházeně.
  */
 function RichText({ text }: { text: string }) {
   const bold = (line: string) => line.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part));
-  const blocks = text.split(/\n\s*\n/);
+  type Block = { kind: 'p' | 'h' | 'ul' | 'ol'; lines: string[] };
+  const blocks: Block[] = [];
+  for (const raw of String(text ?? '').replace(/\r/g, '').split('\n')) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { blocks.push({ kind: 'p', lines: [] }); continue; }
+    const h = line.match(/^\s*#{1,4}\s+(.*)$/);
+    const ul = line.match(/^\s*[-•*]\s+(.*)$/);
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const kind: Block['kind'] = h ? 'h' : ul ? 'ul' : ol ? 'ol' : 'p';
+    const body = (h ?? ul ?? ol)?.[1] ?? line.trim();
+    const last = blocks[blocks.length - 1];
+    if (kind !== 'h' && last && last.kind === kind && last.lines.length) last.lines.push(body);
+    else blocks.push({ kind, lines: [body] });
+  }
   return (
-    <>
-      {blocks.map((block, i) => {
-        const lines = block.split('\n').filter(l => l.trim());
-        const items = lines.filter(l => /^\s*[-•]\s+/.test(l));
-        if (items.length && items.length === lines.length) {
-          return <ul key={i}>{items.map((l, j) => <li key={j}>{bold(l.replace(/^\s*[-•]\s+/, ''))}</li>)}</ul>;
-        }
-        if (items.length) {
-          const head = lines.filter(l => !/^\s*[-•]\s+/.test(l));
-          return (
-            <div key={i}>
-              {head.map((l, j) => <p key={j}>{bold(l)}</p>)}
-              <ul>{items.map((l, j) => <li key={j}>{bold(l.replace(/^\s*[-•]\s+/, ''))}</li>)}</ul>
-            </div>
-          );
-        }
-        return <p key={i}>{lines.map((l, j) => <React.Fragment key={j}>{j > 0 && <br />}{bold(l)}</React.Fragment>)}</p>;
+    <div className="ad-rich">
+      {blocks.filter(b => b.lines.length).map((b, i) => {
+        if (b.kind === 'h') return <h4 key={i}>{bold(b.lines[0].replace(/\*\*/g, ''))}</h4>;
+        if (b.kind === 'ul') return <ul key={i}>{b.lines.map((l, j) => <li key={j}>{bold(l)}</li>)}</ul>;
+        if (b.kind === 'ol') return <ol key={i}>{b.lines.map((l, j) => <li key={j}>{bold(l)}</li>)}</ol>;
+        return <p key={i}>{b.lines.map((l, j) => <React.Fragment key={j}>{j > 0 && <br />}{bold(l)}</React.Fragment>)}</p>;
       })}
-    </>
+    </div>
   );
 }
 
 const ADVISOR_STARTERS = [
-  'Jak si stojíme proti cíli a co ho nejvíc brzdí?',
-  'Které kampaně prodělávají a co s nimi udělat?',
-  'Naplánuj rozpočty na Vánoce — kdy přidat a kdy zase ubrat.',
-  'Proč se změnil zisk po reklamě proti minulému období?',
-  'Co dělat se žrouty a spícími produkty?'
+  { title: 'Jak si stojíme?', q: 'Jak si stojíme proti cíli za posledních 30 dní a co nás nejvíc brzdí?' },
+  { title: 'Co prodělává', q: 'Které kampaně a produkty prodělávají a co s nimi udělat? Navrhni konkrétní změny.' },
+  { title: 'Plán na Vánoce', q: 'Naplánuj rozpočty na Vánoce — kdy a kolik přidat, kdy ubrat. Vytvoř kroky.' },
+  { title: 'Zbytečné dotazy', q: 'Na jaké hledané dotazy utrácíme bez prodeje? Navrhni vylučující slova.' },
+  { title: 'Minulý měsíc', q: 'Jak dopadl minulý měsíc proti předminulému a proč?' },
+  { title: 'Kde přidat', q: 'Kde by přidané peníze vydělaly nejvíc? Navrhni, kam přidat rozpočet.' }
 ];
 
+const ago = (iso: string) => {
+  const d = new Date(iso);
+  const today = new Date();
+  return d.toDateString() === today.toDateString()
+    ? d.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' });
+};
+
+/** Návrh vzniklý z odpovědi: dokud je otevřený, jde rovnou použít */
+function ChatProposal({ snap, live, status, onChanged }: {
+  snap: AdsProposal; live: AdsProposal | undefined; status: AdsStatus; onChanged: () => void;
+}) {
+  if (live) return <ProposalCard p={live} status={status} compact onChanged={onChanged} />;
+  return (
+    <div className="ad-chat-prop done">
+      <Icon name="check" size={13} /> <span>{snap.title}</span>
+    </div>
+  );
+}
+
 /**
- * Poradce: otázky nad daty modulu. Když navrhne změnu, vznikne z ní
- * obyčejný návrh (karta s Použít), nikdy se nic neprovede samo.
+ * Poradce: vlevo rozhovory (uložené, sdílené mezi Macy), vpravo rozhovor.
+ * Poradce si data dohledá sám (vidět je, kam se díval) a změny navrhuje
+ * jako obyčejné návrhy, které jdou použít přímo z odpovědi.
  */
-function Advisor({ turns, setTurns, market, status, onChanged, onProposals }: {
-  turns: AdsChatTurn[]; setTurns: (t: AdsChatTurn[]) => void; market: string; status: AdsStatus;
-  onChanged: () => void; onProposals: () => void;
+function Advisor({ chatId, setChatId, market, status, proposals, onChanged, onProposals }: {
+  chatId: string | null; setChatId: (id: string | null) => void; market: string; status: AdsStatus;
+  proposals: AdsProposals | null; onChanged: () => void; onProposals: () => void;
 }) {
   const toast = useToast();
+  const [list, setList] = useState<AdsChatSummary[]>([]);
+  const [turns, setTurns] = useState<AdsChatTurn[]>([]);
   const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<{ q: string; steps: string[] } | null>(null);
+  const [failed, setFailed] = useState<string>('');
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [turns.length, busy]);
+  const input = useRef<HTMLTextAreaElement>(null);
+
+  const loadList = useCallback(async () => { try { setList(await api.ads.chats()); } catch { /* seznam příště */ } }, []);
+  useEffect(() => { void loadList(); }, [loadList]);
+  useEffect(() => api.on('ads:changed', (p: any) => { if (p?.chats) void loadList(); }), [loadList]);
+  useEffect(() => {
+    if (!chatId) { setTurns([]); return; }
+    let live = true;
+    api.ads.chat(chatId).then(c => { if (live) setTurns(c?.turns ?? []); }).catch(() => {});
+    return () => { live = false; };
+  }, [chatId]);
+  useEffect(() => api.on('ads:advisor', (p: any) => {
+    setPending(cur => (cur ? { ...cur, steps: cur.steps.includes(p?.step) ? cur.steps : [...cur.steps, String(p?.step ?? '')] } : cur));
+  }), []);
+  useEffect(() => { end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }, [turns.length, pending, failed]);
+  // Výška pole roste s textem (do pěti řádků)
+  useEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(140, el.scrollHeight)}px`;
+  }, [text]);
+
+  const liveOpen = new Map((proposals?.open ?? []).concat(proposals?.planned ?? []).map(p => [p.id, p]));
 
   const send = async (question: string) => {
     const q = question.trim();
-    if (!q || busy) return;
-    const history = turns.map(t => ({ role: t.role, text: t.text }));
-    const next: AdsChatTurn[] = [...turns, { role: 'user', text: q }];
-    setTurns(next);
+    if (!q || pending) return;
     setText('');
-    setBusy(true);
+    setFailed('');
+    setPending({ q, steps: [] });
     try {
-      const reply = await api.ads.ask(history, q, market);
-      setTurns([...next, { role: 'assistant', text: reply.answer, proposals: reply.proposals, notes: reply.notes }]);
+      const reply = await api.ads.ask(chatId, q, market);
+      if (reply.chat) {
+        setChatId(reply.chat.id);
+        setTurns(reply.chat.turns);
+      }
       if (reply.proposals.length) onChanged();
+      void loadList();
     } catch (e: any) {
+      setFailed(q);
       toast(e.message, 'error');
-      setTurns(turns);
-      setText(q);
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   };
 
+  const remove = async (id: string) => {
+    try {
+      setList(await api.ads.chatDelete(id));
+      if (id === chatId) setChatId(null);
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
+
+  const empty = !turns.length && !pending && !failed;
   return (
     <div className="ad-advisor">
-      <div className="ad-chat">
-        {turns.length === 0 && (
-          <div className="ad-card ad-chat-intro">
-            <b>Zeptej se na cokoli o reklamě</b>
-            <p className="muted">
-              Poradce vidí stejná čísla jako záložky{market !== 'all' ? ` (teď jen ${MARKET_LABELS[market] ?? market})` : ''}:
-              zisk po reklamě, kampaně, produkty, otevřené návrhy a poslední změny. Když navrhne změnu nebo plán,
-              vznikne z něj návrh se stejnými pojistkami jako ostatní — <b>nic se neprovede samo</b>.
-            </p>
-            <div className="ad-chat-starters">
-              {ADVISOR_STARTERS.map(s => <button key={s} className="ad-chip" onClick={() => void send(s)}>{s}</button>)}
+      <aside className="ad-chats">
+        <button className="btn primary ad-chats-new" onClick={() => { setChatId(null); setTurns([]); setFailed(''); input.current?.focus(); }}>
+          <Icon name="plus" size={14} /> Nový rozhovor
+        </button>
+        <div className="ad-chats-list">
+          {list.length === 0 && <div className="muted small ad-pad">Zatím žádné rozhovory.</div>}
+          {list.map(c => (
+            <div key={c.id} className={`ad-chats-item ${c.id === chatId ? 'active' : ''}`} onClick={() => setChatId(c.id)}>
+              <span className="ad-chats-title">{c.title || 'Rozhovor'}</span>
+              <span className="ad-chats-meta">{ago(c.updatedAt)}</span>
+              <button className="ad-chats-del" data-tip="Smazat rozhovor (na všech Macích)"
+                onClick={e => { e.stopPropagation(); void remove(c.id); }}><Icon name="trash" size={12} /></button>
             </div>
-          </div>
-        )}
-        {turns.map((t, i) => (
-          <div key={i} className={`ad-msg ${t.role}`}>
-            {t.role === 'user' ? <div className="ad-msg-body">{t.text}</div> : (
-              <div className="ad-msg-body">
-                <RichText text={t.text} />
-                {!!t.proposals?.length && (
-                  <div className="ad-msg-props">
-                    <div className="small"><b>Návrhy z odpovědi</b> — schválíš je tady nebo v záložce{' '}
-                      <button className="linkish" onClick={onProposals}>Návrhy</button>
-                    </div>
-                    {t.proposals.map(p => (
-                      <div key={p.id} className="ad-msg-prop">
-                        {p.system === 'sklik' && <span className="ad-badge sklik">S</span>}
-                        <span>{p.title}</span>
-                        {p.status === 'snoozed' && <span className="ad-chip info">naplánováno</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {!!t.notes?.length && (
-                  <ul className="ad-msg-notes">{t.notes.map((n, j) => <li key={j}>{n}</li>)}</ul>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-        {busy && <div className="ad-msg assistant"><div className="ad-msg-body muted">Procházím čísla…</div></div>}
-        <div ref={end} />
-      </div>
-      <div className="ad-chat-input">
-        <textarea value={text} rows={2} placeholder="Třeba: Kolik můžu v prosinci přidat, aby zisk zůstal nad cílem?"
-          onChange={e => setText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(text); } }} />
-        <div className="ad-chat-actions">
-          {turns.length > 0 && <button className="btn ghost small" disabled={busy} onClick={() => setTurns([])}>Nový rozhovor</button>}
-          <button className="btn primary" disabled={busy || !text.trim()} onClick={() => void send(text)}>Zeptat se</button>
+          ))}
         </div>
-        {!status.google.connected && !status.sklik?.hasToken && (
-          <div className="muted small">Poradce pracuje s daty ve sdílené složce — na tomhle Macu nemusí být nic připojené.</div>
-        )}
-      </div>
+      </aside>
+
+      <section className="ad-chat">
+        <div className="ad-chat-scroll">
+          {empty && (
+            <div className="ad-chat-intro">
+              <div className="ad-chat-hello"><Icon name="sparkles" size={22} /></div>
+              <h3>Na co se chceš zeptat?</h3>
+              <p className="muted">
+                Poradce si sám dohledá čísla — libovolné období, kampaně, produkty, hledané dotazy i objednávky
+                {market !== 'all' ? ` (výchozí trh ${MARKET_LABELS[market] ?? market})` : ''}. Když navrhne změnu, uvidíš ji
+                pod odpovědí a můžeš ji rovnou použít. <b>Nic se nezmění bez tvého schválení.</b>
+              </p>
+              <div className="ad-chat-starters">
+                {ADVISOR_STARTERS.map(s => (
+                  <button key={s.title} className="ad-starter" onClick={() => void send(s.q)}>
+                    <b>{s.title}</b><span>{s.q}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {turns.map((t, i) => (
+            t.role === 'user'
+              ? <div key={i} className="ad-msg user"><div className="ad-msg-body">{t.text}</div></div>
+              : (
+                <div key={i} className="ad-msg assistant">
+                  <div className="ad-msg-avatar"><Icon name="sparkles" size={14} /></div>
+                  <div className="ad-msg-body">
+                    {!!t.steps?.length && (
+                      <div className="ad-msg-steps" data-tip="Kam se poradce podíval, než odpověděl">
+                        <Icon name="search" size={11} /> {t.steps.join(' · ')}
+                      </div>
+                    )}
+                    <RichText text={t.text} />
+                    {!!t.proposals?.length && (
+                      <div className="ad-msg-props">
+                        <div className="ad-msg-props-head">
+                          <b>Návrhy z odpovědi</b>
+                          <button className="linkish" onClick={onProposals}>všechny v Návrzích</button>
+                        </div>
+                        {t.proposals.map(p => (
+                          <ChatProposal key={p.id} snap={p} live={liveOpen.get(p.id)} status={status} onChanged={onChanged} />
+                        ))}
+                      </div>
+                    )}
+                    {!!t.notes?.length && (
+                      <div className="ad-msg-notes">
+                        <b>Co jsem nenavrhl</b>
+                        <ul>{t.notes.map((n, j) => <li key={j}>{n}</li>)}</ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+          ))}
+          {pending && (
+            <>
+              <div className="ad-msg user"><div className="ad-msg-body">{pending.q}</div></div>
+              <div className="ad-msg assistant">
+                <div className="ad-msg-avatar busy"><Icon name="sparkles" size={14} /></div>
+                <div className="ad-msg-body ad-msg-thinking">
+                  <span className="ad-dots"><i /><i /><i /></span>
+                  {pending.steps.length ? <>Dívám se do: {pending.steps.join(' · ')}</> : 'Přemýšlím…'}
+                </div>
+              </div>
+            </>
+          )}
+          {failed && !pending && (
+            <div className="ad-msg assistant">
+              <div className="ad-msg-avatar"><Icon name="alert" size={14} /></div>
+              <div className="ad-msg-body">
+                Odpověď se nepovedla. <button className="linkish" onClick={() => void send(failed)}>Zkusit znovu</button>
+              </div>
+            </div>
+          )}
+          <div ref={end} />
+        </div>
+        <div className="ad-chat-input">
+          <textarea ref={input} value={text} rows={1}
+            placeholder={turns.length ? 'Pokračuj v rozhovoru…' : 'Zeptej se na cokoli o reklamě…'}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(text); } }} />
+          <button className="btn primary ad-chat-send" disabled={!!pending || !text.trim()} onClick={() => void send(text)}
+            data-tip="Odeslat (Enter) · nový řádek Shift+Enter">
+            <Icon name="send" size={15} />
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1305,7 +1567,8 @@ function Products({ data }: { data: AdsProducts | null }) {
 
 const KIND_LABEL: Record<string, string> = {
   'budget-up': 'Rozpočet', 'budget-down': 'Rozpočet', 'roas-up': 'Cílové ROAS', 'roas-down': 'Cílové ROAS',
-  'roas-set': 'Cílové ROAS', negatives: 'Vylučující slova', exclude: 'Produkty', 'campaign-new': 'Nová kampaň'
+  'roas-set': 'Cílové ROAS', negatives: 'Vylučující slova', exclude: 'Produkty', 'campaign-new': 'Nová kampaň',
+  'campaign-pause': 'Pozastavit', 'campaign-enable': 'Zapnout'
 };
 
 function Confidence({ n }: { n: number }) {
@@ -1375,6 +1638,8 @@ function OpsList({ p }: { p: AdsProposal }) {
                   <span className="muted"> · Merchant Center {op.merchantId}{op.feedLabel ? `, feed ${op.feedLabel}` : ''}</span></li>
               </React.Fragment>
             );
+          case 'status':
+            return <li key={i}>Kampaň <b>{op.to === 'PAUSED' ? 'pozastavit' : 'zapnout'}</b> <span className="muted">(teď {op.from === 'PAUSED' ? 'stojí' : 'běží'})</span></li>;
           case 'campaign-remove':
             return <li key={i}>Odstranit kampaň „<b>{op.name}</b>" i s jejím rozpočtem</li>;
           default:

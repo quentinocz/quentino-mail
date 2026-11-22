@@ -99,8 +99,11 @@ export const ADS: HelpTopic = {
       steps: [
         { text: 'Otevři záložku [Report]. Přepínač **Týden / Měsíc** bere uzavřené období (pondělí–neděle, kalendářní měsíc) '
             + 'a šipkami jde o období zpátky. Čísla se srovnávají s obdobím těsně před ním.', area: 'tabs' },
-        { text: '**Zjištění** jsou spočítaná z čísel — pod každým je, z kterých plyne. Nejsou to dojmy modelu.', area: 'tabs' },
-        { text: '[Shrnutí od poradce] napíše pár vět pro laika: jak období dopadlo, co táhlo, co brzdilo a co dál. Uloží se k reportu.', area: 'tabs' },
+        { text: 'Nahoře je **příběh**: jedna věta, jak to dopadlo (barva podle výsledku), **Proč** a **Co dál**. Je spočítaný '
+            + 'z čísel pravidly — ne dojem modelu.', area: 'tabs' },
+        { text: 'Graf ukazuje zisk po reklamě po dnech proti předchozímu období (přerušovaně). Tabulka **Kampaně** má všechny '
+            + 'kampaně s trendem a změnou zisku; klik na řádek ukáže dny.', area: 'tabs' },
+        { text: '[Rozepsat poradcem] napíše pár vět vlastními slovy. Uloží se k reportu.', area: 'tabs' },
         { text: '[Uložit PDF] vysází celý report na A4 — dá se poslat dál.', area: 'tabs' }
       ]
     },
@@ -121,10 +124,11 @@ export const ADS: HelpTopic = {
       title: 'Zeptat se poradce a naplánovat sezónu',
       when: 'Když chceš vědět proč, nebo co udělat — třeba před Vánoci.',
       steps: [
-        { text: 'Otevři záložku [Poradce] a napiš otázku (nebo klikni na některou z nabídnutých). Poradce vidí stejná čísla '
-            + 'jako záložky — za trh, který je vybraný v hlavičce.', area: 'tabs' },
-        { text: 'Když navrhne změnu, objeví se pod odpovědí jako **návrh**. Nic se neprovede samo — schválíš ho v [Návrhy] '
-            + 'jako každý jiný a jde vrátit.', area: 'tabs' },
+        { text: 'Otevři záložku [Poradce] a napiš otázku (nebo klikni na některou z nabídnutých). Poradce si **sám dohledá data** — '
+            + 'libovolné období, kampaně, produkty, hledané dotazy, objednávky — a nad odpovědí je vidět, kam se díval.', area: 'tabs' },
+        { text: 'Když navrhne změnu (rozpočet, cíl, vylučující slova, vyřazení produktů, pozastavit nebo zapnout kampaň), objeví se '
+            + 'pod odpovědí jako **návrh** s tlačítkem [Použít]. Nic se neprovede samo a každá změna jde vrátit.', area: 'tabs' },
+        { text: 'Rozhovory se ukládají vlevo a jsou vidět na všech Macích. [Nový rozhovor] začne znovu.', area: 'tabs' },
         { text: 'Plán (třeba „přidat 1. 12., ubrat 27. 12.") vznikne jako **naplánované kroky**: v Návrzích čekají '
             + 'pod sebou s datem a ve svůj den se nabídnou k použití.', area: 'tabs' },
         { text: 'Poradce dodržuje pojistky: velkou změnu rozdělí do víc kroků a pod odpovědí napíše, co a proč neprošlo.', area: 'tabs' }
@@ -184,7 +188,6 @@ export const ADS: HelpTopic = {
     }
   ],
   tips: [
-    'Rozhovor s poradcem vydrží přepínání záložek; [Nový rozhovor] začne znovu.',
     'Krátký stav reklamy (zisk po reklamě za 7 dní, čekající návrhy) je i v Přehledu dne.',
     'Podtržené pojmy (PNO, ROAS, bod zlomu…) a štítky segmentů vysvětlí po najetí myší, co znamenají.',
     'V hlavičce jde přepnout **Všechny trhy / CZ / SK / .com**. Každý trh má cílové PNO podle své marže.',

@@ -232,10 +232,26 @@ export async function sklikBudgetNow(campaignId: string, userId = ''): Promise<n
   return (await campaignNow(campaignId, userId)).budget;
 }
 
-async function campaignNow(campaignId: string, userId: string): Promise<{ budget: number | null; type: string }> {
-  const raw = await listRaw(userId, { ids: [Number(campaignId)] }, ['id', 'type', 'budget.dayBudget']);
+async function campaignNow(campaignId: string, userId: string): Promise<{ budget: number | null; type: string; status: string }> {
+  const raw = await listRaw(userId, { ids: [Number(campaignId)] }, ['id', 'type', 'status', 'budget.dayBudget']);
   const c = raw[0];
-  return { budget: c?.budget?.dayBudget != null ? kc(c.budget.dayBudget) : null, type: String(c?.type ?? '') };
+  return {
+    budget: c?.budget?.dayBudget != null ? kc(c.budget.dayBudget) : null, type: String(c?.type ?? ''),
+    status: /suspend/i.test(String(c?.status ?? '')) ? 'PAUSED' : c ? 'ENABLED' : ''
+  };
+}
+
+/** Stav kampaně ve Skliku řečí modulu (ENABLED / PAUSED) */
+export async function sklikStatusNow(campaignId: string, userId = ''): Promise<string> {
+  return (await campaignNow(campaignId, userId)).status;
+}
+
+/** Pozastavit / zapnout kampaň (campaigns.update chce i type) */
+export async function sklikSetStatus(campaignId: string, to: 'ENABLED' | 'PAUSED', userId = ''): Promise<void> {
+  const { type } = await campaignNow(campaignId, userId);
+  if (!type) throw new Error(`Sklik: kampaň ${campaignId} se nenašla.`);
+  const u = await user(userId);
+  await call('campaigns.update', [u, [{ id: Number(campaignId), type, status: to === 'PAUSED' ? 'suspend' : 'active' }]]);
 }
 
 /**

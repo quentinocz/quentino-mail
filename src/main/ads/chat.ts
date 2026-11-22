@@ -177,6 +177,15 @@ export function parseReply(text: string): { answer: string; actions: ChatAction[
       };
     } catch { /* níž jako text */ }
   }
+  /*
+   * Rozbitý JSON (typicky „uvozovky" uvnitř textu bez escapování) — aspoň
+   * text odpovědi se vytáhne a \n se převedou na řádky, ať uživatel nevidí
+   * syrový JSON (Patrik, 22. 11.).
+   */
+  const m = raw.match(/"answer"\s*:\s*"([\s\S]*?)"\s*,\s*"actions"/) ?? raw.match(/"answer"\s*:\s*"([\s\S]*)"\s*}?\s*$/);
+  if (m) {
+    return { answer: m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim(), actions: [] };
+  }
   return { answer: raw.replace(/^```\w*\s*|```$/g, '').trim(), actions: [] };
 }
 
@@ -333,6 +342,23 @@ export function draftsFrom(actions: ChatAction[], ctx: ChatContext, question: st
         why, impact: 0, confidence: 1,
         ops: [{ kind: 'exclude', codes: list, days: daysOff }]
       });
+      continue;
+    }
+
+    if (type === 'pause' || type === 'enable') {
+      const c = findCampaign(a);
+      if (!c) { notes.push(`Kampaň ${a.campaignId ?? '?'} v datech není — stav jsem neměnil.`); continue; }
+      const to = type === 'pause' ? 'PAUSED' as const : 'ENABLED' as const;
+      const from = c.status === 'ENABLED' ? 'ENABLED' as const : 'PAUSED' as const;
+      if (from === to) { notes.push(`„${c.name}" už je ${to === 'PAUSED' ? 'pozastavená' : 'zapnutá'}.`); continue; }
+      drafts.push(draft(c.system, to === 'PAUSED' ? 'campaign-pause' : 'campaign-enable', c, date, {
+        title: `${to === 'PAUSED' ? 'Pozastavit' : 'Zapnout'} kampaň: ${c.name}${when}`,
+        plain: plain || (to === 'PAUSED'
+          ? `Kampaň „${c.name}" se zastaví a přestane utrácet. Data i nastavení zůstanou, zapnout jde kdykoli.`
+          : `Kampaň „${c.name}" se znovu spustí se stávajícím rozpočtem a nastavením.`),
+        why,
+        ops: [{ kind: 'status', campaignId: c.id, from, to, account: c.account }]
+      }));
       continue;
     }
 

@@ -601,6 +601,11 @@ export function buildMutation(customerId: string, op: AdsOp, rate = 1):
       };
     case 'negative-remove':
       return { service: 'campaignCriteria', operation: { remove: op.resource } };
+    case 'status':
+      return {
+        service: 'campaigns',
+        operation: { update: { resourceName: `customers/${cid}/campaigns/${op.campaignId}`, status: op.to }, updateMask: 'status' }
+      };
     default:
       // Vyřazení produktů jde přes doplňkový feed, ne přes API
       return null;
@@ -747,12 +752,12 @@ export async function removeCampaign(cfg: AdsConfig, customerId: string, campaig
 
 /** Aktuální rozpočet a cíl kampaně — kontrola před zápisem. */
 export async function readCampaignNow(cfg: AdsConfig, campaignId: string, customerId: string):
-  Promise<{ budget: number | null; targetRoas: number | null }> {
-  const rows = await gaql(cfg, 'SELECT campaign.id, campaign.maximize_conversion_value.target_roas, '
+  Promise<{ budget: number | null; targetRoas: number | null; status: string }> {
+  const rows = await gaql(cfg, 'SELECT campaign.id, campaign.status, campaign.maximize_conversion_value.target_roas, '
     + 'campaign.target_roas.target_roas, campaign_budget.amount_micros FROM campaign '
     + `WHERE campaign.id = ${campaignId.replace(/\D/g, '')}`, customerId);
   const parsed = parseCampaigns(rows)[0];
-  return { budget: parsed?.budget ?? null, targetRoas: parsed?.targetRoas ?? null };
+  return { budget: parsed?.budget ?? null, targetRoas: parsed?.targetRoas ?? null, status: String(rows[0]?.campaign?.status ?? '') };
 }
 
 export function parseCampaignDays(rows: any[]): DayRow[] {

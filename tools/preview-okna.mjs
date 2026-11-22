@@ -509,18 +509,36 @@ for (const okno of OKNA) {
     await page.locator('.ad-prop.planned').count() === 1 && await page.locator('.ad-prop.planned button', { hasText: 'Použít' }).count() === 0);
   // Poradce: otázka z nabídky → odpověď s tučným textem, odrážkami a vysvětlením, co neprošlo
   await page.locator('.ad-tabs button', { hasText: 'Poradce' }).click();
-  await page.locator('.ad-chat-starters .ad-chip').first().click();
-  await page.waitForSelector('.ad-msg.assistant .ad-msg-body ul', { timeout: 4000 }).catch(() => {});
-  say('Reklamy › Poradce: otázka a odpověď s odrážkami, tučně a poznámkou k nepovedenému kroku',
-    await page.locator('.ad-msg.user').count() === 1 && await page.locator('.ad-msg.assistant b').count() > 0
-      && await page.locator('.ad-msg.assistant li').count() >= 2 && await page.locator('.ad-msg-notes li').count() === 1);
+  say('Reklamy › Poradce: seznam rozhovorů a nabídka otázek', await page.locator('.ad-chats-item').count() === 1
+    && await page.locator('.ad-starter').count() === 6);
+  await page.locator('.ad-starter').first().click();
+  await page.waitForSelector('.ad-msg.assistant .ad-rich ul', { timeout: 4000 }).catch(() => {});
+  say('Reklamy › Poradce: odpověď s nadpisy, odrážkami, číslovaným seznamem, kam se díval, návrh s Použít a co neprošlo',
+    await page.locator('.ad-msg.user').count() === 1 && await page.locator('.ad-rich h4').count() === 2
+      && await page.locator('.ad-rich ol li').count() === 2 && await page.locator('.ad-msg-steps').count() === 1
+      && await page.locator('.ad-msg-props .ad-prop button', { hasText: 'Použít' }).count() === 1
+      && await page.locator('.ad-msg-notes li').count() === 1);
+  const vstup = await page.evaluate(() => {
+    const i = document.querySelector('.ad-chat-input')?.getBoundingClientRect();
+    const m = document.querySelector('.ad-modal')?.getBoundingClientRect();
+    return i && m ? Math.round(m.bottom - i.bottom) : -1;
+  });
+  say('  pole na otázku je přilepené dole v okně', vstup >= 0 && vstup <= 2, `${vstup} px od spodku`);
   await page.screenshot({ path: path.join(SHOTS, 'reklamy-poradce-odpoved.png') });
   // Report: zjištění s čísly, systémy, kampaně; přepnutí na měsíc a zpět
   await page.locator('.ad-tabs button', { hasText: 'Report' }).click();
   await page.waitForSelector('.ad-findings li', { timeout: 4000 }).catch(() => {});
-  say('Reklamy › Report: období, zjištění s čísly, systémy a kampaně',
-    (await page.locator('.ad-report-label').innerText()).includes('Týden') && await page.locator('.ad-findings li small').count() === 3
-      && await page.locator('.ad-report .ad-mini').count() >= 3 && await page.locator('.ad-report-bar button', { hasText: 'Uložit PDF' }).count() === 1);
+  say('Reklamy › Report: nahoře příběh (proč, co dál), graf proti předchozímu, systémy, všechny kampaně s trendem',
+    (await page.locator('.ad-report-label').innerText()).includes('Týden') && await page.locator('.ad-story.mixed h3').count() === 1
+      && await page.locator('.ad-story ol li').count() === 3 && await page.locator('.ad-rchart polyline.prev').count() === 1
+      && await page.locator('.ad-sysbar').count() === 3 && await page.locator('.ad-rcamp').count() === 4
+      && await page.locator('.ad-mini-trend').count() === 4 && await page.locator('.ad-report-bar button', { hasText: 'Uložit PDF' }).count() === 1);
+  await page.locator('.ad-rcamp').first().click();
+  say('  klik na kampaň ukáže dny', await page.locator('.ad-rdays thead th').count() === 8);
+  await page.locator('.ad-rcamps').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS, 'reklamy-report-kampane.png') });
+  await page.locator('.ad-story').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS, 'reklamy-report.png') });
   // Sezóny: index s 53 týdny, karty událostí a náhled plánu po kliknutí
   await page.locator('.ad-tabs button', { hasText: 'Sezóny' }).click();
   await page.waitForSelector('.ad-season', { timeout: 4000 }).catch(() => {});

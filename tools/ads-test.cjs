@@ -641,6 +641,9 @@ console.log('\nNová kampaň Nákupy pro segment');
   const g3 = require(path.join(DIST, 'ads/google.js'));
   const op = { kind: 'campaign-create', account: '1234567890', market: 'cz', name: 'Quentino · Hvězdy · CZ (Nákupy)', budget: 500,
     troas: 6.24, segment: 'hvezdy', merchantId: '999', feedLabel: 'CZ', geo: [2203] };
+  check('pozastavení v Google Ads: změna stavu kampaně s maskou status',
+    g3.buildMutation('1', { kind: 'status', campaignId: '9', from: 'ENABLED', to: 'PAUSED' }),
+    { service: 'campaigns', operation: { update: { resourceName: 'customers/1/campaigns/9', status: 'PAUSED' }, updateMask: 'status' } });
   const ops = g3.shoppingCampaignOps('123-456-7890', op);
   const camp = ops.find(o => o.campaignOperation).campaignOperation.create;
   check('kampaň: pozastavená, Nákupy, Merchant Center a feed, cíl ROAS, prohlášení EU',
@@ -725,6 +728,15 @@ console.log('\nReport');
   check('zjištění: růst zisku, pod cílem, náklady rychleji než obrat, Meta nad cílem, SK prodělal, ztrátová kampaň, žrouti, úspěšnost, měření',
     f.map(x => x.kind), ['up', 'watch', 'watch', 'watch', 'down', 'down', 'watch', 'up', 'watch']);
   check('  každé má čísla, ze kterých plyne', f.every(x => x.basis.length > 3), true);
+  const st = rep.storyOf({ kind: 'week', o: ov, target: 0.5, findings: f, worst: [{ name: 'Ponožky', profit: -768 }],
+    eaters: [{ cost: 320 }], open: 4, season: { name: 'Vánoce', start: '2026-11-28', planned: 0 } });
+  check('příběh: tón, věta s čísly, proč (nejdřív co brzdí) a nejvýš tři kroky',
+    [st.tone, /zisk po reklamě 52\s000 Kč/.test(st.headline), st.why.length, f.find(x => x.text === st.why[0]).kind, st.next.length, /Ponožky/.test(st.next[0])],
+    ['mixed', true, 3, 'down', 3, true]);
+  const good = rep.storyOf({ kind: 'month', o: { ...ov, profitShare: 0.55, markets: [] }, target: 0.5, findings: [], worst: [], eaters: [], open: 0, season: null });
+  check('  dobrý měsíc: zelený tón a tip, kde přidat', [good.tone, good.headline.startsWith('Dobrý měsíc'), good.next.length >= 1], ['good', true, true]);
+  const bad = rep.storyOf({ kind: 'week', o: { ...ov, profitAfterAds: { value: 30000, prev: 50000 } }, target: 0.5, findings: [], worst: [], eaters: [], open: 0, season: null });
+  check('  propad o víc než 15 % je slabší týden', bad.tone, 'bad');
 
   const html = require(path.join(DIST, 'ads/reportpdf.js')).reportHtml({ kind: 'week', label: 'Týden', from: 'a', to: 'b', prevFrom: 'c', prevTo: 'd',
     market: 'all', target: 0.5, overview: { ...ov, shopPno: 0.1, targetPno: 0.08, systems: [], markets: [] },
@@ -775,9 +787,13 @@ console.log('\nPoradce: kroky z chatu → návrhy');
   check('cíl ROAS v procentech se pozná a zkrátí na +15 %', r.drafts.map(d => [d.kind, d.ops[0].from, d.ops[0].to]), [['roas-up', 6, 6.9]]);
   r = chat.draftsFrom([{ type: 'negative', campaignId: '1', words: ['bazar', 'široké kšandy', 'ab'] }], ctx, 'x');
   check('vylučující slova: slovo z názvu produktu ani krátké ne', [r.drafts[0].ops.map(o => o.text), r.notes.length], [['bazar'], 1]);
-  r = chat.draftsFrom([{ type: 'exclude', codes: ['k1', 'NIC'], days: 200 }, { type: 'pause', campaignId: '1' }], ctx, 'x');
+  r = chat.draftsFrom([{ type: 'exclude', codes: ['k1', 'NIC'], days: 200 }, { type: 'smazat', campaignId: '1' }], ctx, 'x');
   check('vyřazení: jen známé kódy, nejvýš 60 dní; neznámý krok jen poznámka',
     [r.drafts.map(d => [d.ops[0].codes, d.ops[0].days]), r.notes.length], [[[['K1'], 60]], 2]);
+  r = chat.draftsFrom([{ type: 'pause', campaignId: '1', reason: 'Prodělává.' }, { type: 'enable', campaignId: '1' }], ctx, 'x');
+  check('pozastavit zapnutou kampaň jde (se stavem pro kontrolu), zapnout zapnutou ne',
+    [r.drafts.map(d => [d.kind, d.ops[0].kind, d.ops[0].from, d.ops[0].to]), r.notes.length],
+    [[['campaign-pause', 'status', 'ENABLED', 'PAUSED']], 1]);
   const capCtx = { ...ctx, cfg: { ...ccfg, guards: { ...ccfg.guards, monthlyBudget: 30000 } }, monthSpend: 20000 };
   r = chat.draftsFrom([{ type: 'budget', campaignId: '1', to: 1200 }], capCtx, 'x');
   check('měsíční strop platí i pro poradce', r.drafts.length, 0);
@@ -938,14 +954,21 @@ if (fs.existsSync(feedFile)) {
   const ps = db.prepare("SELECT purchase, price_novat FROM products WHERE purchase IS NOT NULL LIMIT 1").get();
   check('cena bez DPH je u produktu s nákupní cenou', ps.price_novat > ps.purchase, true);
 
-  // Poradce: model se napodobí — vrátí odpověď a jeden krok (rozpočet slovenské kampaně)
+  // Poradce: model se napodobí — nejdřív si řekne o kampaně, pak navrhne krok, nakonec odpoví textem
   const aiPath = require.resolve(path.join(DIST, 'ai.js'));
-  const aiAsked = [];
+  const aiCalls = [];
+  const aiScript = [
+    { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'kampane', input: { trh: 'sk' } },
+      { type: 'tool_use', id: 't2', name: 'objednavky', input: { dni: 7 } }] },
+    { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't3', name: 'navrhnout_zmeny',
+      input: { kroky: [{ type: 'budget', system: 'google', campaignId: '19', to: 100, reason: 'Ubrat.' },
+        { type: 'pause', system: 'google', campaignId: '404', reason: 'x' }] } }] },
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Slovensko „prodělává" — **ubral bych**.\n- jeden krok' }] }
+  ];
   require.cache[aiPath] = { id: aiPath, filename: aiPath, loaded: true, exports: {
-    ask: async (model, system, user) => {
-      aiAsked.push(user);
-      return JSON.stringify({ answer: 'Slovensko prodělává.', actions: [{ type: 'budget', campaignId: '19', to: 200, reason: 'Ubrat.' }] });
-    }
+    ask: async () => '',
+    recordUsage: () => {},
+    client: () => ({ messages: { create: async (body) => { aiCalls.push(JSON.parse(JSON.stringify(body))); return aiScript.shift(); } } })
   } };
   // Objednávka z reálného kódu varianty, včera
   const ads = require(path.join(DIST, 'ads/index.js'));
@@ -1055,18 +1078,47 @@ if (fs.existsSync(feedFile)) {
       [urls.filter(u => u.includes(':mutate')).every(u => u.includes('/customers/2345678901/')), eur], [true, 12]);
   }
 
-  // Poradce nad skutečnými daty: data jdou modelu, krok projde pojistkami a stane se návrhem
+  // Poradce nad skutečnými daty: sám si řekne o data, krok projde pojistkami a stane se návrhem, rozhovor se uloží
   {
     // Nastavení modelu čte getSettings a ten se dívá i do účtů pošty
     db.exec('CREATE TABLE IF NOT EXISTS accounts (id INTEGER PRIMARY KEY, email TEXT, pass_enc TEXT)');
-    const reply = await ads.askAdvisor([], 'Jak je na tom Slovensko?', 'all');
-    const sent = JSON.parse(aiAsked[0].split('DATA:\n')[1].split('\n\nOTÁZKA')[0]);
-    check('poradce dostane kampaně obou trhů a otázku', [sent.kampane.map(k => k.id).sort(), aiAsked[0].endsWith('Jak je na tom Slovensko?')],
-      [['19', '9'], true]);
-    if (!reply.proposals.length) console.log('      poznámky:', reply.notes);
-    check('  a z odpovědi vznikne návrh (10 € = 250 Kč → nejvýš −20 % = 200 Kč)', [reply.answer, reply.proposals.map(p => [p.kind, p.ops[0].to, p.market])],
-      ['Slovensko prodělává.', [['budget-down', 200, 'sk']]]);
+    const advisor = require(path.join(DIST, 'ads/advisor.js'));
+    const chatsMod = require(path.join(DIST, 'ads/chats.js'));
+    const reply = await advisor.ask(null, 'Jak je na tom Slovensko?', 'all');
+    const toolResults = aiCalls[1].messages[aiCalls[1].messages.length - 1].content;
+    const camps = JSON.parse(toolResults[0].content);
+    check('poradce si řekl o kampaně SK a dostal je (s ID pro návrhy)', camps.map(c => [c.id, c.trh]), [['19', 'sk']]);
+    check('  i o objednávky za 7 dní', typeof JSON.parse(toolResults[1].content).objednavky, 'number');
+    check('  z kroku vznikl návrh přes pojistky (250 Kč → nejvýš −20 % = 200 Kč), neznámá kampaň se vrátila s důvodem',
+      [reply.proposals.map(p => [p.kind, p.ops[0].to, p.market]), reply.notes.length], [[['budget-down', 200, 'sk']], 2]);
+    check('  model se dozvěděl, co vzniklo a co ne (zkrácení pojistkou i neznámá kampaň)',
+      JSON.parse(aiCalls[2].messages[aiCalls[2].messages.length - 1].content[0].content).neproslo.length, 2);
+    check('  odpověď je text i s uvozovkami (žádný JSON na obrazovce)', reply.answer, 'Slovensko „prodělává" — **ubral bych**.\n- jeden krok');
+    const saved = chatsMod.getChat(reply.chat.id);
+    check('  rozhovor je uložený: otázka, odpověď, kam se díval, návrhy',
+      [saved.title, saved.turns.length, saved.turns[1].steps, saved.turns[1].proposals.length], ['Jak je na tom Slovensko?', 2, ['Kampaně', 'Objednávky', 'Návrhy změn'], 1]);
+    // Pokračování: předchozí tahy jdou modelu jako text
+    aiScript.push({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Ano.' }] });
+    const again = await advisor.ask(reply.chat.id, 'A Česko?', 'all');
+    const msgs = aiCalls[aiCalls.length - 1].messages;
+    check('  další otázka pokračuje v rozhovoru (historie jde modelu)', [again.chat.id === reply.chat.id, msgs.length, msgs[0].role, msgs[2].content],
+      [true, 3, 'user', 'A Česko?']);
     for (const p of reply.proposals) require(path.join(DIST, 'ads/proposals.js')).decide(p.id, 'dismiss');
+
+    // Dva Macy: rozhovor z jednoho dojde na druhý, smazání taky
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rozhovory-'));
+    db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES('syncEnabled','1'),('syncFolder',?)").run(dir);
+    chatsMod.shareChats();
+    const mineFile = fs.readdirSync(path.join(dir, 'reklamy')).find(n => n.startsWith('rozhovory-'));
+    const other = JSON.parse(fs.readFileSync(path.join(dir, 'reklamy', mineFile), 'utf8'));
+    other.chats[0].title = 'Přejmenováno jinde'; other.chats[0].updatedAt = new Date(Date.now() + 60_000).toISOString();
+    fs.writeFileSync(path.join(dir, 'reklamy', 'rozhovory-jinymac.json'), JSON.stringify(other));
+    check('rozhovory: novější verze z jiného Macu se převezme', [chatsMod.shareChats(), chatsMod.getChat(reply.chat.id).title], [true, 'Přejmenováno jinde']);
+    chatsMod.deleteChat(reply.chat.id);
+    check('  smazání je vidět a jiný Mac ho dostane jako smazané', [chatsMod.getChat(reply.chat.id), chatsMod.listChats().some(c => c.id === reply.chat.id)],
+      [null, false]);
+    fs.rmSync(dir, { recursive: true, force: true });
+    db.prepare("UPDATE settings SET value = '0' WHERE key = 'syncEnabled'").run();
   }
 
   // Sezóny nad skutečnými daty: přehled i náhled plánu doběhnou
