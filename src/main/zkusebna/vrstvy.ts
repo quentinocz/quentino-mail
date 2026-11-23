@@ -608,18 +608,33 @@ export async function vygenerujVrstvu(
   hlas({ postava: postavaId, typ, varianta, stav: 'kreslim' });
   const zaklad = podkladProKus(postavaId, typ);
   const kdePostava = okrajePostavy(zaklad);
-  const vyrez = vyrezKusu(
-    typ, kdePostava, zaklad.sirka, zaklad.vyska, obrazky.model().volneRozmery
-  );
-  const naVyrezu = vyrez.w < zaklad.sirka || vyrez.h < zaklad.vyska;
-  const zadani = zadaniKusuTed(typ, varianta, naVyrezu);
 
   /*
    * Modelu se posílá **jen výřez**, ne celá postava: je to levnější,
    * míň místa na ujetí a víc bodů na detail.
+   *
+   * Když model rozměr výřezu nevezme, zapamatuje si to (`ChybaRozmeru`)
+   * a výřez se spočítá znovu v rozměru, který bere každý model. Chyba
+   * 400 se neplatí, takže druhý pokus nic nestojí navíc.
    */
-  const vstup = px.vyrizniObdelnik(zaklad, vyrez);
-  const vracene = await obrazky.dokresli(zadani, vstup, maskaProKus(typ, zaklad, vyrez));
+  const kresli = async () => {
+    const vyrez = vyrezKusu(
+      typ, kdePostava, zaklad.sirka, zaklad.vyska, obrazky.model().volneRozmery
+    );
+    const naVyrezu = vyrez.w < zaklad.sirka || vyrez.h < zaklad.vyska;
+    const zadani = zadaniKusuTed(typ, varianta, naVyrezu);
+    const vstup = px.vyrizniObdelnik(zaklad, vyrez);
+    const vracene = await obrazky.dokresli(zadani, vstup, maskaProKus(typ, zaklad, vyrez));
+    return { vyrez, zadani, vracene };
+  };
+  let kresba: Awaited<ReturnType<typeof kresli>>;
+  try {
+    kresba = await kresli();
+  } catch (e) {
+    if (!(e instanceof obrazky.ChybaRozmeru)) throw e;
+    kresba = await kresli();
+  }
+  const { vyrez, zadani, vracene } = kresba;
   const vysledek = vrstvaZObrazku(p, typ, varianta, zaklad, vracene, zadani, vyrez);
 
   /*

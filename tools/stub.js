@@ -118,7 +118,18 @@
       ],
       utrata: { mesic: '2026-10', usd: 6.84, kusu: 36, strop: 40 },
       produkty: { zarazenych: 412, sBarvou: 388, schvalenych: 120 },
-      ukazkove: true
+      ukazkove: true,
+      /* Skutečná podoba hlášky — dlouhá, anglická uprostřed a s radou na konci */
+      posledniChyba: {
+        kdy: '2026-11-23T08:14:00.000Z',
+        model: 'gpt-image-2.5-sunburst',
+        text: 'Obrázek se nepodařilo nakreslit: 403 Your organization must be verified to use the model '
+          + '`gpt-image-2.5-sunburst`. Please go to: https://platform.openai.com/settings/organization/general '
+          + 'and click on Verify Organization. — OpenAI chce u obrázkových modelů ověřenou organizaci. '
+          + 'Ověř ji na platform.openai.com → Settings → Organization → General → Verify Organization '
+          + '(po ověření to začne fungovat do pár minut).'
+      },
+      bezPruhlednosti: false
     };
   })(),
   'zk:vrstvy': (function () {
@@ -177,6 +188,7 @@
       schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false }
   ],
   'zk:vzhledy': [],
+  'zk:zkouska': { ok: true, model: 'gpt-image-2.5-sunburst', pruhledne: false, bez: ['background'], sekund: 14, chyba: '' },
   'events:list': [
     { id: 1, kind: 'dovolena', title: 'Dovolená — zavřeno', from: '2026-08-04', to: '2026-08-10',
       note: 'balíky se neodesílaly', days: 7, future: false, orders: 3, revenue: 4200, currency: 'CZK',

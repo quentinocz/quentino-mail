@@ -1443,6 +1443,19 @@ export interface ZkPrehled {
   produkty: { zarazenych: number; sBarvou: number; schvalenych: number };
   /** Postavy jsou zatím zástupná kresba, ne vygenerované fotky. */
   ukazkove: boolean;
+  /** Poslední chyba generování — drží se v okně, dokud se něco nepovede. */
+  posledniChyba?: { kdy: string; text: string; model: string } | null;
+  /** Model průhledné pozadí neumí a vyřezává ho aplikace. */
+  bezPruhlednosti?: boolean;
+}
+
+export interface ZkZkouskaModelu {
+  ok: boolean;
+  model: string;
+  pruhledne: boolean;
+  bez: string[];
+  sekund: number;
+  chyba: string;
 }
 
 export interface ZkVrstvaProOkno extends ZkVrstva {

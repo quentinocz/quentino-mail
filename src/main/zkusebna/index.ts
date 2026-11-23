@@ -53,7 +53,9 @@ export function prehled(): ZkPrehled {
       sBarvou: rows.filter(one => one.hex).length,
       schvalenych: rows.filter(one => one.schvaleno).length
     },
-    ukazkove: vse.some(one => one.zadani === 'ukázková kresba')
+    ukazkove: vse.some(one => one.zadani === 'ukázková kresba'),
+    posledniChyba: posledniChyba(),
+    bezPruhlednosti: !obrazky.umiPruhlednost()
   };
 }
 
@@ -139,12 +141,40 @@ export function krokyPostavy(postavaId: string): { poradi: number; typ: string; 
   }));
 }
 
+/**
+ * Poslední chyba generování — zůstane v okně, dokud se něco nepovede.
+ *
+ * Patrik (23. 11.): „stále tam nefunguje generování". Chyba se dřív
+ * ukázala jen v bublině na pár vteřin, a když běh trval minuty, nebyl
+ * u toho nikdo, kdo by si ji přečetl. Bez jejího znění se pak nedá
+ * poznat, jestli jde o klíč, ověření organizace, kredit, nebo model.
+ */
+export function posledniChyba(): { kdy: string; text: string; model: string } | null {
+  try {
+    const ulozena = JSON.parse(getSetting('zkPosledniChyba', '') || 'null');
+    return ulozena?.text ? ulozena : null;
+  } catch { return null; }
+}
+
+async function sHlidanim<T>(prace: () => Promise<T>): Promise<T> {
+  try {
+    const vysledek = await prace();
+    setSetting('zkPosledniChyba', '');
+    return vysledek;
+  } catch (e: any) {
+    setSetting('zkPosledniChyba', JSON.stringify({
+      kdy: new Date().toISOString(), text: String(e?.message ?? e), model: obrazky.model().id
+    }));
+    throw e;
+  }
+}
+
 export async function generujPostavu(postavaId: string) {
-  return vrstvy.vygenerujPostavu(postavaId);
+  return sHlidanim(() => vrstvy.vygenerujPostavu(postavaId));
 }
 
 export async function generujVrstvu(postavaId: string, typ: ZkVrstvaTyp, varianta: string) {
-  const { vrstva } = await vrstvy.vygenerujVrstvu(postavaId, typ, varianta);
+  const { vrstva } = await sHlidanim(() => vrstvy.vygenerujVrstvu(postavaId, typ, varianta));
   return { ...vrstva, nahled: vrstva.soubor ? maly(vrstva.soubor, 150) : '' };
 }
 
@@ -153,7 +183,17 @@ export async function generujVse(
   jenChybejici = true,
   rozsah: 'zakladni' | 'vse' = 'zakladni'
 ) {
-  return vrstvy.vygenerujVse(postavaId, jenChybejici, rozsah);
+  return sHlidanim(() => vrstvy.vygenerujVse(postavaId, jenChybejici, rozsah));
+}
+
+/** Jeden levný obrázek na ověření klíče, modelu a průhlednosti. */
+export async function vyzkousejModel() {
+  const vysledek = await obrazky.vyzkousej();
+  if (vysledek.ok) setSetting('zkPosledniChyba', '');
+  else setSetting('zkPosledniChyba', JSON.stringify({
+    kdy: new Date().toISOString(), text: vysledek.chyba, model: vysledek.model
+  }));
+  return vysledek;
 }
 
 export function postavUkazku(postavaId: string) {
@@ -209,7 +249,11 @@ export function nastav(co: {
   vyber?: Partial<KabinaVyber>;
 }): void {
   if (co.klic !== undefined) setSetting('openaiApiKey', co.klic ? encrypt(co.klic) : '');
-  if (co.model !== undefined) setSetting('obrazkovyModel', co.model);
+  if (co.model !== undefined) {
+    setSetting('obrazkovyModel', co.model);
+    /* Chyba patřila předchozímu modelu — u nového by jen mátla */
+    setSetting('zkPosledniChyba', '');
+  }
   if (co.strop !== undefined) setSetting('obrazkyStrop', String(Math.max(0, co.strop)));
   if (co.kvalita !== undefined) setSetting('obrazkyKvalita', co.kvalita);
   if (co.maska !== undefined) setSetting('zkMaska', co.maska ? '1' : '0');

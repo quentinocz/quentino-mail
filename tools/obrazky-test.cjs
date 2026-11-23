@@ -57,7 +57,6 @@ function ok(label, podminka, poznamka = '') {
   console.log(`  ${podminka ? '✓' : '✗'} ${label}${poznamka ? `   ${poznamka}` : ''}`);
 }
 
-void db;
 
 /** Malý platný PNG — takový, jaký by vrátilo rozhraní. */
 function obrazekBase64(sirka, vyska) {
@@ -68,8 +67,47 @@ function obrazekBase64(sirka, vyska) {
   return png.uloz(obraz).toString('base64');
 }
 
+/** Postava (šedý obdélník s bílou „košilí" uvnitř) na bílém pozadí. */
+function postavaNaBilem(sirka, vyska, x0 = 20, y0 = 20, w = 24, h = 56) {
+  const obraz = png.novyObraz(sirka, vyska);
+  for (let y = 0; y < vyska; y++) for (let x = 0; x < sirka; x++) {
+    const i = (y * sirka + x) * 4;
+    const naPostave = x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
+    const kosile = naPostave && x >= x0 + 8 && x < x0 + w - 8 && y >= y0 + 6 && y < y0 + 14;
+    const v = naPostave && !kosile ? 120 : 255;
+    obraz.body[i] = v; obraz.body[i + 1] = v; obraz.body[i + 2] = v; obraz.body[i + 3] = 255;
+  }
+  return png.uloz(obraz);
+}
+
+/** Táž postava na šachovnici bílá / světle šedá. */
+function postavaNaSachovnici(sirka, vyska) {
+  const obraz = png.nacti(postavaNaBilem(sirka, vyska));
+  for (let y = 0; y < vyska; y++) for (let x = 0; x < sirka; x++) {
+    const i = (y * sirka + x) * 4;
+    if (obraz.body[i] !== 255) continue;
+    const naPostave = x >= 20 && x < 44 && y >= 20 && y < 76;
+    if (naPostave) continue;
+    const v = ((x >> 3) + (y >> 3)) % 2 ? 204 : 255;
+    obraz.body[i] = v; obraz.body[i + 1] = v; obraz.body[i + 2] = v;
+  }
+  return png.uloz(obraz);
+}
+
+/** Pestrá scéna — kraj nemá jednu barvu. */
+function sum(sirka, vyska) {
+  const obraz = png.novyObraz(sirka, vyska);
+  for (let i = 0; i < sirka * vyska; i++) {
+    obraz.body[i * 4] = (i * 37) % 256; obraz.body[i * 4 + 1] = (i * 91) % 256;
+    obraz.body[i * 4 + 2] = (i * 53) % 256; obraz.body[i * 4 + 3] = 255;
+  }
+  return png.uloz(obraz);
+}
+
 const prisло = [];
 let odpovez = null;
+/* Odpovědi na několik požadavků za sebou — kvůli opravám, kde jde požadavek znovu */
+const fronta = [];
 
 const server = http.createServer((req, res) => {
   /* Tělo se sbírá po bajtech a čte se jako UTF-8: „Muž v obleku" se
@@ -84,8 +122,13 @@ const server = http.createServer((req, res) => {
       klic: String(req.headers.authorization || ''),
       telo
     });
-    const vlastni = odpovez;
+    const vlastni = fronta.length ? fronta.shift() : odpovez;
     odpovez = null;
+    if (vlastni && vlastni.obrazek) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ b64_json: vlastni.obrazek }] }));
+      return;
+    }
     if (vlastni) {
       res.writeHead(vlastni.stav, { 'Content-Type': 'application/json' });
       res.end(vlastni.telo);
@@ -130,7 +173,11 @@ async function main() {
     ['gpt-image-2.5-sunburst', 'Muž v obleku', '1024x1536', 'high', 'png', 1]);
   check('  a s průhledným pozadím', zadani.background, 'transparent');
   check('klíč se posílá v hlavičce', prvni.klic, 'Bearer sk-test-123');
-  check('vrácený obrázek se přečte', [postava.sirka, postava.vyska], [8, 12]);
+  /*
+   * Model nemusí vrátit přesně žádaný rozměr. Postava se pak měří a
+   * vrstvy se na ni vkládají bod po bodu — proto se převzorkuje.
+   */
+  check('vrácený obrázek se přečte a má žádaný rozměr', [postava.sirka, postava.vyska], [1024, 1536]);
 
   const bezPrusvitu = await obrazky.nakresli('Pozadí', { sirka: 1024, vyska: 1024 }, false);
   ok('bez průhlednosti se pozadí vůbec neposílá',
@@ -161,10 +208,9 @@ async function main() {
   ok('  model, který vstup drží vždy, nedostane input_fidelity',
     !druhy.telo.includes('input_fidelity'));
 
+  /* OpenAI gpt-image-1 vypnul 23. 10. 2026 — kdo ho měl vybraný, dostával jen chybu */
   setSetting('obrazkovyModel', 'gpt-image-1');
-  await obrazky.dokresli('Obleč sako', vstup);
-  ok('  a model, který se musí doprošovat, ho dostane',
-    prisло[prisло.length - 1].telo.includes('input_fidelity'));
+  check('vypnutý gpt-image-1 se přepne na současný model', obrazky.model().id, 'gpt-image-2.5-sunburst');
   setSetting('obrazkovyModel', 'gpt-image-2.5-sunburst');
 
   /* ---------- modely ---------- */
@@ -179,6 +225,128 @@ async function main() {
   setSetting('obrazkovyModel', 'muj-vlastni-model');
   check('  ale vlastnoručně zadané jméno zůstane', obrazky.model().id, 'muj-vlastni-model');
   setSetting('obrazkovyModel', 'gpt-image-2.5-sunburst');
+
+  /* ---------- model, který něco neumí ---------- */
+
+  /*
+   * Patrik (23. 11.): „stále tam nefunguje generování". Jeden
+   * nepodporovaný parametr a nevznikne nic — přitom stačí ho vynechat.
+   * Chyba 400 se neplatí, takže druhý pokus nic nestojí.
+   */
+  const kusuPred = obrazky.utrata().kusu;
+  const pocetPred = prisло.length;
+  fronta.push(
+    { stav: 400, telo: JSON.stringify({ error: { message: "Invalid value: 'transparent'. Transparent background is not supported for this model.", param: 'background', code: 'invalid_value' } }) },
+    { obrazek: postavaNaBilem(64, 96).toString('base64') }
+  );
+  const naBilem = await obrazky.nakresli('Isolated subject on a fully transparent background: no floor.', { sirka: 64, vyska: 96 });
+  check('odmítnuté průhledné pozadí → požadavek jde znovu bez něj', prisло.length - pocetPred, 2);
+  const opraveny = JSON.parse(prisло[prisло.length - 1].telo);
+  ok('  bez parametru background', opraveny.background === undefined);
+  ok('  a se zadáním na bílém pozadí místo průhledného',
+    /pure white/.test(opraveny.prompt) && !/transparent/.test(opraveny.prompt), opraveny.prompt);
+  check('  zaplatí se jen ten povedený obrázek', obrazky.utrata().kusu - kusuPred, 1);
+  ok('  model si to pamatuje', obrazky.umiPruhlednost() === false);
+  /*
+   * Bez průhlednosti by postava neprošla kontrolou — silueta by byla
+   * celé plátno. Pozadí se proto vyřízne v aplikaci.
+   */
+  const a = (x, y) => naBilem.body[(y * 64 + x) * 4 + 3];
+  check('pozadí se vyřízne, postava zůstane', [a(2, 2), a(32, 48)], [0, 255]);
+  check('  i bílá košile uprostřed postavy (s krajem nesouvisí)', a(32, 30), 255);
+
+  await obrazky.nakresli('Isolated subject on a fully transparent background.', { sirka: 64, vyska: 96 });
+  const dalsi = JSON.parse(prisло[prisло.length - 1].telo);
+  ok('další obrázek už background vůbec neposílá', dalsi.background === undefined && /pure white/.test(dalsi.prompt));
+
+  /* Šachovnice místo průhlednosti — model „průhledné" zná z obrázků */
+  fronta.push({ obrazek: postavaNaSachovnici(64, 96).toString('base64') });
+  const sach = await obrazky.nakresli('x', { sirka: 64, vyska: 96 });
+  const as = (x, y) => sach.body[(y * 64 + x) * 4 + 3];
+  check('šachovnice se vyřízne taky', [as(1, 1), as(9, 1), as(32, 48)], [0, 0, 255]);
+
+  /* Scéna, ne jednolité pozadí — hádat se nemá, má se to říct */
+  fronta.push({ obrazek: sum(64, 96).toString('base64') });
+  let scena = '';
+  try { await obrazky.nakresli('x', { sirka: 64, vyska: 96 }); } catch (e) { scena = String(e.message); }
+  ok('pozadí, které jednolité není, se nehádá — řekne se to', /nedá spolehlivě oddělit/.test(scena), scena.slice(0, 80));
+
+  obrazky.zapomenOdmitnuti();
+  ok('zapomenout odmítnutí jde', obrazky.umiPruhlednost() === true);
+
+  /* Dokreslený výřez s vyplněným pozadím dostane průhlednost zpátky */
+  const vstupVyrez = png.novyObraz(32, 32);
+  for (let y = 8; y < 24; y++) for (let x = 8; x < 24; x++) {
+    const i = (y * 32 + x) * 4; vstupVyrez.body[i] = 120; vstupVyrez.body[i + 1] = 120; vstupVyrez.body[i + 2] = 120; vstupVyrez.body[i + 3] = 255;
+  }
+  fronta.push({ obrazek: postavaNaBilem(32, 32, 8, 8, 16, 16).toString('base64') });
+  const vyrez = await obrazky.dokresli('x', vstupVyrez);
+  check('výřez s vyplněným pozadím je zase průhledný tam, kde byl',
+    [vyrez.body[3], vyrez.body[(16 * 32 + 16) * 4 + 3]], [0, 255]);
+
+  /* Rozměr, který model nevzal: zapamatuje se a vrstva si výřez spočítá znovu */
+  fronta.push({ stav: 400, telo: JSON.stringify({ error: { message: "Invalid value: '16x24'. Supported values are: '1024x1024', '1024x1536', '1536x1024', and 'auto'.", param: 'size' } }) });
+  let rozmer = null;
+  try { await obrazky.dokresli('x', vstup); } catch (e) { rozmer = e; }
+  ok('nevzatý rozměr výřezu se ohlásí jako ChybaRozmeru', rozmer instanceof obrazky.ChybaRozmeru, String(rozmer && rozmer.message));
+  ok('  a model se dál bere jako model s pevnými rozměry', obrazky.model().volneRozmery === false);
+  obrazky.zapomenOdmitnuti();
+
+  /* Vrácený výřez jiného rozměru se srovná na rozměr vstupu */
+  fronta.push({ obrazek: obrazekBase64(32, 48) });
+  const vetsi = await obrazky.dokresli('x', vstup);
+  check('výřez vrácený v jiném rozměru se převzorkuje na vstup', [vetsi.sirka, vetsi.vyska], [16, 24]);
+
+  /* Ověření organizace — z hlášky OpenAI není poznat, kde to spravit */
+  fronta.push({ stav: 403, telo: JSON.stringify({ error: { message: 'Your organization must be verified to use the model `gpt-image-2.5-sunburst`.' } }) });
+  let overeni = '';
+  try { await obrazky.nakresli('x', { sirka: 64, vyska: 96 }); } catch (e) { overeni = String(e.message); }
+  ok('neověřená organizace dostane radu, kde ji ověřit', /Verify Organization/.test(overeni), overeni.slice(-110));
+
+  /* Zkouška modelu: levná a řekne, jak to dopadlo */
+  const utrataPred = obrazky.utrata().usd;
+  fronta.push({ obrazek: postavaNaBilem(64, 64).toString('base64') });
+  const zk = await obrazky.vyzkousej();
+  const posledniZkouska = JSON.parse(prisло[prisло.length - 1].telo);
+  check('zkouška modelu kreslí malý obrázek v nízké kvalitě',
+    [posledniZkouska.size, posledniZkouska.quality], ['1024x1024', 'low']);
+  ok('  a vrátí, že funguje a že průhlednost model sám nevrátil', zk.ok && zk.pruhledne === false);
+  ok('  připíše se cena nízké kvality, ne vysoké',
+    Math.abs(obrazky.utrata().usd - utrataPred - 0.05 * 0.25) < 0.001, String(obrazky.utrata().usd - utrataPred));
+  fronta.push({ stav: 401, telo: JSON.stringify({ error: { message: 'Incorrect API key provided.', code: 'invalid_api_key' } }) });
+  const spatne = await obrazky.vyzkousej();
+  ok('  špatný klíč: zkouška neprojde a poradí', !spatne.ok && /klíč k OpenAI neplatí/.test(spatne.chyba), spatne.chyba.slice(-70));
+
+  check('rozbor chyby: neznámý parametr',
+    obrazky.__test.odmitnutyParametr(400, JSON.stringify({ error: { message: "Unknown parameter: 'input_fidelity'.", code: 'unknown_parameter' } })),
+    'input_fidelity');
+  check('  bezpečnostní kontrola parametr není',
+    obrazky.__test.odmitnutyParametr(400, JSON.stringify({ error: { message: 'Your request was rejected by the safety system.' } })), '');
+
+  /* ---------- celý krok: postava a jeden kus ---------- */
+
+  {
+    db.exec(require(path.join(DIST, 'zkusebna/schema.js')).ZK_SCHEMA);
+    const vrstvy = require(path.join(DIST, 'zkusebna/vrstvy.js'));
+    const store = require(path.join(DIST, 'zkusebna/store.js'));
+    const p = store.postavy().find(one => one.vek === 'dospely') ?? store.postavy()[0];
+    /* Model, který průhlednost tiše ignoruje: postava přijde na bílém */
+    fronta.push({ obrazek: postavaNaBilem(p.sirka, p.vyska, 400, 200, 224, 1100).toString('base64') });
+    let postavaChyba = '';
+    try { await vrstvy.vygenerujPostavu(p.id); } catch (e) { postavaChyba = String(e.message); }
+    ok('postava na bílém projde kontrolou (pozadí se vyřízlo)', !postavaChyba, postavaChyba);
+
+    /* Výřez v rozměru, který model nevezme → výřez znovu v pevném rozměru */
+    const pred = prisло.length;
+    fronta.push({ stav: 400, telo: JSON.stringify({ error: { message: "Invalid size '1024x768'. Supported values are '1024x1024', '1024x1536', '1536x1024'.", param: 'size' } }) });
+    let kusChyba = '';
+    try { await vrstvy.vygenerujVrstvu(p.id, 'boty', 'spolecenske'); } catch (e) { kusChyba = String(e.message); }
+    const pokusy = prisло.slice(pred).map(one => (one.telo.match(/name="size"\r\n\r\n([0-9x]+)/) || [])[1]);
+    ok('kus: nevzatý rozměr → druhý pokus v rozměru, který bere každý model',
+      !kusChyba && pokusy.length === 2 && ['1024x1024', '1024x1536', '1536x1024'].includes(pokusy[1]),
+      `${pokusy.join(' → ')} ${kusChyba}`);
+    obrazky.zapomenOdmitnuti();
+  }
 
   /* ---------- utrácení a chyby ---------- */
 

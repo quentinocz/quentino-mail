@@ -10674,6 +10674,22 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .zk-nastaveni section h3 { margin: 0 0 4px; font-size: 14px; }
 .zk-nastaveni section .desc { margin: 0 0 8px; font-size: 12.5px; max-width: 72ch; }
 .zk-rada { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Poslední chyba generování — drží se nad vrstvami, dokud se něco nepovede */
+.zk-chyba-pruh {
+  display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px;
+  padding: 10px 12px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+.zk-chyba-pruh > svg { color: var(--danger); flex: none; margin-top: 2px; }
+.zk-chyba-pruh > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.zk-chyba-pruh p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; user-select: text; }
+.zk-chyba-pruh > .btn { flex: none; }
+.zk-chyba-pruh .desc { font-size: 11.5px; }
+.zk-zkouska-rada { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.zk-zkouska { margin: 6px 0 10px; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; user-select: text; }
+.zk-zkouska.ok { color: var(--ok, #2f8f4e); }
+.zk-zkouska.chyba { color: var(--danger); }
 .zk-rada input { min-width: 220px; }
 .zk-modely { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
 .zk-model {

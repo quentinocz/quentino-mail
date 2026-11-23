@@ -836,6 +836,7 @@ export function registerIpc() {
   // Vystavení trvá minuty a nahrává stovky souborů — okno musí vidět, kde to je
   handle('zk:vystav', () => zkusebna.vystav(krok => emit('zk:vystav-krok', krok)));
   handle('zk:zavadec', () => zkusebna.zavadec());
+  handle('zk:zkouska', () => zkusebna.vyzkousejModel());
 
   /* ---------- bannery na úvodní stránce ---------- */
   handle('banners:state', () => banners.bannersState());

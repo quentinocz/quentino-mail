@@ -127,7 +127,7 @@ const ALLOWED_INVOKE = [
   'zk:prehled', 'zk:vrstvy', 'zk:kroky', 'zk:generuj-postavu', 'zk:generuj-vrstvu',
   'zk:generuj-vse', 'zk:ukazka', 'zk:ukazka-vse', 'zk:schval', 'zk:zadani', 'zk:zadani-zpet',
   'zk:nastaveni', 'zk:nastav', 'zk:kontakt', 'zk:katalog', 'zk:produkty', 'zk:produkt',
-  'zk:nahled', 'zk:vzhledy', 'zk:vzhled-uloz', 'zk:vzhled-smaz', 'zk:vystav', 'zk:zavadec',
+  'zk:nahled', 'zk:vzhledy', 'zk:vzhled-uloz', 'zk:vzhled-smaz', 'zk:vystav', 'zk:zavadec', 'zk:zkouska',
   'banners:state', 'banners:load', 'banners:save', 'banners:delete', 'banners:copy', 'banners:toggle',
   'banners:clashes', 'banners:shorten', 'banners:translate', 'banners:href',
   'banners:fallback', 'banners:upload', 'banners:video', 'banners:icon', 'banners:stats',

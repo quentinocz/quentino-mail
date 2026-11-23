@@ -42,7 +42,7 @@ import type { ToolWindowId } from '@shared/windows';
 import type { VidProjekt, VidZnelka } from '@shared/videoedit';
 import type {
   ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
-  ZkVrstvaProOkno, ZkVrstvaTyp
+  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu
 } from '@shared/zkusebna';
 
 /** Co se dá o souboru zjistit z ffmpegu — délka, rozměry, zvuková stopa. */
@@ -997,7 +997,9 @@ export const api = {
       kdy: string; skript: string; zdroj: string; zavadec: string;
       nahranych: number; preskocenych: number; megabajtu: number;
     }>('zk:vystav'),
-    zavadec: () => call<{ kod: string; skript: string; kdy: string }>('zk:zavadec')
+    zavadec: () => call<{ kod: string; skript: string; kdy: string }>('zk:zavadec'),
+    /** Jeden levný obrázek (kolem centu) na ověření klíče, modelu a průhlednosti */
+    zkouska: () => call<ZkZkouskaModelu>('zk:zkouska')
   },
 
   /**

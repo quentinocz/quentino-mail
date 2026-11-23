@@ -2554,6 +2554,31 @@ for (const okno of OKNA) {
     cena(dilna.dogenerovat) > 0 && cena(dilna.navic) > cena(dilna.dogenerovat),
     `potřebné ${dilna.dogenerovat} proti ${dilna.navic}`);
   say('  kroky oblékání jsou k nahlédnutí', dilna.kroku === 3, `${dilna.kroku} kroků`);
+  /*
+   * Patrik (23. 11.): „stále tam nefunguje generování". Chyba se dřív
+   * ukázala jen v bublině na pár vteřin. Teď zůstane nad vrstvami celá,
+   * dá se označit a vedle je zkouška modelu za cent.
+   */
+  const pruh = await page.evaluate(() => {
+    const el = document.querySelector('.zk-chyba-pruh');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const mrizka = document.querySelector('.zk-mrizka')?.getBoundingClientRect();
+    return {
+      text: el.querySelector('p')?.textContent ?? '',
+      nadMrizkou: !!mrizka && r.bottom <= mrizka.top + 1,
+      pretika: el.scrollWidth > el.clientWidth + 1,
+      tlacitko: (el.querySelector('.btn')?.textContent ?? '').trim()
+    };
+  });
+  say('poslední chyba generování zůstane nad vrstvami celá',
+    !!pruh && /Verify Organization/.test(pruh.text) && pruh.nadMrizkou && !pruh.pretika,
+    pruh ? `${pruh.text.length} znaků, přetéká: ${pruh.pretika}` : 'pruh chybí');
+  await page.locator('.zk-chyba-pruh .btn', { hasText: 'Vyzkoušet model' }).click();
+  await page.waitForTimeout(400);
+  const zkouska = (await page.locator('.zk-zkouska').first().textContent().catch(() => '')) ?? '';
+  say('  a zkouška modelu řekne, jak to dopadlo', /Kreslení funguje/.test(zkouska) && /vyřízne/.test(zkouska),
+    zkouska.slice(0, 90));
   await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-vizualy.png') });
 
   /* Zadání pro model se dá přepsat — bez něj se nepovedená vrstva nespraví */

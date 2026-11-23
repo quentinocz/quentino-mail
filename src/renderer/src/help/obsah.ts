@@ -236,10 +236,20 @@ export const ZKUSEBNA: HelpTopic = {
         { text: '[Produkty]: které doplňky jsou v kabině a v jakých barvách.', area: 'main' },
         { text: '[Vystavit na web]. Poprvé ještě [Zkopírovat zavaděč] do šablony e-shopu.', area: 'main', target: '.zk-akce' }
       ]
+    },
+    {
+      title: 'Když generování nejde',
+      steps: [
+        { text: 'Nad vrstvami zůstane pruh s poslední chybou — přečti, co v ní stojí.', area: 'main' },
+        { text: '[Vyzkoušet model]: jeden malý obrázek za cent ověří klíč, model i průhledné pozadí.', area: 'main' },
+        { text: 'Hlášení o ověření organizace se řeší na platform.openai.com, ne v aplikaci.', area: 'main' },
+        { text: 'Pořád nic? V [Nastavení] vyber jiný model a zkus to znovu.', area: 'tabs' }
+      ]
     }
   ],
   tips: [
     'Kreslení postav platí z účtu OpenAI — klíč, model a měsíční strop jsou v [Nastavení].',
+    'Model, který průhledné pozadí nevrátí, nevadí: aplikace kreslí na bílém a pozadí vyřízne sama.',
     'Dokud jsou postavy zástupná kresba, říká to pruh přímo v okně.'
   ]
 };

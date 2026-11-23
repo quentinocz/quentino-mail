@@ -1017,3 +1017,214 @@ export function vzorekLatky(obraz: Obraz, velikost = 64): Obraz | null {
   }
   return out;
 }
+
+/* ------------------------------------------- obrázek, jak ho chceme */
+
+/**
+ * Převzorkuje obrázek na daný rozměr (bilineárně).
+ *
+ * Model nemusí vrátit přesně ten rozměr, o který se žádalo — rozměr
+ * zaokrouhlí, nebo ho při `size: auto` vybere sám. Výřez se ale vkládá
+ * zpátky bod po bodu na místo, odkud se vzal, a obrázek o pár bodů jiný
+ * by tam ležel posunutý a natažený: kravata by vyšla o kus vedle a
+ * kontrola by ji pak označila „nesedí", aniž by bylo poznat proč.
+ */
+export function prevzorkuj(obraz: Obraz, sirka: number, vyska: number): Obraz {
+  if (obraz.sirka === sirka && obraz.vyska === vyska) return obraz;
+  const out = novyObraz(sirka, vyska);
+  const sx = obraz.sirka / sirka;
+  const sy = obraz.vyska / vyska;
+  for (let y = 0; y < vyska; y++) {
+    const fy = Math.min(obraz.vyska - 1, Math.max(0, (y + 0.5) * sy - 0.5));
+    const y0 = Math.floor(fy);
+    const y1 = Math.min(obraz.vyska - 1, y0 + 1);
+    const ty = fy - y0;
+    for (let x = 0; x < sirka; x++) {
+      const fx = Math.min(obraz.sirka - 1, Math.max(0, (x + 0.5) * sx - 0.5));
+      const x0 = Math.floor(fx);
+      const x1 = Math.min(obraz.sirka - 1, x0 + 1);
+      const tx = fx - x0;
+      const a = (y0 * obraz.sirka + x0) * 4;
+      const b = (y0 * obraz.sirka + x1) * 4;
+      const c = (y1 * obraz.sirka + x0) * 4;
+      const d = (y1 * obraz.sirka + x1) * 4;
+      const k = (y * sirka + x) * 4;
+      for (let s = 0; s < 4; s++) {
+        const horni = obraz.body[a + s] * (1 - tx) + obraz.body[b + s] * tx;
+        const dolni = obraz.body[c + s] * (1 - tx) + obraz.body[d + s] * tx;
+        out.body[k + s] = Math.round(horni * (1 - ty) + dolni * ty);
+      }
+    }
+  }
+  return out;
+}
+
+/** Má obrázek průhlednost — nebo je to fotka s pozadím? */
+export function jePruhledny(obraz: Obraz): boolean {
+  let pruhlednych = 0;
+  const n = obraz.sirka * obraz.vyska;
+  for (let i = 0; i < n; i++) if (obraz.body[i * 4 + 3] < 250) pruhlednych += 1;
+  return pruhlednych > n * 0.01;
+}
+
+/**
+ * Převládající barvy kraje obrázku — to je pozadí.
+ *
+ * Víc než jedna proto, že model, který průhlednost neumí, kreslí místo
+ * ní často **šachovnici** (bílá a světle šedá) — „průhledné pozadí" zná
+ * z obrázků, kde se tak průhlednost ukazuje. Vrací se barvy, které na
+ * kraji zabírají aspoň osminu, a podíl kraje, který pokrývají.
+ */
+export function barvyKraje(obraz: Obraz): { barvy: [number, number, number][]; pokryti: number } {
+  const { sirka, vyska, body } = obraz;
+  const kraj: number[] = [];
+  for (let x = 0; x < sirka; x++) kraj.push(x, (vyska - 1) * sirka + x);
+  for (let y = 1; y < vyska - 1; y++) kraj.push(y * sirka, y * sirka + sirka - 1);
+  const kose = new Map<number, { n: number; r: number; g: number; b: number }>();
+  for (const i of kraj) {
+    const r = body[i * 4]; const g = body[i * 4 + 1]; const b = body[i * 4 + 2];
+    const klic = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    const kos = kose.get(klic) ?? { n: 0, r: 0, g: 0, b: 0 };
+    kos.n += 1; kos.r += r; kos.g += g; kos.b += b;
+    kose.set(klic, kos);
+  }
+  const serazene = [...kose.values()].sort((a, b) => b.n - a.n);
+  const barvy: [number, number, number][] = [];
+  for (const kos of serazene) {
+    if (kos.n < kraj.length / 8 || barvy.length >= 3) break;
+    const barva: [number, number, number] = [
+      Math.round(kos.r / kos.n), Math.round(kos.g / kos.n), Math.round(kos.b / kos.n)
+    ];
+    /* Sousední koše téže barvy (přechod přes hranici koše) se nepočítají dvakrát */
+    if (barvy.some(one => vzdalenost(one, barva) < 30)) continue;
+    barvy.push(barva);
+  }
+  let pokryto = 0;
+  for (const i of kraj) {
+    const bod: [number, number, number] = [body[i * 4], body[i * 4 + 1], body[i * 4 + 2]];
+    if (barvy.some(one => vzdalenost(one, bod) <= MEZ_POZADI)) pokryto += 1;
+  }
+  return { barvy, pokryti: kraj.length ? pokryto / kraj.length : 0 };
+}
+
+function vzdalenost(a: [number, number, number], b: [number, number, number]): number {
+  return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+}
+
+/**
+ * Jak daleko od barvy pozadí ještě je pozadí. Šedesát přes tři složky —
+ * vejde se do toho jemný přechod studiového pozadí, ale ne šedé tričko
+ * na bílé (to je od bílé přes tři sta).
+ */
+const MEZ_POZADI = 60;
+
+/**
+ * Odstraní jednolité pozadí — pro model, který průhlednost nevrátí.
+ *
+ * ## Proč to tu je
+ *
+ * Na průhlednosti stojí všechno: silueta postavy, krk, pruhy, kde smí
+ * kus ležet. Když model vrátí postavu na bílém, je pro kabinu silueta
+ * celé plátno a postava neprojde kontrolou („zabírá skoro celé
+ * plátno"). Některé modely průhledné pozadí neumí vůbec a rozhraní to
+ * odmítne, jiné ho tiše ignorují.
+ *
+ * Pozadí se proto vyřízne samo: od kraje dovnitř, dokud je barva blízko
+ * barvě kraje. Bere se jen to, co s krajem souvisí — bílá košile uprostřed
+ * postavy zůstane, i když má barvu pozadí.
+ *
+ * Vrací `null`, když kraj jednolitý není (scéna, interiér). Hádat tam
+ * nemá cenu: vyřízl by se kus postavy a nikdo by nepoznal, proč vrstvy
+ * nesedí.
+ */
+export function odstranPozadi(obraz: Obraz): Obraz | null {
+  if (jePruhledny(obraz)) return obraz;
+  const { barvy, pokryti } = barvyKraje(obraz);
+  if (!barvy.length || pokryti < 0.85) return null;
+  const { sirka, vyska, body } = obraz;
+  const n = sirka * vyska;
+  const pozadi = new Uint8Array(n);
+  const fronta = new Int32Array(n);
+  let hlava = 0;
+  let konec = 0;
+  const blizko = (i: number): boolean => {
+    const bod: [number, number, number] = [body[i * 4], body[i * 4 + 1], body[i * 4 + 2]];
+    return barvy.some(one => vzdalenost(one, bod) <= MEZ_POZADI);
+  };
+  const pridej = (i: number) => {
+    if (pozadi[i] || !blizko(i)) return;
+    pozadi[i] = 255;
+    fronta[konec++] = i;
+  };
+  for (let x = 0; x < sirka; x++) { pridej(x); pridej((vyska - 1) * sirka + x); }
+  for (let y = 0; y < vyska; y++) { pridej(y * sirka); pridej(y * sirka + sirka - 1); }
+  while (hlava < konec) {
+    const i = fronta[hlava++];
+    const x = i % sirka;
+    const y = (i - x) / sirka;
+    if (x > 0) pridej(i - 1);
+    if (x < sirka - 1) pridej(i + 1);
+    if (y > 0) pridej(i - sirka);
+    if (y < vyska - 1) pridej(i + sirka);
+  }
+
+  const out = novyObraz(sirka, vyska);
+  out.body.set(body);
+  for (let i = 0; i < n; i++) {
+    if (pozadi[i]) { out.body[i * 4 + 3] = 0; continue; }
+    /*
+     * Okraj postavy napůl průhledný. Bod na hraně je smíchaný s pozadím
+     * a plně krycí by kolem postavy na tmavém saku nechal světlý lem.
+     */
+    const x = i % sirka;
+    const y = (i - x) / sirka;
+    const naHrane = (x > 0 && pozadi[i - 1]) || (x < sirka - 1 && pozadi[i + 1])
+      || (y > 0 && pozadi[i - sirka]) || (y < vyska - 1 && pozadi[i + sirka]);
+    if (naHrane) out.body[i * 4 + 3] = Math.min(out.body[i * 4 + 3], 150);
+  }
+  return out;
+}
+
+/**
+ * Vrátí průhlednost dokreslenému výřezu, který přišel s pozadím.
+ *
+ * Výřez se posílá průhledný a vkládá se zpátky na průhlednou postavu.
+ * Když model pozadí vyplní (bílou, šachovnicí), měřil by se posun
+ * kroku proti bílé místo proti průhlednu a krok v okně by měl kolem
+ * postavy obdélník. Pozadí se pozná podle toho, **kde bylo průhledné
+ * na vstupu**: nejčastější barvy tam jsou to, čím ho model vyplnil.
+ * Kraj výřezu se na to použít nedá — výřez často protíná postavu.
+ */
+export function obnovPruhlednost(vracene: Obraz, vstup: Obraz): Obraz {
+  if (vracene.sirka !== vstup.sirka || vracene.vyska !== vstup.vyska) return vracene;
+  if (jePruhledny(vracene) || !jePruhledny(vstup)) return vracene;
+  const n = vstup.sirka * vstup.vyska;
+  const kose = new Map<number, { n: number; r: number; g: number; b: number }>();
+  let prazdnych = 0;
+  for (let i = 0; i < n; i++) {
+    if (vstup.body[i * 4 + 3] >= 128) continue;
+    prazdnych += 1;
+    const r = vracene.body[i * 4]; const g = vracene.body[i * 4 + 1]; const b = vracene.body[i * 4 + 2];
+    const klic = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    const kos = kose.get(klic) ?? { n: 0, r: 0, g: 0, b: 0 };
+    kos.n += 1; kos.r += r; kos.g += g; kos.b += b;
+    kose.set(klic, kos);
+  }
+  const barvy: [number, number, number][] = [];
+  for (const kos of [...kose.values()].sort((a, b) => b.n - a.n)) {
+    if (kos.n < prazdnych / 8 || barvy.length >= 3) break;
+    const barva: [number, number, number] = [
+      Math.round(kos.r / kos.n), Math.round(kos.g / kos.n), Math.round(kos.b / kos.n)
+    ];
+    if (!barvy.some(one => vzdalenost(one, barva) < 30)) barvy.push(barva);
+  }
+  if (!barvy.length) return vracene;
+  const out = novyObraz(vracene.sirka, vracene.vyska);
+  out.body.set(vracene.body);
+  for (let i = 0; i < n; i++) {
+    if (vstup.body[i * 4 + 3] >= 128) continue;
+    const bod: [number, number, number] = [vracene.body[i * 4], vracene.body[i * 4 + 1], vracene.body[i * 4 + 2]];
+    if (barvy.some(one => vzdalenost(one, bod) <= MEZ_POZADI)) out.body[i * 4 + 3] = 0;
+  }
+  return out;
+}

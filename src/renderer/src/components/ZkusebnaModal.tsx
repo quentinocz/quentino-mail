@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
-  ZkVrstvaProOkno, ZkVrstvaTyp
+  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu
 } from '@shared/zkusebna';
 import {
   ZK_BARVY, ZK_KVALITY, ZK_VRSTVY, dilKvality, dilPlochy, doZakladu, vrstvaDef
@@ -136,7 +136,11 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
       setKroky(await api.zk.kroky(postava));
       setNahled(null);
       await nactiPrehled();
-    } catch (e: any) { toast(e.message, 'error'); }
+    } catch (e: any) {
+      toast(e.message, 'error');
+      /* Chyba zůstane vidět nad vrstvami — bublina zmizí dřív, než ji kdo přečte */
+      await nactiPrehled();
+    }
     setPracuje('');
   };
 
@@ -151,9 +155,46 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
       setKroky(await api.zk.kroky(postava));
       setNahled(null);
       await nactiPrehled();
-    } catch (e: any) { toast(e.message, 'error'); }
+    } catch (e: any) {
+      toast(e.message, 'error');
+      /* Co se do chyby stihlo, se ukáže — a chyba zůstane nad vrstvami */
+      try {
+        setVrstvy(await api.zk.vrstvy(postava));
+        setKroky(await api.zk.kroky(postava));
+      } catch { /* okno to zkusí příště */ }
+      await nactiPrehled();
+    }
     setPracuje('');
   };
+
+  /*
+   * Zkouška modelu: jeden levný obrázek. Řekne najisto, jestli jde
+   * o klíč, ověření organizace, kredit, nebo model — dřív, než se
+   * pustí běh za dolary.
+   */
+  const [zkouska, setZkouska] = useState<ZkZkouskaModelu | null>(null);
+  const [zkousim, setZkousim] = useState(false);
+  const vyzkousej = async () => {
+    setZkousim(true);
+    setZkouska(null);
+    try {
+      setZkouska(await api.zk.zkouska());
+      await nactiPrehled();
+    } catch (e: any) { toast(e.message, 'error'); }
+    setZkousim(false);
+  };
+
+  const zkouskaVysledek = zkouska && (
+    <p className={`zk-zkouska ${zkouska.ok ? 'ok' : 'chyba'}`}>
+      {zkouska.ok
+        ? <>Kreslení funguje — {zkouska.model}, obrázek za {zkouska.sekund} s.
+            {zkouska.pruhledne
+              ? ' Průhledné pozadí vrací model sám.'
+              : ' Průhledné pozadí model nevrací; aplikace ho vyřízne sama (postava se kreslí na bílém).'}
+            {zkouska.bez.length ? ` Nepodporované volby vynechány: ${zkouska.bez.join(', ')}.` : ''}</>
+        : zkouska.chyba}
+    </p>
+  );
 
   const schval = async (v: ZkVrstvaProOkno, ano: boolean) => {
     await api.zk.schval(postava, v.typ, v.varianta, ano);
@@ -323,6 +364,26 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   )}
                 </div>
               </header>
+
+              {prehled?.posledniChyba && (
+                <div className="zk-chyba-pruh" role="alert">
+                  <Icon name="alert" size={14} />
+                  <div>
+                    <b>Generování naposledy selhalo</b>
+                    <span className="desc">
+                      {new Date(prehled.posledniChyba.kdy).toLocaleString('cs-CZ')} · {prehled.posledniChyba.model}
+                    </span>
+                    <p>{prehled.posledniChyba.text}</p>
+                    {zkouskaVysledek}
+                  </div>
+                  <button className="btn ghost" onClick={vyzkousej} disabled={zkousim || !!pracuje || !prehled.maKlic}
+                    data-tip="Jeden malý obrázek v nízké kvalitě, kolem centu">
+                    {zkousim ? <><span className="spin" /> Zkouším…</> : 'Vyzkoušet model'}
+                  </button>
+                </div>
+              )}
+              {/* Povedená zkouška chybu smaže — výsledek pak zůstane vidět samostatně */}
+              {!prehled?.posledniChyba && zkouskaVysledek}
 
               <div className="zk-mrizka">
                 {vrstvyVPoradi.map(v => {
@@ -533,6 +594,16 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
 
             <section>
               <h3>Model</h3>
+              <div className="zk-zkouska-rada">
+                <button className="btn ghost" onClick={vyzkousej} disabled={zkousim || !nastaveni.maKlic}
+                  data-tip="Jeden malý obrázek v nízké kvalitě, kolem centu">
+                  {zkousim ? <><span className="spin" /> Zkouším…</> : 'Vyzkoušet model'}
+                </button>
+                <span className="desc">
+                  Ověří klíč, model i průhledné pozadí jedním levným obrázkem — dřív než běh za dolary.
+                </span>
+              </div>
+              {zkouskaVysledek}
               <div className="zk-modely">
                 {(prehled?.modely ?? []).map(m => (
                   <label key={m.id} className={`zk-model ${nastaveni.model === m.id ? 'sel' : ''}`}>
@@ -555,8 +626,8 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
             <section>
               <h3>Kvalita kreslení</h3>
               <p className="desc">
-                Jeden obrázek ve vysoké kvalitě stojí čtyřikrát tolik co v nízké a postav je devět
-                po dvaadvaceti vrstvách. Projet řetěz nejdřív nízkou kvalitou stojí pár korun a
+                Jeden obrázek ve vysoké kvalitě stojí čtyřikrát tolik co v nízké a postavy jsou tři
+                po patnácti vrstvách. Projet řetěz nejdřív nízkou kvalitou stojí pár korun a
                 ukáže to podstatné — jestli model drží postavu mezi kroky a jestli vrstvy sedí.
                 Načisto se pak dogeneruje ve vysoké.
               </p>
