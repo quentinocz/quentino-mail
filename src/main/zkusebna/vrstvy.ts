@@ -458,7 +458,12 @@ function prostredniBarva(obraz: Obraz, maska: Uint8Array): [number, number, numb
 export function maskaProKus(
   typ: ZkVrstvaTyp,
   pred: Obraz,
-  vyrez?: px.Obdelnik
+  vyrez?: px.Obdelnik,
+  /**
+   * Co model nesmí přemalovat ani uvnitř pruhu: holá kůže (ruce, krk).
+   * Když smí sahat i na ruce, kreslí sako s rukama v kapsách.
+   */
+  chran?: Uint8Array
 ): Obraz | undefined {
   if (getSetting('zkMaska', '1') !== '1') return undefined;
   const postava = okrajePostavy(pred);
@@ -471,7 +476,8 @@ export function maskaProKus(
     const vPruhu = naPlatne >= pruh.od && naPlatne <= pruh.do;
     for (let x = 0; x < kde.w; x++) {
       const i = (y * kde.w + x) * 4;
-      const upravit = vPruhu && dosah[naPlatne * pred.sirka + kde.x + x] !== 0;
+      const naCelem = naPlatne * pred.sirka + kde.x + x;
+      const upravit = vPruhu && dosah[naCelem] !== 0 && !(chran && chran[naCelem]);
       maska.body[i + 3] = upravit ? 0 : 255;
     }
   }
@@ -723,6 +729,10 @@ export async function vygenerujVrstvu(
   hlas({ postava: postavaId, typ, varianta, stav: 'kreslim' });
   const zaklad = podkladProKus(postavaId, typ);
   const kdePostava = okrajePostavy(zaklad);
+  const kosileM = sablony.maskaVrstvy(postavaId, 'kosile', 'klasicka');
+  const kalhotyM = sablony.maskaVrstvy(postavaId, 'kalhoty', 'oblekove');
+  const botyM = sablony.maskaVrstvy(postavaId, 'boty', 'spolecenske');
+  const kuze = holaKuze(zaklad, [kosileM, kalhotyM, botyM]);
 
   /*
    * Modelu se posílá **jen výřez**, ne celá postava: je to levnější,
@@ -739,7 +749,7 @@ export async function vygenerujVrstvu(
     const naVyrezu = vyrez.w < zaklad.sirka || vyrez.h < zaklad.vyska;
     const zadani = zadaniKusuTed(typ, varianta, naVyrezu);
     const vstup = px.vyrizniObdelnik(zaklad, vyrez);
-    const vracene = await obrazky.dokresli(zadani, vstup, maskaProKus(typ, zaklad, vyrez));
+    const vracene = await obrazky.dokresli(zadani, vstup, maskaProKus(typ, zaklad, vyrez, kuze));
     return { vyrez, zadani, vracene };
   };
   let kresba: Awaited<ReturnType<typeof kresli>>;
@@ -751,6 +761,17 @@ export async function vygenerujVrstvu(
   }
   const { vyrez, zadani, vracene } = kresba;
   const vysledek = vrstvaZObrazku(p, typ, varianta, zaklad, vracene, zadani, vyrez);
+  /*
+   * Sedí sako a vesta na ruce? Měří se to, ne odhaduje: rukávy musí
+   * zakrýt rukávy košile vedle trupu a nesmí zakrýt ruce. Sako s rukama
+   * v kapsách nebo o číslo větší tím neprojde a v okně u něj stojí proč.
+   */
+  if ((typ === 'sako' || typ === 'vesta') && vysledek.vrstva.stav !== 'nesedi') {
+    const mereni = sablony.kotvyPostavy(postavaId);
+    const vrstvaObraz = nacti(fs.readFileSync(vysledek.vrstva.soubor));
+    const potiz = sedeniKulisy(typ, zaklad, vrstvaObraz, kosileM, kalhotyM, kuze, mereni?.kotvy ?? null);
+    if (potiz) vysledek.vrstva = { ...vysledek.vrstva, stav: 'nesedi', potiz };
+  }
 
   /*
    * Co přišlo od modelu, se uloží jako krok oblékání. Není to podklad
@@ -991,8 +1012,73 @@ export async function vygenerujVse(
   return { hotovo, nesedi, potize };
 }
 
+/** Holá kůže na podkladu — postava bez košile, kalhot a bot (ruce, krk, obličej). */
+export function holaKuze(zaklad: Obraz, kulisa: (Uint8Array | null)[]): Uint8Array | undefined {
+  if (!kulisa.some(Boolean)) return undefined;
+  const out = new Uint8Array(zaklad.sirka * zaklad.vyska);
+  for (let i = 0; i < out.length; i++) {
+    if (zaklad.body[i * 4 + 3] <= 24) continue;
+    if (kulisa.some(m => m && m[i])) continue;
+    out[i] = 255;
+  }
+  return out;
+}
+
+/**
+ * Sedí sako (vesta) na postavu? Prázdný text = ano, jinak česky proč ne.
+ *
+ * Dvě měření, obě vedle trupu (tam, kde visí ruce):
+ *  - **rukávy košile** mezi loktem a pasem musí sako zakrýt aspoň z větší
+ *    části — jinak jsou rukávy saka jinde než ruce (ruce v kapsách),
+ *  - **ruce** pod loktem nesmí být zakryté — jinak je sako velké.
+ */
+export function sedeniKulisy(
+  typ: ZkVrstvaTyp,
+  zaklad: Obraz,
+  vrstva: Obraz,
+  kosile: Uint8Array | null,
+  kalhoty: Uint8Array | null,
+  kuze: Uint8Array | undefined,
+  kotvy: sablony.Kotvy | null
+): string {
+  if (!kosile || !kotvy) return '';
+  const { sirka, vyska } = zaklad;
+  const pas = Math.round(kotvy.pas);
+  const limec = Math.round(kotvy.limec.y);
+  const delka = pas - limec;
+  if (delka < 10) return '';
+  /* Šířka trupu: horní řádek kalhot; vedle něj visí ruce */
+  let od = sirka;
+  let doK = -1;
+  const radekPasu = Math.min(vyska - 1, Math.round(pas + kotvy.naCm));
+  const pasM = kalhoty ?? kosile;
+  for (let x = 0; x < sirka; x++) if (pasM[radekPasu * sirka + x]) { od = Math.min(od, x); doK = x; }
+  if (doK < 0) return '';
+  const okraj = 0.5 * kotvy.naCm;
+  const vedleTrupu = (x: number) => x < od - okraj || x > doK + okraj;
+  let rukavu = 0; let zakrytoRukavu = 0; let rukou = 0; let zakrytoRukou = 0;
+  for (let y = Math.round(limec + delka * 0.35); y < Math.min(vyska, Math.round(pas + delka * 0.45)); y++) {
+    for (let x = 0; x < sirka; x++) {
+      if (!vedleTrupu(x)) continue;
+      const i = y * sirka + x;
+      const zakryto = vrstva.body[i * 4 + 3] > 128;
+      if (kosile[i] && y < pas) { rukavu += 1; if (zakryto) zakrytoRukavu += 1; }
+      if (kuze && kuze[i] && y > limec + delka * 0.6) { rukou += 1; if (zakryto) zakrytoRukou += 1; }
+    }
+  }
+  const nazev = typ === 'sako' ? 'Sako' : 'Vesta';
+  if (typ === 'sako' && rukavu > 150 && zakrytoRukavu / rukavu < 0.55) {
+    return `Rukávy saka nesedí na ruce modelu (zakrývají jen ${Math.round((zakrytoRukavu / rukavu) * 100)} % rukávů košile)`
+      + ' — model je nakreslil jinak, třeba s rukama v kapsách. Přegeneruj sako.';
+  }
+  if (rukou > 80 && zakrytoRukou / rukou > (typ === 'sako' ? 0.35 : 0.15)) {
+    return `${nazev} je modelu velké — zakrývá ${Math.round((zakrytoRukou / rukou) * 100)} % rukou. Přegeneruj ho.`;
+  }
+  return '';
+}
+
 export const __test = {
-  vytahniZPostavy, ulozPostavu,
+  vytahniZPostavy, ulozPostavu, sedeniKulisy, holaKuze,
   maskaProKus, pruhKusu, vyrezKusu, okrajePostavy, siluetaPostavy, naPostave, dosahPostavy, kdeKrk, zapisujeKrok,
   posunObraz, vrstvaZObrazku, podkladProKus, zkontrolujPostavu, plan
 };

@@ -5,6 +5,28 @@ import {
 import { ZkProdukt } from '../../shared/zkusebna';
 import * as store from './store';
 import { proKabinu } from './produkty';
+import { kotvyPostavy } from './sablony';
+
+/** Body pro kabinu — zaokrouhlené, ať seznam zbytečně nebobtná. */
+function kotvyProKabinu(postavaId: string) {
+  try {
+    const mereni = kotvyPostavy(postavaId);
+    if (!mereni) return undefined;
+    const k = mereni.kotvy;
+    const r = (v: number) => Math.round(v);
+    return {
+      pas: r(k.pas),
+      kravata: [r(k.limec.x), r(k.limec.y + 2.5 * k.naCm)] as [number, number],
+      ksandy: [
+        r(k.ramenoL.x + (k.sponaL.x - k.ramenoL.x) * 0.4),
+        r(k.ramenoL.y + (k.sponaL.y - k.ramenoL.y) * 0.4)
+      ] as [number, number],
+      kapesnicek: [r(k.kapsa.x), r(k.kapsa.y - 1.2 * k.naCm)] as [number, number]
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Seznam, který si skript na e-shopu stáhne.
@@ -28,6 +50,12 @@ export interface Kabina {
   postavy: {
     id: string; vek: string; telo: string; vyskaCm: number;
     sirka: number; vyska: number; temeno: number; podrazka: number;
+    /**
+     * Změřené body na postavě v bodech plátna: kam patří bod „přidat"
+     * u každého doplňku a kde je pas. Podle pasu se model ořízne — ukazuje
+     * se po stehna, ne celý (boty neprodáváme).
+     */
+    kotvy?: { pas: number; kravata: [number, number]; ksandy: [number, number]; kapesnicek: [number, number] };
   }[];
   vrstvy: { postava: string; typ: string; varianta: string; url: string }[];
   produkty: ReturnType<typeof proKabinu>;
@@ -117,7 +145,8 @@ export function kabina(
       .filter(one => one.hotovo && maPostavu.has(one.id))
       .map(one => ({
         id: one.id, vek: one.vek, telo: one.telo, vyskaCm: one.vyskaCm,
-        sirka: one.sirka, vyska: one.vyska, temeno: one.temeno, podrazka: one.podrazka
+        sirka: one.sirka, vyska: one.vyska, temeno: one.temeno, podrazka: one.podrazka,
+        kotvy: kotvyProKabinu(one.id)
       })),
     vrstvy: hotove
       .filter(one => maPostavu.has(one.postava))

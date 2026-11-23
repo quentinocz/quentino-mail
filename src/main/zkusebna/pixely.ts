@@ -969,15 +969,35 @@ export function zmensi(obraz: Obraz, kolikrat: number): Obraz {
  * čtverec nenajde (malá fotka, samé pozadí), vrátí se prázdno a kabina
  * si vystačí s barvou.
  */
-export function vzorekLatky(obraz: Obraz, velikost = 64): Obraz | null {
+export function vzorekLatky(
+  obraz: Obraz,
+  velikost = 64,
+  naPozadiMax = 0.02,
+  /**
+   * K čemu se čtverec přibližuje: `castejsi` = nejčastější barva (vyhne
+   * se hranám a stínům, u jednobarevné látky nejlepší), `prumer` =
+   * průměrná barva výrobku. U vzoru s kytkami na tmavém podkladu by
+   * nejčastější barva vybrala kus podkladu **bez kytek**; průměr vybere
+   * místo, kde je vzoru tolik, kolik ho je na celém výrobku.
+   */
+  podle: 'castejsi' | 'prumer' = 'castejsi'
+): Obraz | null {
   const pozadi = pozadiOdKraje(obraz);
   const cil = barvaProduktu(obraz);
   if (!cil.hex) return null;
-  const hledana = {
+  let hledana = {
     r: parseInt(cil.hex.slice(1, 3), 16),
     g: parseInt(cil.hex.slice(3, 5), 16),
     b: parseInt(cil.hex.slice(5, 7), 16)
   };
+  if (podle === 'prumer') {
+    let r = 0; let g = 0; let b = 0; let n = 0;
+    for (let i = 0; i < pozadi.length; i += 2) {
+      if (pozadi[i]) continue;
+      r += obraz.body[i * 4]; g += obraz.body[i * 4 + 1]; b += obraz.body[i * 4 + 2]; n += 1;
+    }
+    if (n) hledana = { r: r / n, g: g / n, b: b / n };
+  }
   const strana = Math.min(velikost, obraz.sirka, obraz.vyska);
   if (strana < 8) return null;
 
@@ -988,20 +1008,27 @@ export function vzorekLatky(obraz: Obraz, velikost = 64): Obraz | null {
       let soucet = 0;
       let kusu = 0;
       let naPozadi = 0;
+      let sr = 0; let sg = 0; let sb = 0;
       /* Čte se každý třetí bod — hledá se místo, ne přesná hodnota */
       for (let dy = 0; dy < strana; dy += 3) {
         for (let dx = 0; dx < strana; dx += 3) {
           const i = (y + dy) * obraz.sirka + (x + dx);
           if (pozadi[i]) { naPozadi += 1; continue; }
           const k = i * 4;
-          soucet += Math.abs(obraz.body[k] - hledana.r)
-            + Math.abs(obraz.body[k + 1] - hledana.g)
-            + Math.abs(obraz.body[k + 2] - hledana.b);
+          if (podle === 'prumer') {
+            sr += obraz.body[k]; sg += obraz.body[k + 1]; sb += obraz.body[k + 2];
+          } else {
+            soucet += Math.abs(obraz.body[k] - hledana.r)
+              + Math.abs(obraz.body[k + 1] - hledana.g)
+              + Math.abs(obraz.body[k + 2] - hledana.b);
+          }
           kusu += 1;
         }
       }
-      if (!kusu || naPozadi > kusu * 0.02) continue;
-      const chyba = soucet / kusu;
+      if (!kusu || naPozadi > kusu * naPozadiMax) continue;
+      const chyba = podle === 'prumer'
+        ? Math.abs(sr / kusu - hledana.r) + Math.abs(sg / kusu - hledana.g) + Math.abs(sb / kusu - hledana.b)
+        : soucet / kusu;
       if (!nej || chyba < nej.chyba) nej = { x, y, chyba };
     }
   }

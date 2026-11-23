@@ -200,7 +200,11 @@ export interface ZkProduktRow {
   hex: string;
   /** Kousek látky z fotky jako `data:` adresa — vzor, ne jedna barva. */
   vzorek: string;
+  /** Kolik centimetrů látky vzorek ukazuje (0 = neví se). */
+  vzorekCm?: number;
   rucne: boolean;
+  /** Variantu vybral člověk — katalog ji nepřepíše. */
+  variantaRucne?: boolean;
   velikosti: boolean;
   schvaleno: boolean;
 }
@@ -213,7 +217,9 @@ export function produktyRows(): ZkProduktRow[] {
     varianta: row.varianta,
     hex: row.hex,
     vzorek: row.vzorek ?? '',
+    vzorekCm: Number(row.vzorek_cm) || 0,
     rucne: !!row.rucne,
+    variantaRucne: !!row.varianta_rucne,
     velikosti: !!row.velikosti,
     schvaleno: !!row.schvaleno
   }));
@@ -221,14 +227,15 @@ export function produktyRows(): ZkProduktRow[] {
 
 export function zapisProdukt(row: ZkProduktRow): void {
   getDb().prepare(
-    `INSERT INTO zk_produkty (kod, typ, varianta, hex, vzorek, rucne, velikosti, schvaleno, kdy)
-     VALUES (?,?,?,?,?,?,?,?,?)
+    `INSERT INTO zk_produkty (kod, typ, varianta, hex, vzorek, vzorek_cm, rucne, varianta_rucne, velikosti, schvaleno, kdy)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(kod) DO UPDATE SET
        typ = excluded.typ, varianta = excluded.varianta, hex = excluded.hex,
-       vzorek = excluded.vzorek, rucne = excluded.rucne, velikosti = excluded.velikosti,
+       vzorek = excluded.vzorek, vzorek_cm = excluded.vzorek_cm, rucne = excluded.rucne,
+       varianta_rucne = excluded.varianta_rucne, velikosti = excluded.velikosti,
        schvaleno = excluded.schvaleno, kdy = excluded.kdy`
-  ).run(row.kod, row.typ, row.varianta, row.hex, row.vzorek ?? '', row.rucne ? 1 : 0,
-    row.velikosti ? 1 : 0, row.schvaleno ? 1 : 0, new Date().toISOString());
+  ).run(row.kod, row.typ, row.varianta, row.hex, row.vzorek ?? '', row.vzorekCm ?? 0, row.rucne ? 1 : 0,
+    row.variantaRucne ? 1 : 0, row.velikosti ? 1 : 0, row.schvaleno ? 1 : 0, new Date().toISOString());
 }
 
 /* --------------------------------------------------------------- vzhledy */

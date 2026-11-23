@@ -391,6 +391,8 @@ export function upravProdukt(kod: string, co: { typ?: ZkVrstvaTyp | ''; varianta
     hex: co.hex !== undefined ? co.hex : row.hex,
     /* Ručně opravená barva se už nikdy nepřepočítá z fotky */
     rucne: co.hex !== undefined ? true : row.rucne,
+    /* Ručně vybraná varianta (šířka, velikost motýlka) se při projití katalogu nepřepíše */
+    variantaRucne: co.varianta !== undefined && co.typ === undefined ? true : (co.typ !== undefined ? false : row.variantaRucne),
     schvaleno: co.schvaleno !== undefined ? co.schvaleno : row.schvaleno
   });
 }

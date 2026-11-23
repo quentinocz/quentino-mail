@@ -71,7 +71,7 @@ export interface KotvyRucne {
 
 /* ------------------------------------------------------------- měření */
 
-function maskaVrstvy(postavaId: string, typ: ZkVrstvaTyp, varianta: string): Uint8Array | null {
+export function maskaVrstvy(postavaId: string, typ: ZkVrstvaTyp, varianta: string): Uint8Array | null {
   const vrstva = store.vrstvy(postavaId).find(one => one.typ === typ && one.varianta === varianta
     && one.stav !== 'nesedi' && one.soubor && fs.existsSync(one.soubor));
   if (!vrstva) return null;
@@ -304,8 +304,14 @@ function kravata(obraz: Obraz, k: Kotvy, s: ZkSablona, pletena: boolean): void {
       const t = omez((y - y0) / (6 * c), 0, 1);
       return kb / 2 * 1.05 + (W / 2 - kb / 2 * 1.05) * (1 - (1 - t) ** 2);
     }
+    /*
+     * Pod uzlem vychází kravata užší než uzel a rozšiřuje se hned pod
+     * ním — dřív se rozšiřovala až u pasu a na hrudi byla úzká čárka,
+     * sedmička vypadala jako pětka.
+     */
     const t = omez((y - y0) / Math.max(1, yW - y0), 0, 1);
-    return kb / 2 * 1.05 + (W / 2 - kb / 2 * 1.05) * Math.pow(t, 0.85);
+    const zacatek = kb / 2 * 0.92;
+    return zacatek + (W / 2 - zacatek) * Math.pow(t, 0.7);
   };
 
   /* List */
@@ -336,6 +342,8 @@ function kravata(obraz: Obraz, k: Kotvy, s: ZkSablona, pletena: boolean): void {
     if (Math.abs(u) > 0.8) v -= ((Math.abs(u) - 0.8) / 0.2) * 24;
     v += 8 * (1 - t) - 4;
     v += 4 * Math.sin(t * 7 + u * 1.2);
+    /* Lesk látky: měkký pruh kousek vlevo od středu, jak dopadá světlo */
+    v += 7 * zvon(u + 0.3, 0.35) * (1 - t * 0.5);
     /* Důlek pod uzlem */
     const podUzlem = (y - y0) / (2.4 * c);
     if (podUzlem < 1) v -= 20 * zvon(u, 0.16) * (1 - podUzlem);
@@ -344,15 +352,29 @@ function kravata(obraz: Obraz, k: Kotvy, s: ZkSablona, pletena: boolean): void {
   });
 
   /* Uzel přes list */
-  const uzel: Bod[] = [
-    { x: cx - kt / 2, y: top + 0.15 * c }, { x: cx - kt / 2 + 0.25 * c, y: top },
-    { x: cx + kt / 2 - 0.25 * c, y: top }, { x: cx + kt / 2, y: top + 0.15 * c },
-    { x: cx + kb / 2, y: top + kh }, { x: cx - kb / 2, y: top + kh }
-  ];
+  /*
+   * Uzel má oblé boky a zaoblený spodek, jako skutečný uzel z látky.
+   * Rovný lichoběžník vypadal jako vystřižený z papíru.
+   */
+  const pulkaUzlu = (v0: number) => {
+    const zuzeni = kt / 2 + (kb / 2 - kt / 2) * Math.pow(v0, 0.8);
+    /* Dole se boky stáčejí ke středu */
+    return v0 > 0.82 ? zuzeni * Math.sqrt(Math.max(0, 1 - ((v0 - 0.82) / 0.18) ** 2)) * 0.6 + zuzeni * 0.4 * (1 - (v0 - 0.82) / 0.18) : zuzeni;
+  };
+  const uzel: Bod[] = [];
+  const krokyUzlu = 20;
+  for (let i = 0; i <= krokyUzlu; i++) {
+    const v0 = i / krokyUzlu;
+    uzel.push({ x: cx - pulkaUzlu(v0), y: top + v0 * kh + (i === 0 ? 0.1 * c : 0) });
+  }
+  for (let i = krokyUzlu; i >= 0; i--) {
+    const v0 = i / krokyUzlu;
+    uzel.push({ x: cx + pulkaUzlu(v0), y: top + v0 * kh + (i === 0 ? 0.1 * c : 0) });
+  }
   vypln(obraz, uzel, (x, y) => {
-    const v0 = (y - top) / kh;
-    const pulka = kt / 2 + (kb / 2 - kt / 2) * v0;
-    const u = (x - cx) / Math.max(1, pulka);
+    const v0 = omez((y - top) / kh, 0, 1);
+    const pulka = Math.max(1, pulkaUzlu(v0));
+    const u = (x - cx) / pulka;
     let v = 122;
     v -= 14 * zvon(u + 0.55 - v0 * 1.1, 0.2);
     v += 12 * zvon(u - 0.25, 0.3) * (1 - v0);
@@ -495,6 +517,9 @@ function ksandy(obraz: Obraz, k: Kotvy, s: ZkSablona, silueta: Uint8Array): void
       const { u, t } = osa(zacatek, kSpone, x, y, w);
       let v = 128 + 5 * (1 - u * u) + 6 * (1 - t) - 3;
       if (Math.abs(u) > 0.78) v -= ((Math.abs(u) - 0.78) / 0.22) * 20;
+      /* Prošívaný lem a jemné žebrování pruženky — bez nich byl pásek placka */
+      if (Math.abs(Math.abs(u) - 0.7) < 0.05) v += 10;
+      v += 3 * Math.sin((2 * Math.PI * x) / Math.max(2, 0.22 * c));
       return v;
     }, silueta);
 
@@ -666,11 +691,21 @@ export function nahledSablon(postavaId: string, zmenseni = 2): {
   };
   const kus = (typ: ZkVrstvaTyp, varianta: string) => nakresliSablonu(typ, varianta, kotvy, sirka, vyska, orez)!;
 
+  /*
+   * Doplňky v náhledu podle věku: na dítě dětská kravata (6 cm), úzké
+   * kšandy a dětský motýlek, na kojence MINI. S pánskými kusy vypadalo
+   * dítě v náhledu, jako by mu všechno bylo velké — a to se dalo splést
+   * s tím, že šablony nesedí.
+   */
+  const vek = store.postava(postavaId)?.vek ?? 'dospely';
+  const kravataV = vek === 'dospely' ? 'kravata' : 'kravata-6';
+  const ksandyV = vek === 'dospely' ? 'siroke' : 'uzke';
+  const motylekV = vek === 'dospely' ? 'motylek' : vek === 'dite' ? 'motylek-detsky' : 'motylek-mini';
   const bez = kulisa(false);
-  bez.push({ obraz: kus('ksandy', 'siroke'), hex: '#2d4a7c' });
-  bez.push({ obraz: kus('kravata', 'kravata'), hex: '#7a1f2b' });
+  bez.push({ obraz: kus('ksandy', ksandyV), hex: '#2d4a7c' });
+  bez.push({ obraz: kus('kravata', kravataV), hex: '#7a1f2b' });
   const se = kulisa(true);
-  se.push({ obraz: kus('kravata', 'motylek'), hex: '#7a1f2b' });
+  se.push({ obraz: kus('kravata', motylekV), hex: '#7a1f2b' });
   se.push({ obraz: kus('kapesnicek', 'spicka'), hex: '#efe7d8' });
 
   const naData = (kusy: { obraz: Obraz; hex?: string }[]) => {

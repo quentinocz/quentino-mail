@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS zk_produkty (
   -- není jedna barva a na modelu se má dláždit vzor, ne flek.
   vzorek TEXT NOT NULL DEFAULT '',
   rucne INTEGER NOT NULL DEFAULT 0,
+  -- Kolik centimetrů látky vzorek ukazuje — podle toho se na modelu
+  -- zmenší, aby kytky na kravatě měly velikost kytek, ne talířů.
+  vzorek_cm REAL NOT NULL DEFAULT 0,
+  -- Variantu (šířku, velikost motýlka) vybral člověk: projití katalogu
+  -- ji nepřepíše, ani když je produkt schválený.
+  varianta_rucne INTEGER NOT NULL DEFAULT 0,
   velikosti INTEGER NOT NULL DEFAULT 0,
   schvaleno INTEGER NOT NULL DEFAULT 0,
   kdy TEXT NOT NULL DEFAULT ''
@@ -79,5 +85,7 @@ CREATE TABLE IF NOT EXISTS zk_vzhledy (
 
 /** Doplňky sloupců pro databáze z minulých verzí. */
 export const ZK_ALTERS: string[] = [
-  "ALTER TABLE zk_produkty ADD COLUMN vzorek TEXT NOT NULL DEFAULT ''"
+  "ALTER TABLE zk_produkty ADD COLUMN vzorek TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE zk_produkty ADD COLUMN vzorek_cm REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE zk_produkty ADD COLUMN varianta_rucne INTEGER NOT NULL DEFAULT 0"
 ];

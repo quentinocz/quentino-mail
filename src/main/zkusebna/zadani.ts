@@ -144,6 +144,16 @@ const KUSY: Record<string, string> = {
   'kapesnicek:spicka': `a plain pocket square folded to a point in ${ZK_KRESLICI_SLOVY.kapesnicek}, in the breast pocket of the jacket`
 };
 
+/** Co se u kusů přes trup a ruce musí výslovně ohlídat. */
+const POZA: Partial<Record<ZkVrstvaTyp, string>> = {
+  sako: 'The arms must stay exactly where they are in Image 1: hanging straight down beside the body with'
+    + ' the hands relaxed and fully visible. Do not bend the arms and do not put the hands in the pockets.'
+    + ' The sleeves follow the existing arms and end at the wrists, the hands stay uncovered.'
+    + ' The jacket is tailored exactly to this person: same shoulder width, not oversized, the hem ends at the hips.',
+  vesta: 'The arms and hands stay exactly where they are in Image 1. The waistcoat is tailored exactly to this'
+    + ' person: it follows the torso, not oversized, and ends at the waistband.'
+};
+
 /**
  * Zadání na dooblečení.
  *
@@ -177,6 +187,12 @@ export function zadaniKusu(typ: ZkVrstvaTyp, varianta: string, naVyrezu = false)
     'Keep the person completely unchanged: identical face, facial features, skin tone,',
     'body shape, pose, hands, framing, scale and lighting.',
     'Keep every garment already worn exactly as it is, and change nothing else.',
+    /*
+     * Patrik (23. 11.): sako mělo rukávy jako na modelu s rukama
+     * v kapsách, ale model ruce v kapsách nemá — a u dítěte bylo sako
+     * o číslo větší. Póza a velikost se proto říkají výslovně.
+     */
+    POZA[typ] ?? '',
     'The fabric must have clearly visible natural folds, seams and shading,',
     'but no pattern, no stripes, no checks, no logo and no text.',
     'The background must stay fully transparent.',

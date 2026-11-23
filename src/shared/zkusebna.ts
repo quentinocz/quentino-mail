@@ -700,6 +700,11 @@ export interface ZkProdukt {
    * a sklady a stíny zůstanou sklady a stíny.
    */
   vzorek: string;
+  /**
+   * Kolik centimetrů látky vzorek ukazuje. Kabina ho podle toho zmenší —
+   * dlážděný bod na bod dělal z drobných kytek talíře.
+   */
+  vzorekCm?: number;
   /** Má velikosti? Pak se do košíku nedá hodit naslepo. */
   velikosti: boolean;
   skladem: boolean;

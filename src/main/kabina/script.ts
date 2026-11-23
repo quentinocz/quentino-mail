@@ -95,7 +95,12 @@ const TEMPLATE = String.raw`
       nactitam: "Načítám…", nahrada: "Tenhle kus se na modelu zkusit nedá, ale vybrat můžete jiný.",
       prepnutoDite: "Přepnul jsem model na dítě.", prepnutoDospely: "Přepnul jsem model na dospělého.",
       porovnat: "Porovnat", poslat: "Poslat na mail", odkaz: "Zkopírovat odkaz",
-      zkopirovano: "Odkaz je ve schránce.", sdilet: "Sdílet"
+      zkopirovano: "Odkaz je ve schránce.", sdilet: "Sdílet",
+      upravit: "Upravit model", upravitDelsi: "Kdo to zkouší a v čem — oblek si nastavte podle svého",
+      hotovo: "Hotovo", zacitZnovu: "Začít znovu", vybrat: "Vybrat doplněk", vse: "Vše",
+      kravaty: "Kravaty", motylky: "Motýlky", regaty: "Regaty", ksandyMn: "Kšandy", kapesnicky: "Kapesníčky",
+      bez: "Bez", smazatVzhled: "Smazat vzhled", naModelu: "Na modelu",
+      vyskaProc: "Podle výšky poradíme délku kšand.", zavritDelsi: "Zavřít — vzhled si pamatujeme"
     },
     sk: {
       kabina: "Skúšobná kabína", podnadpis: "Vyberte si doplnky a pozrite sa, ako sadnú.",
@@ -119,7 +124,12 @@ const TEMPLATE = String.raw`
       nactitam: "Načítavam…", nahrada: "Tento kus sa na modeli skúsiť nedá, ale vybrať môžete iný.",
       prepnutoDite: "Prepol som model na dieťa.", prepnutoDospely: "Prepol som model na dospelého.",
       porovnat: "Porovnať", poslat: "Poslať na mail", odkaz: "Skopírovať odkaz",
-      zkopirovano: "Odkaz je v schránke.", sdilet: "Zdieľať"
+      zkopirovano: "Odkaz je v schránke.", sdilet: "Zdieľať",
+      upravit: "Upraviť model", upravitDelsi: "Kto to skúša a v čom — oblek si nastavte podľa seba",
+      hotovo: "Hotovo", zacitZnovu: "Začať odznova", vybrat: "Vybrať doplnok", vse: "Všetko",
+      kravaty: "Kravaty", motylky: "Motýliky", regaty: "Regaty", ksandyMn: "Traky", kapesnicky: "Vreckovky",
+      bez: "Bez", smazatVzhled: "Zmazať vzhľad", naModelu: "Na modeli",
+      vyskaProc: "Podľa výšky poradíme dĺžku trakov.", zavritDelsi: "Zavrieť — vzhľad si pamätáme"
     },
     en: {
       kabina: "Fitting room", podnadpis: "Pick the accessories and see how they look.",
@@ -143,7 +153,12 @@ const TEMPLATE = String.raw`
       nactitam: "Loading…", nahrada: "This one cannot be tried on the model, but you can pick another.",
       prepnutoDite: "Switched the model to a child.", prepnutoDospely: "Switched the model to an adult.",
       porovnat: "Compare", poslat: "Send by e-mail", odkaz: "Copy link",
-      zkopirovano: "Link copied.", sdilet: "Share"
+      zkopirovano: "Link copied.", sdilet: "Share",
+      upravit: "Adjust the model", upravitDelsi: "Who is trying and what he wears — set the suit like your own",
+      hotovo: "Done", zacitZnovu: "Start over", vybrat: "Choose an accessory", vse: "All",
+      kravaty: "Ties", motylky: "Bow ties", regaty: "Cravats", ksandyMn: "Braces", kapesnicky: "Pocket squares",
+      bez: "None", smazatVzhled: "Delete look", naModelu: "On the model",
+      vyskaProc: "We use the height to suggest the braces length.", zavritDelsi: "Close — we keep your look"
     }
   };
 
@@ -243,7 +258,8 @@ const TEMPLATE = String.raw`
   var MENA = JAZYK === "cz" ? "Kč" : "€";
   function zapamatujMenu(produkty) {
     for (var i = 0; i < produkty.length; i++) {
-      var c = String(produkty[i].cena || "").replace(/[0-9\s .,]/g, "").trim();
+      /* Cena v jazyce, ve kterém se zákazník dívá — na anglickém e-shopu eura, ne koruny */
+      var c = String(proTrh(produkty[i]).cena || "").replace(/[0-9\s .,]/g, "").trim();
       if (c) { MENA = c; return; }
     }
   }
@@ -487,7 +503,7 @@ const TEMPLATE = String.raw`
    * kde látka není.
    */
   var pomocne = null;
-  function oblec(img, hex, vzorekImg, sirka, vyska) {
+  function oblec(img, hex, vzorekImg, sirka, vyska, zmenseni) {
     if (!pomocne) pomocne = document.createElement("canvas");
     pomocne.width = sirka;
     pomocne.height = vyska;
@@ -496,6 +512,14 @@ const TEMPLATE = String.raw`
     ctx.globalCompositeOperation = "source-over";
     if (vzorekImg) {
       var vzor = ctx.createPattern(vzorekImg, "repeat");
+      /*
+       * Vzorek se zmenší na skutečnou velikost látky. Dlážděný bod na bod
+       * ukazoval 2,5 cm látky z fotky přes osm centimetrů kravaty a z
+       * drobných kytek byly talíře.
+       */
+      if (vzor && zmenseni && zmenseni !== 1 && vzor.setTransform && window.DOMMatrix) {
+        try { vzor.setTransform(new DOMMatrix().scale(zmenseni, zmenseni)); } catch (e) { /* bez zmenšení */ }
+      }
       ctx.fillStyle = vzor || podMapu(hex || "#808080");
     } else {
       ctx.fillStyle = podMapu(hex);
@@ -507,6 +531,36 @@ const TEMPLATE = String.raw`
     ctx.drawImage(img, 0, 0, sirka, vyska);
     ctx.globalCompositeOperation = "source-over";
     return pomocne;
+  }
+
+  /*
+   * Výřez, který se ukazuje: hlava až půlka stehen, ne celá postava.
+   * Patrik (23. 11.): boty neprodáváme, model nemusí být vidět od hlavy
+   * k patě — má být přiblížený na to podstatné. Na celé postavě byla
+   * kravata úzká čárka a kapesníček skoro neviditelný.
+   */
+  var vyrezTed = null;
+
+  function vyrezPostavy(postava) {
+    var sirka = postava.sirka;
+    var vyska = postava.vyska;
+    var temeno = postava.temeno || 0;
+    var h = Math.max(1, (postava.podrazka || vyska) - temeno);
+    var k = postava.kotvy || null;
+    var pas = k && k.pas ? k.pas : temeno + h * 0.42;
+    var y0 = Math.max(0, Math.round(temeno - h * 0.04));
+    var y1 = Math.min(vyska, Math.round(pas + h * 0.2));
+    var vys = Math.max(10, y1 - y0);
+    var sir = Math.min(sirka, Math.round(vys * 0.8));
+    var stred = k && k.kravata ? k.kravata[0] : sirka / 2;
+    var x0 = Math.max(0, Math.min(sirka - sir, Math.round(stred - sir / 2)));
+    return { x: x0, y: y0, w: sir, h: vys, sirka: sirka, vyska: vyska };
+  }
+
+  /** Kolik bodů plátna je centimetr na postavě. */
+  function bodyNaCm(postava) {
+    var h = (postava.podrazka || postava.vyska) - (postava.temeno || 0);
+    return h > 0 && postava.vyskaCm ? h / postava.vyskaCm : 0;
   }
 
   function nakresli(platno, v) {
@@ -522,7 +576,11 @@ const TEMPLATE = String.raw`
       var vr = vrstvaPro(postava.id, kusy[i].typ, kusy[i].varianta);
       if (!vr || !vr.url) continue;
       var zbozi = produkt(kusy[i].produkt);
-      mam.push({ kus: kusy[i], vrstva: vr, vzorek: zbozi && zbozi.vzorek ? zbozi.vzorek : "" });
+      mam.push({
+        kus: kusy[i], vrstva: vr,
+        vzorek: zbozi && zbozi.vzorek ? zbozi.vzorek : "",
+        vzorekCm: zbozi && zbozi.vzorekCm ? zbozi.vzorekCm : 0
+      });
       cekani.push(obrazek(vr.url).catch(function () { return null; }));
     }
     /* Vzorky látek se načítají vedle vrstev, ne po nich — jinak se model
@@ -530,29 +588,90 @@ const TEMPLATE = String.raw`
     for (var z = 0; z < mam.length; z++) {
       cekani.push(mam[z].vzorek ? obrazek(mam[z].vzorek).catch(function () { return null; }) : Promise.resolve(null));
     }
+    var naCm = bodyNaCm(postava);
     return Promise.all(cekani).then(function (nactene) {
-      platno.width = sirka;
-      platno.height = vyska;
-      var ctx = platno.getContext("2d");
-      ctx.clearRect(0, 0, sirka, vyska);
-      var meritko = Math.max(0.82, Math.min(1.18, (v.vyskaCm || postava.vyskaCm) / postava.vyskaCm));
+      var vyrez = vyrezPostavy(postava);
+      vyrezTed = vyrez;
+      if (!plne) plne = document.createElement("canvas");
+      plne.width = vyrez.w;
+      plne.height = vyrez.h;
+      var ctx = plne.getContext("2d");
+      ctx.clearRect(0, 0, vyrez.w, vyrez.h);
       ctx.save();
-      ctx.translate(sirka / 2, postava.podrazka || vyska);
-      ctx.scale(meritko, meritko);
-      ctx.translate(-sirka / 2, -(postava.podrazka || vyska));
+      ctx.translate(-vyrez.x, -vyrez.y);
       for (var j = 0; j < mam.length; j++) {
         var img = nactene[j];
         if (!img) continue;
         var def = defVrstvy(mam[j].kus.typ);
         var vzorekImg = nactene[mam.length + j] || null;
+        var zmenseni = vzorekImg && mam[j].vzorekCm && naCm
+          ? (mam[j].vzorekCm * naCm) / Math.max(1, vzorekImg.width) : 1;
+        /*
+         * Doplněk vrhá na košili jemný stín. Bez něj ležel jako nálepka —
+         * přesně to „kostrbaté" na šablonách. Stín se bere z průhlednosti
+         * vrstvy, takže sedí na tvar.
+         */
+        var stin = def && def.zbozi && naCm;
+        if (stin) {
+          ctx.shadowColor = "rgba(0,0,0,.28)";
+          ctx.shadowBlur = Math.max(2, naCm * 0.5);
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = Math.max(1, naCm * 0.18);
+        }
         if (def && def.barvitelna && (mam[j].kus.hex || vzorekImg)) {
-          ctx.drawImage(oblec(img, mam[j].kus.hex, vzorekImg, sirka, vyska), 0, 0);
+          ctx.drawImage(oblec(img, mam[j].kus.hex, vzorekImg, sirka, vyska, zmenseni), 0, 0);
         } else {
           ctx.drawImage(img, 0, 0, sirka, vyska);
         }
+        if (stin) {
+          ctx.shadowColor = "rgba(0,0,0,0)";
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetY = 0;
+        }
       }
       ctx.restore();
+      zmensiNa(platno, plne, vyrez);
     });
+  }
+
+  /* Plné rozlišení výřezu — zmenšuje se z něj na velikost okna */
+  var plne = null;
+
+  /*
+   * Zmenšení na velikost, ve které se model ukazuje.
+   *
+   * Plátno má rozměr obrázku postavy (přes tisíc bodů) a prohlížeč ho
+   * zmenšoval na třetinu obrazovky sám — bez vyhlazení, takže hrany
+   * kravaty a kšand byly zubaté. Teď se zmenší tady, po polovinách a
+   * s vyhlazením, na přesný počet bodů displeje.
+   */
+  function zmensiNa(cil, zdroj, vyrez) {
+    var dpr = Math.min(3, window.devicePixelRatio || 1);
+    var vyskaCss = cil.clientHeight || Math.round(window.innerHeight * 0.36);
+    var h = Math.max(50, Math.min(zdroj.height, Math.round(vyskaCss * dpr)));
+    var w = Math.max(20, Math.round((zdroj.width * h) / zdroj.height));
+    var mezi = zdroj;
+    while (mezi.width / 2 >= w * 1.05) {
+      var pul = document.createElement("canvas");
+      pul.width = Math.round(mezi.width / 2);
+      pul.height = Math.round(mezi.height / 2);
+      var pc = pul.getContext("2d");
+      pc.imageSmoothingEnabled = true;
+      pc.imageSmoothingQuality = "high";
+      pc.drawImage(mezi, 0, 0, pul.width, pul.height);
+      mezi = pul;
+    }
+    cil.width = w;
+    cil.height = h;
+    var c = cil.getContext("2d");
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = "high";
+    c.clearRect(0, 0, w, h);
+    c.drawImage(mezi, 0, 0, w, h);
+    /* Kde výřez leží na plátně postavy a v jakém měřítku — kvůli bodům a zkouškám */
+    cil.setAttribute("data-x", String(vyrez.x));
+    cil.setAttribute("data-y", String(vyrez.y));
+    cil.setAttribute("data-m", String(w / zdroj.width));
   }
 
   /* ----------------------------------------------------- doporučení */
@@ -851,14 +970,15 @@ const TEMPLATE = String.raw`
     + "background:linear-gradient(#fafafa,#f1f1f3)}"
     + ".qkb-platno{position:relative;display:inline-block;line-height:0}"
     + ".qkb-platno canvas{display:block;height:36vh;width:auto;max-width:100%}"
-    + ".qkb-bod{position:absolute;transform:translate(-50%,-50%);width:26px;height:26px;padding:0;"
-    + "border:2px solid #fff;border-radius:999px;background:#18181b;color:#fff;cursor:pointer;"
-    + "font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center;"
-    + "box-shadow:0 1px 6px rgba(0,0,0,.25)}"
-    + ".qkb-bod[data-obsazeno='1']{background:rgba(255,255,255,.95);color:#18181b}"
+    /* Bod je malý a průsvitný: má upozornit, ne zakrýt model. Cíl pro prst je větší, než co je vidět */
+    + ".qkb-bod{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;padding:0;"
+    + "border:1.5px solid rgba(255,255,255,.92);border-radius:999px;background:rgba(24,24,27,.6);color:#fff;cursor:pointer;"
+    + "font-size:13px;font-weight:600;line-height:1;display:inline-flex;align-items:center;justify-content:center;"
+    + "box-shadow:0 1px 4px rgba(0,0,0,.18)}"
+    + ".qkb-bod::after{content:'';position:absolute;inset:-8px;border-radius:999px}"
     + ".qkb-bod:focus-visible{outline:2px solid #2563eb;outline-offset:2px}"
-    + "@media (prefers-reduced-motion:no-preference){.qkb-bod[data-obsazeno='0']{animation:qkbTik 2.6s ease-in-out infinite}}"
-    + "@keyframes qkbTik{0%,72%,100%{box-shadow:0 1px 6px rgba(0,0,0,.25)}"
+    + "@media (prefers-reduced-motion:no-preference){.qkb-bod{animation:qkbTik 2.6s ease-in-out infinite}}"
+    + "@keyframes qkbTik{0%,72%,100%{box-shadow:0 1px 4px rgba(0,0,0,.18)}"
     + "84%{box-shadow:0 1px 6px rgba(0,0,0,.25),0 0 0 7px rgba(24,24,27,.14)}}"
     /* align-items je tu kvůli počítači: scéna je vodorovný flex a bez
        něj se tlačítka roztáhla přes celou výšku modelu do obřích oválů */
@@ -917,14 +1037,41 @@ const TEMPLATE = String.raw`
     + ".qkb-kosik[disabled]{opacity:.45;cursor:default}"
     + ".qkb-hlaska{position:absolute;left:14px;right:14px;bottom:72px;z-index:6;padding:10px 12px;"
     + "border-radius:10px;background:#18181b;color:#fff;font-size:13px;text-align:center}"
-    + ".qkb-zavoj{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;background:#fff}"
-    + ".qkb-zavoj-telo{flex:1 1 auto;overflow:auto;padding:0 0 12px}"
     + ".qkb-barvy{display:flex;gap:7px;flex-wrap:wrap}"
     + ".qkb-barva{width:32px;height:32px;padding:0;border:2px solid #fff;border-radius:999px;cursor:pointer;"
     + "box-shadow:0 0 0 1px #d4d4d8}"
     + ".qkb-barva[aria-pressed='true']{box-shadow:0 0 0 2px #18181b}"
     + ".qkb-rada-radek{display:flex;gap:8px;align-items:center;margin-top:8px}"
     + ".qkb input[type='range']{width:100%}"
+    + ".qkb-blok:empty{display:none}"
+    + ".qkb-prepinac{display:inline-flex;border:1px solid #d4d4d8;border-radius:999px;background:#fff;padding:2px;gap:2px}"
+    + ".qkb-prepinac .qkb-chip{border:0;padding:6px 11px}"
+    + ".qkb-upravuji .qkb-pravy>:not(.qkb-zavoj),.qkb-upravuji .qkb-varianty,.qkb-upravuji .qkb-pata,"
+    + ".qkb-upravuji .qkb-chip-hlavni,.qkb-upravuji .qkb-bod{display:none}"
+    + ".qkb-zavoj{display:flex;flex-direction:column;min-height:100%;background:#fff}"
+    + ".qkb-panel-hlava{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #f0f0f2}"
+    + ".qkb-panel-hlava h2{margin:0;font-size:15px;font-weight:600}"
+    + ".qkb-zpet{flex:0 0 auto;padding:8px 12px;border:1px solid #d4d4d8;border-radius:999px;background:#fff;"
+    + "cursor:pointer;font-size:13px;font-weight:600;color:#18181b}"
+    + ".qkb-panel-pata{position:sticky;bottom:0;margin-top:auto;padding:10px 14px;"
+    + "padding-bottom:calc(10px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid #e8e8eb}"
+    + ".qkb-panel-pata .qkb-kosik{width:100%}"
+    + ".qkb-pas-zalom{flex-wrap:wrap;overflow:visible}"
+    + ".qkb-filtry{margin-bottom:10px}"
+    + ".qkb-barva-bez{background:#fff linear-gradient(135deg,transparent 46%,#a1a1aa 46%,#a1a1aa 54%,transparent 54%)}"
+    + ".qkb-karta{position:relative}"
+    + ".qkb-karta-na{border-color:#18181b;box-shadow:0 0 0 1px #18181b}"
+    + ".qkb-stitek{position:absolute;left:12px;top:12px;padding:3px 7px;border-radius:999px;background:#18181b;"
+    + "color:#fff;font-size:10.5px;font-weight:600;line-height:1.2}"
+    + ".qkb-rada-radek .qkb-odkaz+.qkb-odkaz,.qkb-kus-radek .qkb-odkaz+.qkb-odkaz{margin-left:4px}"
+    /*
+     * Na mobilu je model nalepený nahoře, zatímco se pod ním listuje
+     * nabídkou. Lepí se ale jen v rámci svého rodiče — a tím byl levý
+     * sloupec, takže po prvním posunu model zmizel nahoru. Levý sloupec
+     * se proto na mobilu „rozpustí" a model se lepí k celému oknu.
+     */
+    + "@media (max-width:719px){.qkb-levy{display:contents}"
+    + ".qkb-hlava .qkb-sub{display:none}.qkb-hlava{padding:10px 12px}}"
     + "@media (min-width:720px){"
     + ".qkb-pozadi{align-items:center;padding:20px}"
     + ".qkb{max-width:1060px;max-height:88vh;border-radius:16px}"
@@ -1036,11 +1183,31 @@ const TEMPLATE = String.raw`
       if (!maProdukty(def.typ)) continue;
       if (def.typ === "kapesnicek" && !sako) continue;
       var obsazeno = !!v.kusy[def.typ];
-      var b = tlac("qkb-bod", obsazeno ? "✓" : "+", (function (typ) {
+      /*
+       * Bod je jen tam, kde doplněk **chybí**. Fajfka na obsazeném místě
+       * ležela přímo na uzlu kravaty a zakrývala to, kvůli čemu tu
+       * zákazník je; vyměnit se dá v seznamu „Na modelu".
+       */
+      if (obsazeno) continue;
+      var b = tlac("qkb-bod", "+", (function (typ) {
         return function (e) { e.stopPropagation(); otevriVyber(typ); };
       })(def.typ));
-      b.style.left = (def.bod.x * 100) + "%";
-      b.style.top = (def.bod.y * 100) + "%";
+      /*
+       * Místo bodu: ze změřených bodů postavy (límec, rameno, kapsa), a
+       * když nejsou, z odhadu v katalogu. Přepočítá se do výřezu, který
+       * se ukazuje.
+       */
+      var postavaB = postavaPro(v);
+      var vyrez = vyrezTed || (postavaB ? vyrezPostavy(postavaB) : null);
+      var zmereno = postavaB && postavaB.kotvy ? postavaB.kotvy[def.typ] : null;
+      var bx = zmereno ? zmereno[0] : def.bod.x * (vyrez ? vyrez.sirka : 1);
+      var by = zmereno ? zmereno[1] : def.bod.y * (vyrez ? vyrez.vyska : 1);
+      if (vyrez) {
+        bx = (bx - vyrez.x) / vyrez.w;
+        by = (by - vyrez.y) / vyrez.h;
+      }
+      b.style.left = (Math.max(0.05, Math.min(0.95, bx)) * 100) + "%";
+      b.style.top = (Math.max(0.05, Math.min(0.95, by)) * 100) + "%";
       b.setAttribute("data-obsazeno", obsazeno ? "1" : "0");
       b.setAttribute("data-typ", def.typ);
       var popis = obsazeno ? nazevVrstvy(def.typ) : (def.pobidka || nazevVrstvy(def.typ));
@@ -1066,21 +1233,40 @@ const TEMPLATE = String.raw`
      * Priorita jsou produkty: kdo si chce model upravit, najde to na
      * první pohled, a kdo ne, nemá se o co zakopnout.
      */
-    var upravit = tlac("qkb-chip qkb-chip-hlavni", t("postava"), otevriPostavu);
-    upravit.setAttribute("title", t("postavaDelsi"));
+    var upravit = tlac("qkb-chip qkb-chip-hlavni", t("upravit"), otevriPanel);
+    upravit.setAttribute("title", t("upravitDelsi"));
     lista.appendChild(upravit);
-    /* Sako se dá přepnout jen tam, kde to má smysl — tedy když je */
-    if (vzhled().kusy.sako) {
+    /*
+     * Sako jako přepínač o dvou polohách, ne jedno tlačítko. Jedno
+     * tlačítko s nápisem „Bez saka" nebylo poznat, jestli říká, jak to
+     * je, nebo co se stane po kliknutí.
+     */
+    var postavaS = postavaPro(vzhled());
+    if (postavaS && vrstvaPro(postavaS.id, "sako", (vzhled().kusy.sako && vzhled().kusy.sako.varianta) || "jednoradove")) {
       var vidi = sakoVidi(vzhled());
-      var prepni = tlac("qkb-chip", vidi ? t("sakoVidi") : t("sakoSkryto"), function () {
-        vzhled().sako = sakoVidi(vzhled()) ? "skryto" : "vidi";
-        vykresliScenu();
-        prekresli();
-      });
-      prepni.setAttribute("aria-pressed", vidi ? "true" : "false");
-      lista.appendChild(prepni);
+      var prepinac = el("div", "qkb-prepinac");
+      prepinac.setAttribute("role", "group");
+      prepinac.setAttribute("aria-label", t("sako"));
+      var se = tlac("qkb-chip", t("sakoVidi"), function () { nastavSako(true); });
+      se.setAttribute("aria-pressed", vidi ? "true" : "false");
+      var bez = tlac("qkb-chip", t("sakoSkryto"), function () { nastavSako(false); });
+      bez.setAttribute("aria-pressed", vidi ? "false" : "true");
+      prepinac.appendChild(se);
+      prepinac.appendChild(bez);
+      lista.appendChild(prepinac);
     }
     scena.appendChild(lista);
+  }
+
+  function nastavSako(ano) {
+    var v = vzhled();
+    if (ano && !v.kusy.sako) {
+      var vychoziSako = (vychozi().kusy || {}).sako || { varianta: "jednoradove", hex: "#1f2d4d" };
+      v.kusy.sako = { varianta: vychoziSako.varianta, hex: vychoziSako.hex };
+    }
+    v.sako = ano ? "vidi" : "skryto";
+    vykresliScenu();
+    prekresli();
   }
 
   /* -------------------------------------------------------- varianty */
@@ -1108,7 +1294,7 @@ const TEMPLATE = String.raw`
       prekresli();
     }));
     if (varianty.length > 1) {
-      pas.appendChild(tlac("qkb-chip", t("smazat"), function () {
+      pas.appendChild(tlac("qkb-chip", t("smazatVzhled"), function () {
         varianty.splice(kde, 1);
         kde = Math.max(0, kde - 1);
         vykresliScenu();
@@ -1179,6 +1365,9 @@ const TEMPLATE = String.raw`
       ovladani.appendChild(vyber);
     }
 
+    ovladani.appendChild(tlac("qkb-odkaz", t("vymenit"), function () {
+      otevriVyber(typ, rodina(typ, kus.varianta));
+    }));
     ovladani.appendChild(tlac("qkb-odkaz", t("odebrat"), function () {
       delete vzhled().kusy[typ];
       vykresliScenu();
@@ -1227,7 +1416,27 @@ const TEMPLATE = String.raw`
       blok.appendChild(radekKusu(typ, kus));
       mam += 1;
     }
-    if (mam === 0) blok.appendChild(el("div", "qkb-sub", t("nic")));
+    if (mam === 0) {
+      blok.appendChild(el("div", "qkb-sub", t("nic")));
+      return;
+    }
+    /*
+     * Začít znovu je tady, ne pod křížkem. Křížek dřív zavřel kabinu
+     * **i se vším, co v ní bylo** — a kdo chtěl jen zavřít okno, přišel
+     * o vzhled. Teď křížek jen zavře a vzhled zůstane v bublině.
+     */
+    var znovu = el("div", "qkb-rada-radek");
+    znovu.appendChild(tlac("qkb-odkaz", t("zacitZnovu"), function () {
+      var kusy = vzhled().kusy;
+      for (var typ2 in kusy) {
+        if (!Object.prototype.hasOwnProperty.call(kusy, typ2)) continue;
+        var d = defVrstvy(typ2);
+        if (d && d.zbozi) delete kusy[typ2];
+      }
+      vykresliScenu();
+      prekresli();
+    }));
+    blok.appendChild(znovu);
   }
 
   /* --------------------------------------------------- doporučení */
@@ -1247,6 +1456,13 @@ const TEMPLATE = String.raw`
     k.appendChild(el("b", null, p.nazev));
     k.appendChild(el("i", null, p.cena));
     k.setAttribute("title", p.nazev);
+    /* Co už na modelu je, má být v nabídce poznat — jinak se kliká naslepo */
+    var naModelu = vzhled().kusy[p.typ];
+    if (naModelu && naModelu.produkt === p.kod) {
+      k.className += " qkb-karta-na";
+      k.setAttribute("aria-pressed", "true");
+      k.appendChild(el("span", "qkb-stitek", "✓ " + t("naModelu")));
+    }
     return k;
   }
 
@@ -1292,6 +1508,27 @@ const TEMPLATE = String.raw`
   /* ------------------------------------------------------- hledání */
 
   var hledanyTyp = "";
+  /* Rodina v rámci typu: kravata / motýlek / regata. Prázdná = celý typ. */
+  var hledanaRodina = "";
+
+  /** Kategorie k procházení — jen ty, ve kterých něco je. */
+  function kategorieVyberu() {
+    var vse = [
+      { typ: "kravata", rodina: "kravata", nazev: t("kravaty") },
+      { typ: "kravata", rodina: "motylek", nazev: t("motylky") },
+      { typ: "kravata", rodina: "regata", nazev: t("regaty") },
+      { typ: "ksandy", rodina: "", nazev: t("ksandyMn") },
+      { typ: "kapesnicek", rodina: "", nazev: t("kapesnicky") }
+    ];
+    var produktyVse = vsechny();
+    return vse.filter(function (k) {
+      for (var i = 0; i < produktyVse.length; i++) {
+        var p = produktyVse[i];
+        if (p.typ === k.typ && (!k.rodina || rodina(p.typ, p.varianta) === k.rodina)) return true;
+      }
+      return false;
+    });
+  }
 
   function hledej(dotaz) {
     var slova = bezDiakritiky(dotaz).split(/\s+/).filter(function (s) { return s.length > 1; });
@@ -1300,6 +1537,7 @@ const TEMPLATE = String.raw`
     for (var i = 0; i < vse.length; i++) {
       var p = vse[i];
       if (hledanyTyp && p.typ !== hledanyTyp) continue;
+      if (hledanaRodina && rodina(p.typ, p.varianta) !== hledanaRodina) continue;
       if (slova.length) {
         var text = bezDiakritiky(p.nazev + " " + p.typ + " " + p.varianta);
         var sedi = true;
@@ -1326,8 +1564,33 @@ const TEMPLATE = String.raw`
   function vykresliHledani() {
     var blok = okno.querySelector(".qkb-hledani-blok");
     blok.innerHTML = "";
-    var nadpis = el("h3", null, hledanyTyp ? nazevVrstvy(hledanyTyp) : t("hledat"));
+    var nadpis = el("h3", null, hledanyTyp ? nazevVrstvy(hledanyTyp) : t("vybrat"));
     blok.appendChild(nadpis);
+
+    /*
+     * Kategorie jako řada voleb nad hledáním. Dřív byla kategorie vidět
+     * jen po kliknutí na bod na modelu a zrušit se dala nenápadným
+     * křížkem — kdo chtěl jen projít motýlky, musel je hledat slovem.
+     */
+    var filtry = el("div", "qkb-pas qkb-filtry");
+    var vseChip = tlac("qkb-chip", t("vse"), function () {
+      hledanyTyp = ""; hledanaRodina = "";
+      vykresliHledani();
+    });
+    vseChip.setAttribute("aria-pressed", hledanyTyp ? "false" : "true");
+    filtry.appendChild(vseChip);
+    var kategorie = kategorieVyberu();
+    for (var ik = 0; ik < kategorie.length; ik++) {
+      var k = kategorie[ik];
+      var chip = tlac("qkb-chip", k.nazev, (function (k2) {
+        return function () { hledanyTyp = k2.typ; hledanaRodina = k2.rodina; vykresliHledani(); };
+      })(k));
+      var vybrana = hledanyTyp === k.typ && (!hledanaRodina || hledanaRodina === k.rodina)
+        && (hledanaRodina === k.rodina || !k.rodina);
+      chip.setAttribute("aria-pressed", vybrana ? "true" : "false");
+      filtry.appendChild(chip);
+    }
+    blok.appendChild(filtry);
 
     var radek = el("div", "qkb-hledani");
     var pole = document.createElement("input");
@@ -1335,12 +1598,6 @@ const TEMPLATE = String.raw`
     pole.placeholder = t("hledat");
     pole.setAttribute("aria-label", t("hledat"));
     radek.appendChild(pole);
-    if (hledanyTyp) {
-      radek.appendChild(tlac("qkb-chip", "×", function () {
-        hledanyTyp = "";
-        vykresliHledani();
-      }));
-    }
     blok.appendChild(radek);
 
     var vysledky = el("div", "qkb-mrizka");
@@ -1381,13 +1638,11 @@ const TEMPLATE = String.raw`
       cekani = setTimeout(ukaz, 140);
     });
     ukaz();
-    if (hledanyTyp) {
-      try { pole.focus({ preventScroll: true }); } catch (e) { pole.focus(); }
-    }
   }
 
-  function otevriVyber(typ) {
-    hledanyTyp = typ;
+  function otevriVyber(typ, rodinaVyberu) {
+    hledanyTyp = typ || "";
+    hledanaRodina = rodinaVyberu || "";
     vykresliHledani();
     var blok = okno.querySelector(".qkb-hledani-blok");
     if (blok && blok.scrollIntoView) blok.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1427,6 +1682,7 @@ const TEMPLATE = String.raw`
      * rozepsané slovo v poli zmizelo pokaždé, když vedle přibude kus.
      */
     hledanyTyp = "";
+    hledanaRodina = "";
     vykresliScenu();
     vykresliHledani();
     prekresli();
@@ -1451,25 +1707,80 @@ const TEMPLATE = String.raw`
     return pas;
   }
 
-  function otevriPostavu() {
-    var zavoj = el("div", "qkb-zavoj");
-    var hlava = el("div", "qkb-hlava");
-    var text = el("div", "qkb-hlava-text");
-    text.appendChild(el("h2", null, t("postava")));
-    text.appendChild(el("div", "qkb-sub", t("postavaDelsi")));
-    hlava.appendChild(text);
-    hlava.appendChild(tlac("qkb-ikona", "×", function () {
-      if (zavoj.parentNode) zavoj.parentNode.removeChild(zavoj);
-    }));
-    zavoj.appendChild(hlava);
+  function panelOtevren() {
+    return !!(okno && okno.querySelector(".qkb-zavoj"));
+  }
 
-    var telo = el("div", "qkb-zavoj-telo");
+  /** Zavře úpravu modelu bez sahání do historie (volá se i z „zpět" prohlížeče). */
+  function zavriPanelHned() {
+    if (!okno) return;
+    var z = okno.querySelector(".qkb-zavoj");
+    if (z && z.parentNode) z.parentNode.removeChild(z);
+    okno.className = okno.className.replace(/\s*qkb-upravuji/g, "");
+    var tlacitko = okno.querySelector(".qkb-chip-hlavni");
+    if (tlacitko) { try { tlacitko.focus({ preventScroll: true }); } catch (e) { /* nic */ } }
+  }
+
+  function zavriPanel() {
+    if (history.state && history.state.qkb === 2) {
+      ignorujPopstate = true;
+      history.back();
+    }
+    zavriPanelHned();
+  }
+
+  /*
+   * Úprava modelu.
+   *
+   * Patrik (23. 11.): úprava neměla jasný způsob, jak se vrátit zpět, a
+   * křížek v ní vypadal, že zavře celou kabinu. Teď je to panel místo
+   * nabídky doplňků — vlevo nahoře „‹ Zpět", dole „Hotovo", a model
+   * zůstává vidět (na mobilu nahoře nad panelem), takže je každá změna
+   * vidět hned. Tlačítko zpět v telefonu panel zavře, ne stránku.
+   */
+  function otevriPanel() {
+    if (!okno) return;
+    if (!panelOtevren()) {
+      okno.className += " qkb-upravuji";
+      var pravy = okno.querySelector(".qkb-pravy");
+      var zavoj = el("div", "qkb-zavoj");
+      pravy.insertBefore(zavoj, pravy.firstChild);
+      if (!(history.state && history.state.qkb === 2)) doHistorie(2);
+    }
+    vykresliPanel();
+    var telo = okno.querySelector(".qkb-telo");
+    var panel = okno.querySelector(".qkb-zavoj");
+    if (window.matchMedia && window.matchMedia("(min-width:720px)").matches) {
+      okno.querySelector(".qkb-pravy").scrollTop = 0;
+    } else if (telo && panel) {
+      /* Panel těsně pod nalepený model — jinak by „Zpět" zůstalo schované pod ním */
+      var scena = okno.querySelector(".qkb-scena");
+      var posun = panel.getBoundingClientRect().top - telo.getBoundingClientRect().top
+        - (scena ? scena.offsetHeight : 0);
+      telo.scrollTop = Math.max(0, telo.scrollTop + posun);
+    }
+  }
+
+  function vykresliPanel() {
+    var zavoj = okno.querySelector(".qkb-zavoj");
+    if (!zavoj) return;
+    zavoj.innerHTML = "";
     var v = vzhled();
+
+    var hlava = el("div", "qkb-panel-hlava");
+    var zpet = tlac("qkb-zpet", "‹ " + t("zpet"), zavriPanel);
+    zpet.setAttribute("aria-label", t("zpet"));
+    hlava.appendChild(zpet);
+    var text = el("div", "qkb-hlava-text");
+    text.appendChild(el("h2", null, t("upravit")));
+    text.appendChild(el("div", "qkb-sub", t("upravitDelsi")));
+    hlava.appendChild(text);
+    zavoj.appendChild(hlava);
 
     function chipy(nadpis, nabidka, vybrane, nastav) {
       var blok = el("div", "qkb-blok");
       blok.appendChild(el("h3", null, nadpis));
-      var pas = el("div", "qkb-pas");
+      var pas = el("div", "qkb-pas qkb-pas-zalom");
       for (var i = 0; i < nabidka.length; i++) {
         var chip = tlac("qkb-chip", nabidka[i].nazev, (function (id) {
           return function () { nastav(id); };
@@ -1483,29 +1794,38 @@ const TEMPLATE = String.raw`
     }
 
     function znovu() {
-      if (zavoj.parentNode) zavoj.parentNode.removeChild(zavoj);
       vykresliScenu();
       prekresli();
-      otevriPostavu();
+      vykresliPanel();
     }
 
-    telo.appendChild(chipy(t("vek"), katalog().veky || [], v.vek, function (id) {
+    /* Kdo to zkouší — jen věky, pro které je postava nakreslená */
+    var postavy = (DATA && DATA.postavy) || [];
+    var veky = (katalog().veky || []).filter(function (one) {
+      for (var i = 0; i < postavy.length; i++) if (postavy[i].vek === one.id) return true;
+      return false;
+    });
+    zavoj.appendChild(chipy(t("vek"), veky, v.vek, function (id) {
       v.vek = id;
-      var veky = katalog().veky || [];
       for (var i = 0; i < veky.length; i++) {
-        if (veky[i].id === id && veky[i].vyska) {
-          v.vyskaCm = Math.round((veky[i].vyska[0] + veky[i].vyska[1]) / 2);
-        }
+        if (veky[i].id === id && veky[i].vyska) v.vyskaCm = Math.round((veky[i].vyska[0] + veky[i].vyska[1]) / 2);
       }
       znovu();
     }));
-    telo.appendChild(chipy(t("telo"), katalog().tela || [], v.telo, function (id) { v.telo = id; znovu(); }));
+    /* Postava (štíhlá/silnější) jen tam, kde je víc než jedna — volba, která nic nedělá, mate */
+    var tela = (katalog().tela || []).filter(function (one) {
+      for (var i = 0; i < postavy.length; i++) if (postavy[i].vek === v.vek && postavy[i].telo === one.id) return true;
+      return false;
+    });
+    if (tela.length > 1) {
+      zavoj.appendChild(chipy(t("telo"), tela, v.telo, function (id) { v.telo = id; znovu(); }));
+    }
 
     var vyskaBlok = el("div", "qkb-blok");
     vyskaBlok.appendChild(el("h3", null, t("vyska") + " · " + v.vyskaCm + " cm"));
     var meze = [140, 205];
-    var veky = katalog().veky || [];
-    for (var iv = 0; iv < veky.length; iv++) if (veky[iv].id === v.vek && veky[iv].vyska) meze = veky[iv].vyska;
+    var vsechnyVeky = katalog().veky || [];
+    for (var iv = 0; iv < vsechnyVeky.length; iv++) if (vsechnyVeky[iv].id === v.vek && vsechnyVeky[iv].vyska) meze = vsechnyVeky[iv].vyska;
     var rozsah = document.createElement("input");
     rozsah.type = "range";
     rozsah.min = String(meze[0]);
@@ -1515,65 +1835,69 @@ const TEMPLATE = String.raw`
     rozsah.addEventListener("input", function () {
       v.vyskaCm = Number(this.value);
       vyskaBlok.querySelector("h3").textContent = t("vyska") + " · " + v.vyskaCm + " cm";
-      prekresli();
     });
+    rozsah.addEventListener("change", function () { prekresli(); });
     vyskaBlok.appendChild(rozsah);
-    telo.appendChild(vyskaBlok);
-
-    /*
-     * Vlasy a vousy tu nejsou. Jsou součástí postavy, ne vrstvou —
-     * zákazník si vybírá kravatu, ne účes modela, a každý další účes
-     * byl obrázek navíc, který se musel povést.
-     */
+    vyskaBlok.appendChild(el("div", "qkb-sub", t("vyskaProc")));
+    zavoj.appendChild(vyskaBlok);
 
     /*
      * Kulisa. Zákazník si ji nastavuje **přibližně** podle toho, co má
-     * doma — proto jen barva a jen pár odstínů. Oblek se u nás nekupuje;
-     * kdyby se tu vybíral do detailu, kabina by slibovala něco, co
-     * neprodáváme.
+     * doma — proto jen barva a jen pár odstínů. Boty tu nejsou: model se
+     * ukazuje po stehna a boty neprodáváme.
      */
+    var postava = postavaPro(v);
     var poradi = katalog().poradi || [];
     for (var ik = 0; ik < poradi.length; ik++) {
       var typ = poradi[ik];
       var def = defVrstvy(typ);
-      if (!def || def.zbozi || typ === "postava") continue;
+      if (!def || def.zbozi || typ === "postava" || typ === "boty") continue;
+      /* Varianty jen ty, které jsou pro tuhle postavu nakreslené */
+      var varianty2 = (def.varianty || []).filter(function (one) {
+        return postava && vrstvaPro(postava.id, typ, one.id);
+      });
+      if (!varianty2.length) continue;
       var kus = v.kusy[typ];
       var blok = el("div", "qkb-blok");
       blok.appendChild(el("h3", null, nazevVrstvy(typ)));
-      blok.appendChild(barvyRadek(kus ? kus.hex : "", (function (typ2, def2) {
+      var barvy = barvyRadek(kus ? kus.hex : "", (function (typ2, var2) {
         return function (hex) {
           var stary = v.kusy[typ2];
-          v.kusy[typ2] = {
-            varianta: (stary && stary.varianta) || (def2.varianty[0] && def2.varianty[0].id) || "",
-            hex: hex
-          };
+          v.kusy[typ2] = { varianta: (stary && stary.varianta) || var2[0].id, hex: hex };
+          /* Kdo vybírá barvu saka, chce ho vidět — ale „auto" (s kšandami bez saka) se nepřebíjí */
+          if (typ2 === "sako" && v.sako === "skryto") v.sako = "auto";
           znovu();
         };
-      })(typ, def), katalog().barvy || []));
-      if (def.nepovinna && kus) {
-        var radekO = el("div", "qkb-rada-radek");
-        radekO.appendChild(tlac("qkb-odkaz", t("odebrat"), (function (typ2) {
+      })(typ, varianty2), katalog().barvy || []);
+      /* Nepovinný kus (vesta, sako) má na začátku volbu „bez" — místo nenápadného odkazu „odebrat" */
+      if (def.nepovinna) {
+        var bez = tlac("qkb-barva qkb-barva-bez", null, (function (typ2) {
           return function () { delete v.kusy[typ2]; znovu(); };
-        })(typ)));
-        blok.appendChild(radekO);
+        })(typ));
+        bez.setAttribute("title", t("bez"));
+        bez.setAttribute("aria-label", t("bez"));
+        bez.setAttribute("aria-pressed", kus ? "false" : "true");
+        barvy.insertBefore(bez, barvy.firstChild);
       }
-      if (def.varianty && def.varianty.length > 1 && kus) {
-        var pasO = el("div", "qkb-pas");
+      blok.appendChild(barvy);
+      if (varianty2.length > 1 && kus) {
+        var pasO = el("div", "qkb-pas qkb-pas-zalom");
         pasO.style.marginTop = "8px";
-        for (var io = 0; io < def.varianty.length; io++) {
-          var chipO = tlac("qkb-chip", def.varianty[io].nazev, (function (typ2, id) {
+        for (var io = 0; io < varianty2.length; io++) {
+          var chipO = tlac("qkb-chip", varianty2[io].nazev, (function (typ2, id) {
             return function () { v.kusy[typ2].varianta = id; znovu(); };
-          })(typ, def.varianty[io].id));
-          chipO.setAttribute("aria-pressed", def.varianty[io].id === kus.varianta ? "true" : "false");
+          })(typ, varianty2[io].id));
+          chipO.setAttribute("aria-pressed", varianty2[io].id === kus.varianta ? "true" : "false");
           pasO.appendChild(chipO);
         }
         blok.appendChild(pasO);
       }
-      telo.appendChild(blok);
+      zavoj.appendChild(blok);
     }
 
-    zavoj.appendChild(telo);
-    okno.appendChild(zavoj);
+    var pata = el("div", "qkb-panel-pata");
+    pata.appendChild(tlac("qkb-kosik", t("hotovo"), zavriPanel));
+    zavoj.appendChild(pata);
   }
 
   /* ----------------------------------------------------------- pata */
@@ -1740,12 +2064,14 @@ const TEMPLATE = String.raw`
     text.appendChild(el("h2", null, t("kabina")));
     text.appendChild(el("div", "qkb-sub", t("podnadpis")));
     hlava.appendChild(text);
-    var min = tlac("qkb-ikona", "⌄", minimalizuj);
-    min.setAttribute("title", t("minimalizovat"));
-    min.setAttribute("aria-label", t("minimalizovat"));
-    hlava.appendChild(min);
+    /*
+     * Jen jedno tlačítko: zavřít. Dřív byly dvě — „nechat na později"
+     * a „zavřít", a zavřít zahodilo celý vzhled. Rozdíl nikdo neviděl.
+     * Teď se vzhled pamatuje vždycky a bublina ho vrátí; kdo chce začít
+     * znovu, má na to tlačítko u doplňků.
+     */
     var zavri = tlac("qkb-ikona", "×", zavrit);
-    zavri.setAttribute("title", t("zavrit"));
+    zavri.setAttribute("title", t("zavritDelsi"));
     zavri.setAttribute("aria-label", t("zavrit"));
     hlava.appendChild(zavri);
     okno.appendChild(hlava);
@@ -1765,18 +2091,46 @@ const TEMPLATE = String.raw`
     okno.appendChild(el("div", "qkb-pata"));
 
     pozadi.appendChild(okno);
-    pozadi.addEventListener("click", function (e) { if (e.target === pozadi) minimalizuj(); });
+    pozadi.addEventListener("click", function (e) { if (e.target === pozadi) zavrit(); });
     document.body.appendChild(pozadi);
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape" || !pozadi || pozadi.style.display === "none") return;
-      var zavoj = okno.querySelector(".qkb-zavoj");
-      if (zavoj) { zavoj.parentNode.removeChild(zavoj); return; }
-      minimalizuj();
+      if (panelOtevren()) { zavriPanel(); return; }
+      zavrit();
+    });
+    /*
+     * Tlačítko zpět v telefonu. Bez tohohle odvedlo zákazníka z produktu
+     * pryč, i když měl otevřenou jen kabinu — na mobilu nejčastější
+     * způsob, jak se „zavírá okno". Otevření kabiny (a úpravy modelu)
+     * proto přidá krok do historie a zpět ho zase sundá.
+     */
+    window.addEventListener("popstate", function () {
+      if (ignorujPopstate) { ignorujPopstate = false; return; }
+      if (!pozadi || pozadi.style.display === "none") return;
+      if (panelOtevren()) { zavriPanelHned(); return; }
+      schovej();
     });
   }
 
-  function minimalizuj() {
+  var ignorujPopstate = false;
+
+  /* Otočení telefonu nebo změna okna: model se zmenšuje na přesné body displeje, tak znovu */
+  var naZmenu = null;
+  window.addEventListener("resize", function () {
+    if (!pozadi || pozadi.style.display === "none") return;
+    if (naZmenu) clearTimeout(naZmenu);
+    naZmenu = setTimeout(function () {
+      if (platno && plne && vyrezTed) zmensiNa(platno, plne, vyrezTed);
+    }, 200);
+  });
+
+  function doHistorie(uroven) {
+    try { history.pushState({ qkb: uroven }, ""); } catch (e) { /* bez historie to jde taky */ }
+  }
+
+  function schovej() {
     if (!pozadi) return;
+    zavriPanelHned();
     ulozStav();
     pozadi.style.display = "none";
     document.documentElement.removeAttribute("data-qkb-otevreno");
@@ -1784,16 +2138,22 @@ const TEMPLATE = String.raw`
     document.documentElement.style.overflow = "";
   }
 
+  /** Zavře kabinu. Vzhled zůstane — bublina ho vrátí. */
   function zavrit() {
-    minimalizuj();
-    try { localStorage.removeItem(STAV_KLIC); } catch (e) { /* nic */ }
-    if (window.__quentinoKabinaStav) {
-      try { window.__quentinoKabinaStav(); } catch (e) { /* nic */ }
+    var hloubka = (history.state && history.state.qkb) || 0;
+    if (hloubka) {
+      ignorujPopstate = true;
+      try { history.go(-hloubka); } catch (e) { ignorujPopstate = false; }
     }
+    schovej();
   }
+
+  /* Starší jméno — zavaděč a odkazy v šabloně ho můžou volat */
+  function minimalizuj() { zavrit(); }
 
   function otevri(predvolba) {
     if (!pozadi) postav();
+    if (pozadi.style.display !== "flex" && !(history.state && history.state.qkb)) doHistorie(1);
     pozadi.style.display = "flex";
     document.documentElement.style.overflow = "hidden";
     /* Bublina patří k zavřené kabině. Přes otevřenou by jen překážela */
@@ -1817,10 +2177,35 @@ const TEMPLATE = String.raw`
       vykresliScenu();
       prekresli();
       return true;
-    }).catch(function () {
+    }).catch(function (chyba) {
+      /*
+       * Když se data stáhla, ale kabina spadla při kreslení, bývá na vině
+       * vzhled uložený v prohlížeči z dřívější verze. Zkusí se ještě
+       * jednou s čistým vzhledem — zákazník přijde o rozpracovaný vzhled,
+       * ale ne o kabinu.
+       */
+      if (typeof console !== "undefined") console.error("[kabina]", chyba);
+      if (DATA && !otevri.znovu) {
+        otevri.znovu = true;
+        try { localStorage.removeItem(STAV_KLIC); } catch (e) { /* nic */ }
+        varianty = [vychozi()];
+        kde = 0;
+        try {
+          vykresliScenu();
+          prekresli();
+          return true;
+        } catch (e2) {
+          if (typeof console !== "undefined") console.error("[kabina]", e2);
+          chyba = e2;
+        }
+      }
       var scena = okno.querySelector(".qkb-scena");
       scena.innerHTML = "";
       scena.appendChild(el("div", "qkb-sub", t("chyba")));
+      /* V náhledu v aplikaci se ukáže i proč — na e-shopu ne */
+      if (location.protocol === "qkbnahled:") {
+        scena.appendChild(el("div", "qkb-sub", String((chyba && (chyba.stack || chyba.message)) || chyba).slice(0, 400)));
+      }
       return false;
     });
   }

@@ -656,6 +656,86 @@ console.log('\nšablony zboží');
   check('k sedmičce se nabízí i šestka, ale ne motýlek', nabidka, ['A']);
 }
 
+/* ---------- 7c. textura, sako na postavě, body pro kabinu ---------- */
+
+console.log('\ntextura a sako');
+
+{
+  const produkty = require(path.join(DIST, 'zkusebna/produkty.js'));
+  const vrstvy = require(path.join(DIST, 'zkusebna/vrstvy.js'));
+  const sablony = require(path.join(DIST, 'zkusebna/sablony.js'));
+  const manifest = require(path.join(DIST, 'zkusebna/manifest.js'));
+
+  /*
+   * Patrik (23. 11.): textura kravaty „nevypadá vůbec jak by měla".
+   * Vzorek se dláždil se švy a bod na bod. Teď je zrcadlený (navazuje)
+   * a nese, kolik centimetrů látky ukazuje.
+   */
+  const kus = png.novyObraz(5, 4);
+  for (let i = 0; i < 20; i++) { kus.body[i * 4] = i * 12; kus.body[i * 4 + 1] = 255 - i * 9; kus.body[i * 4 + 2] = 40; kus.body[i * 4 + 3] = 255; }
+  const dlazdice = produkty.__test.zrcadli(kus);
+  const bod = (o, x, y) => [o.body[(y * o.sirka + x) * 4], o.body[(y * o.sirka + x) * 4 + 1]].join(',');
+  ok('vzorek se zrcadlí do dlaždice, která navazuje na všech stranách',
+    dlazdice.sirka === 10 && bod(dlazdice, 0, 1) === bod(dlazdice, 9, 1) && bod(dlazdice, 2, 0) === bod(dlazdice, 2, 7));
+  {
+    /* Fotka: bílé pozadí, uprostřed vzorovaná látka */
+    const foto = png.novyObraz(900, 900);
+    for (let y = 0; y < 900; y++) for (let x = 0; x < 900; x++) {
+      const i = (y * 900 + x) * 4;
+      const na = x > 150 && x < 750 && y > 150 && y < 750;
+      const kytka = na && ((x >> 4) + (y >> 4)) % 3 === 0;
+      const v = na ? (kytka ? [230, 200, 60] : [40, 50, 90]) : [255, 255, 255];
+      foto.body[i] = v[0]; foto.body[i + 1] = v[1]; foto.body[i + 2] = v[2]; foto.body[i + 3] = 255;
+    }
+    const latka = produkty.__test.vzorekZFotky(foto, 'kravata', 'kravata');
+    let kytek = 0;
+    if (latka) for (let i = 0; i < latka.obraz.body.length; i += 4) if (latka.obraz.body[i] > 200) kytek += 1;
+    ok('vzorek je velký, se vzorem (ne kus jednobarevného podkladu) a ví, kolik cm ukazuje',
+      !!latka && latka.obraz.sirka >= 128 && kytek > 0 && latka.cm > 2 && latka.cm < 12,
+      latka ? `${latka.obraz.sirka} bodů = ${latka.cm} cm, ${kytek} bodů kytek` : 'nic');
+  }
+
+  /*
+   * Sako na postavě: rukávy musí zakrýt rukávy košile vedle trupu a
+   * nesmí zakrýt ruce. Patrik (23. 11.): sako mělo rukávy jako s rukama
+   * v kapsách a u dítěte bylo o číslo větší.
+   */
+  {
+    const W = 200; const H = 400;
+    const zaklad = png.novyObraz(W, H);
+    const kosile = new Uint8Array(W * H);
+    const kalhoty = new Uint8Array(W * H);
+    for (let y = 60; y < 400; y++) for (let x = 40; x < 160; x++) zaklad.body[(y * W + x) * 4 + 3] = 255;
+    /* trup 70–130, ruce (rukávy) 40–68 a 132–160 od 60 do 200, pod tím dlaně do 230 */
+    for (let y = 60; y < 200; y++) for (let x = 40; x < 160; x++) kosile[y * W + x] = 255;
+    for (let y = 200; y < 400; y++) for (let x = 70; x < 130; x++) kalhoty[y * W + x] = 255;
+    const kuze = vrstvy.__test.holaKuze(zaklad, [kosile, kalhoty]);
+    const kotvy = { limec: { x: 100, y: 60 }, pas: 200, naCm: 2 };
+    const sako = (zakryj) => {
+      const o = png.novyObraz(W, H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (zakryj(x, y)) o.body[(y * W + x) * 4 + 3] = 255;
+      return o;
+    };
+    const dobre = sako((x, y) => y >= 60 && y < 225 && (x >= 40 && x < 160) && !(y > 205 && (x < 70 || x >= 130)));
+    const kapsy = sako((x, y) => y >= 60 && y < 225 && x >= 66 && x < 134);
+    const velke = sako((x, y) => y >= 60 && y < 260 && x >= 38 && x < 162);
+    check('sako, které sedí, projde', vrstvy.__test.sedeniKulisy('sako', zaklad, dobre, kosile, kalhoty, kuze, kotvy), '');
+    ok('sako s rukama v kapsách neprojde a řekne proč',
+      /Rukávy saka nesedí/.test(vrstvy.__test.sedeniKulisy('sako', zaklad, kapsy, kosile, kalhoty, kuze, kotvy)));
+    ok('sako o číslo větší (zakrývá ruce) neprojde',
+      /velké/.test(vrstvy.__test.sedeniKulisy('sako', zaklad, velke, kosile, kalhoty, kuze, kotvy)));
+  }
+
+  /* Kabina dostane změřené body: podle pasu ořízne model, podle nich ukáže „přidat" */
+  require(path.join(DIST, 'zkusebna/ukazka.js')).postavUkazku('dospely-bezny');
+  const data = manifest.kabina(() => 'x', 10, {});
+  const k = (data.postavy.find(one => one.id === 'dospely-bezny') || {}).kotvy;
+  const m = sablony.kotvyPostavy('dospely-bezny').kotvy;
+  ok('kabina dostane body postavy (pas, kravata, kšandy, kapsa)',
+    !!k && Math.abs(k.pas - m.pas) <= 1 && k.kravata[1] > m.limec.y && k.kapesnicek[0] > m.limec.x,
+    k ? JSON.stringify(k) : 'chybí');
+}
+
 /* ---------- 8. košík, velikosti, body na modelu ---------- */
 
 console.log('\nvzhled k nákupu');

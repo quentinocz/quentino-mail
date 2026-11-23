@@ -243,8 +243,8 @@ const TEMPLATE = String.raw`
     + "border:1px solid currentColor;background:transparent;color:inherit;"
     + "font:inherit;font-size:15px;line-height:1.2;text-align:center}"
     + ".qkbz-vlozit:hover{background:rgba(0,0,0,.05)}"
-    + ".qkbz-obal{position:relative;display:block;width:100%}"
-    + ".qkbz-karta{position:absolute;right:8px;bottom:8px;z-index:3;display:inline-flex;"
+    + ".qkbz-obal{position:relative;z-index:5;display:block;width:100%}"
+    + ".qkbz-karta{position:absolute;right:8px;bottom:8px;z-index:30;display:inline-flex;"
     + "align-items:center;gap:6px;max-width:calc(100% - 16px);padding:7px 10px;border:0;"
     + "border-radius:999px;background:rgba(255,255,255,.94);color:#18181b;cursor:pointer;"
     + "font:inherit;font-size:12px;line-height:1;box-shadow:0 1px 6px rgba(0,0,0,.18);"
@@ -298,12 +298,10 @@ const TEMPLATE = String.raw`
     if (!kam || kam.querySelector("[data-qkb]")) return;
     styl();
     var b = tlacitko("qkbz-vlozit", slovo("zkusit"), slovo("zkusit"));
-    b.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
+    b.__qkbAkce = function () {
       produkt.souvisejici = souvisejici();
       otevri(produkt, b);
-    });
+    };
     kam.appendChild(b);
   }
 
@@ -330,11 +328,7 @@ const TEMPLATE = String.raw`
       obal.appendChild(obrazek);
     }
     var b = tlacitko("qkbz-karta", slovo("karta"), slovo("karta"));
-    b.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      otevri(produkt, b);
-    });
+    b.__qkbAkce = function () { otevri(produkt, b); };
     obal.appendChild(b);
   }
 
@@ -378,7 +372,7 @@ const TEMPLATE = String.raw`
     bublinaEl.innerHTML = IKONA + "<span></span><b></b>";
     bublinaEl.querySelector("span").textContent = slovo("kabina");
     bublinaEl.querySelector("b").textContent = String(s.kusu);
-    bublinaEl.addEventListener("click", function () { otevri(null, bublinaEl); });
+    bublinaEl.__qkbAkce = function () { otevri(null, bublinaEl); };
     document.body.appendChild(bublinaEl);
   }
 
@@ -431,6 +425,37 @@ const TEMPLATE = String.raw`
   } else {
     poKlidu();
   }
+
+  /*
+   * Kliknutí na naše tlačítko se chytá **úplně první**, na okně ve fázi
+   * zachycení. Patrik (23. 11.): tlačítko „Try on model" ve výpisu
+   * otevřelo místo kabiny produkt. Šablona e-shopu má na kartě vlastní
+   * obsluhu (celá karta je odkaz) a ta se ke kliknutí dostala dřív, než
+   * ho naše tlačítko stihlo zastavit. Tady ho nikdo jiný nedostane —
+   * ani stisk a puštění prstu, podle kterých některé šablony otevírají
+   * produkt na mobilu.
+   */
+  function naseTlacitko(e) {
+    var cil = e.target;
+    while (cil && cil !== document && cil !== window) {
+      if (cil.__qkbAkce) return cil;
+      cil = cil.parentNode;
+    }
+    return null;
+  }
+  var predKliknutim = ["pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend"];
+  for (var ip = 0; ip < predKliknutim.length; ip++) {
+    window.addEventListener(predKliknutim[ip], function (e) {
+      if (naseTlacitko(e)) e.stopPropagation();
+    }, { capture: true, passive: true });
+  }
+  window.addEventListener("click", function (e) {
+    var b = naseTlacitko(e);
+    if (!b) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    b.__qkbAkce(e);
+  }, true);
 
   /* Ruční tlačítko kdekoli v šabloně: data-quentino-kabina */
   document.addEventListener("click", function (e) {

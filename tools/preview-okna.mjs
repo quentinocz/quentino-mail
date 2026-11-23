@@ -2805,10 +2805,14 @@ for (const okno of OKNA) {
     x: one.style.left, y: one.style.top
   })));
   say('na modelu jsou body k přidání dalšího doplňku',
-    body.length >= 3 && body.every(one => one.popis && one.x && one.y),
-    body.map(one => `${one.typ}${one.obsazeno === '1' ? '✓' : ''}`).join(' · '));
-  say('  a kravata je poznaná jako obsazená',
-    body.find(one => one.typ === 'kravata')?.obsazeno === '1');
+    body.length >= 2 && body.every(one => one.popis && one.x && one.y),
+    body.map(one => one.typ).join(' · '));
+  /*
+   * Na obsazeném místě bod není. Fajfka ležela přímo na uzlu kravaty a
+   * zakrývala to, kvůli čemu tu zákazník je (Patrik, 23. 11.).
+   */
+  say('  a obsazené místo (kravata) bodem nezakrývá',
+    !body.some(one => one.typ === 'kravata'), body.map(one => one.typ).join(' · '));
 
   /* Kliknutí na bod otevře výběr jen z té kategorie */
   await page.locator('.qkb-bod[data-typ="kapesnicek"]').click();
@@ -2843,8 +2847,26 @@ for (const okno of OKNA) {
    * Kdyby se mapa světla posunula, byl by každý oblek o stupeň jinak a
    * nikdo by nepoznal proč.
    */
-  await page.locator('.qkb-chip', { hasText: 'Upravit postavu' }).click();
+  await page.locator('.qkb-chip', { hasText: 'Upravit model' }).click();
   await page.waitForTimeout(300);
+  /*
+   * Úprava modelu má jasnou cestu zpátky (Patrik, 23. 11.: „nemá jasný
+   * způsob, jak se vrátit zpět, křížek působí, že zavře celou kabinu").
+   * Model zůstává vidět, nahoře je „Zpět", dole „Hotovo", a zpět
+   * v telefonu zavře úpravu, ne kabinu.
+   */
+  const panel = await page.evaluate(() => ({
+    zpet: (document.querySelector('.qkb-zavoj .qkb-zpet')?.textContent ?? '').trim(),
+    hotovo: (document.querySelector('.qkb-zavoj .qkb-panel-pata .qkb-kosik')?.textContent ?? '').trim(),
+    modelVidet: (() => {
+      const r = document.querySelector('.qkb-platno canvas')?.getBoundingClientRect();
+      return !!r && r.bottom > 40 && r.top < window.innerHeight;
+    })(),
+    historie: history.state && history.state.qkb
+  }));
+  say('úprava modelu má „Zpět" a „Hotovo" a model zůstává vidět',
+    /Zpět/.test(panel.zpet) && /Hotovo/.test(panel.hotovo) && panel.modelVidet && panel.historie === 2,
+    `${panel.zpet} · ${panel.hotovo} · model ${panel.modelVidet ? 'vidět' : 'schovaný'}`);
   await page.evaluate(() => {
     const bloky = [...document.querySelectorAll('.qkb-zavoj .qkb-blok')];
     const sako = bloky.find(one => (one.querySelector('h3')?.textContent ?? '').trim() === 'Sako');
@@ -2853,15 +2875,23 @@ for (const okno of OKNA) {
   await page.waitForTimeout(600);
   const barvaNaPlatne = await page.evaluate(() => {
     const c = document.querySelector('.qkb-platno canvas');
-    /* Uprostřed levého dílu saka, kde má mapa světla polotón */
-    const bod = c.getContext('2d').getImageData(78, 130, 1, 1).data;
+    /* Uprostřed levého dílu saka, kde má mapa světla polotón — přepočteno do výřezu */
+    const x = Number(c.dataset.x); const y = Number(c.dataset.y); const m = Number(c.dataset.m);
+    const bod = c.getContext('2d').getImageData(Math.round((78 - x) * m), Math.round((150 - y) * m), 1, 1).data;
     return [bod[0], bod[1], bod[2]];
   });
   say('zvolená barva obleku vyjde na plátně přesně',
     barvaNaPlatne[0] === 0x1f && barvaNaPlatne[1] === 0x2d && barvaNaPlatne[2] === 0x4d,
     `rgb(${barvaNaPlatne.join(', ')}) místo rgb(31, 45, 77)`);
-  await page.keyboard.press('Escape');
+  /* Zpět v telefonu zavře úpravu modelu, ne celou kabinu */
+  await page.goBack();
   await page.waitForTimeout(300);
+  const poZpet = await page.evaluate(() => ({
+    panel: !!document.querySelector('.qkb-zavoj'),
+    kabina: document.querySelector('.qkb-pozadi')?.style.display
+  }));
+  say('  zpět v telefonu zavře úpravu, kabina zůstane',
+    !poZpet.panel && poZpet.kabina === 'flex', JSON.stringify(poZpet));
 
   /*
    * Vzor se na modelu vydláždí. Kdyby se místo vzorku použila jedna
@@ -2883,9 +2913,10 @@ for (const okno of OKNA) {
   const vzorNaModelu = await page.evaluate(() => {
     const c = document.querySelector('.qkb-platno canvas');
     const ctx = c.getContext('2d');
+    const x0 = Number(c.dataset.x); const y0 = Number(c.dataset.y); const m = Number(c.dataset.m);
     const barvy = new Set();
     for (let x = 90; x < 110; x++) {
-      const bod = ctx.getImageData(x, 130, 1, 1).data;
+      const bod = ctx.getImageData(Math.round((x - x0) * m), Math.round((130 - y0) * m), 1, 1).data;
       if (bod[3] > 200) barvy.add(`${bod[0]},${bod[1]},${bod[2]}`);
     }
     return [...barvy];
@@ -2906,23 +2937,26 @@ for (const okno of OKNA) {
   await page.waitForTimeout(400);
   await page.locator('.qkb-mrizka .qkb-karta').first().click();
   await page.waitForTimeout(700);
+  /*
+   * Sako je přepínač o dvou polohách. Jedno tlačítko „Bez saka" nebylo
+   * poznat, jestli říká, jak to je, nebo co se stane po kliknutí.
+   */
   const poKsandach = await page.evaluate(() => ({
-    chip: (document.querySelector('.qkb-scena-lista .qkb-chip[aria-pressed]')?.textContent ?? '').trim(),
-    sakoVidi: document.querySelector('.qkb-scena-lista .qkb-chip[aria-pressed]')?.getAttribute('aria-pressed'),
+    zapnuto: (document.querySelector('.qkb-prepinac .qkb-chip[aria-pressed="true"]')?.textContent ?? '').trim(),
     bodKapesnicek: !!document.querySelector('.qkb-bod[data-typ="kapesnicek"]')
   }));
-  say('kšandy samy schovají sako',
-    poKsandach.sakoVidi === 'false' && /Bez saka/.test(poKsandach.chip), poKsandach.chip);
+  say('kšandy samy schovají sako', /Bez saka/.test(poKsandach.zapnuto), poKsandach.zapnuto);
   say('  a s ním zmizí i bod na kapesníček — neměl by kde být',
     poKsandach.bodKapesnicek === false);
-  await page.locator('.qkb-scena-lista .qkb-chip[aria-pressed]').click();
+  await page.locator('.qkb-prepinac .qkb-chip', { hasText: 'Se sakem' }).click();
   await page.waitForTimeout(600);
   const poPrebiti = await page.evaluate(() => ({
-    sakoVidi: document.querySelector('.qkb-scena-lista .qkb-chip[aria-pressed]')?.getAttribute('aria-pressed'),
+    zapnuto: (document.querySelector('.qkb-prepinac .qkb-chip[aria-pressed="true"]')?.textContent ?? '').trim(),
     bodKapesnicek: !!document.querySelector('.qkb-bod[data-typ="kapesnicek"]')
   }));
   say('  sako se dá vrátit i s kšandami (kvůli kapesníčku)',
-    poPrebiti.sakoVidi === 'true' && poPrebiti.bodKapesnicek === true);
+    /* Kapesníček už na modelu je, takže bod na něj (správně) není — stačí, že sako je zpátky */
+    /Se sakem/.test(poPrebiti.zapnuto), poPrebiti.zapnuto);
 
   /* Další vzhled k porovnání */
   await page.locator('.qkb-varianty .qkb-chip', { hasText: 'Další vzhled' }).click();
@@ -2970,7 +3004,8 @@ for (const okno of OKNA) {
     return {
       pocet: kus.querySelector('.qkb-pocet span').textContent,
       zeslabeno: kus.getAttribute('data-nic'),
-      naModelu: !!document.querySelector('.qkb-bod[data-typ="kravata"][data-obsazeno="1"]')
+      /* Kus na modelu = žádný bod „přidat" na jeho místě */
+      naModelu: !document.querySelector('.qkb-bod[data-typ="kravata"]')
     };
   });
   say('  nula znamená „na modelu ano, do košíku ne"',
