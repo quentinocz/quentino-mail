@@ -59,11 +59,19 @@ const stranky = new Map<string, Nahled>();
 let pocitadlo = 0;
 
 /** Musí se zavolat **před** `app.whenReady()`. */
-export function registerKabinaScheme(): void {
-  protocol.registerSchemesAsPrivileged([{
+export function kabinaScheme(): Electron.CustomScheme {
+  /*
+   * Registruje se v main.ts jedním voláním se všemi ostatními. Patrik
+   * (23. 11.): náhled kabiny hlásil „TypeError: Failed to fetch" u
+   * stažení seznamu — Electron bere registraci jen jednou a pozdější
+   * volání pro střih videa tuhle přepsalo, takže adresa kabiny přišla
+   * o `supportFetchAPI`. Skript a obrázky se přitom načetly, proto to
+   * vypadalo, že náhled jinak funguje.
+   */
+  return {
     scheme: KABINA_SCHEME,
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
-  }]);
+  };
 }
 
 /**

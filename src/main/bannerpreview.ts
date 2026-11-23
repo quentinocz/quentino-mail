@@ -53,11 +53,12 @@ export function stashPreview(html: string): string {
  * a tedy zase s pravidly aplikace. `standard` jí dá původ, `secure` svolí
  * k načtení písma z internetu a `supportFetchAPI` k načtení plánu.
  */
-export function registerPreviewScheme(): void {
-  protocol.registerSchemesAsPrivileged([{
+export function previewScheme(): Electron.CustomScheme {
+  /* Registruje se v main.ts jedním voláním se všemi — viz `mediaScheme` */
+  return {
     scheme: PREVIEW_SCHEME,
     privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
-  }]);
+  };
 }
 
 /** Zavolat po `app.whenReady()`. */

@@ -26,9 +26,17 @@ import { jePovolen } from './instagram/videoedit';
 
 export const FILE_SCHEME = 'qmedia';
 
-/** Musí se zavolat **před** `app.whenReady()`. */
-export function registerMediaScheme(): void {
-  protocol.registerSchemesAsPrivileged([{
+/**
+ * Oprávnění adresy pro střih videa.
+ *
+ * Neregistruje se tady, ale v `main.ts` **jedním voláním se všemi
+ * ostatními**: Electron bere `registerSchemesAsPrivileged` jen jednou a
+ * každé další volání to předchozí přepíše. Dokud tu bylo vlastní volání,
+ * ztratily náhled bannerů i zkušební kabiny oprávnění `supportFetchAPI`
+ * a kabina v okně hlásila „Teď to nejde" (Failed to fetch).
+ */
+export function mediaScheme(): Electron.CustomScheme {
+  return ({
     scheme: FILE_SCHEME,
     privileges: {
       standard: true,
@@ -39,7 +47,7 @@ export function registerMediaScheme(): void {
       stream: true,
       corsEnabled: true
     }
-  }]);
+  });
 }
 
 /** Adresa pro okno. Cesta jde v dotazu, ať ji nerozbije lomítko ani diakritika. */

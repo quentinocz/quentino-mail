@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell, powerMonitor, screen } from 'electron';
+import { app, BrowserWindow, dialog, shell, powerMonitor, protocol, screen } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { installSystemCa } from './systemca';
@@ -16,9 +16,9 @@ import { refreshTokens as refreshIgTokens } from './instagram/publish';
 import { closeCamera } from './shoot';
 import { closeSecondQuietly } from './shootsecond';
 import { mainWindowMaker } from './toolwindow';
-import { registerPreviewScheme, servePreview } from './bannerpreview';
-import { registerKabinaScheme, serveKabina } from './zkusebna/nahled';
-import { registerMediaScheme, serveMedia } from './mediafile';
+import { previewScheme, servePreview } from './bannerpreview';
+import { kabinaScheme, serveKabina } from './zkusebna/nahled';
+import { mediaScheme, serveMedia } from './mediafile';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -284,11 +284,17 @@ app.on('open-url', (e, url) => {
  * neměla vlastní původ a platila by pro ni pravidla okna aplikace — tedy
  * zákaz vloženého kódu, kvůli kterému zůstával náhled prázdný.
  */
-registerPreviewScheme();
-registerKabinaScheme();
-// Vlastní videa do střihu — okno na disk nedosáhne a base64 přes IPC by
-// u velkých souborů nestačilo (a nešlo by v nich přeskakovat)
-registerMediaScheme();
+/*
+ * Všechny vlastní adresy **jedním voláním**. Electron bere
+ * `registerSchemesAsPrivileged` jen jednou — druhé volání to první
+ * přepíše. Tři samostatná volání tak nechala oprávnění jen té poslední
+ * (videa do střihu) a náhled kabiny i bannerů nemohl nic stáhnout přes
+ * fetch („Failed to fetch").
+ *
+ * Vlastní videa do střihu — okno na disk nedosáhne a base64 přes IPC by
+ * u velkých souborů nestačilo (a nešlo by v nich přeskakovat).
+ */
+protocol.registerSchemesAsPrivileged([previewScheme(), kabinaScheme(), mediaScheme()]);
 
 app.whenReady().then(() => {
   installCrashGuards();

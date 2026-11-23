@@ -1300,5 +1300,28 @@ console.log('\nskript pro e-shop');
     '/p/detske-ksandy-modre');
 }
 
+/*
+ * Vlastní adresy se registrují jedním voláním. Electron bere
+ * `registerSchemesAsPrivileged` jen jednou; když ho volaly tři moduly
+ * zvlášť, přišel náhled kabiny o fetch a hlásil „Failed to fetch"
+ * (Patrik, 23. 11.).
+ */
+{
+  const volani = [];
+  const projdi = dir => {
+    for (const jmeno of fs.readdirSync(dir)) {
+      const cesta = path.join(dir, jmeno);
+      if (fs.statSync(cesta).isDirectory()) { projdi(cesta); continue; }
+      if (!/\.ts$/.test(jmeno)) continue;
+      const kod = fs.readFileSync(cesta, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      const n = (kod.match(/registerSchemesAsPrivileged\s*\(/g) || []).length;
+      if (n) volani.push(`${path.relative(path.join(__dirname, '..'), cesta)}×${n}`);
+    }
+  };
+  projdi(path.join(__dirname, '..', 'src', 'main'));
+  ok('vlastní adresy (kabina, bannery, videa) se registrují jedním voláním',
+    volani.length === 1 && /×1$/.test(volani[0]), volani.join(', '));
+}
+
 console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ zkušební kabina sedí');
 process.exit(failed ? 1 : 0);
