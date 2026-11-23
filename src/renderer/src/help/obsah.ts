@@ -252,7 +252,10 @@ export const ZKUSEBNA: HelpTopic = {
     'Model, který průhledné pozadí nevrátí, nevadí: aplikace kreslí na bílém a pozadí vyřízne sama.',
     'Kravaty, motýlky, kšandy a kapesníčky nekreslí model — jsou to šablony v rozměrech z katalogu. '
       + 'Když sedí o kus vedle, posuň v [Vizuály] body límce, pasu, ramene nebo kapsy.',
-    'Dokud jsou postavy zástupná kresba, říká to pruh přímo v okně.'
+    'Dokud jsou postavy zástupná kresba, říká to pruh přímo v okně.',
+    'Sady a produkty s víc věcmi na fotce čekají v [Produkty] nahoře. U každého kusu [Nahrát fotku] '
+      + 'jen té jedné věci a zařazení potvrď fajfkou — do té doby je zákazník v kabině nevidí.',
+    'Přepínač [Mobil] v náhledu ukáže kabinu na šířku telefonu, jak ji uvidí většina zákazníků.'
   ]
 };
 

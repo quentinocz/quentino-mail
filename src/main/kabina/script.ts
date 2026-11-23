@@ -100,7 +100,11 @@ const TEMPLATE = String.raw`
       hotovo: "Hotovo", zacitZnovu: "Začít znovu", vybrat: "Vybrat doplněk", vse: "Vše",
       kravaty: "Kravaty", motylky: "Motýlky", regaty: "Regaty", ksandyMn: "Kšandy", kapesnicky: "Kapesníčky",
       bez: "Bez", smazatVzhled: "Smazat vzhled", naModelu: "Na modelu",
-      vyskaProc: "Podle výšky poradíme délku kšand.", zavritDelsi: "Zavřít — vzhled si pamatujeme"
+      vyskaProc: "Podle výšky poradíme délku kšand.", zavritDelsi: "Zavřít — vzhled si pamatujeme",
+      neniVKabine: "Tenhle kousek si v kabině zatím vyzkoušet nejde — připravujeme ho. Mezitím tu máte podobné:",
+      novyVzhledDite: "Dětský kousek jsme dali na nový vzhled s dětským modelem.",
+      novyVzhledDospely: "Pánský kousek jsme dali na nový vzhled s dospělým modelem.",
+      sada: "sada", vSade: "Součást sady"
     },
     sk: {
       kabina: "Skúšobná kabína", podnadpis: "Vyberte si doplnky a pozrite sa, ako sadnú.",
@@ -129,7 +133,11 @@ const TEMPLATE = String.raw`
       hotovo: "Hotovo", zacitZnovu: "Začať odznova", vybrat: "Vybrať doplnok", vse: "Všetko",
       kravaty: "Kravaty", motylky: "Motýliky", regaty: "Regaty", ksandyMn: "Traky", kapesnicky: "Vreckovky",
       bez: "Bez", smazatVzhled: "Zmazať vzhľad", naModelu: "Na modeli",
-      vyskaProc: "Podľa výšky poradíme dĺžku trakov.", zavritDelsi: "Zavrieť — vzhľad si pamätáme"
+      vyskaProc: "Podľa výšky poradíme dĺžku trakov.", zavritDelsi: "Zavrieť — vzhľad si pamätáme",
+      neniVKabine: "Tento kúsok si v kabíne zatiaľ vyskúšať nedá — pripravujeme ho. Zatiaľ tu máte podobné:",
+      novyVzhledDite: "Detský kúsok sme dali na nový vzhľad s detským modelom.",
+      novyVzhledDospely: "Pánsky kúsok sme dali na nový vzhľad s dospelým modelom.",
+      sada: "sada", vSade: "Súčasť sady"
     },
     en: {
       kabina: "Fitting room", podnadpis: "Pick the accessories and see how they look.",
@@ -158,7 +166,11 @@ const TEMPLATE = String.raw`
       hotovo: "Done", zacitZnovu: "Start over", vybrat: "Choose an accessory", vse: "All",
       kravaty: "Ties", motylky: "Bow ties", regaty: "Cravats", ksandyMn: "Braces", kapesnicky: "Pocket squares",
       bez: "None", smazatVzhled: "Delete look", naModelu: "On the model",
-      vyskaProc: "We use the height to suggest the braces length.", zavritDelsi: "Close — we keep your look"
+      vyskaProc: "We use the height to suggest the braces length.", zavritDelsi: "Close — we keep your look",
+      neniVKabine: "This one is not ready for the fitting room yet — we are working on it. Meanwhile, here are similar ones:",
+      novyVzhledDite: "We put the kids' piece on a new look with a child model.",
+      novyVzhledDospely: "We put the men's piece on a new look with an adult model.",
+      sada: "set", vSade: "Part of the set"
     }
   };
 
@@ -311,13 +323,19 @@ const TEMPLATE = String.raw`
     if (!p) return p;
     var d = p.trhy && p.trhy[JAZYK];
     if (!d || !d.url) return p;
-    return {
-      kod: p.kod, nazev: d.nazev || p.nazev, url: d.url,
-      cena: d.cena || p.cena, cenaCislo: d.cenaCislo || p.cenaCislo,
-      obrazek: p.obrazek, typ: p.typ, varianta: p.varianta, hex: p.hex, vzorek: p.vzorek,
-      velikosti: p.velikosti, skladem: p.skladem,
-      velikostiSeznam: p.velikostiSeznam, proVek: p.proVek
-    };
+    /*
+     * Kopie celého produktu, přepíše se jen jazyk. Dřív se vypisovala
+     * pole jedno po druhém a vypadlo z nich měřítko vzorku — na
+     * anglické a slovenské verzi se pak látka dláždila bod na bod
+     * a z drobného vzoru byly talíře.
+     */
+    var out = {};
+    for (var klic in p) if (Object.prototype.hasOwnProperty.call(p, klic)) out[klic] = p[klic];
+    out.nazev = d.nazev || p.nazev;
+    out.url = d.url;
+    out.cena = d.cena || p.cena;
+    out.cenaCislo = d.cenaCislo || p.cenaCislo;
+    return out;
   }
 
   function produkty() {
@@ -336,8 +354,40 @@ const TEMPLATE = String.raw`
   function produkt(kod) {
     if (!kod) return null;
     var vse = vsechny();
-    for (var i = 0; i < vse.length; i++) if (vse[i].kod === kod) return vse[i];
+    var dil = String(kod).split("~");
+    for (var i = 0; i < vse.length; i++) {
+      if (vse[i].kod !== dil[0]) continue;
+      if (dil.length < 2) return vse[i];
+      /*
+       * Další kus sady: kšandy s motýlkem jsou jeden produkt, ale na
+       * modelu dva kusy. Patrik (23. 11.): „u sady kšandy+motýlek se
+       * zobrazí jen kšandy". Kus sady má vlastní vzorek a vrstvu, ale
+       * kupuje se s hlavním produktem — v košíku a součtu není.
+       */
+      var c = (vse[i].casti || [])[Number(dil[1])];
+      if (!c) return null;
+      return {
+        kod: kod, sada: vse[i].kod, nazev: vse[i].nazev, url: vse[i].url, obrazek: vse[i].obrazek,
+        cena: "", cenaCislo: 0, typ: c.typ, varianta: c.varianta, hex: c.hex,
+        vzorek: c.vzorek, vzorekCm: c.vzorekCm, vzorekRoh: c.vzorekRoh, proVek: vse[i].proVek
+      };
+    }
     return null;
+  }
+
+  /** Je kus na modelu jen součástí sady (nekupuje se zvlášť)? */
+  function jeDilSady(kus) {
+    return !!(kus && kus.produkt && String(kus.produkt).indexOf("~") > 0);
+  }
+
+  /** Sundá z modelu ostatní kusy sady, když hlavní kus odchází. */
+  function odeberSadu(v, kod) {
+    if (!kod) return;
+    for (var typ in v.kusy) {
+      if (!Object.prototype.hasOwnProperty.call(v.kusy, typ)) continue;
+      var k = v.kusy[typ];
+      if (k && k.produkt && String(k.produkt).indexOf(kod + "~") === 0) delete v.kusy[typ];
+    }
   }
 
   /** Produkt podle toho, co o něm ví stránka. */
@@ -425,9 +475,20 @@ const TEMPLATE = String.raw`
     return !v.kusy.ksandy;
   }
 
+  /*
+   * Je sako na modelu opravdu nakreslené? Nestačí, že ho zákazník chce:
+   * když vrstva saka pro tuhle postavu chybí (neprošla kontrolou), byl
+   * by kapesníček „v kapse" na holé košili (Patrik, 23. 11.).
+   */
+  function sakoNaModelu(v) {
+    if (!sakoVidi(v)) return false;
+    var postava = postavaPro(v);
+    return !!(postava && vrstvaPro(postava.id, "sako", v.kusy.sako.varianta));
+  }
+
   function vrstvyVzhledu(v) {
     var poradi = katalog().poradi || [];
-    var sako = sakoVidi(v);
+    var sako = sakoNaModelu(v);
     var out = [];
     for (var i = 0; i < poradi.length; i++) {
       var typ = poradi[i];
@@ -503,14 +564,23 @@ const TEMPLATE = String.raw`
    * kde látka není.
    */
   var pomocne = null;
-  function oblec(img, hex, vzorekImg, sirka, vyska, zmenseni) {
+  function oblec(img, hex, vzorekImg, sirka, vyska, zmenseni, roh) {
     if (!pomocne) pomocne = document.createElement("canvas");
     pomocne.width = sirka;
     pomocne.height = vyska;
     var ctx = pomocne.getContext("2d");
     ctx.clearRect(0, 0, sirka, vyska);
     ctx.globalCompositeOperation = "source-over";
-    if (vzorekImg) {
+    if (vzorekImg && roh) {
+      /*
+       * Kapesníček: vzorek je špička výrobku i s lemem, natažená přes
+       * obdélník vrstvy. Bílý kapesníček s barevným lemem tak má bílou
+       * plochu a lem po hranách — dřív byl celý barevný (Patrik, 23. 11.).
+       */
+      ctx.fillStyle = podMapu(hex || "#808080");
+      ctx.fillRect(0, 0, sirka, vyska);
+      ctx.drawImage(vzorekImg, roh[0], roh[1], roh[2], roh[3]);
+    } else if (vzorekImg) {
       var vzor = ctx.createPattern(vzorekImg, "repeat");
       /*
        * Vzorek se zmenší na skutečnou velikost látky. Dlážděný bod na bod
@@ -521,10 +591,11 @@ const TEMPLATE = String.raw`
         try { vzor.setTransform(new DOMMatrix().scale(zmenseni, zmenseni)); } catch (e) { /* bez zmenšení */ }
       }
       ctx.fillStyle = vzor || podMapu(hex || "#808080");
+      ctx.fillRect(0, 0, sirka, vyska);
     } else {
       ctx.fillStyle = podMapu(hex);
+      ctx.fillRect(0, 0, sirka, vyska);
     }
-    ctx.fillRect(0, 0, sirka, vyska);
     ctx.globalCompositeOperation = "hard-light";
     ctx.drawImage(img, 0, 0, sirka, vyska);
     ctx.globalCompositeOperation = "destination-in";
@@ -579,9 +650,14 @@ const TEMPLATE = String.raw`
       mam.push({
         kus: kusy[i], vrstva: vr,
         vzorek: zbozi && zbozi.vzorek ? zbozi.vzorek : "",
-        vzorekCm: zbozi && zbozi.vzorekCm ? zbozi.vzorekCm : 0
+        vzorekCm: zbozi && zbozi.vzorekCm ? zbozi.vzorekCm : 0,
+        roh: zbozi && zbozi.vzorekRoh && vr.okraje ? vr.okraje : null
       });
       cekani.push(obrazek(vr.url).catch(function () { return null; }));
+    }
+    /* Kov kšand (spony, posuvky) — kreslí se přes obarvený pásek, sám se nebarví */
+    for (var kv = 0; kv < mam.length; kv++) {
+      cekani.push(mam[kv].vrstva.kov ? obrazek(mam[kv].vrstva.kov).catch(function () { return null; }) : Promise.resolve(null));
     }
     /* Vzorky látek se načítají vedle vrstev, ne po nich — jinak se model
        překresluje dvakrát a při přepínání kravat to poskakuje */
@@ -603,7 +679,8 @@ const TEMPLATE = String.raw`
         var img = nactene[j];
         if (!img) continue;
         var def = defVrstvy(mam[j].kus.typ);
-        var vzorekImg = nactene[mam.length + j] || null;
+        var vzorekImg = nactene[mam.length * 2 + j] || null;
+        var kovImg = nactene[mam.length + j] || null;
         var zmenseni = vzorekImg && mam[j].vzorekCm && naCm
           ? (mam[j].vzorekCm * naCm) / Math.max(1, vzorekImg.width) : 1;
         /*
@@ -619,10 +696,11 @@ const TEMPLATE = String.raw`
           ctx.shadowOffsetY = Math.max(1, naCm * 0.18);
         }
         if (def && def.barvitelna && (mam[j].kus.hex || vzorekImg)) {
-          ctx.drawImage(oblec(img, mam[j].kus.hex, vzorekImg, sirka, vyska, zmenseni), 0, 0);
+          ctx.drawImage(oblec(img, mam[j].kus.hex, vzorekImg, sirka, vyska, zmenseni, mam[j].roh), 0, 0);
         } else {
           ctx.drawImage(img, 0, 0, sirka, vyska);
         }
+        if (kovImg) ctx.drawImage(kovImg, 0, 0, sirka, vyska);
         if (stin) {
           ctx.shadowColor = "rgba(0,0,0,0)";
           ctx.shadowBlur = 0;
@@ -1018,8 +1096,20 @@ const TEMPLATE = String.raw`
     + "background:#fff;font:inherit}"
     + ".qkb-rada{margin-top:5px;font-size:12px;color:#52525b}"
     + ".qkb-rada b{font-weight:600;color:#18181b}"
-    + ".qkb-odkaz{background:0;border:0;padding:0;color:#2563eb;cursor:pointer;font:inherit;"
-    + "font-size:12px;text-decoration:underline}"
+    /*
+     * Vedlejší tlačítka jako tiché oválky v barvách kabiny. Modrý
+     * podtržený text vypadal jako odkaz z roku 2005 a na mobilu se do
+     * něj špatně trefovalo (Patrik, 23. 11.).
+     */
+    + ".qkb-odkaz{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border:1px solid #e4e4e7;"
+    + "border-radius:999px;background:#fff;color:#27272a;cursor:pointer;font:inherit;font-size:12.5px;font-weight:500;"
+    + "text-decoration:none;line-height:1}"
+    + ".qkb-odkaz:hover{background:#f4f4f5;border-color:#d4d4d8}"
+    + ".qkb-odkaz:focus-visible{outline:2px solid #18181b;outline-offset:2px}"
+    + ".qkb-upozorneni{position:relative;margin:12px 14px 0;padding:12px 40px 12px 12px;border-radius:12px;"
+    + "background:#fef9ec;border:1px solid #f3e3b5;color:#3f3a2b;font-size:13px;line-height:1.4}"
+    + ".qkb-upozorneni b{display:block;margin-bottom:2px;font-weight:600}"
+    + ".qkb-upozorneni-x{position:absolute;right:6px;top:6px;width:28px;height:28px;background:transparent}"
     + ".qkb-hledani{display:flex;gap:8px;align-items:center}"
     + ".qkb-hledani input{flex:1 1 auto;height:40px;padding:0 12px;border:1px solid #d4d4d8;"
     + "border-radius:10px;font:inherit;min-width:0}"
@@ -1063,7 +1153,7 @@ const TEMPLATE = String.raw`
     + ".qkb-karta-na{border-color:#18181b;box-shadow:0 0 0 1px #18181b}"
     + ".qkb-stitek{position:absolute;left:12px;top:12px;padding:3px 7px;border-radius:999px;background:#18181b;"
     + "color:#fff;font-size:10.5px;font-weight:600;line-height:1.2}"
-    + ".qkb-rada-radek .qkb-odkaz+.qkb-odkaz,.qkb-kus-radek .qkb-odkaz+.qkb-odkaz{margin-left:4px}"
+    + ".qkb-rada-radek{flex-wrap:wrap}"
     /*
      * Na mobilu je model nalepený nahoře, zatímco se pod ním listuje
      * nabídkou. Lepí se ale jen v rámci svého rodiče — a tím byl levý
@@ -1126,7 +1216,7 @@ const TEMPLATE = String.raw`
     for (var typ in kusy) {
       if (!Object.prototype.hasOwnProperty.call(kusy, typ)) continue;
       var d = defVrstvy(typ);
-      if (d && d.zbozi && kusy[typ] && kusy[typ].produkt) kusu += 1;
+      if (d && d.zbozi && kusy[typ] && kusy[typ].produkt && !jeDilSady(kusy[typ])) kusu += 1;
     }
     try {
       if (kusu > 0) {
@@ -1176,7 +1266,7 @@ const TEMPLATE = String.raw`
     for (var s = 0; s < stare.length; s++) stare[s].parentNode.removeChild(stare[s]);
     var v = vzhled();
     var vrstvy = katalog().vrstvy || [];
-    var sako = sakoVidi(v);
+    var sako = sakoNaModelu(v);
     for (var i = 0; i < vrstvy.length; i++) {
       var def = vrstvy[i];
       if (!def.bod || !def.zbozi) continue;
@@ -1277,7 +1367,8 @@ const TEMPLATE = String.raw`
     /* Dokud na modelu žádný doplněk není, je nabídka dalšího vzhledu k ničemu */
     if (varianty.length < 2 && kNakupu().length === 0) return;
     blok.appendChild(el("h3", null, t("vzhledy")));
-    var pas = el("div", "qkb-pas");
+    /* Zalamují se: na počítači byly ve vodorovném posuvníku a „Další vzhled" utíkal z okna */
+    var pas = el("div", "qkb-pas qkb-pas-zalom");
     for (var i = 0; i < varianty.length; i++) {
       var chip = tlac("qkb-chip", varianty[i].nazev || (t("vzhled") + " " + (i + 1)), (function (index) {
         return function () { kde = index; vykresliScenu(); prekresli(); };
@@ -1329,7 +1420,12 @@ const TEMPLATE = String.raw`
 
     var telo = el("div", "qkb-kus-telo");
     telo.appendChild(el("div", "qkb-kus-nazev", (p && p.nazev) || nazevVrstvy(typ)));
-    telo.appendChild(el("div", "qkb-sub", nazevVrstvy(typ) + (p ? " · " + p.cena : "")));
+    var druh = nazevVrstvy(typ);
+    if (p && p.casti && p.casti.length) {
+      for (var ic = 0; ic < p.casti.length; ic++) druh += " + " + nazevVrstvy(p.casti[ic].typ);
+      druh += " (" + t("sada") + ")";
+    }
+    telo.appendChild(el("div", "qkb-sub", druh + (p ? " · " + p.cena : "")));
 
     var ovladani = el("div", "qkb-kus-radek");
     var krok = el("div", "qkb-pocet");
@@ -1370,6 +1466,7 @@ const TEMPLATE = String.raw`
     }));
     ovladani.appendChild(tlac("qkb-odkaz", t("odebrat"), function () {
       delete vzhled().kusy[typ];
+      odeberSadu(vzhled(), kus.produkt);
       vykresliScenu();
       prekresli();
     }));
@@ -1412,7 +1509,7 @@ const TEMPLATE = String.raw`
       var def = defVrstvy(typ);
       if (!def || !def.zbozi) continue;
       var kus = vzhled().kusy[typ];
-      if (!kus || !kus.produkt) continue;
+      if (!kus || !kus.produkt || jeDilSady(kus)) continue;
       blok.appendChild(radekKusu(typ, kus));
       mam += 1;
     }
@@ -1651,21 +1748,61 @@ const TEMPLATE = String.raw`
   /* ------------------------------------------------- nasazení kusu */
 
   /** Dá produkt na model — a když je dětský, přepne i model. */
+  /** Má vzhled na sobě něco ke koupi (ne jen oblek)? */
+  function maZbozi(v) {
+    for (var typ in v.kusy) {
+      if (!Object.prototype.hasOwnProperty.call(v.kusy, typ)) continue;
+      var d = defVrstvy(typ);
+      if (d && d.zbozi && v.kusy[typ] && v.kusy[typ].produkt) return true;
+    }
+    return false;
+  }
+
+  function nastavVek(v, cil) {
+    v.vek = cil;
+    var veky = katalog().veky || [];
+    for (var i = 0; i < veky.length; i++) {
+      if (veky[i].id === cil && veky[i].vyska) {
+        v.vyskaCm = Math.round((veky[i].vyska[0] + veky[i].vyska[1]) / 2);
+      }
+    }
+  }
+
   function nasad(p) {
     if (!p) return;
     var v = vzhled();
     if (p.proVek && p.proVek.indexOf(v.vek) < 0) {
       var cil = p.proVek[0];
-      v.vek = cil;
-      var veky = katalog().veky || [];
-      for (var i = 0; i < veky.length; i++) {
-        if (veky[i].id === cil && veky[i].vyska) {
-          v.vyskaCm = Math.round((veky[i].vyska[0] + veky[i].vyska[1]) / 2);
-        }
+      /*
+       * Dětský kus k pánské kravatě: model by se přepnul na dítě i s pánskou
+       * kravatou, která na něm visí po kolena. Kabina to pozná sama
+       * (Patrik, 23. 11.) a když už je na modelu něco jiného, založí
+       * **nový vzhled** se správným modelem — oba se dají porovnat.
+       */
+      if (maZbozi(v)) {
+        var novy = vychozi();
+        novy.nazev = t("vzhled") + " " + (varianty.length + 1);
+        nastavVek(novy, cil);
+        varianty.push(novy);
+        kde = varianty.length - 1;
+        v = novy;
+        hlaska(cil === "dospely" ? t("novyVzhledDospely") : t("novyVzhledDite"));
+      } else {
+        nastavVek(v, cil);
+        hlaska(cil === "dospely" ? t("prepnutoDospely") : t("prepnutoDite"));
       }
-      hlaska(cil === "dospely" ? t("prepnutoDospely") : t("prepnutoDite"));
     }
     var stary = v.kusy[p.typ];
+    /* Co odchází, nese s sebou i zbytek své sady; nová sada si přinese svoje kusy */
+    if (stary && stary.produkt) odeberSadu(v, String(stary.produkt).split("~")[0]);
+    if (jeDilSady(stary)) {
+      var hlavni = String(stary.produkt).split("~")[0];
+      for (var typH in v.kusy) {
+        if (Object.prototype.hasOwnProperty.call(v.kusy, typH) && v.kusy[typH] && v.kusy[typH].produkt === hlavni) delete v.kusy[typH];
+      }
+      odeberSadu(v, hlavni);
+      stary = null;
+    }
     v.kusy[p.typ] = {
       varianta: p.varianta || (stary && stary.varianta) || "",
       hex: p.hex || "#808080",
@@ -1673,6 +1810,15 @@ const TEMPLATE = String.raw`
       pocet: stary ? pocetKusu(stary) || 1 : 1,
       velikost: ""
     };
+    var casti = p.casti || [];
+    for (var ic = 0; ic < casti.length; ic++) {
+      var jiny = v.kusy[casti[ic].typ];
+      if (jiny && jiny.produkt && !jeDilSady(jiny)) odeberSadu(v, jiny.produkt);
+      v.kusy[casti[ic].typ] = {
+        varianta: casti[ic].varianta, hex: casti[ic].hex || "#808080",
+        produkt: p.kod + "~" + ic, pocet: 0, velikost: ""
+      };
+    }
     var rada = radaVelikosti(p, v);
     if (rada && rada.kod) v.kusy[p.typ].velikost = rada.kod;
     /*
@@ -1907,7 +2053,7 @@ const TEMPLATE = String.raw`
     var poradi = katalog().poradi || [];
     for (var i = 0; i < poradi.length; i++) {
       var kus = vzhled().kusy[poradi[i]];
-      if (!kus || !kus.produkt) continue;
+      if (!kus || !kus.produkt || jeDilSady(kus)) continue;
       var pocet = pocetKusu(kus);
       if (pocet === 0) continue;
       var p = produkt(kus.produkt);
@@ -2219,11 +2365,47 @@ const TEMPLATE = String.raw`
       if (!ok) return;
       var p = najdiProdukt({ url: co.url, kod: co.kod, nazev: co.nazev });
       if (!p) {
-        hlaska(t("nahrada"));
+        neniVKabine(co.nazev || "");
         return;
       }
       nasad(p);
     });
+  }
+
+  /*
+   * Produkt, který v kabině není — ještě neprošel kontrolou (sada, nový
+   * kus), nebo ho kabina nezná vůbec. Patrik (23. 11.): „být připravena
+   * na scénář, že zákazník bude chtít vložit produkt, který není ještě
+   * revidován, a nějak mu to slušně oznámit". Místo čtyřvteřinové
+   * hlášky zůstane nahoře vysvětlení a pod ním podobné kusy podle názvu.
+   */
+  function hadejDruh(nazev) {
+    var n = bezDiakritiky(nazev);
+    if (/motyl|bow/.test(n)) return { typ: "kravata", rodina: "motylek" };
+    if (/regat|cravat/.test(n)) return { typ: "kravata", rodina: "regata" };
+    if (/kravat|tie/.test(n)) return { typ: "kravata", rodina: "kravata" };
+    if (/ksand|trak|brace|suspend/.test(n)) return { typ: "ksandy", rodina: "" };
+    if (/kapesn|vreckov|pocket/.test(n)) return { typ: "kapesnicek", rodina: "" };
+    return null;
+  }
+
+  function neniVKabine(nazev) {
+    var pravy = okno && okno.querySelector(".qkb-pravy");
+    if (!pravy) return;
+    var stare = pravy.querySelector(".qkb-upozorneni");
+    if (stare && stare.parentNode) stare.parentNode.removeChild(stare);
+    var blok = el("div", "qkb-upozorneni");
+    blok.setAttribute("role", "status");
+    if (nazev) blok.appendChild(el("b", null, nazev));
+    blok.appendChild(el("span", null, t("neniVKabine")));
+    var pryc = tlac("qkb-ikona qkb-upozorneni-x", "×", function () {
+      if (blok.parentNode) blok.parentNode.removeChild(blok);
+    });
+    pryc.setAttribute("aria-label", t("zavrit"));
+    blok.appendChild(pryc);
+    pravy.insertBefore(blok, pravy.firstChild);
+    var druh = hadejDruh(nazev);
+    if (druh) otevriVyber(druh.typ, druh.rodina);
   }
 
   function zAdresy() {

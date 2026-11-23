@@ -986,8 +986,11 @@ export const api = {
     katalog: (sAi: boolean, sBarvami: boolean) =>
       call<{ zarazeno: number; obarveno: number; nezarazeno: number }>('zk:katalog', sAi, sBarvami),
     produkty: (limit?: number) => call<ZkProduktRadek[]>('zk:produkty', limit ?? 300),
-    produkt: (kod: string, co: Partial<{ typ: ZkVrstvaTyp | ''; varianta: string; hex: string; schvaleno: boolean }>) =>
+    produkt: (kod: string, co: Partial<{ typ: ZkVrstvaTyp | ''; varianta: string; hex: string; schvaleno: boolean; meritko: number }>) =>
       call<void>('zk:produkt', kod, co),
+    /** Látka z nahrané fotky — `cast` −1 je hlavní kus, jinak kus sady. */
+    latka: (kod: string, cast: number, data: string) =>
+      call<{ hex: string; vzorek: string }>('zk:latka', kod, cast, data),
     nahled: () => call<ZkNahled>('zk:nahled'),
     vzhledy: () => call<{ id: string; nazev: string; text: string; kdy: string }[]>('zk:vzhledy'),
     vzhledUloz: (id: string, nazev: string, text: string) => call<void>('zk:vzhled-uloz', id, nazev, text),

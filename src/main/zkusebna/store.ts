@@ -5,6 +5,7 @@ import { getDb } from '../db';
 import {
   ZkPostava, ZkVrstva, ZkVrstvaTyp, ZkVek, ZkTelo, ZK_VEKY, ZK_VRSTVY, postavaId
 } from '../../shared/zkusebna';
+import type { ZkCast } from '../../shared/zkusebna';
 
 /**
  * Čtení a zápis zkušební kabiny.
@@ -112,20 +113,21 @@ export function vrstvy(postavaId?: string): ZkVrstva[] {
     stav: row.stav,
     potiz: row.potiz,
     zadani: row.zadani,
-    kdy: row.kdy
+    kdy: row.kdy,
+    kov: row.kov || undefined
   }));
 }
 
 export function zapisVrstvu(v: ZkVrstva): void {
   getDb().prepare(
-    `INSERT INTO zk_vrstvy (postava, typ, varianta, soubor, url, sirka, vyska, podil, okraje, stav, potiz, zadani, kdy)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `INSERT INTO zk_vrstvy (postava, typ, varianta, soubor, url, sirka, vyska, podil, okraje, stav, potiz, zadani, kdy, kov)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(postava, typ, varianta) DO UPDATE SET
        soubor = excluded.soubor, url = excluded.url, sirka = excluded.sirka, vyska = excluded.vyska,
        podil = excluded.podil, okraje = excluded.okraje, stav = excluded.stav,
-       potiz = excluded.potiz, zadani = excluded.zadani, kdy = excluded.kdy`
+       potiz = excluded.potiz, zadani = excluded.zadani, kdy = excluded.kdy, kov = excluded.kov`
   ).run(v.postava, v.typ, v.varianta, v.soubor, v.url, v.sirka, v.vyska, v.podil,
-    JSON.stringify(v.okraje), v.stav, v.potiz, v.zadani, v.kdy || new Date().toISOString());
+    JSON.stringify(v.okraje), v.stav, v.potiz, v.zadani, v.kdy || new Date().toISOString(), v.kov ?? '');
 }
 
 export function schval(postava: string, typ: ZkVrstvaTyp, varianta: string, ano: boolean): void {
@@ -205,6 +207,12 @@ export interface ZkProduktRow {
   rucne: boolean;
   /** Variantu vybral člověk — katalog ji nepřepíše. */
   variantaRucne?: boolean;
+  /** Další kusy sady, každý s vlastní látkou. */
+  casti?: ZkCast[];
+  /** Proč potřebuje kontrolu (sada, víc kusů na fotce). Prázdné = nepotřebuje. */
+  kontrola?: string;
+  /** Ruční doladění velikosti vzoru. */
+  meritko?: number;
   velikosti: boolean;
   schvaleno: boolean;
 }
@@ -220,6 +228,9 @@ export function produktyRows(): ZkProduktRow[] {
     vzorekCm: Number(row.vzorek_cm) || 0,
     rucne: !!row.rucne,
     variantaRucne: !!row.varianta_rucne,
+    casti: (() => { try { const c = JSON.parse(row.casti || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } })(),
+    kontrola: row.kontrola ?? '',
+    meritko: Number(row.meritko) || 1,
     velikosti: !!row.velikosti,
     schvaleno: !!row.schvaleno
   }));
@@ -227,15 +238,18 @@ export function produktyRows(): ZkProduktRow[] {
 
 export function zapisProdukt(row: ZkProduktRow): void {
   getDb().prepare(
-    `INSERT INTO zk_produkty (kod, typ, varianta, hex, vzorek, vzorek_cm, rucne, varianta_rucne, velikosti, schvaleno, kdy)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    `INSERT INTO zk_produkty (kod, typ, varianta, hex, vzorek, vzorek_cm, rucne, varianta_rucne, casti, kontrola, meritko,
+       velikosti, schvaleno, kdy)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(kod) DO UPDATE SET
        typ = excluded.typ, varianta = excluded.varianta, hex = excluded.hex,
        vzorek = excluded.vzorek, vzorek_cm = excluded.vzorek_cm, rucne = excluded.rucne,
-       varianta_rucne = excluded.varianta_rucne, velikosti = excluded.velikosti,
+       varianta_rucne = excluded.varianta_rucne, casti = excluded.casti, kontrola = excluded.kontrola,
+       meritko = excluded.meritko, velikosti = excluded.velikosti,
        schvaleno = excluded.schvaleno, kdy = excluded.kdy`
   ).run(row.kod, row.typ, row.varianta, row.hex, row.vzorek ?? '', row.vzorekCm ?? 0, row.rucne ? 1 : 0,
-    row.variantaRucne ? 1 : 0, row.velikosti ? 1 : 0, row.schvaleno ? 1 : 0, new Date().toISOString());
+    row.variantaRucne ? 1 : 0, row.casti?.length ? JSON.stringify(row.casti) : '', row.kontrola ?? '',
+    row.meritko ?? 1, row.velikosti ? 1 : 0, row.schvaleno ? 1 : 0, new Date().toISOString());
 }
 
 /* --------------------------------------------------------------- vzhledy */

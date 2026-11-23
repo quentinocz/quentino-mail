@@ -544,6 +544,21 @@ export function ulozPostavu(p: ZkPostava, obraz: Obraz, zadani: string): ZkPosta
     stav: 'hotovo', potiz: '', zadani, kdy: new Date().toISOString()
   });
   zapisPostup(id);
+  /*
+   * Sako a vesta jsou dokreslené na **předchozí** postavu. Na nové by
+   * seděly vedle — Patrik (23. 11.): „vesta se vykreslila nějak velká,
+   * že nesedí na model". Odloží se jako nesedící, kabina je nepošle a
+   * v okně svítí, že se mají dokreslit znovu.
+   */
+  for (const v of store.vrstvy(id)) {
+    const def = vrstvaDef(v.typ);
+    if (!def || def.sablona || def.zPostavy || v.typ === 'postava') continue;
+    if (v.stav !== 'hotovo' && v.stav !== 'schvaleno') continue;
+    store.zapisVrstvu({
+      ...v, stav: 'nesedi',
+      potiz: 'Postava se nakreslila znovu a tenhle kus je dokreslený na tu předchozí — dokresli ho znovu.'
+    });
+  }
   sablony.vygenerujSablony(id);
   return hotova;
 }
@@ -1067,6 +1082,29 @@ export function sedeniKulisy(
     }
   }
   const nazev = typ === 'sako' ? 'Sako' : 'Vesta';
+  /*
+   * Přesah přes obrys modelu. Vesta, která je o číslo větší, kouká
+   * do stran za trup a za ramena — ani rukávy, ani ruce to nemusí
+   * prozradit, když model drží ruce u těla.
+   */
+  {
+    const silueta = new Uint8Array(sirka * vyska);
+    for (let i = 0; i < silueta.length; i++) silueta[i] = zaklad.body[i * 4 + 3] > 24 ? 255 : 0;
+    const okoli = px.rozsir(silueta, sirka, vyska, Math.max(2, Math.round(0.8 * kotvy.naCm)));
+    let kusu = 0; let venku = 0;
+    for (let i = 0; i < silueta.length; i++) {
+      if (vrstva.body[i * 4 + 3] <= 128) continue;
+      kusu += 1;
+      if (!okoli[i]) venku += 1;
+    }
+    if (kusu > 200 && venku / kusu > 0.04) {
+      return `${nazev} přesahuje obrys modelu (${Math.round((venku / kusu) * 100)} % mimo) — je mu velk${typ === 'sako' ? 'é' : 'á'}. Přegeneruj ho.`;
+    }
+  }
+  /* Vesta je bez rukávů — když zakrývá rukávy košile vedle trupu, je široká */
+  if (typ === 'vesta' && rukavu > 150 && zakrytoRukavu / rukavu > 0.3) {
+    return `Vesta je modelu velká — zakrývá ${Math.round((zakrytoRukavu / rukavu) * 100)} % rukávů košile. Přegeneruj ji.`;
+  }
   if (typ === 'sako' && rukavu > 150 && zakrytoRukavu / rukavu < 0.55) {
     return `Rukávy saka nesedí na ruce modelu (zakrývají jen ${Math.round((zakrytoRukavu / rukavu) * 100)} % rukávů košile)`
       + ' — model je nakreslil jinak, třeba s rukama v kapsách. Přegeneruj sako.';

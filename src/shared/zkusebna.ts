@@ -338,7 +338,7 @@ export const ZK_SABLONY: Record<string, ZkSablona> = {
   'kravata:motylek': { tvar: 'motylek', sirkaCm: 12, vyskaCm: 5.5 },
   'kravata:motylek-detsky': { tvar: 'motylek', sirkaCm: 10, vyskaCm: 4.8 },
   'kravata:motylek-mini': { tvar: 'motylek', sirkaCm: 8.5, vyskaCm: 4 },
-  'kravata:regata': { tvar: 'regata', sirkaCm: 9, vyskaCm: 12 },
+  'kravata:regata': { tvar: 'regata', sirkaCm: 10, vyskaCm: 22 },
   'ksandy:uzke': { tvar: 'ksandy', sirkaCm: 2.5 },
   'ksandy:siroke': { tvar: 'ksandy', sirkaCm: 3.5 },
   'ksandy:extra': { tvar: 'ksandy', sirkaCm: 4 },
@@ -466,6 +466,23 @@ export interface ZkVrstva {
   potiz: string;
   zadani: string;
   kdy: string;
+  /**
+   * Kovové části šablony (spony a posuvky kšand) jako zvláštní obrázek.
+   * Nebarví se látkou: stříbrná spona obarvená vínovou vypadala jako
+   * kus růžového plastu.
+   */
+  kov?: string;
+}
+
+/** Další kus sady — kšandy s motýlkem, kravata s kapesníčkem. */
+export interface ZkCast {
+  typ: ZkVrstvaTyp;
+  varianta: string;
+  hex: string;
+  vzorek: string;
+  vzorekCm?: number;
+  /** Vzorek je roh výrobku (kapesníček), kreslí se jednou přes celý tvar, ne dlaždicově. */
+  vzorekRoh?: boolean;
 }
 
 /* ---------------------------------------------------------------- barvy */
@@ -705,6 +722,14 @@ export interface ZkProdukt {
    * dlážděný bod na bod dělal z drobných kytek talíře.
    */
   vzorekCm?: number;
+  /**
+   * Vzorek je roh výrobku, ne kousek látky k dláždění. U kapesníčku je
+   * z kapsy vidět špička — a bílý kapesníček s barevným lemem má mít
+   * vidět lem, ne barevně podbarvenou celou plochu.
+   */
+  vzorekRoh?: boolean;
+  /** Další kusy sady na modelu (kšandy s motýlkem). Hlavní kus je `typ`. */
+  casti?: ZkCast[];
   /** Má velikosti? Pak se do košíku nedá hodit naslepo. */
   velikosti: boolean;
   skladem: boolean;
@@ -1633,6 +1658,12 @@ export interface ZkProduktRadek {
   obrazek: string;
   cena: string;
   vKabine: boolean;
+  /** Proč produkt čeká na kontrolu (sada, víc věcí na fotce). Prázdné = nečeká. */
+  kontrola: string;
+  /** Ruční doladění velikosti vzoru (1 = jak se odhadlo z fotky). */
+  meritko: number;
+  /** Další kusy sady — každý potřebuje vlastní látku. */
+  casti: { typ: ZkVrstvaTyp; varianta: string; hex: string; vzorek: string }[];
 }
 
 export interface ZkNahled {

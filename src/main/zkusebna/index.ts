@@ -2,7 +2,7 @@ import fs from 'fs';
 import { getSetting, setSetting } from '../db';
 import { encrypt } from '../secure';
 import {
-  ZkPrehled, ZkVrstva, ZkVrstvaProOkno, ZkVrstvaTyp, ZK_KSANDY_DIL, ZK_VRSTVY,
+  ZkPrehled, ZkProduktRadek, ZkVrstva, ZkVrstvaProOkno, ZkVrstvaTyp, ZK_KSANDY_DIL, ZK_VRSTVY,
   vrstvaDef, vzhledDoTextu, vzhledZTextu
 } from '../../shared/zkusebna';
 import { nacti, uloz } from './png';
@@ -365,23 +365,41 @@ export async function projdiKatalog(sAi: boolean, sBarvami: boolean) {
   return produkty.projdiKatalog({ sAi, sBarvami });
 }
 
-export function produktyPrehled(limit = 300) {
+export function produktyPrehled(limit = 300): ZkProduktRadek[] {
   const rows = store.produktyRows();
-  const vKabine = produkty.proKabinu(limit);
+  /* I neschválené sady — v okně se mají ukázat i s názvem, právě je je potřeba zkontrolovat */
+  const vKabine = produkty.proKabinu(limit, true);
   const mapa = new Map(vKabine.map(one => [one.kod, one]));
-  return rows.slice(0, limit).map(row => {
+  /* Co ke kontrole, napřed: na sadu, která čeká, se v seznamu čtyř set kusů jinak nenarazí */
+  const serazene = [...rows].sort((a, b) => Number(!!b.kontrola && !b.schvaleno) - Number(!!a.kontrola && !a.schvaleno));
+  return serazene.slice(0, limit).map(row => {
     const p = mapa.get(row.kod);
     return {
-      ...row,
+      kod: row.kod, typ: row.typ, varianta: row.varianta, hex: row.hex, vzorek: row.vzorek,
+      rucne: row.rucne, velikosti: row.velikosti, schvaleno: row.schvaleno,
+      kontrola: row.kontrola || '',
+      meritko: row.meritko || 1,
+      casti: (row.casti ?? []).map(c => ({ typ: c.typ, varianta: c.varianta, hex: c.hex, vzorek: c.vzorek })),
       nazev: p?.nazev ?? row.kod,
       obrazek: p?.obrazek ?? '',
       cena: p?.cena ?? '',
-      vKabine: !!p
+      vKabine: !!p && (!row.kontrola || row.schvaleno)
     };
   });
 }
 
-export function upravProdukt(kod: string, co: { typ?: ZkVrstvaTyp | ''; varianta?: string; hex?: string; schvaleno?: boolean }) {
+/**
+ * Látka z fotky, kterou nahrál člověk — pro sadu, kde je na fotce
+ * produktu víc věcí (Patrik, 23. 11.: „co u sad dát možnost nahrát fotky
+ * jednotlivých produktů?"). `cast` −1 je hlavní kus, jinak pořadí v sadě.
+ */
+export function nahrajLatku(kod: string, cast: number, data: string): { hex: string; vzorek: string } {
+  const surova = String(data || '').replace(/^data:[^,]*,/, '');
+  if (!surova) throw new Error('Fotka je prázdná.');
+  return produkty.latkaZFotky(kod, Number.isFinite(cast) ? cast : -1, Buffer.from(surova, 'base64'));
+}
+
+export function upravProdukt(kod: string, co: { typ?: ZkVrstvaTyp | ''; varianta?: string; hex?: string; schvaleno?: boolean; meritko?: number }) {
   const row = store.produktyRows().find(one => one.kod === kod)
     ?? { kod, typ: '' as const, varianta: '', hex: '', vzorek: '', rucne: false, velikosti: false, schvaleno: false };
   store.zapisProdukt({
@@ -393,7 +411,9 @@ export function upravProdukt(kod: string, co: { typ?: ZkVrstvaTyp | ''; varianta
     rucne: co.hex !== undefined ? true : row.rucne,
     /* Ručně vybraná varianta (šířka, velikost motýlka) se při projití katalogu nepřepíše */
     variantaRucne: co.varianta !== undefined && co.typ === undefined ? true : (co.typ !== undefined ? false : row.variantaRucne),
-    schvaleno: co.schvaleno !== undefined ? co.schvaleno : row.schvaleno
+    schvaleno: co.schvaleno !== undefined ? co.schvaleno : row.schvaleno,
+    /* Ruční doladění velikosti vzoru — odhad z fotky se může splést o polovinu */
+    meritko: co.meritko !== undefined ? Math.max(0.3, Math.min(3, Number(co.meritko) || 1)) : row.meritko
   });
 }
 
@@ -409,8 +429,9 @@ export function nahledKabiny(): { url: string; velikost: ReturnType<typeof velik
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   const klicovac = new Map(hotove.map(one => [`${one.postava}:${one.typ}:${one.varianta}`, one]));
   const { url, data } = stashKabinu(
-    (klic, adresaProduktu, adresaVzorku) => kabina(v => {
+    (klic, adresaProduktu, adresaVzorku) => kabina((v, kov) => {
       const mam = klicovac.get(`${v.postava}:${v.typ}:${v.varianta}`);
+      if (kov) return mam?.kov ? `${KABINA_SCHEME}://nahled/${klic}/vrstva/${jmenoVrstvy(v, true)}` : '';
       return mam?.soubor ? `${KABINA_SCHEME}://nahled/${klic}/vrstva/${jmenoVrstvy(v)}` : '';
     }, 400, {
       kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt(),
@@ -444,12 +465,10 @@ export function ulozVyber(co: Partial<KabinaVyber>): void {
 
 /** Vystaví kabinu na web a vrátí kód zavaděče do šablony. */
 export async function vystav(hlas?: (p: VystavPrubeh) => void) {
-  const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   return vystavKabinu(
     (adresa, vzorek) => kabina(adresa, 400, {
       kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt(), vzorek
     }),
-    hotove,
     { vyber: vyberNaWebu(), hlas }
   );
 }

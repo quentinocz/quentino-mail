@@ -641,8 +641,12 @@ console.log('\nšablony zboží');
   check('pletená kravata', zarad('Černá pletená kravata', 'Pletené kravaty').varianta, 'pletena');
   check('dětský motýlek', zarad('Světle modrý dětský motýlek matný', 'Dětské motýlky').varianta, 'motylek-detsky');
   check('MINI motýlek', zarad('Světle modrý dětský MINI motýlek matný', 'Dětské motýlky').varianta, 'motylek-mini');
-  check('motýlek s kapesníčkem je motýlek', zarad('Tmavě hnědý pánský motýlek s vyšívaným vzorem a kapesníčkem', 'Motýlky'),
-    { typ: 'kravata', varianta: 'motylek', jiste: true });
+  {
+    /* Motýlek s kapesníčkem je motýlek — a kapesníček je další kus sady, ne zapomenutý */
+    const z = zarad('Tmavě hnědý pánský motýlek s vyšívaným vzorem a kapesníčkem', 'Motýlky');
+    check('motýlek s kapesníčkem je motýlek (a kapesníček kus sady)',
+      { typ: z.typ, varianta: z.varianta, casti: z.casti }, { typ: 'kravata', varianta: 'motylek', casti: [{ typ: 'kapesnicek', varianta: 'spicka' }] });
+  }
   check('regata s kapesníčkem je regata', zarad('Vínově červená svatební regata s kapesníčkem', 'Regaty').varianta, 'regata');
   check('kšandy 2,5 cm → úzké', zarad('Světle modré pánské kšandy', 'Kšandy', { sirkaCm: 2.5 }).varianta, 'uzke');
   check('široké kšandy bez rozměru → 3,5 cm', zarad('Bílé pánské široké kšandy', 'Kšandy').varianta, 'siroke');
@@ -734,6 +738,129 @@ console.log('\ntextura a sako');
   ok('kabina dostane body postavy (pas, kravata, kšandy, kapsa)',
     !!k && Math.abs(k.pas - m.pas) <= 1 && k.kravata[1] > m.limec.y && k.kapesnicek[0] > m.limec.x,
     k ? JSON.stringify(k) : 'chybí');
+}
+
+/* ---------- 7d. sady, kov kšand, regata, kapesníček ---------- */
+
+console.log('\nsady a šablony podle výrobků');
+
+{
+  const produkty = require(path.join(DIST, 'zkusebna/produkty.js'));
+  const sablony = require(path.join(DIST, 'zkusebna/sablony.js'));
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const vrstvy = require(path.join(DIST, 'zkusebna/vrstvy.js'));
+  const manifest = require(path.join(DIST, 'zkusebna/manifest.js'));
+  const vystav = require(path.join(DIST, 'kabina/vystav.js'));
+  const zarad = produkty.__test.zarad;
+
+  /*
+   * Patrik (23. 11.): „u sady kšandy+motýlek se zobrazí jen kšandy" a
+   * u dárkových sad se na model dláždila fotka s víc věcmi. Sada se
+   * pozná, dostane kusy a do kabiny jde až po kontrole.
+   */
+  const sada = zarad('Pánské kšandy a motýlek - sada vínová', 'Sady');
+  ok('sada kšandy + motýlek: hlavní kus kšandy, motýlek jako další kus',
+    sada.typ === 'ksandy' && (sada.casti || []).some(one => one.typ === 'kravata' && /motylek/.test(one.varianta)),
+    JSON.stringify(sada));
+  ok('  a čeká na kontrolu (bez ní by se do kabiny nedostala)', !!sada.kontrola, sada.kontrola || 'nečeká');
+  ok('dárková sada s víc věcmi čeká na kontrolu',
+    !!zarad('Pánská dárková sada kravata, kapesníček a manžetové knoflíčky', 'Dárkové sady').kontrola);
+  ok('obyčejný kapesníček s lemem sadou není', !zarad('Bílý kapesníček s modrým lemem', 'Kapesníčky').kontrola);
+
+  /* Věk podle názvu: kabina podle něj přepne model, nebo založí nový vzhled */
+  check('MINI motýlek je pro kojence', produkty.proVek('Světle modrý dětský MINI motýlek', 'Dětské motýlky'), ['kojenec', 'dite']);
+  check('dětské kšandy jsou pro dítě', produkty.proVek('Dětské kšandy modré', 'Kšandy'), ['dite', 'kojenec']);
+  check('pánská kravata je pro dospělého', produkty.proVek('Vínová pánská kravata', 'Kravaty pro tátu a syna'), ['dospely']);
+
+  /*
+   * Kapesníček s lemem: z fotky se bere špička i s lemem a přetáhne se
+   * na tvar šablony — lem leží po hranách, plocha zůstane bílá.
+   */
+  {
+    const N = 600; const foto = png.novyObraz(N, N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const i = (y * N + x) * 4; const d = Math.abs(x - 300) + Math.abs(y - 300);
+      const v = d > 260 ? [255, 255, 255] : d > 238 ? [180, 30, 40] : [248, 248, 246];
+      foto.body[i] = v[0]; foto.body[i + 1] = v[1]; foto.body[i + 2] = v[2]; foto.body[i + 3] = 255;
+    }
+    const roh = produkty.__test.vzorekZFotky(foto, 'kapesnicek', 'spicka');
+    const bod = (u, v) => { const x = Math.round(u * (roh.obraz.sirka - 1)); const y = Math.round(v * (roh.obraz.vyska - 1)); const i = (y * roh.obraz.sirka + x) * 4; return [roh.obraz.body[i], roh.obraz.body[i + 1], roh.obraz.body[i + 2]]; };
+    /* Těžiště trojúhelníku šablony (0,62;0) (0;1) (1;0,92) a bod těsně u levé hrany */
+    const stred = bod((0.62 + 0 + 1) / 3, (0 + 1 + 0.92) / 3);
+    const lem = bod(0.29, 0.55);
+    ok('bílý kapesníček s lemem: plocha bílá, lem po hraně',
+      !!roh && roh.cm < 0 && stred[0] > 230 && stred[1] > 230 && lem[0] > 150 && lem[1] < 80,
+      roh ? `střed rgb(${stred.join(',')}), hrana rgb(${lem.join(',')})` : 'nic');
+  }
+
+  /* Šablony na postavě z ukázky */
+  require(path.join(DIST, 'zkusebna/ukazka.js')).postavUkazku('dospely-bezny');
+  const v = store.vrstvy('dospely-bezny');
+  const najdi = (typ, varianta) => v.find(one => one.typ === typ && one.varianta === varianta);
+  const k = sablony.kotvyPostavy('dospely-bezny').kotvy;
+  {
+    /* Kov kšand zvlášť: obarvená spona vypadala jako kus plastu (Patrik, 23. 11.) */
+    const ksandy = najdi('ksandy', 'siroke');
+    const kov = ksandy && ksandy.kov && fs.existsSync(ksandy.kov) ? png.nacti(fs.readFileSync(ksandy.kov)) : null;
+    let kovovych = 0; let sedych = 0;
+    if (kov) for (let i = 0; i < kov.body.length; i += 4) {
+      if (kov.body[i + 3] < 200) continue;
+      kovovych += 1;
+      if (kov.body[i + 2] > kov.body[i]) sedych += 1;
+    }
+    ok('kšandy mají spony a posuvky jako zvláštní kovovou vrstvu',
+      !!kov && kovovych > 50 && sedych / Math.max(1, kovovych) > 0.8, `${kovovych} bodů kovu`);
+    const data = manifest.kabina((vr, jeKov) => (jeKov ? 'kov:' : '') + vr.typ, 5, {});
+    ok('  a kabina dostane adresu kovu',
+      data.vrstvy.some(one => one.typ === 'ksandy' && one.kov === 'kov:ksandy'));
+    ok('  kapesníček nese svůj obdélník (roh výrobku se na něj natáhne)',
+      data.vrstvy.some(one => one.typ === 'kapesnicek' && Array.isArray(one.okraje) && one.okraje[2] > 0));
+  }
+  {
+    /* Regata: nabraný uzel a list do půlky hrudi, ne ovál přes límec */
+    const regata = najdi('kravata', 'regata');
+    const sirkaCm = regata.okraje.w / k.naCm;
+    const konec = regata.okraje.y + regata.okraje.h;
+    ok('regata je široká jako regata a končí nad pasem',
+      sirkaCm > 7 && sirkaCm < 10.8 && konec < k.pas - 5 * k.naCm && regata.okraje.h / k.naCm > 14,
+      `${sirkaCm.toFixed(1)} × ${(regata.okraje.h / k.naCm).toFixed(1)} cm, konec ${Math.round(konec)} (pas ${Math.round(k.pas)})`);
+  }
+  {
+    /* Kapesníček se zmenší podle trupu — u kojence nesmí být přes půl hrudi */
+    const W = 400; const H = 600;
+    const kotvy = (ramenaCm) => ({ ...k, limec: { x: 200, y: 100 }, pas: 400, kapsa: { x: 260, y: 220 }, naCm: 8, ramena: ramenaCm * 8 });
+    const sirka = (o) => { let od = W; let doK = 0; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (o.body[(y * W + x) * 4 + 3] > 128) { od = Math.min(od, x); doK = Math.max(doK, x); } return (doK - od) / 8; };
+    const dospely = sirka(sablony.nakresliSablonu('kapesnicek', 'spicka', kotvy(44), W, H));
+    const kojenec = sirka(sablony.nakresliSablonu('kapesnicek', 'spicka', kotvy(20), W, H));
+    ok('kapesníček je u kojence menší než u dospělého',
+      dospely > 6 && kojenec < dospely * 0.6, `${dospely.toFixed(1)} cm → ${kojenec.toFixed(1)} cm`);
+  }
+  {
+    /*
+     * Nová postava: sako a vesta dokreslené na tu předchozí se odloží.
+     * Patrik (23. 11.): „vesta se vykreslila nějak velká, že nesedí na model".
+     */
+    const pred = najdi('sako', 'jednoradove');
+    const p0 = store.postava('dospely-bezny');
+    const obraz = png.nacti(fs.readFileSync(store.kroky('dospely-bezny').find(one => one.poradi === 0).soubor));
+    vrstvy.ulozPostavu(p0, obraz, 'znovu');
+    const po = store.vrstvy('dospely-bezny').find(one => one.typ === 'sako' && one.varianta === 'jednoradove');
+    ok('po novém nakreslení postavy se staré sako odloží (nesedí na ni)',
+      !!pred && pred.stav !== 'nesedi' && !!po && po.stav === 'nesedi' && /znovu/.test(po.potiz),
+      `${pred ? pred.stav : '—'} → ${po ? po.stav : '—'}`);
+    require(path.join(DIST, 'zkusebna/ukazka.js')).postavUkazku('dospely-bezny');
+  }
+
+  /* Vystavené vrstvy mají otisk ve jméně — jinak by prohlížeč rok ukazoval tu starou */
+  {
+    const a = vystav.cestaVrstvy({ postava: 'dospely-bezny', typ: 'kravata', varianta: 'kravata' }, 'abcdef0123456789');
+    const b = vystav.cestaVrstvy({ postava: 'dospely-bezny', typ: 'kravata', varianta: 'kravata' }, '9999990123456789');
+    const kov = vystav.cestaVrstvy({ postava: 'dospely-bezny', typ: 'ksandy', varianta: 'uzke' }, 'abcdef0123', true);
+    ok('nový obsah vrstvy = nová adresa (vystavuje se s cache na rok)',
+      a !== b && /\.abcdef0123\.png$/.test(a) && /-kov\.abcdef0123\.png$/.test(kov), `${a} · ${kov}`);
+    ok('  vzorek látky taky', /vzorky\/KRA1-0\.[0-9a-f]{10}\.png$/.test(vystav.cestaVzorku('KRA1~0', '0123456789abcdef')),
+      vystav.cestaVzorku('KRA1~0', '0123456789abcdef'));
+  }
 }
 
 /* ---------- 8. košík, velikosti, body na modelu ---------- */

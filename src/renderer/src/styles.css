@@ -10584,6 +10584,15 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   flex: 1; min-height: 0; width: 100%;
   border: 1px solid var(--border); border-radius: var(--radius); background: #fff;
 }
+.zk-kabina-lista .zk-zarizeni { margin-left: auto; }
+.zk-kabina-lista .zk-zarizeni + .btn { margin-left: 0; }
+.zk-ramec-obal { flex: 1; min-height: 0; display: flex; }
+/* Telefon: rámeček na šířku iPhonu, vycentrovaný, se zaoblenými rohy jako displej */
+.zk-ramec-obal.mobil { justify-content: center; padding: 4px 0; background: var(--bg); border-radius: var(--radius); }
+.zk-ramec-obal.mobil .zk-ramec {
+  flex: 0 0 390px; width: 390px; max-height: 844px;
+  border: 8px solid #1c1c1f; border-radius: 34px; box-shadow: var(--shadow);
+}
 .zk-prazdno { flex: 1; display: grid; place-items: center; color: var(--text-3); }
 
 /* ---- vizuály ---- */
@@ -10668,6 +10677,24 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .zk-radek-text .desc { font-size: 11px; }
 .zk-radek select { max-width: 150px; font-size: 12px; }
 .zk-radek input[type="color"] { width: 30px; height: 26px; padding: 0; }
+.zk-produkt { display: flex; flex-direction: column; }
+.zk-produkt.ceka > .zk-radek { border-color: #e7c66b; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.zk-meritko { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-3); }
+.zk-meritko input[type="range"] { width: 70px; }
+.zk-meritko b { font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; min-width: 2.6em; }
+.zk-sada {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px 50px;
+  border: 1px solid var(--border); border-top: 0; border-radius: 0 0 9px 9px; background: var(--bg);
+}
+.zk-produkt.ceka .zk-sada { border-color: #e7c66b; background: #fffaf0; }
+.zk-sada-rada { display: flex; gap: 6px; align-items: flex-start; margin: 0; font-size: 12px; color: var(--text-2); }
+.zk-sada-rada svg { flex: 0 0 auto; margin-top: 2px; color: #b7791f; }
+.zk-sada-kusy { display: flex; flex-wrap: wrap; gap: 8px; }
+.zk-sada-kus { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel); }
+.zk-sada-text { display: flex; flex-direction: column; font-size: 12px; }
+.zk-sada-text .desc { font-size: 11px; }
+[data-theme="dark"] .zk-produkt.ceka .zk-sada { background: #2b2616; }
 
 /* ---- nastavení ---- */
 .zk-nastaveni { display: flex; flex-direction: column; gap: 18px; padding: 14px 18px 22px; overflow: auto; }

@@ -56,6 +56,12 @@ export interface Kotvy {
   kapsa: Bod;
   /** Bodů na centimetr. */
   naCm: number;
+  /**
+   * Šířka trupu u ramen v bodech. Podle ní se zmenší kapesníček:
+   * kojenec má kapsu saka velkou jako pánský kapesníček sám
+   * (Patrik, 23. 11.: „kapesníček vůbec nepasuje do kapsy u kojence").
+   */
+  ramena?: number;
 }
 
 /** Ruční oprava bodů — díly plátna, aby nezáleželo na jeho velikosti. */
@@ -181,7 +187,7 @@ export function zmerKotvy(
     ? { x: rucne.kapsa[0] * sirka, y: rucne.kapsa[1] * vyska }
     : { x: limec.x + ramena * 0.235, y: limec.y + delka * 0.33 };
 
-  return { limec, pas: pasY, ramenoL, ramenoR, sponaL, sponaR, kapsa, naCm };
+  return { limec, pas: pasY, ramenoL, ramenoR, sponaL, sponaR, kapsa, naCm, ramena };
 }
 
 export function rucneKotvy(postavaId: string): KotvyRucne {
@@ -226,7 +232,8 @@ function orezKsand(postava: Obraz, kosile: Uint8Array | null, kalhoty: Uint8Arra
 
 /* -------------------------------------------------------------- kresba */
 
-type Stin = (x: number, y: number) => number;
+/** Šedá mapy světla, nebo skutečná barva (kov). */
+type Stin = (x: number, y: number) => number | [number, number, number];
 
 /** Je bod uvnitř mnohoúhelníku? (sudý počet průsečíků = venku) */
 function uvnitr(poly: Bod[], x: number, y: number): boolean {
@@ -264,12 +271,15 @@ function vypln(obraz: Obraz, poly: Bod[], stin: Stin, orez?: Uint8Array): void {
       }
       if (!pokryti) continue;
       const a = pokryti / (N * N);
-      const s = Math.max(0, Math.min(255, stin(x + 0.5, y + 0.5)));
+      const hodnota = stin(x + 0.5, y + 0.5);
+      const rgb = typeof hodnota === 'number' ? [hodnota, hodnota, hodnota] : hodnota;
       const k = i * 4;
       const puvA = obraz.body[k + 3] / 255;
       const noveA = a + puvA * (1 - a);
-      const sedy = noveA > 0 ? (s * a + obraz.body[k] * puvA * (1 - a)) / noveA : s;
-      obraz.body[k] = obraz.body[k + 1] = obraz.body[k + 2] = Math.round(sedy);
+      for (let j = 0; j < 3; j++) {
+        const s = Math.max(0, Math.min(255, rgb[j]));
+        obraz.body[k + j] = Math.round(noveA > 0 ? (s * a + obraz.body[k + j] * puvA * (1 - a)) / noveA : s);
+      }
       obraz.body[k + 3] = Math.round(noveA * 255);
     }
   }
@@ -444,29 +454,91 @@ function motylek(obraz: Obraz, k: Kotvy, s: ZkSablona): void {
   });
 }
 
-/** Regata: nabraná šála v rozepnutém límci, dole zaoblená. */
+/**
+ * Regata: svatební kravata s nabraným uzlem a širokým řaseným listem.
+ *
+ * Patrik (23. 11.): „regata se vykresluje úplně nesmyslně". Dřív to byl
+ * nafouklý ovál přes celý límec. Skutečná regata (fotky v kategorii
+ * Regaty) má pod límcem **nabraný uzel** — zhruba 5 × 4 cm s vodorovnými
+ * sklady — a pod ním list, který se rozšiřuje do 9–10 cm, je podélně
+ * řasený (sklady se od uzlu rozbíhají jako vějíř) a končí špičkou
+ * kousek nad půlkou hrudi.
+ */
 function regata(obraz: Obraz, k: Kotvy, s: ZkSablona): void {
   const c = k.naCm;
-  const w = s.sirkaCm * c;
-  const h = (s.vyskaCm ?? 12) * c;
+  const W = s.sirkaCm * c;
   const cx = k.limec.x;
-  const top = k.limec.y - 0.3 * c;
+  const top = k.limec.y + 0.1 * c;
+  /* Uzel: šířka podle listu, výška kolem 4 cm (u dětí přes délku trupu menší) */
+  const trup = Math.max(10 * c, k.pas - k.limec.y);
+  const kw = Math.min(W * 0.56, trup * 0.16);
+  const kh = Math.min(4.2 * c, trup * 0.1);
+  const delka = Math.min((s.vyskaCm ?? 22) * c, trup * 0.62);
+  const y0 = top + kh * 0.78;
+  const spicka = top + delka;
+  const ySir = y0 + (spicka - y0) * 0.8;
+  const Wl = Math.min(W, trup * 0.3);
+
   const pul = (y: number) => {
-    const d = (y - top) / h;
-    if (d <= 0.75) return w * (0.275 + 0.225 * Math.sin((Math.min(1, d / 0.45) * Math.PI) / 2));
-    return w * 0.5 * Math.sqrt(Math.max(0, 1 - ((d - 0.75) / 0.25) ** 2));
+    if (y <= ySir) {
+      const t = omez((y - y0) / Math.max(1, ySir - y0), 0, 1);
+      return kw * 0.42 + (Wl / 2 - kw * 0.42) * Math.pow(t, 0.75);
+    }
+    return (Wl / 2) * Math.max(0, (spicka - y) / Math.max(1, spicka - ySir));
   };
-  const tvar: Bod[] = [];
-  const kroku = 30;
-  for (let i = 0; i <= kroku; i++) { const y = top + (h * i) / kroku; tvar.push({ x: cx - pul(y), y }); }
-  for (let i = kroku; i >= 0; i--) { const y = top + (h * i) / kroku; tvar.push({ x: cx + pul(y), y }); }
-  vypln(obraz, tvar, (x, y) => {
-    const d = (y - top) / h;
-    const u = omez((x - cx) / Math.max(1, pul(y)), -1, 1);
+  const list: Bod[] = [];
+  const kroku = 36;
+  for (let i = 0; i <= kroku; i++) {
+    const y = y0 + ((ySir - y0) * i) / kroku;
+    list.push({ x: cx - pul(y), y });
+  }
+  list.push({ x: cx, y: spicka });
+  for (let i = kroku; i >= 0; i--) {
+    const y = y0 + ((ySir - y0) * i) / kroku;
+    list.push({ x: cx + pul(y), y });
+  }
+  /* Kolik skladů má list: u pánské regaty pět, u dětské méně */
+  const skladu = Wl > 7 * c ? 5 : 4;
+  vypln(obraz, list, (x, y) => {
+    const w = Math.max(1, pul(y));
+    const u = omez((x - cx) / w, -1, 1);
+    const t = omez((y - y0) / Math.max(1, spicka - y0), 0, 1);
     let v = 128;
-    v += 15 * Math.sin(u * Math.PI * 2.5 + d * 2) * Math.min(1, d * 2.5);
-    if (d < 0.2) v -= 14 * (1 - d / 0.2);
-    if (Math.abs(u) > 0.82) v -= ((Math.abs(u) - 0.82) / 0.18) * 20;
+    /* Sklady se od uzlu rozbíhají: fáze podle u, které se s šířkou samo roztahuje */
+    const faze = (u + 1) * 0.5 * skladu * Math.PI * 2;
+    v += 15 * Math.sin(faze) * (0.55 + 0.45 * t);
+    /* Hřbet skladu je ostřejší než údolí */
+    v += 6 * Math.max(0, Math.sin(faze)) ** 3;
+    /* Pod uzlem stín a látka se tam stahuje */
+    if (t < 0.12) v -= 22 * (1 - t / 0.12);
+    if (Math.abs(u) > 0.84) v -= ((Math.abs(u) - 0.84) / 0.16) * 18;
+    /* Měkký lesk vlevo, jako u kravaty */
+    v += 6 * zvon(u + 0.35, 0.4);
+    return v;
+  });
+
+  /* Nabraný uzel přes list */
+  const pulUzlu = (y: number) => {
+    const d = omez((y - top) / kh, 0, 1);
+    /* Nahoře pod límcem užší, uprostřed nejširší, dole se stáčí do listu */
+    const sirka = kw / 2 * (0.86 + 0.14 * Math.sin(d * Math.PI));
+    return d > 0.8 ? sirka * (1 - 0.35 * ((d - 0.8) / 0.2) ** 2) : sirka;
+  };
+  const uzel: Bod[] = [];
+  const krokyUzlu = 24;
+  for (let i = 0; i <= krokyUzlu; i++) { const y = top + (kh * i) / krokyUzlu; uzel.push({ x: cx - pulUzlu(y), y }); }
+  for (let i = krokyUzlu; i >= 0; i--) { const y = top + (kh * i) / krokyUzlu; uzel.push({ x: cx + pulUzlu(y), y }); }
+  vypln(obraz, uzel, (x, y) => {
+    const d = omez((y - top) / kh, 0, 1);
+    const u = omez((x - cx) / Math.max(1, pulUzlu(y)), -1, 1);
+    let v = 126;
+    /* Vodorovné sklady nabrané látky — mírně do oblouku */
+    const vlny = (d + 0.08 * u * u) * 4.5 * Math.PI * 2;
+    v += 14 * Math.sin(vlny);
+    v += 8 * (1 - u * u) - 4;
+    if (Math.abs(u) > 0.8) v -= ((Math.abs(u) - 0.8) / 0.2) * 22;
+    if (d < 0.1) v -= 20 * (1 - d / 0.1);
+    if (d > 0.88) v -= 14 * ((d - 0.88) / 0.12);
     return v;
   });
 }
@@ -496,23 +568,59 @@ function osa(a: Bod, b: Bod, x: number, y: number, sirka: number): { u: number; 
 }
 
 /**
+ * Kov: stříbrný, se světlem shora zleva a tmavším okrajem.
+ *
+ * `u` je napříč (−1…1), `t` podél (0…1), `lesk` přidá pruh odrazu.
+ */
+function kov(u: number, t: number, okraj = 0.8, lesk = 1): [number, number, number] {
+  let v = 196 + 26 * (1 - u * u) - 18 * t;
+  v += 30 * lesk * zvon(u + 0.35, 0.18);
+  if (Math.abs(u) > okraj) v -= ((Math.abs(u) - okraj) / (1 - okraj)) * 80;
+  return [v - 4, v - 1, v + 4];
+}
+
+/** Bod v souřadnicích podél pásku: `podel` cm po směru, `napric` cm do strany. */
+function mistni(a: Bod, smer: Bod, podel0: number, napric: number): Bod {
+  return { x: a.x + smer.x * podel0 - smer.y * napric, y: a.y + smer.y * podel0 + smer.x * napric };
+}
+
+/**
  * Kšandy: dva pásky od ramen k pasu, s posuvkou a sponou.
  *
- * Spona a posuvka jsou kov, ale vrstva se barví látkou — kreslí se proto
- * světle, aby po podložení vyšly jako lesklý kov v odstínu kšand, ne
- * jako další kus látky. Nahoře se pásek ořízne obrysem postavy: přes
- * rameno jde dozadu a nad ramenem nemá co dělat.
+ * Spona a posuvka jsou **kov a kreslí se zvlášť** (`kovy`) ve skutečné
+ * barvě. Patrik (23. 11.): „ty spony vypadají divně" — dřív byly
+ * v téže vrstvě jako pásek, takže se obarvily látkou: stříbrná spona
+ * vínových kšand vypadala jako kus růžového plastu. Tvar podle fotek
+ * kšand na e-shopu: posuvka je rámeček s příčkou, přes který pásek
+ * vede, spona je „krokodýl" — oblá příčka, za kterou je pásek
+ * přehnutý, žebrovaná destička a zoubky dole.
+ *
+ * Nahoře se pásek ořízne obrysem postavy: přes rameno jde dozadu a nad
+ * ramenem nemá co dělat.
  */
-function ksandy(obraz: Obraz, k: Kotvy, s: ZkSablona, silueta: Uint8Array): void {
+function ksandy(obraz: Obraz, k: Kotvy, s: ZkSablona, silueta: Uint8Array, kovy?: Obraz): void {
   const c = k.naCm;
   const w = s.sirkaCm * c;
+  /* Spona je o kus širší než pásek, u úzkých kšand ale aspoň 2,4 cm */
+  const sirkaSpony = Math.max(w + 0.4 * c, 2.3 * c);
+  const delkaSpony = sirkaSpony * 0.82;
   for (const [nahore, dole] of [[k.ramenoL, k.sponaL], [k.ramenoR, k.sponaR]] as [Bod, Bod][]) {
     const dx = dole.x - nahore.x;
     const dy = dole.y - nahore.y;
     const d = Math.hypot(dx, dy) || 1;
     const smer = { x: dx / d, y: dy / d };
-    const kSpone = { x: dole.x - smer.x * 2.6 * c, y: dole.y - smer.y * 2.6 * c };
+    /* Spona drží kalhoty zubama kousek pod jejich horní hranou */
+    const sponaKonec = { x: dole.x + smer.x * 0.5 * c, y: dole.y + smer.y * 0.5 * c };
+    const sponaZacatek = { x: sponaKonec.x - smer.x * delkaSpony, y: sponaKonec.y - smer.y * delkaSpony };
+    /* Pásek končí přehnutý za příčkou spony */
+    const kSpone = { x: sponaZacatek.x + smer.x * 0.45 * c, y: sponaZacatek.y + smer.y * 0.45 * c };
     const zacatek = { x: nahore.x - smer.x * 3 * c, y: nahore.y - smer.y * 3 * c };
+    const tPos = 0.36;
+    const stredPos = { x: nahore.x + dx * tPos, y: nahore.y + dy * tPos };
+    const delkaPasku = Math.hypot(kSpone.x - zacatek.x, kSpone.y - zacatek.y) || 1;
+    /* Kde na pásku je posuvka a kde pod ní končí zdvojený kus (přehnutý konec) */
+    const tPosNaPasku = Math.hypot(stredPos.x - zacatek.x, stredPos.y - zacatek.y) / delkaPasku;
+    const tKonecDvojiteho = tPosNaPasku + (5 * c) / delkaPasku;
     vypln(obraz, podel(zacatek, kSpone, w), (x, y) => {
       const { u, t } = osa(zacatek, kSpone, x, y, w);
       let v = 128 + 5 * (1 - u * u) + 6 * (1 - t) - 3;
@@ -520,40 +628,109 @@ function ksandy(obraz: Obraz, k: Kotvy, s: ZkSablona, silueta: Uint8Array): void
       /* Prošívaný lem a jemné žebrování pruženky — bez nich byl pásek placka */
       if (Math.abs(Math.abs(u) - 0.7) < 0.05) v += 10;
       v += 3 * Math.sin((2 * Math.PI * x) / Math.max(2, 0.22 * c));
+      /* Pod posuvkou je pásek dvojitý — jeho konec je vidět jako jemná hrana se stínem */
+      const odKonce = (t - tKonecDvojiteho) * delkaPasku;
+      if (t > tPosNaPasku && odKonce < 0) v += 3;
+      if (odKonce >= 0 && odKonce < 0.35 * c) v -= 16 * (1 - odKonce / (0.35 * c));
+      /* Přehyb kolem příčky spony */
+      const kKonci = (1 - t) * delkaPasku;
+      if (kKonci < 0.5 * c) v -= 18 * (1 - kKonci / (0.5 * c));
       return v;
     }, silueta);
 
-    /* Posuvka zhruba ve třetině délky */
-    const tPos = 0.36;
-    const stredPos = { x: nahore.x + dx * tPos, y: nahore.y + dy * tPos };
-    const posA = { x: stredPos.x - smer.x * 0.65 * c, y: stredPos.y - smer.y * 0.65 * c };
-    const posB = { x: stredPos.x + smer.x * 0.65 * c, y: stredPos.y + smer.y * 0.65 * c };
-    const sirkaPos = w + 0.5 * c;
-    vypln(obraz, podel(posA, posB, sirkaPos), (x, y) => {
-      const { u, t } = osa(posA, posB, x, y, sirkaPos);
-      let v = 205 + 14 * (1 - u * u);
-      if (Math.abs(u) > 0.8 || t < 0.12 || t > 0.88) v -= 55;
-      return v;
-    });
+    const cil = kovy ?? obraz;
+    const naSedou = (rgb: [number, number, number]): number | [number, number, number] =>
+      kovy ? rgb : 200 + (rgb[1] - 200) * 0.5;
 
-    /* Spona: kovová, přes horní hranu kalhot */
-    const sirkaSpony = Math.max(w * 1.25, 2.6 * c);
-    const sponaB = { x: dole.x + smer.x * 0.6 * c, y: dole.y + smer.y * 0.6 * c };
-    vypln(obraz, podel(kSpone, sponaB, sirkaSpony), (x, y) => {
-      const { u, t } = osa(kSpone, sponaB, x, y, sirkaSpony);
-      let v = 200 + 18 * (1 - u * u) - 10 * t;
-      if (Math.abs(u) > 0.84 || t < 0.08) v -= 60;
-      if (t > 0.78) v -= 35 * Math.abs(Math.sin(u * Math.PI * 4));
-      return v;
+    /* Posuvka: rámeček s příčkou uprostřed, pásek je skrz něj vidět */
+    const vyskaPos = Math.max(1.2 * c, 0.42 * w + 0.4 * c);
+    const sirkaPos = w + 0.45 * c;
+    const tloustka = Math.max(1.2, 0.22 * c);
+    const posA = { x: stredPos.x - smer.x * vyskaPos / 2, y: stredPos.y - smer.y * vyskaPos / 2 };
+    const rameno = (od: number, doK: number, z: number, na: number) => [
+      mistni(posA, smer, od, z), mistni(posA, smer, doK, z), mistni(posA, smer, doK, na), mistni(posA, smer, od, na)
+    ];
+    /* Každý drát: obdélník a jeho osa (podél pásku, nebo napříč) — světlo podle polohy přes drát */
+    const pruty: { poly: Bod[]; podelny: boolean; stred: number }[] = [
+      { poly: rameno(0, tloustka, -sirkaPos / 2, sirkaPos / 2), podelny: false, stred: tloustka / 2 },
+      { poly: rameno(vyskaPos - tloustka, vyskaPos, -sirkaPos / 2, sirkaPos / 2), podelny: false, stred: vyskaPos - tloustka / 2 },
+      { poly: rameno(vyskaPos / 2 - tloustka / 2, vyskaPos / 2 + tloustka / 2, -sirkaPos / 2, sirkaPos / 2), podelny: false, stred: vyskaPos / 2 },
+      { poly: rameno(0, vyskaPos, -sirkaPos / 2, -sirkaPos / 2 + tloustka), podelny: true, stred: -sirkaPos / 2 + tloustka / 2 },
+      { poly: rameno(0, vyskaPos, sirkaPos / 2 - tloustka, sirkaPos / 2), podelny: true, stred: sirkaPos / 2 - tloustka / 2 }
+    ];
+    const posB = { x: posA.x + smer.x * vyskaPos, y: posA.y + smer.y * vyskaPos };
+    for (const prut of pruty) {
+      vypln(cil, prut.poly, (x, y) => {
+        const { u, t } = osa(posA, posB, x, y, sirkaPos);
+        const kde = prut.podelny ? u * sirkaPos / 2 : t * vyskaPos;
+        return naSedou(kov(omez((kde - prut.stred) / (tloustka / 2), -1, 1), 0.2, 0.7, 1.2));
+      });
+    }
+
+    /* Spona: oblá příčka nahoře, žebrovaná destička, zoubky dole */
+    const pricka = Math.max(1.5, 0.42 * c);
+    const zuzeni = 0.86;
+    const obrys: Bod[] = [];
+    const kroku = 16;
+    for (let i = 0; i <= kroku; i++) {
+      const t = i / kroku;
+      const pul = sirkaSpony / 2 * (1 - (1 - zuzeni) * t);
+      obrys.push(mistni(sponaZacatek, smer, pricka * 0.6 + t * (delkaSpony - pricka * 0.6), -pul));
+    }
+    /* Zoubky po spodní hraně */
+    const zubu = 5;
+    const pulDole = sirkaSpony / 2 * zuzeni;
+    for (let i = 0; i <= zubu * 2; i++) {
+      const napric = -pulDole + (2 * pulDole * i) / (zubu * 2);
+      obrys.push(mistni(sponaZacatek, smer, delkaSpony + (i % 2 ? 0.18 * c : 0), napric));
+    }
+    for (let i = kroku; i >= 0; i--) {
+      const t = i / kroku;
+      const pul = sirkaSpony / 2 * (1 - (1 - zuzeni) * t);
+      obrys.push(mistni(sponaZacatek, smer, pricka * 0.6 + t * (delkaSpony - pricka * 0.6), pul));
+    }
+    vypln(cil, obrys, (x, y) => {
+      const { u, t } = osa(sponaZacatek, sponaKonec, x, y, sirkaSpony);
+      const vzdal = t * delkaSpony;
+      let rgb = kov(u, t, 0.84, 0.8);
+      /* Žebrování destičky ve střední třetině — vroubky na úchop */
+      if (t > 0.38 && t < 0.72) {
+        const vrub = Math.sin((2 * Math.PI * vzdal) / Math.max(2, 0.24 * c));
+        rgb = rgb.map(one => one + 16 * vrub) as [number, number, number];
+      }
+      /* Spodní hrana s zoubky je ve stínu */
+      if (t > 0.9) rgb = rgb.map(one => one - 40 * ((t - 0.9) / 0.1)) as [number, number, number];
+      /* Vylisovaný okraj destičky */
+      if (Math.abs(Math.abs(u) - 0.72) < 0.05 && t > 0.2) rgb = rgb.map(one => one - 26) as [number, number, number];
+      return naSedou(rgb);
+    });
+    /* Příčka, kolem které je pásek přehnutý — válec napříč */
+    const prickaPoly = [
+      mistni(sponaZacatek, smer, 0, -sirkaSpony / 2 - 0.1 * c), mistni(sponaZacatek, smer, pricka, -sirkaSpony / 2 - 0.1 * c),
+      mistni(sponaZacatek, smer, pricka, sirkaSpony / 2 + 0.1 * c), mistni(sponaZacatek, smer, 0, sirkaSpony / 2 + 0.1 * c)
+    ];
+    vypln(cil, prickaPoly, (x, y) => {
+      const { u, t } = osa(sponaZacatek, sponaKonec, x, y, sirkaSpony + 0.2 * c);
+      const pres = omez((t * delkaSpony) / pricka * 2 - 1, -1, 1);
+      const rgb = kov(pres, 0.1, 0.6, 1.4);
+      if (Math.abs(u) > 0.92) return naSedou(rgb.map(one => one - 50) as [number, number, number]);
+      return naSedou(rgb);
     });
   }
 }
 
-/** Kapesníček do špičky: trojúhelník nad kapsou saka. */
+/**
+ * Kapesníček do špičky: trojúhelník nad kapsou saka.
+ *
+ * Velikost podle trupu: pánský kapesníček kouká 7 cm na šířku, ale na
+ * kojenci by to byla půlka hrudi — tam je celá kapsa sotva tak velká.
+ */
 function kapesnicek(obraz: Obraz, k: Kotvy, s: ZkSablona): void {
   const c = k.naCm;
-  const w = s.sirkaCm * c;
-  const h = (s.vyskaCm ?? 3.6) * c;
+  const plna = s.sirkaCm * c;
+  /* Ramena dospělého kolem 44 cm → 7 cm kapesníčku; kojenec kolem 20 cm → přes 3 cm */
+  const w = k.ramena ? Math.min(plna, Math.max(2.2 * c, k.ramena * 0.16)) : plna;
+  const h = (s.vyskaCm ?? 3.6) * c * (w / plna);
   const { x, y } = k.kapsa;
   const levy = { x: x - w / 2, y: y + 0.15 * c };
   const pravy = { x: x + w / 2, y: y - 0.15 * c };
@@ -584,7 +761,9 @@ export function nakresliSablonu(
   sirka: number,
   vyska: number,
   /** Kudy smí vést kšandy (košile a kalhoty). */
-  orez?: Uint8Array
+  orez?: Uint8Array,
+  /** Sem se nakreslí kov (spony, posuvky) ve skutečné barvě; bez něj jde do mapy světla. */
+  kovy?: Obraz
 ): Obraz | null {
   const s = sablonaPro(typ, varianta);
   if (!s) return null;
@@ -595,7 +774,7 @@ export function nakresliSablonu(
   else if (s.tvar === 'regata') regata(obraz, kotvy, s);
   else if (s.tvar === 'kapesnicek') kapesnicek(obraz, kotvy, s);
   else if (s.tvar === 'ksandy') {
-    ksandy(obraz, kotvy, s, orez ?? new Uint8Array(sirka * vyska).fill(255));
+    ksandy(obraz, kotvy, s, orez ?? new Uint8Array(sirka * vyska).fill(255), kovy);
   }
   return obraz;
 }
@@ -632,13 +811,19 @@ export function vygenerujSablony(postavaId: string, jen?: { typ: ZkVrstvaTyp; va
     if (p && def.nePro?.includes(p.vek)) continue;
     for (const v of def.varianty) {
       if (jen && (jen.typ !== def.typ || jen.varianta !== v.id)) continue;
-      const obraz = nakresliSablonu(def.typ, v.id, kotvy, postava.sirka, postava.vyska, orez);
+      const kovy = def.typ === 'ksandy' ? novyObraz(postava.sirka, postava.vyska) : undefined;
+      const obraz = nakresliSablonu(def.typ, v.id, kotvy, postava.sirka, postava.vyska, orez, kovy);
       if (!obraz) continue;
       const maska = new Uint8Array(postava.sirka * postava.vyska);
       for (let i = 0; i < maska.length; i++) maska[i] = obraz.body[i * 4 + 3] > 128 ? 255 : 0;
       const kde = px.okraje(maska, postava.sirka, postava.vyska);
       const soubor = store.cestaVrstvy(postavaId, def.typ, v.id);
       fs.writeFileSync(soubor, uloz(obraz));
+      let kovSoubor: string | undefined;
+      if (kovy) {
+        kovSoubor = soubor.replace(/\.png$/, '-kov.png');
+        fs.writeFileSync(kovSoubor, uloz(kovy));
+      }
       const vrstva: ZkVrstva = {
         postava: postavaId, typ: def.typ, varianta: v.id, soubor, url: '',
         sirka: postava.sirka, vyska: postava.vyska,
@@ -647,7 +832,8 @@ export function vygenerujSablony(postavaId: string, jen?: { typ: ZkVrstvaTyp; va
         stav: kde.w > 0 ? 'hotovo' : 'nesedi',
         potiz: kde.w > 0 ? '' : 'Šablona se na plátno nevešla — zkontroluj body na postavě.',
         zadani: popisSablony(def.typ, v.id),
-        kdy: new Date().toISOString()
+        kdy: new Date().toISOString(),
+        kov: kovSoubor
       };
       store.zapisVrstvu(vrstva);
       out.push(vrstva);
@@ -690,6 +876,11 @@ export function nahledSablon(postavaId: string, zmenseni = 2): {
     return kusy;
   };
   const kus = (typ: ZkVrstvaTyp, varianta: string) => nakresliSablonu(typ, varianta, kotvy, sirka, vyska, orez)!;
+  const kusSKovem = (typ: ZkVrstvaTyp, varianta: string, hex: string) => {
+    const kovy = novyObraz(sirka, vyska);
+    const obraz = nakresliSablonu(typ, varianta, kotvy, sirka, vyska, orez, kovy)!;
+    return [{ obraz, hex }, { obraz: kovy }];
+  };
 
   /*
    * Doplňky v náhledu podle věku: na dítě dětská kravata (6 cm), úzké
@@ -702,7 +893,7 @@ export function nahledSablon(postavaId: string, zmenseni = 2): {
   const ksandyV = vek === 'dospely' ? 'siroke' : 'uzke';
   const motylekV = vek === 'dospely' ? 'motylek' : vek === 'dite' ? 'motylek-detsky' : 'motylek-mini';
   const bez = kulisa(false);
-  bez.push({ obraz: kus('ksandy', ksandyV), hex: '#2d4a7c' });
+  bez.push(...kusSKovem('ksandy', ksandyV, '#2d4a7c'));
   bez.push({ obraz: kus('kravata', kravataV), hex: '#7a1f2b' });
   const se = kulisa(true);
   se.push({ obraz: kus('kravata', motylekV), hex: '#7a1f2b' });

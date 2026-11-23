@@ -57,7 +57,16 @@ export interface Kabina {
      */
     kotvy?: { pas: number; kravata: [number, number]; ksandy: [number, number]; kapesnicek: [number, number] };
   }[];
-  vrstvy: { postava: string; typ: string; varianta: string; url: string }[];
+  vrstvy: {
+    postava: string; typ: string; varianta: string; url: string;
+    /**
+     * Kov kšand (spony, posuvky) jako zvláštní obrázek, který se nebarví.
+     * Patrik (23. 11.): „ty spony vypadají divně" — byly obarvené látkou.
+     */
+    kov?: string;
+    /** Obdélník vrstvy [x, y, š, v] — kapesníček na něj natáhne roh z fotky. */
+    okraje?: [number, number, number, number];
+  }[];
   produkty: ReturnType<typeof proKabinu>;
   katalog: {
     poradi: string[];
@@ -117,8 +126,11 @@ export interface KabinaNastaveni {
    * set produktů z toho jsou **dva megabajty**, které si stáhne každý,
    * kdo kabinu otevře, a potřebuje z nich jeden. Když se vzorky vystaví
    * jako soubory, stáhne se jen ten, co je zrovna na modelu.
+   *
+   * `klic` je kód produktu, u dalšího kusu sady `kód~pořadí` — sada
+   * kšandy s motýlkem má vzorek pro každý kus zvlášť.
    */
-  vzorek?: (p: ZkProdukt) => string;
+  vzorek?: (vzorek: string, klic: string) => string;
 }
 
 /**
@@ -130,7 +142,7 @@ export interface KabinaNastaveni {
  * takže se v aplikaci opravdu zkouší tentýž skript.
  */
 export function kabina(
-  adresa: (v: ZkVrstva) => string,
+  adresa: (v: ZkVrstva, kov?: boolean) => string,
   produktu = 400,
   nastaveni: KabinaNastaveni = {}
 ): Kabina {
@@ -152,7 +164,13 @@ export function kabina(
       .filter(one => maPostavu.has(one.postava))
       /* Jen to, co kabina zná — pásek nebo zrušená varianta z dřívějška se neposílá */
       .filter(one => ZK_VRSTVY.some(def => def.typ === one.typ && def.varianty.some(v => v.id === one.varianta)))
-      .map(one => ({ postava: one.postava, typ: one.typ, varianta: one.varianta, url: adresa(one) }))
+      .map(one => ({
+        postava: one.postava, typ: one.typ, varianta: one.varianta, url: adresa(one),
+        kov: one.kov ? adresa(one, true) || undefined : undefined,
+        okraje: one.typ === 'kapesnicek' && one.okraje?.w
+          ? [one.okraje.x, one.okraje.y, one.okraje.w, one.okraje.h] as [number, number, number, number]
+          : undefined
+      }))
       .filter(one => !!one.url),
     produkty: proKabinu(produktu).map(p => {
       if (!nastaveni.url && !nastaveni.vzorek) return p;
@@ -162,7 +180,11 @@ export function kabina(
         /* V náhledu se adresy přepisují na vlastní, takže cizí jazykové
            verze by vedly na quentino.cz — tam se proklikat nedá */
         trhy: nastaveni.url ? undefined : p.trhy,
-        vzorek: nastaveni.vzorek ? nastaveni.vzorek(p) : p.vzorek
+        vzorek: nastaveni.vzorek && p.vzorek ? nastaveni.vzorek(p.vzorek, p.kod) : p.vzorek,
+        casti: p.casti?.map((c, i) => ({
+          ...c,
+          vzorek: nastaveni.vzorek && c.vzorek ? nastaveni.vzorek(c.vzorek, `${p.kod}~${i}`) : c.vzorek
+        }))
       };
     }),
     katalog: {

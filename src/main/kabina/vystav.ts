@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { getSetting, setSetting } from '../db';
 import { webStorage } from '../webtexts';
-import { ZkProdukt, ZkVrstva } from '../../shared/zkusebna';
+import { ZkVrstva } from '../../shared/zkusebna';
 import { kabinaScript } from './script';
 import { kabinaLoader, KabinaVyber } from './loader';
 import { Kabina } from '../zkusebna/manifest';
@@ -109,15 +109,28 @@ function otisky(): Record<string, string> {
   } catch { return {}; }
 }
 
+/*
+ * Otisk obsahu je přímo ve jméně souboru.
+ *
+ * Vrstvy a vzorky se vystavují s `immutable` na rok — prohlížeč se na ně
+ * znovu neptá. Dokud bylo jméno pevné (`kravata-kravata.png`), viděl
+ * zákazník po překreslení šablony nebo novém vzorku **pořád ten starý**
+ * a z kabiny nešlo poznat, jestli oprava zabrala (Patrik, 23. 11.:
+ * „stále nesedí textura"). S otiskem ve jméně je nový obsah nová adresa.
+ */
+const kratky = (otisk: string) => otisk ? `.${otisk.slice(0, 10)}` : '';
+
 /** Jméno souboru vrstvy v úložišti. */
-export function cestaVrstvy(v: Pick<ZkVrstva, 'postava' | 'typ' | 'varianta'>): string {
-  return `${CESTA}/vrstvy/${v.postava}/${v.typ}-${v.varianta}.png`;
+export function cestaVrstvy(v: Pick<ZkVrstva, 'postava' | 'typ' | 'varianta'>, otisk = '', kov = false): string {
+  return `${CESTA}/vrstvy/${v.postava}/${v.typ}-${v.varianta}${kov ? '-kov' : ''}${kratky(otisk)}.png`;
 }
 
 /** Jméno souboru se vzorkem látky. */
-export function cestaVzorku(kod: string): string {
-  return `${CESTA}/vzorky/${String(kod).replace(/[^\w.-]+/g, '-')}.png`;
+export function cestaVzorku(kod: string, otisk = ''): string {
+  return `${CESTA}/vzorky/${String(kod).replace(/[^\w.-]+/g, '-')}${kratky(otisk)}.png`;
 }
+
+const sha1 = (telo: Buffer) => crypto.createHash('sha1').update(telo).digest('hex');
 
 export interface VystavVysledek {
   kdy: string;
@@ -140,29 +153,43 @@ export interface VystavVysledek {
  * opravdu zkouší to, co poběží na e-shopu.
  */
 export async function vystavKabinu(
-  postav: (adresa: (v: ZkVrstva) => string, vzorek?: (p: ZkProdukt) => string) => Kabina,
-  vrstvy: ZkVrstva[],
+  postav: (adresa: (v: ZkVrstva, kov?: boolean) => string, vzorek?: (vzorek: string, klic: string) => string) => Kabina,
   moznosti: { ttl?: number; vyber?: Partial<KabinaVyber>; hlas?: (p: VystavPrubeh) => void } = {}
 ): Promise<VystavVysledek> {
   const hlas = moznosti.hlas ?? (() => undefined);
+
+  /* Otisky vrstev napřed — jsou ve jménech souborů, a ta jsou v seznamu */
+  const souboryVrstev = new Map<string, { cesta: string; telo: Buffer; popis: string }>();
+  const adresa = (v: ZkVrstva, kov = false): string => {
+    const zdroj = kov ? v.kov : v.soubor;
+    if (!zdroj) return '';
+    let telo: Buffer;
+    try { telo = fs.readFileSync(zdroj); } catch { return ''; }
+    const cesta = cestaVrstvy(v, sha1(telo), kov);
+    souboryVrstev.set(cesta, { cesta, telo, popis: `${v.typ} ${v.varianta}${kov ? ' (kov)' : ''}` });
+    return verejnaAdresa(cesta);
+  };
   /*
-   * Seznam se staví dvakrát. Napoprvé se z něj vezmou vzorky látek —
-   * ty jsou v něm jako text a u čtyř set produktů dělají dva megabajty,
-   * které by si stáhl každý zákazník. Vystaví se jako soubory a
-   * napodruhé se do seznamu dají jejich adresy, takže se stáhne jen
+   * Vzorky látek jsou v seznamu jako text a u čtyř set produktů dělají
+   * dva megabajty, které by si stáhl každý zákazník. Vystaví se proto
+   * jako soubory a do seznamu jdou jen jejich adresy — stáhne se jen
    * ten vzorek, který je zrovna na modelu.
    */
-  const prvni = postav(v => verejnaAdresa(cestaVrstvy(v)));
   const vzorky = new Map<string, Buffer>();
-  for (const p of prvni.produkty) {
-    const shoda = /^data:image\/png;base64,(.+)$/.exec(p.vzorek || '');
-    if (shoda) vzorky.set(p.kod, Buffer.from(shoda[1], 'base64'));
-  }
-  const data = postav(v => verejnaAdresa(cestaVrstvy(v)));
+  const vzorek = (text: string, klic: string): string => {
+    const shoda = /^data:image\/png;base64,(.+)$/.exec(text || '');
+    if (!shoda) return text || '';
+    const telo = Buffer.from(shoda[1], 'base64');
+    const cesta = cestaVzorku(klic, sha1(telo));
+    vzorky.set(cesta, telo);
+    return verejnaAdresa(cesta);
+  };
+  const data = postav(adresa, vzorek);
   /* Vystavují se jen vrstvy, které jsou v seznamu — co kabina nepoužívá,
      by v úložišti jen leželo a platilo se za to */
-  const chtene = new Set(data.vrstvy.map(one => one.url));
-  const kVystaveni = vrstvy.filter(one => one.soubor && chtene.has(verejnaAdresa(cestaVrstvy(one))));
+  const chtene = new Set<string>();
+  for (const one of data.vrstvy) { chtene.add(one.url); if (one.kov) chtene.add(one.kov); }
+  const kVystaveni = [...souboryVrstev.values()].filter(one => chtene.has(verejnaAdresa(one.cesta)));
 
   const zname = otisky();
   const nove: Record<string, string> = { ...zname };
@@ -172,12 +199,9 @@ export async function vystavKabinu(
 
   const celkem = kVystaveni.length + 2;
   for (let i = 0; i < kVystaveni.length; i++) {
-    const vrstva = kVystaveni[i];
-    const cesta = cestaVrstvy(vrstva);
-    hlas({ hotovo: i, celkem, co: `Vystavuji ${vrstva.typ} ${vrstva.varianta}` });
-    let telo: Buffer;
-    try { telo = fs.readFileSync(vrstva.soubor!); } catch { continue; }
-    const otisk = crypto.createHash('sha1').update(telo).digest('hex');
+    const { cesta, telo, popis } = kVystaveni[i];
+    hlas({ hotovo: i, celkem, co: `Vystavuji ${popis}` });
+    const otisk = sha1(telo);
     if (zname[cesta] === otisk) { preskocenych += 1; continue; }
     await nahraj(cesta, new Uint8Array(telo), 'image/png', 'max-age=31536000, immutable');
     nove[cesta] = otisk;
@@ -186,11 +210,10 @@ export async function vystavKabinu(
   }
 
   let hotovychVzorku = 0;
-  for (const [kod, telo] of vzorky) {
-    const cesta = cestaVzorku(kod);
+  for (const [cesta, telo] of vzorky) {
     hotovychVzorku += 1;
     hlas({ hotovo: kVystaveni.length, celkem, co: `Vystavuji vzorky (${hotovychVzorku} z ${vzorky.size})` });
-    const otisk = crypto.createHash('sha1').update(telo).digest('hex');
+    const otisk = sha1(telo);
     if (zname[cesta] === otisk) { preskocenych += 1; continue; }
     await nahraj(cesta, new Uint8Array(telo), 'image/png', 'max-age=31536000, immutable');
     nove[cesta] = otisk;

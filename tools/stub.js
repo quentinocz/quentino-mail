@@ -180,13 +180,19 @@
     }
   },
   'zk:produkty': [
+    /* Sada čeká na kontrolu — v okně jde první, s nahráním látky pro každý kus */
+    { kod: 'SADA1', typ: 'ksandy', varianta: 'siroke', hex: '#1b1b1d', vzorek: '', rucne: false, velikosti: false,
+      schvaleno: false, nazev: 'Sada kšandy a motýlek vínová', obrazek: '', cena: '1 190 Kč', vKabine: false,
+      kontrola: 'Sada — každý kus potřebuje vlastní látku (nahraj fotku nebo vyber barvu).', meritko: 1,
+      casti: [{ typ: 'kravata', varianta: 'motylek', hex: '#7a1f2b', vzorek: '' }] },
     { kod: 'MOT1', typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', vzorek: '', rucne: false, velikosti: false,
-      schvaleno: true, nazev: 'Motýlek kostkovaný', obrazek: '', cena: '490 Kč', vKabine: true },
+      schvaleno: true, nazev: 'Motýlek kostkovaný', obrazek: '', cena: '490 Kč', vKabine: true, kontrola: '', meritko: 1, casti: [] },
     { kod: 'KRA1', typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', vzorek: '', rucne: true, velikosti: false,
-      schvaleno: false, nazev: 'Kravata burgundská', obrazek: '', cena: '690 Kč', vKabine: true },
+      schvaleno: false, nazev: 'Kravata burgundská', obrazek: '', cena: '690 Kč', vKabine: true, kontrola: '', meritko: 1, casti: [] },
     { kod: 'DAREK', typ: '', varianta: '', hex: '', vzorek: '', rucne: false, velikosti: false,
-      schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false }
+      schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false, kontrola: '', meritko: 1, casti: [] }
   ],
+  'zk:latka': { hex: '#7a1f2b', vzorek: '' },
   'zk:vzhledy': [],
   /* Body pro šablony: náhled postavy jako jednoduchá kresba, ať je na čem body ukázat */
   'zk:kotvy': (function () {

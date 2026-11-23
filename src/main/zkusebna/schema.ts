@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS zk_vrstvy (
   potiz TEXT NOT NULL DEFAULT '',
   zadani TEXT NOT NULL DEFAULT '',
   kdy TEXT NOT NULL DEFAULT '',
+  -- Kovové části šablony (spony a posuvky kšand) zvlášť: nebarví se látkou
+  kov TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (postava, typ, varianta)
 );
 
@@ -68,6 +70,14 @@ CREATE TABLE IF NOT EXISTS zk_produkty (
   -- Variantu (šířku, velikost motýlka) vybral člověk: projití katalogu
   -- ji nepřepíše, ani když je produkt schválený.
   varianta_rucne INTEGER NOT NULL DEFAULT 0,
+  -- Sada (kšandy s motýlkem, kravata s kapesníčkem): další kusy na modelu,
+  -- každý s vlastní látkou. JSON [{typ, varianta, hex, vzorek, vzorekCm}].
+  casti TEXT NOT NULL DEFAULT '',
+  -- Proč produkt potřebuje kontrolu, než se ukáže v kabině (sada, víc kusů
+  -- na fotce). Prázdné = nepotřebuje. Platí, dokud není schválený.
+  kontrola TEXT NOT NULL DEFAULT '',
+  -- Ruční doladění velikosti vzoru (1 = jak to odhadla aplikace).
+  meritko REAL NOT NULL DEFAULT 1,
   velikosti INTEGER NOT NULL DEFAULT 0,
   schvaleno INTEGER NOT NULL DEFAULT 0,
   kdy TEXT NOT NULL DEFAULT ''
@@ -87,5 +97,9 @@ CREATE TABLE IF NOT EXISTS zk_vzhledy (
 export const ZK_ALTERS: string[] = [
   "ALTER TABLE zk_produkty ADD COLUMN vzorek TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE zk_produkty ADD COLUMN vzorek_cm REAL NOT NULL DEFAULT 0",
-  "ALTER TABLE zk_produkty ADD COLUMN varianta_rucne INTEGER NOT NULL DEFAULT 0"
+  "ALTER TABLE zk_produkty ADD COLUMN varianta_rucne INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE zk_produkty ADD COLUMN casti TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE zk_produkty ADD COLUMN kontrola TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE zk_produkty ADD COLUMN meritko REAL NOT NULL DEFAULT 1",
+  "ALTER TABLE zk_vrstvy ADD COLUMN kov TEXT NOT NULL DEFAULT ''"
 ];

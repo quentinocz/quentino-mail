@@ -827,6 +827,8 @@ export function registerIpc() {
     zkusebna.projdiKatalog(sAi !== false, sBarvami !== false));
   handle('zk:produkty', (limit: number) => zkusebna.produktyPrehled(Number(limit) || 300));
   handle('zk:produkt', (kod: string, co: any) => zkusebna.upravProdukt(String(kod ?? ''), co ?? {}));
+  handle('zk:latka', (kod: string, cast: number, data: string) =>
+    zkusebna.nahrajLatku(String(kod ?? ''), Number(cast ?? -1), String(data ?? '')));
   // Náhled běží na tomtéž skriptu, který se vkládá do e-shopu
   handle('zk:nahled', () => zkusebna.nahledKabiny());
   handle('zk:vzhledy', () => zkusebna.vzhledy());

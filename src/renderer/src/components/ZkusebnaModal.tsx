@@ -60,6 +60,8 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
   const [vystavuji, setVystavuji] = useState('');
   const [podrobne, setPodrobne] = useState<string | null>(null);
   const [filtr, setFiltr] = useState('');
+  /* Náhled jako na telefonu — většina zákazníků kabinu otevře na mobilu (Patrik, 23. 11.) */
+  const [naMobilu, setNaMobilu] = useState(false);
 
   const nactiPrehled = useCallback(async () => {
     try { setPrehled(await api.zk.prehled()); } catch (e: any) { toast(e.message, 'error'); }
@@ -292,6 +294,12 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   {nahled.velikost.vrstev} vrstev · {nahled.velikost.produktu} produktů
                 </span>
               )}
+              <div className="pk-seg zk-zarizeni" role="group" aria-label="Zařízení">
+                <button className={`pk-seg-btn ${naMobilu ? '' : 'on'}`} aria-pressed={!naMobilu}
+                  onClick={() => setNaMobilu(false)}>Počítač</button>
+                <button className={`pk-seg-btn ${naMobilu ? 'on' : ''}`} aria-pressed={naMobilu}
+                  onClick={() => setNaMobilu(true)}>Mobil</button>
+              </div>
               <button className="btn ghost" onClick={() => { setNahled(null); void obnovNahled(); }}>
                 <Icon name="refresh" size={13} /> Obnovit
               </button>
@@ -305,8 +313,16 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                  * a minimalizace se neměla kam uložit. Obsah rámečku je
                  * naše vlastní stránka z vlastního protokolu, ne cizí web.
                  */
-                <iframe className="zk-ramec" src={nahled.url} title="Zkušební kabina"
-                  sandbox="allow-scripts allow-same-origin allow-downloads" />
+                /*
+                 * Mobil je rámeček na šířku telefonu (390 bodů), ne zmenšená
+                 * stránka: kabina se rozkládá podle šířky okna, takže jen tak
+                 * se ukáže to, co uvidí zákazník v telefonu — model nahoře,
+                 * nabídka pod ním.
+                 */
+                <div className={`zk-ramec-obal ${naMobilu ? 'mobil' : ''}`}>
+                  <iframe className="zk-ramec" src={nahled.url} title="Zkušební kabina"
+                    sandbox="allow-scripts allow-same-origin allow-downloads" />
+                </div>
               )
               : <div className="zk-prazdno">Náhled se připravuje…</div>}
           </div>
@@ -548,7 +564,8 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
 
             <div className="zk-tabulka">
               {produktyFiltr.map(p => (
-                <div key={p.kod} className={`zk-radek ${p.schvaleno ? 'ok' : ''}`}>
+                <div key={p.kod} className={`zk-produkt ${p.kontrola && !p.schvaleno ? 'ceka' : ''}`}>
+                <div className={`zk-radek ${p.schvaleno ? 'ok' : ''}`}>
                   {p.obrazek ? <img src={p.obrazek} alt="" /> : <span className="zk-chybi" />}
                   {/* Vzorek látky: tohle se vydláždí na modelu, ne fotka produktu */}
                   {p.vzorek
@@ -590,6 +607,25 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                       setProdukty(prev => prev.map(one => one.kod === p.kod
                         ? { ...one, hex: e.target.value, rucne: true } : one));
                     }} />
+                  {/*
+                    * Velikost vzoru: odhad „kolik centimetrů látky je na fotce"
+                    * se může splést — tímhle se doladí, aby kytičky na
+                    * kravatě byly kytičky, ne talíře.
+                    */}
+                  {p.vzorek && p.typ !== 'kapesnicek' && (
+                    <label className="zk-meritko" data-tip="Velikost vzoru na modelu">
+                      <span>Vzor</span>
+                      <input type="range" min={0.4} max={2.5} step={0.1} value={p.meritko || 1}
+                        onChange={e => {
+                          const meritko = Number(e.target.value);
+                          setProdukty(prev => prev.map(one => one.kod === p.kod ? { ...one, meritko } : one));
+                        }}
+                        onMouseUp={e => void api.zk.produkt(p.kod, { meritko: Number((e.target as HTMLInputElement).value) })}
+                        onKeyUp={e => void api.zk.produkt(p.kod, { meritko: Number((e.target as HTMLInputElement).value) })}
+                        onTouchEnd={e => void api.zk.produkt(p.kod, { meritko: Number((e.target as HTMLInputElement).value) })} />
+                      <b>{(p.meritko || 1).toFixed(1)}×</b>
+                    </label>
+                  )}
                   <button className={`icon-btn ${p.schvaleno ? 'on' : ''}`} data-tip="Potvrdit zařazení"
                     onClick={() => {
                       void api.zk.produkt(p.kod, { schvaleno: !p.schvaleno });
@@ -597,6 +633,11 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                     }}>
                     <Icon name="check" size={14} />
                   </button>
+                </div>
+                {(p.kontrola || p.casti.length > 0) && (
+                  <SadaProduktu p={p} onZmena={zmena => setProdukty(prev => prev.map(one =>
+                    one.kod === p.kod ? { ...one, ...zmena } : one))} />
+                )}
                 </div>
               ))}
               {produktyFiltr.length === 0 && (
@@ -853,6 +894,88 @@ const TELA: Record<string, string> = { hubeny: 'štíhlý', bezny: 'běžný', s
  * pas horní hrana kalhot). U neobvyklé postavy to může ujet o centimetr;
  * tažením se bod posune a šablony se hned překreslí. Nic to nestojí.
  */
+/**
+ * Sada nebo produkt ke kontrole: co s ním je a látka pro každý kus.
+ *
+ * Patrik (23. 11.): u dárkových sad se na model dláždila fotka, na které
+ * je víc věcí, a u sady kšandy + motýlek byly vidět jen kšandy. Aplikace
+ * takové produkty pozná sama a **do kabiny je nepustí bez kontroly**.
+ * Tady se ke každému kusu nahraje fotka jen té jedné věci (nebo se nechá
+ * barva) a zařazení se potvrdí fajfkou.
+ */
+function SadaProduktu({ p, onZmena }: {
+  p: ZkProduktRadek;
+  onZmena: (zmena: Partial<ZkProduktRadek>) => void;
+}) {
+  const toast = useToast();
+  const [nahravam, setNahravam] = useState<number | null>(null);
+  const kusy = [
+    { cast: -1, typ: p.typ, varianta: p.varianta, hex: p.hex, vzorek: p.vzorek },
+    ...p.casti.map((c, i) => ({ cast: i, ...c }))
+  ].filter(one => one.typ);
+  const nahraj = (cast: number) => {
+    const vstup = document.createElement('input');
+    vstup.type = 'file';
+    vstup.accept = 'image/png,image/jpeg,image/webp';
+    vstup.onchange = () => {
+      const soubor = vstup.files?.[0];
+      if (!soubor) return;
+      const cteni = new FileReader();
+      cteni.onload = async () => {
+        setNahravam(cast);
+        try {
+          const latka = await api.zk.latka(p.kod, cast, String(cteni.result || ''));
+          if (cast < 0) onZmena({ hex: latka.hex || p.hex, vzorek: latka.vzorek || p.vzorek });
+          else {
+            onZmena({
+              casti: p.casti.map((c, i) => i === cast
+                ? { ...c, hex: latka.hex || c.hex, vzorek: latka.vzorek || c.vzorek } : c)
+            });
+          }
+          toast('Látka z fotky je uložená.', 'info');
+        } catch (e: any) { toast(e.message, 'error'); }
+        setNahravam(null);
+      };
+      cteni.readAsDataURL(soubor);
+    };
+    vstup.click();
+  };
+  return (
+    <div className="zk-sada">
+      {p.kontrola && (
+        <p className="zk-sada-rada">
+          <Icon name="alert" size={13} />
+          <span>
+            {p.kontrola}{' '}
+            {p.schvaleno
+              ? 'Potvrzeno — v kabině je.'
+              : 'Do kabiny se dostane, až zařazení potvrdíš fajfkou. Zákazník do té doby uvidí slušné „připravujeme" a podobné kusy.'}
+          </span>
+        </p>
+      )}
+      <div className="zk-sada-kusy">
+        {kusy.map(k => (
+          <div key={k.cast} className="zk-sada-kus">
+            {k.vzorek
+              ? <img className="zk-vzorek" src={k.vzorek} alt="" />
+              : <span className="zk-vzorek" style={{ background: k.hex || '#808080' }} />}
+            <span className="zk-sada-text">
+              <b>{vrstvaDef(k.typ as ZkVrstvaTyp).nazev}</b>
+              <span className="desc">
+                {vrstvaDef(k.typ as ZkVrstvaTyp).varianty.find(v => v.id === k.varianta)?.nazev ?? k.varianta}
+                {k.cast < 0 ? ' · hlavní kus' : ''}
+              </span>
+            </span>
+            <button className="btn ghost" disabled={nahravam !== null} onClick={() => nahraj(k.cast)}>
+              {nahravam === k.cast ? <span className="spin" /> : <Icon name="upload" size={13} />} Nahrát fotku
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BodyNaPostave({ postava, obnova, onZmena }: {
   postava: string;
   /** Změna vrstev (po generování) — náhled se načte znovu. */

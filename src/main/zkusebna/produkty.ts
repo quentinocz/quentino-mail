@@ -1,6 +1,6 @@
 import { nativeImage } from 'electron';
 import { ask } from '../ai';
-import { getSetting } from '../db';
+import { getSetting, setSetting } from '../db';
 import { listProducts } from '../products';
 import { getDb } from '../db';
 import {
@@ -47,6 +47,10 @@ export interface Zarazeni {
   varianta: string;
   /** Jak jistě — podle toho se pozná, co má dotřídit model. */
   jiste: boolean;
+  /** Další kusy sady podle názvu (kšandy **s motýlkem**). */
+  casti?: { typ: ZkVrstvaTyp; varianta: string }[];
+  /** Proč to musí před kabinou vidět člověk. */
+  kontrola?: string;
 }
 
 /** Rozměr výrobku z katalogu — šířka kravaty a kšand, rozměr motýlka. */
@@ -160,7 +164,63 @@ export function zarad(nazev: string, kategorie: string, rozmer: Rozmer = {}): Za
   /* Jisté, když jiný typ nemá stejně silnou shodu (dvě slova téhož typu nevadí) */
   const jiny = nalezy.find(one => one.typ !== typ);
   const jiste = !jiny || nalezy[0].delka > jiny.delka;
-  return { typ, varianta: variantaZbozi(typ, text, rozmer), jiste };
+  const varianta = variantaHlavniho(typ, jmeno, text, rozmer);
+  const { casti, kontrola } = sada(jmeno, typ);
+  return { typ, varianta, jiste, ...(casti.length ? { casti } : {}), ...(kontrola ? { kontrola } : {}) };
+}
+
+/**
+ * Hlavní kus sady má variantu podle **svého** slova. „Kšandy s motýlkem"
+ * jsou kšandy, a kdyby se varianta brala z celého názvu, vyšly by
+ * z motýlka. Totéž u „kravaty s kapesníčkem".
+ */
+function variantaHlavniho(typ: ZkVrstvaTyp, jmeno: string, text: string, rozmer: Rozmer): string {
+  if (typ !== 'kravata') return variantaZbozi(typ, text, rozmer);
+  const prvni = KUS_SLOVA.map(one => ({ ...one, kde: jmeno.search(one.re) }))
+    .filter(one => one.typ === 'kravata' && one.kde >= 0)
+    .sort((a, b) => a.kde - b.kde)[0];
+  if (!prvni) return variantaZbozi(typ, text, rozmer);
+  /* Zbytek názvu za hlavním slovem do varianty nepatří — jen hlavní slovo a přívlastky */
+  const omezeny = `${jmeno.slice(0, prvni.kde)}${jmeno.slice(prvni.kde).split(/\s(?:s|a|se|i|vcetne|plus|\+)\s/)[0]}`;
+  return variantaZbozi(typ, omezeny, rozmer);
+}
+
+/** Slova, podle kterých se v názvu pozná kus — v pořadí, v jakém v názvu stojí. */
+const KUS_SLOVA: { re: RegExp; typ: ZkVrstvaTyp; varianta: (detske: boolean, mini: boolean) => string }[] = [
+  { re: /motyl/, typ: 'kravata', varianta: (d, m) => (m ? 'motylek-mini' : d ? 'motylek-detsky' : 'motylek') },
+  { re: /regat/, typ: 'kravata', varianta: () => 'regata' },
+  { re: /kravat/, typ: 'kravata', varianta: d => (d ? 'kravata-6' : 'kravata') },
+  { re: /ksand|\bsle\b/, typ: 'ksandy', varianta: d => (d ? 'uzke' : 'siroke') },
+  { re: /kapesn|vreckov/, typ: 'kapesnicek', varianta: () => 'spicka' }
+];
+
+/**
+ * Je to sada? Co dalšího je na modelu a proč to má vidět člověk.
+ *
+ * Patrik (23. 11.): u „kšand s motýlkem" se na modelu ukázaly jen
+ * kšandy, u „kravaty s kapesníčkem" se produkt zařadil jako kapesníček
+ * a u dárkové sady se na kravatu dláždila fotka šesti věcí. Sada proto
+ * dostane další kusy a **musí ji zkontrolovat člověk** — každý kus
+ * potřebuje vlastní látku, a ta se z jedné fotky celé sady nedá
+ * spolehlivě vystřihnout.
+ */
+export function sada(jmeno: string, hlavni: ZkVrstvaTyp | ''): { casti: { typ: ZkVrstvaTyp; varianta: string }[]; kontrola: string } {
+  const detske = /detsk|deti|kids|junior/.test(jmeno);
+  const mini = /\bmini\b/.test(jmeno);
+  const casti: { typ: ZkVrstvaTyp; varianta: string }[] = [];
+  const videne = new Set<string>(hlavni ? [hlavni] : []);
+  const nalezene = KUS_SLOVA.map(one => ({ ...one, kde: jmeno.search(one.re) }))
+    .filter(one => one.kde >= 0)
+    .sort((a, b) => a.kde - b.kde);
+  for (const one of nalezene) {
+    if (videne.has(one.typ)) continue;
+    videne.add(one.typ);
+    casti.push({ typ: one.typ, varianta: one.varianta(detske, mini) });
+  }
+  let kontrola = '';
+  if (/\bsada\b|\bset\b|darkov|baleni|\(\d+ ?ks\)|\d+ ?ks\b/.test(jmeno)) kontrola = 'Sada více kusů — na fotce je víc věcí, látku je potřeba zadat ke každému kusu.';
+  else if (casti.length) kontrola = 'Sada — každý kus potřebuje vlastní látku (nahraj fotku nebo vyber barvu).';
+  return { casti, kontrola };
 }
 
 export function variantaZbozi(typ: ZkVrstvaTyp, text: string, rozmer: Rozmer = {}): string {
@@ -277,9 +337,21 @@ export function vzorekZFotky(
   obraz: Obraz,
   typ: ZkVrstvaTyp | '' = '',
   varianta = ''
-): { obraz: Obraz; cm: number } | null {
+): { obraz: Obraz; cm: number; roh?: boolean } | null {
   const sirka = 600;
   const vetsi = zmensi(obraz, Math.max(1, Math.round(obraz.sirka / sirka)));
+  /*
+   * Kapesníček: z kapsy kouká špička. Bílý kapesníček s barevným lemem
+   * se dřív vydláždil jako „průměrná" látka a na modelu byl celý
+   * barevný (Patrik, 23. 11.). Fotky na e-shopu ho ukazují jako
+   * kosočtverec — horní roh fotky je přesně ta špička i s lemem, a ten
+   * se na šablonu položí celý, ne po dlaždicích.
+   */
+  if (typ === 'kapesnicek') {
+    const roh = rohVyrobku(vetsi);
+    /* Záporné „cm" = roh, kreslí se přes celý tvar (a nečte se znovu jako starý vzorek) */
+    if (roh) return { obraz: roh, cm: -1, roh: true };
+  }
   let kousek: Obraz | null = null;
   for (const strana of [128, 96, 72, 52, 36]) {
     kousek = vzorekLatky(vetsi, strana, 0.05, 'prumer');
@@ -290,6 +362,77 @@ export function vzorekZFotky(
   const naCm = bodyNaCm(vetsi, typ, varianta);
   const dlazdice = zrcadli(kousek);
   return { obraz: dlazdice, cm: Math.round((dlazdice.sirka / naCm) * 100) / 100 };
+}
+
+/**
+ * Horní roh výrobku na fotce (kapesníček jako kosočtverec) — špička i s lemem.
+ *
+ * Roh se **přetáhne na tvar šablony**: trojúhelník špičky z fotky se
+ * afinně namapuje na trojúhelník, který z kapsy kouká v kabině (špička
+ * kousek vpravo od středu, základna u kapsy). Hrany kosočtverce tak
+ * padnou na hrany šablony a lem bílého kapesníčku je vidět tam, kde má
+ * být — po obou horních hranách, ne jako barevná skvrna uprostřed.
+ * Kabina obrázek natáhne přes obdélník vrstvy, takže na velikosti
+ * (pánský, dětský) nezáleží.
+ */
+export const ROH_SABLONY = { apex: [0.62, 0], levy: [0, 1], pravy: [1, 0.92] } as const;
+
+function rohVyrobku(obraz: Obraz): Obraz | null {
+  const pozadi = pozadiOdKraje(obraz);
+  const maska = new Uint8Array(pozadi.length);
+  for (let i = 0; i < maska.length; i++) maska[i] = pozadi[i] ? 0 : 255;
+  const kde = okraje(maska, obraz.sirka, obraz.vyska);
+  if (kde.w < 40 || kde.h < 40) return null;
+  const S = obraz.sirka;
+  /* Nejvyšší bod výrobku — tam je špička (střed nejvyššího řádku) */
+  let od = -1; let doK = -1;
+  for (let x = kde.x; x < kde.x + kde.w; x++) {
+    if (maska[kde.y * S + x]) { if (od < 0) od = x; doK = x; }
+  }
+  const P = { x: od >= 0 ? (od + doK) / 2 : kde.x + kde.w / 2, y: kde.y + 2 };
+  /* Kus pod špičkou: z kapsy kouká zhruba šestina výšky kosočtverce */
+  const yd = Math.round(kde.y + kde.h * 0.16);
+  let lx = -1; let rx = -1;
+  for (let x = kde.x; x < kde.x + kde.w; x++) {
+    if (maska[yd * S + x]) { if (lx < 0) lx = x; rx = x; }
+  }
+  if (lx < 0 || rx - lx < 8) return null;
+  /* O kousek dovnitř, ať se nebere vyhlazený okraj s pozadím */
+  const vnitr = (rx - lx) * 0.03;
+  const Lp = { x: lx + vnitr, y: yd };
+  const Rp = { x: rx - vnitr, y: yd };
+  const W = 160; const H = 84;
+  const A = { x: ROH_SABLONY.apex[0] * W, y: ROH_SABLONY.apex[1] * H };
+  const L = { x: ROH_SABLONY.levy[0] * W, y: ROH_SABLONY.levy[1] * H };
+  const R = { x: ROH_SABLONY.pravy[0] * W, y: ROH_SABLONY.pravy[1] * H };
+  const det = (L.y - R.y) * (A.x - R.x) + (R.x - L.x) * (A.y - R.y);
+  const teziste = { x: (P.x + Lp.x + Rp.x) / 3, y: (P.y + Lp.y + Rp.y) / 3 };
+  const out = novyObraz(W, H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const px0 = x + 0.5; const py0 = y + 0.5;
+      const la = ((L.y - R.y) * (px0 - R.x) + (R.x - L.x) * (py0 - R.y)) / det;
+      const ll = ((R.y - A.y) * (px0 - R.x) + (A.x - R.x) * (py0 - R.y)) / det;
+      const lr = 1 - la - ll;
+      let sx = la * P.x + ll * Lp.x + lr * Rp.x;
+      let sy = la * P.y + ll * Lp.y + lr * Rp.y;
+      /* Mimo výrobek (rohy obdélníku mimo trojúhelník) → posun ke středu, ať tam není pozadí */
+      for (let krok = 0; krok < 8; krok++) {
+        const ix = Math.max(0, Math.min(S - 1, Math.round(sx)));
+        const iy = Math.max(0, Math.min(obraz.vyska - 1, Math.round(sy)));
+        if (maska[iy * S + ix]) break;
+        sx += (teziste.x - sx) * 0.25;
+        sy += (teziste.y - sy) * 0.25;
+      }
+      const ix = Math.max(0, Math.min(S - 1, Math.round(sx)));
+      const iy = Math.max(0, Math.min(obraz.vyska - 1, Math.round(sy)));
+      const z = (iy * S + ix) * 4;
+      const k = (y * W + x) * 4;
+      out.body[k] = obraz.body[z]; out.body[k + 1] = obraz.body[z + 1];
+      out.body[k + 2] = obraz.body[z + 2]; out.body[k + 3] = 255;
+    }
+  }
+  return out;
 }
 
 /**
@@ -311,6 +454,20 @@ function bodyNaCm(obraz: Obraz, typ: ZkVrstvaTyp | '', varianta: string): number
     const kde = okraje(maska, obraz.sirka, obraz.vyska);
     if (s && kde.w > obraz.sirka * 0.3) return kde.w / s.sirkaCm;
   }
+  /*
+   * Kravata je na fotce stočená: kratší strana výrobku je zhruba průměr
+   * role, tedy šířka kravaty a kus navíc. Odhad z fotky je lepší než
+   * pevné číslo — fotky nejsou fotografované ze stejné vzdálenosti.
+   */
+  if (typ === 'kravata') {
+    const s = sablonaPro('kravata', varianta || 'kravata');
+    const pozadi = pozadiOdKraje(obraz);
+    const maska = new Uint8Array(pozadi.length);
+    for (let i = 0; i < maska.length; i++) maska[i] = pozadi[i] ? 0 : 255;
+    const kde = okraje(maska, obraz.sirka, obraz.vyska);
+    const kratsi = Math.min(kde.w, kde.h);
+    if (s && kratsi > obraz.sirka * 0.2) return kratsi / (s.sirkaCm * 1.3);
+  }
   const typicky: Record<string, number> = { kravata: 40, ksandy: 30, kapesnicek: 24 };
   return (typicky[typ] ?? 32) * meritko;
 }
@@ -329,6 +486,51 @@ export function zrcadli(o: Obraz): Obraz {
     }
   }
   return out;
+}
+
+/** Verze způsobu, jakým se vzorek z fotky bere. Změna = při projití katalogu znovu. */
+const VERZE_VZORKU = '4';
+
+/** Látky nahrané ručně — `kod` pro hlavní kus, `kod~1` pro část sady. Projití katalogu je nepřepíše. */
+function nahraneLatky(): Set<string> {
+  try {
+    const seznam = JSON.parse(getSetting('zkNahraneLatky', '[]') || '[]');
+    return new Set(Array.isArray(seznam) ? seznam.map(String) : []);
+  } catch { return new Set(); }
+}
+
+/**
+ * Látka z nahrané fotky — pro hlavní kus (`cast` = -1) nebo část sady.
+ *
+ * Patrik (23. 11.): u sad je na fotce víc věcí a z jedné fotky se látka
+ * každého kusu spolehlivě vystřihnout nedá. Fotka jednotlivého kusu
+ * (nebo detail látky) to vyřeší — a jde použít i tam, kde se vzorek
+ * z fotky e-shopu nepovedl.
+ */
+export function latkaZFotky(kod: string, cast: number, data: Buffer): { hex: string; vzorek: string } {
+  const row = store.produktyRows().find(one => one.kod === kod);
+  if (!row || !row.typ) throw new Error('Produkt v kabině není zařazený.');
+  const obraz = dekoduj(data);
+  const mensi = zmensi(obraz, Math.max(1, Math.round(obraz.sirka / 300)));
+  const hex = barvaProduktu(mensi).hex;
+  const kus = cast >= 0 ? row.casti?.[cast] : null;
+  if (cast >= 0 && !kus) throw new Error('Tahle část sady neexistuje.');
+  const typ = (kus ? kus.typ : row.typ) as ZkVrstvaTyp;
+  const varianta = kus ? kus.varianta : row.varianta;
+  const latka = vzorekZFotky(obraz, typ, varianta);
+  const vzorek = latka ? `data:image/png;base64,${uloz(latka.obraz).toString('base64')}` : '';
+  if (!vzorek && !hex) throw new Error('Z fotky se látka nedala přečíst — zkus fotku s výrobkem na světlém pozadí.');
+  if (kus) {
+    const casti = [...(row.casti ?? [])];
+    casti[cast] = { ...kus, hex: hex || kus.hex, vzorek: vzorek || kus.vzorek, vzorekCm: latka?.cm ?? kus.vzorekCm };
+    store.zapisProdukt({ ...row, casti });
+  } else {
+    store.zapisProdukt({ ...row, hex: hex || row.hex, vzorek: vzorek || row.vzorek, vzorekCm: latka?.cm ?? row.vzorekCm });
+  }
+  const nahrane = nahraneLatky();
+  nahrane.add(cast >= 0 ? `${kod}~${cast}` : kod);
+  setSetting('zkNahraneLatky', JSON.stringify([...nahrane]));
+  return { hex, vzorek };
 }
 
 /* ---------------------------------------------------------- dotřídění */
@@ -402,6 +604,12 @@ export async function projdiKatalog(
   let obarveno = 0;
   const kAi: { kod: string; nazev: string; kategorie: string }[] = [];
   const kBarve: { kod: string; url: string }[] = [];
+  /*
+   * Vzorky se čtou znovu, když se změnil způsob, jakým se z fotky berou
+   * (kapesníček teď bere roh s lemem). Ručně nahrané látky zůstávají.
+   */
+  const verzeVzorku = getSetting('zkVzorkyVerze', '') === VERZE_VZORKU;
+  const nahrane = nahraneLatky();
 
   for (let offset = 0; offset < celkem; offset += krok) {
     const strana = listProducts({ limit: krok, offset });
@@ -414,7 +622,7 @@ export async function projdiKatalog(
        * se, kolik centimetrů látky ukazuje — na modelu pak kytky vyšly
        * jako talíře. Takový se přečte znovu, i u schváleného produktu.
        */
-      const staryVzorek = !stare?.vzorekCm;
+      const staryVzorek = (!stare?.vzorekCm || !verzeVzorku) && !nahrane.has(produkt.code);
       if (stare?.schvaleno) {
         /*
          * Schválený produkt si nechá typ i barvu, ale **varianta se
@@ -423,7 +631,21 @@ export async function projdiKatalog(
          */
         if (stare.typ && !stare.variantaRucne) {
           const nalez = zarad(produkt.title?.cz ?? '', produkt.category ?? '', rozmerProduktu(produkt.code));
-          if (nalez.typ === stare.typ && nalez.varianta && nalez.varianta !== stare.varianta) {
+          const novaSada = !!nalez.typ && (!!nalez.casti?.length || !!nalez.kontrola)
+            && !stare.casti?.length && !stare.kontrola;
+          if (novaSada) {
+            /*
+             * Schválená sada z doby, kdy aplikace sady neznala: na modelu
+             * byl jen první kus (nebo dokonce ten špatný). Zařadí se
+             * znovu a čeká na kontrolu — schválení se zruší.
+             */
+            store.zapisProdukt({
+              ...stare, typ: nalez.typ as ZkVrstvaTyp, varianta: nalez.varianta,
+              casti: (nalez.casti ?? []).map(c => ({ ...c, hex: stare.hex, vzorek: '' })),
+              kontrola: nalez.kontrola || '', schvaleno: false
+            });
+            zarazeno += 1;
+          } else if (nalez.typ === stare.typ && nalez.varianta && nalez.varianta !== stare.varianta) {
             store.zapisProdukt({ ...stare, varianta: nalez.varianta });
             zarazeno += 1;
           }
@@ -436,6 +658,11 @@ export async function projdiKatalog(
         kAi.push({ kod: produkt.code, nazev: produkt.title?.cz ?? '', kategorie: produkt.category ?? '' });
         continue;
       }
+      /* Části sady si nechají látku, kterou už mají (třeba ručně nahranou) */
+      const casti = (nalez.casti ?? []).map(c => {
+        const mela = stare?.casti?.find(one => one.typ === c.typ);
+        return mela ? { ...mela, varianta: mela.varianta || c.varianta } : { ...c, hex: stare?.hex ?? '', vzorek: '' };
+      });
       store.zapisProdukt({
         kod: produkt.code,
         typ: nalez.typ,
@@ -445,6 +672,9 @@ export async function projdiKatalog(
         vzorekCm: stare?.vzorekCm ?? 0,
         rucne: !!stare?.rucne,
         variantaRucne: !!stare?.variantaRucne && stare.typ === nalez.typ,
+        casti,
+        kontrola: nalez.kontrola ?? '',
+        meritko: stare?.meritko ?? 1,
         velikosti: (produkt.variants?.length ?? 0) > 0,
         schvaleno: false
       });
@@ -478,14 +708,18 @@ export async function projdiKatalog(
       const row = store.produktyRows().find(one => one.kod === kBarve[i].kod);
       if (!row) continue;
       /* Ručně opravená barva zůstane; vzorek látky se ale přečte i tak */
+      const hex = row.rucne ? row.hex : (nalez.hex || row.hex);
       store.zapisProdukt({
         ...row,
-        hex: row.rucne ? row.hex : (nalez.hex || row.hex),
+        hex,
         vzorek: nalez.vzorek || row.vzorek,
-        vzorekCm: nalez.vzorek ? nalez.vzorekCm : row.vzorekCm
+        vzorekCm: nalez.vzorek ? nalez.vzorekCm : row.vzorekCm,
+        /* Části sady bez vlastní látky dostanou zatím aspoň barvu — kontrolu to nenahrazuje */
+        casti: (row.casti ?? []).map(c => (c.vzorek || c.hex ? c : { ...c, hex }))
       });
       obarveno += 1;
     }
+    setSetting('zkVzorkyVerze', VERZE_VZORKU);
   }
 
   return { zarazeno, obarveno, nezarazeno: Math.max(0, kAi.length - zarazeno) };
@@ -518,16 +752,32 @@ export function cenaNaCislo(text: string): number {
  * a dospělé kšandy na dítěti radí velikost, která nikdy nesedne. Co se
  * nepozná, platí pro všechny: hádat tady znamená schovat zboží.
  */
-function proVek(nazev: string, kategorie: string): ZkVek[] | undefined {
+export function proVek(nazev: string, kategorie: string): ZkVek[] | undefined {
   const t = bezDiakritiky(`${nazev} ${kategorie}`);
+  const jmeno = bezDiakritiky(nazev);
   if (/kojenec|miminko|baby|newborn/.test(t)) return ['kojenec', 'dite'];
-  if (/detsk|deti|pro deti|kids|child|junior/.test(t)) return ['dite', 'kojenec'];
-  return undefined;
+  /* MINI motýlek je pro nejmenší — na kojence spíš než na školáka */
+  if (/\bmini\b/.test(jmeno) && /detsk/.test(jmeno)) return ['kojenec', 'dite'];
+  if (/detsk|deti|pro deti|kids|child|junior/.test(jmeno)) return ['dite', 'kojenec'];
+  /*
+   * Co není dětské, je pro dospělého. Dřív to „platilo pro všechny"
+   * a pánská kravata zůstala viset na dětském modelu (Patrik, 23. 11.).
+   * Kategorie se tu nebere: „Kravaty pro tátu a syna" obsahují oboje.
+   */
+  return ['dospely'];
 }
 
-export function proKabinu(limit = 400): ZkProdukt[] {
+export function proKabinu(limit = 400, vcetneKontroly = false): ZkProdukt[] {
   /* Jen zboží, které kabina zná — pásek z dřívějška tu už místo nemá */
-  const zarazene = store.produktyRows().filter(one => one.typ && ZK_VRSTVY.some(d => d.typ === one.typ && d.zbozi));
+  /*
+   * Sada a jiný produkt, který potřebuje kontrolu, se ukáže až schválený.
+   * Patrik (23. 11.): dárková sada se na kravatu dláždila z fotky šesti
+   * věcí — „nedovolit je bez kontroly". Zákazník, který na takový produkt
+   * klikne, dostane slušnou zprávu a podobné kusy (to dělá kabina).
+   */
+  const zarazene = store.produktyRows().filter(one => one.typ
+    && ZK_VRSTVY.some(d => d.typ === one.typ && d.zbozi)
+    && (vcetneKontroly || !one.kontrola || one.schvaleno));
   if (zarazene.length === 0) return [];
   const mapa = new Map(zarazene.map(one => [one.kod, one]));
   const out: ZkProdukt[] = [];
@@ -580,8 +830,16 @@ export function proKabinu(limit = 400): ZkProdukt[] {
         varianta: sjednotVariantu(row.typ as ZkVrstvaTyp, row.varianta),
         hex: row.hex,
         vzorek: row.vzorek,
-        /* Starý vzorek (56 bodů z fotky na 300) ukazuje zhruba 2,8 cm látky */
-        vzorekCm: row.vzorek ? (row.vzorekCm || 2.8) : undefined,
+        /* Starý vzorek (56 bodů z fotky na 300) ukazuje zhruba 2,8 cm látky; ruční doladění násobí */
+        vzorekCm: row.vzorek && (row.vzorekCm ?? 0) >= 0 ? (row.vzorekCm || 2.8) * (row.meritko || 1) : undefined,
+        vzorekRoh: (row.vzorekCm ?? 0) < 0 || undefined,
+        casti: row.casti?.length
+          ? row.casti.map(c => ({
+            ...c,
+            vzorekCm: c.vzorek && (c.vzorekCm ?? 0) >= 0 ? (c.vzorekCm || 2.8) * (row.meritko || 1) : undefined,
+            vzorekRoh: (c.vzorekCm ?? 0) < 0 || undefined
+          }))
+          : undefined,
         velikosti: row.velikosti || velikostiSeznam.length > 1,
         skladem: produkt.stock == null || produkt.stock > 0,
         velikostiSeznam: velikostiSeznam.length > 1 ? velikostiSeznam : undefined,
@@ -594,4 +852,4 @@ export function proKabinu(limit = 400): ZkProdukt[] {
   return out;
 }
 
-export const __test = { zarad, bezDiakritiky, cenaNaCislo, rozmerZTextu, variantaZbozi, vzorekZFotky, zrcadli };
+export const __test = { zarad, bezDiakritiky, cenaNaCislo, rozmerZTextu, variantaZbozi, vzorekZFotky, zrcadli, rohVyrobku };

@@ -154,8 +154,8 @@ export function serveKabina(): void {
 }
 
 /** Jméno, pod kterým vrstva v náhledu vystupuje. */
-export function jmenoVrstvy(v: ZkVrstva): string {
-  return `${v.postava}/${v.typ}-${v.varianta}.png`;
+export function jmenoVrstvy(v: Pick<ZkVrstva, 'postava' | 'typ' | 'varianta'>, kov = false): string {
+  return `${v.postava}/${v.typ}-${v.varianta}${kov ? '-kov' : ''}.png`;
 }
 
 /**
@@ -165,7 +165,7 @@ export function jmenoVrstvy(v: ZkVrstva): string {
  * rámeček nechal to, co už jednou načetl, a náhled by se přestal měnit.
  */
 export function stashKabinu(
-  postav: (klic: string, url: (p: ZkProdukt) => string, vzorek: (p: ZkProdukt) => string) => Kabina,
+  postav: (klic: string, url: (p: ZkProdukt) => string, vzorek: (vzorek: string, klic: string) => string) => Kabina,
   vrstvy: ZkVrstva[]
 ): { url: string; data: Kabina } {
   pocitadlo += 1;
@@ -180,16 +180,17 @@ export function stashKabinu(
   const data = postav(
     klic,
     p => `/${klic}${cestaProduktu(p)}`,
-    p => {
-      const shoda = /^data:image\/png;base64,(.+)$/.exec(p.vzorek || '');
-      if (!shoda) return p.vzorek || '';
-      vzorky.set(p.kod, Buffer.from(shoda[1], 'base64'));
-      return `/${klic}/vzorek/${encodeURIComponent(p.kod)}.png`;
+    (vzorek, kdo) => {
+      const shoda = /^data:image\/png;base64,(.+)$/.exec(vzorek || '');
+      if (!shoda) return vzorek || '';
+      vzorky.set(kdo, Buffer.from(shoda[1], 'base64'));
+      return `/${klic}/vzorek/${encodeURIComponent(kdo)}.png`;
     }
   );
   const soubory = new Map<string, string>();
   for (const v of vrstvy) {
     if (v.soubor) soubory.set(jmenoVrstvy(v), v.soubor);
+    if (v.kov) soubory.set(jmenoVrstvy(v, true), v.kov);
   }
   /* Čísla produktů jsou v náhledu vymyšlená, ale stabilní — kabina si je
      mezi stránkami pamatuje a na nestálých by to nešlo zkoušet */
