@@ -121,6 +121,8 @@ export function kabina(
       })),
     vrstvy: hotove
       .filter(one => maPostavu.has(one.postava))
+      /* Jen to, co kabina zná — pásek nebo zrušená varianta z dřívějška se neposílá */
+      .filter(one => ZK_VRSTVY.some(def => def.typ === one.typ && def.varianty.some(v => v.id === one.varianta)))
       .map(one => ({ postava: one.postava, typ: one.typ, varianta: one.varianta, url: adresa(one) }))
       .filter(one => !!one.url),
     produkty: proKabinu(produktu).map(p => {

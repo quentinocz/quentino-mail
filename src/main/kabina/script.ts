@@ -557,13 +557,26 @@ const TEMPLATE = String.raw`
 
   /* ----------------------------------------------------- doporučení */
 
+  /*
+   * Rodina varianty: kravata 5–9 cm i pletená jsou kravata, motýlky
+   * všech velikostí motýlek. Šířka je jen pro šablonu na modelu.
+   */
+  function rodina(typ, varianta) {
+    if (typ !== "kravata") return typ;
+    varianta = String(varianta || "");
+    if (varianta.indexOf("motylek") === 0) return "motylek";
+    if (varianta === "regata") return "regata";
+    return "kravata";
+  }
+
   function produktyKVrstve(typ, hex, varianta, vek) {
     var vse = vsechny();
     var out = [];
     for (var i = 0; i < vse.length; i++) {
       var p = vse[i];
       if (p.typ !== typ) continue;
-      if (varianta && p.varianta && p.varianta !== varianta) continue;
+      /* Rodina, ne přesná varianta: kdo má sedmičku, chce vidět i šestky */
+      if (varianta && p.varianta && rodina(typ, p.varianta) !== rodina(typ, varianta)) continue;
       /* Dětský motýlek na dospělém modelu je nabídka, která nemá co udělat */
       if (vek && p.proVek && p.proVek.indexOf(vek) < 0) continue;
       out.push(p);

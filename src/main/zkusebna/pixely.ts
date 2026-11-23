@@ -252,7 +252,10 @@ export function maskaBarvy(
   obraz: Obraz,
   barva: { r: number; g: number; b: number },
   /** Oč se smí odstín lišit, ve stupních barevného kruhu. */
-  tolerance = 32
+  tolerance = 32,
+  /** Nejmenší sytost (díl jasu). Ve stínu záhybu je látka tmavší a méně sytá. */
+  minSytost = 0.45,
+  minJas = 40
 ): Uint8Array {
   const cil = odstin(barva.r, barva.g, barva.b);
   const maska = new Uint8Array(obraz.sirka * obraz.vyska);
@@ -269,7 +272,7 @@ export function maskaBarvy(
      * bod odstín nemá — a odlesk na látce je právě takový, ten se
      * dolije až zavřením děr.
      */
-    if (max < 40 || max - min < max * 0.45) continue;
+    if (max < minJas || max - min < max * minSytost) continue;
     /* Vzdálenost po barevném kruhu: purpurová 300° a 290° jsou si blíž
        než 300° a 10°, i když čísla říkají opak */
     const rozdilOdstinu = Math.abs(((odstin(r, g, b) - cil + 540) % 360) - 180);

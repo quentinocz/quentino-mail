@@ -837,6 +837,8 @@ export function registerIpc() {
   handle('zk:vystav', () => zkusebna.vystav(krok => emit('zk:vystav-krok', krok)));
   handle('zk:zavadec', () => zkusebna.zavadec());
   handle('zk:zkouska', () => zkusebna.vyzkousejModel());
+  handle('zk:kotvy', (postava: string) => zkusebna.kotvy(String(postava ?? '')));
+  handle('zk:kotvy-uloz', (postava: string, rucne: any) => zkusebna.ulozKotvy(String(postava ?? ''), rucne ?? null));
 
   /* ---------- bannery na úvodní stránce ---------- */
   handle('banners:state', () => banners.bannersState());

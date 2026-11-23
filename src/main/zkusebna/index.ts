@@ -17,6 +17,7 @@ import { vystavKabinu, zavadecTed, VystavPrubeh } from '../kabina/vystav';
 import { KabinaVyber } from '../kabina/loader';
 import { jmenoVrstvy, stashKabinu, KABINA_SCHEME } from './nahled';
 import { zadaniKusuTed, zadaniPostavyTed } from './zadani';
+import * as sablony from './sablony';
 
 /**
  * Zkušební kabina — co z ní vidí okno aplikace.
@@ -36,8 +37,12 @@ export function prehled(): ZkPrehled {
         nazev: `${p.vek}-${p.telo}`,
         hotovo: p.hotovo,
         vrstev: moje.filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno').length,
-        chystanych: vrstvy.plan(p.id, false, 'vse').length + 1,
+        /* Všechny vrstvy včetně šablon a kulisy z obrázku postavy */
+        chystanych: ZK_VRSTVY.filter(def => !def.nePro?.includes(p.vek))
+          .reduce((n, def) => n + def.varianty.length, 0),
+        /* Kolik obrázků od modelu stojí základ: postava, vesta, sako */
         zakladnich: vrstvy.plan(p.id, false, 'zakladni').length + 1,
+        zastarala: p.hotovo && vrstvy.postupPostavy(p.id) < vrstvy.POSTUP,
         nesedi: moje.filter(one => one.stav === 'nesedi').length,
         upozorneni: moje.filter(one => one.stav !== 'nesedi' && !!one.potiz).length,
         schvalenych: moje.filter(one => one.stav === 'schvaleno').length
@@ -229,6 +234,38 @@ export function schval(postavaId: string, typ: ZkVrstvaTyp, varianta: string, an
   const poradi = ZK_VRSTVY.findIndex(one => one.typ === typ);
   const krok = store.cestaKroku(postavaId, poradi, `${typ}-${varianta}`);
   if (fs.existsSync(krok)) store.zapisKrok(postavaId, poradi, typ, krok);
+}
+
+/* --------------------------------------------------- body pro šablony */
+
+/** Náhled šablon na postavě a body, ze kterých se kreslí. */
+export function kotvy(postavaId: string) {
+  const nahled = sablony.nahledSablon(postavaId);
+  if (!nahled) return null;
+  const { kotvy: k, sirka, vyska } = nahled;
+  const dil = (b: { x: number; y: number }) => [b.x / sirka, b.y / vyska] as [number, number];
+  return {
+    bezSaka: nahled.bezSaka,
+    seSakem: nahled.seSakem,
+    sirka, vyska,
+    limec: dil(k.limec),
+    pas: k.pas / vyska,
+    kapsa: dil(k.kapsa),
+    ramena: (k.ramenoR.x - k.limec.x) / sirka,
+    ramenoY: k.ramenoR.y / vyska,
+    spony: (k.sponaR.x - k.limec.x) / sirka,
+    rucne: Object.keys(sablony.rucneKotvy(postavaId)).length > 0
+  };
+}
+
+/**
+ * Uloží ručně posunuté body a šablony podle nich překreslí.
+ * Null = zapomenout ruční body a měřit znovu z obrázku.
+ */
+export function ulozKotvy(postavaId: string, rucne: sablony.KotvyRucne | null) {
+  sablony.ulozRucneKotvy(postavaId, rucne);
+  sablony.vygenerujSablony(postavaId);
+  return kotvy(postavaId);
 }
 
 /* ------------------------------------------------------------- zadání */

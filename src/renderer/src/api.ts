@@ -42,7 +42,7 @@ import type { ToolWindowId } from '@shared/windows';
 import type { VidProjekt, VidZnelka } from '@shared/videoedit';
 import type {
   ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
-  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu
+  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu, ZkKotvy
 } from '@shared/zkusebna';
 
 /** Co se dá o souboru zjistit z ffmpegu — délka, rozměry, zvuková stopa. */
@@ -999,7 +999,12 @@ export const api = {
     }>('zk:vystav'),
     zavadec: () => call<{ kod: string; skript: string; kdy: string }>('zk:zavadec'),
     /** Jeden levný obrázek (kolem centu) na ověření klíče, modelu a průhlednosti */
-    zkouska: () => call<ZkZkouskaModelu>('zk:zkouska')
+    zkouska: () => call<ZkZkouskaModelu>('zk:zkouska'),
+    /** Body pro šablony zboží a náhled, na kterém se dají posunout */
+    kotvy: (postava: string) => call<ZkKotvy | null>('zk:kotvy', postava),
+    kotvyUloz: (postava: string, rucne: {
+      limec?: [number, number]; pas?: number; kapsa?: [number, number]; ramena?: number; spony?: number;
+    } | null) => call<ZkKotvy | null>('zk:kotvy-uloz', postava, rucne)
   },
 
   /**

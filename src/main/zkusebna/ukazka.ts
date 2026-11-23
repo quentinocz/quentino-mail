@@ -1,10 +1,9 @@
-import fs from 'fs';
 import {
-  ZkPostava, ZkVrstvaTyp, ZK_VRSTVY, ZK_KRESLICI, ZK_PODKLAD_HEX, hexNaRgb, vrstvaDef
+  ZkPostava, ZkVrstvaTyp, ZK_VRSTVY, ZK_KRESLICI, hexNaRgb, vrstvaDef
 } from '../../shared/zkusebna';
-import { Obraz, novyObraz, uloz } from './png';
+import { Obraz, novyObraz } from './png';
 import * as store from './store';
-import { vrstvaZObrazku } from './vrstvy';
+import { podkladProKus, ulozPostavu, vrstvaZObrazku } from './vrstvy';
 
 /**
  * Ukázková postava — nakreslená kódem, bez AI a bez klíče.
@@ -348,30 +347,6 @@ export function kresliKus(
     const horni = varianta === 'stojacek' ? sije - Math.round(m.h * 0.012) : sije - Math.round(m.h * 0.022);
     kuzel(obraz, m.stred, horni, bricho + Math.round(m.h * 0.02), m.ramena, Math.round(m.pas * 1.02), latkaBarva, 8);
     rukavy(sije, y(m.bricho + 0.06), pazeS);
-  } else if (typ === 'pasek') {
-    kuzel(obraz, m.stred, bricho - Math.round(m.h * 0.012), bricho + Math.round(m.h * 0.012), Math.round(m.pas * 1.03), Math.round(m.pas * 1.03), latkaBarva, 3);
-  } else if (typ === 'ksandy') {
-    const sirka = Math.round(m.ramena * (varianta === 'siroke' ? 0.13 : 0.07));
-    for (const strana of [-1, 1]) {
-      const horni = m.stred + strana * Math.round(m.ramena * 0.28);
-      const dolni = m.stred + strana * Math.round(m.pas * 0.3);
-      for (let yy = sije; yy < bricho; yy++) {
-        const dil = (yy - sije) / Math.max(1, bricho - sije);
-        const stred = Math.round(horni + (dolni - horni) * dil);
-        for (let x = Math.round(stred - sirka / 2); x <= stred + sirka / 2; x++) {
-          const k = latka(napric(x, stred, sirka / 2), yy - sije, bricho - sije, 3);
-          bod(obraz, x, yy, [latkaBarva[0] * k, latkaBarva[1] * k, latkaBarva[2] * k]);
-        }
-      }
-    }
-  } else if (typ === 'kravata') {
-    if (varianta === 'motylek') {
-      kuzel(obraz, m.stred, sije - Math.round(m.h * 0.004), sije + Math.round(m.h * 0.022), Math.round(m.ramena * 0.26), Math.round(m.ramena * 0.2), latkaBarva, 3);
-    } else if (varianta === 'regata') {
-      kuzel(obraz, m.stred, sije, sije + Math.round(m.h * 0.07), Math.round(m.ramena * 0.3), Math.round(m.ramena * 0.22), latkaBarva, 4);
-    } else {
-      kuzel(obraz, m.stred, sije, bricho - Math.round(m.h * 0.03), Math.round(m.ramena * 0.1), Math.round(m.ramena * 0.13), latkaBarva, 4);
-    }
   } else if (typ === 'vesta') {
     trup(obraz, m.stred, sije + Math.round(m.h * 0.02), bricho + Math.round(m.h * 0.015),
       Math.round(m.hlavaS * 0.6), Math.round(m.ramena * 0.78), Math.round(m.pas * 1.0), latkaBarva, 6);
@@ -402,10 +377,6 @@ export function kresliKus(
         }
       }
     }
-  } else if (typ === 'kapesnicek') {
-    const cx = m.stred - Math.round(m.ramena * 0.3);
-    const horni = y(m.sije + 0.085);
-    kuzel(obraz, cx, horni, horni + Math.round(m.h * 0.016), Math.round(m.ramena * 0.12), Math.round(m.ramena * 0.1), latkaBarva, 2);
   }
   return obraz;
 }
@@ -422,84 +393,42 @@ export function postavUkazku(id: string): { hotovo: number; nesedi: string[] } {
   if (!p0) throw new Error(`Postava ${id} v seznamu není.`);
   const p: ZkPostava = { ...p0, sirka: UKAZKA_PLATNO.sirka, vyska: UKAZKA_PLATNO.vyska };
 
-  const postava = kresliPostavu(p);
-  const krok0 = store.cestaKroku(id, 0, 'postava');
-  fs.writeFileSync(krok0, uloz(postava));
-  store.zapisKrok(id, 0, 'postava', krok0);
+  /*
+   * Postava rovnou v košili, kalhotách a botách, každý kus v kreslicí
+   * barvě — přesně tak, jak ji teď kreslí model. Uloží se tou samou
+   * cestou (`ulozPostavu`): vyříznutí kulisy i šablony zboží.
+   */
+  let postava = kresliPostavu(p);
+  for (const [typ, varianta] of [['boty', 'spolecenske'], ['kalhoty', 'oblekove'], ['kosile', 'klasicka']] as const) {
+    postava = kresliKus(p, postava, typ, varianta);
+  }
+  store.zahodOblekani(id);
+  ulozPostavu(p, postava, 'ukázková kresba');
 
-  const maskaPostavy = new Uint8Array(p.sirka * p.vyska);
-  for (let i = 0; i < maskaPostavy.length; i++) maskaPostavy[i] = postava.body[i * 4 + 3] > 24 ? 255 : 0;
-  const kde = { ...{ x: 0, y: 0, w: 0, h: 0 }, ...hranice(maskaPostavy, p.sirka, p.vyska) };
+  const vse = store.vrstvy(id);
+  let hotovo = vse.filter(one => one.stav !== 'nesedi').length;
+  const nesedi: string[] = vse.filter(one => one.stav === 'nesedi')
+    .map(one => `${vrstvaDef(one.typ).nazev} (${one.varianta}): ${one.potiz}`);
 
-  const souborPostavy = store.cestaVrstvy(id, 'postava', 'zaklad');
-  fs.writeFileSync(souborPostavy, uloz(postava));
-  store.zapisVrstvu({
-    postava: id, typ: 'postava', varianta: 'zaklad', soubor: souborPostavy, url: '',
-    sirka: p.sirka, vyska: p.vyska, podil: kde.podil,
-    okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
-    stav: 'hotovo', potiz: '', zadani: 'ukázková kresba', kdy: new Date().toISOString()
-  });
-  store.zapisPostavu({ ...p, temeno: kde.y, podrazka: kde.y + kde.h, hotovo: true }, 'ukázková kresba');
-
-  let hotovo = 1;
-  const nesedi: string[] = [];
-  let predchozi = postava;
+  /*
+   * Vesta a sako se dokreslují jako u modelu: na podklad složený
+   * z hotových vrstev, a vrstva se vybere podle kreslicí barvy. Všechny
+   * varianty z téhož podkladu.
+   */
   for (const def of ZK_VRSTVY) {
-    if (def.typ === 'postava') continue;
+    if (def.typ === 'postava' || def.sablona) continue;
     if (def.nePro?.includes(p.vek)) continue;
-    const poradi = ZK_VRSTVY.findIndex(one => one.typ === def.typ);
-    /*
-     * Všechny varianty vychází z **téhož** předchozího kroku, ne jedna
-     * z druhé. Dřív se `predchozi` posunula hned po kanonické variantě a
-     * další varianta se pak kreslila na postavu, která už ten kus měla na
-     * sobě — u sčesaných vlasů z toho vyšel prázdný rozdíl („model nic
-     * nepřikreslil"), protože ležely celé pod krátkými.
-     */
-    const zaklad = predchozi;
-    let dalsi: Obraz | null = null;
-    for (let i = 0; i < def.varianty.length; i++) {
-      const varianta = def.varianty[i].id;
-      const po = kresliKus(p, zaklad, def.typ, varianta);
-      const { vrstva } = vrstvaZObrazku(p, def.typ, varianta, zaklad, po, 'ukázková kresba');
+    for (const v of def.varianty) {
+      if (def.zPostavy === v.id) continue;
+      const zaklad = podkladProKus(id, def.typ);
+      const po = kresliKus(p, zaklad, def.typ, v.id);
+      const { vrstva } = vrstvaZObrazku(p, def.typ, v.id, zaklad, po, 'ukázková kresba');
       store.zapisVrstvu(vrstva);
-      if (vrstva.stav === 'nesedi') {
-        nesedi.push(`${vrstvaDef(def.typ).nazev} (${def.varianty[i].nazev}): ${vrstva.potiz}`);
-      } else {
-        hotovo += 1;
-        /* Podklad pro další kus je tentýž kus v obyčejné barvě */
-        if (i === 0) {
-          const obycejna = hexNaRgb(ZK_PODKLAD_HEX[def.typ] || '#9aa0ab');
-          dalsi = kresliKus(p, zaklad, def.typ, varianta,
-            obycejna ? [obycejna.r, obycejna.g, obycejna.b] : [154, 160, 171]);
-        }
-      }
-    }
-    /* Z kanonické varianty se pokračuje dál v oblékání */
-    if (dalsi) {
-      const krok = store.cestaKroku(id, poradi, def.typ);
-      fs.writeFileSync(krok, uloz(dalsi));
-      store.zapisKrok(id, poradi, def.typ, krok);
-      predchozi = dalsi;
+      if (vrstva.stav === 'nesedi') nesedi.push(`${def.nazev} (${v.nazev}): ${vrstva.potiz}`);
+      else hotovo += 1;
     }
   }
   return { hotovo, nesedi };
-}
-
-/** Obdélník masky. Vlastní, aby se nemuselo táhnout celé `pixely`. */
-function hranice(maska: Uint8Array, sirka: number, vyska: number) {
-  let x1 = sirka; let y1 = vyska; let x2 = -1; let y2 = -1; let kusu = 0;
-  for (let y = 0; y < vyska; y++) {
-    for (let x = 0; x < sirka; x++) {
-      if (!maska[y * sirka + x]) continue;
-      kusu += 1;
-      if (x < x1) x1 = x;
-      if (y < y1) y1 = y;
-      if (x > x2) x2 = x;
-      if (y > y2) y2 = y;
-    }
-  }
-  if (x2 < 0) return { x: 0, y: 0, w: 0, h: 0, podil: 0 };
-  return { x: x1, y: y1, w: x2 - x1 + 1, h: y2 - y1 + 1, podil: kusu / (sirka * vyska) };
 }
 
 export const __test = { kresliPostavu, kresliKus, miry };

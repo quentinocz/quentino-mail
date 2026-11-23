@@ -4,13 +4,31 @@ import {
   ZkPostava, ZkVrstva, ZkVrstvaTyp, ZK_VRSTVY, ZK_PODKLAD_HEX,
   doZakladu, signalniBarva, vrstvaDef, zkontrolujVrstvu
 } from '../../shared/zkusebna';
-import { getSetting } from '../db';
+import { getSetting, setSetting } from '../db';
 import { Obraz, nacti, uloz, novyObraz } from './png';
 import * as px from './pixely';
 import * as obrazky from './obrazky';
 import { NEJMENE_BODU } from './obrazky';
 import * as store from './store';
 import { zadaniKusuTed, zadaniPostavyTed } from './zadani';
+import * as sablony from './sablony';
+
+/**
+ * Číslo postupu, kterým postava vznikla.
+ *
+ * 2 = postava rovnou v košili, kalhotách a botách, zboží ze šablon
+ * (23. 11.). Postava z dřívějška stojí v šedém tričku a košile se z ní
+ * vyříznout nedá — taková se při dalším běhu nakreslí znovu.
+ */
+export const POSTUP = 2;
+
+export function postupPostavy(id: string): number {
+  return Number(getSetting(`zkPostup:${id}`, '0')) || 0;
+}
+
+export function zapisPostup(id: string): void {
+  setSetting(`zkPostup:${id}`, String(POSTUP));
+}
 
 /**
  * Jak vrstvy vznikají.
@@ -488,24 +506,102 @@ export async function vygenerujPostavu(id: string): Promise<ZkPostava> {
   const zahozeno = store.zahodOblekani(id);
   if (zahozeno > 0) hlas({ postava: id, typ: 'postava', stav: 'uklid', zahozeno });
 
+  const hotova = ulozPostavu(p, obraz, zadani);
+  hlas({ postava: id, typ: 'postava', stav: 'hotovo' });
+  return hotova;
+}
+
+/**
+ * Uloží nakreslenou postavu, vyřízne z ní kulisu a nakreslí šablony.
+ *
+ * Společné pro postavu od modelu i pro zástupnou kresbu — ať zkouška
+ * na kresbě jde přesně tou cestou, kterou jde skutečná postava.
+ */
+export function ulozPostavu(p: ZkPostava, obraz: Obraz, zadani: string): ZkPostava {
+  const id = p.id;
+  const kde = okrajePostavy(obraz);
   const krok = store.cestaKroku(id, 0, 'postava');
   fs.writeFileSync(krok, uloz(obraz));
   store.zapisKrok(id, 0, 'postava', krok);
 
+  const hotova: ZkPostava = { ...p, sirka: obraz.sirka, vyska: obraz.vyska, temeno: kde.y, podrazka: kde.y + kde.h, hotovo: true };
+  store.zapisPostavu(hotova, zadani);
+  const { postava } = vytahniZPostavy(hotova, obraz, zadani);
+
   /* Postava je zároveň první vrstva — kreslí se, jak je, nebarví se */
   const soubor = store.cestaVrstvy(id, 'postava', 'zaklad');
-  fs.writeFileSync(soubor, uloz(obraz));
+  fs.writeFileSync(soubor, uloz(postava));
   store.zapisVrstvu({
     postava: id, typ: 'postava', varianta: 'zaklad', soubor, url: '',
     sirka: obraz.sirka, vyska: obraz.vyska, podil: kde.podil,
     okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
     stav: 'hotovo', potiz: '', zadani, kdy: new Date().toISOString()
   });
-
-  const hotova: ZkPostava = { ...p, temeno: kde.y, podrazka: kde.y + kde.h, hotovo: true };
-  store.zapisPostavu(hotova, zadani);
-  hlas({ postava: id, typ: 'postava', stav: 'hotovo' });
+  zapisPostup(id);
+  sablony.vygenerujSablony(id);
   return hotova;
+}
+
+/**
+ * Vyřízne z obrázku postavy košili, kalhoty a boty.
+ *
+ * Každý kus je v obrázku ve své kreslicí barvě a je to **týž obrázek**
+ * — takže vrstvy na sebe sedí na bod, bez zarovnávání a bez hádání, co
+ * model změnil. Z postavy se pak barva kusů vymaže (zůstane jen jas):
+ * vrstvy ji sice zakryjí, ale na hraně by jinak prosvítal purpurový
+ * lem kolem límce.
+ */
+export function vytahniZPostavy(
+  p: ZkPostava,
+  obraz: Obraz,
+  zadani: string,
+  jen?: ZkVrstvaTyp
+): { postava: Obraz; vrstvy: ZkVrstva[] } {
+  const silueta = siluetaPostavy(obraz);
+  const vse = new Uint8Array(obraz.sirka * obraz.vyska);
+  const out: ZkVrstva[] = [];
+  const kdePostava = px.okraje(silueta, obraz.sirka, obraz.vyska);
+  for (const def of ZK_VRSTVY) {
+    if (!def.zPostavy) continue;
+    /*
+     * Mírnější práh než u dokreslování: tady je v obrázku jen postava a
+     * kreslicí barvy, takže se nemá co splést — a ve stínu záhybu je
+     * látka tmavší a méně sytá. S přísným prahem by v košili zůstaly
+     * díry a prosvítala by jimi tmavě purpurová z postavy.
+     */
+    let maska = px.maskaBarvy(obraz, signalniBarva(def.typ), 30, 0.25, 22);
+    for (let i = 0; i < maska.length; i++) if (!silueta[i]) maska[i] = 0;
+    maska = px.jenVelke(px.zavriDiry(maska, obraz.sirka, obraz.vyska, 3), obraz.sirka, obraz.vyska, 0.05);
+    for (let i = 0; i < maska.length; i++) if (maska[i]) vse[i] = 255;
+    if (jen && jen !== def.typ) continue;
+    const kde = px.okraje(maska, obraz.sirka, obraz.vyska);
+    const podil = kdePostava.podil > 0 ? kde.podil / kdePostava.podil : 0;
+    const chybi = kde.w === 0 || podil < 0.003;
+    const soubor = store.cestaVrstvy(p.id, def.typ, def.zPostavy);
+    fs.writeFileSync(soubor, uloz(px.stinovaMapa(obraz, maska)));
+    const vrstva: ZkVrstva = {
+      postava: p.id, typ: def.typ, varianta: def.zPostavy, soubor, url: '',
+      sirka: obraz.sirka, vyska: obraz.vyska, podil,
+      okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
+      stav: chybi ? 'nesedi' : 'hotovo',
+      potiz: chybi
+        ? `${def.nazev} v obrázku postavy chybí — model ji nenakreslil v kreslicí barvě. Nakresli postavu znovu.`
+        : '',
+      zadani: `z obrázku postavy · ${zadani.slice(0, 60)}`,
+      kdy: new Date().toISOString()
+    };
+    store.zapisVrstvu(vrstva);
+    out.push(vrstva);
+  }
+  const postava: Obraz = { sirka: obraz.sirka, vyska: obraz.vyska, body: Uint8Array.from(obraz.body) };
+  const lem = px.rozsir(vse, obraz.sirka, obraz.vyska, 2);
+  for (let i = 0; i < lem.length; i++) {
+    if (!lem[i]) continue;
+    const k = i * 4;
+    const sedy = Math.round(px.svetlostBodu(postava.body[k], postava.body[k + 1], postava.body[k + 2]));
+    postava.body[k] = postava.body[k + 1] = postava.body[k + 2] = sedy;
+  }
+  return { postava, vrstvy: out };
 }
 
 /**
@@ -603,6 +699,25 @@ export async function vygenerujVrstvu(
   const def = vrstvaDef(typ);
   if (!def.varianty.some(one => one.id === varianta)) {
     throw new Error(`Vrstva ${def.nazev} nemá variantu ${varianta}.`);
+  }
+
+  /* Šablona: bez modelu, zadarmo, na bod */
+  if (def.sablona) {
+    const [vrstva] = sablony.vygenerujSablony(postavaId, { typ, varianta });
+    if (!vrstva) throw new Error(`Pro ${def.nazev} (${varianta}) šablona není.`);
+    hlas({ postava: postavaId, typ, varianta, stav: vrstva.stav });
+    return { vrstva, krok: '' };
+  }
+  /* Kulisa z obrázku postavy: znovu se jen vyřízne */
+  if (def.zPostavy === varianta) {
+    const krok = store.cestaKroku(postavaId, 0, 'postava');
+    if (!fs.existsSync(krok) || postupPostavy(postavaId) < POSTUP) {
+      throw new Error('Postava je ze starého postupu (bez košile a kalhot) — nakresli ji znovu.');
+    }
+    const { vrstvy: vyrizle } = vytahniZPostavy(p, nacti(fs.readFileSync(krok)), zadaniPostavyTed(p.vek, p.telo), typ);
+    const vrstva = vyrizle[0];
+    hlas({ postava: postavaId, typ, varianta, stav: vrstva.stav });
+    return { vrstva, krok };
   }
 
   hlas({ postava: postavaId, typ, varianta, stav: 'kreslim' });
@@ -812,9 +927,11 @@ export function plan(
   const p = store.postava(postavaId);
   for (const def of ZK_VRSTVY) {
     if (def.typ === 'postava') continue;
-    /* Plnovous na kojenci jsou tři zaplacené obrázky k ničemu */
+    /* Šablony a kulisa z obrázku postavy se nekreslí modelem — nic nestojí */
+    if (def.sablona) continue;
     if (p && def.nePro?.includes(p.vek)) continue;
     for (const varianta of def.varianty) {
+      if (def.zPostavy === varianta.id) continue;
       if (jenChybejici && hotove.has(`${def.typ}:${varianta.id}`)) continue;
       if (rozsah === 'zakladni' && !doZakladu(def, varianta.id)) continue;
       out.push({ typ: def.typ, varianta: varianta.id });
@@ -840,7 +957,8 @@ export async function vygenerujVse(
 ): Promise<{ hotovo: number; nesedi: number; potize: string[] }> {
   const p = store.postava(postavaId);
   if (!p) throw new Error(`Postava ${postavaId} v seznamu není.`);
-  if (!p.hotovo) await vygenerujPostavu(postavaId);
+  /* Postava ze starého postupu (v šedém tričku) se nakreslí znovu */
+  if (!p.hotovo || postupPostavy(postavaId) < POSTUP) await vygenerujPostavu(postavaId);
 
   const ukoly = plan(postavaId, jenChybejici, rozsah);
   /* Kanonická varianta musí být před ostatními u téhož kusu */
@@ -867,11 +985,14 @@ export async function vygenerujVse(
     }
     hotovo += 1;
   }
+  /* Šablony znovu na konec — nic nestojí a body se mezitím mohly opravit */
+  if (!nesedi) hotovo += sablony.vygenerujSablony(postavaId).length;
   hlas({ postava: postavaId, stav: 'konec', hotovo, nesedi });
   return { hotovo, nesedi, potize };
 }
 
 export const __test = {
+  vytahniZPostavy, ulozPostavu,
   maskaProKus, pruhKusu, vyrezKusu, okrajePostavy, siluetaPostavy, naPostave, dosahPostavy, kdeKrk, zapisujeKrok,
   posunObraz, vrstvaZObrazku, podkladProKus, zkontrolujPostavu, plan
 };

@@ -250,6 +250,8 @@ export const ZKUSEBNA: HelpTopic = {
   tips: [
     'Kreslení postav platí z účtu OpenAI — klíč, model a měsíční strop jsou v [Nastavení].',
     'Model, který průhledné pozadí nevrátí, nevadí: aplikace kreslí na bílém a pozadí vyřízne sama.',
+    'Kravaty, motýlky, kšandy a kapesníčky nekreslí model — jsou to šablony v rozměrech z katalogu. '
+      + 'Když sedí o kus vedle, posuň v [Vizuály] body límce, pasu, ramene nebo kapsy.',
     'Dokud jsou postavy zástupná kresba, říká to pruh přímo v okně.'
   ]
 };

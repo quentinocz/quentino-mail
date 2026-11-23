@@ -2,7 +2,11 @@ import { nativeImage } from 'electron';
 import { ask } from '../ai';
 import { getSetting } from '../db';
 import { listProducts } from '../products';
-import { ZkProdukt, ZkVek, ZkVrstvaTyp, ZK_VRSTVY, vrstvaDef } from '../../shared/zkusebna';
+import { getDb } from '../db';
+import {
+  ZkProdukt, ZkVek, ZkVrstvaTyp, ZK_VRSTVY, variantaPodleRozmeru, vrstvaDef
+} from '../../shared/zkusebna';
+import { getField, productParameters } from '../ptrans/xml';
 import { Obraz, nacti, uloz } from './png';
 import { barvaProduktu, vzorekLatky, zmensi } from './pixely';
 import * as store from './store';
@@ -45,12 +49,82 @@ export interface Zarazeni {
   jiste: boolean;
 }
 
+/** Rozměr výrobku z katalogu — šířka kravaty a kšand, rozměr motýlka. */
+export interface Rozmer {
+  sirkaCm?: number;
+  vyskaCm?: number;
+}
+
+const cislo = (text: string) => Number.parseFloat(text.replace(',', '.'));
+
 /**
- * Zařazení podle slov. Vrací i variantu, když ji název prozradí
- * (motýlek, dvouřadové sako, košile se stojáčkem).
+ * Rozměr z parametrů a popisu výrobku.
+ *
+ * Na e-shopu je to takhle (zjištěno 23. 11. na quentino.cz):
+ *  - kravaty a kšandy mají parametr „Šířka" („7cm", „2,5cm"),
+ *  - motýlek parametr nemá, rozměr je jen v popisu („Rozměry: 12 × 5,5 cm"),
+ *  - kravata má šířku i v popisu („Šířka kravaty: 7 cm").
+ * Parametr má přednost, popis je záloha.
  */
-export function zarad(nazev: string, kategorie: string): Zarazeni {
+export function rozmerZTextu(parametry: { nazev: string; hodnota: string }[], popis: string): Rozmer {
+  const out: Rozmer = {};
+  for (const one of parametry) {
+    const nazev = bezDiakritiky(one.nazev);
+    const m = /(\d+(?:[.,]\d+)?)\s*cm/i.exec(one.hodnota) ?? /^(\d+(?:[.,]\d+)?)$/.exec(one.hodnota.trim());
+    if (!m) continue;
+    if (/^sir(k|e)/.test(nazev)) out.sirkaCm = cislo(m[1]);
+  }
+  const text = bezDiakritiky(popis.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' '));
+  const rozmery = /rozmer\w*\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm/i.exec(
+    popis.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/<[^>]+>/g, ' ')
+  );
+  if (rozmery) {
+    const a = cislo(rozmery[1]);
+    const b = cislo(rozmery[2]);
+    if (!out.sirkaCm) out.sirkaCm = Math.max(a, b);
+    out.vyskaCm = Math.min(a, b);
+  }
+  if (!out.sirkaCm) {
+    const sirka = /sir(?:k|e)a?\s*(?:kravaty|ksand|sli)?\s*:?\s*(\d+(?:[.,]\d+)?)\s*cm/.exec(text);
+    if (sirka) out.sirkaCm = cislo(sirka[1]);
+  }
+  return out;
+}
+
+/**
+ * Rozměr výrobku z databáze překladů, kde je celý blok z feedu.
+ *
+ * Katalog aplikace si z feedu bere jen to, co potřebuje pošta (název,
+ * cena, sklad); parametry a popis má celé jen modul Překlady. Když tam
+ * výrobek není, rozměr se nezjistí a zařazení se řídí názvem.
+ */
+export function rozmerProduktu(kod: string): Rozmer {
+  try {
+    const row = getDb().prepare('SELECT raw_xml FROM ptrans_products WHERE code = ?').get(kod) as { raw_xml?: string } | undefined;
+    const blok = row?.raw_xml ?? '';
+    if (!blok) return {};
+    const parametry = productParameters(blok).map(one => ({
+      nazev: (/<NAME language="cz"[^>]*>([\s\S]*?)<\/NAME>/.exec(one)?.[1] ?? '').replace(/<!\[CDATA\[|\]\]>/g, '').trim(),
+      hodnota: (/<VALUE language="cz"[^>]*>([\s\S]*?)<\/VALUE>/.exec(one)?.[1] ?? '').replace(/<!\[CDATA\[|\]\]>/g, '').trim()
+    }));
+    const popis = `${getField(blok, 'cz', 'short') ?? ''} ${getField(blok, 'cz', 'long') ?? ''}`;
+    return rozmerZTextu(parametry, popis);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Zařazení podle slov a rozměru.
+ *
+ * Varianta tu není kosmetika: podle ní se vybere **šablona**, a ta má
+ * šířku výrobku. Sedmička je nejčastější kravata (190 ze 251), takže
+ * bez rozměru se bere ona; dětská kravata je vždy šestka (všech 53 na
+ * e-shopu), dětský motýlek a „MINI" mají vlastní menší šablonu.
+ */
+export function zarad(nazev: string, kategorie: string, rozmer: Rozmer = {}): Zarazeni {
   const text = `${bezDiakritiky(nazev)} ${bezDiakritiky(kategorie)}`;
+  const jmeno = bezDiakritiky(nazev);
   const nalezy: { typ: ZkVrstvaTyp; delka: number }[] = [];
   /*
    * Hledá se jen mezi **zbožím**. Oblek a košile jsou v kabině kulisa,
@@ -61,7 +135,14 @@ export function zarad(nazev: string, kategorie: string): Zarazeni {
     if (!def.zbozi) continue;
     for (const slovo of def.slova) {
       const hledane = bezDiakritiky(slovo);
-      if (hledane && text.includes(hledane)) nalezy.push({ typ: def.typ, delka: hledane.length });
+      /*
+       * Název váží víc než kategorie a **dřív zmíněný kus víc než
+       * pozdější**: v sadě „motýlek s kapesníčkem" nebo „regata
+       * s kapesníčkem" je hlavní kus první, kapesníček je přídavek.
+       */
+      const kde = hledane ? jmeno.indexOf(hledane) : -1;
+      if (kde >= 0) nalezy.push({ typ: def.typ, delka: 1000 - kde * 4 + hledane.length });
+      else if (hledane && text.includes(hledane)) nalezy.push({ typ: def.typ, delka: hledane.length });
     }
   }
   if (nalezy.length === 0) return { typ: '', varianta: '', jiste: false };
@@ -71,23 +152,50 @@ export function zarad(nazev: string, kategorie: string): Zarazeni {
    * se každý doplněk s obleky v názvu stal sakem.
    */
   nalezy.sort((a, b) => b.delka - a.delka);
+  /*
+   * Sada „motýlek a kapesníček" nebo „regata s kapesníčkem": na model
+   * jde ten hlavní kus — v názvu je první, kapesníček je „s"/„a" navíc.
+   */
   const typ = nalezy[0].typ;
-  const jiste = nalezy.length === 1 || nalezy[0].delka > nalezy[1].delka;
-
-  let varianta = vrstvaDef(typ).varianty[0]?.id ?? '';
-  if (typ === 'kravata') {
-    if (/motyl/.test(text)) varianta = 'motylek';
-    else if (/regat|ascot/.test(text)) varianta = 'regata';
-  } else if (typ === 'sako') {
-    if (/dvourad|double/.test(text)) varianta = 'dvouradove';
-  } else if (typ === 'kosile') {
-    if (/stojack|mandarin|band/.test(text)) varianta = 'stojacek';
-  } else if (typ === 'ksandy') {
-    if (/sirok|wide/.test(text)) varianta = 'siroke';
-  }
-  return { typ, varianta, jiste };
+  /* Jisté, když jiný typ nemá stejně silnou shodu (dvě slova téhož typu nevadí) */
+  const jiny = nalezy.find(one => one.typ !== typ);
+  const jiste = !jiny || nalezy[0].delka > jiny.delka;
+  return { typ, varianta: variantaZbozi(typ, text, rozmer), jiste };
 }
 
+export function variantaZbozi(typ: ZkVrstvaTyp, text: string, rozmer: Rozmer = {}): string {
+  const detske = /detsk|deti|kids|junior|chlapec/.test(text);
+  if (typ === 'kravata') {
+    if (/motyl|bow/.test(text)) {
+      if (/\bmini\b/.test(text)) return 'motylek-mini';
+      const podle = variantaPodleRozmeru('kravata', 'motylek', rozmer);
+      if (podle && rozmer.sirkaCm) return podle;
+      return detske ? 'motylek-detsky' : 'motylek';
+    }
+    if (/regat|ascot/.test(text)) return 'regata';
+    if (/pleten|knit/.test(text)) return 'pletena';
+    const podle = variantaPodleRozmeru('kravata', 'kravata', rozmer);
+    if (podle) return podle;
+    if (detske) return 'kravata-6';
+    if (/\buzk|slim|skinny/.test(text)) return 'kravata-5';
+    return 'kravata';
+  }
+  if (typ === 'ksandy') {
+    const podle = variantaPodleRozmeru('ksandy', 'ksandy', rozmer);
+    if (podle) return podle;
+    if (detske || /\buzk/.test(text)) return 'uzke';
+    /* Široké (3,5 cm) jsou na e-shopu nejčastější: 89 ze 126 */
+    return 'siroke';
+  }
+  return vrstvaDef(typ).varianty[0]?.id ?? '';
+}
+
+/** Sedí uložená varianta k rodině? Jinak se přepočítá (motýlek nesmí zůstat jako kravata 7 cm). */
+export function sjednotVariantu(typ: ZkVrstvaTyp, varianta: string): string {
+  const def = vrstvaDef(typ);
+  if (def.varianty.some(one => one.id === varianta)) return varianta;
+  return def.varianty[0]?.id ?? '';
+}
 /* -------------------------------------------------------------- barva */
 
 /**
@@ -219,7 +327,7 @@ export async function projdiKatalog(
     for (const produkt of strana.items) {
       const stare = zname.get(produkt.code);
       if (stare?.schvaleno) continue;
-      const nalez = zarad(produkt.title?.cz ?? '', produkt.category ?? '');
+      const nalez = zarad(produkt.title?.cz ?? '', produkt.category ?? '', rozmerProduktu(produkt.code));
       if (!nalez.typ) {
         kAi.push({ kod: produkt.code, nazev: produkt.title?.cz ?? '', kategorie: produkt.category ?? '' });
         continue;
@@ -304,7 +412,8 @@ function proVek(nazev: string, kategorie: string): ZkVek[] | undefined {
 }
 
 export function proKabinu(limit = 400): ZkProdukt[] {
-  const zarazene = store.produktyRows().filter(one => one.typ);
+  /* Jen zboží, které kabina zná — pásek z dřívějška tu už místo nemá */
+  const zarazene = store.produktyRows().filter(one => one.typ && ZK_VRSTVY.some(d => d.typ === one.typ && d.zbozi));
   if (zarazene.length === 0) return [];
   const mapa = new Map(zarazene.map(one => [one.kod, one]));
   const out: ZkProdukt[] = [];
@@ -354,7 +463,7 @@ export function proKabinu(limit = 400): ZkProdukt[] {
         cenaCislo: cenaNaCislo(produkt.price?.cz ?? ''),
         obrazek: produkt.image ?? '',
         typ: row.typ as ZkVrstvaTyp,
-        varianta: row.varianta,
+        varianta: sjednotVariantu(row.typ as ZkVrstvaTyp, row.varianta),
         hex: row.hex,
         vzorek: row.vzorek,
         velikosti: row.velikosti || velikostiSeznam.length > 1,
@@ -369,4 +478,4 @@ export function proKabinu(limit = 400): ZkProdukt[] {
   return out;
 }
 
-export const __test = { zarad, bezDiakritiky, cenaNaCislo };
+export const __test = { zarad, bezDiakritiky, cenaNaCislo, rozmerZTextu, variantaZbozi };

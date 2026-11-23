@@ -188,6 +188,24 @@ export interface ZkVrstvaDef {
   bod?: { x: number; y: number };
   /** Pobídka u bodu — krátká, konkrétní, bez vykřičníku. */
   pobidka?: string;
+  /**
+   * Zboží se nekreslí modelem, ale **šablonou** — tvarem spočítaným
+   * v aplikaci z rozměrů výrobku a z bodů na postavě (límec, pas, kapsa).
+   *
+   * Patrik (23. 11.): vrstvy od modelu na sebe nepasovaly. Model vrací
+   * pokaždé nový obrázek, ne tentýž s kravatou navíc — a kravata 6 cm
+   * proti 8 cm, kšandy 2,5 proti 3,5 cm nebo dětský motýlek proti
+   * pánskému jsou rozdíly, které model nedodrží. Šablona je zadarmo,
+   * sedí na bod a má přesně tu šířku, kterou má výrobek v katalogu.
+   */
+  sablona?: boolean;
+  /**
+   * Varianta, která se nekreslí zvlášť, ale **vyřízne se z obrázku
+   * postavy**: postava se kreslí rovnou v košili, kalhotách a botách,
+   * každý kus v jiné kreslicí barvě. Co je z jednoho obrázku, na sebe
+   * sedí z principu.
+   */
+  zPostavy?: string;
 }
 
 export const ZK_VRSTVY: ZkVrstvaDef[] = [
@@ -200,56 +218,70 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   },
   {
     typ: 'boty', nazev: 'Boty', popis: 'Nastav přibližně podle svých bot.',
-    barvitelna: true, nepovinna: true, zbozi: false, slova: [],
-    zakladni: 'prvni',
+    /* Povinné: boty jsou v obrázku postavy a bez vrstvy by zůstaly v kreslicí barvě */
+    barvitelna: true, nepovinna: false, zbozi: false, slova: [],
+    zakladni: 'prvni', zPostavy: 'spolecenske',
     kontrola: { odY: 0.84, doY: 1.01, podilOd: 0.006, podilDo: 0.14 },
     varianty: [{ id: 'spolecenske', nazev: 'Společenské' }]
   },
   {
     typ: 'kalhoty', nazev: 'Kalhoty', popis: 'Nastav přibližně podle svých kalhot.',
     barvitelna: true, nepovinna: false, zbozi: false, slova: [],
-    zakladni: 'prvni',
+    zakladni: 'prvni', zPostavy: 'oblekove',
     kontrola: { odY: 0.4, doY: 1.01, podilOd: 0.18, podilDo: 0.64 },
     varianty: [{ id: 'oblekove', nazev: 'Oblekové' }]
   },
   {
     typ: 'kosile', nazev: 'Košile', popis: 'Nastav přibližně podle své košile.',
     barvitelna: true, nepovinna: false, zbozi: false, slova: [],
-    zakladni: 'prvni',
+    zakladni: 'prvni', zPostavy: 'klasicka',
     kontrola: { odY: 0.1, doY: 0.7, podilOd: 0.18, podilDo: 0.7 },
     varianty: [
       { id: 'klasicka', nazev: 'Klasický límec' },
       { id: 'stojacek', nazev: 'Stojáček' }
     ]
   },
-  {
-    typ: 'pasek', nazev: 'Pásek', popis: 'Vyber si konkrétní pásek.',
-    barvitelna: true, nepovinna: true, zbozi: true, slova: ['pás', 'pas', 'opasek', 'belt', 'gürtel'],
-    zakladni: 'vse',
-    bod: { x: 0.5, y: 0.49 }, pobidka: 'Pásek k tomu?',
-    kontrola: { odY: 0.38, doY: 0.62, podilOd: 0.001, podilDo: 0.07 },
-    varianty: [{ id: 'kozeny', nazev: 'Kožený' }]
-  },
+  /*
+   * Pásek tu není: Quentino pásky neprodává (v nabídce e-shopu nejsou)
+   * a kulisa ho nepotřebuje — ke kšandám se pásek nenosí. Typ zůstává
+   * v seznamu typů kvůli vzhledům uloženým dřív.
+   */
   {
     typ: 'ksandy', nazev: 'Kšandy', popis: 'Vyber si konkrétní kšandy.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kšand', 'ksand', 'šle', 'sle', 'suspender', 'brace', 'hosenträger'],
-    zakladni: 'vse',
-    bod: { x: 0.32, y: 0.38 }, pobidka: 'Kšandy místo pásku?',
+    zakladni: 'vse', sablona: true,
+    bod: { x: 0.32, y: 0.38 }, pobidka: 'Kšandy k tomu?',
     kontrola: { odY: 0.13, doY: 0.6, podilOd: 0.004, podilDo: 0.22 },
+    /* Šířky přesně podle katalogu: 2,5 cm (33 kusů), 3,5 cm (89), 4 cm (4) */
     varianty: [
-      { id: 'uzke', nazev: 'Úzké' },
-      { id: 'siroke', nazev: 'Široké' }
+      { id: 'uzke', nazev: 'Úzké 2,5 cm' },
+      { id: 'siroke', nazev: 'Široké 3,5 cm' },
+      { id: 'extra', nazev: 'Extra široké 4 cm' }
     ]
   },
   {
     typ: 'kravata', nazev: 'Kravata nebo motýlek', popis: 'Vyber si konkrétní kravatu, motýlka nebo regatu.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kravat', 'motýl', 'motyl', 'tie', 'krawatte', 'regat'],
-    zakladni: 'vse',
+    zakladni: 'vse', sablona: true,
     bod: { x: 0.5, y: 0.2 }, pobidka: 'Kravatu nebo motýlka?',
     kontrola: { odY: 0.11, doY: 0.52, podilOd: 0.001, podilDo: 0.09 },
+    /*
+     * Šířky kravat z filtru e-shopu: 5 cm (22), 6 cm (14 + všech 53
+     * dětských), 7 cm (190), 8 cm (20), 9 cm (5). Varianta „kravata" je
+     * ta nejčastější sedmička — tak se jmenovala i dřív a uložené vzhledy
+     * zůstanou platné. Motýlek pánský 12 × 5,5 cm podle popisu v e-shopu,
+     * dětský a „MINI" menší.
+     */
     varianty: [
-      { id: 'kravata', nazev: 'Kravata' },
+      { id: 'kravata', nazev: 'Kravata 7 cm' },
+      { id: 'kravata-5', nazev: 'Kravata 5 cm' },
+      { id: 'kravata-6', nazev: 'Kravata 6 cm' },
+      { id: 'kravata-8', nazev: 'Kravata 8 cm' },
+      { id: 'kravata-9', nazev: 'Kravata 9 cm' },
+      { id: 'pletena', nazev: 'Pletená kravata' },
       { id: 'motylek', nazev: 'Motýlek' },
+      { id: 'motylek-detsky', nazev: 'Dětský motýlek' },
+      { id: 'motylek-mini', nazev: 'Motýlek MINI' },
       { id: 'regata', nazev: 'Regata' }
     ]
   },
@@ -273,12 +305,86 @@ export const ZK_VRSTVY: ZkVrstvaDef[] = [
   {
     typ: 'kapesnicek', nazev: 'Kapesníček', popis: 'Vyber si konkrétní kapesníček.',
     barvitelna: true, nepovinna: true, zbozi: true, slova: ['kapesní', 'kapesni', 'pochette', 'pocket square', 'einstecktuch'],
-    zakladni: 'vse',
+    zakladni: 'vse', sablona: true,
     bod: { x: 0.68, y: 0.29 }, pobidka: 'Kapesníček do klopy?',
     kontrola: { odY: 0.18, doY: 0.46, podilOd: 0.0003, podilDo: 0.035 },
     varianty: [{ id: 'spicka', nazev: 'Do špičky' }]
   }
 ];
+
+/**
+ * Rozměry zboží pro šablonu — ve skutečných centimetrech.
+ *
+ * Šablona se kreslí v měřítku postavy (body na centimetr z výšky
+ * postavy), takže 6 cm dětská kravata je na dítěti opravdu užší než
+ * sedmička na dospělém a pánský motýlek na kojenci by byl vidět jako
+ * příliš velký — přesně jako ve skutečnosti.
+ */
+export interface ZkSablona {
+  tvar: 'kravata' | 'pletena' | 'motylek' | 'regata' | 'ksandy' | 'kapesnicek';
+  /** Šířka v nejširším místě (kravata, kšandy) nebo celého motýlka. */
+  sirkaCm: number;
+  /** Výška motýlka, výška špičky kapesníčku. */
+  vyskaCm?: number;
+}
+
+export const ZK_SABLONY: Record<string, ZkSablona> = {
+  'kravata:kravata': { tvar: 'kravata', sirkaCm: 7 },
+  'kravata:kravata-5': { tvar: 'kravata', sirkaCm: 5 },
+  'kravata:kravata-6': { tvar: 'kravata', sirkaCm: 6 },
+  'kravata:kravata-8': { tvar: 'kravata', sirkaCm: 8 },
+  'kravata:kravata-9': { tvar: 'kravata', sirkaCm: 9 },
+  'kravata:pletena': { tvar: 'pletena', sirkaCm: 5.5 },
+  'kravata:motylek': { tvar: 'motylek', sirkaCm: 12, vyskaCm: 5.5 },
+  'kravata:motylek-detsky': { tvar: 'motylek', sirkaCm: 10, vyskaCm: 4.8 },
+  'kravata:motylek-mini': { tvar: 'motylek', sirkaCm: 8.5, vyskaCm: 4 },
+  'kravata:regata': { tvar: 'regata', sirkaCm: 9, vyskaCm: 12 },
+  'ksandy:uzke': { tvar: 'ksandy', sirkaCm: 2.5 },
+  'ksandy:siroke': { tvar: 'ksandy', sirkaCm: 3.5 },
+  'ksandy:extra': { tvar: 'ksandy', sirkaCm: 4 },
+  'kapesnicek:spicka': { tvar: 'kapesnicek', sirkaCm: 7, vyskaCm: 3.6 }
+};
+
+export function sablonaPro(typ: ZkVrstvaTyp, varianta: string): ZkSablona | null {
+  return ZK_SABLONY[`${typ}:${varianta}`] ?? null;
+}
+
+/**
+ * Rodina varianty — co se dá nabídnout místo toho, co je na modelu.
+ *
+ * Varianta říká, **jak široká** kravata je, aby šablona měla správný
+ * tvar. Pro nabídku „vyměnit za jinou" ale šířka nerozhoduje: kdo má na
+ * modelu sedmičku, chce vidět i šestky. Motýlek místo kravaty už ale
+ * nabídnout nejde — to je jiný kus, ne jiný kus téhož.
+ */
+export function rodinaVarianty(typ: ZkVrstvaTyp | string, varianta: string): string {
+  if (typ !== 'kravata') return String(typ);
+  if (varianta.startsWith('motylek')) return 'motylek';
+  if (varianta === 'regata') return 'regata';
+  return 'kravata';
+}
+
+/**
+ * Varianta zboží podle rozměru z katalogu.
+ *
+ * Kravaty mají šířku v parametrech („Šířka: 7cm"), kšandy taky
+ * („2,5cm"); motýlek má rozměr jen v popisu („Rozměry: 12 × 5,5 cm").
+ * Bere se nejbližší šablona — e-shop může mít i 7,5 cm a pro tu
+ * neexistuje vlastní, ale osmička je o půl centimetru vedle, ne o tři.
+ */
+export function variantaPodleRozmeru(
+  typ: ZkVrstvaTyp,
+  rodina: string,
+  rozmer: { sirkaCm?: number; vyskaCm?: number }
+): string {
+  const kandidati = Object.entries(ZK_SABLONY)
+    .filter(([klic]) => klic.startsWith(`${typ}:`))
+    .map(([klic, s]) => ({ varianta: klic.slice(typ.length + 1), s }))
+    .filter(one => rodinaVarianty(typ, one.varianta) === rodina && one.varianta !== 'pletena');
+  if (!kandidati.length || !rozmer.sirkaCm) return '';
+  kandidati.sort((a, b) => Math.abs(a.s.sirkaCm - rozmer.sirkaCm!) - Math.abs(b.s.sirkaCm - rozmer.sirkaCm!));
+  return kandidati[0].varianta;
+}
 
 /** Patří tahle varianta do základního běhu? */
 export function doZakladu(def: ZkVrstvaDef, varianta: string): boolean {
@@ -835,7 +941,9 @@ export function produktyKVrstve(
   varianta = ''
 ): ZkProdukt[] {
   return vse
-    .filter(one => one.typ === typ && (!varianta || !one.varianta || one.varianta === varianta))
+    /* Porovnává se rodina, ne přesná varianta: k sedmičce se nabízí i šestka */
+    .filter(one => one.typ === typ && (!varianta || !one.varianta
+      || rodinaVarianty(typ, one.varianta) === rodinaVarianty(typ, varianta)))
     .map(one => ({ one, blizkost: hex ? barevnyRozdil(one.hex, hex) : 0 }))
     .sort((a, b) => a.blizkost - b.blizkost || b.one.cenaCislo - a.one.cenaCislo)
     .map(x => x.one);
@@ -1387,6 +1495,8 @@ export interface ZkPostavaStav {
   /** Vrstvy, které se použít dají, ale něco na nich stojí za podívání. */
   upozorneni: number;
   schvalenych: number;
+  /** Postava ze starého postupu (v šedém tričku) — při dalším běhu se nakreslí znovu. */
+  zastarala?: boolean;
 }
 
 /**
@@ -1447,6 +1557,22 @@ export interface ZkPrehled {
   posledniChyba?: { kdy: string; text: string; model: string } | null;
   /** Model průhledné pozadí neumí a vyřezává ho aplikace. */
   bezPruhlednosti?: boolean;
+}
+
+/** Body pro šablony v dílech plátna a náhled, na kterém se posouvají. */
+export interface ZkKotvy {
+  bezSaka: string;
+  seSakem: string;
+  sirka: number;
+  vyska: number;
+  limec: [number, number];
+  pas: number;
+  kapsa: [number, number];
+  ramena: number;
+  /** Výška ramenního bodu — jen kvůli tomu, kde ho v okně ukázat. */
+  ramenoY: number;
+  spony: number;
+  rucne: boolean;
 }
 
 export interface ZkZkouskaModelu {

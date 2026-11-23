@@ -49,31 +49,11 @@ const TELA: Record<ZkTelo, string> = {
   silny: 'heavier build, waist wider than the shoulders'
 };
 
-/**
- * V čem stojí postava, než se začne oblékat.
- *
- * ## Proč ne spodní prádlo
- *
- * Původně to bylo tílko a spodky — pro skládání vrstev nejčistší základ,
- * protože každý další kus se kreslí přes něj. Jenže model takové zadání
- * odmítne: „Your request was rejected by the safety system …
- * safety_violations=[sexual]". U dítěte a kojence je to i správně a
- * trvat na tom by znamenalo obcházet něco, co obcházet nemá cenu.
- *
- * ## Proč to skládání nevadí
- *
- * Vrstva je **rozdíl dvou kroků**, ne výřez z holé postavy. Základní
- * tričko a kalhoty jsou pod oblekem schované a kus, který se obléká,
- * tu plochu přebarví celou — rozdíl tedy vyjde stejně. Podmínka je
- * jediná: základ musí mít barvu výrazně jinou než to, co přijde na něj,
- * jinak se rozdíl ztratí (přesně to se stalo sakovi v šedé na šedé
- * košili). Šedá je proto schválně: žádný kus se v šedé nekreslí.
+/*
+ * Postava dřív stála v šedém tričku a kalhotách a košile se na ni
+ * dokreslovala. Spodní prádlo model odmítá („safety_violations=[sexual]")
+ * a u dítěte je to i správně — proto je postava od začátku oblečená.
  */
-const SPODEK: Record<ZkVek, string> = {
-  dospely: 'a plain mid-grey crew-neck t-shirt and plain mid-grey straight trousers',
-  dite: 'a plain mid-grey crew-neck t-shirt and plain mid-grey straight trousers',
-  kojenec: 'a plain mid-grey long-sleeve top and plain mid-grey leggings'
-};
 
 /**
  * Vlasy a vousy postavy.
@@ -115,10 +95,36 @@ export function zadaniPostavy(vek: ZkVek, telo: ZkTelo): string {
      * patří do postavy.
      */
     VLASY[vek],
-    `Wearing ${SPODEK[vek]} and plain grey socks, no shoes.`,
+    /*
+     * Postava se kreslí rovnou v košili, kalhotách a botách — každý kus
+     * v jiné kreslicí barvě. Patrik (23. 11.): vrstvy na sebe
+     * nepasovaly, protože každá vznikala z jiného obrázku. Takhle jsou
+     * tři kusy kulisy z **jednoho** obrázku a sedí na sebe z principu;
+     * z barvy se pak vezme jen mapa světla a barvu si zvolí zákazník.
+     */
+    `Wearing ${OBLECENI[vek]}.`,
+    'Each garment is one single flat saturated colour exactly as given, with natural folds and shading;',
+    'nothing else in the image (skin, hair, background) has any of these colours.',
+    'No tie, no bow tie, no braces, no belt, no jacket, no waistcoat, no jewellery, nothing in the pockets.',
     SPOLECNE
   ].join(' ');
 }
+
+/** Co má postava na sobě: košile, kalhoty a boty, každé v kreslicí barvě. */
+const OBLECENI: Record<ZkVek, string> = {
+  dospely: `a plain long-sleeve dress shirt with a classic turn-down collar in ${ZK_KRESLICI_SLOVY.kosile},`
+    + ' buttoned up to the top button and tucked in,'
+    + ` plain flat-front suit trousers in ${ZK_KRESLICI_SLOVY.kalhoty} hemmed at the shoe,`
+    + ` and plain lace-up formal shoes in ${ZK_KRESLICI_SLOVY.boty}`,
+  dite: `a plain long-sleeve dress shirt with a classic turn-down collar in ${ZK_KRESLICI_SLOVY.kosile},`
+    + ' buttoned up to the top button and tucked in,'
+    + ` plain straight trousers in ${ZK_KRESLICI_SLOVY.kalhoty},`
+    + ` and plain formal shoes in ${ZK_KRESLICI_SLOVY.boty}`,
+  kojenec: `a plain long-sleeve shirt with a small turn-down collar in ${ZK_KRESLICI_SLOVY.kosile},`
+    + ' buttoned up to the top,'
+    + ` plain soft trousers in ${ZK_KRESLICI_SLOVY.kalhoty},`
+    + ` and soft baby shoes in ${ZK_KRESLICI_SLOVY.boty}`
+};
 
 /** Co se dooblékne — jedna věta za každou variantu. */
 const KUSY: Record<string, string> = {
@@ -202,7 +208,12 @@ export function zadani(klic: string, vychozi: string): string {
 }
 
 export function zadaniPostavyTed(vek: ZkVek, telo: ZkTelo): string {
-  return zadani(`postava:${vek}:${telo}`, zadaniPostavy(vek, telo));
+  /*
+   * Klíč má číslo postupu: dřívější uložené zadání kreslilo postavu
+   * v šedém tričku a z takové se košile, kalhoty a boty vyříznout
+   * nedají. Kdo si ho kdysi doladil, nemá tím tiše rozbít nový postup.
+   */
+  return zadani(`postava2:${vek}:${telo}`, zadaniPostavy(vek, telo));
 }
 
 export function zadaniKusuTed(typ: ZkVrstvaTyp, varianta: string, naVyrezu = false): string {

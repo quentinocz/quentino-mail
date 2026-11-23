@@ -2581,6 +2581,40 @@ for (const okno of OKNA) {
     zkouska.slice(0, 90));
   await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-vizualy.png') });
 
+  /*
+   * Body pro šablony. Zboží se nekreslí modelem, ale šablonou podle bodů
+   * na postavě — a ty se dají chytit a posunout. Zkouší se tažením, ne
+   * kliknutím: jen tak je vidět, že se pošle nová poloha.
+   */
+  const body = await page.evaluate(() => ({
+    bodu: document.querySelectorAll('.zk-body .zk-bod').length,
+    obrazku: document.querySelectorAll('.zk-body .zk-body-obr img').length,
+    pretika: (() => { const el = document.querySelector('.zk-body'); return !el || el.scrollWidth > el.clientWidth + 1; })()
+  }));
+  say('body pro šablony jsou nad vrstvami a dají se chytit',
+    body.bodu === 5 && body.obrazku === 2 && !body.pretika, `${body.bodu} bodů, ${body.obrazku} náhledy`);
+  {
+    const limec = page.locator('.zk-body .zk-bod').first();
+    const box = await limec.boundingBox();
+    if (box) {
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 12, box.y + box.height / 2 + 6, { steps: 4 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+    }
+    const posun = await page.evaluate(() => (window.__calls || []).filter(one => one[0] === 'zk:kotvy-uloz').pop() || null);
+    say('  posunutý límec se uloží a šablony se překreslí',
+      !!posun && posun[2] && posun[2].limec && posun[2].limec[0] > 0.5,
+      posun ? JSON.stringify(posun[2].limec) : 'nic se neposlalo');
+  }
+  /* Šablona se kreslí bez modelu — u ní není „Přegenerovat", ale „Překreslit" */
+  const sablonaTlacitko = await page.evaluate(() => [...document.querySelectorAll('.zk-karta')]
+    .filter(one => /šablona/.test(one.textContent || ''))
+    .map(one => (one.querySelector('.zk-karta-btns .btn')?.textContent ?? '').trim())[0] ?? '');
+  say('  šablona se překresluje zadarmo, ne přegenerovává', /Překreslit|Nakreslit/.test(sablonaTlacitko), sablonaTlacitko);
+  await page.locator('.zk-body').screenshot({ path: path.join(SHOTS, 'okno-kabina-body.png') });
+
   /* Zadání pro model se dá přepsat — bez něj se nepovedená vrstva nespraví */
   await page.locator('.zk-karta .zk-karta-btns .icon-btn').first().click();
   await page.waitForTimeout(400);
@@ -2638,7 +2672,8 @@ for (const okno of OKNA) {
   say('  zavaděč do šablony je po vystavení k dispozici',
     /zavaděč/.test(nastaveni.zavadec), nastaveni.zavadec || 'chybí');
   say('  pobídky mají odkaz do kategorie pro každou jazykovou verzi',
-    nastaveni.kategorii === 4 && nastaveni.kategoriePolí === 12,
+    /* Kravaty, kšandy, kapesníčky — pásky Quentino neprodává */
+    nastaveni.kategorii === 3 && nastaveni.kategoriePolí === 9,
     `${nastaveni.kategorii} kategorií, ${nastaveni.kategoriePolí} polí`);
   /*
    * Poměr pro radu s velikostí je číslo, kterému nikdo nerozumí, dokud

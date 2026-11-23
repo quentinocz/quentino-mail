@@ -188,6 +188,22 @@
       schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false }
   ],
   'zk:vzhledy': [],
+  /* Body pro šablony: náhled postavy jako jednoduchá kresba, ať je na čem body ukázat */
+  'zk:kotvy': (function () {
+    var svg = function (sako) {
+      return 'data:image/svg+xml;utf8,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 768"><rect width="512" height="768" fill="#fafafa"/>'
+        + '<ellipse cx="256" cy="70" rx="34" ry="46" fill="#e2b89a"/>'
+        + '<rect x="176" y="115" width="160" height="200" fill="#f2f2ee"/>'
+        + '<rect x="180" y="310" width="152" height="400" fill="#2f3540"/>'
+        + (sako ? '<path d="M170 115h70l16 160 16-160h70v290H170z" fill="#232a3a"/>' : '')
+        + '<path d="M248 120h16l-4 18 10 160-14 14-14-14 10-160z" fill="#7a1f2b"/></svg>');
+    };
+    return {
+      bezSaka: svg(false), seSakem: svg(true), sirka: 512, vyska: 768,
+      limec: [0.5, 0.152], pas: 0.404, kapsa: [0.585, 0.235], ramena: 0.085, ramenoY: 0.154, spony: 0.075, rucne: false
+    };
+  })(),
   'zk:zkouska': { ok: true, model: 'gpt-image-2.5-sunburst', pruhledne: false, bez: ['background'], sekund: 14, chyba: '' },
   'events:list': [
     { id: 1, kind: 'dovolena', title: 'Dovolená — zavřeno', from: '2026-08-04', to: '2026-08-10',
@@ -2643,6 +2659,9 @@
   ];
   answers['shoot:current'] = 's1';
   window.__shoot = { state: shootState, shoot: shootOne, photos: shootPhotos, second: shootSecond };
+
+  // Uložení bodů vrací tytéž body — náhled hlídá jen to, co se poslalo
+  answers['zk:kotvy-uloz'] = answers['zk:kotvy'];
 
   // Náhledy si potřebují data upravit za běhu (např. „právě doběhl překlad")
   window.__answers = answers;

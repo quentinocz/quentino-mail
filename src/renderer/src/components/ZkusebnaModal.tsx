@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
-  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu
+  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu, ZkKotvy
 } from '@shared/zkusebna';
 import {
   ZK_BARVY, ZK_KVALITY, ZK_VRSTVY, dilKvality, dilPlochy, doZakladu, vrstvaDef
@@ -219,15 +219,19 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
 
   const odhadRozsahu = useCallback((rozsah: 'zakladni' | 'vse') => {
     let suma = 0;
+    /* Postava ze starého postupu se nakreslí znovu i se vším, co se na ni dokreslovalo */
+    const znovu = !!stav?.zastarala;
     for (const v of vrstvy) {
-      if (v.stav === 'hotovo' || v.stav === 'schvaleno') continue;
+      if (!znovu && (v.stav === 'hotovo' || v.stav === 'schvaleno')) continue;
       const def = ZK_VRSTVY.find(one => one.typ === v.typ);
       if (!def) continue;
+      /* Šablony a kulisa z obrázku postavy nic nestojí */
+      if (def.sablona || def.zPostavy === v.varianta) continue;
       if (rozsah === 'zakladni' && !doZakladu(def, v.varianta)) continue;
       suma += cenaObrazku * dilPlochy(v.typ, volneRozmery);
     }
     return Math.round(suma * 100) / 100;
-  }, [vrstvy, cenaObrazku, volneRozmery]);
+  }, [vrstvy, cenaObrazku, volneRozmery, stav?.zastarala]);
 
   const odhad = useMemo(() => odhadRozsahu('zakladni'), [odhadRozsahu]);
   const odhadVse = useMemo(() => odhadRozsahu('vse'), [odhadRozsahu]);
@@ -333,8 +337,9 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                 <div>
                   <h3>{popisPostavy(stav?.vek ?? '', stav?.telo ?? '')}</h3>
                   <p className="desc">
-                    Každý kus model nakreslí ve své kreslicí barvě a vrstva jsou body té barvy.
-                    Kreslí se na postavu složenou z toho, co už je hotové — ne jedno z druhého.
+                    Model kreslí jen postavu (rovnou v košili, kalhotách a botách — vyříznou se
+                    z jednoho obrázku, takže na sebe sedí), vestu a sako. Kravaty, motýlky, kšandy
+                    a kapesníčky jsou <b>šablony</b> v rozměrech z katalogu: zadarmo a na bod.
                   </p>
                 </div>
                 <div className="zk-akce">
@@ -351,19 +356,30 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   <button className="btn primary" onClick={() => generujVse('zakladni')}
                     disabled={!!pracuje || !prehled?.maKlic}
                     data-tip={prehled?.maKlic
-                      ? `Doplňky a jedna podoba obleku. Odhad ${odhad} $.`
+                      ? `Postava, vesta a sako od modelu, doplňky ze šablon. Odhad ${odhad} $.`
                       : 'Nejdřív vlož klíč k OpenAI v Nastavení.'}>
                     Dogenerovat potřebné{odhad ? ` · ${odhad} $` : ''}
                   </button>
                   {odhadVse > odhad && (
                     <button className="btn ghost" onClick={() => generujVse('vse')}
                       disabled={!!pracuje || !prehled?.maKlic}
-                      data-tip="Včetně variant navíc — vousy, druhé sako, další účesy.">
+                      data-tip="Včetně variant navíc — dvouřadové sako, košile se stojáčkem.">
                       I varianty navíc · {odhadVse} $
                     </button>
                   )}
                 </div>
               </header>
+
+              {stav?.zastarala && (
+                <div className="zk-pozor zk-pozor-v">
+                  <Icon name="alert" size={13} />
+                  <span>
+                    Tahle postava je ze starého postupu (v šedém tričku, oblečení dokreslované po
+                    kusech). Při <b>Dogenerovat potřebné</b> se nakreslí znovu — rovnou v košili —
+                    a kulisa i šablony se z ní vyrobí nově.
+                  </span>
+                </div>
+              )}
 
               {prehled?.posledniChyba && (
                 <div className="zk-chyba-pruh" role="alert">
@@ -385,10 +401,19 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
               {/* Povedená zkouška chybu smaže — výsledek pak zůstane vidět samostatně */}
               {!prehled?.posledniChyba && zkouskaVysledek}
 
+              {stav?.hotovo && !stav.zastarala && (
+                <BodyNaPostave postava={postava} obnova={vrstvy}
+                  onZmena={async () => { setVrstvy(await api.zk.vrstvy(postava)); setNahled(null); }} />
+              )}
+
               <div className="zk-mrizka">
                 {vrstvyVPoradi.map(v => {
                   const klic = `${v.typ}:${v.varianta}`;
                   const stavVrstvy = STAVY[v.stav] ?? STAVY.ceka;
+                  const defV = ZK_VRSTVY.find(one => one.typ === v.typ);
+                  /* Šablona a kulisa z postavy se nekreslí modelem: zadarmo, bez klíče, bez zadání */
+                  const sablona = !!defV?.sablona;
+                  const zPostavy = defV?.zPostavy === v.varianta;
                   return (
                     <div key={klic} className={`zk-karta ${stavVrstvy.trida}`}>
                       <div className="zk-obrazek">
@@ -398,15 +423,29 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                       </div>
                       <div className="zk-karta-text">
                         <b>{v.nazev}</b>
-                        <span className="desc">{v.variantaNazev}</span>
+                        <span className="desc">{v.variantaNazev}{sablona ? ' · šablona' : zPostavy ? ' · z postavy' : ''}</span>
                         <em className={`zk-odznak ${stavVrstvy.trida}`}>{stavVrstvy.nazev}</em>
                       </div>
                       {v.potiz && <p className="zk-potiz">{v.potiz}</p>}
                       <div className="zk-karta-btns">
-                        <button className="btn ghost" onClick={() => generuj(v.typ, v.varianta)}
-                          disabled={!!pracuje || !prehled?.maKlic}>
-                          {v.soubor ? 'Přegenerovat' : 'Vygenerovat'}
-                        </button>
+                        {sablona ? (
+                          <button className="btn ghost" onClick={() => generuj(v.typ, v.varianta)}
+                            disabled={!!pracuje || !stav?.hotovo}
+                            data-tip="Šablona podle bodů na postavě — nic nestojí">
+                            {v.soubor ? 'Překreslit' : 'Nakreslit'}
+                          </button>
+                        ) : zPostavy ? (
+                          <button className="btn ghost" onClick={() => generuj(v.typ, v.varianta)}
+                            disabled={!!pracuje || !stav?.hotovo || !!stav?.zastarala}
+                            data-tip="Vyřízne se znovu z obrázku postavy — nic nestojí">
+                            Vyříznout znovu
+                          </button>
+                        ) : (
+                          <button className="btn ghost" onClick={() => generuj(v.typ, v.varianta)}
+                            disabled={!!pracuje || !prehled?.maKlic}>
+                            {v.soubor ? 'Přegenerovat' : 'Vygenerovat'}
+                          </button>
+                        )}
                         {v.stav === 'hotovo' && (
                           <button className="btn ghost" onClick={() => schval(v, true)}>Schválit</button>
                         )}
@@ -423,10 +462,12 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                         {v.stav === 'schvaleno' && (
                           <button className="btn ghost" onClick={() => schval(v, false)}>Zrušit schválení</button>
                         )}
-                        <button className="icon-btn" data-tip="Zadání pro model"
-                          onClick={() => setPodrobne(podrobne === klic ? null : klic)}>
-                          <Icon name="sliders" size={13} />
-                        </button>
+                        {!sablona && !zPostavy && (
+                          <button className="icon-btn" data-tip="Zadání pro model"
+                            onClick={() => setPodrobne(podrobne === klic ? null : klic)}>
+                            <Icon name="sliders" size={13} />
+                          </button>
+                        )}
                       </div>
                       {podrobne === klic && (
                         <div className="zk-zadani">
@@ -439,11 +480,11 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                           <label>Zadání pro model (anglicky — tak mu to jde nejlíp)</label>
                           <textarea defaultValue={v.zadani} rows={5}
                             onBlur={async e => {
-                              await api.zk.zadani(klic === 'postava:zaklad' ? `postava:${stav?.vek}:${stav?.telo}` : klic, e.target.value);
+                              await api.zk.zadani(klic === 'postava:zaklad' ? `postava2:${stav?.vek}:${stav?.telo}` : klic, e.target.value);
                               toast('Zadání uloženo.', 'info');
                             }} />
                           <button className="btn ghost" onClick={async () => {
-                            await api.zk.zadaniZpet(klic === 'postava:zaklad' ? `postava:${stav?.vek}:${stav?.telo}` : klic);
+                            await api.zk.zadaniZpet(klic === 'postava:zaklad' ? `postava2:${stav?.vek}:${stav?.telo}` : klic);
                             setVrstvy(await api.zk.vrstvy(postava));
                             toast('Vráceno na výchozí.', 'info');
                           }}>Vrátit výchozí</button>
@@ -484,8 +525,9 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   Zařazeno {prehled?.produkty.zarazenych ?? 0} doplňků, barvu a vzor z fotky má{' '}
                   {prehled?.produkty.sBarvou ?? 0}. Obleky a košile tu nejsou schválně — ty se
                   neprodávají a v kabině jsou jen kulisa, kterou si zákazník nastaví barvou.
-                  Špatně zařazený kus obleče zákazníkovi kravatu místo pásku, proto to nakonec
-                  potvrzuje člověk.
+                  Varianta určuje šablonu na modelu — šířku kravaty a kšand, velikost motýlka; bere
+                  se z parametru „Šířka" nebo z popisu. Špatně zařazený kus obleče zákazníkovi
+                  motýlka místo kravaty, proto to nakonec potvrzuje člověk.
                 </p>
               </div>
               <div className="zk-akce">
@@ -746,7 +788,7 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                 v každé jazykové verzi jiný. Bez adresy zůstane hledání uvnitř kabiny.
               </p>
               <div className="zk-kategorie">
-                {(['kravata', 'ksandy', 'pasek', 'kapesnicek'] as const).map(typ => (
+                {(['kravata', 'ksandy', 'kapesnicek'] as const).map(typ => (
                   <label key={typ}>
                     <span>{ZK_VRSTVY.find(one => one.typ === typ)?.nazev ?? typ}</span>
                     {(['cz', 'sk', 'en'] as const).map(jazyk => (
@@ -803,6 +845,127 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
 
 const VEKY: Record<string, string> = { dospely: 'Dospělý', dite: 'Dítě', kojenec: 'Kojenec' };
 const TELA: Record<string, string> = { hubeny: 'štíhlý', bezny: 'běžný', silny: 'silnější' };
+
+/**
+ * Body, ze kterých se kreslí šablony — a náhled, na kterém se posouvají.
+ *
+ * Body se měří z obrázku postavy (límec je nejvyšší bod košile uprostřed,
+ * pas horní hrana kalhot). U neobvyklé postavy to může ujet o centimetr;
+ * tažením se bod posune a šablony se hned překreslí. Nic to nestojí.
+ */
+function BodyNaPostave({ postava, obnova, onZmena }: {
+  postava: string;
+  /** Změna vrstev (po generování) — náhled se načte znovu. */
+  obnova: unknown;
+  onZmena: () => void | Promise<void>;
+}) {
+  const toast = useToast();
+  const [k, setK] = useState<ZkKotvy | null>(null);
+  const [ukladam, setUkladam] = useState(false);
+  const [tah, setTah] = useState<{ co: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    let platne = true;
+    api.zk.kotvy(postava).then(one => { if (platne) setK(one); }).catch(() => { if (platne) setK(null); });
+    return () => { platne = false; };
+  }, [postava, obnova]);
+
+  if (!k) return null;
+
+  const uloz = async (zmena: Partial<{ limec: [number, number]; pas: number; kapsa: [number, number]; ramena: number; spony: number }> | null) => {
+    setUkladam(true);
+    try {
+      const nove = await api.zk.kotvyUloz(postava, zmena === null ? null : {
+        limec: k.limec, pas: k.pas, kapsa: k.kapsa, ramena: k.ramena, spony: k.spony, ...zmena
+      });
+      setK(nove);
+      await onZmena();
+    } catch (e: any) { toast(e.message, 'error'); }
+    setUkladam(false);
+  };
+
+  /* Bod v dílech obrázku z pozice myši */
+  const dil = (e: React.PointerEvent, prvek: HTMLElement): [number, number] => {
+    const r = prvek.getBoundingClientRect();
+    return [
+      Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+      Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))
+    ];
+  };
+
+  const bod = (co: string, x: number, y: number, popis: string) => {
+    const ted = tah?.co === co ? tah : { x, y };
+    return (
+      <span key={co} className={`zk-bod ${tah?.co === co ? 'tahne' : ''}`} data-tip={popis}
+        style={{ left: `${ted.x * 100}%`, top: `${ted.y * 100}%` }}
+        onPointerDown={e => {
+          e.preventDefault();
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          setTah({ co, x, y });
+        }} />
+    );
+  };
+
+  const pohyb = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!tah) return;
+    const [x, y] = dil(e, e.currentTarget);
+    /* Pas, ramena a spony se posouvají jen jedním směrem */
+    if (tah.co === 'pas') setTah({ ...tah, y });
+    else if (tah.co === 'ramena' || tah.co === 'spony') setTah({ ...tah, x });
+    else setTah({ ...tah, x, y });
+  };
+
+  const pust = () => {
+    if (!tah) return;
+    const t = tah;
+    setTah(null);
+    if (t.co === 'limec') void uloz({ limec: [t.x, t.y] });
+    else if (t.co === 'pas') void uloz({ pas: t.y });
+    else if (t.co === 'kapsa') void uloz({ kapsa: [t.x, t.y] });
+    else if (t.co === 'ramena') void uloz({ ramena: t.x - k.limec[0] });
+    else if (t.co === 'spony') void uloz({ spony: t.x - k.limec[0] });
+  };
+
+  return (
+    <div className="zk-body">
+      <div className="zk-body-text">
+        <h4>Body pro šablony</h4>
+        <p className="desc">
+          Odsud se kreslí kravata, motýlek, kšandy a kapesníček. Když něco sedí o kus vedle,
+          chyť bod a posuň ho — šablony se hned překreslí.
+        </p>
+        <ul className="desc">
+          <li><b>Límec</b> — horní střed límce, odtud visí kravata.</li>
+          <li><b>Pas</b> — horní hrana kalhot, tam končí špička kravaty a chytají se kšandy.</li>
+          <li><b>Rameno</b> a <b>spona</b> — kudy vedou kšandy.</li>
+          <li><b>Kapsa</b> — horní hrana náprsní kapsy saka.</li>
+        </ul>
+        <div className="zk-akce">
+          {k.rucne && (
+            <button className="btn ghost" disabled={ukladam} onClick={() => void uloz(null)}>
+              Měřit znovu z obrázku
+            </button>
+          )}
+          {ukladam && <span className="desc"><span className="spin" /> Překresluji…</span>}
+        </div>
+      </div>
+      <div className="zk-body-obr" style={{ aspectRatio: `${k.sirka} / ${k.vyska}` }}
+        onPointerMove={pohyb} onPointerUp={pust} onPointerCancel={() => setTah(null)}>
+        <img src={k.bezSaka} alt="Kravata a kšandy na postavě" draggable={false} />
+        <i className="zk-pas" style={{ top: `${(tah?.co === 'pas' ? tah.y : k.pas) * 100}%` }} />
+        {bod('limec', k.limec[0], k.limec[1], 'Límec')}
+        {bod('pas', k.limec[0], k.pas, 'Pas (horní hrana kalhot)')}
+        {bod('ramena', k.limec[0] + k.ramena, k.ramenoY, 'Rameno — začátek kšand')}
+        {bod('spony', k.limec[0] + k.spony, k.pas, 'Spona kšand')}
+      </div>
+      <div className="zk-body-obr" style={{ aspectRatio: `${k.sirka} / ${k.vyska}` }}
+        onPointerMove={pohyb} onPointerUp={pust} onPointerCancel={() => setTah(null)}>
+        <img src={k.seSakem} alt="Motýlek a kapesníček na postavě se sakem" draggable={false} />
+        {bod('kapsa', k.kapsa[0], k.kapsa[1], 'Kapsa saka')}
+      </div>
+    </div>
+  );
+}
 
 function popisPostavy(vek: string, telo: string): string {
   return `${VEKY[vek] ?? vek} — ${TELA[telo] ?? telo}`;

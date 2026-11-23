@@ -340,7 +340,7 @@ async function main() {
     const pred = prisло.length;
     fronta.push({ stav: 400, telo: JSON.stringify({ error: { message: "Invalid size '1024x768'. Supported values are '1024x1024', '1024x1536', '1536x1024'.", param: 'size' } }) });
     let kusChyba = '';
-    try { await vrstvy.vygenerujVrstvu(p.id, 'boty', 'spolecenske'); } catch (e) { kusChyba = String(e.message); }
+    try { await vrstvy.vygenerujVrstvu(p.id, 'vesta', 'klasicka'); } catch (e) { kusChyba = String(e.message); }
     const pokusy = prisло.slice(pred).map(one => (one.telo.match(/name="size"\r\n\r\n([0-9x]+)/) || [])[1]);
     ok('kus: nevzatý rozměr → druhý pokus v rozměru, který bere každý model',
       !kusChyba && pokusy.length === 2 && ['1024x1024', '1024x1536', '1536x1024'].includes(pokusy[1]),

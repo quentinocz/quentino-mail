@@ -521,6 +521,141 @@ console.log('\nřetěz oblékání');
     kusuSako > 500, `${kusuSako} bodů v rgb(31, 45, 77)`);
 }
 
+/* ---------- 7b. šablony zboží a kulisa z jednoho obrázku ---------- */
+
+console.log('\nšablony zboží');
+
+{
+  /*
+   * Patrik (23. 11.): vrstvy od modelu na sebe nepasovaly. Teď se
+   * kulisa vyřízne z jednoho obrázku postavy a zboží je šablona
+   * v rozměrech z katalogu.
+   */
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const sablony = require(path.join(DIST, 'zkusebna/sablony.js'));
+  const produkty = require(path.join(DIST, 'zkusebna/produkty.js'));
+  const ukazka = require(path.join(DIST, 'zkusebna/ukazka.js'));
+  ukazka.postavUkazku('dospely-bezny');
+  const vrstvy = store.vrstvy('dospely-bezny');
+  const najdi = (typ, varianta) => vrstvy.find(one => one.typ === typ && one.varianta === varianta);
+  const nactiMasku = v => {
+    const o = png.nacti(fs.readFileSync(v.soubor));
+    const m = new Uint8Array(o.sirka * o.vyska);
+    for (let i = 0; i < m.length; i++) m[i] = o.body[i * 4 + 3] > 128 ? 255 : 0;
+    return { o, m };
+  };
+
+  /* Kulisa z jednoho obrázku: košile, kalhoty a boty se nepřekrývají a postava nemá kreslicí barvu */
+  const kosile = najdi('kosile', 'klasicka');
+  const kalhoty = najdi('kalhoty', 'oblekove');
+  const boty = najdi('boty', 'spolecenske');
+  ok('košile, kalhoty i boty se vyříznou z obrázku postavy',
+    [kosile, kalhoty, boty].every(v => v && v.stav === 'hotovo' && /z obrázku postavy/.test(v.zadani)),
+    [kosile, kalhoty, boty].map(v => v ? v.stav : 'chybí').join(' · '));
+  {
+    const a = nactiMasku(kosile).m;
+    const b = nactiMasku(kalhoty).m;
+    let spolecne = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] && b[i]) spolecne += 1;
+    ok('  a navzájem se nepřekrývají (jsou z jednoho obrázku)', spolecne === 0, `${spolecne} bodů`);
+    const postava = png.nacti(fs.readFileSync(najdi('postava', 'zaklad').soubor));
+    const purpur = px.maskaBarvy(postava, zk.signalniBarva('kosile'));
+    let zbylo = 0;
+    for (let i = 0; i < purpur.length; i++) if (purpur[i]) zbylo += 1;
+    ok('  v postavě nezůstal kreslicí lem kolem košile', zbylo === 0, `${zbylo} bodů`);
+  }
+
+  /* Šablony: každá varianta zboží je, zadarmo a na bodech postavy */
+  const zbozi = zk.ZK_VRSTVY.filter(d => d.sablona).flatMap(d => d.varianty.map(v => [d.typ, v.id]));
+  const chybi = zbozi.filter(([t, v]) => { const x = najdi(t, v); return !x || x.stav !== 'hotovo'; });
+  ok('každá varianta zboží má šablonu', chybi.length === 0, `${zbozi.length} šablon${chybi.length ? ', chybí ' + chybi.join(' ') : ''}`);
+  ok('  model se na ně neptá — v plánu generování nejsou',
+    require(path.join(DIST, 'zkusebna/vrstvy.js')).plan('dospely-bezny', false, 'vse')
+      .every(one => !zk.vrstvaDef(one.typ).sablona && zk.vrstvaDef(one.typ).zPostavy !== one.varianta));
+
+  const kotvy = sablony.kotvyPostavy('dospely-bezny').kotvy;
+  const sirka = (typ, varianta) => najdi(typ, varianta).okraje.w;
+  const k5 = sirka('kravata', 'kravata-5');
+  const k9 = sirka('kravata', 'kravata-9');
+  ok('kravata 9 cm je o tolik širší než pětka, o kolik má být',
+    Math.abs(k9 / k5 - 9 / 5) < 0.15, `${k5} → ${k9} bodů (${(k9 / k5).toFixed(2)}×)`);
+  ok('  a na postavě má svou skutečnou šířku',
+    Math.abs(k9 / kotvy.naCm - 9) < 0.8, `${(k9 / kotvy.naCm).toFixed(1)} cm`);
+  const kravata = najdi('kravata', 'kravata');
+  ok('kravata visí od límce a končí u pasu',
+    Math.abs(kravata.okraje.y - kotvy.limec.y) < kotvy.naCm
+    && Math.abs(kravata.okraje.y + kravata.okraje.h - kotvy.pas) < 1.5 * kotvy.naCm,
+    `od ${kravata.okraje.y} (límec ${Math.round(kotvy.limec.y)}) do ${kravata.okraje.y + kravata.okraje.h} (pas ${Math.round(kotvy.pas)})`);
+  ok('motýlek pánský > dětský > MINI',
+    sirka('kravata', 'motylek') > sirka('kravata', 'motylek-detsky') && sirka('kravata', 'motylek-detsky') > sirka('kravata', 'motylek-mini'));
+  {
+    /* Šířka jednoho pásku kšand: řádek v půlce mezi ramenem a pasem */
+    const pasek = varianta => {
+      const { o, m } = nactiMasku(najdi('ksandy', varianta));
+      const y = Math.round((kotvy.ramenoL.y + kotvy.pas) / 2);
+      let n = 0;
+      for (let x = 0; x < Math.round(kotvy.limec.x); x++) if (m[y * o.sirka + x]) n += 1;
+      return n / kotvy.naCm;
+    };
+    const [u, s2, e] = ['uzke', 'siroke', 'extra'].map(pasek);
+    ok('kšandy 2,5 / 3,5 / 4 cm mají na postavě tu šířku',
+      Math.abs(u - 2.5) < 0.6 && Math.abs(s2 - 3.5) < 0.6 && Math.abs(e - 4) < 0.6,
+      `${u.toFixed(1)} / ${s2.toFixed(1)} / ${e.toFixed(1)} cm`);
+    /* Kšandy jen po košili a kalhotách — ne na krku */
+    const { o, m } = nactiMasku(najdi('ksandy', 'siroke'));
+    let nadLimcem = 0;
+    for (let y = 0; y < Math.round(kotvy.limec.y) - 2; y++) for (let x = 0; x < o.sirka; x++) if (m[y * o.sirka + x]) nadLimcem += 1;
+    ok('  a nad límcem z nich nic není', nadLimcem === 0, `${nadLimcem} bodů`);
+  }
+  {
+    /* Mapa světla má látku na polotónu — jinak by vyšla jiná barva, než jaká se vybrala */
+    const { o, m } = nactiMasku(najdi('kravata', 'kravata'));
+    const hodnoty = [];
+    for (let i = 0; i < m.length; i++) if (m[i]) hodnoty.push(o.body[i * 4]);
+    hodnoty.sort((a, b) => a - b);
+    const median = hodnoty[Math.floor(hodnoty.length / 2)];
+    ok('látka šablony leží na polotónu (barva vyjde přesně)', Math.abs(median - 128) <= 8, `medián ${median}`);
+  }
+
+  /* Ruční posun bodu šablony posune */
+  {
+    const pred = najdi('kravata', 'kravata').okraje.x;
+    const p0 = store.postava('dospely-bezny');
+    sablony.ulozRucneKotvy('dospely-bezny', { limec: [(kotvy.limec.x + 4 * kotvy.naCm) / p0.sirka, kotvy.limec.y / p0.vyska] });
+    sablony.vygenerujSablony('dospely-bezny');
+    const po = store.vrstvy('dospely-bezny').find(one => one.typ === 'kravata' && one.varianta === 'kravata').okraje.x;
+    ok('posunutý bod límce posune kravatu', Math.abs(po - pred - 4 * kotvy.naCm) < 2, `${pred} → ${po}`);
+    sablony.ulozRucneKotvy('dospely-bezny', null);
+    sablony.vygenerujSablony('dospely-bezny');
+  }
+
+  /* Zařazení podle katalogu: šířka z parametru, rozměr motýlka z popisu */
+  const rz = produkty.__test.rozmerZTextu;
+  check('šířka kravaty z parametru „Šířka: 7cm"', rz([{ nazev: 'Šířka', hodnota: '7cm' }], '').sirkaCm, 7);
+  check('šířka kšand „2,5cm"', rz([{ nazev: 'Šířka', hodnota: '2,5cm' }], '').sirkaCm, 2.5);
+  check('rozměr motýlka z popisu', rz([], '<p>Elegantní motýlek. Rozměry: 12 × 5,5 cm.</p>'), { sirkaCm: 12, vyskaCm: 5.5 });
+  const zarad = produkty.__test.zarad;
+  check('kravata 6 cm → šablona šestky', zarad('Šedá pánská kravata', 'Kravaty', { sirkaCm: 6 }).varianta, 'kravata-6');
+  check('kravata bez rozměru → sedmička (nejčastější)', zarad('Fialová pánská kravata matná', 'Kravaty').varianta, 'kravata');
+  check('dětská kravata → šestka', zarad('Světle modrá dětská kravata', 'Dětské kravaty').varianta, 'kravata-6');
+  check('pletená kravata', zarad('Černá pletená kravata', 'Pletené kravaty').varianta, 'pletena');
+  check('dětský motýlek', zarad('Světle modrý dětský motýlek matný', 'Dětské motýlky').varianta, 'motylek-detsky');
+  check('MINI motýlek', zarad('Světle modrý dětský MINI motýlek matný', 'Dětské motýlky').varianta, 'motylek-mini');
+  check('motýlek s kapesníčkem je motýlek', zarad('Tmavě hnědý pánský motýlek s vyšívaným vzorem a kapesníčkem', 'Motýlky'),
+    { typ: 'kravata', varianta: 'motylek', jiste: true });
+  check('regata s kapesníčkem je regata', zarad('Vínově červená svatební regata s kapesníčkem', 'Regaty').varianta, 'regata');
+  check('kšandy 2,5 cm → úzké', zarad('Světle modré pánské kšandy', 'Kšandy', { sirkaCm: 2.5 }).varianta, 'uzke');
+  check('široké kšandy bez rozměru → 3,5 cm', zarad('Bílé pánské široké kšandy', 'Kšandy').varianta, 'siroke');
+  check('kšandy 4 cm → extra široké', zarad('Černé pánské kšandy', 'Kšandy', { sirkaCm: 4 }).varianta, 'extra');
+
+  /* K sedmičce se nabízí i šestka, ale ne motýlek */
+  const nabidka = zk.produktyKVrstve([
+    { kod: 'A', typ: 'kravata', varianta: 'kravata-6', hex: '#222222', cenaCislo: 1 },
+    { kod: 'B', typ: 'kravata', varianta: 'motylek', hex: '#222222', cenaCislo: 1 }
+  ], 'kravata', '', 'kravata').map(one => one.kod);
+  check('k sedmičce se nabízí i šestka, ale ne motýlek', nabidka, ['A']);
+}
+
 /* ---------- 8. košík, velikosti, body na modelu ---------- */
 
 console.log('\nvzhled k nákupu');
@@ -964,18 +1099,29 @@ console.log('\nzadání pro model');
       text.toLowerCase().includes(hex) && /nothing else in the image may have it/.test(text),
       hex);
   }
-  /* Základ je šedý — žádný kus oblečení se v šedé nekreslí, takže se
-     rozdíl dvou kroků neztratí */
-  ok('základ je šedý, aby se rozdíl vrstvy neztratil',
-    /mid-grey/.test(zadani.__test.zadaniPostavy('dospely', 'bezny')));
+  /*
+   * Postava se kreslí rovnou v košili, kalhotách a botách, každý kus ve
+   * své kreslicí barvě — vyříznou se z jednoho obrázku a sedí na sebe.
+   */
+  {
+    const text = zadani.__test.zadaniPostavy('dospely', 'bezny').toLowerCase();
+    ok('postava se kreslí v košili, kalhotách a botách v kreslicích barvách',
+      ['kosile', 'kalhoty', 'boty'].every(typ => text.includes(zk.ZK_KRESLICI[typ].toLowerCase()))
+      && /no tie/.test(text));
+  }
 
-  setSetting('zkZadani:postava:dospely:bezny',
+  setSetting('zkZadani:postava2:dospely:bezny',
     'Full-body photo of a man wearing only a white undershirt and light grey briefs.');
   ok('starší uložené znění se spodním prádlem se už nepoužije',
     !/briefs/i.test(zadani.zadaniPostavyTed('dospely', 'bezny')));
-  setSetting('zkZadani:postava:dospely:bezny', 'Vlastní zadání bez problému.');
+  setSetting('zkZadani:postava2:dospely:bezny', 'Vlastní zadání bez problému.');
   check('ale vlastní zadání, které projde, zůstane',
     zadani.zadaniPostavyTed('dospely', 'bezny'), 'Vlastní zadání bez problému.');
+  setSetting('zkZadani:postava2:dospely:bezny', '');
+  /* Zadání ze starého postupu (šedé tričko) se na nový nepoužije */
+  setSetting('zkZadani:postava:dospely:bezny', 'Starý postup v šedém tričku.');
+  ok('zadání ze starého postupu se nepoužije',
+    !/Starý postup/.test(zadani.zadaniPostavyTed('dospely', 'bezny')));
   setSetting('zkZadani:postava:dospely:bezny', '');
 }
 

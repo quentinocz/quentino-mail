@@ -10674,6 +10674,27 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .zk-nastaveni section h3 { margin: 0 0 4px; font-size: 14px; }
 .zk-nastaveni section .desc { margin: 0 0 8px; font-size: 12.5px; max-width: 72ch; }
 .zk-rada { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Body pro šablony: náhled postavy s body, které se dají chytit a posunout */
+.zk-body {
+  display: grid; grid-template-columns: minmax(200px, 1fr) minmax(120px, 210px) minmax(120px, 210px);
+  gap: 14px; align-items: start; margin: 0 0 14px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--panel);
+}
+.zk-body-text h4 { margin: 0 0 4px; font-size: 13px; }
+.zk-body-text p { margin: 0 0 6px; }
+.zk-body-text ul { margin: 0 0 8px; padding-left: 16px; display: grid; gap: 2px; }
+.zk-body-obr { position: relative; border-radius: 8px; overflow: hidden; background: #fafafa; touch-action: none; user-select: none; }
+.zk-body-obr img { width: 100%; height: 100%; display: block; object-fit: contain; pointer-events: none; }
+.zk-bod {
+  position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+  background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+  cursor: grab; z-index: 2;
+}
+.zk-bod.tahne { cursor: grabbing; transform: scale(1.25); }
+.zk-pas { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--accent); opacity: .7; pointer-events: none; }
+.zk-pozor-v { margin: 0 0 12px; border-radius: 10px; }
+@media (max-width: 900px) { .zk-body { grid-template-columns: 1fr 1fr; } .zk-body-text { grid-column: 1 / -1; } }
+
 /* Poslední chyba generování — drží se nad vrstvami, dokud se něco nepovede */
 .zk-chyba-pruh {
   display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px;
