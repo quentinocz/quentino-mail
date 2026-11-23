@@ -988,6 +988,11 @@ export const api = {
     /** AI pozná, co je na fotkách produktu, a vezme látku každého kusu (průběh: „zk:katalog-krok"). */
     rozpoznej: (kod: string) =>
       call<{ kod: string; kusu: number; poznamky: string[]; kontrola: string }>('zk:rozpoznej', kod),
+    /** ZIP s podklady k revizi (vrstvy, body, vzorky, spustitelná kabina) — null = zrušeno. */
+    revizeExport: (moznosti: { postavy: string[]; fotky: boolean }) =>
+      call<{ soubor: string; souboru: number; megabajtu: number } | null>('zk:revize-export', moznosti),
+    revizeImport: () =>
+      call<{ vrstev: number; vzorku: number; produktu: number; kotev: number; preskoceno: string[] } | null>('zk:revize-import'),
     rozpoznejVse: (rozsah: 'sady' | 'vse') =>
       call<{ hotovo: number; chyb: number; posledniChyba: string }>('zk:rozpoznej-vse', rozsah),
     produkty: (limit?: number) => call<ZkProduktRadek[]>('zk:produkty', limit ?? 300),

@@ -827,6 +827,27 @@ export function registerIpc() {
     zkusebna.projdiKatalog(sAi !== false, sBarvami !== false, krok => emit('zk:katalog-krok', krok)));
   // AI pozná, co je na fotce produktu (sada kšandy + motýlek…), a vezme látku každého kusu
   handle('zk:rozpoznej', (kod: string) => zkusebna.rozpoznejProdukt(String(kod ?? '')));
+  // Revize podkladů: ZIP se vším, z čeho se model skládá, a zpětné načtení úprav
+  handle('zk:revize-export', async (moznosti: any) => {
+    const res = await dialog.showSaveDialog(callerWindow()!, {
+      defaultPath: path.join(app.getPath('downloads'),
+        `kabina-podklady-${new Date().toISOString().slice(0, 10)}.zip`),
+      filters: [{ name: 'ZIP', extensions: ['zip'] }]
+    });
+    if (res.canceled || !res.filePath) return null;
+    return zkusebna.revize.exportuj(res.filePath, {
+      postavy: Array.isArray(moznosti?.postavy) ? moznosti.postavy.map(String) : [],
+      fotky: moznosti?.fotky !== false
+    });
+  });
+  handle('zk:revize-import', async () => {
+    const res = await dialog.showOpenDialog(callerWindow()!, {
+      properties: ['openFile'],
+      filters: [{ name: 'ZIP', extensions: ['zip'] }]
+    });
+    if (res.canceled || !res.filePaths?.[0]) return null;
+    return zkusebna.revize.importuj(res.filePaths[0]);
+  });
   handle('zk:rozpoznej-vse', (rozsah: string) =>
     zkusebna.rozpoznejProdukty(rozsah === 'vse' ? 'vse' : 'sady', krok => emit('zk:katalog-krok', krok)));
   handle('zk:produkty', (limit: number) => zkusebna.produktyPrehled(Number(limit) || 300));

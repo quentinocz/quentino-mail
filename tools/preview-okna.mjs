@@ -2706,7 +2706,7 @@ for (const okno of OKNA) {
       .find(one => /120 cm →/.test(one)) ?? ''
   }));
   say('nastavení drží klíč, model, strop i větu o osobní radě',
-    nastaveni.sekci.length === 9 && nastaveni.modely >= 2,
+    nastaveni.sekci.length === 10 && nastaveni.sekci.includes('Revize podkladů') && nastaveni.modely >= 2,
     nastaveni.sekci.join(' · '));
   /*
    * Cena za obrázek musí být vidět u každé kvality. Projet řetěz nízkou

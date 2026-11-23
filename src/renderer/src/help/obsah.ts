@@ -258,7 +258,9 @@ export const ZKUSEBNA: HelpTopic = {
     'Přepínač [Mobil] v náhledu ukáže kabinu na šířku telefonu, jak ji uvidí většina zákazníků.',
     '[Rozpoznat fotky AI]: AI pozná, co je na fotce (kšandy, motýlek, knoflíčky), a ukáže, kde je '
       + 'rovná látka — vzor se bere ze skutečné fotky. Sady se rozpoznají samy při projití katalogu.',
-    'Když v kabině chybí vypínač saka nebo vesty, řekne nad náhledem žlutý pruh, které postavě vrstva chybí.'
+    'Když v kabině chybí vypínač saka nebo vesty, řekne nad náhledem žlutý pruh, které postavě vrstva chybí.',
+    'Nastavení → Revize podkladů → [Exportovat podklady]: ZIP se vším, z čeho se model skládá, k pečlivé '
+      + 'kontrole a dotažení. Upravený se vrátí přes [Načíst upravené].'
   ]
 };
 

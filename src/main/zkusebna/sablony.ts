@@ -797,7 +797,19 @@ export function popisSablony(typ: ZkVrstvaTyp, varianta: string): string {
  * odhad modelu, takže ji není potřeba kontrolovat tak jako vrstvu od
  * něj. Schvaluje se stejně — okem, v náhledu kabiny.
  */
-export function vygenerujSablony(postavaId: string, jen?: { typ: ZkVrstvaTyp; varianta: string }): ZkVrstva[] {
+/** Šablona upravená ručně v revizi podkladů — hromadné překreslení ji nechá být. */
+export const REVIZE = 'Upraveno v revizi';
+
+export function vygenerujSablony(
+  postavaId: string,
+  jen?: { typ: ZkVrstvaTyp; varianta: string },
+  /**
+   * Přepsat i šablony upravené v revizi? Ano při nové postavě a nových
+   * bodech (stará úprava by seděla vedle), ne při hromadném běhu „vše" —
+   * ten by jinak ruční práci tiše zahodil.
+   */
+  prepsatRevize = true
+): ZkVrstva[] {
   const mereni = kotvyPostavy(postavaId);
   if (!mereni) throw new Error('Nejdřív se musí nakreslit postava.');
   const p = store.postava(postavaId);
@@ -811,6 +823,8 @@ export function vygenerujSablony(postavaId: string, jen?: { typ: ZkVrstvaTyp; va
     if (p && def.nePro?.includes(p.vek)) continue;
     for (const v of def.varianty) {
       if (jen && (jen.typ !== def.typ || jen.varianta !== v.id)) continue;
+      if (!jen && !prepsatRevize && store.vrstvy(postavaId)
+        .some(one => one.typ === def.typ && one.varianta === v.id && one.zadani.startsWith(REVIZE))) continue;
       const kovy = def.typ === 'ksandy' ? novyObraz(postava.sirka, postava.vyska) : undefined;
       const obraz = nakresliSablonu(def.typ, v.id, kotvy, postava.sirka, postava.vyska, orez, kovy);
       if (!obraz) continue;

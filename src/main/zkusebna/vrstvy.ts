@@ -1022,7 +1022,7 @@ export async function vygenerujVse(
     hotovo += 1;
   }
   /* Šablony znovu na konec — nic nestojí a body se mezitím mohly opravit */
-  if (!nesedi) hotovo += sablony.vygenerujSablony(postavaId).length;
+  if (!nesedi) hotovo += sablony.vygenerujSablony(postavaId, undefined, false).length;
   hlas({ postava: postavaId, stav: 'konec', hotovo, nesedi });
   return { hotovo, nesedi, potize };
 }

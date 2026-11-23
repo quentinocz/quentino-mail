@@ -12,6 +12,7 @@ import * as vrstvy from './vrstvy';
 import * as obrazky from './obrazky';
 import * as ukazka from './ukazka';
 import * as rozpoznani from './rozpoznani';
+export * as revize from './revize';
 import * as produkty from './produkty';
 import { kabina, velikost } from './manifest';
 import { vystavKabinu, zavadecTed, VystavPrubeh } from '../kabina/vystav';

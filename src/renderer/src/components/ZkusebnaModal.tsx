@@ -92,6 +92,9 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
     setPracuje(`${krok?.co ?? 'Pracuji'}…`);
   }), []);
   const [rozsahAi, setRozsahAi] = useState<'sady' | 'vse'>('sady');
+  const [revizePostava, setRevizePostava] = useState('');
+  const [revizeFotky, setRevizeFotky] = useState(true);
+  const [revize, setRevize] = useState('');
   const [rozpoznavam, setRozpoznavam] = useState('');
   const rozpoznejJeden = async (kod: string) => {
     setRozpoznavam(kod);
@@ -835,6 +838,61 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   onBlur={e => void api.zk.kontakt({ ...nastaveni.kontakt, telefon: e.target.value })} />
                 <input defaultValue={nastaveni.kontakt.mail} placeholder="E-mail"
                   onBlur={e => void api.zk.kontakt({ ...nastaveni.kontakt, mail: e.target.value })} />
+              </div>
+            </section>
+
+            {/*
+              * Patrik (23. 11.): „co kdybys udělal nějaký export těch podkladů
+              * do nějaké formy, kterou budeš schopen zrevidovat a upravit".
+              * ZIP má všechno, z čeho se model skládá, i spustitelnou kabinu;
+              * upravený se načte zpátky stejným tlačítkem.
+              */}
+            <section className="zk-revize">
+              <h3>Revize podkladů</h3>
+              <p className="desc">
+                Export do ZIPu: vrstvy postav a doplňků, původní obrázky od modelu, body na
+                postavách, vzorky látek s rozměry, fotky sad a celá kabina ke spuštění.
+                Hodí se k pečlivé kontrole a dotažení — upravené soubory se načtou zpátky
+                a ručně upravené šablony se pak už samy nepřepíšou.
+              </p>
+              <div className="zk-akce">
+                <select value={revizePostava} onChange={e => setRevizePostava(e.target.value)} aria-label="Které postavy">
+                  <option value="">Všechny postavy</option>
+                  {(prehled?.postavy ?? []).map(one => (
+                    <option key={one.id} value={one.id}>{popisPostavy(one.vek, one.telo)}</option>
+                  ))}
+                </select>
+                <label className="zk-zaskrt">
+                  <input type="checkbox" checked={revizeFotky} onChange={e => setRevizeFotky(e.target.checked)} />
+                  i fotky sad z e-shopu
+                </label>
+                <button className="btn primary" disabled={!!revize} onClick={async () => {
+                  setRevize('Balím podklady…');
+                  try {
+                    const hotovo = await api.zk.revizeExport({ postavy: revizePostava ? [revizePostava] : [], fotky: revizeFotky });
+                    if (hotovo) toast(`Uloženo: ${hotovo.souboru} souborů, ${hotovo.megabajtu} MB — ${hotovo.soubor}`, 'info');
+                  } catch (e: any) { toast(e.message, 'error'); }
+                  setRevize('');
+                }}>
+                  {revize ? <span className="spin" /> : <Icon name="download" size={13} />} Exportovat podklady
+                </button>
+                <button className="btn ghost" disabled={!!revize} onClick={async () => {
+                  setRevize('Načítám úpravy…');
+                  try {
+                    const r = await api.zk.revizeImport();
+                    if (r) {
+                      toast(`Načteno: ${r.vrstev} vrstev, ${r.vzorku} vzorků, ${r.produktu} produktů, ${r.kotev} postav s body`
+                        + (r.preskoceno.length ? `. Přeskočeno ${r.preskoceno.length}: ${r.preskoceno.slice(0, 3).join('; ')}` : '.'),
+                        r.preskoceno.length ? 'error' : 'info');
+                      await nactiPrehled();
+                      setProdukty([]);
+                      setNahled(null);
+                    }
+                  } catch (e: any) { toast(e.message, 'error'); }
+                  setRevize('');
+                }}>
+                  <Icon name="upload" size={13} /> Načíst upravené
+                </button>
               </div>
             </section>
 

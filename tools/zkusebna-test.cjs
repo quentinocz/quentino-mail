@@ -972,6 +972,95 @@ const aiZkouska = async () => {
     rozpoznani.__test.rozeberOdpoved(JSON.stringify({ kusy: [{ druh: 'kravata', foto: 0, ram: [100, 50, 300, 400] }] }), 1).length, 0);
 };
 
+/* ---------- 7f. revize podkladů: export a zpětný import ---------- */
+
+console.log('\nrevize podkladů');
+
+{
+  const zip = require(path.join(DIST, 'zip.js'));
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const sablony = require(path.join(DIST, 'zkusebna/sablony.js'));
+  const revize = require(path.join(DIST, 'zkusebna/revize.js'));
+  const os = require('os');
+
+  /* ZIP bez knihovny: co se zabalí, to se rozbalí — text komprimovaný, PNG uložené */
+  const text = Buffer.from('ahoj '.repeat(500));
+  const bin = Buffer.from([137, 80, 78, 71, 1, 2, 3]);
+  const zpet = zip.rozbal(zip.zabal([{ jmeno: 'a/text.txt', data: text }, { jmeno: 'b.png', data: bin }]));
+  ok('ZIP se zabalí a rozbalí beze ztráty', zpet.length === 2 && zpet[0].data.equals(text) && zpet[1].data.equals(bin));
+  check('CRC-32 sedí na známou hodnotu', zip.__test.crc32(Buffer.from('123456789')), 0xcbf43926);
+};
+
+const revizeZkouska = async () => {
+  const zip = require(path.join(DIST, 'zip.js'));
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const sablony = require(path.join(DIST, 'zkusebna/sablony.js'));
+  const revize = require(path.join(DIST, 'zkusebna/revize.js'));
+  const os = require('os');
+  console.log('\nrevize podkladů — export a import');
+  require(path.join(DIST, 'zkusebna/ukazka.js')).postavUkazku('dospely-bezny');
+  /* Katalog e-shopu v testovací databázi není — stačí kostra, kterou kabina čte */
+  db.exec(`CREATE TABLE IF NOT EXISTS products (code TEXT PRIMARY KEY, title_cz TEXT NOT NULL DEFAULT '', url_cz TEXT NOT NULL DEFAULT '', price_cz TEXT NOT NULL DEFAULT '', title_sk TEXT NOT NULL DEFAULT '', url_sk TEXT NOT NULL DEFAULT '', price_sk TEXT NOT NULL DEFAULT '', title_en TEXT NOT NULL DEFAULT '', url_en TEXT NOT NULL DEFAULT '', price_en TEXT NOT NULL DEFAULT '', image TEXT, images TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', categories TEXT NOT NULL DEFAULT '', manufacturer TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '', stock INTEGER, price_num REAL, search TEXT NOT NULL DEFAULT '');
+    CREATE TABLE IF NOT EXISTS product_variants (code TEXT PRIMARY KEY, product_code TEXT NOT NULL, variant_id TEXT NOT NULL DEFAULT '', label TEXT NOT NULL DEFAULT '', ean TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '', stock INTEGER, price TEXT NOT NULL DEFAULT '', main INTEGER NOT NULL DEFAULT 0, sort INTEGER NOT NULL DEFAULT 0, purchase REAL, price_novat REAL);`);
+  db.prepare(`INSERT OR REPLACE INTO products (code, title_cz, url_cz, price_cz, stock, price_num) VALUES ('REV1', 'Vínová kravata', 'https://www.quentino.cz/p/rev1', '590 Kč', 3, 590)`).run();
+  store.zapisProdukt({ kod: 'REV1', typ: 'kravata', varianta: 'kravata', hex: '#7a1f2b', vzorek: '', vzorekCm: 3, rucne: false, velikosti: false, schvaleno: true });
+  const cil = path.join(os.tmpdir(), `revize-${process.pid}.zip`);
+  const vysledek = await revize.exportuj(cil, { postavy: ['dospely-bezny'], fotky: false });
+  const obsah = zip.rozbal(fs.readFileSync(cil));
+  const jmena = obsah.map(one => one.jmeno);
+  const json = JSON.parse(obsah.find(one => one.jmeno === 'revize.json').data.toString('utf8'));
+  ok('export má vrstvy, kov, původní postavu, body a spustitelnou kabinu',
+    jmena.includes('vrstvy/dospely-bezny/kravata-kravata.png') && jmena.includes('vrstvy/dospely-bezny/ksandy-siroke-kov.png')
+      && jmena.some(one => /^kroky\/dospely-bezny\/00-/.test(one)) && jmena.includes('kabina/index.html')
+      && json.postavy.length === 1 && json.postavy[0].kotvy && json.produkty.some(one => one.kod === 'REV1'),
+    `${vysledek.souboru} souborů, ${vysledek.megabajtu} MB`);
+  const data = JSON.parse(obsah.find(one => one.jmeno === 'kabina/data.json').data.toString('utf8'));
+  ok('  kabina v exportu ukazuje do exportu (relativní adresy)',
+    data.vrstvy.length > 10 && data.vrstvy.every(one => one.url.startsWith('../vrstvy/'))
+      && data.vrstvy.filter(one => one.kov).every(one => one.kov.startsWith('../vrstvy/')));
+
+  /* Úprava: překreslená kravata (posun o 3 body), nový vzorek, jiné centimetry */
+  const p0 = store.postava('dospely-bezny');
+  const kravata = obsah.find(one => one.jmeno === 'vrstvy/dospely-bezny/kravata-kravata.png');
+  const o = png.nacti(kravata.data);
+  const posun = png.novyObraz(o.sirka, o.vyska);
+  for (let y = 0; y < o.vyska; y++) for (let x = 3; x < o.sirka; x++) {
+    const z = (y * o.sirka + x - 3) * 4; const k = (y * o.sirka + x) * 4;
+    for (let j = 0; j < 4; j++) posun.body[k + j] = o.body[z + j];
+  }
+  const vzorek = png.novyObraz(16, 16);
+  for (let i = 0; i < vzorek.body.length; i += 4) { vzorek.body[i] = 200; vzorek.body[i + 3] = 255; }
+  json.produkty.find(one => one.kod === 'REV1').vzorekCm = 4.5;
+  json.kotvy['dospely-bezny'] = { pas: (json.postavy[0].kotvy.pas + 6) / p0.vyska };
+  const spatna = png.novyObraz(10, 10);
+  const upraveno = obsah.map(one => {
+    if (one.jmeno === kravata.jmeno) return { jmeno: one.jmeno, data: png.uloz(posun) };
+    if (one.jmeno === 'revize.json') return { jmeno: one.jmeno, data: Buffer.from(JSON.stringify(json)) };
+    return one;
+  });
+  upraveno.push({ jmeno: 'vzorky/REV1.png', data: png.uloz(vzorek) });
+  upraveno.push({ jmeno: 'vrstvy/dospely-bezny/kravata-kravata-6.png', data: png.uloz(spatna) });
+  /* Finder rád zabalí obsah do složky — i to musí projít */
+  fs.writeFileSync(cil, zip.zabal(upraveno.map(one => ({ jmeno: 'kabina-podklady/' + one.jmeno, data: one.data }))));
+  const nacteno = revize.importuj(cil);
+  const vrstva = store.vrstvy('dospely-bezny').find(one => one.typ === 'kravata' && one.varianta === 'kravata');
+  const row = store.produktyRows().find(one => one.kod === 'REV1');
+  ok('import načte jen změny: vrstvu, vzorek, centimetry a body',
+    nacteno.vrstev === 1 && nacteno.vzorku === 1 && nacteno.produktu >= 1 && nacteno.kotev === 1,
+    JSON.stringify({ ...nacteno, preskoceno: nacteno.preskoceno.length }));
+  ok('  vrstva jiného rozměru se nenačte a řekne proč',
+    nacteno.preskoceno.some(one => /kravata-kravata-6\.png: rozměr 10×10/.test(one)), nacteno.preskoceno.join(' | '));
+  ok('  upravená šablona je označená a hromadné překreslení ji nechá být',
+    vrstva.zadani.startsWith(sablony.REVIZE)
+      && Buffer.from(png.nacti(fs.readFileSync(vrstva.soubor)).body).equals(Buffer.from(posun.body)), vrstva.zadani.slice(0, 50));
+  ok('  vzorek a centimetry produktu jsou nové', row.vzorek.length > 30 && row.vzorekCm === 4.5, String(row.vzorekCm));
+  /* Nové body postavy: šablony se překreslí, ručně upravená ne */
+  ok('  po nových bodech se ostatní šablony překreslily (kravata 6 zůstala na novém pasu)',
+    Math.abs(sablony.kotvyPostavy('dospely-bezny').kotvy.pas - (json.postavy[0].kotvy.pas + 6)) < 1.5);
+  sablony.ulozRucneKotvy('dospely-bezny', null);
+  fs.unlinkSync(cil);
+};
+
 /* ---------- 8. košík, velikosti, body na modelu ---------- */
 
 console.log('\nvzhled k nákupu');
@@ -1559,7 +1648,8 @@ console.log('\nskript pro e-shop');
     volani.length === 1 && /×1$/.test(volani[0]), volani.join(', '));
 }
 
-aiZkouska().catch(e => { failed += 1; console.log('  ✗ rozpoznání spadlo:', e && e.stack || e); }).then(() => {
+aiZkouska().catch(e => { failed += 1; console.log('  ✗ rozpoznání spadlo:', e && e.stack || e); })
+  .then(() => revizeZkouska()).catch(e => { failed += 1; console.log('  ✗ revize spadla:', e && e.stack || e); }).then(() => {
   console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ zkušební kabina sedí');
   process.exit(failed ? 1 : 0);
 });
