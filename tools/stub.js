@@ -166,7 +166,9 @@
     { poradi: 4, typ: 'kalhoty', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' },
     { poradi: 5, typ: 'kosile', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' }
   ],
-  'zk:nahled': { url: '/kabina.html', velikost: { seznamKb: 86.4, postav: 3, vrstev: 54, produktu: 180 } },
+  'zk:nahled': { url: '/kabina.html', velikost: { seznamKb: 86.4, postav: 3, vrstev: 54, produktu: 180 },
+    chybi: [{ postava: 'dospely-bezny', vek: 'dospely', telo: 'bezny', typ: 'sako', stav: 'nesedi',
+      potiz: 'Postava se nakreslila znovu a tenhle kus je dokreslený na tu předchozí — dokresli ho znovu.' }] },
   'zk:nastaveni': {
     maKlic: true, model: 'gpt-image-2.5-sunburst', kvalita: 'high', maska: true, strop: 40,
     kontakt: { text: 'Nevíte si rady? Rádi poradíme osobně.', telefon: '+420 607 043 067', mail: 'info@quentino.cz' },
@@ -183,14 +185,19 @@
     /* Sada čeká na kontrolu — v okně jde první, s nahráním látky pro každý kus */
     { kod: 'SADA1', typ: 'ksandy', varianta: 'siroke', hex: '#1b1b1d', vzorek: '', rucne: false, velikosti: false,
       schvaleno: false, nazev: 'Sada kšandy a motýlek vínová', obrazek: '', cena: '1 190 Kč', vKabine: false,
-      kontrola: 'Sada — každý kus potřebuje vlastní látku (nahraj fotku nebo vyber barvu).', meritko: 1,
-      casti: [{ typ: 'kravata', varianta: 'motylek', hex: '#7a1f2b', vzorek: '' }] },
+      kontrola: 'AI na fotce: černé kšandy + vínový motýlek. Zkontroluj látky a potvrď.', meritko: 1,
+      casti: [{ typ: 'kravata', varianta: 'motylek', hex: '#7a1f2b', vzorek: '' }],
+      ai: { kdy: '2026-11-23T18:00:00.000Z', model: 'claude-sonnet-5', poznamky: ['Na model nepatří: krabička.'], kusy: [
+        { druh: 'ksandy', popis: 'černé kšandy', typ: 'ksandy', cast: -1, jistota: 0.92, zdroj: 'fotka', vyrez: '' },
+        { druh: 'motylek', popis: 'vínový motýlek s puntíkem', typ: 'kravata', cast: 0, jistota: 0.88, zdroj: 'ai', vyrez: '' },
+        { druh: 'jine', popis: 'krabička', typ: '', cast: null, jistota: 0.8, zdroj: 'barva', vyrez: '' }
+      ] } },
     { kod: 'MOT1', typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', vzorek: '', rucne: false, velikosti: false,
-      schvaleno: true, nazev: 'Motýlek kostkovaný', obrazek: '', cena: '490 Kč', vKabine: true, kontrola: '', meritko: 1, casti: [] },
+      schvaleno: true, nazev: 'Motýlek kostkovaný', obrazek: '', cena: '490 Kč', vKabine: true, kontrola: '', meritko: 1, casti: [], ai: null },
     { kod: 'KRA1', typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', vzorek: '', rucne: true, velikosti: false,
-      schvaleno: false, nazev: 'Kravata burgundská', obrazek: '', cena: '690 Kč', vKabine: true, kontrola: '', meritko: 1, casti: [] },
+      schvaleno: false, nazev: 'Kravata burgundská', obrazek: '', cena: '690 Kč', vKabine: true, kontrola: '', meritko: 1, casti: [], ai: null },
     { kod: 'DAREK', typ: '', varianta: '', hex: '', vzorek: '', rucne: false, velikosti: false,
-      schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false, kontrola: '', meritko: 1, casti: [] }
+      schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false, kontrola: '', meritko: 1, casti: [], ai: null }
   ],
   'zk:latka': { hex: '#7a1f2b', vzorek: '' },
   'zk:vzhledy': [],

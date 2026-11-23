@@ -10585,6 +10585,12 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
   border: 1px solid var(--border); border-radius: var(--radius); background: #fff;
 }
 .zk-kabina-lista .zk-zarizeni { margin-left: auto; }
+.zk-chybi-vrstvy { display: flex; gap: 6px; align-items: flex-start; padding: 6px 10px; border-radius: 8px;
+  background: #fffaf0; border: 1px solid #f3e3b5; font-size: 12px; color: var(--text-2); flex-basis: 100%; order: 5; }
+.zk-chybi-vrstvy svg { flex: 0 0 auto; margin-top: 1px; color: #b7791f; }
+[data-theme="dark"] .zk-chybi-vrstvy { background: #2b2616; border-color: #5a4a1f; }
+.zk-odkaz { padding: 0; border: 0; background: none; color: var(--accent-dark); font: inherit; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; }
 .zk-kabina-lista .zk-zarizeni + .btn { margin-left: 0; }
 .zk-ramec-obal { flex: 1; min-height: 0; display: flex; }
 /* Telefon: rámeček na šířku iPhonu, vycentrovaný, se zaoblenými rohy jako displej */
@@ -10695,6 +10701,18 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .zk-sada-text { display: flex; flex-direction: column; font-size: 12px; }
 .zk-sada-text .desc { font-size: 11px; }
 [data-theme="dark"] .zk-produkt.ceka .zk-sada { background: #2b2616; }
+.zk-ai-rozpoznani { display: inline-flex; gap: 6px; align-items: center; }
+.zk-ai-rozpoznani select { font-size: 12px; }
+.zk-ai { display: flex; flex-direction: column; gap: 6px; }
+.zk-ai-kusy { display: flex; flex-wrap: wrap; gap: 8px; }
+.zk-ai-kus { display: flex; align-items: center; gap: 8px; margin: 0; padding: 4px 8px 4px 4px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--panel); max-width: 320px; }
+.zk-ai-kus img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--bg); }
+.zk-ai-kus figcaption { display: flex; flex-direction: column; font-size: 12px; min-width: 0; }
+.zk-ai-kus figcaption b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zk-ai-kus figcaption .desc { font-size: 11px; }
+.zk-ai-kus.mimo { opacity: .6; }
+.zk-ai-poznamky { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-2); }
 
 /* ---- nastavení ---- */
 .zk-nastaveni { display: flex; flex-direction: column; gap: 18px; padding: 14px 18px 22px; overflow: auto; }

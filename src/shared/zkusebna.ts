@@ -474,6 +474,38 @@ export interface ZkVrstva {
   kov?: string;
 }
 
+/**
+ * Co AI poznala na fotkách produktu.
+ *
+ * Patrik (23. 11.): „nebude lepší, když textury bude nějak zpracovávat
+ * AI? Aby to poznalo, co je na fotce produktu". AI tu **neplní roli
+ * malíře, ale oka**: řekne, co na fotce je a kde je na každém kusu
+ * rovný kus látky. Pixely se pak berou ze skutečné fotky — vzor na
+ * modelu je ten, který zákazník kupuje, ne vymyšlený.
+ */
+export interface ZkRozpoznanyKus {
+  /** Co to je: kravata, motylek, regata, pletena, ksandy, kapesnicek, nebo jine (knoflíčky, krabička). */
+  druh: string;
+  popis: string;
+  /** Kam na model patří — prázdné u věcí, které na model nepatří. */
+  typ: ZkVrstvaTyp | '';
+  /** −1 hlavní kus, jinak pořadí v sadě; null = nepoužitý. */
+  cast: number | null;
+  jistota: number;
+  /** Odkud se vzala látka: z fotky, dokreslená AI, jen barva. */
+  zdroj: 'fotka' | 'ai' | 'barva';
+  /** Výřez z fotky, ze kterého se látka vzala (malý náhled pro kontrolu). */
+  vyrez: string;
+}
+
+export interface ZkRozpoznani {
+  kdy: string;
+  model: string;
+  kusy: ZkRozpoznanyKus[];
+  /** Česky, co s tím: „na fotce je navíc kapesníček", „motýlek jsem nenašel"… */
+  poznamky: string[];
+}
+
 /** Další kus sady — kšandy s motýlkem, kravata s kapesníčkem. */
 export interface ZkCast {
   typ: ZkVrstvaTyp;
@@ -1664,9 +1696,17 @@ export interface ZkProduktRadek {
   meritko: number;
   /** Další kusy sady — každý potřebuje vlastní látku. */
   casti: { typ: ZkVrstvaTyp; varianta: string; hex: string; vzorek: string }[];
+  /** Co na fotkách poznala AI — null, dokud se nerozpoznávalo. */
+  ai: ZkRozpoznani | null;
 }
 
 export interface ZkNahled {
   url: string;
   velikost: { seznamKb: number; postav: number; vrstev: number; produktu: number };
+  /**
+   * Sako a vesta, které některé postavě chybí — v kabině pak u ní není
+   * vypínač a zákazník se nemá jak podívat „se sakem". Patrik (23. 11.):
+   * „nevidím nikde tlačítko na zobrazení/skrytí saka, vesty".
+   */
+  chybi?: { postava: string; vek: string; telo: string; typ: ZkVrstvaTyp; stav: string; potiz: string }[];
 }

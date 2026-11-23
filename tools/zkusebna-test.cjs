@@ -863,6 +863,115 @@ console.log('\nsady a šablony podle výrobků');
   }
 }
 
+/* ---------- 7e. AI rozpozná fotku sady ---------- */
+
+/* Běží asynchronně — spustí se na konci, než se sečtou chyby */
+const aiZkouska = async () => {
+  console.log('\nrozpoznání fotek AI');
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const rozpoznani = require(path.join(DIST, 'zkusebna/rozpoznani.js'));
+
+  /*
+   * Patrik (23. 11.): u sady kšandy + motýlek se má na model dostat obojí
+   * a u dárkové sady jen to, co se nosí. AI řekne, co na fotce je a kde
+   * je rovná látka; pixely jsou ze skutečné fotky.
+   *
+   * Fotka: bílé pozadí, dvě černé kšandy (svislé pruhy), vínový motýlek
+   * s bílými puntíky a modrá krabička s knoflíčky.
+   */
+  const W = 800; const H = 600;
+  const foto = png.novyObraz(W, H);
+  const barva = (x, y) => {
+    if ((x >= 100 && x < 140 || x >= 220 && x < 260) && y >= 60 && y < 560) return [20, 20, 22];
+    if (x >= 420 && x < 700 && y >= 120 && y < 260) {
+      const tecka = ((x - 420) % 24 < 5) && ((y - 120) % 24 < 5);
+      return tecka ? [250, 250, 250] : [122, 31, 43];
+    }
+    if (x >= 460 && x < 620 && y >= 380 && y < 520) return [30, 60, 160];
+    return [255, 255, 255];
+  };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const [r, g, bb] = barva(x, y); const i = (y * W + x) * 4;
+    foto.body[i] = r; foto.body[i + 1] = g; foto.body[i + 2] = bb; foto.body[i + 3] = 255;
+  }
+  const f = (x, y, w, h) => [x / W, y / H, w / W, h / H];
+  let dotaz = '';
+  rozpoznani.nastavZeptani(async (fotky, text) => {
+    dotaz = text;
+    return {
+      model: 'podvrh',
+      text: '```json\n' + JSON.stringify({ kusy: [
+        { druh: 'ksandy', popis: 'černé kšandy', foto: 0, ram: f(90, 50, 180, 520), latka: f(104, 200, 32, 200), latkaCm: 3.5, barva: '#141416', lem: null, vzor: 'jednobarevny', jistota: 0.93 },
+        /* Obdélník látky motýlka schválně přesahuje do pozadí — musí se zmenšit, ne vydláždit bílý pruh */
+        { druh: 'motylek', popis: 'vínový motýlek s puntíkem', foto: 0, ram: f(420, 120, 280, 140), latka: f(470, 140, 260, 100), latkaCm: 10, barva: '#7a1f2b', lem: null, vzor: 'drobny', jistota: 0.9 },
+        { druh: 'jine', popis: 'krabička s knoflíčky', foto: 0, ram: f(460, 380, 160, 140), latka: f(470, 390, 100, 100), latkaCm: 5, barva: '#1e3ca0', lem: null, vzor: 'jednobarevny', jistota: 0.8 }
+      ] }) + '\n```'
+    };
+  });
+  store.zapisProdukt({
+    kod: 'SADA-T', typ: 'ksandy', varianta: 'siroke', hex: '#808080', vzorek: '', rucne: false, velikosti: false,
+    casti: [{ typ: 'kravata', varianta: 'motylek', hex: '#808080', vzorek: '' }],
+    kontrola: 'Sada', schvaleno: true
+  });
+  const vysledek = await rozpoznani.rozpoznej('SADA-T', { fotky: [foto], nazev: 'Pánské kšandy a motýlek - sada', dokreslit: false });
+  const row = store.produktyRows().find(one => one.kod === 'SADA-T');
+  const vzorek = (data) => png.nacti(Buffer.from(String(data).split(',')[1] || '', 'base64'));
+  const statistika = (o) => {
+    let tmave = 0; let vinove = 0; let bile = 0; let n = 0;
+    for (let i = 0; i < o.body.length; i += 4) {
+      n += 1;
+      const [r, g, b2] = [o.body[i], o.body[i + 1], o.body[i + 2]];
+      if (r < 60 && g < 60 && b2 < 60) tmave += 1;
+      if (r > 100 && g < 60 && b2 < 70) vinove += 1;
+      if (r > 235 && g > 235 && b2 > 235) bile += 1;
+    }
+    return { tmave: tmave / n, vinove: vinove / n, bile: bile / n };
+  };
+  ok('AI dostane k fotce i to, co podle názvu čekat', /kšandy \+ motýlek/.test(dotaz), dotaz.slice(0, 100));
+  const hlavni = row.vzorek ? statistika(vzorek(row.vzorek)) : null;
+  ok('kšandy mají látku z kšand (černou), ne z celé fotky',
+    !!hlavni && hlavni.tmave > 0.95, hlavni ? JSON.stringify(hlavni) : 'bez vzorku');
+  const motylek = row.casti[0] && row.casti[0].vzorek ? statistika(vzorek(row.casti[0].vzorek)) : null;
+  ok('motýlek má svou látku i s puntíky — a bez pruhu pozadí',
+    !!motylek && motylek.vinove > 0.6 && motylek.bile > 0.01 && motylek.bile < 0.25,
+    motylek ? JSON.stringify(motylek) : 'bez vzorku');
+  ok('  velikost vzoru se ví z toho, co AI řekla o rozměru',
+    row.casti[0].vzorekCm > 2 && row.casti[0].vzorekCm < 30, String(row.casti[0].vzorekCm));
+  ok('sada po rozpoznání čeká na potvrzení (nic se neschválí samo)',
+    !row.schvaleno && /AI na fotce/.test(row.kontrola) && /motýlek/.test(row.kontrola), row.kontrola);
+  ok('  a v přehledu je, co AI viděla — i to, co na model nepatří',
+    row.ai && row.ai.kusy.length === 3 && row.ai.poznamky.some(one => /nepatří: krabička/.test(one)),
+    row.ai ? row.ai.poznamky.join(' | ') : 'nic');
+
+  /* Co na fotce je navíc a na model patří, přidá se jako další kus sady */
+  const { prirad } = rozpoznani.__test;
+  const kus = (druh, jistota = 0.9) => ({ druh, popis: druh, foto: 0, ram: [0, 0, 1, 1], latka: [0, 0, 1, 1], latkaCm: 5, barva: '#000000', lem: null, vzor: 'drobny', jistota });
+  const p1 = prirad([{ cast: -1, typ: 'kravata', rodina: 'kravata', varianta: 'kravata' }], [kus('kravata'), kus('kapesnicek'), kus('jine')], false);
+  ok('kapesníček navíc na fotce kravaty → další kus sady',
+    p1.prirazeni.has(-1) && p1.nove.length === 1 && p1.nove[0].typ === 'kapesnicek', JSON.stringify(p1.poznamky));
+  const p2 = prirad([{ cast: -1, typ: 'ksandy', rodina: 'ksandy', varianta: 'siroke' }, { cast: 0, typ: 'kravata', rodina: 'motylek', varianta: 'motylek' }], [kus('ksandy')], false);
+  ok('chybějící kus se pozná a řekne se, co s tím',
+    !p2.prirazeni.has(0) && p2.poznamky.some(one => /nenašla: motýlek/.test(one)));
+  const p3 = prirad([{ cast: -1, typ: 'kravata', rodina: 'motylek', varianta: 'motylek' }], [kus('motylek', 0.2)], false);
+  ok('nejistý nález (pod 35 %) se nepoužije', !p3.prirazeni.has(-1));
+
+  /* Kapesníček s lemem: z látky a barvy lemu se nakreslí špička — lem po hranách */
+  const latka = png.novyObraz(8, 8);
+  for (let i = 0; i < latka.body.length; i += 4) { latka.body[i] = 246; latka.body[i + 1] = 246; latka.body[i + 2] = 244; latka.body[i + 3] = 255; }
+  const roh = rozpoznani.__test.rohSLemem(latka, 4, '#1f2d6d');
+  const bod = (u, v) => { const x = Math.round(u * 159); const y = Math.round(v * 83); const i = (y * 160 + x) * 4; return [roh.body[i], roh.body[i + 1], roh.body[i + 2]]; };
+  ok('kapesníček s lemem: střed bílý, hrana v barvě lemu',
+    bod(0.54, 0.64)[0] > 230 && bod(0.31, 0.52)[2] > 90 && bod(0.31, 0.52)[0] < 60,
+    `${bod(0.54, 0.64).join(',')} · ${bod(0.31, 0.52).join(',')}`);
+
+  /* Rozbitá odpověď AI nespadne potichu do špatné látky */
+  let chyba = '';
+  try { rozpoznani.__test.rozeberOdpoved('Omlouvám se, nevidím.', 1); } catch (e) { chyba = e.message; }
+  ok('nečitelná odpověď AI je chyba s radou, ne tichá prázdná sada', /znovu/.test(chyba), chyba);
+  check('souřadnice v bodech místo zlomků se zahodí',
+    rozpoznani.__test.rozeberOdpoved(JSON.stringify({ kusy: [{ druh: 'kravata', foto: 0, ram: [100, 50, 300, 400] }] }), 1).length, 0);
+};
+
 /* ---------- 8. košík, velikosti, body na modelu ---------- */
 
 console.log('\nvzhled k nákupu');
@@ -1450,5 +1559,7 @@ console.log('\nskript pro e-shop');
     volani.length === 1 && /×1$/.test(volani[0]), volani.join(', '));
 }
 
-console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ zkušební kabina sedí');
-process.exit(failed ? 1 : 0);
+aiZkouska().catch(e => { failed += 1; console.log('  ✗ rozpoznání spadlo:', e && e.stack || e); }).then(() => {
+  console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ zkušební kabina sedí');
+  process.exit(failed ? 1 : 0);
+});

@@ -2518,6 +2518,10 @@ for (const okno of OKNA) {
     uvod.zalozky.join(' · '));
   say('  a je u toho řečeno, že běží tentýž skript jako na e-shopu',
     /tentýž skript/.test(uvod.lista) && /kB/.test(uvod.lista), uvod.lista.slice(0, 80));
+  /* Chybějící sako nebo vesta: bez toho by v kabině nebyl vypínač a nikdo by nevěděl proč */
+  const chybi = await page.evaluate(() => (document.querySelector('.zk-chybi-vrstvy')?.textContent ?? '').replace(/\s+/g, ' ').trim());
+  say('  a je vidět, které postavě chybí sako nebo vesta (proto v kabině není vypínač)',
+    /sako/.test(chybi) && /nesedí/.test(chybi), chybi.slice(0, 90));
   /* Přepnutí na telefon: rámeček na šířku telefonu, ne zmenšená stránka */
   await page.locator('.zk-zarizeni .pk-seg-btn', { hasText: 'Mobil' }).click();
   await page.waitForTimeout(200);
@@ -2665,9 +2669,19 @@ for (const okno of OKNA) {
       nazev: (prvni?.querySelector('.zk-radek-text b')?.textContent ?? '').trim(),
       rada: (prvni?.querySelector('.zk-sada-rada')?.textContent ?? '').trim(),
       kusu: prvni?.querySelectorAll('.zk-sada-kus').length ?? 0,
-      nahrat: [...(prvni?.querySelectorAll('.zk-sada-kus .btn') ?? [])].filter(one => /Nahrát fotku/.test(one.textContent)).length
+      nahrat: [...(prvni?.querySelectorAll('.zk-sada-kus .btn') ?? [])].filter(one => /Nahrát fotku/.test(one.textContent)).length,
+      aiKusu: prvni?.querySelectorAll('.zk-ai-kus').length ?? 0,
+      aiText: (prvni?.querySelector('.zk-ai')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      tlacitkoAi: !!document.querySelector('.zk-ai-rozpoznani .btn')
     };
   });
+  /*
+   * AI jako oko: u sady je vidět, co na fotce poznala (kšandy, motýlek,
+   * krabička), odkud je látka a co na model nepatří.
+   */
+  say('u sady je vidět, co AI na fotce poznala a odkud je látka',
+    sadaVOkne.aiKusu === 3 && /dokreslená AI/.test(sadaVOkne.aiText) && /nepatří/.test(sadaVOkne.aiText) && sadaVOkne.tlacitkoAi,
+    sadaVOkne.aiText.slice(0, 120));
   say('sada čekající na kontrolu je nahoře a ke každému kusu jde nahrát fotku',
     sadaVOkne.ceka && /Sada/.test(sadaVOkne.nazev) && /fajfkou/.test(sadaVOkne.rada) && sadaVOkne.kusu === 2 && sadaVOkne.nahrat === 2,
     `${sadaVOkne.nazev} · ${sadaVOkne.kusu} kusy · ${sadaVOkne.rada.slice(0, 60)}`);
@@ -2974,25 +2988,62 @@ for (const okno of OKNA) {
   await page.locator('.qkb-mrizka .qkb-karta').first().click();
   await page.waitForTimeout(700);
   /*
-   * Sako je přepínač o dvou polohách. Jedno tlačítko „Bez saka" nebylo
-   * poznat, jestli říká, jak to je, nebo co se stane po kliknutí.
+   * Sako je vypínač přímo pod modelem (Patrik, 23. 11.: „nevidím nikde
+   * tlačítko na zobrazení/skrytí saka, vesty"). Vesta v ukázkových datech
+   * vrstvu nemá — na e-shopu se proto vypínač neukáže, aby se neklikalo
+   * do prázdna.
    */
   const poKsandach = await page.evaluate(() => ({
-    zapnuto: (document.querySelector('.qkb-prepinac .qkb-chip[aria-pressed="true"]')?.textContent ?? '').trim(),
+    sako: document.querySelector('.qkb-vypinac[data-typ="sako"]')?.getAttribute('aria-pressed'),
+    vesta: !!document.querySelector('.qkb-vypinac[data-typ="vesta"]'),
     bodKapesnicek: !!document.querySelector('.qkb-bod[data-typ="kapesnicek"]')
   }));
-  say('kšandy samy schovají sako', /Bez saka/.test(poKsandach.zapnuto), poKsandach.zapnuto);
+  say('kšandy samy schovají sako (vypínač saka je vypnutý)', poKsandach.sako === 'false', String(poKsandach.sako));
+  say('  vypínač vesty bez hotové vrstvy na e-shopu není', poKsandach.vesta === false);
   say('  a s ním zmizí i bod na kapesníček — neměl by kde být',
     poKsandach.bodKapesnicek === false);
-  await page.locator('.qkb-prepinac .qkb-chip', { hasText: 'Se sakem' }).click();
+  await page.locator('.qkb-vypinac[data-typ="sako"]').click();
   await page.waitForTimeout(600);
   const poPrebiti = await page.evaluate(() => ({
-    zapnuto: (document.querySelector('.qkb-prepinac .qkb-chip[aria-pressed="true"]')?.textContent ?? '').trim(),
-    bodKapesnicek: !!document.querySelector('.qkb-bod[data-typ="kapesnicek"]')
+    sako: document.querySelector('.qkb-vypinac[data-typ="sako"]')?.getAttribute('aria-pressed')
   }));
-  say('  sako se dá vrátit i s kšandami (kvůli kapesníčku)',
-    /* Kapesníček už na modelu je, takže bod na něj (správně) není — stačí, že sako je zpátky */
-    /Se sakem/.test(poPrebiti.zapnuto), poPrebiti.zapnuto);
+  say('  sako se dá vrátit i s kšandami (kvůli kapesníčku)', poPrebiti.sako === 'true', String(poPrebiti.sako));
+
+  /*
+   * Lupa: přiblížení jde na detail u krku, z plného rozlišení. Body
+   * „přidat" se posunou s obrazem a „celý model" vrátí pohled zpět.
+   */
+  const predLupou = await page.evaluate(() => {
+    const c = document.querySelector('.qkb-platno canvas');
+    return { m: Number(c.dataset.m), y: Number(c.dataset.y) };
+  });
+  await page.locator('.qkb-lupa-plus').click();
+  await page.waitForTimeout(300);
+  const poLupe = await page.evaluate(() => {
+    const c = document.querySelector('.qkb-platno canvas');
+    return {
+      k: Number(c.dataset.lupa), m: Number(c.dataset.m), y: Number(c.dataset.y),
+      zpet: getComputedStyle(document.querySelector('.qkb-lupa-zpet')).display !== 'none',
+      tah: getComputedStyle(c).touchAction
+    };
+  });
+  say('model jde přiblížit (na detail u krku)',
+    poLupe.k > 2 && poLupe.m > predLupou.m * 2 && poLupe.zpet && poLupe.tah === 'none',
+    `${poLupe.k}× · měřítko ${predLupou.m.toFixed(2)} → ${poLupe.m.toFixed(2)} · tah ${poLupe.tah}`);
+  /* Tah myší posouvá přiblížený obraz */
+  const box = await page.locator('.qkb-platno canvas').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 60, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const poTahu = await page.evaluate(() => Number(document.querySelector('.qkb-platno canvas').dataset.y));
+  say('  přiblížený model jde posunout tahem', poTahu < poLupe.y, `${poLupe.y} → ${poTahu}`);
+  await page.screenshot({ path: path.join(SHOTS, 'kabina-lupa.png') });
+  await page.locator('.qkb-lupa-zpet').click();
+  await page.waitForTimeout(300);
+  const zpetLupa = await page.evaluate(() => Number(document.querySelector('.qkb-platno canvas').dataset.lupa));
+  say('  a „celý model" vrátí pohled zpátky', zpetLupa === 1, String(zpetLupa));
 
   /* Další vzhled k porovnání */
   await page.locator('.qkb-varianty .qkb-chip', { hasText: 'Další vzhled' }).click();

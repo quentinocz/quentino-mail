@@ -824,7 +824,11 @@ export function registerIpc() {
   handle('zk:nastav', (co: any) => zkusebna.nastav(co ?? {}));
   handle('zk:kontakt', (co: any) => zkusebna.ulozKontakt(co ?? {}));
   handle('zk:katalog', (sAi: boolean, sBarvami: boolean) =>
-    zkusebna.projdiKatalog(sAi !== false, sBarvami !== false));
+    zkusebna.projdiKatalog(sAi !== false, sBarvami !== false, krok => emit('zk:katalog-krok', krok)));
+  // AI pozná, co je na fotce produktu (sada kšandy + motýlek…), a vezme látku každého kusu
+  handle('zk:rozpoznej', (kod: string) => zkusebna.rozpoznejProdukt(String(kod ?? '')));
+  handle('zk:rozpoznej-vse', (rozsah: string) =>
+    zkusebna.rozpoznejProdukty(rozsah === 'vse' ? 'vse' : 'sady', krok => emit('zk:katalog-krok', krok)));
   handle('zk:produkty', (limit: number) => zkusebna.produktyPrehled(Number(limit) || 300));
   handle('zk:produkt', (kod: string, co: any) => zkusebna.upravProdukt(String(kod ?? ''), co ?? {}));
   handle('zk:latka', (kod: string, cast: number, data: string) =>

@@ -570,6 +570,38 @@ export async function dokresli(zadani: string, vstup: Obraz, maska?: Obraz): Pro
   return px.obnovPruhlednost(vracene, vstup);
 }
 
+/**
+ * Dokreslí látku podle výřezu z fotky — rovně, bez záhybů, navazující.
+ *
+ * Jen tam, kde je na fotce rovného kusu látky málo (stočená kravata,
+ * motýlek ze strany): z malého výřezu by se vzor dláždil po pár bodech
+ * a na modelu byl rozmazaný. Model dostane výřez jako předlohu a má
+ * **zopakovat tentýž vzor**, ne vymyslet nový — a výsledek se v okně
+ * ukáže vedle výřezu, aby se dal posoudit.
+ */
+export async function dokresliLatku(predloha: Obraz, popis: string): Promise<Obraz> {
+  const m = model();
+  const zadani = [
+    'Flat fabric swatch for a virtual fitting room.',
+    `Reproduce EXACTLY the fabric of the reference crop: ${popis || 'the same pattern and colours'}.`,
+    'Same colours, same motif, same motif size relative to the fabric weave.',
+    'View it perfectly straight-on, evenly lit, no folds, no shadows, no creases, no edges, no knot, no stitching, no labels.',
+    'Fill the whole square edge to edge with the fabric only. Seamless and tileable.',
+    'Do not invent new motifs or colours.'
+  ].join(' ');
+  const pole: Record<string, string | number> = bezOdmitnutych({
+    model: m.id,
+    prompt: zadani,
+    size: '1024x1024',
+    quality: 'medium',
+    output_format: 'png',
+    n: 1,
+    ...(m.verny === 'navolbu' ? { input_fidelity: 'high' } : {})
+  }, m.id);
+  const vstup = px.prevzorkuj(predloha, 1024, 1024);
+  return posli('/images/edits', { pole, soubory: { image: { data: uloz(vstup), jmeno: 'latka.png' } } });
+}
+
 /* ----------------------------------------------------------- zkouška */
 
 export interface ZkouskaModelu {

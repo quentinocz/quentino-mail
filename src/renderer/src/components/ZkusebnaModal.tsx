@@ -87,6 +87,21 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
   useEffect(() => api.on('zk:vystav-krok', (krok: any) => {
     setVystavuji(`${krok?.co ?? 'Vystavuji'} · ${krok?.hotovo ?? 0} z ${krok?.celkem ?? 0}`);
   }), []);
+  /* Projití katalogu a rozpoznávání fotek trvají minuty — ať je vidět, kde to je */
+  useEffect(() => api.on('zk:katalog-krok', (krok: any) => {
+    setPracuje(`${krok?.co ?? 'Pracuji'}…`);
+  }), []);
+  const [rozsahAi, setRozsahAi] = useState<'sady' | 'vse'>('sady');
+  const [rozpoznavam, setRozpoznavam] = useState('');
+  const rozpoznejJeden = async (kod: string) => {
+    setRozpoznavam(kod);
+    try {
+      const r = await api.zk.rozpoznej(kod);
+      toast(r.kontrola ? `Rozpoznáno: ${r.kusu} kus(y) — zkontroluj a potvrď.` : `Rozpoznáno: ${r.kusu} kus, látka je z fotky.`, 'info');
+      setProdukty(await api.zk.produkty(300));
+    } catch (e: any) { toast(e.message, 'error'); }
+    setRozpoznavam('');
+  };
 
   useEffect(() => {
     if (zalozka !== 'produkty' || produkty.length) return;
@@ -293,6 +308,27 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   Seznam {nahled.velikost.seznamKb} kB · {nahled.velikost.postav} postav ·{' '}
                   {nahled.velikost.vrstev} vrstev · {nahled.velikost.produktu} produktů
                 </span>
+              )}
+              {(nahled?.chybi?.length ?? 0) > 0 && (
+                <div className="zk-chybi-vrstvy" role="status">
+                  <Icon name="alert" size={13} />
+                  <span>
+                    Bez vypínače v kabině:{' '}
+                    {nahled!.chybi!.map((one, i) => (
+                      <span key={`${one.postava}-${one.typ}`}>
+                        {i > 0 ? ', ' : ''}
+                        <button className="zk-odkaz" title={one.potiz || 'Vrstva ještě není nakreslená'} onClick={() => {
+                          setPostava(one.postava);
+                          setZalozka('vizualy');
+                        }}>
+                          {one.typ === 'sako' ? 'sako' : 'vesta'} ({popisPostavy(one.vek, one.telo).toLowerCase()}
+                          {one.stav === 'nesedi' ? ', nesedí' : ''})
+                        </button>
+                      </span>
+                    ))}
+                    {' '}— dokresli ve Vizuálech.
+                  </span>
+                </div>
               )}
               <div className="pk-seg zk-zarizeni" role="group" aria-label="Zařízení">
                 <button className={`pk-seg-btn ${naMobilu ? '' : 'on'}`} aria-pressed={!naMobilu}
@@ -553,12 +589,38 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                   setPracuje('Procházím katalog…');
                   try {
                     const vysledek = await api.zk.katalog(true, true);
-                    toast(`Zařazeno ${vysledek.zarazeno}, barvu z fotky má ${vysledek.obarveno}.`, 'info');
+                    toast(`Zařazeno ${vysledek.zarazeno}, barvu z fotky má ${vysledek.obarveno}`
+                      + (vysledek.rozpoznano ? `, AI rozpoznala ${vysledek.rozpoznano} sad.` : '.')
+                      + (vysledek.chybaRozpoznani ? ` Rozpoznání: ${vysledek.chybaRozpoznani}` : ''),
+                      vysledek.chybaRozpoznani ? 'error' : 'info');
                     setProdukty(await api.zk.produkty(300));
                     await nactiPrehled();
                   } catch (e: any) { toast(e.message, 'error'); }
                   setPracuje('');
                 }}>Projít katalog</button>
+                {/*
+                  * AI jako oko: pozná, co je na fotce (kšandy, motýlek,
+                  * knoflíčky), a ukáže, kde je rovná látka. Sady jdou samy
+                  * při projití katalogu; celý katalog je na vyžádání, protože
+                  * stojí kolem koruny za produkt.
+                  */}
+                <div className="zk-ai-rozpoznani">
+                  <select value={rozsahAi} onChange={e => setRozsahAi(e.target.value as 'sady' | 'vse')}
+                    aria-label="Co rozpoznat">
+                    <option value="sady">Sady a kusy ke kontrole</option>
+                    <option value="vse">Celý katalog (~1 Kč/produkt)</option>
+                  </select>
+                  <button className="btn ghost" disabled={!!pracuje} onClick={async () => {
+                    setPracuje('Rozpoznávám fotky…');
+                    try {
+                      const r = await api.zk.rozpoznejVse(rozsahAi);
+                      toast(`AI rozpoznala ${r.hotovo} produktů${r.chyb ? `, ${r.chyb} se nepovedlo: ${r.posledniChyba}` : ''}.`,
+                        r.chyb ? 'error' : 'info');
+                      setProdukty(await api.zk.produkty(300));
+                    } catch (e: any) { toast(e.message, 'error'); }
+                    setPracuje('');
+                  }}><Icon name="sparkles" size={13} /> Rozpoznat fotky AI</button>
+                </div>
               </div>
             </header>
 
@@ -626,6 +688,12 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                       <b>{(p.meritko || 1).toFixed(1)}×</b>
                     </label>
                   )}
+                  {p.typ && (
+                    <button className="icon-btn" data-tip="Rozpoznat fotky AI — co na nich je a kde je látka"
+                      disabled={!!rozpoznavam} onClick={() => void rozpoznejJeden(p.kod)}>
+                      {rozpoznavam === p.kod ? <span className="spin" /> : <Icon name="sparkles" size={14} />}
+                    </button>
+                  )}
                   <button className={`icon-btn ${p.schvaleno ? 'on' : ''}`} data-tip="Potvrdit zařazení"
                     onClick={() => {
                       void api.zk.produkt(p.kod, { schvaleno: !p.schvaleno });
@@ -634,7 +702,7 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                     <Icon name="check" size={14} />
                   </button>
                 </div>
-                {(p.kontrola || p.casti.length > 0) && (
+                {(p.kontrola || p.casti.length > 0 || p.ai) && (
                   <SadaProduktu p={p} onZmena={zmena => setProdukty(prev => prev.map(one =>
                     one.kod === p.kod ? { ...one, ...zmena } : one))} />
                 )}
@@ -952,6 +1020,32 @@ function SadaProduktu({ p, onZmena }: {
               : 'Do kabiny se dostane, až zařazení potvrdíš fajfkou. Zákazník do té doby uvidí slušné „připravujeme" a podobné kusy.'}
           </span>
         </p>
+      )}
+      {p.ai && (
+        <div className="zk-ai">
+          <div className="zk-ai-kusy">
+            {p.ai.kusy.map((k, i) => (
+              <figure key={i} className={`zk-ai-kus ${k.typ ? '' : 'mimo'}`}>
+                {k.vyrez ? <img src={k.vyrez} alt="" /> : <span className="zk-vzorek zk-chybi" />}
+                <figcaption>
+                  <b>{k.popis || k.druh}</b>
+                  <span className="desc">
+                    {!k.typ ? 'na model nepatří'
+                      : k.zdroj === 'fotka' ? 'látka z fotky'
+                        : k.zdroj === 'ai' ? 'látka dokreslená AI podle fotky'
+                          : 'jen barva'}
+                    {k.typ ? ` · jistota ${Math.round(k.jistota * 100)} %` : ''}
+                  </span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+          {p.ai.poznamky.length > 0 && (
+            <ul className="zk-ai-poznamky">
+              {p.ai.poznamky.map((one, i) => <li key={i}>{one}</li>)}
+            </ul>
+          )}
+        </div>
       )}
       <div className="zk-sada-kusy">
         {kusy.map(k => (

@@ -104,7 +104,9 @@ const TEMPLATE = String.raw`
       neniVKabine: "Tenhle kousek si v kabině zatím vyzkoušet nejde — připravujeme ho. Mezitím tu máte podobné:",
       novyVzhledDite: "Dětský kousek jsme dali na nový vzhled s dětským modelem.",
       novyVzhledDospely: "Pánský kousek jsme dali na nový vzhled s dospělým modelem.",
-      sada: "sada", vSade: "Součást sady"
+      sada: "sada", vSade: "Součást sady",
+      priblizit: "Přiblížit", oddalit: "Oddálit", celyModel: "Celý model",
+      chybiVrstva: "Pro tenhle model zatím není připravená vrstva — dokresli ji v aplikaci ve Vizuálech."
     },
     sk: {
       kabina: "Skúšobná kabína", podnadpis: "Vyberte si doplnky a pozrite sa, ako sadnú.",
@@ -137,7 +139,9 @@ const TEMPLATE = String.raw`
       neniVKabine: "Tento kúsok si v kabíne zatiaľ vyskúšať nedá — pripravujeme ho. Zatiaľ tu máte podobné:",
       novyVzhledDite: "Detský kúsok sme dali na nový vzhľad s detským modelom.",
       novyVzhledDospely: "Pánsky kúsok sme dali na nový vzhľad s dospelým modelom.",
-      sada: "sada", vSade: "Súčasť sady"
+      sada: "sada", vSade: "Súčasť sady",
+      priblizit: "Priblížiť", oddalit: "Oddialiť", celyModel: "Celý model",
+      chybiVrstva: "Pre tento model zatiaľ nie je pripravená vrstva."
     },
     en: {
       kabina: "Fitting room", podnadpis: "Pick the accessories and see how they look.",
@@ -170,7 +174,9 @@ const TEMPLATE = String.raw`
       neniVKabine: "This one is not ready for the fitting room yet — we are working on it. Meanwhile, here are similar ones:",
       novyVzhledDite: "We put the kids' piece on a new look with a child model.",
       novyVzhledDospely: "We put the men's piece on a new look with an adult model.",
-      sada: "set", vSade: "Part of the set"
+      sada: "set", vSade: "Part of the set",
+      priblizit: "Zoom in", oddalit: "Zoom out", celyModel: "Whole model",
+      chybiVrstva: "This layer is not ready for this model yet."
     }
   };
 
@@ -723,21 +729,40 @@ const TEMPLATE = String.raw`
    * kravaty a kšand byly zubaté. Teď se zmenší tady, po polovinách a
    * s vyhlazením, na přesný počet bodů displeje.
    */
+  /*
+   * Lupa. Patrik (23. 11.): „přidej možnost náhled modela přibližovat".
+   * Přibližuje se z plného rozlišení výřezu, ne zvětšením obrázku na
+   * displeji — vzor kravaty je pak ostrý i na čtyřnásobku. x, y je
+   * střed pohledu v dílech výřezu.
+   */
+  var lupa = { k: 1, x: 0.5, y: 0.5 };
+  var pohledTed = null;
+
   function zmensiNa(cil, zdroj, vyrez) {
     var dpr = Math.min(3, window.devicePixelRatio || 1);
     var vyskaCss = cil.clientHeight || Math.round(window.innerHeight * 0.36);
-    var h = Math.max(50, Math.min(zdroj.height, Math.round(vyskaCss * dpr)));
+    var h = Math.max(50, Math.min(Math.round(zdroj.height * 1.5), Math.round(vyskaCss * dpr)));
     var w = Math.max(20, Math.round((zdroj.width * h) / zdroj.height));
+    var k = Math.max(1, Math.min(4, lupa.k || 1));
+    var sw = zdroj.width / k;
+    var sh = zdroj.height / k;
+    var sx = Math.max(0, Math.min(zdroj.width - sw, lupa.x * zdroj.width - sw / 2));
+    var sy = Math.max(0, Math.min(zdroj.height - sh, lupa.y * zdroj.height - sh / 2));
+    /* Střed se srovná s tím, kam se pohled opravdu vešel — jinak by tah u kraje „lepil" */
+    lupa.x = (sx + sw / 2) / zdroj.width;
+    lupa.y = (sy + sh / 2) / zdroj.height;
     var mezi = zdroj;
-    while (mezi.width / 2 >= w * 1.05) {
+    var mx = sx, my = sy, mw = sw, mh = sh;
+    while (mw / 2 >= w * 1.05) {
       var pul = document.createElement("canvas");
-      pul.width = Math.round(mezi.width / 2);
-      pul.height = Math.round(mezi.height / 2);
+      pul.width = Math.round(mw / 2);
+      pul.height = Math.round(mh / 2);
       var pc = pul.getContext("2d");
       pc.imageSmoothingEnabled = true;
       pc.imageSmoothingQuality = "high";
-      pc.drawImage(mezi, 0, 0, pul.width, pul.height);
+      pc.drawImage(mezi, mx, my, mw, mh, 0, 0, pul.width, pul.height);
       mezi = pul;
+      mx = 0; my = 0; mw = pul.width; mh = pul.height;
     }
     cil.width = w;
     cil.height = h;
@@ -745,11 +770,149 @@ const TEMPLATE = String.raw`
     c.imageSmoothingEnabled = true;
     c.imageSmoothingQuality = "high";
     c.clearRect(0, 0, w, h);
-    c.drawImage(mezi, 0, 0, w, h);
-    /* Kde výřez leží na plátně postavy a v jakém měřítku — kvůli bodům a zkouškám */
-    cil.setAttribute("data-x", String(vyrez.x));
-    cil.setAttribute("data-y", String(vyrez.y));
-    cil.setAttribute("data-m", String(w / zdroj.width));
+    c.drawImage(mezi, mx, my, mw, mh, 0, 0, w, h);
+    pohledTed = { x: sx, y: sy, w: sw, h: sh };
+    /* Kde pohled leží na plátně postavy a v jakém měřítku — kvůli bodům a zkouškám */
+    cil.setAttribute("data-x", String(vyrez.x + sx));
+    cil.setAttribute("data-y", String(vyrez.y + sy));
+    cil.setAttribute("data-m", String(w / sw));
+    cil.setAttribute("data-lupa", String(Math.round(k * 100) / 100));
+    cil.style.touchAction = k > 1.01 ? "none" : "pan-y";
+    var misto = cil.parentNode;
+    if (misto && misto.setAttribute) misto.setAttribute("data-lupa", k > 1.01 ? "1" : "0");
+  }
+
+  /** Přiblížení na k; bod (fx, fy) v dílech plátna zůstane pod prstem. */
+  function priblizNa(k, fx, fy) {
+    if (!platno || !plne || !vyrezTed) return;
+    k = Math.max(1, Math.min(4, k));
+    var W = plne.width, H = plne.height;
+    var p = pohledTed || { x: 0, y: 0, w: W, h: H };
+    if (fx == null) { fx = 0.5; fy = 0.5; }
+    var bodX = p.x + fx * p.w;
+    var bodY = p.y + fy * p.h;
+    var sw = W / k, sh = H / k;
+    lupa.k = k;
+    lupa.x = (bodX - fx * sw + sw / 2) / W;
+    lupa.y = (bodY - fy * sh + sh / 2) / H;
+    prekresliLupu();
+  }
+
+  var lupaCeka = false;
+  function prekresliLupu() {
+    if (lupaCeka) return;
+    lupaCeka = true;
+    var hned = function () {
+      lupaCeka = false;
+      if (platno && plne && vyrezTed) zmensiNa(platno, plne, vyrezTed);
+      vykresliBody();
+      vykresliLupu();
+    };
+    if (window.requestAnimationFrame) window.requestAnimationFrame(hned); else setTimeout(hned, 16);
+  }
+
+  /*
+   * Přiblížení tlačítkem jde rovnou na detail u krku — tam je to, kvůli
+   * čemu zákazník přibližuje (uzel kravaty, motýlek, vzor).
+   */
+  function priblizNaDetail(k) {
+    var postava = postavaPro(vzhled());
+    var kotva = postava && postava.kotvy ? postava.kotvy.kravata : null;
+    if (lupa.k <= 1.01 && kotva && vyrezTed && pohledTed) {
+      var fx = (kotva[0] - vyrezTed.x - pohledTed.x) / pohledTed.w;
+      var fy = (kotva[1] + (postava.kotvy.pas - kotva[1]) * 0.25 - vyrezTed.y - pohledTed.y) / pohledTed.h;
+      lupa.k = k;
+      lupa.x = Math.max(0, Math.min(1, fx));
+      lupa.y = Math.max(0, Math.min(1, fy));
+      prekresliLupu();
+      return;
+    }
+    priblizNa(k, 0.5, 0.5);
+  }
+
+  function vykresliLupu() {
+    if (!okno) return;
+    var lista = okno.querySelector(".qkb-lupa");
+    if (!lista) return;
+    var zpet = lista.querySelector(".qkb-lupa-zpet");
+    if (zpet) zpet.style.display = lupa.k > 1.01 ? "" : "none";
+    var minus = lista.querySelector(".qkb-lupa-minus");
+    if (minus) minus.disabled = lupa.k <= 1.01;
+    var plus = lista.querySelector(".qkb-lupa-plus");
+    if (plus) plus.disabled = lupa.k >= 3.99;
+  }
+
+  /*
+   * Ovládání lupy na plátně: kolečko s Ctrl (a sevření prstů na touchpadu,
+   * které prohlížeč posílá jako Ctrl + kolečko), dva prsty na mobilu,
+   * tažení přiblíženého obrázku a dvojklik / dvojí ťuknutí.
+   * Obyčejné kolečko ani tah jedním prstem na nepřiblíženém modelu se
+   * nechytají — zákazník jimi posouvá nabídku.
+   */
+  function napojLupu(misto) {
+    var prsty = {};
+    var zacatek = null;
+    var posledniTuk = 0;
+    var dil = function (e) {
+      var r = platno.getBoundingClientRect();
+      return { x: (e.clientX - r.left) / Math.max(1, r.width), y: (e.clientY - r.top) / Math.max(1, r.height) };
+    };
+    misto.addEventListener("wheel", function (e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      var d = dil(e);
+      priblizNa(lupa.k * Math.exp(-e.deltaY * 0.01), d.x, d.y);
+    }, { passive: false });
+    misto.addEventListener("dblclick", function (e) {
+      if (e.target && e.target.closest && e.target.closest("button")) return;
+      var d = dil(e);
+      priblizNa(lupa.k > 1.01 ? 1 : 2.4, d.x, d.y);
+    });
+    misto.addEventListener("pointerdown", function (e) {
+      if (e.target && e.target.closest && e.target.closest("button")) return;
+      prsty[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var klice = Object.keys(prsty);
+      if (klice.length === 2) {
+        var a = prsty[klice[0]], b = prsty[klice[1]];
+        zacatek = { vzdalenost: Math.hypot(a.x - b.x, a.y - b.y) || 1, k: lupa.k };
+      } else if (e.pointerType === "touch") {
+        var ted = Date.now();
+        if (ted - posledniTuk < 300) {
+          var d = dil(e);
+          priblizNa(lupa.k > 1.01 ? 1 : 2.4, d.x, d.y);
+          posledniTuk = 0;
+        } else {
+          posledniTuk = ted;
+        }
+      }
+      if (lupa.k > 1.01 || klice.length === 2) {
+        try { misto.setPointerCapture(e.pointerId); } catch (chyba) { /* nic */ }
+      }
+    });
+    misto.addEventListener("pointermove", function (e) {
+      var predtim = prsty[e.pointerId];
+      if (!predtim) return;
+      prsty[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var klice = Object.keys(prsty);
+      if (klice.length === 2 && zacatek) {
+        var a = prsty[klice[0]], b = prsty[klice[1]];
+        var r = platno.getBoundingClientRect();
+        var stred = { x: ((a.x + b.x) / 2 - r.left) / Math.max(1, r.width), y: ((a.y + b.y) / 2 - r.top) / Math.max(1, r.height) };
+        priblizNa(zacatek.k * (Math.hypot(a.x - b.x, a.y - b.y) / zacatek.vzdalenost), stred.x, stred.y);
+        return;
+      }
+      if (lupa.k <= 1.01 || !pohledTed || !plne) return;
+      var r2 = platno.getBoundingClientRect();
+      lupa.x -= ((e.clientX - predtim.x) / Math.max(1, r2.width)) * pohledTed.w / plne.width;
+      lupa.y -= ((e.clientY - predtim.y) / Math.max(1, r2.height)) * pohledTed.h / plne.height;
+      prekresliLupu();
+    });
+    var pust = function (e) {
+      delete prsty[e.pointerId];
+      if (Object.keys(prsty).length < 2) zacatek = null;
+    };
+    misto.addEventListener("pointerup", pust);
+    misto.addEventListener("pointercancel", pust);
   }
 
   /* ----------------------------------------------------- doporučení */
@@ -1047,7 +1210,7 @@ const TEMPLATE = String.raw`
     + ".qkb-scena{position:sticky;top:0;z-index:3;display:flex;justify-content:center;padding:8px 0 4px;"
     + "background:linear-gradient(#fafafa,#f1f1f3)}"
     + ".qkb-platno{position:relative;display:inline-block;line-height:0}"
-    + ".qkb-platno canvas{display:block;height:36vh;width:auto;max-width:100%}"
+    + ".qkb-platno canvas{display:block;height:36vh;width:auto;max-width:100%;touch-action:pan-y;user-select:none;-webkit-user-select:none}"
     /* Bod je malý a průsvitný: má upozornit, ne zakrýt model. Cíl pro prst je větší, než co je vidět */
     + ".qkb-bod{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;padding:0;"
     + "border:1.5px solid rgba(255,255,255,.92);border-radius:999px;background:rgba(24,24,27,.6);color:#fff;cursor:pointer;"
@@ -1135,6 +1298,22 @@ const TEMPLATE = String.raw`
     + ".qkb input[type='range']{width:100%}"
     + ".qkb-blok:empty{display:none}"
     + ".qkb-prepinac{display:inline-flex;border:1px solid #d4d4d8;border-radius:999px;background:#fff;padding:2px;gap:2px}"
+    + ".qkb-vypinace{display:inline-flex;gap:6px}"
+    + ".qkb-vypinac[aria-pressed='true']{background:#fff;color:#18181b;border-color:#18181b}"
+    + ".qkb-vypinac[disabled]{opacity:.5;cursor:not-allowed}"
+    + ".qkb-vypinac-ikona{width:26px;height:15px;border-radius:999px;background:#d4d4d8;position:relative;flex:0 0 auto;"
+    + "transition:background .15s}"
+    + ".qkb-vypinac-ikona::after{content:'';position:absolute;left:2px;top:2px;width:11px;height:11px;border-radius:999px;"
+    + "background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}"
+    + ".qkb-vypinac[aria-pressed='true'] .qkb-vypinac-ikona{background:#18181b}"
+    + ".qkb-vypinac[aria-pressed='true'] .qkb-vypinac-ikona::after{transform:translateX(11px)}"
+    /* Lupa vedle modelu, ne přes něj — přes rameno by zakrývala to, co se přibližuje */
+    + ".qkb-lupa{position:absolute;left:calc(100% + 8px);top:4px;z-index:2;display:flex;flex-direction:column;gap:4px;line-height:1}"
+    + ".qkb-lupa button{width:32px;height:32px;padding:0;border:1px solid rgba(24,24,27,.12);border-radius:9px;"
+    + "background:rgba(255,255,255,.92);color:#18181b;font-size:17px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.1)}"
+    + ".qkb-lupa button[disabled]{opacity:.4;cursor:default}"
+    + ".qkb-platno[data-lupa='1'] canvas{cursor:grab}"
+    + ".qkb-platno[data-lupa='1']:active canvas{cursor:grabbing}"
     + ".qkb-prepinac .qkb-chip{border:0;padding:6px 11px}"
     + ".qkb-upravuji .qkb-pravy>:not(.qkb-zavoj),.qkb-upravuji .qkb-varianty,.qkb-upravuji .qkb-pata,"
     + ".qkb-upravuji .qkb-chip-hlavni,.qkb-upravuji .qkb-bod{display:none}"
@@ -1293,8 +1472,13 @@ const TEMPLATE = String.raw`
       var bx = zmereno ? zmereno[0] : def.bod.x * (vyrez ? vyrez.sirka : 1);
       var by = zmereno ? zmereno[1] : def.bod.y * (vyrez ? vyrez.vyska : 1);
       if (vyrez) {
-        bx = (bx - vyrez.x) / vyrez.w;
-        by = (by - vyrez.y) / vyrez.h;
+        var p = pohledTed || { x: 0, y: 0, w: vyrez.w, h: vyrez.h };
+        bx = (bx - vyrez.x - p.x) / p.w;
+        by = (by - vyrez.y - p.y) / p.h;
+      }
+      /* Při přiblížení je bod mimo pohled — schová se, ať neleží na kraji jinde */
+      if (bx < 0.03 || bx > 0.97 || by < 0.03 || by > 0.97) {
+        if (lupa.k > 1.01) continue;
       }
       b.style.left = (Math.max(0.05, Math.min(0.95, bx)) * 100) + "%";
       b.style.top = (Math.max(0.05, Math.min(0.95, by)) * 100) + "%";
@@ -1331,21 +1515,74 @@ const TEMPLATE = String.raw`
      * tlačítko s nápisem „Bez saka" nebylo poznat, jestli říká, jak to
      * je, nebo co se stane po kliknutí.
      */
+    /*
+     * Sako a vesta jako dva vypínače přímo pod modelem. Patrik (23. 11.):
+     * „nevidím nikde tlačítko na zobrazení/skrytí saka, vesty". Dřív byl
+     * přepínač jen u saka, a jen když pro postavu existovala vrstva —
+     * jinak nebylo nic. Na e-shopu se nehotová vrstva pořád neukazuje
+     * (zákazník by klikal do prázdna), v náhledu v aplikaci ale zůstane
+     * vypínač vidět, zašedlý a s vysvětlením, co chybí.
+     */
     var postavaS = postavaPro(vzhled());
-    if (postavaS && vrstvaPro(postavaS.id, "sako", (vzhled().kusy.sako && vzhled().kusy.sako.varianta) || "jednoradove")) {
-      var vidi = sakoVidi(vzhled());
-      var prepinac = el("div", "qkb-prepinac");
-      prepinac.setAttribute("role", "group");
-      prepinac.setAttribute("aria-label", t("sako"));
-      var se = tlac("qkb-chip", t("sakoVidi"), function () { nastavSako(true); });
-      se.setAttribute("aria-pressed", vidi ? "true" : "false");
-      var bez = tlac("qkb-chip", t("sakoSkryto"), function () { nastavSako(false); });
-      bez.setAttribute("aria-pressed", vidi ? "false" : "true");
-      prepinac.appendChild(se);
-      prepinac.appendChild(bez);
-      lista.appendChild(prepinac);
-    }
+    var vNahledu = location.protocol === "qkbnahled:";
+    var vypinace = el("div", "qkb-vypinace");
+    vypinace.setAttribute("role", "group");
+    var pridejVypinac = function (typ, zapnuto, prepni) {
+      var def = defVrstvy(typ);
+      var varianta = (vzhled().kusy[typ] && vzhled().kusy[typ].varianta)
+        || (def && def.varianty && def.varianty[0] ? def.varianty[0].id : "");
+      var ma = postavaS && vrstvaPro(postavaS.id, typ, varianta);
+      if (!ma && !vNahledu) return;
+      var b = tlac("qkb-chip qkb-vypinac", null, function () { if (ma) prepni(!zapnuto); });
+      b.appendChild(el("span", "qkb-vypinac-ikona"));
+      b.appendChild(document.createTextNode(t(typ)));
+      b.setAttribute("aria-pressed", ma && zapnuto ? "true" : "false");
+      b.setAttribute("data-typ", typ);
+      if (!ma) {
+        b.disabled = true;
+        b.setAttribute("title", t("chybiVrstva"));
+      }
+      vypinace.appendChild(b);
+    };
+    pridejVypinac("sako", sakoVidi(vzhled()), nastavSako);
+    pridejVypinac("vesta", !!vzhled().kusy.vesta, nastavVestu);
+    if (vypinace.firstChild) lista.appendChild(vypinace);
     scena.appendChild(lista);
+
+    /* Lupa: plus, minus a návrat na celý model */
+    var lupaLista = el("div", "qkb-lupa");
+    var plus = tlac("qkb-lupa-plus", "+", function (e) { e.stopPropagation(); priblizNaDetail(Math.min(4, lupa.k <= 1.01 ? 2.2 : lupa.k * 1.5)); });
+    plus.setAttribute("aria-label", t("priblizit"));
+    plus.setAttribute("title", t("priblizit"));
+    var minus = tlac("qkb-lupa-minus", "−", function (e) { e.stopPropagation(); priblizNa(lupa.k / 1.5 < 1.1 ? 1 : lupa.k / 1.5); });
+    minus.setAttribute("aria-label", t("oddalit"));
+    minus.setAttribute("title", t("oddalit"));
+    var zpet = tlac("qkb-lupa-zpet", "⤢", function (e) { e.stopPropagation(); lupa = { k: 1, x: 0.5, y: 0.5 }; prekresliLupu(); });
+    zpet.setAttribute("aria-label", t("celyModel"));
+    zpet.setAttribute("title", t("celyModel"));
+    lupaLista.appendChild(plus);
+    lupaLista.appendChild(minus);
+    lupaLista.appendChild(zpet);
+    misto.appendChild(lupaLista);
+    napojLupu(misto);
+    vykresliLupu();
+  }
+
+  var posledniVesta = "";
+  function nastavVestu(ano) {
+    var v = vzhled();
+    if (ano) {
+      var def = defVrstvy("vesta");
+      v.kusy.vesta = {
+        varianta: (def && def.varianty && def.varianty[0] ? def.varianty[0].id : "klasicka"),
+        hex: posledniVesta || (v.kusy.sako && v.kusy.sako.hex) || "#2a3142"
+      };
+    } else if (v.kusy.vesta) {
+      posledniVesta = v.kusy.vesta.hex;
+      delete v.kusy.vesta;
+    }
+    vykresliScenu();
+    prekresli();
   }
 
   function nastavSako(ano) {

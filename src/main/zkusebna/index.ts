@@ -2,7 +2,7 @@ import fs from 'fs';
 import { getSetting, setSetting } from '../db';
 import { encrypt } from '../secure';
 import {
-  ZkPrehled, ZkProduktRadek, ZkVrstva, ZkVrstvaProOkno, ZkVrstvaTyp, ZK_KSANDY_DIL, ZK_VRSTVY,
+  ZkNahled, ZkPrehled, ZkProduktRadek, ZkVrstva, ZkVrstvaProOkno, ZkVrstvaTyp, ZK_KSANDY_DIL, ZK_VRSTVY,
   vrstvaDef, vzhledDoTextu, vzhledZTextu
 } from '../../shared/zkusebna';
 import { nacti, uloz } from './png';
@@ -11,6 +11,7 @@ import * as store from './store';
 import * as vrstvy from './vrstvy';
 import * as obrazky from './obrazky';
 import * as ukazka from './ukazka';
+import * as rozpoznani from './rozpoznani';
 import * as produkty from './produkty';
 import { kabina, velikost } from './manifest';
 import { vystavKabinu, zavadecTed, VystavPrubeh } from '../kabina/vystav';
@@ -361,8 +362,33 @@ export function ulozKontakt(co: { text: string; telefon: string; mail: string })
 
 /* ------------------------------------------------------------ produkty */
 
-export async function projdiKatalog(sAi: boolean, sBarvami: boolean) {
-  return produkty.projdiKatalog({ sAi, sBarvami });
+export async function projdiKatalog(sAi: boolean, sBarvami: boolean, hlas?: (p: { hotovo: number; celkem: number; co: string }) => void) {
+  const vysledek = await produkty.projdiKatalog({ sAi, sBarvami, hlas });
+  /*
+   * Sady se rovnou rozpoznají z fotek: bez toho by u sady kšandy +
+   * motýlek měl motýlek jen barvu odhadnutou z celé fotky (Patrik,
+   * 23. 11.). Jen ty, které se ještě nerozpoznávaly — opakované projití
+   * katalogu tak nic navíc nestojí.
+   */
+  let rozpoznano = 0;
+  let chybaRozpoznani = '';
+  if (sAi) {
+    try {
+      const r = await rozpoznani.rozpoznejVse('sady', hlas);
+      rozpoznano = r.hotovo;
+      chybaRozpoznani = r.posledniChyba;
+    } catch (e: any) { chybaRozpoznani = String(e?.message ?? e); }
+  }
+  return { ...vysledek, rozpoznano, chybaRozpoznani };
+}
+
+/** AI rozpozná fotky jednoho produktu a doplní látku každému kusu. */
+export async function rozpoznejProdukt(kod: string) {
+  return rozpoznani.rozpoznej(kod);
+}
+
+export async function rozpoznejProdukty(rozsah: 'sady' | 'vse', hlas?: (p: { hotovo: number; celkem: number; co: string }) => void) {
+  return rozpoznani.rozpoznejVse(rozsah === 'vse' ? 'vse' : 'sady', hlas);
 }
 
 export function produktyPrehled(limit = 300): ZkProduktRadek[] {
@@ -380,6 +406,7 @@ export function produktyPrehled(limit = 300): ZkProduktRadek[] {
       kontrola: row.kontrola || '',
       meritko: row.meritko || 1,
       casti: (row.casti ?? []).map(c => ({ typ: c.typ, varianta: c.varianta, hex: c.hex, vzorek: c.vzorek })),
+      ai: row.ai ?? null,
       nazev: p?.nazev ?? row.kod,
       obrazek: p?.obrazek ?? '',
       cena: p?.cena ?? '',
@@ -425,7 +452,7 @@ export function upravProdukt(kod: string, co: { typ?: ZkVrstvaTyp | ''; varianta
  * Běží na **tomtéž skriptu**, který se vkládá do e-shopu — liší se jen
  * tím, odkud si bere vrstvy.
  */
-export function nahledKabiny(): { url: string; velikost: ReturnType<typeof velikost> } {
+export function nahledKabiny(): ZkNahled {
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   const klicovac = new Map(hotove.map(one => [`${one.postava}:${one.typ}:${one.varianta}`, one]));
   const { url, data } = stashKabinu(
@@ -439,7 +466,19 @@ export function nahledKabiny(): { url: string; velikost: ReturnType<typeof velik
     }),
     hotove
   );
-  return { url, velikost: velikost(data) };
+  const chybi: NonNullable<ZkNahled['chybi']> = [];
+  for (const p of store.postavy().filter(one => one.hotovo)) {
+    for (const typ of ['sako', 'vesta'] as const) {
+      const vsechny = store.vrstvy(p.id).filter(one => one.typ === typ);
+      if (vsechny.some(one => one.stav === 'hotovo' || one.stav === 'schvaleno')) continue;
+      const posledni = vsechny[0];
+      chybi.push({
+        postava: p.id, vek: p.vek, telo: p.telo, typ,
+        stav: posledni ? posledni.stav : 'chybi', potiz: posledni?.potiz ?? ''
+      });
+    }
+  }
+  return { url, velikost: velikost(data), chybi };
 }
 
 /* ------------------------------------------------------------- vystavení */

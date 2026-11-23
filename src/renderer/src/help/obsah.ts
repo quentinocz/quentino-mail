@@ -255,7 +255,10 @@ export const ZKUSEBNA: HelpTopic = {
     'Dokud jsou postavy zástupná kresba, říká to pruh přímo v okně.',
     'Sady a produkty s víc věcmi na fotce čekají v [Produkty] nahoře. U každého kusu [Nahrát fotku] '
       + 'jen té jedné věci a zařazení potvrď fajfkou — do té doby je zákazník v kabině nevidí.',
-    'Přepínač [Mobil] v náhledu ukáže kabinu na šířku telefonu, jak ji uvidí většina zákazníků.'
+    'Přepínač [Mobil] v náhledu ukáže kabinu na šířku telefonu, jak ji uvidí většina zákazníků.',
+    '[Rozpoznat fotky AI]: AI pozná, co je na fotce (kšandy, motýlek, knoflíčky), a ukáže, kde je '
+      + 'rovná látka — vzor se bere ze skutečné fotky. Sady se rozpoznají samy při projití katalogu.',
+    'Když v kabině chybí vypínač saka nebo vesty, řekne nad náhledem žlutý pruh, které postavě vrstva chybí.'
   ]
 };
 

@@ -492,7 +492,7 @@ export function zrcadli(o: Obraz): Obraz {
 const VERZE_VZORKU = '4';
 
 /** Látky nahrané ručně — `kod` pro hlavní kus, `kod~1` pro část sady. Projití katalogu je nepřepíše. */
-function nahraneLatky(): Set<string> {
+export function nahraneLatky(): Set<string> {
   try {
     const seznam = JSON.parse(getSetting('zkNahraneLatky', '[]') || '[]');
     return new Set(Array.isArray(seznam) ? seznam.map(String) : []);

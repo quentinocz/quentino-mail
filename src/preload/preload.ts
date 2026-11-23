@@ -126,7 +126,7 @@ const ALLOWED_INVOKE = [
   'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate', 'webtexts:href',
   'zk:prehled', 'zk:vrstvy', 'zk:kroky', 'zk:generuj-postavu', 'zk:generuj-vrstvu',
   'zk:generuj-vse', 'zk:ukazka', 'zk:ukazka-vse', 'zk:schval', 'zk:zadani', 'zk:zadani-zpet',
-  'zk:nastaveni', 'zk:nastav', 'zk:kontakt', 'zk:katalog', 'zk:produkty', 'zk:produkt', 'zk:latka',
+  'zk:nastaveni', 'zk:nastav', 'zk:kontakt', 'zk:katalog', 'zk:produkty', 'zk:produkt', 'zk:latka', 'zk:rozpoznej', 'zk:rozpoznej-vse',
   'zk:nahled', 'zk:vzhledy', 'zk:vzhled-uloz', 'zk:vzhled-smaz', 'zk:vystav', 'zk:zavadec', 'zk:zkouska', 'zk:kotvy', 'zk:kotvy-uloz',
   'banners:state', 'banners:load', 'banners:save', 'banners:delete', 'banners:copy', 'banners:toggle',
   'banners:clashes', 'banners:shorten', 'banners:translate', 'banners:href',
@@ -168,7 +168,7 @@ const ALLOWED_INVOKE = [
 const ALLOWED_EVENTS = [
   'sync:state', 'messages:changed', 'folders:changed', 'outbox:changed', 'products:changed',
   'packing:progress', 'ig:changed', 'ig:connected', 'ig:planStep', 'ig:videoStep', 'chat:changed', 'chat:unread', 'mail:open', 'chat:open',
-  'ptrans:progress', 'ptrans:changed', 'ptrans:product', 'ptrans:field', 'np:step', 'zk:vystav-krok',
+  'ptrans:progress', 'ptrans:changed', 'ptrans:product', 'ptrans:field', 'np:step', 'zk:vystav-krok', 'zk:katalog-krok',
   'articles:progress', 'articles:changed', 'articles:check',
   'media:progress', 'media:incoming', 'media:watched',
   // Snímek náhledu chodí jako bajty; data URL by za vteřinu nasypala megabajty řetězců

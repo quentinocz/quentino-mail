@@ -984,7 +984,12 @@ export const api = {
     }>) => call<void>('zk:nastav', co),
     kontakt: (co: { text: string; telefon: string; mail: string }) => call<void>('zk:kontakt', co),
     katalog: (sAi: boolean, sBarvami: boolean) =>
-      call<{ zarazeno: number; obarveno: number; nezarazeno: number }>('zk:katalog', sAi, sBarvami),
+      call<{ zarazeno: number; obarveno: number; nezarazeno: number; rozpoznano: number; chybaRozpoznani: string }>('zk:katalog', sAi, sBarvami),
+    /** AI pozná, co je na fotkách produktu, a vezme látku každého kusu (průběh: „zk:katalog-krok"). */
+    rozpoznej: (kod: string) =>
+      call<{ kod: string; kusu: number; poznamky: string[]; kontrola: string }>('zk:rozpoznej', kod),
+    rozpoznejVse: (rozsah: 'sady' | 'vse') =>
+      call<{ hotovo: number; chyb: number; posledniChyba: string }>('zk:rozpoznej-vse', rozsah),
     produkty: (limit?: number) => call<ZkProduktRadek[]>('zk:produkty', limit ?? 300),
     produkt: (kod: string, co: Partial<{ typ: ZkVrstvaTyp | ''; varianta: string; hex: string; schvaleno: boolean; meritko: number }>) =>
       call<void>('zk:produkt', kod, co),

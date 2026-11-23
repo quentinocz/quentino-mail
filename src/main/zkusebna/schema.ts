@@ -78,6 +78,9 @@ CREATE TABLE IF NOT EXISTS zk_produkty (
   kontrola TEXT NOT NULL DEFAULT '',
   -- Ruční doladění velikosti vzoru (1 = jak to odhadla aplikace).
   meritko REAL NOT NULL DEFAULT 1,
+  -- Co na fotkách produktu poznala AI (JSON ZkRozpoznani): kusy, jejich
+  -- látky a odkud se vzaly. V okně se podle toho kontroluje sada.
+  ai TEXT NOT NULL DEFAULT '',
   velikosti INTEGER NOT NULL DEFAULT 0,
   schvaleno INTEGER NOT NULL DEFAULT 0,
   kdy TEXT NOT NULL DEFAULT ''
@@ -101,5 +104,6 @@ export const ZK_ALTERS: string[] = [
   "ALTER TABLE zk_produkty ADD COLUMN casti TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE zk_produkty ADD COLUMN kontrola TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE zk_produkty ADD COLUMN meritko REAL NOT NULL DEFAULT 1",
-  "ALTER TABLE zk_vrstvy ADD COLUMN kov TEXT NOT NULL DEFAULT ''"
+  "ALTER TABLE zk_vrstvy ADD COLUMN kov TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE zk_produkty ADD COLUMN ai TEXT NOT NULL DEFAULT ''"
 ];

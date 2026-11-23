@@ -5,7 +5,7 @@ import { getDb } from '../db';
 import {
   ZkPostava, ZkVrstva, ZkVrstvaTyp, ZkVek, ZkTelo, ZK_VEKY, ZK_VRSTVY, postavaId
 } from '../../shared/zkusebna';
-import type { ZkCast } from '../../shared/zkusebna';
+import type { ZkCast, ZkRozpoznani } from '../../shared/zkusebna';
 
 /**
  * Čtení a zápis zkušební kabiny.
@@ -213,6 +213,8 @@ export interface ZkProduktRow {
   kontrola?: string;
   /** Ruční doladění velikosti vzoru. */
   meritko?: number;
+  /** Co na fotkách poznala AI. */
+  ai?: ZkRozpoznani | null;
   velikosti: boolean;
   schvaleno: boolean;
 }
@@ -231,6 +233,7 @@ export function produktyRows(): ZkProduktRow[] {
     casti: (() => { try { const c = JSON.parse(row.casti || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } })(),
     kontrola: row.kontrola ?? '',
     meritko: Number(row.meritko) || 1,
+    ai: (() => { try { return row.ai ? JSON.parse(row.ai) : null; } catch { return null; } })(),
     velikosti: !!row.velikosti,
     schvaleno: !!row.schvaleno
   }));
@@ -239,17 +242,17 @@ export function produktyRows(): ZkProduktRow[] {
 export function zapisProdukt(row: ZkProduktRow): void {
   getDb().prepare(
     `INSERT INTO zk_produkty (kod, typ, varianta, hex, vzorek, vzorek_cm, rucne, varianta_rucne, casti, kontrola, meritko,
-       velikosti, schvaleno, kdy)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ai, velikosti, schvaleno, kdy)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(kod) DO UPDATE SET
        typ = excluded.typ, varianta = excluded.varianta, hex = excluded.hex,
        vzorek = excluded.vzorek, vzorek_cm = excluded.vzorek_cm, rucne = excluded.rucne,
        varianta_rucne = excluded.varianta_rucne, casti = excluded.casti, kontrola = excluded.kontrola,
-       meritko = excluded.meritko, velikosti = excluded.velikosti,
+       meritko = excluded.meritko, ai = excluded.ai, velikosti = excluded.velikosti,
        schvaleno = excluded.schvaleno, kdy = excluded.kdy`
   ).run(row.kod, row.typ, row.varianta, row.hex, row.vzorek ?? '', row.vzorekCm ?? 0, row.rucne ? 1 : 0,
     row.variantaRucne ? 1 : 0, row.casti?.length ? JSON.stringify(row.casti) : '', row.kontrola ?? '',
-    row.meritko ?? 1, row.velikosti ? 1 : 0, row.schvaleno ? 1 : 0, new Date().toISOString());
+    row.meritko ?? 1, row.ai ? JSON.stringify(row.ai) : '', row.velikosti ? 1 : 0, row.schvaleno ? 1 : 0, new Date().toISOString());
 }
 
 /* --------------------------------------------------------------- vzhledy */
