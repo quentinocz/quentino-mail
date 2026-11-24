@@ -8,7 +8,8 @@ import {
 } from '../../shared/zkusebna';
 import { getField, productParameters } from '../ptrans/xml';
 import { Obraz, nacti, novyObraz, uloz } from './png';
-import { barvaProduktu, okraje, pozadiOdKraje, vzorekLatky, zmensi } from './pixely';
+import { barvaProduktu, okraje, pozadiOdKraje, zmensi } from './pixely';
+import { najdiLatku } from './latka';
 import * as store from './store';
 
 /**
@@ -289,29 +290,79 @@ export function dekoduj(data: Buffer): Obraz {
  * dvakrát by znamenalo dvakrát tak dlouhé projití katalogu.
  */
 export async function zFotky(
-  url: string,
+  urls: string | string[],
   typ: ZkVrstvaTyp | '' = '',
-  varianta = ''
-): Promise<{ hex: string; vzorek: string; vzorekCm: number }> {
-  const nic = { hex: '', vzorek: '', vzorekCm: 0 };
-  if (!url) return nic;
+  varianta = '',
+  nazev = '',
+  casti: { typ: ZkVrstvaTyp; varianta: string }[] = []
+): Promise<{ hex: string; vzorek: string; vzorekCm: number; casti: { hex: string; vzorek: string; vzorekCm: number }[] }> {
+  const nic = { hex: '', vzorek: '', vzorekCm: 0, casti: [] };
+  const adresy = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
+  if (!adresy.length) return nic;
+  /*
+   * Kolik fotek: u kšand a sad všechny (do tří) — první fotka kšand je
+   * detail spony, pásek je až na dalších. U ostatního stačí první, a
+   * další se stáhne, jen když na první nic rozumného není.
+   */
+  const vic = typ === 'ksandy' || casti.length > 0;
+  const fotky: Obraz[] = [];
+  const stahni = async (url: string) => {
+    try {
+      const odpoved = await fetch(url);
+      if (!odpoved.ok) return;
+      fotky.push(dekoduj(Buffer.from(await odpoved.arrayBuffer())));
+    } catch { /* fotka, která se nestáhne, nevadí — zkusí se další */ }
+  };
+  for (const url of adresy.slice(0, vic ? 3 : 1)) await stahni(url);
+  if (!fotky.length) return nic;
+  const naData = (o: Obraz) => `data:image/png;base64,${uloz(o).toString('base64')}`;
   try {
-    const odpoved = await fetch(url);
-    if (!odpoved.ok) return nic;
-    const data = Buffer.from(await odpoved.arrayBuffer());
-    const obraz = dekoduj(data);
-    /* Na odhad barvy stačí tři sta bodů na šířku */
-    const mensi = zmensi(obraz, Math.max(1, Math.round(obraz.sirka / 300)));
-    const hex = barvaProduktu(mensi).hex;
-    const latka = vzorekZFotky(obraz, typ, varianta);
+    let hlavni: { obraz: Obraz; cm: number; roh?: boolean } | null = null;
+    let hex = '';
+    if (typ === 'kapesnicek') {
+      hlavni = vzorekZFotky(fotky[0], typ, varianta, nazev);
+    } else {
+      let latka = najdiLatku(fotky, typ, varianta, nazev, casti.length && typ === 'ksandy' ? { jenKus: 'pasek' } : {});
+      if ((!latka || latka.jistota < 0.3) && !vic && adresy.length > 1) {
+        for (const url of adresy.slice(1, 3)) await stahni(url);
+        latka = najdiLatku(fotky, typ, varianta, nazev) ?? latka;
+      }
+      if (latka) { hlavni = { obraz: latka.obraz, cm: latka.cm }; if (latka.jistota >= 0.25) hex = latka.hex; }
+    }
+    if (!hex) {
+      const mensi = zmensi(fotky[0], Math.max(1, Math.round(fotky[0].sirka / 300)));
+      hex = barvaProduktu(mensi).hex;
+    }
+    /*
+     * Kusy sady: motýlek u kšand se hledá jako křídlo mezi pásky. Barva
+     * z názvu („Cihlové kšandy s motýlkem") platí i pro něj, jen když
+     * název neříká, že má vzor („…s květovaným motýlkem").
+     */
+    const vzorVNazvu = /kvet|vzor|kostk|ornament|paisley|pruh|puntik|barevn|kar[oa]/.test(bezDiakritiky(nazev));
+    const vysledkyCasti = casti.map(c => {
+      const jenKus = c.typ === 'kravata' && c.varianta.startsWith('motylek') ? 'motylek' as const : undefined;
+      if (!jenKus) return { hex: '', vzorek: '', vzorekCm: 0 };
+      const l = najdiLatku(fotky, c.typ, c.varianta, nazev, vzorVNazvu ? { jenKus, barva: null } : { jenKus });
+      return l ? { hex: l.hex, vzorek: naData(l.obraz), vzorekCm: l.cm } : { hex: '', vzorek: '', vzorekCm: 0 };
+    });
     return {
       hex,
-      vzorek: latka ? `data:image/png;base64,${uloz(latka.obraz).toString('base64')}` : '',
-      vzorekCm: latka?.cm ?? 0
+      vzorek: hlavni ? naData(hlavni.obraz) : '',
+      vzorekCm: hlavni?.cm ?? 0,
+      casti: vysledkyCasti
     };
   } catch {
     return nic;
   }
+}
+
+/** Adresy fotek produktu z katalogu — hlavní a pár dalších. */
+export function fotkyProduktu(kod: string): string[] {
+  try {
+    const row = getDb().prepare('SELECT image, images FROM products WHERE code = ?').get(kod) as { image?: string; images?: string } | undefined;
+    const vse = [row?.image ?? '', ...String(row?.images ?? '').split('\n')].map(one => one.trim()).filter(Boolean);
+    return [...new Set(vse)].slice(0, 3);
+  } catch { return []; }
 }
 
 /**
@@ -336,7 +387,8 @@ export async function zFotky(
 export function vzorekZFotky(
   obraz: Obraz,
   typ: ZkVrstvaTyp | '' = '',
-  varianta = ''
+  varianta = '',
+  nazev = ''
 ): { obraz: Obraz; cm: number; roh?: boolean } | null {
   const sirka = 600;
   const vetsi = zmensi(obraz, Math.max(1, Math.round(obraz.sirka / sirka)));
@@ -352,16 +404,13 @@ export function vzorekZFotky(
     /* Záporné „cm" = roh, kreslí se přes celý tvar (a nečte se znovu jako starý vzorek) */
     if (roh) return { obraz: roh, cm: -1, roh: true };
   }
-  let kousek: Obraz | null = null;
-  for (const strana of [128, 96, 72, 52, 36]) {
-    kousek = vzorekLatky(vetsi, strana, 0.05, 'prumer');
-    if (kousek) break;
-  }
-  if (!kousek) return null;
-  /* Kolik bodů fotky je centimetr látky */
-  const naCm = bodyNaCm(vetsi, typ, varianta);
-  const dlazdice = zrcadli(kousek);
-  return { obraz: dlazdice, cm: Math.round((dlazdice.sirka / naCm) * 100) / 100 };
+  /*
+   * Revize (24. 11.): výběr místa, vyrovnání světla a dlaždice bez švů
+   * jsou v latka.ts — viz tam, proč (spona místo pásku, kaleidoskop).
+   */
+  const latka = najdiLatku([obraz], typ, varianta, nazev);
+  if (latka) return { obraz: latka.obraz, cm: latka.cm };
+  return null;
 }
 
 /**
@@ -435,43 +484,6 @@ function rohVyrobku(obraz: Obraz): Obraz | null {
   return out;
 }
 
-/**
- * Odhad, kolik bodů fotky je jeden centimetr výrobku.
- *
- * Motýlek se fotí zepředu a celý, takže jeho šířka na fotce je jeho
- * šířka v katalogu (12 cm pánský). Kravata se fotí stočená, kšandy
- * a kapesníček různě — tam platí poměr odečtený z fotek na e-shopu
- * (kravata přes půl záběru, tedy kolem 40 bodů na centimetr při šířce
- * 600 bodů).
- */
-function bodyNaCm(obraz: Obraz, typ: ZkVrstvaTyp | '', varianta: string): number {
-  const meritko = obraz.sirka / 600;
-  if (typ === 'kravata' && varianta.startsWith('motylek')) {
-    const s = sablonaPro('kravata', varianta);
-    const pozadi = pozadiOdKraje(obraz);
-    const maska = new Uint8Array(pozadi.length);
-    for (let i = 0; i < maska.length; i++) maska[i] = pozadi[i] ? 0 : 255;
-    const kde = okraje(maska, obraz.sirka, obraz.vyska);
-    if (s && kde.w > obraz.sirka * 0.3) return kde.w / s.sirkaCm;
-  }
-  /*
-   * Kravata je na fotce stočená: kratší strana výrobku je zhruba průměr
-   * role, tedy šířka kravaty a kus navíc. Odhad z fotky je lepší než
-   * pevné číslo — fotky nejsou fotografované ze stejné vzdálenosti.
-   */
-  if (typ === 'kravata') {
-    const s = sablonaPro('kravata', varianta || 'kravata');
-    const pozadi = pozadiOdKraje(obraz);
-    const maska = new Uint8Array(pozadi.length);
-    for (let i = 0; i < maska.length; i++) maska[i] = pozadi[i] ? 0 : 255;
-    const kde = okraje(maska, obraz.sirka, obraz.vyska);
-    const kratsi = Math.min(kde.w, kde.h);
-    if (s && kratsi > obraz.sirka * 0.2) return kratsi / (s.sirkaCm * 1.3);
-  }
-  const typicky: Record<string, number> = { kravata: 40, ksandy: 30, kapesnicek: 24 };
-  return (typicky[typ] ?? 32) * meritko;
-}
-
 /** Dlaždice 2 × 2 ze zrcadlených kopií — navazuje na všech stranách, bez švů. */
 export function zrcadli(o: Obraz): Obraz {
   const out = novyObraz(o.sirka * 2, o.vyska * 2);
@@ -489,7 +501,7 @@ export function zrcadli(o: Obraz): Obraz {
 }
 
 /** Verze způsobu, jakým se vzorek z fotky bere. Změna = při projití katalogu znovu. */
-const VERZE_VZORKU = '4';
+const VERZE_VZORKU = '5';
 
 /** Látky nahrané ručně — `kod` pro hlavní kus, `kod~1` pro část sady. Projití katalogu je nepřepíše. */
 export function nahraneLatky(): Set<string> {
@@ -604,6 +616,8 @@ export async function projdiKatalog(
   let obarveno = 0;
   const kAi: { kod: string; nazev: string; kategorie: string }[] = [];
   const kBarve: { kod: string; url: string }[] = [];
+  /* Názvy kvůli barvě („Béžové kšandy" nejsou černé, i když je na fotce černá spona) */
+  const nazvy = new Map<string, string>();
   /*
    * Vzorky se čtou znovu, když se změnil způsob, jakým se z fotky berou
    * (kapesníček teď bere roh s lemem). Ručně nahrané látky zůstávají.
@@ -616,6 +630,7 @@ export async function projdiKatalog(
     if (strana.items.length === 0) break;
     options.hlas?.({ hotovo: offset, celkem, co: 'Třídím podle názvu' });
     for (const produkt of strana.items) {
+      nazvy.set(produkt.code, produkt.title?.cz ?? '');
       const stare = zname.get(produkt.code);
       /*
        * Vzorek z dřívějška je malý (56 bodů z fotky zmenšené na 300) a neví
@@ -703,7 +718,10 @@ export async function projdiKatalog(
       options.hlas?.({ hotovo: i, celkem: kBarve.length, co: 'Čtu barvy a vzory z fotek' });
       const row0 = store.produktyRows().find(one => one.kod === kBarve[i].kod);
       if (!row0) continue;
-      const nalez = await zFotky(kBarve[i].url, row0.typ as ZkVrstvaTyp, row0.varianta);
+      const fotky = fotkyProduktu(kBarve[i].kod);
+      const nazev = nazvy.get(kBarve[i].kod) ?? '';
+      const nalez = await zFotky(fotky.length ? fotky : [kBarve[i].url], row0.typ as ZkVrstvaTyp, row0.varianta, nazev,
+        (row0.casti ?? []).map(c => ({ typ: c.typ, varianta: c.varianta })));
       if (!nalez.hex && !nalez.vzorek) continue;
       const row = store.produktyRows().find(one => one.kod === kBarve[i].kod);
       if (!row) continue;
@@ -714,8 +732,17 @@ export async function projdiKatalog(
         hex,
         vzorek: nalez.vzorek || row.vzorek,
         vzorekCm: nalez.vzorek ? nalez.vzorekCm : row.vzorekCm,
-        /* Části sady bez vlastní látky dostanou zatím aspoň barvu — kontrolu to nenahrazuje */
-        casti: (row.casti ?? []).map(c => (c.vzorek || c.hex ? c : { ...c, hex }))
+        /*
+         * Kusy sady: látka z fotky, kde ji jde najít (motýlek mezi pásky),
+         * jinak aspoň barva. Ručně nahranou nebo od AI nepřepisuje — a
+         * kontrolu to nenahrazuje.
+         */
+        casti: (row.casti ?? []).map((c, ci) => {
+          const n = nalez.casti[ci];
+          if (nahrane.has(`${row.kod}~${ci}`) || (row.ai && c.vzorek)) return c;
+          if (n?.vzorek) return { ...c, hex: n.hex || c.hex, vzorek: n.vzorek, vzorekCm: n.vzorekCm };
+          return c.vzorek || c.hex ? c : { ...c, hex };
+        })
       });
       obarveno += 1;
     }

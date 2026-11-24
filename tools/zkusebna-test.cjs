@@ -828,7 +828,7 @@ console.log('\nsady a šablony podle výrobků');
   {
     /* Kapesníček se zmenší podle trupu — u kojence nesmí být přes půl hrudi */
     const W = 400; const H = 600;
-    const kotvy = (ramenaCm) => ({ ...k, limec: { x: 200, y: 100 }, pas: 400, kapsa: { x: 260, y: 220 }, naCm: 8, ramena: ramenaCm * 8 });
+    const kotvy = (ramenaCm) => ({ ...k, limec: { x: 200, y: 100 }, pas: 400, kapsa: { x: 260, y: 220 }, naCm: 8, ramena: ramenaCm * 8, kapsaSirka: undefined, kapsaSklon: -0.1 });
     const sirka = (o) => { let od = W; let doK = 0; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (o.body[(y * W + x) * 4 + 3] > 128) { od = Math.min(od, x); doK = Math.max(doK, x); } return (doK - od) / 8; };
     const dospely = sirka(sablony.nakresliSablonu('kapesnicek', 'spicka', kotvy(44), W, H));
     const kojenec = sirka(sablony.nakresliSablonu('kapesnicek', 'spicka', kotvy(20), W, H));
@@ -861,6 +861,117 @@ console.log('\nsady a šablony podle výrobků');
     ok('  vzorek látky taky', /vzorky\/KRA1-0\.[0-9a-f]{10}\.png$/.test(vystav.cestaVzorku('KRA1~0', '0123456789abcdef')),
       vystav.cestaVzorku('KRA1~0', '0123456789abcdef'));
   }
+}
+
+/* ---------- 7d2. revize 24. 11.: látka z fotek, hrany, límec, kapsa ---------- */
+
+console.log('\nlátka z fotek a hrany vrstev (revize)');
+
+{
+  const latka = require(path.join(DIST, 'zkusebna/latka.js'));
+  const sablony = require(path.join(DIST, 'zkusebna/sablony.js'));
+  const vrstvy = require(path.join(DIST, 'zkusebna/vrstvy.js'));
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const obraz = (W, H, barva) => {
+    const o = png.novyObraz(W, H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const [r, g, b2] = barva(x, y); const i = (y * W + x) * 4;
+      o.body[i] = r; o.body[i + 1] = g; o.body[i + 2] = b2; o.body[i + 3] = 255;
+    }
+    return o;
+  };
+  const prumer = (o) => { let r = 0, g = 0, b2 = 0; const n = o.sirka * o.vyska; for (let i = 0; i < o.body.length; i += 4) { r += o.body[i]; g += o.body[i + 1]; b2 += o.body[i + 2]; } return [r / n, g / n, b2 / n]; };
+
+  /*
+   * Kšandy: první fotka je detail spony (černý plast, chrom), pásek je až
+   * na druhé — a pásky jsou nahoře uříznuté okrajem fotky. Dřív se látka
+   * brala ze spony a béžové kšandy byly na modelu černobíle pruhované.
+   */
+  const spona = obraz(600, 600, (x, y) => {
+    if (x > 150 && x < 450 && y > 100 && y < 500) return y < 220 ? [225, 226, 230] : [22, 22, 24];
+    return [255, 255, 255];
+  });
+  const pasky = obraz(600, 600, (x, y) => {
+    const naPasku = (x >= 150 && x < 200) || (x >= 400 && x < 450);
+    if (naPasku && y < 520) return (x + y) % 6 < 3 ? [205, 190, 160] : [190, 175, 145];
+    if (naPasku && y >= 520 && y < 580) return [20, 20, 20];
+    return [255, 255, 255];
+  });
+  const l = latka.najdiLatku([spona, pasky], 'ksandy', 'siroke', 'Béžové pánské široké kšandy');
+  const [r, g, b2] = l ? prumer(l.obraz) : [0, 0, 0];
+  ok('kšandy: látka z pásku na druhé fotce, ne ze spony na první',
+    !!l && l.kde.foto === 1 && r > 170 && g > 150 && b2 > 120 && /pásek/.test(l.popis),
+    l ? `${l.popis}, rgb(${[r, g, b2].map(Math.round).join(',')})` : 'nic');
+  ok('  a měřítko je ze šířky pásku (3,5 cm na 50 bodů)',
+    !!l && Math.abs(l.cm / l.kde.w * 50 - 3.5) < 0.6, l ? `${l.cm} cm na ${l.kde.w} bodů` : '');
+  const bez = latka.__test.barvaZNazvu('Béžové dětské kšandy');
+  ok('barva z názvu: béžové jsou béžové', !!bez && bez[0] > 180 && bez[2] < bez[0]);
+  ok('  u květovaných název barvu látky neříká (kromě podkladu na začátku)',
+    latka.__test.barvaZNazvu('Barevná pánská bavlněná kravata s květy') === null);
+
+  /* Dlaždice bez švů a bez zrcadlení: kraje navazují, vzor není souměrný */
+  /* Výřez s přechodem zleva doprava: vedle sebe položený by měl na každém kraji ostrý šev */
+  const sum = obraz(64, 48, (x, y) => [x * 4, 100 + (y % 8) * 10, 90]);
+  const d = latka.bezSvu(sum);
+  let hrana = 0; let puvodne = 0;
+  for (let y = 0; y < 48; y++) {
+    hrana += Math.abs(d.body[(y * 64) * 4] - d.body[(y * 64 + 63) * 4]);
+    puvodne += Math.abs(sum.body[(y * 64) * 4] - sum.body[(y * 64 + 63) * 4]);
+  }
+  ok('dlaždice navazuje přes kraj (žádný šev)', hrana / 48 < 12 && puvodne / 48 > 200,
+    `rozdíl na kraji ${Math.round(puvodne / 48)} → ${Math.round(hrana / 48)}`);
+  /* Stín přes výřez se vyrovná, drobný vzor zůstane */
+  const stin = obraz(96, 96, (x, y) => { const k = 0.55 + 0.45 * (x / 95); const tecka = (x % 8 < 2 && y % 8 < 2) ? 60 : 0; return [(150 + tecka) * k, (60 + tecka) * k, (60 + tecka) * k]; });
+  const rovny = latka.vyrovnejSvetlo(stin);
+  const jas = (o, x0) => { let s0 = 0; for (let y = 0; y < 96; y++) for (let x = x0; x < x0 + 16; x++) s0 += o.body[(y * 96 + x) * 4]; return s0 / (96 * 16); };
+  const pred = jas(stin, 80) / jas(stin, 0); const po = jas(rovny, 80) / jas(rovny, 0);
+  ok('lesk a stín z fotky se ze vzorku vyrovná (vzor zůstane)', po < 1.3 && pred > 1.5, `poměr jasu kraje ${pred.toFixed(2)} → ${po.toFixed(2)}`);
+
+  /* Výrobek uříznutý okrajem fotky se nesmí „zaplavit" jako pozadí */
+  const pozadi = px.pozadiOdKraje(pasky);
+  ok('pásek, který sahá k okraji fotky, není pozadí', !pozadi[10 * 600 + 170] && pozadi[10 * 600 + 300]);
+
+  /* Měkký okraj vrstvy: na hraně přechod, hranice „je tu" zůstává */
+  const maska = new Uint8Array(100 * 100);
+  for (let y = 20; y < 80; y++) for (let x = 20; x < 20 + Math.floor(y / 10) + 40; x++) maska[y * 100 + x] = 255;
+  const mapa = px.stinovaMapa(obraz(100, 100, () => [128, 128, 128]), maska);
+  const hodnoty = new Set();
+  for (let i = 0; i < 10000; i++) hodnoty.add(mapa.body[i * 4 + 3]);
+  let mimo = 0;
+  for (let i = 0; i < 10000; i++) if ((mapa.body[i * 4 + 3] > 128) !== (maska[i] > 0)) mimo += 1;
+  ok('vrstva má měkký okraj místo schodů', hodnoty.size > 4 && mimo < 120, `${hodnoty.size} úrovní průhlednosti, ${mimo} bodů posunutých přes hranici`);
+
+  /* Lem kolem košile v postavě dostane barvu kůže, ne šedou */
+  const fig = obraz(60, 60, (x, y) => (y < 30 ? [220, 170, 140] : y < 32 ? [200, 60, 180] : [200, 31, 200]));
+  const kos = new Uint8Array(3600); for (let y = 32; y < 60; y++) for (let x = 0; x < 60; x++) kos[y * 60 + x] = 255;
+  const opravena = vrstvy.opravLem(fig, kos);
+  const lem = opravena.body.slice((31 * 60 + 30) * 4, (31 * 60 + 30) * 4 + 3);
+  ok('lem mezi krkem a košilí má barvu krku, ne šedou', lem[0] > 200 && lem[1] > 150 && lem[2] < 160, `rgb(${[...lem].join(',')})`);
+
+  /* Kravata vychází z V límce: nad čarou cípů nic, pod ní uzel */
+  require(path.join(DIST, 'zkusebna/ukazka.js')).postavUkazku('dospely-bezny');
+  const k = sablony.kotvyPostavy('dospely-bezny').kotvy;
+  const p0 = store.postava('dospely-bezny');
+  const kr = sablony.nakresliSablonu('kravata', 'kravata', k, p0.sirka, p0.vyska);
+  const alfa = (x, y) => kr.body[(Math.round(y) * p0.sirka + Math.round(x)) * 4 + 3];
+  ok('uzel kravaty je pod cípy límce, ne přes ně',
+    alfa(k.limec.x + 1.6 * k.naCm, k.limec.y + 0.3 * k.naCm) === 0 && alfa(k.limec.x, k.limec.y + 1.5 * k.naCm) > 200,
+    `vedle středu ${alfa(k.limec.x + 1.6 * k.naCm, k.limec.y + 0.3 * k.naCm)}, ve středu ${alfa(k.limec.x, k.limec.y + 1.5 * k.naCm)}`);
+
+  /* Kapsa saka: lišta se najde na mapě světla */
+  const W = 300; const H = 300;
+  const sako = png.novyObraz(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4;
+    const lista = x > 120 && x < 220 && Math.abs(y - (150 - (x - 170) * 0.15)) < 8;
+    const hranaL = x > 120 && x < 220 && Math.abs(Math.abs(y - (150 - (x - 170) * 0.15)) - 8) < 1;
+    const v = hranaL ? 70 : lista ? 140 : 128;
+    sako.body[i] = sako.body[i + 1] = sako.body[i + 2] = v; sako.body[i + 3] = 255;
+  }
+  const kapsa = sablony.najdiKapsu(sako, { x: 150, y: 160 }, 8);
+  ok('kapsa saka se najde (horní hrana lišty, sklon, šířka)',
+    !!kapsa && Math.abs(kapsa.kapsa.y - (142 - (kapsa.kapsa.x - 170) * 0.15)) < 4 && Math.abs(kapsa.sklon + 0.15) < 0.07 && kapsa.sirka > 70 && kapsa.sirka < 130,
+    kapsa ? JSON.stringify({ x: Math.round(kapsa.kapsa.x), y: Math.round(kapsa.kapsa.y), sklon: kapsa.sklon, sirka: Math.round(kapsa.sirka) }) : 'nenašla se');
 }
 
 /* ---------- 7e. AI rozpozná fotku sady ---------- */

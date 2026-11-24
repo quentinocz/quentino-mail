@@ -572,6 +572,55 @@ export function ulozPostavu(p: ZkPostava, obraz: Obraz, zadani: string): ZkPosta
  * vrstvy ji sice zakryjí, ale na hraně by jinak prosvítal purpurový
  * lem kolem límce.
  */
+/**
+ * Postava bez kreslicí barvy pod oblečením a bez šedého lemu kolem něj.
+ *
+ * Pod košilí a kalhotami se barva jen odbarví (je zakrytá). Body těsně
+ * vedle oblečení jsou ale směs kreslicí barvy a kůže nebo pozadí — dřív
+ * se taky jen odbarvily a nad límcem pak byl šedý zubatý proužek mezi
+ * krkem a košilí (revize, 24. 11.). Teď dostanou barvu nejbližšího bodu
+ * zvenku: krk pokračuje až ke košili, pozadí až k rukávu.
+ */
+export function opravLem(obraz: Obraz, vse: Uint8Array): Obraz {
+  const { sirka: w, vyska: h } = obraz;
+  const postava: Obraz = { sirka: w, vyska: h, body: Uint8Array.from(obraz.body) };
+  const lem = px.rozsir(vse, w, h, 3);
+  for (let i = 0; i < lem.length; i++) {
+    if (!vse[i]) continue;
+    const k = i * 4;
+    const sedy = Math.round(px.svetlostBodu(postava.body[k], postava.body[k + 1], postava.body[k + 2]));
+    postava.body[k] = postava.body[k + 1] = postava.body[k + 2] = sedy;
+  }
+  /* Body lemu mimo oblečení: barva zvenku, šířením od nejbližšího čistého bodu */
+  const hotovo = new Uint8Array(w * h);
+  const fronta = new Int32Array(w * h);
+  let hlava = 0; let konec = 0;
+  for (let i = 0; i < lem.length; i++) {
+    if (!lem[i] || vse[i]) continue;
+    const x = i % w; const y = (i - x) / w;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx; const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const j = ny * w + nx;
+      if (!lem[j] && !vse[j]) { hotovo[j] = 1; fronta[konec++] = j; }
+    }
+  }
+  while (hlava < konec) {
+    const j = fronta[hlava++];
+    const x = j % w; const y = (j - x) / w;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx; const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const i = ny * w + nx;
+      if (hotovo[i] || !lem[i] || vse[i]) continue;
+      hotovo[i] = 1;
+      for (let c = 0; c < 4; c++) postava.body[i * 4 + c] = postava.body[j * 4 + c];
+      fronta[konec++] = i;
+    }
+  }
+  return postava;
+}
+
 export function vytahniZPostavy(
   p: ZkPostava,
   obraz: Obraz,
@@ -614,15 +663,7 @@ export function vytahniZPostavy(
     store.zapisVrstvu(vrstva);
     out.push(vrstva);
   }
-  const postava: Obraz = { sirka: obraz.sirka, vyska: obraz.vyska, body: Uint8Array.from(obraz.body) };
-  const lem = px.rozsir(vse, obraz.sirka, obraz.vyska, 2);
-  for (let i = 0; i < lem.length; i++) {
-    if (!lem[i]) continue;
-    const k = i * 4;
-    const sedy = Math.round(px.svetlostBodu(postava.body[k], postava.body[k + 1], postava.body[k + 2]));
-    postava.body[k] = postava.body[k + 1] = postava.body[k + 2] = sedy;
-  }
-  return { postava, vrstvy: out };
+  return { postava: opravLem(obraz, vse), vrstvy: out };
 }
 
 /**

@@ -264,7 +264,8 @@ export function importuj(zdroj: string): ImportVysledek {
         sirka: obraz.sirka, vyska: obraz.vyska,
         podil: zaklad?.podil ? kde.podil / zaklad.podil : kde.podil,
         okraje: { x: kde.x, y: kde.y, w: kde.w, h: kde.h },
-        stav: 'hotovo', potiz: '',
+        /* Schválená zůstává schválená — revize ji jen dotáhla */
+        stav: stara?.stav === 'schvaleno' ? 'schvaleno' : 'hotovo', potiz: '',
         zadani: `${sablony.REVIZE} ${den}${stara?.zadani ? ` — ${stara.zadani.replace(new RegExp(`^${sablony.REVIZE} \\S+ — `), '')}` : ''}`,
         kdy, kov: stara?.kov
       });
@@ -342,6 +343,16 @@ export function importuj(zdroj: string): ImportVysledek {
     sablony.ulozRucneKotvy(id, Object.keys(rucne as object).length ? rucne as sablony.KotvyRucne : null);
     try { sablony.vygenerujSablony(id, undefined, false); } catch { /* bez postavy se nepřekreslí */ }
     vysledek.kotev += 1;
+  }
+  /*
+   * Šablony se po načtení překreslí podle současného kódu — kotvy, kapsa
+   * na saku i límec se mohly změnit s novými vrstvami. Ručně upravené
+   * šablony zůstávají (prepsatRevize = false).
+   */
+  if (vysledek.vrstev || vysledek.kotev) {
+    for (const p of store.postavy().filter(one => one.hotovo)) {
+      try { sablony.vygenerujSablony(p.id, undefined, false); } catch { /* postava bez obrázku se přeskočí */ }
+    }
   }
   setSetting('zkRevizeNactena', kdy);
   return vysledek;

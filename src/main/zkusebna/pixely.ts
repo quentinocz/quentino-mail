@@ -774,6 +774,139 @@ export function stinovaMapa(obraz: Obraz, maska: Uint8Array): Obraz {
     out.body[k] = out.body[k + 1] = out.body[k + 2] = stin;
     out.body[k + 3] = maska[i];
   }
+  return vyhladObrys(out, 1.5);
+}
+
+/**
+ * Hladký obrys vrstvy — zaoblí schody masky a dá hraně průhledný přechod.
+ *
+ * Maska oblečení je po bodech 0/255 a téměř svislá hrana saka je pak
+ * schodiště (bod vedle každých deset řádků). Tmavý okraj látky ze
+ * stínování přesně kopíroval ty schody a po zmenšení to byla pila
+ * podél celého saka (revize, 24. 11.). Průhlednost se proto rozmaže na
+ * poloměr `r` a zase zostří kolem poloviny — vznikne hladká hrana
+ * s přechodem přes dva body; barva se k ní dotáhne z nejbližšího bodu
+ * uvnitř.
+ */
+export function vyhladObrys(o: Obraz, r = 1.5): Obraz {
+  const { sirka: w, vyska: h } = o;
+  const out: Obraz = { sirka: w, vyska: h, body: Uint8Array.from(o.body) };
+  /* Barva ven o pár bodů, ať má nová hrana co ukázat */
+  const dosah = Math.ceil(r) + 1;
+  let ma = new Uint8Array(w * h);
+  for (let i = 0; i < ma.length; i++) ma[i] = o.body[i * 4 + 3] >= 128 ? 1 : 0;
+  for (let krok = 0; krok < dosah; krok++) {
+    const dalsi = Uint8Array.from(ma);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (ma[i]) continue;
+        let rr = 0; let g = 0; let b = 0; let n = 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx; const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const j = ny * w + nx;
+          if (!ma[j]) continue;
+          rr += out.body[j * 4]; g += out.body[j * 4 + 1]; b += out.body[j * 4 + 2]; n += 1;
+        }
+        if (!n) continue;
+        out.body[i * 4] = rr / n; out.body[i * 4 + 1] = g / n; out.body[i * 4 + 2] = b / n;
+        dalsi[i] = 1;
+      }
+    }
+    ma = dalsi;
+  }
+  /* Rozmazat průhlednost (dvakrát krabicí ≈ Gauss) a zostřit kolem poloviny */
+  const a = new Float32Array(w * h);
+  for (let i = 0; i < a.length; i++) a[i] = o.body[i * 4 + 3] / 255;
+  const rr = Math.max(1, Math.round(r));
+  const tmp = new Float32Array(w * h);
+  for (let opak = 0; opak < 2; opak++) {
+    for (let y = 0; y < h; y++) {
+      let sum = 0;
+      for (let x = -rr; x <= rr; x++) sum += a[y * w + Math.max(0, Math.min(w - 1, x))];
+      for (let x = 0; x < w; x++) {
+        tmp[y * w + x] = sum / (2 * rr + 1);
+        sum += a[y * w + Math.min(w - 1, x + rr + 1)] - a[y * w + Math.max(0, x - rr)];
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      for (let y = -rr; y <= rr; y++) sum += tmp[Math.max(0, Math.min(h - 1, y)) * w + x];
+      for (let y = 0; y < h; y++) {
+        a[y * w + x] = sum / (2 * rr + 1);
+        sum += tmp[Math.min(h - 1, y + rr + 1) * w + x] - tmp[Math.max(0, y - rr) * w + x];
+      }
+    }
+  }
+  const strmost = 2.2 / Math.max(1, r);
+  for (let i = 0; i < a.length; i++) {
+    const puvodni = o.body[i * 4 + 3];
+    const v = Math.max(0, Math.min(1, (a[i] - 0.5) * strmost * 2 + 0.5));
+    /* Uvnitř nechat původní (mapa může mít vlastní průhlednost), na hraně hladkou */
+    const nova = Math.round(v * 255);
+    out.body[i * 4 + 3] = a[i] > 0.999 ? puvodni : Math.min(Math.max(puvodni, 0) || nova, nova);
+  }
+  return out;
+}
+
+/**
+ * Měkký okraj vrstvy místo schodů.
+ *
+ * Revize podkladů (24. 11.): kolem límce a klop saka byly „zuby" —
+ * maska je po bodech buď 0, nebo 255, a po zmenšení na mobil z toho
+ * zůstala pilka se světlým lemem. Okraj se teď o bod rozšíří (barva
+ * z nejbližšího bodu uvnitř) a průhlednost se na hraně rozmaže:
+ * vnější bod dostane nejvýš polovinu, vnitřní aspoň čtyři pětiny.
+ * Hranice „vrstva tu je" (průhlednost nad polovinou) zůstává, kde byla.
+ */
+export function zjemniOkraje(o: Obraz): Obraz {
+  const { sirka: w, vyska: h } = o;
+  const je = new Uint8Array(w * h);
+  for (let i = 0; i < je.length; i++) je[i] = o.body[i * 4 + 3] >= 128 ? 1 : 0;
+  const out: Obraz = { sirka: w, vyska: h, body: Uint8Array.from(o.body) };
+  const rozsirene = Uint8Array.from(je);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (je[i]) continue;
+      let r = 0; let g = 0; let b = 0; let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx; const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const j = ny * w + nx;
+          if (!je[j]) continue;
+          r += o.body[j * 4]; g += o.body[j * 4 + 1]; b += o.body[j * 4 + 2]; n += 1;
+        }
+      }
+      if (!n) continue;
+      rozsirene[i] = 1;
+      out.body[i * 4] = r / n; out.body[i * 4 + 1] = g / n; out.body[i * 4 + 2] = b / n;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!rozsirene[i]) continue;
+      let s = 0; let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx; const ny = y + dy;
+          n += 1;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          s += je[ny * w + nx];
+        }
+      }
+      const pokryti = s / n;
+      if (je[i]) {
+        /* Uvnitř: plná, jen na samé hraně o kousek průsvitnější */
+        out.body[i * 4 + 3] = pokryti >= 1 ? o.body[i * 4 + 3] : Math.round(Math.min(o.body[i * 4 + 3], 205 + 50 * pokryti));
+      } else {
+        out.body[i * 4 + 3] = Math.round(Math.min(120, 40 + 150 * pokryti));
+      }
+    }
+  }
   return out;
 }
 
@@ -853,8 +986,34 @@ export function pozadiOdKraje(obraz: Obraz, tolerance = 26): Uint8Array {
     pozadi[i] = 255;
     front[konec++] = i;
   };
-  for (let x = 0; x < sirka; x++) { pridej(x, 0); pridej(x, vyska - 1); }
-  for (let y = 0; y < vyska; y++) { pridej(0, y); pridej(sirka - 1, y); }
+  /*
+   * Semínka jen tam, kde je na kraji opravdu pozadí. Dřív se začínalo
+   * z celého okraje — a výrobek, který z fotky vyčuhuje (pásky kšand
+   * uříznuté nahoře), se „zaplavil" jako pozadí celý. Ze sady pak zbyly
+   * jen kožené poutka a spony a látka se brala z nich (revize, 24. 11.).
+   * Bere se nejčastější barva okraje; když žádná nepřevládá (fotka
+   * v interiéru), zůstane to postaru.
+   */
+  const kraj: number[] = [];
+  for (let x = 0; x < sirka; x++) kraj.push(x, (vyska - 1) * sirka + x);
+  for (let y = 1; y < vyska - 1; y++) kraj.push(y * sirka, y * sirka + sirka - 1);
+  const kose = new Map<number, number>();
+  const kos = (i: number) => ((body[i * 4] >> 4) << 8) | ((body[i * 4 + 1] >> 4) << 4) | (body[i * 4 + 2] >> 4);
+  for (const i of kraj) kose.set(kos(i), (kose.get(kos(i)) ?? 0) + 1);
+  let nejKos = -1; let nejPocet = 0;
+  for (const [k, n] of kose) if (n > nejPocet) { nejPocet = n; nejKos = k; }
+  let r0 = 0; let g0 = 0; let b0 = 0; let n0 = 0;
+  for (const i of kraj) if (kos(i) === nejKos) { r0 += body[i * 4]; g0 += body[i * 4 + 1]; b0 += body[i * 4 + 2]; n0 += 1; }
+  r0 /= Math.max(1, n0); g0 /= Math.max(1, n0); b0 /= Math.max(1, n0);
+  const prevlada = nejPocet / kraj.length >= 0.3;
+  for (const i of kraj) {
+    if (prevlada) {
+      const k = i * 4;
+      const rozd = Math.abs(body[k] - r0) + Math.abs(body[k + 1] - g0) + Math.abs(body[k + 2] - b0);
+      if (rozd > tolerance * 2) continue;
+    }
+    pridej(i % sirka, Math.floor(i / sirka));
+  }
 
   while (hlava < konec) {
     const i = front[hlava++];

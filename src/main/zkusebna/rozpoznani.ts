@@ -9,7 +9,8 @@ import { Obraz, novyObraz, uloz } from './png';
 import * as px from './pixely';
 import * as store from './store';
 import * as obrazky from './obrazky';
-import { ROH_SABLONY, dekoduj, nahraneLatky, zrcadli } from './produkty';
+import { ROH_SABLONY, dekoduj, nahraneLatky } from './produkty';
+import { bezSvu, vyrovnejSvetlo } from './latka';
 
 /**
  * Rozpoznání produktu z fotek — co na nich je a kde je rovná látka.
@@ -271,11 +272,13 @@ function nahled(o: Obraz, strana = 96): string {
 
 /** Dlaždice z výřezu: zmenší se na rozumnou velikost a zrcadlí, aby navazovala. */
 function dlazdice(vyrez: Obraz, cm: number): { obraz: Obraz; cm: number } {
-  const k = Math.min(1, 160 / Math.max(vyrez.sirka, vyrez.vyska));
+  /* Stejně jako u výřezu bez AI: vyrovnat světlo z fotky a prolnout bez švů (latka.ts) */
+  const rovny = vyrovnejSvetlo(vyrez);
+  const k = Math.min(1, 200 / Math.max(rovny.sirka, rovny.vyska));
   const mensi = k < 1
-    ? px.prevzorkuj(vyrez, Math.max(4, Math.round(vyrez.sirka * k)), Math.max(4, Math.round(vyrez.vyska * k)))
-    : vyrez;
-  return { obraz: zrcadli(mensi), cm: Math.round(cm * 2 * 100) / 100 };
+    ? px.prevzorkuj(rovny, Math.max(4, Math.round(rovny.sirka * k)), Math.max(4, Math.round(rovny.vyska * k)))
+    : rovny;
+  return { obraz: bezSvu(mensi), cm: Math.round(cm * 100) / 100 };
 }
 
 /**
@@ -374,7 +377,7 @@ async function latkaKusu(
 
   /* Kapesníček s lemem: špička nakreslená z látky a lemu, přes celý tvar */
   if (typ === 'kapesnicek' && kus.lem) {
-    const roh = rohSLemem(dlazdice(vyrez, cm).obraz, cm * 2, kus.lem);
+    const roh = rohSLemem(dlazdice(vyrez, cm).obraz, cm, kus.lem);
     return { hex: hex || prumerna, vzorek: `data:image/png;base64,${uloz(roh).toString('base64')}`, vzorekCm: -1, zdroj: 'fotka', vyrez: nahledVyrezu };
   }
 
