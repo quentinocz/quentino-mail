@@ -10715,6 +10715,27 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .zk-ai-kus figcaption .desc { font-size: 11px; }
 .zk-ai-kus.mimo { opacity: .6; }
 .zk-ai-poznamky { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-2); }
+.zk-produkty-pohled { align-self: flex-start; margin: 2px 0 8px; }
+.zk-vykresleni { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; }
+.zk-vykresleni-hlava { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.zk-vykresleni-hlava .desc { flex: 1 1 360px; margin: 0; font-size: 12.5px; }
+.zk-vykresleni-hlava .zk-akce { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.zk-vykresleni-mrizka { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.zk-vykresleni-kus { position: relative; margin: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.zk-vykresleni-kus img { width: 100%; height: 190px; object-fit: contain; border-radius: 7px; background: #f4f4f5; }
+.zk-vykresleni-kus figcaption { display: flex; flex-direction: column; gap: 2px; font-size: 12px; min-width: 0; }
+.zk-vykresleni-kus figcaption b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zk-vykresleni-kus.ok { border-color: var(--accent); }
+.zk-vykresleni-kus.chyba { border-color: #e7a2a2; }
+.zk-vykresleni-kus.pryc { opacity: .55; }
+.zk-stav { align-self: flex-start; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  background: #f4f4f5; color: var(--text-2); }
+.zk-stav.ceka { background: #fff4d6; color: #8a5a00; }
+.zk-stav.ok { background: #e3f6e8; color: #1c6b34; }
+.zk-stav.chyba { background: #fde8e8; color: #a12828; }
+.zk-potiz { color: #a12828; }
+.zk-vykresleni-akce { display: flex; gap: 4px; justify-content: flex-end; }
 
 /* ---- nastavení ---- */
 .zk-nastaveni { display: flex; flex-direction: column; gap: 18px; padding: 14px 18px 22px; overflow: auto; }

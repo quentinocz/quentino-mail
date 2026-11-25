@@ -515,6 +515,8 @@ export interface ZkCast {
   vzorekCm?: number;
   /** Vzorek je roh výrobku (kapesníček), kreslí se jednou přes celý tvar, ne dlaždicově. */
   vzorekRoh?: boolean;
+  /** Kus vykreslený na modelu: postava → [adresa, x, y, š, v] v bodech postavy. */
+  vykresleni?: Record<string, [string, number, number, number, number]>;
 }
 
 /* ---------------------------------------------------------------- barvy */
@@ -762,6 +764,12 @@ export interface ZkProdukt {
   vzorekRoh?: boolean;
   /** Další kusy sady na modelu (kšandy s motýlkem). Hlavní kus je `typ`. */
   casti?: ZkCast[];
+  /**
+   * Produkt vykreslený na modelu celý (AI podle fotky a šablony): postava →
+   * [adresa, x, y, š, v] v bodech postavy. Má přednost před šablonou se
+   * vzorkem — ta zůstává, kde vykreslení není.
+   */
+  vykresleni?: Record<string, [string, number, number, number, number]>;
   /** Má velikosti? Pak se do košíku nedá hodit naslepo. */
   velikosti: boolean;
   skladem: boolean;
@@ -1698,6 +1706,12 @@ export interface ZkProduktRadek {
   casti: { typ: ZkVrstvaTyp; varianta: string; hex: string; vzorek: string }[];
   /** Co na fotkách poznala AI — null, dokud se nerozpoznávalo. */
   ai: ZkRozpoznani | null;
+}
+
+/** Produkt vykreslený na modelu — řádek do okna (mřížka ke kontrole). */
+export interface ZkVykresleniProOkno {
+  kod: string; cast: number; postava: string; typ: string; varianta: string;
+  stav: string; potiz: string; kdy: string; nahled: string; nazev: string;
 }
 
 export interface ZkNahled {

@@ -86,6 +86,29 @@ CREATE TABLE IF NOT EXISTS zk_produkty (
   kdy TEXT NOT NULL DEFAULT ''
 );
 
+-- Produkt vykreslený na modelu (AI podle fotky výrobku a šablony jako
+-- vodítka). Výřez kolem kusu ve dvojnásobném rozlišení postavy; x, y,
+-- w, h jsou v bodech postavy. dil −1 = hlavní kus, jinak kus sady
+-- (ne „cast" — to je v SQL klíčové slovo).
+CREATE TABLE IF NOT EXISTS zk_vykresleni (
+  kod TEXT NOT NULL,
+  dil INTEGER NOT NULL DEFAULT -1,
+  postava TEXT NOT NULL,
+  typ TEXT NOT NULL DEFAULT '',
+  varianta TEXT NOT NULL DEFAULT '',
+  soubor TEXT NOT NULL DEFAULT '',
+  nahled TEXT NOT NULL DEFAULT '',
+  x INTEGER NOT NULL DEFAULT 0,
+  y INTEGER NOT NULL DEFAULT 0,
+  w INTEGER NOT NULL DEFAULT 0,
+  h INTEGER NOT NULL DEFAULT 0,
+  stav TEXT NOT NULL DEFAULT 'ceka',
+  potiz TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  kdy TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (kod, dil, postava)
+);
+
 -- Uložené vzhledy. V aplikaci kvůli ukázkám a zkoušení; zákazníkovy vzhledy
 -- zůstávají v jeho prohlížeči, do aplikace neputují.
 CREATE TABLE IF NOT EXISTS zk_vzhledy (

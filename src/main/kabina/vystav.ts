@@ -153,7 +153,11 @@ export interface VystavVysledek {
  * opravdu zkouší to, co poběží na e-shopu.
  */
 export async function vystavKabinu(
-  postav: (adresa: (v: ZkVrstva, kov?: boolean) => string, vzorek?: (vzorek: string, klic: string) => string) => Kabina,
+  postav: (
+    adresa: (v: ZkVrstva, kov?: boolean) => string,
+    vzorek?: (vzorek: string, klic: string) => string,
+    vykresleni?: (soubor: string, klic: string) => string
+  ) => Kabina,
   moznosti: { ttl?: number; vyber?: Partial<KabinaVyber>; hlas?: (p: VystavPrubeh) => void } = {}
 ): Promise<VystavVysledek> {
   const hlas = moznosti.hlas ?? (() => undefined);
@@ -184,11 +188,22 @@ export async function vystavKabinu(
     vzorky.set(cesta, telo);
     return verejnaAdresa(cesta);
   };
-  const data = postav(adresa, vzorek);
+  /* Produkty vykreslené na modelu — soubory s otiskem ve jméně, jako vrstvy */
+  const vykresleni = (soubor: string, klic: string): string => {
+    let telo: Buffer;
+    try { telo = fs.readFileSync(soubor); } catch { return ''; }
+    const cesta = `${CESTA}/vykresleni/${String(klic).replace(/[^\w.~/-]+/g, '-')}${kratky(sha1(telo))}.png`;
+    souboryVrstev.set(cesta, { cesta, telo, popis: `vykreslení ${klic}` });
+    vykreslenePridej.add(verejnaAdresa(cesta));
+    return verejnaAdresa(cesta);
+  };
+  const vykreslenePridej = new Set<string>();
+  const data = postav(adresa, vzorek, vykresleni);
   /* Vystavují se jen vrstvy, které jsou v seznamu — co kabina nepoužívá,
      by v úložišti jen leželo a platilo se za to */
   const chtene = new Set<string>();
   for (const one of data.vrstvy) { chtene.add(one.url); if (one.kov) chtene.add(one.kov); }
+  for (const url of vykreslenePridej) chtene.add(url);
   const kVystaveni = [...souboryVrstev.values()].filter(one => chtene.has(verejnaAdresa(one.cesta)));
 
   const zname = otisky();

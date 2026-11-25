@@ -266,8 +266,8 @@ const CEKAT_MS = 6 * 60_000;
 
 interface Pozadavek {
   pole: Record<string, string | number>;
-  /** Soubory jdou jen s úpravou obrázku — pak se posílá formulář. */
-  soubory?: Record<string, { data: Buffer; jmeno: string }>;
+  /** Soubory jdou jen s úpravou obrázku — pak se posílá formulář. Víc obrázků pod jedním klíčem = pole. */
+  soubory?: Record<string, { data: Buffer; jmeno: string } | { data: Buffer; jmeno: string }[]>;
 }
 
 /** Text chyby od OpenAI rozebraný na zprávu, parametr a kód. */
@@ -380,7 +380,9 @@ async function posli(cesta: string, poz: Pozadavek, pokusu = 3): Promise<Obraz> 
         const formular = new FormData();
         for (const [k, v] of Object.entries(poz.pole)) formular.append(k, String(v));
         for (const [k, f] of Object.entries(poz.soubory)) {
-          formular.append(k, new Blob([new Uint8Array(f.data)], { type: 'image/png' }), f.jmeno);
+          for (const jeden of Array.isArray(f) ? f : [f]) {
+            formular.append(k, new Blob([new Uint8Array(jeden.data)], { type: 'image/png' }), jeden.jmeno);
+          }
         }
         body = formular;
       } else {
@@ -600,6 +602,37 @@ export async function dokresliLatku(predloha: Obraz, popis: string): Promise<Obr
   }, m.id);
   const vstup = px.prevzorkuj(predloha, 1024, 1024);
   return posli('/images/edits', { pole, soubory: { image: { data: uloz(vstup), jmeno: 'latka.png' } } });
+}
+
+/**
+ * Úprava obrázku podle předlohy: `vstup` je první obrázek (upravuje se
+ * jen v průhledné části `masky`), `predlohy` jsou fotky výrobku, podle
+ * kterých se kreslí. Rozhraní bere víc obrázků pod klíčem `image[]`.
+ */
+export async function upravPodlePredlohy(
+  zadani: string,
+  vstup: Obraz,
+  maska: Obraz,
+  predlohy: Obraz[],
+  kvalita?: string
+): Promise<Obraz> {
+  const m = model();
+  const pole: Record<string, string | number> = bezOdmitnutych({
+    model: m.id,
+    prompt: zadani,
+    size: `${vstup.sirka}x${vstup.vyska}`,
+    quality: kvalita ?? getSetting('obrazkyKvalita', 'high')!,
+    output_format: 'png',
+    n: 1,
+    ...(m.verny === 'navolbu' ? { input_fidelity: 'high' } : {})
+  }, m.id);
+  const obrazky = [{ data: uloz(vstup), jmeno: 'model.png' },
+    ...predlohy.map((one, i) => ({ data: uloz(one), jmeno: `vyrobek-${i + 1}.png` }))];
+  const vysledek = await posli('/images/edits', {
+    pole,
+    soubory: { 'image[]': obrazky, mask: { data: uloz(maska), jmeno: 'maska.png' } }
+  });
+  return px.prevzorkuj(vysledek, vstup.sirka, vstup.vyska);
 }
 
 /* ----------------------------------------------------------- zkouška */

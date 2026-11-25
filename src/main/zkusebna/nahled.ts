@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import { protocol } from 'electron';
 import { ZkProdukt, ZkVrstva } from '../../shared/zkusebna';
 import { kabinaScript } from '../kabina/script';
@@ -165,7 +166,12 @@ export function jmenoVrstvy(v: Pick<ZkVrstva, 'postava' | 'typ' | 'varianta'>, k
  * rámeček nechal to, co už jednou načetl, a náhled by se přestal měnit.
  */
 export function stashKabinu(
-  postav: (klic: string, url: (p: ZkProdukt) => string, vzorek: (vzorek: string, klic: string) => string) => Kabina,
+  postav: (
+    klic: string,
+    url: (p: ZkProdukt) => string,
+    vzorek: (vzorek: string, klic: string) => string,
+    vykresleni: (soubor: string, klic: string) => string
+  ) => Kabina,
   vrstvy: ZkVrstva[]
 ): { url: string; data: Kabina } {
   pocitadlo += 1;
@@ -177,6 +183,7 @@ export function stashKabinu(
    * práce jen kvůli pořadí dvou řádků.
    */
   const vzorky = new Map<string, Buffer>();
+  const soubory = new Map<string, string>();
   const data = postav(
     klic,
     p => `/${klic}${cestaProduktu(p)}`,
@@ -185,9 +192,14 @@ export function stashKabinu(
       if (!shoda) return vzorek || '';
       vzorky.set(kdo, Buffer.from(shoda[1], 'base64'));
       return `/${klic}/vzorek/${encodeURIComponent(kdo)}.png`;
+    },
+    (soubor, kdo) => {
+      /* Vykreslení na modelu jde stejnou cestou jako vrstvy — jméno z kódu postavy a souboru */
+      const jmeno = `vykresleni/${kdo.split('/')[0]}/${path.basename(soubor)}`;
+      soubory.set(jmeno, soubor);
+      return `/${klic}/vrstva/${jmeno}`;
     }
   );
-  const soubory = new Map<string, string>();
   for (const v of vrstvy) {
     if (v.soubor) soubory.set(jmenoVrstvy(v), v.soubor);
     if (v.kov) soubory.set(jmenoVrstvy(v, true), v.kov);

@@ -136,7 +136,13 @@ try {
     ],
     produkty: [
       { kod: 'KRA1', nazev: 'Kravata burgundská', url: '/p/kravata-burgundska', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([91, 29, 38], [120, 44, 54]), typ: 'kravata', varianta: 'kravata', hex: '#5b1d26', velikosti: false, skladem: true },
-      { kod: 'KRA2', nazev: 'Kravata šalvějová', url: '/p/kravata-salvejova', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([172, 194, 171], [140, 165, 140]), typ: 'kravata', varianta: 'kravata', hex: '#acc2ab', velikosti: false, skladem: true },
+      /* Šalvějová je vykreslená na modelu celá (AI podle fotky): kreslí se, jak je, bez šablony a vzorku */
+      { kod: 'KRA2', nazev: 'Kravata šalvějová', url: '/p/kravata-salvejova', cena: '690 Kč', cenaCislo: 690, obrazek: '', vzorek: vzorekUrl([172, 194, 171], [140, 165, 140]), typ: 'kravata', varianta: 'kravata', hex: '#acc2ab', velikosti: false, skladem: true,
+        vykresleni: { 'dospely-bezny': [(() => {
+          const o = png.novyObraz(40, 160);
+          for (let i = 0; i < o.body.length; i += 4) { o.body[i] = 10; o.body[i + 1] = 200; o.body[i + 2] = 30; o.body[i + 3] = 255; }
+          return 'data:image/png;base64,' + png.uloz(o).toString('base64');
+        })(), 90, 120, 20, 80] } },
       { kod: 'MOT1', nazev: 'Motýlek kostkovaný', url: '/p/motylek-kostkovany', cena: '490 Kč', cenaCislo: 490, obrazek: '', vzorek: vzorekUrl([40, 70, 120], [230, 230, 225]), typ: 'kravata', varianta: 'motylek', hex: '#2d4a7c', velikosti: false, skladem: true },
       /*
        * Vzorek jako **soubor**, ne jako text v seznamu. Tak to vypadá po
@@ -2686,6 +2692,20 @@ for (const okno of OKNA) {
     sadaVOkne.ceka && /Sada/.test(sadaVOkne.nazev) && /fajfkou/.test(sadaVOkne.rada) && sadaVOkne.kusu === 2 && sadaVOkne.nahrat === 2,
     `${sadaVOkne.nazev} · ${sadaVOkne.kusu} kusy · ${sadaVOkne.rada.slice(0, 60)}`);
   await page.locator('.zk-tabulka').screenshot({ path: path.join(SHOTS, 'okno-kabina-produkty.png') });
+  /* Vykreslení na modelu: mřížka ke kontrole, odhad ceny, stavy */
+  await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Vykreslení na modelu' }).click();
+  await page.waitForTimeout(400);
+  const vykresleni = await page.evaluate(() => ({
+    kusu: document.querySelectorAll('.zk-vykresleni-kus').length,
+    stavy: [...document.querySelectorAll('.zk-vykresleni-kus .zk-stav')].map(one => one.textContent.trim()),
+    tlacitko: (document.querySelector('.zk-vykresleni-hlava .btn.primary')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+  }));
+  say('vykreslení na modelu: mřížka ke kontrole s odhadem ceny',
+    vykresleni.kusu === 2 && vykresleni.stavy.includes('Ke kontrole') && vykresleni.stavy.includes('Nesedí') && /12 kusů/.test(vykresleni.tlacitko),
+    `${vykresleni.kusu} · ${vykresleni.stavy.join(', ')} · ${vykresleni.tlacitko}`);
+  await page.locator('.zk-vykresleni').screenshot({ path: path.join(SHOTS, 'okno-kabina-vykresleni.png') });
+  await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Zařazení a látky' }).click();
+  await page.waitForTimeout(200);
 
   await page.locator('.zk-head-right .tab', { hasText: 'Nastavení' }).click();
   await page.waitForTimeout(500);
@@ -3280,6 +3300,18 @@ for (const okno of OKNA) {
     sada.druh.join(' | '));
   say('  spona kšand je kov, ne obarvená látkou',
     Math.abs(sada.spona[0] - 206) < 12 && Math.abs(sada.spona[2] - 214) < 12, `rgb(${sada.spona.join(', ')})`);
+
+  /* Vykreslený produkt: na modelu přesně jeho obrázek, ne šablona obarvená vzorkem */
+  await siroka.evaluate(() => window.quentinoKabina.pridej({ url: '/p/kravata-salvejova', nazev: 'Kravata šalvějová' }));
+  await siroka.waitForTimeout(1000);
+  const vykreslena = await siroka.evaluate(() => {
+    const c = document.querySelector('.qkb-platno canvas');
+    const x0 = Number(c.dataset.x); const y0 = Number(c.dataset.y); const m = Number(c.dataset.m);
+    return [...c.getContext('2d').getImageData(Math.round((100 - x0) * m), Math.round((160 - y0) * m), 1, 1).data].slice(0, 3);
+  });
+  say('produkt vykreslený na modelu se kreslí, jak je (ne šablona se vzorkem)',
+    Math.abs(vykreslena[0] - 10) < 12 && Math.abs(vykreslena[1] - 200) < 12 && Math.abs(vykreslena[2] - 30) < 12,
+    `rgb(${vykreslena.join(', ')})`);
 
   /* Produkt, který kabina nezná (ještě neprošel kontrolou): slušná zpráva a podobné */
   await siroka.evaluate(() => window.quentinoKabina.pridej({ url: '/p/neznama-kravata', nazev: 'Modrá kravata se vzorem' }));

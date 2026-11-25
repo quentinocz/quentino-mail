@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
-  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu, ZkKotvy
+  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu, ZkKotvy, ZkVykresleniProOkno
 } from '@shared/zkusebna';
 import {
   ZK_BARVY, ZK_KVALITY, ZK_VRSTVY, dilKvality, dilPlochy, doZakladu, vrstvaDef
@@ -93,6 +93,8 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
   }), []);
   const [rozsahAi, setRozsahAi] = useState<'sady' | 'vse'>('sady');
   const [revizePostava, setRevizePostava] = useState('');
+  /* Produkty: zařazení a látky, nebo vykreslení na modelu */
+  const [produktyPohled, setProduktyPohled] = useState<'zarazeni' | 'vykresleni'>('zarazeni');
   const [revizeFotky, setRevizeFotky] = useState(true);
   const [revize, setRevize] = useState('');
   const [rozpoznavam, setRozpoznavam] = useState('');
@@ -627,7 +629,18 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
               </div>
             </header>
 
-            <div className="zk-tabulka">
+            <div className="pk-seg zk-produkty-pohled" role="group" aria-label="Pohled">
+              <button className={`pk-seg-btn ${produktyPohled === 'zarazeni' ? 'on' : ''}`}
+                onClick={() => setProduktyPohled('zarazeni')}>Zařazení a látky</button>
+              <button className={`pk-seg-btn ${produktyPohled === 'vykresleni' ? 'on' : ''}`}
+                onClick={() => setProduktyPohled('vykresleni')}>Vykreslení na modelu</button>
+            </div>
+
+            {produktyPohled === 'vykresleni' && (
+              <VykresleniPanel pracuje={pracuje} setPracuje={setPracuje} />
+            )}
+
+            {produktyPohled === 'zarazeni' && <div className="zk-tabulka">
               {produktyFiltr.map(p => (
                 <div key={p.kod} className={`zk-produkt ${p.kontrola && !p.schvaleno ? 'ceka' : ''}`}>
                 <div className={`zk-radek ${p.schvaleno ? 'ok' : ''}`}>
@@ -691,6 +704,20 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                       <b>{(p.meritko || 1).toFixed(1)}×</b>
                     </label>
                   )}
+                  {p.typ && p.vKabine && (
+                    <button className="icon-btn" data-tip="Vykreslit na modelu (AI podle fotky)"
+                      disabled={!!pracuje} onClick={async () => {
+                        setPracuje(`Vykresluji ${p.nazev}…`);
+                        try {
+                          const r = await api.zk.vykresli('vse', [p.kod]);
+                          toast(r.chyb ? r.posledniChyba : `Vykresleno ${r.hotovo}${r.nesedi ? `, ${r.nesedi} nesedí` : ''} — zkontroluj ve Vykreslení na modelu.`,
+                            r.chyb || r.nesedi ? 'error' : 'info');
+                        } catch (e: any) { toast(e.message, 'error'); }
+                        setPracuje('');
+                      }}>
+                      <Icon name="image" size={14} />
+                    </button>
+                  )}
                   {p.typ && (
                     <button className="icon-btn" data-tip="Rozpoznat fotky AI — co na nich je a kde je látka"
                       disabled={!!rozpoznavam} onClick={() => void rozpoznejJeden(p.kod)}>
@@ -714,7 +741,7 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
               {produktyFiltr.length === 0 && (
                 <p className="desc">Zatím nic. Projdi katalog — zařadí se podle názvu a zbytek dotřídí AI.</p>
               )}
-            </div>
+            </div>}
           </div>
         )}
 
@@ -1029,6 +1056,99 @@ const TELA: Record<string, string> = { hubeny: 'štíhlý', bezny: 'běžný', s
  * Tady se ke každému kusu nahraje fotka jen té jedné věci (nebo se nechá
  * barva) a zařazení se potvrdí fajfkou.
  */
+const STAVY_VYKRESLENI: Record<string, { nazev: string; trida: string }> = {
+  hotovo: { nazev: 'Ke kontrole', trida: 'ceka' },
+  schvaleno: { nazev: 'Schváleno', trida: 'ok' },
+  nesedi: { nazev: 'Nesedí', trida: 'chyba' },
+  zamitnuto: { nazev: 'Zamítnuto', trida: 'pryc' }
+};
+
+/**
+ * Produkty vykreslené na modelu — mřížka ke kontrole okem.
+ *
+ * Patrik (24. 11.): „do šablony generovat přímo celou kravatu, šablonu
+ * mít jako vodítko pro AI… musí to být spolehlivé". AI kreslí jen uvnitř
+ * tvaru šablony a podle fotky výrobku; co neprojde kontrolou barev
+ * a tvaru, je tu jako „Nesedí" a kabina u něj zůstane u šablony. Co
+ * projde, jde do kabiny hned — a tady se dá schválit nebo zamítnout.
+ */
+function VykresleniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje: (t: string) => void }) {
+  const toast = useToast();
+  const [seznam, setSeznam] = useState<ZkVykresleniProOkno[]>([]);
+  const [odhad, setOdhad] = useState<{ kusu: number; usd: number } | null>(null);
+  const [filtr, setFiltr] = useState<'vse' | 'hotovo' | 'nesedi'>('vse');
+  const nacti = useCallback(async () => {
+    try {
+      setSeznam(await api.zk.vykresleni());
+      setOdhad(await api.zk.vykresleniOdhad('chybi'));
+    } catch (e: any) { toast(e.message, 'error'); }
+  }, [toast]);
+  useEffect(() => { void nacti(); }, [nacti]);
+  const vykresli = async (rozsah: 'chybi' | 'vse', kody?: string[]) => {
+    setPracuje('Vykresluji produkty na modelu…');
+    try {
+      const r = await api.zk.vykresli(rozsah, kody);
+      toast(`Vykresleno ${r.hotovo}${r.nesedi ? `, ${r.nesedi} nesedí` : ''}${r.chyb ? `, ${r.chyb} chyb: ${r.posledniChyba}` : ''}.`,
+        r.chyb ? 'error' : 'info');
+    } catch (e: any) { toast(e.message, 'error'); }
+    setPracuje('');
+    await nacti();
+  };
+  const stav = async (v: ZkVykresleniProOkno, novy: 'schvaleno' | 'zamitnuto' | 'hotovo') => {
+    await api.zk.vykresleniStav(v.kod, v.cast, v.postava, novy);
+    setSeznam(prev => prev.map(one => (one.kod === v.kod && one.cast === v.cast && one.postava === v.postava ? { ...one, stav: novy } : one)));
+  };
+  const videt = seznam.filter(one => filtr === 'vse' || one.stav === filtr);
+  return (
+    <div className="zk-vykresleni">
+      <div className="zk-vykresleni-hlava">
+        <p className="desc">
+          AI nakreslí na model celý konkrétní kus podle fotky výrobku — vzor, záhyby, lesk, spony.
+          Šablona je jen vodítko: kreslí se výhradně uvnitř jejího tvaru, takže kus sedí na límec,
+          kapsu i pas. Co neprojde kontrolou barev, zůstane v kabině jako dosud (šablona se vzorkem).
+        </p>
+        <div className="zk-akce">
+          <button className="btn primary" disabled={!!pracuje || !odhad?.kusu} onClick={() => void vykresli('chybi')}>
+            <Icon name="sparkles" size={13} /> Vykreslit chybějící
+            {odhad ? ` (${odhad.kusu} kusů, ~${odhad.usd.toLocaleString('cs-CZ')} $)` : ''}
+          </button>
+          <select value={filtr} onChange={e => setFiltr(e.target.value as 'vse' | 'hotovo' | 'nesedi')} aria-label="Které ukázat">
+            <option value="vse">Všechna ({seznam.length})</option>
+            <option value="hotovo">Ke kontrole ({seznam.filter(one => one.stav === 'hotovo').length})</option>
+            <option value="nesedi">Nesedí ({seznam.filter(one => one.stav === 'nesedi').length})</option>
+          </select>
+        </div>
+      </div>
+      <div className="zk-vykresleni-mrizka">
+        {videt.map(v => (
+          <figure key={`${v.kod}|${v.cast}|${v.postava}`} className={`zk-vykresleni-kus ${STAVY_VYKRESLENI[v.stav]?.trida ?? ''}`}>
+            {v.nahled ? <img src={v.nahled} alt="" /> : <span className="zk-chybi">—</span>}
+            <figcaption>
+              <b title={v.nazev}>{v.nazev}</b>
+              <span className="desc">{popisPostavy(v.postava.split('-')[0], v.postava.split('-')[1] ?? '')}{v.cast >= 0 ? ' · kus sady' : ''}</span>
+              <span className={`zk-stav ${STAVY_VYKRESLENI[v.stav]?.trida ?? ''}`}>{STAVY_VYKRESLENI[v.stav]?.nazev ?? v.stav}</span>
+              {v.potiz && <span className="desc zk-potiz">{v.potiz}</span>}
+            </figcaption>
+            <div className="zk-vykresleni-akce">
+              {v.stav !== 'schvaleno' && v.stav !== 'nesedi' && (
+                <button className="icon-btn" data-tip="Schválit" onClick={() => void stav(v, 'schvaleno')}><Icon name="check" size={14} /></button>
+              )}
+              <button className="icon-btn" data-tip="Nakreslit znovu" disabled={!!pracuje}
+                onClick={() => void vykresli('vse', [v.kod])}><Icon name="refresh" size={14} /></button>
+              {v.stav !== 'zamitnuto'
+                ? <button className="icon-btn" data-tip="Zamítnout — kabina použije šablonu" onClick={() => void stav(v, 'zamitnuto')}><Icon name="x" size={14} /></button>
+                : <button className="icon-btn" data-tip="Vrátit do kabiny" onClick={() => void stav(v, 'hotovo')}><Icon name="check" size={14} /></button>}
+            </div>
+          </figure>
+        ))}
+        {videt.length === 0 && (
+          <p className="desc">Zatím nic vykresleného. „Vykreslit chybějící" projde schválené produkty v kabině.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SadaProduktu({ p, onZmena }: {
   p: ZkProduktRadek;
   onZmena: (zmena: Partial<ZkProduktRadek>) => void;

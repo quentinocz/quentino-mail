@@ -827,6 +827,15 @@ export function registerIpc() {
     zkusebna.projdiKatalog(sAi !== false, sBarvami !== false, krok => emit('zk:katalog-krok', krok)));
   // AI pozná, co je na fotce produktu (sada kšandy + motýlek…), a vezme látku každého kusu
   handle('zk:rozpoznej', (kod: string) => zkusebna.rozpoznejProdukt(String(kod ?? '')));
+  // Produkt vykreslený na modelu celý (AI podle fotky, šablona jako vodítko)
+  handle('zk:vykresleni', () => zkusebna.vykresleni.prehled());
+  handle('zk:vykresleni-odhad', (rozsah: string) => zkusebna.vykresleni.odhad(rozsah === 'vse' ? 'vse' : 'chybi'));
+  handle('zk:vykresli', (rozsah: string, kody?: string[]) =>
+    zkusebna.vykresleni.vykresliVse(rozsah === 'vse' ? 'vse' : 'chybi', krok => emit('zk:katalog-krok', krok),
+      Array.isArray(kody) && kody.length ? kody.map(String) : undefined));
+  handle('zk:vykresleni-stav', (kod: string, cast: number, postava: string, stav: string) =>
+    zkusebna.vykresleni.nastavStav(String(kod ?? ''), Number(cast ?? -1), String(postava ?? ''),
+      stav === 'zamitnuto' ? 'zamitnuto' : stav === 'schvaleno' ? 'schvaleno' : 'hotovo'));
   // Revize podkladů: ZIP se vším, z čeho se model skládá, a zpětné načtení úprav
   handle('zk:revize-export', async (moznosti: any) => {
     const res = await dialog.showSaveDialog(callerWindow()!, {

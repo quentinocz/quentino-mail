@@ -260,7 +260,9 @@ export const ZKUSEBNA: HelpTopic = {
       + 'rovná látka — vzor se bere ze skutečné fotky. Sady se rozpoznají samy při projití katalogu.',
     'Když v kabině chybí vypínač saka nebo vesty, řekne nad náhledem žlutý pruh, které postavě vrstva chybí.',
     'Nastavení → Revize podkladů → [Exportovat podklady]: ZIP se vším, z čeho se model skládá, k pečlivé '
-      + 'kontrole a dotažení. Upravený se vrátí přes [Načíst upravené].'
+      + 'kontrole a dotažení. Upravený se vrátí přes [Načíst upravené].',
+    'Produkty → Vykreslení na modelu: AI nakreslí celý konkrétní kus podle fotky výrobku jen uvnitř tvaru šablony. '
+      + 'Začni pár kusy (ikona obrázku u řádku), zkontroluj v mřížce a pak [Vykreslit chybějící].'
   ]
 };
 

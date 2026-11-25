@@ -42,7 +42,7 @@ import type { ToolWindowId } from '@shared/windows';
 import type { VidProjekt, VidZnelka } from '@shared/videoedit';
 import type {
   ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
-  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu, ZkKotvy
+  ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu, ZkKotvy, ZkVykresleniProOkno
 } from '@shared/zkusebna';
 
 /** Co se dá o souboru zjistit z ffmpegu — délka, rozměry, zvuková stopa. */
@@ -993,6 +993,13 @@ export const api = {
       call<{ soubor: string; souboru: number; megabajtu: number } | null>('zk:revize-export', moznosti),
     revizeImport: () =>
       call<{ vrstev: number; vzorku: number; produktu: number; kotev: number; preskoceno: string[] } | null>('zk:revize-import'),
+    /** Produkty vykreslené na modelu (AI podle fotky, šablona jako vodítko). */
+    vykresleni: () => call<ZkVykresleniProOkno[]>('zk:vykresleni'),
+    vykresleniOdhad: (rozsah: 'chybi' | 'vse') => call<{ kusu: number; usd: number }>('zk:vykresleni-odhad', rozsah),
+    vykresli: (rozsah: 'chybi' | 'vse', kody?: string[]) =>
+      call<{ hotovo: number; nesedi: number; chyb: number; posledniChyba: string }>('zk:vykresli', rozsah, kody ?? []),
+    vykresleniStav: (kod: string, cast: number, postava: string, stav: 'schvaleno' | 'zamitnuto' | 'hotovo') =>
+      call<void>('zk:vykresleni-stav', kod, cast, postava, stav),
     rozpoznejVse: (rozsah: 'sady' | 'vse') =>
       call<{ hotovo: number; chyb: number; posledniChyba: string }>('zk:rozpoznej-vse', rozsah),
     produkty: (limit?: number) => call<ZkProduktRadek[]>('zk:produkty', limit ?? 300),

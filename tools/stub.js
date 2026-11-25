@@ -200,6 +200,14 @@
       schvaleno: false, nazev: 'Dárkový poukaz', obrazek: '', cena: '1 000 Kč', vKabine: false, kontrola: '', meritko: 1, casti: [], ai: null }
   ],
   'zk:latka': { hex: '#7a1f2b', vzorek: '' },
+  'zk:vykresleni': [
+    { kod: 'KRA1', cast: -1, postava: 'dospely-bezny', typ: 'kravata', varianta: 'kravata', stav: 'hotovo', potiz: '',
+      kdy: '2026-11-24T16:00:00.000Z', nahled: '', nazev: 'Kravata burgundská' },
+    { kod: 'MOT1', cast: -1, postava: 'dospely-bezny', typ: 'kravata', varianta: 'motylek', stav: 'nesedi',
+      potiz: 'Barvy nakresleného kusu nesedí na fotku výrobku.', kdy: '2026-11-24T16:01:00.000Z', nahled: '', nazev: 'Motýlek kostkovaný' }
+  ],
+  'zk:vykresleni-odhad': { kusu: 12, usd: 0.72 },
+  'zk:vykresli': { hotovo: 1, nesedi: 0, chyb: 0, posledniChyba: '' },
   'zk:vzhledy': [],
   /* Body pro šablony: náhled postavy jako jednoduchá kresba, ať je na čem body ukázat */
   'zk:kotvy': (function () {

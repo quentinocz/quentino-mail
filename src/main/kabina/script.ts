@@ -375,7 +375,8 @@ const TEMPLATE = String.raw`
       return {
         kod: kod, sada: vse[i].kod, nazev: vse[i].nazev, url: vse[i].url, obrazek: vse[i].obrazek,
         cena: "", cenaCislo: 0, typ: c.typ, varianta: c.varianta, hex: c.hex,
-        vzorek: c.vzorek, vzorekCm: c.vzorekCm, vzorekRoh: c.vzorekRoh, proVek: vse[i].proVek
+        vzorek: c.vzorek, vzorekCm: c.vzorekCm, vzorekRoh: c.vzorekRoh, proVek: vse[i].proVek,
+        vykresleni: c.vykresleni
       };
     }
     return null;
@@ -653,9 +654,15 @@ const TEMPLATE = String.raw`
       var vr = vrstvaPro(postava.id, kusy[i].typ, kusy[i].varianta);
       if (!vr || !vr.url) continue;
       var zbozi = produkt(kusy[i].produkt);
+      /*
+       * Kus vykreslený na modelu celý (AI podle fotky, šablona jako
+       * vodítko) má přednost před šablonou se vzorkem — vzor, záhyby
+       * i spony jsou tam skutečné. Šablona zůstává jako záloha.
+       */
+      var vyk = zbozi && zbozi.vykresleni ? zbozi.vykresleni[postava.id] : null;
       mam.push({
-        kus: kusy[i], vrstva: vr,
-        vzorek: zbozi && zbozi.vzorek ? zbozi.vzorek : "",
+        kus: kusy[i], vrstva: vr, vykresleni: vyk || null,
+        vzorek: zbozi && zbozi.vzorek && !vyk ? zbozi.vzorek : "",
         vzorekCm: zbozi && zbozi.vzorekCm ? zbozi.vzorekCm : 0,
         roh: zbozi && zbozi.vzorekRoh && vr.okraje ? vr.okraje : null
       });
@@ -670,16 +677,27 @@ const TEMPLATE = String.raw`
     for (var z = 0; z < mam.length; z++) {
       cekani.push(mam[z].vzorek ? obrazek(mam[z].vzorek).catch(function () { return null; }) : Promise.resolve(null));
     }
+    for (var zv = 0; zv < mam.length; zv++) {
+      cekani.push(mam[zv].vykresleni ? obrazek(mam[zv].vykresleni[0]).catch(function () { return null; }) : Promise.resolve(null));
+    }
     var naCm = bodyNaCm(postava);
     return Promise.all(cekani).then(function (nactene) {
       var vyrez = vyrezPostavy(postava);
       vyrezTed = vyrez;
       if (!plne) plne = document.createElement("canvas");
-      plne.width = vyrez.w;
-      plne.height = vyrez.h;
+      /*
+       * Plné plátno ve dvojnásobném rozlišení postavy: vykreslené kusy
+       * jsou v něm ostré i v přiblížení. Kulisa se jen zvětší (je to
+       * hladká látka), práce navíc je jedno zvětšení obrázku na vrstvu.
+       */
+      plne.width = Math.round(vyrez.w * PLNE);
+      plne.height = Math.round(vyrez.h * PLNE);
       var ctx = plne.getContext("2d");
-      ctx.clearRect(0, 0, vyrez.w, vyrez.h);
+      ctx.clearRect(0, 0, plne.width, plne.height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       ctx.save();
+      ctx.scale(PLNE, PLNE);
       ctx.translate(-vyrez.x, -vyrez.y);
       for (var j = 0; j < mam.length; j++) {
         var img = nactene[j];
@@ -687,6 +705,7 @@ const TEMPLATE = String.raw`
         var def = defVrstvy(mam[j].kus.typ);
         var vzorekImg = nactene[mam.length * 2 + j] || null;
         var kovImg = nactene[mam.length + j] || null;
+        var vykImg = nactene[mam.length * 3 + j] || null;
         var zmenseni = vzorekImg && mam[j].vzorekCm && naCm
           ? (mam[j].vzorekCm * naCm) / Math.max(1, vzorekImg.width) : 1;
         /*
@@ -697,16 +716,20 @@ const TEMPLATE = String.raw`
         var stin = def && def.zbozi && naCm;
         if (stin) {
           ctx.shadowColor = "rgba(0,0,0,.28)";
-          ctx.shadowBlur = Math.max(2, naCm * 0.5);
+          /* Stín se transformací plátna nezvětšuje — násobí se ručně */
+          ctx.shadowBlur = Math.max(2, naCm * 0.5) * PLNE;
           ctx.shadowOffsetX = 0;
-          ctx.shadowOffsetY = Math.max(1, naCm * 0.18);
+          ctx.shadowOffsetY = Math.max(1, naCm * 0.18) * PLNE;
         }
-        if (def && def.barvitelna && (mam[j].kus.hex || vzorekImg)) {
+        if (vykImg) {
+          var vk = mam[j].vykresleni;
+          ctx.drawImage(vykImg, vk[1], vk[2], vk[3], vk[4]);
+        } else if (def && def.barvitelna && (mam[j].kus.hex || vzorekImg)) {
           ctx.drawImage(oblec(img, mam[j].kus.hex, vzorekImg, sirka, vyska, zmenseni, mam[j].roh), 0, 0);
         } else {
           ctx.drawImage(img, 0, 0, sirka, vyska);
         }
-        if (kovImg) ctx.drawImage(kovImg, 0, 0, sirka, vyska);
+        if (kovImg && !vykImg) ctx.drawImage(kovImg, 0, 0, sirka, vyska);
         if (stin) {
           ctx.shadowColor = "rgba(0,0,0,0)";
           ctx.shadowBlur = 0;
@@ -720,6 +743,7 @@ const TEMPLATE = String.raw`
 
   /* Plné rozlišení výřezu — zmenšuje se z něj na velikost okna */
   var plne = null;
+  var PLNE = 2;
 
   /*
    * Zmenšení na velikost, ve které se model ukazuje.
@@ -741,7 +765,7 @@ const TEMPLATE = String.raw`
   function zmensiNa(cil, zdroj, vyrez) {
     var dpr = Math.min(3, window.devicePixelRatio || 1);
     var vyskaCss = cil.clientHeight || Math.round(window.innerHeight * 0.36);
-    var h = Math.max(50, Math.min(Math.round(zdroj.height * 1.5), Math.round(vyskaCss * dpr)));
+    var h = Math.max(50, Math.min(Math.round(zdroj.height * 0.75), Math.round(vyskaCss * dpr)));
     var w = Math.max(20, Math.round((zdroj.width * h) / zdroj.height));
     var k = Math.max(1, Math.min(4, lupa.k || 1));
     var sw = zdroj.width / k;
@@ -771,11 +795,12 @@ const TEMPLATE = String.raw`
     c.imageSmoothingQuality = "high";
     c.clearRect(0, 0, w, h);
     c.drawImage(mezi, mx, my, mw, mh, 0, 0, w, h);
-    pohledTed = { x: sx, y: sy, w: sw, h: sh };
+    /* Pohled v bodech postavy (plné plátno je PLNE× větší) */
+    pohledTed = { x: sx / PLNE, y: sy / PLNE, w: sw / PLNE, h: sh / PLNE };
     /* Kde pohled leží na plátně postavy a v jakém měřítku — kvůli bodům a zkouškám */
-    cil.setAttribute("data-x", String(vyrez.x + sx));
-    cil.setAttribute("data-y", String(vyrez.y + sy));
-    cil.setAttribute("data-m", String(w / sw));
+    cil.setAttribute("data-x", String(vyrez.x + pohledTed.x));
+    cil.setAttribute("data-y", String(vyrez.y + pohledTed.y));
+    cil.setAttribute("data-m", String(w / pohledTed.w));
     cil.setAttribute("data-lupa", String(Math.round(k * 100) / 100));
     cil.style.touchAction = k > 1.01 ? "none" : "pan-y";
     var misto = cil.parentNode;
@@ -787,7 +812,7 @@ const TEMPLATE = String.raw`
     if (!platno || !plne || !vyrezTed) return;
     k = Math.max(1, Math.min(4, k));
     var W = plne.width, H = plne.height;
-    var p = pohledTed || { x: 0, y: 0, w: W, h: H };
+    var p = pohledTed ? { x: pohledTed.x * PLNE, y: pohledTed.y * PLNE, w: pohledTed.w * PLNE, h: pohledTed.h * PLNE } : { x: 0, y: 0, w: W, h: H };
     if (fx == null) { fx = 0.5; fy = 0.5; }
     var bodX = p.x + fx * p.w;
     var bodY = p.y + fy * p.h;
@@ -903,8 +928,8 @@ const TEMPLATE = String.raw`
       }
       if (lupa.k <= 1.01 || !pohledTed || !plne) return;
       var r2 = platno.getBoundingClientRect();
-      lupa.x -= ((e.clientX - predtim.x) / Math.max(1, r2.width)) * pohledTed.w / plne.width;
-      lupa.y -= ((e.clientY - predtim.y) / Math.max(1, r2.height)) * pohledTed.h / plne.height;
+      lupa.x -= ((e.clientX - predtim.x) / Math.max(1, r2.width)) * pohledTed.w * PLNE / plne.width;
+      lupa.y -= ((e.clientY - predtim.y) / Math.max(1, r2.height)) * pohledTed.h * PLNE / plne.height;
       prekresliLupu();
     });
     var pust = function (e) {

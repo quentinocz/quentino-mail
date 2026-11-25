@@ -6,6 +6,7 @@ import { ZkProdukt } from '../../shared/zkusebna';
 import * as store from './store';
 import { proKabinu } from './produkty';
 import { kotvyPostavy } from './sablony';
+import { doKabiny } from './vykresleni';
 
 /** Body pro kabinu — zaokrouhlené, ať seznam zbytečně nebobtná. */
 function kotvyProKabinu(postavaId: string) {
@@ -131,6 +132,11 @@ export interface KabinaNastaveni {
    * kšandy s motýlkem má vzorek pro každý kus zvlášť.
    */
   vzorek?: (vzorek: string, klic: string) => string;
+  /**
+   * Adresa produktu vykresleného na modelu (soubor → adresa). Bez ní se
+   * vykreslení do seznamu nedává — kabina zůstane u šablony se vzorkem.
+   */
+  vykresleni?: (soubor: string, klic: string) => string;
 }
 
 /**
@@ -150,6 +156,7 @@ export function kabina(
   const maPostavu = new Set(
     hotove.filter(one => one.typ === 'postava').map(one => one.postava)
   );
+  const vykreslene = nastaveni.vykresleni ? doKabiny() : new Map();
   return {
     verze: 1,
     kdy: new Date().toISOString(),
@@ -173,6 +180,24 @@ export function kabina(
       }))
       .filter(one => !!one.url),
     produkty: proKabinu(produktu).map(p => {
+      /* Vykreslení na modelu — jen to, co je pro dnešní variantu (šířku) a postavu, která je v seznamu */
+      if (nastaveni.vykresleni) {
+        const moje = vykreslene.get(p.kod) ?? [];
+        const proKus = (cast: number, varianta: string) => {
+          const out: Record<string, [string, number, number, number, number]> = {};
+          for (const v of moje) {
+            if (v.cast !== cast || v.varianta !== varianta || !maPostavu.has(v.postava)) continue;
+            const url = nastaveni.vykresleni!(v.soubor, `${v.postava}/${p.kod}${cast >= 0 ? `~${cast}` : ''}`);
+            if (url) out[v.postava] = [url, v.x, v.y, v.w, v.h];
+          }
+          return Object.keys(out).length ? out : undefined;
+        };
+        p = {
+          ...p,
+          vykresleni: proKus(-1, p.varianta),
+          casti: p.casti?.map((c, i) => ({ ...c, vykresleni: proKus(i, c.varianta) }))
+        };
+      }
       if (!nastaveni.url && !nastaveni.vzorek) return p;
       return {
         ...p,

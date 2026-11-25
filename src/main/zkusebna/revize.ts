@@ -172,6 +172,7 @@ export async function exportuj(cil: string, moznosti: { postavy?: string[]; fotk
     })),
     produkty,
     vzorky: vzorkySoubory,
+    vykresleni: store.vykresleni().map(v => ({ ...v, soubor: '', nahled: '' })),
     /* Sem se při revizi píšou ruční body: { "dospely-bezny": { "limec": [0.5, 0.15] } } */
     kotvy: Object.fromEntries(postavy.map(p => [p.id, sablony.rucneKotvy(p.id)]))
   }, null, 2));
@@ -180,10 +181,19 @@ export async function exportuj(cil: string, moznosti: { postavy?: string[]; fotk
   const data = kabina(
     (v, kov) => (kov ? v.kov : v.soubor) ? `../${cestaVrstvyVExportu(v, kov)}` : '',
     1000,
-    { vzorek: (_vzorek, klic) => {
-      const [kod, cast] = klic.split('~');
-      return `../vzorky/${bezpecne(kod)}${cast !== undefined ? `~${cast}` : ''}.png`;
-    } }
+    {
+      vzorek: (_vzorek, klic) => {
+        const [kod, cast] = klic.split('~');
+        return `../vzorky/${bezpecne(kod)}${cast !== undefined ? `~${cast}` : ''}.png`;
+      },
+      /* Produkty vykreslené na modelu jdou do exportu taky — revize vidí, co zákazník */
+      vykresleni: (soubor, klic) => {
+        if (!fs.existsSync(soubor)) return '';
+        const jmeno = `vykresleni/${klic.split('/').map(bezpecne).join('/')}.png`;
+        pridej(jmeno, fs.readFileSync(soubor));
+        return `../${jmeno}`;
+      }
+    }
   );
   data.postavy = data.postavy.filter(one => idPostav.has(one.id));
   data.vrstvy = data.vrstvy.filter(one => idPostav.has(one.postava));

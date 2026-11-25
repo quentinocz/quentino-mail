@@ -13,6 +13,7 @@ import * as obrazky from './obrazky';
 import * as ukazka from './ukazka';
 import * as rozpoznani from './rozpoznani';
 export * as revize from './revize';
+export * as vykresleni from './vykresleni';
 import * as produkty from './produkty';
 import { kabina, velikost } from './manifest';
 import { vystavKabinu, zavadecTed, VystavPrubeh } from '../kabina/vystav';
@@ -457,13 +458,14 @@ export function nahledKabiny(): ZkNahled {
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   const klicovac = new Map(hotove.map(one => [`${one.postava}:${one.typ}:${one.varianta}`, one]));
   const { url, data } = stashKabinu(
-    (klic, adresaProduktu, adresaVzorku) => kabina((v, kov) => {
+    (klic, adresaProduktu, adresaVzorku, adresaVykresleni) => kabina((v, kov) => {
       const mam = klicovac.get(`${v.postava}:${v.typ}:${v.varianta}`);
       if (kov) return mam?.kov ? `${KABINA_SCHEME}://nahled/${klic}/vrstva/${jmenoVrstvy(v, true)}` : '';
       return mam?.soubor ? `${KABINA_SCHEME}://nahled/${klic}/vrstva/${jmenoVrstvy(v)}` : '';
     }, 400, {
       kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt(),
-      url: adresaProduktu, vzorek: adresaVzorku
+      url: adresaProduktu, vzorek: adresaVzorku,
+      vykresleni: (soubor, kdo) => `${KABINA_SCHEME}://nahled${adresaVykresleni(soubor, kdo)}`
     }),
     hotove
   );
@@ -506,8 +508,8 @@ export function ulozVyber(co: Partial<KabinaVyber>): void {
 /** Vystaví kabinu na web a vrátí kód zavaděče do šablony. */
 export async function vystav(hlas?: (p: VystavPrubeh) => void) {
   return vystavKabinu(
-    (adresa, vzorek) => kabina(adresa, 400, {
-      kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt(), vzorek
+    (adresa, vzorek, vykresleni) => kabina(adresa, 400, {
+      kategorie: kategorie(), ksandyDil: ksandyDil(), kontakt: kontakt(), vzorek, vykresleni
     }),
     { vyber: vyberNaWebu(), hlas }
   );

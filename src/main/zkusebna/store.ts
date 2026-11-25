@@ -22,7 +22,7 @@ export function zkDir(): string {
   return dir;
 }
 
-function postavaDir(id: string, co: 'vrstvy' | 'kroky'): string {
+function postavaDir(id: string, co: 'vrstvy' | 'kroky' | 'vykresleni'): string {
   const dir = path.join(zkDir(), id, co);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -30,6 +30,39 @@ function postavaDir(id: string, co: 'vrstvy' | 'kroky'): string {
 
 export function cestaVrstvy(postava: string, typ: ZkVrstvaTyp, varianta: string): string {
   return path.join(postavaDir(postava, 'vrstvy'), `${typ}-${varianta}.png`);
+}
+
+export function cestaVykresleni(postava: string, kod: string, cast: number, nahled = false): string {
+  const jmeno = `${String(kod).replace(/[^\w.-]+/g, '_')}${cast >= 0 ? `~${cast}` : ''}${nahled ? '-nahled' : ''}.png`;
+  return path.join(postavaDir(postava, 'vykresleni'), jmeno);
+}
+
+export interface ZkVykresleniRow {
+  kod: string; cast: number; postava: string; typ: string; varianta: string;
+  soubor: string; nahled: string; x: number; y: number; w: number; h: number;
+  stav: 'ceka' | 'hotovo' | 'nesedi' | 'schvaleno' | 'zamitnuto'; potiz: string; model: string; kdy: string;
+}
+
+export function vykresleni(kod?: string): ZkVykresleniRow[] {
+  const rows = kod
+    ? getDb().prepare('SELECT * FROM zk_vykresleni WHERE kod = ?').all(kod)
+    : getDb().prepare('SELECT * FROM zk_vykresleni').all();
+  return (rows as any[]).map(({ dil, ...r }) => ({ ...r, cast: Number(dil) }));
+}
+
+export function zapisVykresleni(v: ZkVykresleniRow): void {
+  getDb().prepare(
+    `INSERT INTO zk_vykresleni (kod, dil, postava, typ, varianta, soubor, nahled, x, y, w, h, stav, potiz, model, kdy)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(kod, dil, postava) DO UPDATE SET
+       typ = excluded.typ, varianta = excluded.varianta, soubor = excluded.soubor, nahled = excluded.nahled,
+       x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h, stav = excluded.stav,
+       potiz = excluded.potiz, model = excluded.model, kdy = excluded.kdy`
+  ).run(v.kod, v.cast, v.postava, v.typ, v.varianta, v.soubor, v.nahled, v.x, v.y, v.w, v.h, v.stav, v.potiz, v.model, v.kdy);
+}
+
+export function nastavStavVykresleni(kod: string, cast: number, postava: string, stav: ZkVykresleniRow['stav']): void {
+  getDb().prepare('UPDATE zk_vykresleni SET stav = ? WHERE kod = ? AND dil = ? AND postava = ?').run(stav, kod, cast, postava);
 }
 
 export function cestaKroku(postava: string, poradi: number, typ: string): string {

@@ -1172,6 +1172,92 @@ const revizeZkouska = async () => {
   fs.unlinkSync(cil);
 };
 
+/* ---------- 7g. produkt vykreslený na modelu (AI, šablona jako vodítko) ---------- */
+
+const vykresleniZkouska = async () => {
+  console.log('\nprodukt vykreslený na modelu');
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const vyk = require(path.join(DIST, 'zkusebna/vykresleni.js'));
+  const manifest = require(path.join(DIST, 'zkusebna/manifest.js'));
+  require(path.join(DIST, 'zkusebna/ukazka.js')).postavUkazku('dospely-bezny');
+  /* REV1 (kravata) je v testovacím katalogu z revize; fotka výrobku: vínová s bílými proužky */
+  store.zapisProdukt({ kod: 'REV1', typ: 'kravata', varianta: 'kravata', hex: '#7a1f2b', vzorek: '', vzorekCm: 3, rucne: false, velikosti: false, schvaleno: true });
+  const fotka = png.novyObraz(300, 300);
+  for (let i = 0; i < fotka.body.length; i += 4) { const y = Math.floor(i / 4 / 300); const pruh = y % 20 < 4; fotka.body[i] = pruh ? 240 : 122; fotka.body[i + 1] = pruh ? 240 : 31; fotka.body[i + 2] = pruh ? 240 : 43; fotka.body[i + 3] = 255; }
+
+  /* Kreslíř bez OpenAI: do průhledné části masky „nakreslí" vínovou s proužky */
+  let volani = 0; let posledni = null;
+  const maluj = (vstup, maska, fn) => {
+    const out = { sirka: vstup.sirka, vyska: vstup.vyska, body: Uint8Array.from(vstup.body) };
+    for (let i = 0; i < out.body.length; i += 4) {
+      if (maska.body[i + 3] !== 0) continue;
+      const [r, g, b2] = fn(Math.floor(i / 4 / vstup.sirka));
+      out.body[i] = r; out.body[i + 1] = g; out.body[i + 2] = b2;
+    }
+    return out;
+  };
+  vyk.nastavKreslire(async (zadani, vstup, maska, predlohy) => {
+    volani += 1; posledni = { zadani, vstup, maska, predlohy };
+    return maluj(vstup, maska, y => (y % 24 < 5 ? [235, 235, 235] : [118, 30, 42]));
+  });
+  const r1 = await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka] });
+  const v1 = store.vykresleni('REV1').find(one => one.postava === 'dospely-bezny' && one.cast === -1);
+  const obraz = v1 && v1.soubor ? png.nacti(fs.readFileSync(v1.soubor)) : null;
+  const sablona = png.nacti(fs.readFileSync(store.vrstvy('dospely-bezny').find(one => one.typ === 'kravata' && one.varianta === 'kravata').soubor));
+  let tvar = 0; let mimo = 0;
+  if (obraz) {
+    for (let y = 0; y < obraz.vyska; y++) for (let x = 0; x < obraz.sirka; x++) {
+      const a = obraz.body[(y * obraz.sirka + x) * 4 + 3];
+      const sx = v1.x + Math.floor(x / 2); const sy = v1.y + Math.floor(y / 2);
+      const as = sablona.body[(sy * sablona.sirka + sx) * 4 + 3];
+      if (a > 128) tvar += 1;
+      if (a > 128 && as < 20) mimo += 1;
+    }
+  }
+  ok('kravata se vykreslí podle fotky do tvaru šablony (dvojnásobné rozlišení)',
+    r1.stav === 'hotovo' && !!obraz && obraz.sirka === v1.w * 2 && tvar > 500 && mimo < tvar * 0.02,
+    `${r1.stav} ${obraz ? obraz.sirka + '×' + obraz.vyska : ''}, ${tvar} bodů kusu, ${mimo} mimo šablonu`);
+  ok('  model dostal výřez, masku ve tvaru šablony a fotku výrobku jako předlohu',
+    !!posledni && posledni.predlohy.length === 1 && posledni.vstup.sirka === posledni.maska.sirka
+      && /EXACTLY the product/.test(posledni.zadani) && /Do not change anything outside the mask/.test(posledni.zadani));
+  ok('  výřez má rozměr, který model umí (aspoň 0,65 Mpx, násobky 16)',
+    !!posledni && posledni.vstup.sirka % 16 === 0 && posledni.vstup.vyska % 16 === 0 && posledni.vstup.sirka * posledni.vstup.vyska >= 655360,
+    posledni ? `${posledni.vstup.sirka}×${posledni.vstup.vyska}` : '');
+
+  /* Model nic nenakreslí → druhý pokus s důraznějším zadáním → nesedí, kabina zůstane u šablony */
+  volani = 0;
+  vyk.nastavKreslire(async (zadani, vstup) => { volani += 1; posledni = { zadani }; return vstup; });
+  const r2 = await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka] });
+  ok('když model kus nenakreslí, zkusí se to jednou znovu a pak „nesedí"',
+    r2.stav === 'nesedi' && volani === 2 && /nenakreslil/.test(r2.potiz) && /previous attempt/.test(posledni.zadani),
+    `${r2.stav}, ${volani}× · ${r2.potiz}`);
+  /* Zelená místo vínové → barvy nesedí */
+  vyk.nastavKreslire(async (zadani, vstup, maska) => maluj(vstup, maska, () => [30, 160, 60]));
+  const r3 = await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka] });
+  ok('kus ve špatných barvách neprojde', r3.stav === 'nesedi' && /Barvy/.test(r3.potiz), r3.potiz);
+
+  /* Hotové vykreslení jde do kabiny, nesedící ne */
+  vyk.nastavKreslire(async (zadani, vstup, maska) => maluj(vstup, maska, () => [118, 30, 42]));
+  await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka] });
+  const data = manifest.kabina(v => 'vrstva:' + v.typ, 50, { vykresleni: (soubor, klic) => 'vyk:' + klic });
+  const p = data.produkty.find(one => one.kod === 'REV1');
+  ok('kabina dostane vykreslení [adresa, x, y, š, v] pro postavu',
+    !!p && !!p.vykresleni && Array.isArray(p.vykresleni['dospely-bezny']) && p.vykresleni['dospely-bezny'][0] === 'vyk:dospely-bezny/REV1',
+    JSON.stringify(p && p.vykresleni));
+  vyk.nastavStav('REV1', -1, 'dospely-bezny', 'zamitnuto');
+  const bez = manifest.kabina(v => 'vrstva:' + v.typ, 50, { vykresleni: (soubor, klic) => 'vyk:' + klic }).produkty.find(one => one.kod === 'REV1');
+  ok('  zamítnuté ne (kabina použije šablonu se vzorkem)', !bez.vykresleni);
+  /* Jiná šířka kravaty = stará kresba nesedí na šablonu → do kabiny nejde */
+  vyk.nastavStav('REV1', -1, 'dospely-bezny', 'hotovo');
+  store.zapisProdukt({ ...store.produktyRows().find(one => one.kod === 'REV1'), varianta: 'kravata-8' });
+  const jina = manifest.kabina(v => 'vrstva:' + v.typ, 50, { vykresleni: (soubor, klic) => 'vyk:' + klic }).produkty.find(one => one.kod === 'REV1');
+  ok('  vykreslení pro jinou šířku se nepoužije', !jina.vykresleni);
+  vyk.nastavKreslire(null);
+  const plan = vyk.plan('chybi');
+  ok('plán vykreslení: jen produkty v kabině a postavy podle věku', plan.every(one => one.postava === 'dospely-bezny'),
+    `${plan.length} kusů`);
+};
+
 /* ---------- 8. košík, velikosti, body na modelu ---------- */
 
 console.log('\nvzhled k nákupu');
@@ -1760,7 +1846,8 @@ console.log('\nskript pro e-shop');
 }
 
 aiZkouska().catch(e => { failed += 1; console.log('  ✗ rozpoznání spadlo:', e && e.stack || e); })
-  .then(() => revizeZkouska()).catch(e => { failed += 1; console.log('  ✗ revize spadla:', e && e.stack || e); }).then(() => {
+  .then(() => revizeZkouska()).catch(e => { failed += 1; console.log('  ✗ revize spadla:', e && e.stack || e); })
+  .then(() => vykresleniZkouska()).catch(e => { failed += 1; console.log('  ✗ vykreslení spadlo:', e && e.stack || e); }).then(() => {
   console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ zkušební kabina sedí');
   process.exit(failed ? 1 : 0);
 });
