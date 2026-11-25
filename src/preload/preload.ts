@@ -126,7 +126,7 @@ const ALLOWED_INVOKE = [
   'webtexts:clashes', 'webtexts:shorten', 'webtexts:publish', 'webtexts:config', 'webtexts:season', 'webtexts:translate', 'webtexts:href',
   'zk:prehled', 'zk:vrstvy', 'zk:kroky', 'zk:generuj-postavu', 'zk:generuj-vrstvu',
   'zk:generuj-vse', 'zk:ukazka', 'zk:ukazka-vse', 'zk:schval', 'zk:zadani', 'zk:zadani-zpet',
-  'zk:nastaveni', 'zk:nastav', 'zk:kontakt', 'zk:katalog', 'zk:produkty', 'zk:produkt', 'zk:latka', 'zk:rozpoznej', 'zk:rozpoznej-vse', 'zk:revize-export', 'zk:revize-import', 'zk:vykresleni', 'zk:vykresleni-odhad', 'zk:vykresli', 'zk:vykresleni-stav',
+  'zk:nastaveni', 'zk:nastav', 'zk:kontakt', 'zk:katalog', 'zk:produkty', 'zk:produkt', 'zk:latka', 'zk:rozpoznej', 'zk:rozpoznej-vse', 'zk:revize-export', 'zk:revize-import', 'zk:vykresleni', 'zk:vykresleni-odhad', 'zk:vykresli', 'zk:vykresleni-stav', 'zk:realisticka', 'zk:realisticka-navrh', 'zk:realisticke-odhad', 'zk:realisticke-vse',
   'zk:nahled', 'zk:vzhledy', 'zk:vzhled-uloz', 'zk:vzhled-smaz', 'zk:vystav', 'zk:zavadec', 'zk:zkouska', 'zk:kotvy', 'zk:kotvy-uloz',
   'banners:state', 'banners:load', 'banners:save', 'banners:delete', 'banners:copy', 'banners:toggle',
   'banners:clashes', 'banners:shorten', 'banners:translate', 'banners:href',

@@ -14,6 +14,8 @@ import * as ukazka from './ukazka';
 import * as rozpoznani from './rozpoznani';
 export * as revize from './revize';
 export * as vykresleni from './vykresleni';
+export * as realisticke from './realisticke';
+import * as realisticke from './realisticke';
 import * as produkty from './produkty';
 import { kabina, velikost } from './manifest';
 import { vystavKabinu, zavadecTed, VystavPrubeh } from '../kabina/vystav';
@@ -104,7 +106,11 @@ export function vrstvyPostavy(postavaId: string, sirkaNahledu = 150): ZkVrstvaPr
         nazev: def.nazev,
         variantaNazev: varianta.nazev,
         barvitelna: def.barvitelna,
-        nahled: mam?.soubor ? maly(mam.soubor, sirkaNahledu) : ''
+        nahled: mam?.soubor ? maly(mam.soubor, sirkaNahledu) : '',
+        ...(def.sablona ? {
+          realisticka: !!mam?.zadani.startsWith(sablony.AI_SABLONA),
+          navrhAi: realisticke.navrh(postavaId, def.typ, varianta.id)
+        } : {})
       });
     }
   }

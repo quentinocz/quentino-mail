@@ -166,6 +166,49 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
     setPracuje('');
   };
 
+  /*
+   * Realistické šablony (Patrik, 25. 11.: „šablony by mohly být mnohem
+   * více realistické a lépe sedět na modelu"). AI dokreslí tvar a světlo
+   * jednou za postavu; vzor jde dál ze skutečné fotky každého produktu.
+   */
+  const [aiPredPo, setAiPredPo] = useState<Record<string, string>>({});
+  const [odhadAi, setOdhadAi] = useState<{ kusu: number; usd: number } | null>(null);
+  useEffect(() => {
+    let platne = true;
+    api.zk.realistickeOdhad(postava).then(one => { if (platne) setOdhadAi(one); }).catch(() => { if (platne) setOdhadAi(null); });
+    return () => { platne = false; };
+  }, [postava, vrstvy]);
+  const realisticky = async (typ: ZkVrstvaTyp, varianta: string) => {
+    setPracuje('AI dokresluje šablonu…');
+    try {
+      const r = await api.zk.realisticka(postava, typ, varianta);
+      setAiPredPo(prev => ({ ...prev, [`${typ}:${varianta}`]: r.nahled }));
+      toast(r.ok ? 'Šablona je realistická — v kabině hned.' : `Návrh od AI neprošel kontrolou: ${r.potiz}`, r.ok ? 'info' : 'error');
+      setVrstvy(await api.zk.vrstvy(postava));
+      setNahled(null);
+    } catch (e: any) { toast(e.message, 'error'); }
+    setPracuje('');
+  };
+  const realistickeVse = async () => {
+    setPracuje('AI dokresluje šablony…');
+    try {
+      const r = await api.zk.realistickeVse(postava);
+      toast(`Realistických šablon: ${r.hotovo}${r.navrhu ? `, ${r.navrhu} ke kontrole` : ''}${r.chyb ? `, ${r.chyb} chyb: ${r.posledniChyba}` : ''}.`,
+        r.chyb ? 'error' : 'info');
+      setVrstvy(await api.zk.vrstvy(postava));
+      setNahled(null);
+    } catch (e: any) { toast(e.message, 'error'); }
+    setPracuje('');
+  };
+  const navrhAi = async (typ: ZkVrstvaTyp, varianta: string, co: 'pouzij' | 'zahod') => {
+    try {
+      await api.zk.realistickaNavrh(postava, typ, varianta, co);
+      toast(co === 'pouzij' ? 'Návrh od AI je použitý.' : 'Návrh zahozen, zůstává kreslená šablona.', 'info');
+      setVrstvy(await api.zk.vrstvy(postava));
+      setNahled(null);
+    } catch (e: any) { toast(e.message, 'error'); }
+  };
+
   const generujVse = async (rozsah: 'zakladni' | 'vse' = 'zakladni') => {
     setPracuje('Kreslím…');
     try {
@@ -417,6 +460,13 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                       : 'Nejdřív vlož klíč k OpenAI v Nastavení.'}>
                     Dogenerovat potřebné{odhad ? ` · ${odhad} $` : ''}
                   </button>
+                  {!!odhadAi?.kusu && stav?.hotovo && (
+                    <button className="btn ghost" onClick={() => void realistickeVse()}
+                      disabled={!!pracuje || !prehled?.maKlic}
+                      data-tip="AI dokreslí kravaty, motýlky, kšandy a kapesníček realisticky — záhyby, uzel, spony. Jednou za postavu; vzor každého produktu jde dál z jeho fotky.">
+                      <Icon name="sparkles" size={13} /> Realistické šablony ({odhadAi.kusu}) · ~{odhadAi.usd.toLocaleString('cs-CZ')} $
+                    </button>
+                  )}
                   {odhadVse > odhad && (
                     <button className="btn ghost" onClick={() => generujVse('vse')}
                       disabled={!!pracuje || !prehled?.maKlic}
@@ -480,17 +530,26 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                       </div>
                       <div className="zk-karta-text">
                         <b>{v.nazev}</b>
-                        <span className="desc">{v.variantaNazev}{sablona ? ' · šablona' : zPostavy ? ' · z postavy' : ''}</span>
+                        <span className="desc">{v.variantaNazev}{sablona ? (v.realisticka ? ' · realistická (AI)' : ' · šablona') : zPostavy ? ' · z postavy' : ''}</span>
                         <em className={`zk-odznak ${stavVrstvy.trida}`}>{stavVrstvy.nazev}</em>
                       </div>
                       {v.potiz && <p className="zk-potiz">{v.potiz}</p>}
                       <div className="zk-karta-btns">
                         {sablona ? (
-                          <button className="btn ghost" onClick={() => generuj(v.typ, v.varianta)}
-                            disabled={!!pracuje || !stav?.hotovo}
-                            data-tip="Šablona podle bodů na postavě — nic nestojí">
-                            {v.soubor ? 'Překreslit' : 'Nakreslit'}
-                          </button>
+                          <>
+                            <button className="btn ghost" onClick={() => generuj(v.typ, v.varianta)}
+                              disabled={!!pracuje || !stav?.hotovo}
+                              data-tip={v.realisticka ? 'Zpátky na kreslenou šablonu podle bodů — nic nestojí' : 'Šablona podle bodů na postavě — nic nestojí'}>
+                              {v.realisticka ? 'Vrátit kreslenou' : v.soubor ? 'Překreslit' : 'Nakreslit'}
+                            </button>
+                            {v.soubor && (
+                              <button className="btn ghost" onClick={() => void realisticky(v.typ, v.varianta)}
+                                disabled={!!pracuje || !stav?.hotovo || !prehled?.maKlic}
+                                data-tip="AI dokreslí tvar a světlo realisticky (jeden obrázek). Vzor zůstává z fotky produktu.">
+                                <Icon name="sparkles" size={13} /> {v.realisticka ? 'Znovu AI' : 'Realisticky'}
+                              </button>
+                            )}
+                          </>
                         ) : zPostavy ? (
                           <button className="btn ghost" onClick={() => generuj(v.typ, v.varianta)}
                             disabled={!!pracuje || !stav?.hotovo || !!stav?.zastarala}
@@ -526,6 +585,20 @@ export default function ZkusebnaModal({ onClose }: { onClose: () => void }) {
                           </button>
                         )}
                       </div>
+                      {sablona && (v.navrhAi || aiPredPo[klic]) && (
+                        <div className={`zk-ai-navrh ${v.navrhAi ? 'nesedi' : ''}`}>
+                          <img src={v.navrhAi?.nahled || aiPredPo[klic]} alt="Šablona před a po dokreslení AI" />
+                          <span className="desc">
+                            {v.navrhAi ? <>Návrh od AI neprošel kontrolou: {v.navrhAi.potiz}</> : 'Před a po dokreslení AI.'}
+                          </span>
+                          {v.navrhAi && (
+                            <span className="zk-karta-btns">
+                              <button className="btn ghost" onClick={() => void navrhAi(v.typ, v.varianta, 'pouzij')}>Přesto použít</button>
+                              <button className="btn ghost" onClick={() => void navrhAi(v.typ, v.varianta, 'zahod')}>Zahodit</button>
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {podrobne === klic && (
                         <div className="zk-zadani">
                           {/*
@@ -1068,9 +1141,10 @@ const STAVY_VYKRESLENI: Record<string, { nazev: string; trida: string }> = {
  *
  * Patrik (24. 11.): „do šablony generovat přímo celou kravatu, šablonu
  * mít jako vodítko pro AI… musí to být spolehlivé". AI kreslí jen uvnitř
- * tvaru šablony a podle fotky výrobku; co neprojde kontrolou barev
- * a tvaru, je tu jako „Nesedí" a kabina u něj zůstane u šablony. Co
- * projde, jde do kabiny hned — a tady se dá schválit nebo zamítnout.
+ * tvaru šablony, vychází ze skutečné látky z fotky a podle fotky výrobku.
+ * Co neprojde kontrolou palety, je tu jako „Nesedí" — **s náhledem**
+ * (Patrik, 25. 11.: nesedící dřív nebyl vidět vůbec) a s „Přesto
+ * použít". Co projde, jde do kabiny hned.
  */
 function VykresleniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje: (t: string) => void }) {
   const toast = useToast();
@@ -1103,9 +1177,10 @@ function VykresleniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje:
     <div className="zk-vykresleni">
       <div className="zk-vykresleni-hlava">
         <p className="desc">
-          AI nakreslí na model celý konkrétní kus podle fotky výrobku — vzor, záhyby, lesk, spony.
-          Šablona je jen vodítko: kreslí se výhradně uvnitř jejího tvaru, takže kus sedí na límec,
-          kapsu i pas. Co neprojde kontrolou barev, zůstane v kabině jako dosud (šablona se vzorkem).
+          Volitelné doladění pro vybrané produkty (pestré vzory, bestsellery). AI dostane kus už
+          oblečený do skutečné látky z fotky a jen ho zfotorealističtí — jeden obrázek na kus, bez
+          automatického opakování. Pro většinu produktů stačí <b>realistické šablony</b> ve Vizuálech:
+          zaplatí se jednou za postavu a zlepší všechny produkty naráz.
         </p>
         <div className="zk-akce">
           <button className="btn primary" disabled={!!pracuje || !odhad?.kusu} onClick={() => void vykresli('chybi')}>
@@ -1133,7 +1208,10 @@ function VykresleniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje:
               {v.stav !== 'schvaleno' && v.stav !== 'nesedi' && (
                 <button className="icon-btn" data-tip="Schválit" onClick={() => void stav(v, 'schvaleno')}><Icon name="check" size={14} /></button>
               )}
-              <button className="icon-btn" data-tip="Nakreslit znovu" disabled={!!pracuje}
+              {v.stav === 'nesedi' && v.nahled && (
+                <button className="btn ghost" data-tip="Na náhledu to vypadá dobře — do kabiny" onClick={() => void stav(v, 'schvaleno')}>Přesto použít</button>
+              )}
+              <button className="icon-btn" data-tip="Nakreslit znovu (jeden obrázek)" disabled={!!pracuje}
                 onClick={() => void vykresli('vse', [v.kod])}><Icon name="refresh" size={14} /></button>
               {v.stav !== 'zamitnuto'
                 ? <button className="icon-btn" data-tip="Zamítnout — kabina použije šablonu" onClick={() => void stav(v, 'zamitnuto')}><Icon name="x" size={14} /></button>
@@ -1327,7 +1405,8 @@ function BodyNaPostave({ postava, obnova, onZmena }: {
         <h4>Body pro šablony</h4>
         <p className="desc">
           Odsud se kreslí kravata, motýlek, kšandy a kapesníček. Když něco sedí o kus vedle,
-          chyť bod a posuň ho — šablony se hned překreslí.
+          chyť bod a posuň ho — šablony se hned překreslí. Realistické šablony od AI se tím vrátí
+          na kreslené (seděly by vedle), takže body dolaď <b>před</b> dokreslením AI.
         </p>
         <ul className="desc">
           <li><b>Límec</b> — horní střed límce, odtud visí kravata.</li>

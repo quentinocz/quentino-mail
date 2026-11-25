@@ -836,6 +836,16 @@ export function registerIpc() {
   handle('zk:vykresleni-stav', (kod: string, cast: number, postava: string, stav: string) =>
     zkusebna.vykresleni.nastavStav(String(kod ?? ''), Number(cast ?? -1), String(postava ?? ''),
       stav === 'zamitnuto' ? 'zamitnuto' : stav === 'schvaleno' ? 'schvaleno' : 'hotovo'));
+  // Realistické šablony: tvar a světlo od AI jednou za postavu, látka dál z fotky
+  handle('zk:realisticka', (postava: string, typ: string, varianta: string) =>
+    zkusebna.realisticke.zrealistuj(String(postava ?? ''), String(typ ?? '') as any, String(varianta ?? '')));
+  handle('zk:realisticka-navrh', (postava: string, typ: string, varianta: string, co: string) => {
+    if (co === 'pouzij') zkusebna.realisticke.pouzijNavrh(String(postava ?? ''), String(typ ?? '') as any, String(varianta ?? ''));
+    else zkusebna.realisticke.zahodNavrh(String(postava ?? ''), String(typ ?? '') as any, String(varianta ?? ''));
+  });
+  handle('zk:realisticke-odhad', (postava?: string) => zkusebna.realisticke.odhad(postava ? String(postava) : undefined));
+  handle('zk:realisticke-vse', (postava?: string) =>
+    zkusebna.realisticke.zrealistujVse(postava ? String(postava) : undefined, krok => emit('zk:katalog-krok', krok)));
   // Revize podkladů: ZIP se vším, z čeho se model skládá, a zpětné načtení úprav
   handle('zk:revize-export', async (moznosti: any) => {
     const res = await dialog.showSaveDialog(callerWindow()!, {

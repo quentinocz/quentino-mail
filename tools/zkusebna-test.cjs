@@ -1224,17 +1224,81 @@ const vykresleniZkouska = async () => {
     !!posledni && posledni.vstup.sirka % 16 === 0 && posledni.vstup.vyska % 16 === 0 && posledni.vstup.sirka * posledni.vstup.vyska >= 655360,
     posledni ? `${posledni.vstup.sirka}×${posledni.vstup.vyska}` : '');
 
-  /* Model nic nenakreslí → druhý pokus s důraznějším zadáním → nesedí, kabina zůstane u šablony */
+  ok('  model dostal kus už oblečený do látky (ne plochou barvu) a zadání to říká',
+    !!posledni && /flatly mapping the real fabric/.test(posledni.zadani));
+
+  /* Model vrátí, co dostal → jeden pokus (žádné opakování), nesedí; hromadně dobré staré zůstane */
   volani = 0;
   vyk.nastavKreslire(async (zadani, vstup) => { volani += 1; posledni = { zadani }; return vstup; });
   const r2 = await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka] });
-  ok('když model kus nenakreslí, zkusí se to jednou znovu a pak „nesedí"',
-    r2.stav === 'nesedi' && volani === 2 && /nenakreslil/.test(r2.potiz) && /previous attempt/.test(posledni.zadani),
+  ok('model nic nezměnil → jeden pokus (kredit se neplatí dvakrát), dobré staré vykreslení zůstává',
+    r2.stav === 'nesedi' && volani === 1 && /nezměnil/.test(r2.potiz) && /Zůstává předchozí/.test(r2.potiz)
+      && store.vykresleni('REV1')[0].stav === 'hotovo',
     `${r2.stav}, ${volani}× · ${r2.potiz}`);
-  /* Zelená místo vínové → barvy nesedí */
+  /* Zelená místo vínové → paleta nesedí; „Nakreslit znovu" (nahradit) ho uloží i s náhledem */
   vyk.nastavKreslire(async (zadani, vstup, maska) => maluj(vstup, maska, () => [30, 160, 60]));
-  const r3 = await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka] });
-  ok('kus ve špatných barvách neprojde', r3.stav === 'nesedi' && /Barvy/.test(r3.potiz), r3.potiz);
+  const r3 = await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka], nahradit: true });
+  const v3 = store.vykresleni('REV1').find(one => one.postava === 'dospely-bezny' && one.cast === -1);
+  ok('kus ve špatných barvách neprojde — ale uloží se i s náhledem, ať je vidět proč',
+    r3.stav === 'nesedi' && /Barvy nebo vzor/.test(r3.potiz) && v3.stav === 'nesedi'
+      && !!v3.nahled && fs.existsSync(v3.nahled) && !!v3.soubor && fs.existsSync(v3.soubor), r3.potiz);
+  vyk.nastavStav('REV1', -1, 'dospely-bezny', 'schvaleno');
+  ok('  „Přesto použít" ho pošle do kabiny',
+    !!manifest.kabina(v => 'vrstva:' + v.typ, 50, { vykresleni: (soubor, klic) => 'vyk:' + klic }).produkty.find(one => one.kod === 'REV1').vykresleni);
+
+  /* Pestrá látka s květy: průměr je šedohnědý, bílý podklad — dřív „Barvy nesedí" (PKBA06, 25. 11.) */
+  const kvety = png.novyObraz(40, 40);
+  for (let y = 0; y < 40; y++) for (let x = 0; x < 40; x++) {
+    const i = (y * 40 + x) * 4; const d = Math.hypot((x % 20) - 10, (y % 20) - 10);
+    const c = d < 4 ? [200, 40, 60] : d < 7 ? [40, 120, 60] : (x + y) % 9 === 0 ? [30, 60, 160] : [252, 253, 247];
+    kvety.body[i] = c[0]; kvety.body[i + 1] = c[1]; kvety.body[i + 2] = c[2]; kvety.body[i + 3] = 255;
+  }
+  const kvetyUri = 'data:image/png;base64,' + png.uloz(kvety).toString('base64');
+  store.zapisProdukt({ ...store.produktyRows().find(one => one.kod === 'REV1'), hex: '#fcfdf7', vzorek: kvetyUri, vzorekCm: 4 });
+  /* „AI" vrátí kus ve stejné látce, jen s jinými stíny (záhyby) */
+  vyk.nastavKreslire(async (zadani, vstup, maska) => {
+    posledni = { zadani, vstup, maska };
+    const out = { sirka: vstup.sirka, vyska: vstup.vyska, body: Uint8Array.from(vstup.body) };
+    for (let i = 0; i < out.body.length; i += 4) {
+      if (maska.body[i + 3] !== 0) continue;
+      const y = Math.floor(i / 4 / vstup.sirka); const k = 0.82 + 0.18 * Math.sin(y / 9);
+      for (let c = 0; c < 3; c++) out.body[i + c] = Math.round(out.body[i + c] * k);
+    }
+    return out;
+  });
+  const r4 = await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka], nahradit: true });
+  let pestrych = 0;
+  if (posledni && posledni.vstup) {
+    for (let i = 0; i < posledni.vstup.body.length; i += 4) {
+      if (posledni.maska.body[i + 3] !== 0) continue;
+      if (posledni.vstup.body[i + 1] > posledni.vstup.body[i] + 30) pestrych += 1;
+    }
+  }
+  ok('pestrá kravata s květy projde (paleta, ne průměrná barva) a model dostal květy už na kusu',
+    r4.stav === 'hotovo' && pestrych > 50, `${r4.stav} · ${r4.potiz} · ${pestrych} zelených bodů ve vstupu`);
+  const pal = vyk.__test.paleta;
+  const cely = png.novyObraz(40, 40); for (let i = 3; i < cely.body.length; i += 4) cely.body[i] = 255;
+  const jinaBarva = png.novyObraz(40, 40);
+  for (let i = 0; i < jinaBarva.body.length; i += 4) { jinaBarva.body[i] = 30; jinaBarva.body[i + 1] = 40; jinaBarva.body[i + 2] = 200; jinaBarva.body[i + 3] = 255; }
+  const tmavsi = { sirka: 40, vyska: 40, body: kvety.body.map((v, i) => (i % 4 === 3 ? v : Math.round(v * 0.85))) };
+  const sTmavsi = vyk.__test.shodaPalet(pal(kvety, cely), pal(tmavsi, cely));
+  const sJina = vyk.__test.shodaPalet(pal(kvety, cely), pal(jinaBarva, cely));
+  const plna = (c) => { const o = png.novyObraz(40, 40); for (let i = 0; i < o.body.length; i += 4) { o.body[i] = c[0]; o.body[i + 1] = c[1]; o.body[i + 2] = c[2]; o.body[i + 3] = 255; } return o; };
+  const sCernaBila = vyk.__test.shodaPalet(pal(plna([25, 25, 28]), cely), pal(plna([245, 245, 240]), cely));
+  const sVinova = vyk.__test.shodaPalet(pal(plna([122, 31, 43]), cely), pal(plna([92, 22, 32]), cely));
+  ok('  shoda palet: stín nevadí, jiná barva ano (i černá proti bílé)',
+    sTmavsi > 0.75 && sVinova > 0.6 && sJina < 0.3 && sCernaBila < 0.4,
+    `stín ${sTmavsi.toFixed(2)}, vínová ve stínu ${sVinova.toFixed(2)}, modrá ${sJina.toFixed(2)}, černá/bílá ${sCernaBila.toFixed(2)}`);
+  store.zapisProdukt({ ...store.produktyRows().find(one => one.kod === 'REV1'), hex: '#7a1f2b', vzorek: '', vzorekCm: 3 });
+
+  /* Několik naráz: nejvýš tolik souběžně, kolik se řekne, a všechny se udělají */
+  let ted = 0; let nejvic = 0; const hotove = [];
+  await vyk.poSkupinach([1, 2, 3, 4, 5, 6, 7], 3, async u => {
+    ted += 1; nejvic = Math.max(nejvic, ted);
+    await new Promise(res => setTimeout(res, 5));
+    ted -= 1; hotove.push(u);
+  });
+  ok('dávka běží po třech naráz', nejvic === 3 && hotove.length === 7, `${nejvic} naráz, ${hotove.length} hotových`);
 
   /* Hotové vykreslení jde do kabiny, nesedící ne */
   vyk.nastavKreslire(async (zadani, vstup, maska) => maluj(vstup, maska, () => [118, 30, 42]));
@@ -1256,6 +1320,96 @@ const vykresleniZkouska = async () => {
   const plan = vyk.plan('chybi');
   ok('plán vykreslení: jen produkty v kabině a postavy podle věku', plan.every(one => one.postava === 'dospely-bezny'),
     `${plan.length} kusů`);
+};
+
+/* ---------- 7h. realistické šablony (AI tvar a světlo, látka z fotky) ---------- */
+
+const realistickeZkouska = async () => {
+  console.log('\nrealistické šablony');
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const real = require(path.join(DIST, 'zkusebna/realisticke.js'));
+  const sablony = require(path.join(DIST, 'zkusebna/sablony.js'));
+  const P = 'dospely-bezny';
+  const vrstva = () => store.vrstvy(P).find(one => one.typ === 'kravata' && one.varianta === 'kravata');
+  const alfa = o => { let n = 0; for (let i = 3; i < o.body.length; i += 4) if (o.body[i] > 128) n += 1; return n; };
+  const pred = png.nacti(fs.readFileSync(vrstva().soubor));
+  /* „AI": kde je purpurová šablona, nakreslí purpurovou látku se záhyby (mění se jas, ne odstín) */
+  let posledni = null;
+  const purpurova = (jen) => async (zadani, vstup, maska) => {
+    posledni = { zadani, vstup, maska };
+    const out = { sirka: vstup.sirka, vyska: vstup.vyska, body: Uint8Array.from(vstup.body) };
+    let horni = Infinity;
+    for (let i = 0; i < out.body.length; i += 4) {
+      const r = vstup.body[i], g = vstup.body[i + 1], b = vstup.body[i + 2];
+      if (r > g + 40 && b > g + 40) horni = Math.min(horni, Math.floor(i / 4 / vstup.sirka));
+    }
+    for (let i = 0; i < out.body.length; i += 4) {
+      if (maska.body[i + 3] !== 0) continue;
+      const r = vstup.body[i], g = vstup.body[i + 1], b = vstup.body[i + 2];
+      const y = Math.floor(i / 4 / vstup.sirka); const x = (i / 4) % vstup.sirka;
+      if (!(r > g + 40 && b > g + 40)) continue;
+      if (jen && y > horni + jen) { out.body[i] = 240; out.body[i + 1] = 240; out.body[i + 2] = 236; continue; }
+      const k = 0.7 + 0.3 * Math.sin(x / 7 + y / 23);
+      out.body[i] = Math.round(200 * k); out.body[i + 1] = Math.round(31 * k); out.body[i + 2] = Math.round(200 * k);
+    }
+    return out;
+  };
+  real.nastavKreslire(purpurova(0));
+  const r1 = await real.zrealistuj(P, 'kravata', 'kravata');
+  const po = png.nacti(fs.readFileSync(vrstva().soubor));
+  let sedych = 0; let rozdil = 0;
+  for (let i = 0; i < po.body.length; i += 4) {
+    if (po.body[i + 3] < 200) continue;
+    if (po.body[i] === po.body[i + 1] && po.body[i + 1] === po.body[i + 2]) sedych += 1;
+    rozdil += Math.abs(po.body[i] - pred.body[i]);
+  }
+  ok('AI šablona: tvar z kreslicí barvy, uložená jako šedá mapa světla se záhyby',
+    r1.ok && vrstva().zadani.startsWith(sablony.AI_SABLONA) && sedych > alfa(po) * 0.95 && rozdil > 0
+      && Math.abs(alfa(po) - alfa(pred)) < alfa(pred) * 0.25,
+    `${r1.potiz} · ${alfa(pred)} → ${alfa(po)} bodů`);
+  ok('  zadání: hladká látka v kreslicí barvě, bez vzoru, smí doladit obrys',
+    !!posledni && /plain, solid, matte fabric/.test(posledni.zadani) && /no pattern/.test(posledni.zadani)
+      && /refine the outline/.test(posledni.zadani) && !!r1.nahled);
+  ok('  v odhadu už není (platí se jednou za postavu a šablonu)',
+    !real.plan(P).some(one => one.typ === 'kravata' && one.varianta === 'kravata'));
+  sablony.vygenerujSablony(P, undefined, false);
+  ok('  hromadné překreslení ji nechá být', vrstva().zadani.startsWith(sablony.AI_SABLONA));
+  /* AI nakreslí jen kousek u uzlu → neprojde, uloží se jako návrh; kreslená zůstává */
+  sablony.vygenerujSablony(P, { typ: 'kravata', varianta: 'kravata' });
+  ok('  „Vrátit kreslenou" ji vrátí', !vrstva().zadani.startsWith(sablony.AI_SABLONA));
+  real.nastavKreslire(purpurova(40));
+  const r2 = await real.zrealistuj(P, 'kravata', 'kravata');
+  const navrh = real.navrh(P, 'kravata', 'kravata');
+  ok('neúplný tvar od AI neprojde: návrh s náhledem, kreslená šablona zůstává',
+    !r2.ok && /pokrývá jen/.test(r2.potiz) && !!navrh && !!navrh.nahled && !vrstva().zadani.startsWith(sablony.AI_SABLONA),
+    r2.potiz);
+  real.pouzijNavrh(P, 'kravata', 'kravata');
+  ok('  „Přesto použít" ho nasadí a návrh zmizí',
+    vrstva().zadani.startsWith(sablony.AI_SABLONA) && !real.navrh(P, 'kravata', 'kravata'));
+  /* AI vrátí, co dostala → nic se nezaplatí podruhé a nic se nenasadí */
+  sablony.vygenerujSablony(P, { typ: 'kravata', varianta: 'kravata' });
+  real.nastavKreslire(async (zadani, vstup) => vstup);
+  const r3 = await real.zrealistuj(P, 'kravata', 'kravata');
+  ok('AI, která obrázek nezměnila, neprojde', !r3.ok && /nezměnila/.test(r3.potiz), r3.ok + ' ' + r3.potiz);
+  real.zahodNavrh(P, 'kravata', 'kravata');
+  /* Kšandy: spony zůstanou kovem ve skutečné barvě */
+  real.nastavKreslire(async (zadani, vstup, maska) => {
+    const out = { sirka: vstup.sirka, vyska: vstup.vyska, body: Uint8Array.from(vstup.body) };
+    for (let i = 0; i < out.body.length; i += 4) {
+      if (maska.body[i + 3] !== 0) continue;
+      const r = vstup.body[i], g = vstup.body[i + 1], b = vstup.body[i + 2];
+      if (b > r + 40) { const k = 0.75 + 0.25 * Math.sin(i / 4 / 31); out.body[i] = Math.round(47 * k); out.body[i + 1] = Math.round(111 * k); out.body[i + 2] = Math.round(200 * k); }
+    }
+    return out;
+  });
+  const r4 = await real.zrealistuj(P, 'ksandy', 'siroke');
+  const ks = store.vrstvy(P).find(one => one.typ === 'ksandy' && one.varianta === 'siroke');
+  ok('kšandy: realistické popruhy a kov ve vlastní vrstvě', r4.ok && ks.zadani.startsWith(sablony.AI_SABLONA) && !!ks.kov && fs.existsSync(ks.kov),
+    r4.potiz);
+  const odhad = real.odhad(P);
+  ok('odhad realistických šablon: jen ty, které ještě nejsou', odhad.kusu === real.plan(P).length && odhad.kusu > 0, JSON.stringify(odhad));
+  real.nastavKreslire(null);
+  sablony.vygenerujSablony(P);
 };
 
 /* ---------- 8. košík, velikosti, body na modelu ---------- */
@@ -1847,7 +2001,8 @@ console.log('\nskript pro e-shop');
 
 aiZkouska().catch(e => { failed += 1; console.log('  ✗ rozpoznání spadlo:', e && e.stack || e); })
   .then(() => revizeZkouska()).catch(e => { failed += 1; console.log('  ✗ revize spadla:', e && e.stack || e); })
-  .then(() => vykresleniZkouska()).catch(e => { failed += 1; console.log('  ✗ vykreslení spadlo:', e && e.stack || e); }).then(() => {
+  .then(() => vykresleniZkouska()).catch(e => { failed += 1; console.log('  ✗ vykreslení spadlo:', e && e.stack || e); })
+  .then(() => realistickeZkouska()).catch(e => { failed += 1; console.log('  ✗ realistické šablony spadly:', e && e.stack || e); }).then(() => {
   console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ zkušební kabina sedí');
   process.exit(failed ? 1 : 0);
 });

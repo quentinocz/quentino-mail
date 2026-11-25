@@ -982,6 +982,12 @@ export function popisSablony(typ: ZkVrstvaTyp, varianta: string): string {
 /** Šablona upravená ručně v revizi podkladů — hromadné překreslení ji nechá být. */
 export const REVIZE = 'Upraveno v revizi';
 
+/**
+ * Šablona, kterou dokreslila AI (realistické záhyby, uzel, spony).
+ * Zaplacená — hromadné překreslení ji nechá být stejně jako ruční úpravu.
+ */
+export const AI_SABLONA = 'Realistická (AI)';
+
 export function vygenerujSablony(
   postavaId: string,
   jen?: { typ: ZkVrstvaTyp; varianta: string },
@@ -1006,7 +1012,8 @@ export function vygenerujSablony(
     for (const v of def.varianty) {
       if (jen && (jen.typ !== def.typ || jen.varianta !== v.id)) continue;
       if (!jen && !prepsatRevize && store.vrstvy(postavaId)
-        .some(one => one.typ === def.typ && one.varianta === v.id && one.zadani.startsWith(REVIZE))) continue;
+        .some(one => one.typ === def.typ && one.varianta === v.id
+          && (one.zadani.startsWith(REVIZE) || one.zadani.startsWith(AI_SABLONA)))) continue;
       const kovy = def.typ === 'ksandy' ? novyObraz(postava.sirka, postava.vyska) : undefined;
       const obraz = nakresliSablonu(def.typ, v.id, kotvy, postava.sirka, postava.vyska, orez, kovy);
       if (!obraz) continue;

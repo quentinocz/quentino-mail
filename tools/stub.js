@@ -157,10 +157,19 @@
         zadani: 'Dress the person in a plain single-breasted suit jacket…',
         kdy: '2026-10-09T09:00:00.000Z',
         nazev: one[2], variantaNazev: one[3], barvitelna: one[0] !== 'postava',
-        nahled: one[4] === 'ceka' ? '' : ctverec
+        nahled: one[4] === 'ceka' ? '' : ctverec,
+        /* Kravata: návrh od AI, který neprošel; kapesníček už realistický */
+        realisticka: one[0] === 'kapesnicek' ? true : undefined,
+        navrhAi: one[0] === 'kravata' && one[1] === 'kravata'
+          ? { nahled: ctverec, potiz: 'Tvar od AI pokrývá jen 62 % šablony.', kdy: '2026-11-25T09:00:00.000Z' } : undefined
       };
+    }).map(function (one) {
+      return one.typ === 'kapesnicek' ? Object.assign(one, { stav: 'hotovo', soubor: '/tmp/kapesnicek.png', nahled: ctverec }) : one;
     });
   })(),
+  'zk:realisticke-odhad': { kusu: 13, usd: 2.6 },
+  'zk:realisticka': { ok: true, potiz: '', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' },
+  'zk:realisticke-vse': { hotovo: 12, navrhu: 1, chyb: 0, posledniChyba: '' },
   'zk:kroky': [
     { poradi: 0, typ: 'postava', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' },
     { poradi: 4, typ: 'kalhoty', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' },
@@ -204,7 +213,8 @@
     { kod: 'KRA1', cast: -1, postava: 'dospely-bezny', typ: 'kravata', varianta: 'kravata', stav: 'hotovo', potiz: '',
       kdy: '2026-11-24T16:00:00.000Z', nahled: '', nazev: 'Kravata burgundská' },
     { kod: 'MOT1', cast: -1, postava: 'dospely-bezny', typ: 'kravata', varianta: 'motylek', stav: 'nesedi',
-      potiz: 'Barvy nakresleného kusu nesedí na fotku výrobku.', kdy: '2026-11-24T16:01:00.000Z', nahled: '', nazev: 'Motýlek kostkovaný' }
+      potiz: 'Barvy nebo vzor se odchylují od látky výrobku (shoda 41 %).', kdy: '2026-11-24T16:01:00.000Z',
+      nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==', nazev: 'Motýlek kostkovaný' }
   ],
   'zk:vykresleni-odhad': { kusu: 12, usd: 0.72 },
   'zk:vykresli': { hotovo: 1, nesedi: 0, chyb: 0, posledniChyba: '' },

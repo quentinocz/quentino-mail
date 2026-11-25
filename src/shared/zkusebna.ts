@@ -1660,6 +1660,10 @@ export interface ZkVrstvaProOkno extends ZkVrstva {
   barvitelna: boolean;
   /** Zmenšený obrázek jako `data:` — vrstva samotná má přes megabajt. */
   nahled: string;
+  /** Šablona dokreslená AI (realistické záhyby, uzel, spony). */
+  realisticka?: boolean;
+  /** Návrh od AI, který neprošel kontrolou — náhled před / po a proč. */
+  navrhAi?: { nahled: string; potiz: string; kdy: string } | null;
 }
 
 export interface ZkKrokProOkno {

@@ -1000,6 +1000,14 @@ export const api = {
       call<{ hotovo: number; nesedi: number; chyb: number; posledniChyba: string }>('zk:vykresli', rozsah, kody ?? []),
     vykresleniStav: (kod: string, cast: number, postava: string, stav: 'schvaleno' | 'zamitnuto' | 'hotovo') =>
       call<void>('zk:vykresleni-stav', kod, cast, postava, stav),
+    /** Šablona dokreslená AI realisticky — jednou za postavu, látka dál z fotky. */
+    realisticka: (postava: string, typ: string, varianta: string) =>
+      call<{ ok: boolean; potiz: string; nahled: string }>('zk:realisticka', postava, typ, varianta),
+    realistickaNavrh: (postava: string, typ: string, varianta: string, co: 'pouzij' | 'zahod') =>
+      call<void>('zk:realisticka-navrh', postava, typ, varianta, co),
+    realistickeOdhad: (postava?: string) => call<{ kusu: number; usd: number }>('zk:realisticke-odhad', postava ?? ''),
+    realistickeVse: (postava?: string) =>
+      call<{ hotovo: number; navrhu: number; chyb: number; posledniChyba: string }>('zk:realisticke-vse', postava ?? ''),
     rozpoznejVse: (rozsah: 'sady' | 'vse') =>
       call<{ hotovo: number; chyb: number; posledniChyba: string }>('zk:rozpoznej-vse', rozsah),
     produkty: (limit?: number) => call<ZkProduktRadek[]>('zk:produkty', limit ?? 300),

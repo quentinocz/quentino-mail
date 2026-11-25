@@ -2641,6 +2641,32 @@ for (const okno of OKNA) {
     .filter(one => /šablona/.test(one.textContent || ''))
     .map(one => (one.querySelector('.zk-karta-btns .btn')?.textContent ?? '').trim())[0] ?? '');
   say('  šablona se překresluje zadarmo, ne přegenerovává', /Překreslit|Nakreslit/.test(sablonaTlacitko), sablonaTlacitko);
+  /*
+   * Realistické šablony (Patrik, 25. 11.): cena dávky je vidět předem,
+   * u šablony jde dokreslit jednu, a návrh, který neprošel kontrolou,
+   * je vidět i s volbou — kredit za něj už je zaplacený.
+   */
+  const realne = await page.evaluate(() => {
+    const karty = [...document.querySelectorAll('.zk-karta')];
+    const kapesnicek = karty.find(one => /Kapesníček/.test(one.textContent || ''));
+    const navrh = document.querySelector('.zk-ai-navrh.nesedi');
+    return {
+      hromadne: ([...document.querySelectorAll('.zk-akce .btn')].map(one => one.textContent.replace(/\s+/g, ' ').trim())
+        .find(one => /Realistické šablony/.test(one)) ?? ''),
+      jedna: karty.some(one => [...one.querySelectorAll('.btn')].some(b => /Realisticky/.test(b.textContent || ''))),
+      vratit: !!kapesnicek && /realistická \(AI\)/.test(kapesnicek.textContent || '')
+        && [...kapesnicek.querySelectorAll('.btn')].some(b => /Vrátit kreslenou/.test(b.textContent || '')),
+      navrh: navrh ? navrh.textContent.replace(/\s+/g, ' ').trim() : '',
+      navrhObr: !!navrh?.querySelector('img'),
+      pretika: [...document.querySelectorAll('.zk-karta')].some(one => one.scrollWidth > one.clientWidth + 1)
+    };
+  });
+  say('realistické šablony: dávka s cenou, jedna šablona i návrh k rozhodnutí',
+    /\(13\)/.test(realne.hromadne) && /\$/.test(realne.hromadne) && realne.jedna && realne.vratit
+      && /pokrývá jen 62 %/.test(realne.navrh) && /Přesto použít/.test(realne.navrh) && /Zahodit/.test(realne.navrh)
+      && realne.navrhObr && !realne.pretika,
+    `${realne.hromadne} · jedna ${realne.jedna} · vrátit ${realne.vratit} · ${realne.navrh.slice(0, 60)}`);
+  await page.locator('.zk-ai-navrh.nesedi').first().locator('xpath=ancestor::div[contains(@class,"zk-karta")]').screenshot({ path: path.join(SHOTS, 'okno-kabina-ai-sablona.png') }).catch(() => {});
   await page.locator('.zk-body').screenshot({ path: path.join(SHOTS, 'okno-kabina-body.png') });
 
   /* Zadání pro model se dá přepsat — bez něj se nepovedená vrstva nespraví */
@@ -2698,10 +2724,12 @@ for (const okno of OKNA) {
   const vykresleni = await page.evaluate(() => ({
     kusu: document.querySelectorAll('.zk-vykresleni-kus').length,
     stavy: [...document.querySelectorAll('.zk-vykresleni-kus .zk-stav')].map(one => one.textContent.trim()),
-    tlacitko: (document.querySelector('.zk-vykresleni-hlava .btn.primary')?.textContent ?? '').replace(/\s+/g, ' ').trim()
+    tlacitko: (document.querySelector('.zk-vykresleni-hlava .btn.primary')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    presto: [...document.querySelectorAll('.zk-vykresleni-kus.chyba .btn')].some(one => /Přesto použít/.test(one.textContent || ''))
   }));
   say('vykreslení na modelu: mřížka ke kontrole s odhadem ceny',
-    vykresleni.kusu === 2 && vykresleni.stavy.includes('Ke kontrole') && vykresleni.stavy.includes('Nesedí') && /12 kusů/.test(vykresleni.tlacitko),
+    vykresleni.kusu === 2 && vykresleni.stavy.includes('Ke kontrole') && vykresleni.stavy.includes('Nesedí') && /12 kusů/.test(vykresleni.tlacitko)
+      && vykresleni.presto,
     `${vykresleni.kusu} · ${vykresleni.stavy.join(', ')} · ${vykresleni.tlacitko}`);
   await page.locator('.zk-vykresleni').screenshot({ path: path.join(SHOTS, 'okno-kabina-vykresleni.png') });
   await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Zařazení a látky' }).click();
