@@ -295,6 +295,97 @@ export function odstin(r: number, g: number, b: number): number {
   return h < 0 ? h + 360 : h;
 }
 
+/**
+ * Zalepí uzavřené díry masky do plochy `maxPlocha` bodů.
+ *
+ * Patrik (25. 11.): „sako má průhledný horní knoflík? nebo bílý?" Model
+ * kreslí sako v kreslicí barvě, ale knoflík ve své barvě — maska podle
+ * barvy ho vynechala a knoflíkem prosvítala košile. `zavriDiry` zavře
+ * jen díry do pár bodů; knoflík je větší. Díra se pozná tak, že se do ní
+ * nedá dojít od kraje obrázku mimo masku — mezera mezi rukávem a tělem
+ * nebo rozepnuté sako se kraje dotýkají, nebo jsou velké, takže zůstanou.
+ */
+export function vyplnDiry(maska: Uint8Array, sirka: number, vyska: number, maxPlocha: number): Uint8Array {
+  const out = Uint8Array.from(maska);
+  const videno = new Uint8Array(maska.length);
+  const fronta = new Int32Array(maska.length);
+  for (let start = 0; start < maska.length; start++) {
+    if (maska[start] || videno[start]) continue;
+    let hlava = 0; let konec = 0; let kraj = false;
+    fronta[konec++] = start; videno[start] = 1;
+    while (hlava < konec) {
+      const i = fronta[hlava++];
+      const x = i % sirka; const y = (i - x) / sirka;
+      if (x === 0 || y === 0 || x === sirka - 1 || y === vyska - 1) kraj = true;
+      const sousede = [x > 0 ? i - 1 : -1, x < sirka - 1 ? i + 1 : -1, y > 0 ? i - sirka : -1, y < vyska - 1 ? i + sirka : -1];
+      for (const j of sousede) {
+        if (j < 0 || maska[j] || videno[j]) continue;
+        videno[j] = 1;
+        fronta[konec++] = j;
+      }
+    }
+    if (!kraj && konec <= maxPlocha) for (let k = 0; k < konec; k++) out[fronta[k]] = 255;
+  }
+  return out;
+}
+
+/**
+ * Díry v hotové vrstvě (mapě světla) zalepené látkou: uprostřed tmavší,
+ * k okraji světlejší — knoflík v barvě látky, jako mívají obleky.
+ * Pro vrstvy uložené dřív, ke kterým už není z čeho masku vystřihnout
+ * znovu. Vrací počet zalepených bodů.
+ */
+export function zalepDiryVrstvy(o: Obraz, maxPlocha: number): number {
+  const { sirka: w, vyska: h } = o;
+  const maska = new Uint8Array(w * h);
+  for (let i = 0; i < maska.length; i++) maska[i] = o.body[i * 4 + 3] > 128 ? 255 : 0;
+  const plna = vyplnDiry(maska, w, h, maxPlocha);
+  let zalepeno = 0;
+  /* Díry po jedné: střed, poloměr a světlo okolí */
+  const hotovo = new Uint8Array(w * h);
+  for (let start = 0; start < plna.length; start++) {
+    if (!plna[start] || maska[start] || hotovo[start]) continue;
+    const body: number[] = [];
+    const fronta = [start]; hotovo[start] = 1;
+    while (fronta.length) {
+      const i = fronta.pop()!;
+      body.push(i);
+      const x = i % w; const y = (i - x) / w;
+      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
+        if (j < 0 || !plna[j] || maska[j] || hotovo[j]) continue;
+        hotovo[j] = 1; fronta.push(j);
+      }
+    }
+    let sx = 0; let sy = 0;
+    for (const i of body) { sx += i % w; sy += Math.floor(i / w); }
+    const cx = sx / body.length; const cy = sy / body.length;
+    const r = Math.max(1.5, Math.sqrt(body.length / Math.PI));
+    /* Světlo okolí: průměr látky v mezikruží kolem díry */
+    let okoli = 0; let n = 0;
+    for (let y = Math.floor(cy - r - 3); y <= cy + r + 3; y++) {
+      for (let x = Math.floor(cx - r - 3); x <= cx + r + 3; x++) {
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const i = y * w + x;
+        if (!maska[i]) continue;
+        okoli += o.body[i * 4]; n += 1;
+      }
+    }
+    const zaklad = n ? okoli / n : 128;
+    for (const i of body) {
+      const x = i % w; const y = Math.floor(i / w);
+      const d = Math.min(1, Math.hypot(x - cx, y - cy) / r);
+      /* Knoflík: tmavší střed, světlejší hrana a drobný odlesk vlevo nahoře */
+      let v = zaklad * (0.55 + 0.3 * d * d);
+      if (x < cx && y < cy && d > 0.35 && d < 0.7) v += 18;
+      const k = i * 4;
+      o.body[k] = o.body[k + 1] = o.body[k + 2] = Math.max(0, Math.min(255, Math.round(v)));
+      o.body[k + 3] = 255;
+      zalepeno += 1;
+    }
+  }
+  return zalepeno;
+}
+
 /** Zúží masku o `r` bodů — opak `rozsir`. */
 export function zuz(maska: Uint8Array, sirka: number, vyska: number, r: number): Uint8Array {
   if (r <= 0) return Uint8Array.from(maska);

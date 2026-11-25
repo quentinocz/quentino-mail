@@ -988,6 +988,18 @@ export const REVIZE = 'Upraveno v revizi';
  */
 export const AI_SABLONA = 'Realistická (AI)';
 
+/**
+ * Kdo chce vědět, že se šablona změnila — vykreslení od AI se pak
+ * přizpůsobí novému tvaru bez nového kreslení (vykresleni.ts).
+ * Registrace místo importu: vykreslení samo šablony potřebuje.
+ */
+type PoZmene = (postavaId: string, typ: ZkVrstvaTyp, varianta: string) => void;
+const poZmene: PoZmene[] = [];
+export function naZmenuSablony(fn: PoZmene): void { poZmene.push(fn); }
+export function sablonaZmenena(postavaId: string, typ: ZkVrstvaTyp, varianta: string): void {
+  for (const fn of poZmene) { try { fn(postavaId, typ, varianta); } catch { /* přizpůsobení nesmí shodit kreslení šablon */ } }
+}
+
 export function vygenerujSablony(
   postavaId: string,
   jen?: { typ: ZkVrstvaTyp; varianta: string },
@@ -1042,6 +1054,7 @@ export function vygenerujSablony(
       out.push(vrstva);
     }
   }
+  for (const v of out) sablonaZmenena(postavaId, v.typ, v.varianta);
   return out;
 }
 

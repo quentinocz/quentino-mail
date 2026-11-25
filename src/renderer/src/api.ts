@@ -1018,8 +1018,8 @@ export const api = {
     /** Do kabiny jen schválené produkty (bez hodnoty jen přečte). */
     jenSchvalene: (hodnota?: boolean) => call<boolean>('zk:jen-schvalene', hodnota),
     /** Produkt na modelu, jak ho uvidí zákazník — pro schvalování. */
-    nahledProduktu: (kod: string, postava?: string) =>
-      call<{ obraz: string; postava: string; vykresleno: boolean }>('zk:nahled-produktu', kod, postava ?? ''),
+    nahledProduktu: (kod: string, postava?: string, vyska?: number) =>
+      call<{ obraz: string; postava: string; vykresleno: boolean }>('zk:nahled-produktu', kod, postava ?? '', vyska ?? 0),
     produkty: (limit?: number) => call<ZkProduktRadek[]>('zk:produkty', limit ?? 300),
     produkt: (kod: string, co: Partial<{ typ: ZkVrstvaTyp | ''; varianta: string; hex: string; schvaleno: boolean; meritko: number }>) =>
       call<void>('zk:produkt', kod, co),

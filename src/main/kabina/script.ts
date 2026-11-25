@@ -764,23 +764,53 @@ const TEMPLATE = String.raw`
 
   function zmensiNa(cil, zdroj, vyrez) {
     var dpr = Math.min(3, window.devicePixelRatio || 1);
-    var vyskaCss = cil.clientHeight || Math.round(window.innerHeight * 0.36);
-    var h = Math.max(50, Math.min(Math.round(zdroj.height * 0.75), Math.round(vyskaCss * dpr)));
-    var w = Math.max(20, Math.round((zdroj.width * h) / zdroj.height));
     var k = Math.max(1, Math.min(4, lupa.k || 1));
-    var sw = zdroj.width / k;
+    var misto = cil.parentNode;
+    var scena = misto && misto.parentNode;
+    /*
+     * Přiblížený model vyplní celou scénu, i pod tlačítky. Patrik (25. 11.):
+     * „okno s modelem jej při přiblížení ořezává, mělo by jít přiblížit
+     * tak, že model bude pod tlačítky taky vidět". Výška scény se při
+     * prvním přiblížení zapamatuje, ať okno neposkočí.
+     */
+    var vyplnit = k > 1.01 && scena && scena.classList && scena.classList.contains("qkb-scena");
+    if (scena && scena.setAttribute) {
+      if (vyplnit && scena.getAttribute("data-lupa") !== "1") {
+        scena.style.height = scena.offsetHeight + "px";
+        scena.setAttribute("data-lupa", "1");
+      } else if (!vyplnit && scena.getAttribute("data-lupa") === "1") {
+        scena.style.height = "";
+        scena.setAttribute("data-lupa", "0");
+      }
+    }
+    var w, h;
+    if (vyplnit) {
+      w = Math.max(50, Math.min(3200, Math.round((scena.clientWidth || 300) * dpr)));
+      h = Math.max(50, Math.min(3200, Math.round((scena.clientHeight || 400) * dpr)));
+    } else {
+      var vyskaCss = cil.clientHeight || Math.round(window.innerHeight * 0.36);
+      h = Math.max(50, Math.min(Math.round(zdroj.height * 0.75), Math.round(vyskaCss * dpr)));
+      w = Math.max(20, Math.round((zdroj.width * h) / zdroj.height));
+    }
+    /* Pohled má poměr stran cílového plátna; když je širší než model, je kolem pozadí */
     var sh = zdroj.height / k;
-    var sx = Math.max(0, Math.min(zdroj.width - sw, lupa.x * zdroj.width - sw / 2));
+    var sw = vyplnit ? sh * (w / h) : zdroj.width / k;
+    var sx = sw <= zdroj.width ? Math.max(0, Math.min(zdroj.width - sw, lupa.x * zdroj.width - sw / 2)) : (zdroj.width - sw) / 2;
     var sy = Math.max(0, Math.min(zdroj.height - sh, lupa.y * zdroj.height - sh / 2));
     /* Střed se srovná s tím, kam se pohled opravdu vešel — jinak by tah u kraje „lepil" */
     lupa.x = (sx + sw / 2) / zdroj.width;
     lupa.y = (sy + sh / 2) / zdroj.height;
+    /* Kus pohledu, který na modelu opravdu je, a kam na plátno patří */
+    var ix0 = Math.max(0, sx), iy0 = Math.max(0, sy);
+    var ix1 = Math.min(zdroj.width, sx + sw), iy1 = Math.min(zdroj.height, sy + sh);
+    var dx = ((ix0 - sx) * w) / sw, dy = ((iy0 - sy) * h) / sh;
+    var dw = ((ix1 - ix0) * w) / sw, dh = ((iy1 - iy0) * h) / sh;
     var mezi = zdroj;
-    var mx = sx, my = sy, mw = sw, mh = sh;
-    while (mw / 2 >= w * 1.05) {
+    var mx = ix0, my = iy0, mw = ix1 - ix0, mh = iy1 - iy0;
+    while (mw / 2 >= dw * 1.05) {
       var pul = document.createElement("canvas");
-      pul.width = Math.round(mw / 2);
-      pul.height = Math.round(mh / 2);
+      pul.width = Math.max(1, Math.round(mw / 2));
+      pul.height = Math.max(1, Math.round(mh / 2));
       var pc = pul.getContext("2d");
       pc.imageSmoothingEnabled = true;
       pc.imageSmoothingQuality = "high";
@@ -794,7 +824,7 @@ const TEMPLATE = String.raw`
     c.imageSmoothingEnabled = true;
     c.imageSmoothingQuality = "high";
     c.clearRect(0, 0, w, h);
-    c.drawImage(mezi, mx, my, mw, mh, 0, 0, w, h);
+    if (mw > 0 && mh > 0) c.drawImage(mezi, mx, my, mw, mh, dx, dy, dw, dh);
     /* Pohled v bodech postavy (plné plátno je PLNE× větší) */
     pohledTed = { x: sx / PLNE, y: sy / PLNE, w: sw / PLNE, h: sh / PLNE };
     /* Kde pohled leží na plátně postavy a v jakém měřítku — kvůli bodům a zkouškám */
@@ -803,7 +833,6 @@ const TEMPLATE = String.raw`
     cil.setAttribute("data-m", String(w / pohledTed.w));
     cil.setAttribute("data-lupa", String(Math.round(k * 100) / 100));
     cil.style.touchAction = k > 1.01 ? "none" : "pan-y";
-    var misto = cil.parentNode;
     if (misto && misto.setAttribute) misto.setAttribute("data-lupa", k > 1.01 ? "1" : "0");
   }
 
@@ -816,7 +845,8 @@ const TEMPLATE = String.raw`
     if (fx == null) { fx = 0.5; fy = 0.5; }
     var bodX = p.x + fx * p.w;
     var bodY = p.y + fy * p.h;
-    var sw = W / k, sh = H / k;
+    var sh = H / k;
+    var sw = p.h > 0 ? sh * (p.w / p.h) : W / k;
     lupa.k = k;
     lupa.x = (bodX - fx * sw + sw / 2) / W;
     lupa.y = (bodY - fy * sh + sh / 2) / H;
@@ -1338,6 +1368,12 @@ const TEMPLATE = String.raw`
     + "background:rgba(255,255,255,.92);color:#18181b;font-size:17px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.1)}"
     + ".qkb-lupa button[disabled]{opacity:.4;cursor:default}"
     + ".qkb-platno[data-lupa='1'] canvas{cursor:grab}"
+    /* Přiblížený model vyplní celou scénu a tlačítka leží na něm */
+    + ".qkb-scena[data-lupa='1']{padding:0;box-sizing:border-box}"
+    + ".qkb-scena[data-lupa='1'] .qkb-platno{position:absolute;inset:0;display:block}"
+    + ".qkb-scena[data-lupa='1'] .qkb-platno canvas{width:100%;height:100%;max-width:none}"
+    + ".qkb-scena[data-lupa='1'] .qkb-scena-lista{position:absolute;left:0;right:0;bottom:10px;margin:0;z-index:2}"
+    + ".qkb-scena[data-lupa='1'] .qkb-lupa{left:auto;right:10px;top:10px}"
     + ".qkb-platno[data-lupa='1']:active canvas{cursor:grabbing}"
     + ".qkb-prepinac .qkb-chip{border:0;padding:6px 11px}"
     + ".qkb-upravuji .qkb-pravy>:not(.qkb-zavoj),.qkb-upravuji .qkb-varianty,.qkb-upravuji .qkb-pata,"
@@ -1373,6 +1409,7 @@ const TEMPLATE = String.raw`
     + ".qkb-levy{overflow:auto;border-right:1px solid #f0f0f2}"
     + ".qkb-pravy{overflow:auto}"
     + ".qkb-scena{position:static;flex-direction:column;align-items:center;padding:14px 0 10px}"
+    + ".qkb-scena[data-lupa='1']{position:relative;padding:0}"
     + ".qkb-platno canvas{height:46vh}"
     + ".qkb-scena-lista{position:static;margin-top:10px}"
     + ".qkb-hlava h2{font-size:18px}"

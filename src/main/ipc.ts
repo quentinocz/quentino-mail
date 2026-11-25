@@ -887,8 +887,8 @@ export function registerIpc() {
   handle('zk:produkt-detail', (kod: string) => zkusebna.produktDetail(String(kod ?? '')));
   handle('zk:jen-schvalene', (hodnota?: boolean) => zkusebna.jenSchvalene(typeof hodnota === 'boolean' ? hodnota : undefined));
   // Produkt na modelu pro schvalování — složený v aplikaci, nic nestojí
-  handle('zk:nahled-produktu', (kod: string, postava?: string) =>
-    zkusebna.vykresleni.nahledProduktu(String(kod ?? ''), postava ? String(postava) : undefined));
+  handle('zk:nahled-produktu', (kod: string, postava?: string, vyska?: number) =>
+    zkusebna.vykresleni.nahledProduktu(String(kod ?? ''), postava ? String(postava) : undefined, Number(vyska) || undefined));
   handle('zk:produkty', (limit: number) => zkusebna.produktyPrehled(Number(limit) || 300));
   handle('zk:produkt', (kod: string, co: any) => zkusebna.upravProdukt(String(kod ?? ''), co ?? {}));
   handle('zk:latka', (kod: string, cast: number, data: string) =>

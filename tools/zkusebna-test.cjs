@@ -1316,6 +1316,39 @@ const vykresleniZkouska = async () => {
   store.zapisProdukt({ ...store.produktyRows().find(one => one.kod === 'REV1'), varianta: 'kravata-8' });
   const jina = manifest.kabina(v => 'vrstva:' + v.typ, 50, { vykresleni: (soubor, klic) => 'vyk:' + klic }).produkty.find(one => one.kod === 'REV1');
   ok('  vykreslení pro jinou šířku se nepoužije', !jina.vykresleni);
+  /*
+   * Změna šablony bez nového kreslení (Patrik, 25. 11.): límec o 3 cm
+   * níž a doprava → kresba se přetáhne na nový tvar, vzor zůstane.
+   */
+  {
+    const sablony = require(path.join(DIST, 'zkusebna/sablony.js'));
+    store.zapisProdukt({ ...store.produktyRows().find(one => one.kod === 'REV1'), varianta: 'kravata', hex: '#7a1f2b', vzorek: '' });
+    vyk.nastavKreslire(async (zadani, vstup, maska) => maluj(vstup, maska, y => (y % 24 < 5 ? [235, 235, 235] : [118, 30, 42])));
+    await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka], nahradit: true });
+    const pred = store.vykresleni('REV1').find(one => one.postava === 'dospely-bezny' && one.cast === -1);
+    const k0 = sablony.kotvyPostavy('dospely-bezny').kotvy;
+    const p0 = store.postava('dospely-bezny');
+    sablony.ulozRucneKotvy('dospely-bezny', { limec: [(k0.limec.x + 2 * k0.naCm) / p0.sirka, (k0.limec.y + 3 * k0.naCm) / p0.vyska] });
+    sablony.vygenerujSablony('dospely-bezny', { typ: 'kravata', varianta: 'kravata' });
+    const po = store.vykresleni('REV1').find(one => one.postava === 'dospely-bezny' && one.cast === -1);
+    const kresba = png.nacti(fs.readFileSync(po.soubor));
+    const sab = png.nacti(fs.readFileSync(store.vrstvy('dospely-bezny').find(one => one.typ === 'kravata' && one.varianta === 'kravata').soubor));
+    let oba = 0; let jeden = 0; let vinove = 0; let bile = 0;
+    for (let y = 0; y < kresba.vyska; y++) for (let x = 0; x < kresba.sirka; x++) {
+      const i = (y * kresba.sirka + x) * 4;
+      const a = kresba.body[i + 3] > 128;
+      const gx = po.x + Math.floor(x / 2); const gy = po.y + Math.floor(y / 2);
+      const b = sab.body[(gy * sab.sirka + gx) * 4 + 3] > 128;
+      if (a && b) oba += 1; if (a || b) jeden += 1;
+      if (a && kresba.body[i] > 200 && kresba.body[i + 1] > 200) bile += 1;
+      if (a && kresba.body[i] > 90 && kresba.body[i + 1] < 60) vinove += 1;
+    }
+    ok('změna šablony: AI kresba se přetáhne na nový tvar bez nového kreslení (vzor zůstane)',
+      po.y > pred.y && oba / jeden > 0.9 && vinove > bile * 2 && bile > 50,
+      `y ${pred.y} → ${po.y}, shoda tvaru ${(oba / jeden).toFixed(2)}, vínová ${vinove}, bílá ${bile}`);
+    sablony.ulozRucneKotvy('dospely-bezny', null);
+    sablony.vygenerujSablony('dospely-bezny', { typ: 'kravata', varianta: 'kravata' });
+  }
   vyk.nastavKreslire(null);
   const plan = vyk.plan('chybi');
   ok('plán vykreslení: jen produkty v kabině a postavy podle věku', plan.every(one => one.postava === 'dospely-bezny'),

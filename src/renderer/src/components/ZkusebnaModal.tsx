@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ZkFrontaRadek, ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
   ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu, ZkKotvy, ZkVykresleniProOkno
@@ -1253,6 +1253,52 @@ function VykresleniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje:
  */
 type FiltrFronty = 'ke_schvaleni' | 'bez_ai' | 'schvalene' | 'vse';
 
+/** Karta v mřížce: náhled na modelu se načte, až když je karta vidět. */
+function KartaProduktu({ p, nahled, vybrany, onVyber, onNacti, onOtevri }: {
+  p: ZkFrontaRadek;
+  nahled: { obraz: string; vykresleno: boolean } | string | undefined;
+  vybrany: boolean;
+  onVyber: (ano: boolean) => void;
+  onNacti: () => void;
+  onOtevri: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (nahled !== undefined || !ref.current) return;
+    if (typeof IntersectionObserver === 'undefined') { onNacti(); return; }
+    const pozor = new IntersectionObserver(zaznamy => {
+      if (zaznamy.some(one => one.isIntersecting)) { onNacti(); pozor.disconnect(); }
+    }, { rootMargin: '300px' });
+    pozor.observe(ref.current);
+    return () => pozor.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nahled === undefined]);
+  return (
+    <div ref={ref} className={`zk-karta-produktu ${vybrany ? 'vybrany' : ''} ${p.schvaleno ? 'ok' : ''}`}
+      onClick={onOtevri} role="button" tabIndex={0} onKeyDown={e => { if (e.key === ' ') { e.preventDefault(); onVyber(!vybrany); } }}>
+      <label className="zk-karta-vyber" onClick={e => e.stopPropagation()}>
+        <input type="checkbox" checked={vybrany} onChange={e => onVyber(e.target.checked)} aria-label={`Vybrat ${p.nazev}`} />
+      </label>
+      <div className="zk-karta-model">
+        {typeof nahled === 'object'
+          ? <img src={nahled.obraz} alt="" loading="lazy" />
+          : typeof nahled === 'string' ? <span className="desc">{nahled}</span> : <span className="spin" />}
+        {p.obrazek && <img className="zk-karta-fotka" src={p.obrazek} alt="" loading="lazy" />}
+      </div>
+      <div className="zk-karta-popis">
+        <b title={p.nazev}>{p.nazev}</b>
+        <span className="zk-karta-stavy">
+          {p.schvaleno ? <em className="zk-odznak ok">schváleno</em>
+            : p.pripraveno ? <em className="zk-odznak ceka">ke schválení</em>
+              : <em className="zk-odznak">bez přípravy</em>}
+          {p.vykresleno && <em className="zk-odznak ok">AI na modelu</em>}
+          {p.sada && <em className="zk-odznak">sada</em>}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function SchvalovaniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje: (t: string) => void }) {
   const toast = useToast();
   const [fronta, setFronta] = useState<ZkFrontaRadek[]>([]);
@@ -1263,6 +1309,15 @@ function SchvalovaniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje
   const [pripravuji, setPripravuji] = useState<{ hotovo: number; celkem: number } | null>(null);
   const [jenSchvalene, setJenSchvalene] = useState(false);
   const [akce, setAkce] = useState('');
+  /*
+   * Mřížka, nebo jeden po druhém. Patrik (25. 11.): „spíš grid produktů
+   * ke zpracování AI, kde budu moci i jeden po druhém vybrat nebo rovnou
+   * zpracovat, na jedno kliknutí popup s velkým náhledem na modelu".
+   */
+  const [pohled, setPohled] = useState<'mrizka' | 'jeden'>('mrizka');
+  const [otevreno, setOtevreno] = useState(false);
+  const [vybrane, setVybrane] = useState<Set<string>>(new Set());
+  const [velke, setVelke] = useState<Record<string, string>>({});
 
   const nactiFrontu = useCallback(async () => {
     try { setFronta(await api.zk.fronta()); } catch (e: any) { toast(e.message, 'error'); }
@@ -1291,22 +1346,33 @@ function SchvalovaniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje
   /* Aktuální produkt: detail a náhled; další dva se načtou dopředu (rychlé listování) */
   const nactiNahled = useCallback(async (k: string, znovu = false) => {
     if (!znovu && nahledy[k]) return;
+    if (znovu) {
+      setVelke(prev => { const n = { ...prev }; delete n[k]; return n; });
+      if (otevreno) api.zk.nahledProduktu(k, undefined, 1200).then(n => setVelke(prev => ({ ...prev, [k]: n.obraz }))).catch(() => undefined);
+    }
     try {
       const n = await api.zk.nahledProduktu(k);
       setNahledy(prev => ({ ...prev, [k]: { obraz: n.obraz, vykresleno: n.vykresleno } }));
     } catch (e: any) {
       setNahledy(prev => ({ ...prev, [k]: String(e?.message ?? e) }));
     }
-  }, [nahledy]);
+  }, [nahledy, otevreno]);
+  const aktivni = pohled === 'jeden' || otevreno;
   useEffect(() => {
-    if (!ted) { setDetail(null); return; }
+    if (!ted || !aktivni) { setDetail(null); return; }
     let platne = true;
     api.zk.produktDetail(ted.kod).then(d => { if (platne) setDetail(d); }).catch(() => undefined);
     void nactiNahled(ted.kod);
     for (const dalsi of videt.slice(index + 1, index + 3)) void nactiNahled(dalsi.kod);
+    /* V okně nad mřížkou velký náhled — model přes celou výšku obrazovky */
+    if (otevreno && !velke[ted.kod]) {
+      api.zk.nahledProduktu(ted.kod, undefined, 1200)
+        .then(n => { if (platne) setVelke(prev => ({ ...prev, [ted.kod]: n.obraz })); })
+        .catch(() => undefined);
+    }
     return () => { platne = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ted?.kod, ted?.pripraveno]);
+  }, [ted?.kod, ted?.pripraveno, aktivni]);
 
   const posun = (o: number) => {
     if (!videt.length) return;
@@ -1371,10 +1437,37 @@ function SchvalovaniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje
     setAkce('');
   };
 
-  /* Klávesy: Enter schválit a další, šipky listovat, R připravit znovu */
+  const vyber = (k: string, ano: boolean) => setVybrane(prev => {
+    const n = new Set(prev);
+    if (ano) n.add(k); else n.delete(k);
+    return n;
+  });
+  const schvalitVybrane = async (ano: boolean) => {
+    const kody = [...vybrane];
+    for (const k of kody) await api.zk.produkt(k, { schvaleno: ano });
+    setFronta(prev => prev.map(one => (vybrane.has(one.kod) ? { ...one, schvaleno: ano } : one)));
+    toast(`${ano ? 'Schváleno' : 'Zrušeno schválení'}: ${kody.length} produktů.`, 'info');
+    setVybrane(new Set());
+  };
+  const vykreslitVybrane = async () => {
+    const kody = [...vybrane];
+    setAkce(`Vykresluji ${kody.length} produktů na modelu…`);
+    try {
+      const r = await api.zk.vykresli('vse', kody);
+      toast(`Vykresleno ${r.hotovo}${r.nesedi ? `, ${r.nesedi} ke kontrole` : ''}${r.chyb ? `, ${r.chyb} chyb: ${r.posledniChyba}` : ''}.`,
+        r.chyb ? 'error' : 'info');
+      for (const k of kody) setNahledy(prev => { const n = { ...prev }; delete n[k]; return n; });
+      await nactiFrontu();
+    } catch (e: any) { toast(e.message, 'error'); }
+    setAkce('');
+  };
+
+  /* Klávesy: Enter schválit a další, šipky listovat, R připravit znovu, Esc zavře okno */
   useEffect(() => {
     const klavesa = (e: KeyboardEvent) => {
       const cil = e.target as HTMLElement | null;
+      if (e.key === 'Escape' && otevreno) { e.preventDefault(); setOtevreno(false); return; }
+      if (!aktivni) return;
       if (cil && /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(cil.tagName)) return;
       if (e.key === 'Enter') { e.preventDefault(); void schval(true); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); posun(1); }
@@ -1396,55 +1489,12 @@ function SchvalovaniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje
   const def = ted?.typ ? vrstvaDef(ted.typ) : null;
   const kusy = detail?.ai?.kusy.filter(one => one.typ) ?? [];
 
-  return (
-    <div className="zk-schvaleni">
-      <div className="zk-schvaleni-hlava">
-        <div className="zk-schvaleni-stav">
-          <b>Schváleno {pocty.schvaleno} z {pocty.vse}</b>
-          <span className="desc">
-            připraveno AI {pocty.pripraveno} · ke schválení {pocty.keSchvaleni} · bez přípravy {pocty.bezAi}
-          </span>
-          <span className="zk-pruh zk-pruh-dvojity">
-            <i className="pripraveno" style={{ width: `${(pocty.pripraveno / Math.max(1, pocty.vse)) * 100}%` }} />
-            <i style={{ width: `${(pocty.schvaleno / Math.max(1, pocty.vse)) * 100}%` }} />
-          </span>
-        </div>
-        <div className="zk-akce">
-          {pripravuji ? (
-            <span className="zk-schvaleni-bezi"><span className="spin" /> Připravuji {pripravuji.hotovo} z {pripravuji.celkem} — schvaluj, co je hotové</span>
-          ) : (
-            <button className="btn primary" disabled={!pocty.bezAi || !!pracuje} onClick={() => void pripravit()}
-              data-tip="AI projde všechny fotky, pozná látku a změří velikost vzoru. Po čtyřech produktech naráz.">
-              <Icon name="sparkles" size={13} /> Připravit AI ({pocty.bezAi}) · ~{pocty.bezAi} Kč
-            </button>
-          )}
-          <select value={filtr} onChange={e => { setFiltr(e.target.value as FiltrFronty); setKod(''); }} aria-label="Které produkty">
-            <option value="ke_schvaleni">Ke schválení ({pocty.keSchvaleni})</option>
-            <option value="bez_ai">Bez přípravy ({pocty.bezAi})</option>
-            <option value="schvalene">Schválené ({pocty.schvaleno})</option>
-            <option value="vse">Všechny ({pocty.vse})</option>
-          </select>
-          <label className="zk-zaskrt" data-tip="Zákazník uvidí jen produkty, které jsi tady schválil">
-            <input type="checkbox" checked={jenSchvalene} onChange={async e => {
-              setJenSchvalene(await api.zk.jenSchvalene(e.target.checked));
-            }} />
-            do kabiny jen schválené
-          </label>
-        </div>
-      </div>
-
-      {!ted ? (
-        <p className="desc zk-schvaleni-prazdno">
-          {filtr === 'ke_schvaleni'
-            ? (pocty.bezAi ? 'Nic nečeká. „Připravit AI" připraví produkty bez přípravy — schvalovat jde hned, jak je první hotový.' : 'Všechno je schválené.')
-            : 'V tomhle výběru nic není.'}
-        </p>
-      ) : (
+  const teloDetailu = !ted ? null : (
         <div className="zk-schvaleni-telo">
           <figure className="zk-schvaleni-model">
             {typeof nahled === 'string'
               ? <span className="zk-potiz">{nahled}</span>
-              : nahled ? <img src={nahled.obraz} alt={`${ted.nazev} na modelu`} /> : <span className="spin" />}
+              : nahled ? <img src={(otevreno && velke[ted.kod]) || nahled.obraz} alt={`${ted.nazev} na modelu`} /> : <span className="spin" />}
             {nahled && typeof nahled !== 'string' && nahled.vykresleno && <figcaption className="zk-odznak ok">vykresleno AI</figcaption>}
           </figure>
 
@@ -1538,9 +1588,116 @@ function SchvalovaniPanel({ pracuje, setPracuje }: { pracuje: string; setPracuje
             </div>
           </div>
         </div>
+  );
+
+  return (
+    <div className="zk-schvaleni">
+      <div className="zk-schvaleni-hlava">
+        <div className="zk-schvaleni-stav">
+          <b>Schváleno {pocty.schvaleno} z {pocty.vse}</b>
+          <span className="desc">
+            připraveno AI {pocty.pripraveno} · ke schválení {pocty.keSchvaleni} · bez přípravy {pocty.bezAi}
+          </span>
+          <span className="zk-pruh zk-pruh-dvojity">
+            <i className="pripraveno" style={{ width: `${(pocty.pripraveno / Math.max(1, pocty.vse)) * 100}%` }} />
+            <i style={{ width: `${(pocty.schvaleno / Math.max(1, pocty.vse)) * 100}%` }} />
+          </span>
+        </div>
+        <div className="zk-akce">
+          {pripravuji ? (
+            <span className="zk-schvaleni-bezi"><span className="spin" /> Připravuji {pripravuji.hotovo} z {pripravuji.celkem} — schvaluj, co je hotové</span>
+          ) : (
+            <button className="btn primary" disabled={!pocty.bezAi || !!pracuje} onClick={() => void pripravit()}
+              data-tip="AI projde všechny fotky, pozná látku a změří velikost vzoru. Po čtyřech produktech naráz.">
+              <Icon name="sparkles" size={13} /> Připravit AI ({pocty.bezAi}) · ~{pocty.bezAi} Kč
+            </button>
+          )}
+          <select value={filtr} onChange={e => { setFiltr(e.target.value as FiltrFronty); setKod(''); }} aria-label="Které produkty">
+            <option value="ke_schvaleni">Ke schválení ({pocty.keSchvaleni})</option>
+            <option value="bez_ai">Bez přípravy ({pocty.bezAi})</option>
+            <option value="schvalene">Schválené ({pocty.schvaleno})</option>
+            <option value="vse">Všechny ({pocty.vse})</option>
+          </select>
+          <div className="pk-seg" role="group" aria-label="Zobrazení">
+            <button className={`pk-seg-btn ${pohled === 'mrizka' ? 'on' : ''}`} onClick={() => setPohled('mrizka')}>Mřížka</button>
+            <button className={`pk-seg-btn ${pohled === 'jeden' ? 'on' : ''}`} onClick={() => { setPohled('jeden'); setOtevreno(false); }}>Po jednom</button>
+          </div>
+          <label className="zk-zaskrt" data-tip="Zákazník uvidí jen produkty, které jsi tady schválil">
+            <input type="checkbox" checked={jenSchvalene} onChange={async e => {
+              setJenSchvalene(await api.zk.jenSchvalene(e.target.checked));
+            }} />
+            do kabiny jen schválené
+          </label>
+        </div>
+      </div>
+
+      {pohled === 'jeden' && (!ted ? (
+        <p className="desc zk-schvaleni-prazdno">
+          {filtr === 'ke_schvaleni'
+            ? (pocty.bezAi ? 'Nic nečeká. „Připravit AI" připraví produkty bez přípravy — schvalovat jde hned, jak je první hotový.' : 'Všechno je schválené.')
+            : 'V tomhle výběru nic není.'}
+        </p>
+      ) : teloDetailu)}
+
+      {pohled === 'mrizka' && (
+        <>
+          <div className="zk-mrizka-lista">
+            <label className="zk-zaskrt">
+              <input type="checkbox" checked={videt.length > 0 && videt.every(one => vybrane.has(one.kod))}
+                onChange={e => setVybrane(e.target.checked ? new Set(videt.map(one => one.kod)) : new Set())} />
+              vybrat vše ({videt.length})
+            </label>
+            {vybrane.size > 0 && (
+              <>
+                <span className="desc">vybráno {vybrane.size}</span>
+                <button className="btn primary" disabled={!!pripravuji} onClick={() => void pripravit([...vybrane])}
+                  data-tip="AI projde fotky vybraných, pozná látku a změří vzor (~1 Kč za produkt, čtyři naráz)">
+                  <Icon name="sparkles" size={13} /> Připravit AI ({vybrane.size}) · ~{vybrane.size} Kč
+                </button>
+                <button className="btn ghost" onClick={() => void schvalitVybrane(true)}><Icon name="check" size={13} /> Schválit vybrané</button>
+                <button className="btn ghost" disabled={!!akce || !!pracuje} onClick={() => void vykreslitVybrane()}
+                  data-tip="AI nakreslí vybrané kusy celé na model (jeden obrázek na kus a postavu, ~5 Kč, tři naráz)">
+                  {akce ? <span className="spin" /> : <Icon name="image" size={13} />} Vykreslit AI ({vybrane.size})
+                </button>
+                <button className="btn ghost" onClick={() => setVybrane(new Set())}>Zrušit výběr</button>
+              </>
+            )}
+          </div>
+          {!videt.length ? (
+            <p className="desc zk-schvaleni-prazdno">
+              {filtr === 'ke_schvaleni'
+                ? (pocty.bezAi ? 'Nic nečeká. „Připravit AI" připraví produkty bez přípravy — schvalovat jde hned, jak je první hotový.' : 'Všechno je schválené.')
+                : 'V tomhle výběru nic není.'}
+        </p>
+          ) : (
+            <div className="zk-mrizka-produktu">
+              {videt.map(one => (
+                <KartaProduktu key={one.kod} p={one} nahled={nahledy[one.kod]} vybrany={vybrane.has(one.kod)}
+                  onVyber={ano => vyber(one.kod, ano)} onNacti={() => void nactiNahled(one.kod)}
+                  onOtevri={() => { setKod(one.kod); setOtevreno(true); }} />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      {videt.length > 1 && (
+      {pohled === 'mrizka' && otevreno && ted && (
+        <div className="zk-popup" role="dialog" aria-label={ted.nazev}
+          onMouseDown={e => { if (e.target === e.currentTarget) setOtevreno(false); }}>
+          <div className="zk-popup-okno">
+            <div className="zk-popup-hlava">
+              <button className="icon-btn" onClick={() => posun(-1)} disabled={index <= 0} data-tip="Předchozí (←)"><Icon name="chevron-left" size={15} /></button>
+              <span className="desc">{index + 1} z {videt.length}</span>
+              <button className="icon-btn" onClick={() => posun(1)} disabled={index >= videt.length - 1} data-tip="Další (→)"><Icon name="chevron-right" size={15} /></button>
+              <span style={{ flex: 1 }} />
+              <button className="icon-btn" onClick={() => setOtevreno(false)} data-tip="Zavřít (Esc)"><Icon name="x" size={15} /></button>
+            </div>
+            {teloDetailu}
+          </div>
+        </div>
+      )}
+
+      {pohled === 'jeden' && videt.length > 1 && (
         <div className="zk-schvaleni-fronta" role="list">
           {videt.slice(Math.max(0, index - 6), index + 24).map(one => (
             <button key={one.kod} role="listitem" className={`zk-fronta-kus ${one.kod === ted?.kod ? 'on' : ''} ${one.schvaleno ? 'ok' : ''}`}

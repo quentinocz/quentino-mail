@@ -4,6 +4,7 @@ import { ZK_PODKLAD_HEX, ZkDruhFotky, ZkVrstvaTyp, ZkVek, barvaPodMapu, hardLigh
 import { Obraz, nacti, novyObraz, uloz } from './png';
 import * as px from './pixely';
 import * as store from './store';
+import { naZmenuSablony } from './sablony';
 import * as obrazky from './obrazky';
 import { fotkyProduktu, proKabinu, stahniFotku } from './produkty';
 
@@ -508,6 +509,173 @@ export async function vykresliKus(
   return { kod, cast, postava: postavaId, stav: potiz ? 'nesedi' : 'hotovo', potiz };
 }
 
+/* ------------------------------------------------- nová šablona, stará kresba */
+
+/** Úseky masky v jednom řádku (od, do včetně). */
+function useky(maska: Uint8Array, w: number, y: number): [number, number][] {
+  const out: [number, number][] = [];
+  let od = -1;
+  for (let x = 0; x < w; x++) {
+    const v = maska[y * w + x];
+    if (v && od < 0) od = x;
+    if (!v && od >= 0) { out.push([od, x - 1]); od = -1; }
+  }
+  if (od >= 0) out.push([od, w - 1]);
+  return out;
+}
+
+/**
+ * Kresba od AI přetvarovaná na nový tvar šablony — bez nového kreslení.
+ *
+ * Patrik (25. 11.): „bylo by dobré, kdyby AI vygenerované obrázky se
+ * nemusely znovu generovat, kdyby se změnila šablona, ale dokázaly se
+ * přizpůsobit, ideálně bez AI". Kravata se po posunu límce nebo pasu
+ * jen posune, prodlouží nebo zúží; realistická šablona doladí obrys
+ * o pár bodů. Kresba se proto přetáhne **řádek po řádku**: výška podle
+ * horního a dolního okraje tvaru, v každém řádku každý úsek (list
+ * kravaty, pásek kšand) na odpovídající úsek nového tvaru. Vzor
+ * i záhyby zůstanou, jen se natáhnou o tolik, o kolik se změnil tvar.
+ *
+ * `stara`: kresba (s průhledností tvaru, ve kterém vznikla) a její
+ * obdélník na postavě; `nova`: šablona přes celé plátno. Vrací novou
+ * kresbu ve stejném měřítku (`m` bodů kresby na bod postavy).
+ */
+export function prizpusobKresbu(
+  stara: Obraz,
+  r: { x: number; y: number; w: number; h: number },
+  nova: Obraz,
+  m = MERITKO
+): { obraz: Obraz; x: number; y: number; w: number; h: number; shoda: number } | null {
+  /* Starý tvar v bodech kresby, nový v bodech postavy → obojí na měřítko kresby */
+  const W0 = stara.sirka; const H0 = stara.vyska;
+  const stary = new Uint8Array(W0 * H0);
+  for (let i = 0; i < stary.length; i++) stary[i] = stara.body[i * 4 + 3] > 128 ? 255 : 0;
+  const maskaNove = new Uint8Array(nova.sirka * nova.vyska);
+  for (let i = 0; i < maskaNove.length; i++) maskaNove[i] = nova.body[i * 4 + 3] > 8 ? 255 : 0;
+  const kde = px.okraje(maskaNove, nova.sirka, nova.vyska);
+  if (!kde.w) return null;
+  const okraj = 4;
+  const r2 = {
+    x: Math.max(0, kde.x - okraj), y: Math.max(0, kde.y - okraj),
+    w: Math.min(nova.sirka, kde.x + kde.w + okraj) - Math.max(0, kde.x - okraj),
+    h: Math.min(nova.vyska, kde.y + kde.h + okraj) - Math.max(0, kde.y - okraj)
+  };
+  const tvar = px.prevzorkuj(px.vyrizniObdelnik(nova, r2), r2.w * m, r2.h * m);
+  const W1 = tvar.sirka; const H1 = tvar.vyska;
+  const novy = new Uint8Array(W1 * H1);
+  for (let i = 0; i < novy.length; i++) novy[i] = tvar.body[i * 4 + 3] > 128 ? 255 : 0;
+
+  /* Shoda tvarů na postavě — skoro stejné se nepřetahuje (jen by se rozmazalo) */
+  let oba = 0; let jeden = 0;
+  for (let gy = Math.min(r.y, r2.y); gy < Math.max(r.y + r.h, r2.y + r2.h); gy++) {
+    for (let gx = Math.min(r.x, r2.x); gx < Math.max(r.x + r.w, r2.x + r2.w); gx++) {
+      const sx = Math.round((gx - r.x) * m + m / 2); const sy = Math.round((gy - r.y) * m + m / 2);
+      const a = sx >= 0 && sy >= 0 && sx < W0 && sy < H0 && stary[sy * W0 + sx] > 0;
+      const nx = Math.round((gx - r2.x) * m + m / 2); const ny = Math.round((gy - r2.y) * m + m / 2);
+      const b = nx >= 0 && ny >= 0 && nx < W1 && ny < H1 && novy[ny * W1 + nx] > 0;
+      if (a && b) oba += 1;
+      if (a || b) jeden += 1;
+    }
+  }
+  const shoda = jeden ? oba / jeden : 1;
+
+  /* Svislé okraje obou tvarů (v bodech postavy) */
+  const radky = (mm: Uint8Array, w: number, h: number) => {
+    let od = -1; let po = -1;
+    for (let y = 0; y < h; y++) {
+      let je = false;
+      for (let x = 0; x < w; x++) if (mm[y * w + x]) { je = true; break; }
+      if (je) { if (od < 0) od = y; po = y; }
+    }
+    return { od, po };
+  };
+  const rs = radky(stary, W0, H0); const rn = radky(novy, W1, H1);
+  if (rs.od < 0 || rn.od < 0) return null;
+
+  const out = novyObraz(W1, H1);
+  const vzorek = (x: number, y: number, c: number) => {
+    const x0 = Math.max(0, Math.min(W0 - 1, Math.floor(x))); const y0 = Math.max(0, Math.min(H0 - 1, Math.floor(y)));
+    const x1 = Math.min(W0 - 1, x0 + 1); const y1 = Math.min(H0 - 1, y0 + 1);
+    const tx = Math.max(0, Math.min(1, x - x0)); const ty = Math.max(0, Math.min(1, y - y0));
+    const v = (xx: number, yy: number) => stara.body[(yy * W0 + xx) * 4 + c];
+    return (v(x0, y0) * (1 - tx) + v(x1, y0) * tx) * (1 - ty) + (v(x0, y1) * (1 - tx) + v(x1, y1) * tx) * ty;
+  };
+  for (let y = 0; y < H1; y++) {
+    const nove = useky(novy, W1, y);
+    if (!nove.length) continue;
+    const t = rn.po > rn.od ? (y - rn.od) / (rn.po - rn.od) : 0;
+    let ys = Math.round(rs.od + t * (rs.po - rs.od));
+    let stare = useky(stary, W0, Math.max(0, Math.min(H0 - 1, ys)));
+    /* Řádek bez kresby (nový tvar je jinde delší) — nejbližší řádek, kde kresba je */
+    for (let d = 1; !stare.length && d < 40; d++) {
+      for (const kand of [ys - d, ys + d]) {
+        if (kand < 0 || kand >= H0 || stare.length) continue;
+        const u = useky(stary, W0, kand);
+        if (u.length) { stare = u; ys = kand; }
+      }
+    }
+    if (!stare.length) continue;
+    /* Párování úseků: stejný počet po pořadí, jinak celý rozsah na celý rozsah */
+    const pary: [[number, number], [number, number]][] = nove.length === stare.length
+      ? nove.map((u, i) => [u, stare[i]])
+      : [[[nove[0][0], nove[nove.length - 1][1]], [stare[0][0], stare[stare.length - 1][1]]]];
+    const yOld = rs.od + t * (rs.po - rs.od);
+    for (const [[a0, a1], [b0, b1]] of pary) {
+      for (let x = a0; x <= a1; x++) {
+        const i = (y * W1 + x) * 4;
+        if (!novy[y * W1 + x] && pary.length > 1) continue;
+        const u = a1 > a0 ? (x - a0) / (a1 - a0) : 0.5;
+        const xs = b0 + u * (b1 - b0);
+        out.body[i] = Math.round(vzorek(xs, yOld, 0));
+        out.body[i + 1] = Math.round(vzorek(xs, yOld, 1));
+        out.body[i + 2] = Math.round(vzorek(xs, yOld, 2));
+        out.body[i + 3] = tvar.body[i + 3];
+      }
+    }
+  }
+  return { obraz: out, x: r2.x, y: r2.y, w: r2.w, h: r2.h, shoda };
+}
+
+/**
+ * Po změně šablony přizpůsobí všechna vykreslení té šablony na postavě.
+ * Volá se samo (sablony.naZmenuSablony); vrací počet přizpůsobených.
+ */
+export function prizpusobVykresleni(postavaId: string, typ: ZkVrstvaTyp, varianta: string): number {
+  const sablona = nactiVrstvu(postavaId, typ, varianta);
+  if (!sablona) return 0;
+  const p = store.postava(postavaId);
+  let hotovo = 0;
+  for (const v of store.vykresleni().filter(one => one.postava === postavaId && one.typ === typ && one.varianta === varianta)) {
+    if (!v.soubor || !fs.existsSync(v.soubor)) continue;
+    try {
+      const stara = nacti(fs.readFileSync(v.soubor));
+      const m = stara.sirka / Math.max(1, v.w);
+      const r = prizpusobKresbu(stara, { x: v.x, y: v.y, w: v.w, h: v.h }, sablona, m);
+      if (!r || r.shoda > 0.985) continue;
+      fs.writeFileSync(v.soubor, uloz(r.obraz));
+      /* Náhled do okna znovu: kus na modelu */
+      if (p && v.nahled) {
+        const scena = kulisa(postavaId, typ === 'kapesnicek', p.sirka, p.vyska);
+        if (scena) {
+          const rr = { x: r.x, y: r.y, w: r.w, h: r.h };
+          const maly = px.slozeni([{ obraz: px.vyrizniObdelnik(scena, rr) }, { obraz: px.prevzorkuj(r.obraz, r.w, r.h) }], r.w, r.h);
+          const zm = Math.min(1, 320 / Math.max(r.w, r.h));
+          fs.writeFileSync(v.nahled, uloz(px.prevzorkuj(maly, Math.max(1, Math.round(r.w * zm)), Math.max(1, Math.round(r.h * zm)))));
+        }
+      }
+      store.zapisVykresleni({
+        ...v, x: r.x, y: r.y, w: r.w, h: r.h,
+        potiz: v.potiz && !/Přizpůsobeno/.test(v.potiz) ? v.potiz : '',
+        kdy: v.kdy
+      });
+      hotovo += 1;
+    } catch { /* poškozená kresba zůstane, jak byla */ }
+  }
+  return hotovo;
+}
+
+naZmenuSablony((postava, typ, varianta) => { prizpusobVykresleni(postava, typ, varianta); });
+
 /* ------------------------------------------------------------ dávka */
 
 /** Které postavy se ke kusu hodí: podle věku produktu, dospělý jinak. */
@@ -621,7 +789,7 @@ export async function vykresliVse(
  * Výřez je kolem kusu (kravata od límce po pas, motýlek s krkem), ať jsou
  * vidět detaily vzoru.
  */
-export function nahledProduktu(kod: string, postavaId?: string): { obraz: string; postava: string; vykresleno: boolean } {
+export function nahledProduktu(kod: string, postavaId?: string, vyska = 560): { obraz: string; postava: string; vykresleno: boolean } {
   const row = store.produktyRows().find(one => one.kod === kod);
   if (!row || !row.typ) throw new Error('Produkt nemá zařazení v kabině.');
   const proVek = proKabinu(1000, true).find(one => one.kod === kod)?.proVek;
@@ -668,7 +836,9 @@ export function nahledProduktu(kod: string, postavaId?: string): { obraz: string
   const y = Math.max(0, Math.min(p.vyska - h, o.y + o.h / 2 - h / 2));
   const r = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
   const slozene = px.vyrizniObdelnik(px.slozeni(vrstvy, p.sirka, p.vyska), r);
-  const k = Math.min(1, 560 / r.h);
+  /* Velký náhled (okno nad mřížkou) v plném rozlišení výřezu, malý pro mřížku zmenšený */
+  const cil = Math.max(200, Math.min(2400, vyska));
+  const k = Math.min(1, cil / r.h);
   const maly = px.prevzorkuj(slozene, Math.max(1, Math.round(r.w * k)), Math.max(1, Math.round(r.h * k)));
   for (let i = 0; i < maly.body.length; i += 4) {
     const a = maly.body[i + 3] / 255;
@@ -720,4 +890,4 @@ export function doKabiny(): Map<string, VykresleniDoKabiny[]> {
   return out;
 }
 
-export const __test = { vyrez, zkontroluj, paleta, shodaPalet, oblecVzorkem };
+export const __test = { vyrez, zkontroluj, paleta, shodaPalet, oblecVzorkem, prizpusobKresbu };

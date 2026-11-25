@@ -4,7 +4,7 @@ import { Obraz, nacti, novyObraz, uloz } from './png';
 import * as px from './pixely';
 import * as store from './store';
 import * as obrazky from './obrazky';
-import { AI_SABLONA, REVIZE, kotvyPostavy, nakresliSablonu, popisSablony } from './sablony';
+import { AI_SABLONA, REVIZE, kotvyPostavy, nakresliSablonu, popisSablony, sablonaZmenena } from './sablony';
 import { kulisa, poSkupinach, soubezne, vyrez } from './vykresleni';
 
 /**
@@ -161,6 +161,7 @@ function zapisSablonu(postavaId: string, typ: ZkVrstvaTyp, varianta: string, obr
     kov: kovSoubor
   };
   store.zapisVrstvu(vrstva);
+  sablonaZmenena(postavaId, typ, varianta);
   return vrstva;
 }
 

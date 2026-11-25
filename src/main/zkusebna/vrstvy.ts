@@ -641,7 +641,8 @@ export function vytahniZPostavy(
      */
     let maska = px.maskaBarvy(obraz, signalniBarva(def.typ), 30, 0.25, 22);
     for (let i = 0; i < maska.length; i++) if (!silueta[i]) maska[i] = 0;
-    maska = px.jenVelke(px.zavriDiry(maska, obraz.sirka, obraz.vyska, 3), obraz.sirka, obraz.vyska, 0.05);
+    maska = px.jenVelke(px.vyplnDiry(px.zavriDiry(maska, obraz.sirka, obraz.vyska, 3), obraz.sirka, obraz.vyska,
+      Math.round(obraz.sirka * obraz.vyska * 0.0006)), obraz.sirka, obraz.vyska, 0.05);
     for (let i = 0; i < maska.length; i++) if (maska[i]) vse[i] = 255;
     if (jen && jen !== def.typ) continue;
     const kde = px.okraje(maska, obraz.sirka, obraz.vyska);
@@ -915,7 +916,9 @@ export function vrstvaZObrazku(
   }
   /* Odlesk na látce odstín ztratí a knoflík ho nemá vůbec — díry se
      zavřou, ať jimi na modelu neprosvítá košile */
-  const zavrena = px.zavriDiry(maska, zaklad.sirka, zaklad.vyska, 4);
+  /* Knoflík je na to moc velký — uzavřené díry do zhruba 3 × 3 cm se zalepí celé */
+  const zavrena = px.vyplnDiry(px.zavriDiry(maska, zaklad.sirka, zaklad.vyska, 4), zaklad.sirka, zaklad.vyska,
+    Math.round(zaklad.sirka * zaklad.vyska * 0.0006));
   /*
    * A pak jen to, co leží na postavě. Kreslicí barvou vymalované
    * pozadí vedle postavy je souvislá skvrna, která se siluety

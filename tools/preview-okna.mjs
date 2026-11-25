@@ -2710,6 +2710,21 @@ for (const okno of OKNA) {
    * produkty se schvalují jeden po druhém podle toho, jak vypadají na
    * modelu, s kontrolou měřítka vzoru. Enter = schválit a další.
    */
+  /* Mřížka: karta s náhledem na modelu, výběr a hromadné akce; klik otevře velký náhled */
+  await page.waitForTimeout(400);
+  const mrizka = await page.evaluate(() => ({
+    karet: document.querySelectorAll('.zk-karta-produktu').length,
+    model: !!document.querySelector('.zk-karta-produktu .zk-karta-model img')
+  }));
+  await page.locator('.zk-mrizka-lista input[type="checkbox"]').check();
+  const lista = (await page.locator('.zk-mrizka-lista').textContent() ?? '').replace(/\s+/g, ' ');
+  say('příprava a schválení: mřížka produktů s náhledem na modelu a hromadné akce',
+    mrizka.karet === 1 && mrizka.model && /Připravit AI \(1\)/.test(lista) && /Schválit vybrané/.test(lista) && /Vykreslit AI \(1\)/.test(lista),
+    `${mrizka.karet} karet · ${lista.slice(0, 90)}`);
+  await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-mrizka.png') });
+  await page.locator('.zk-mrizka-lista input[type="checkbox"]').uncheck();
+  await page.locator('.zk-karta-produktu').first().click();
+  await page.waitForTimeout(500);
   const schvaleni = await page.evaluate(() => {
     const el = document.querySelector('.zk-schvaleni');
     return {
@@ -2730,13 +2745,15 @@ for (const okno of OKNA) {
       && /312 bodů/.test(schvaleni.mira) && /změřeno/.test(schvaleni.mira) && /3,5 motivu/.test(schvaleni.mira)
       && schvaleni.kontrola && !schvaleni.pretika,
     `${schvaleni.stav} · ${schvaleni.pripravit} · ${schvaleni.fotek} fotek (${schvaleni.role}) · ${schvaleni.mira.slice(0, 80)}`);
-  await page.locator('.zk-schvaleni').screenshot({ path: path.join(SHOTS, 'okno-kabina-schvaleni.png') });
+  say('  klik na kartu otevře okno s velkým náhledem', await page.locator('.zk-popup .zk-schvaleni-model img').isVisible());
+  await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-schvaleni.png') });
   await page.locator('.zk-schvaleni-nazev h3').click();
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   const schvalil = await page.evaluate(() => (window.__calls || []).filter(one => one[0] === 'zk:produkt').pop() || null);
   say('  Enter schválí a jde na další', !!schvalil && schvalil[1] === 'KRA1' && schvalil[2] && schvalil[2].schvaleno === true,
     schvalil ? JSON.stringify(schvalil.slice(1)) : 'nic se neposlalo');
+  await page.keyboard.press('Escape');
   await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Zařazení a látky' }).click();
   await page.waitForTimeout(400);
   const produkty = await page.evaluate(() => ({
@@ -3136,6 +3153,14 @@ for (const okno of OKNA) {
   say('model jde přiblížit (na detail u krku)',
     poLupe.k > 2 && poLupe.m > predLupou.m * 2 && poLupe.zpet && poLupe.tah === 'none',
     `${poLupe.k}× · měřítko ${predLupou.m.toFixed(2)} → ${poLupe.m.toFixed(2)} · tah ${poLupe.tah}`);
+  /* Přiblížený model vyplní celou scénu — i pod tlačítky (Patrik, 25. 11.) */
+  const vyplni = await page.evaluate(() => {
+    const c = document.querySelector('.qkb-platno canvas').getBoundingClientRect();
+    const sc = document.querySelector('.qkb-scena').getBoundingClientRect();
+    const li = document.querySelector('.qkb-scena-lista').getBoundingClientRect();
+    return { sirka: Math.abs(c.width - sc.width) < 2, podTlacitky: c.bottom >= li.bottom - 1 && c.top <= li.top };
+  });
+  say('  přiblížený model vyplní celou scénu i pod tlačítky', vyplni.sirka && vyplni.podTlacitky, JSON.stringify(vyplni));
   /* Tah myší posouvá přiblížený obraz */
   const box = await page.locator('.qkb-platno canvas').boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);

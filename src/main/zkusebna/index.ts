@@ -6,7 +6,7 @@ import {
   vrstvaDef, vzhledDoTextu, vzhledZTextu
 } from '../../shared/zkusebna';
 import { nacti, uloz } from './png';
-import { zmensi } from './pixely';
+import { zalepDiryVrstvy, zmensi } from './pixely';
 import * as store from './store';
 import * as vrstvy from './vrstvy';
 import * as obrazky from './obrazky';
@@ -79,7 +79,30 @@ export function prehled(): ZkPrehled {
  * a posílat dvacet megabajtů do okna pokaždé, když se na postavu podívám,
  * by znamenalo čekat vteřiny na obrázky, které mají být palcové.
  */
+/**
+ * Jednorázová oprava vrstev uložených dřív: knoflíky saka byly díry,
+ * kterými prosvítala košile (Patrik, 25. 11.). Nové vrstvy je mají
+ * zalepené už při vystřižení; tady se zalepí ty stávající, bez modelu.
+ */
+export function opravDiryVrstev(): number {
+  if (getSetting('zkDiryV1', '') === '1') return 0;
+  let opraveno = 0;
+  for (const v of store.vrstvy()) {
+    if (!['sako', 'vesta', 'kosile', 'kalhoty'].includes(v.typ) || !v.soubor || !fs.existsSync(v.soubor)) continue;
+    try {
+      const o = nacti(fs.readFileSync(v.soubor));
+      if (zalepDiryVrstvy(o, Math.round(o.sirka * o.vyska * 0.0006)) > 0) {
+        fs.writeFileSync(v.soubor, uloz(o));
+        opraveno += 1;
+      }
+    } catch { /* poškozený soubor nechat být */ }
+  }
+  setSetting('zkDiryV1', '1');
+  return opraveno;
+}
+
 export function vrstvyPostavy(postavaId: string, sirkaNahledu = 150): ZkVrstvaProOkno[] {
+  opravDiryVrstev();
   const chci = new Map<string, ZkVrstva>();
   for (const one of store.vrstvy(postavaId)) chci.set(`${one.typ}:${one.varianta}`, one);
   const out: ZkVrstvaProOkno[] = [];
@@ -506,6 +529,7 @@ export function upravProdukt(kod: string, co: { typ?: ZkVrstvaTyp | ''; varianta
  * tím, odkud si bere vrstvy.
  */
 export function nahledKabiny(): ZkNahled {
+  opravDiryVrstev();
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   const klicovac = new Map(hotove.map(one => [`${one.postava}:${one.typ}:${one.varianta}`, one]));
   const { url, data } = stashKabinu(
