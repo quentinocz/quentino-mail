@@ -261,6 +261,9 @@ export const ZKUSEBNA: HelpTopic = {
     'Když v kabině chybí vypínač saka nebo vesty, řekne nad náhledem žlutý pruh, které postavě vrstva chybí.',
     'Nastavení → Revize podkladů → [Exportovat podklady]: ZIP se vším, z čeho se model skládá, k pečlivé '
       + 'kontrole a dotažení. Upravený se vrátí přes [Načíst upravené].',
+    'Produkty → Příprava a schválení: [Připravit AI] projde všechny fotky (čtyři produkty naráz), pozná látku '
+      + 'a změří velikost vzoru z kusu známé šířky. Pak produkt po produktu: na modelu, s fotkami a kontrolou '
+      + 'měřítka (fotka a vzor ve stejném měřítku). [Schválit a další] je Enter, šipky listují, R připraví znovu.',
     'Vizuály → [Realistické šablony]: AI jednou za postavu dokreslí kravaty, motýlky, kšandy a kapesníček '
       + 'realisticky (záhyby, uzel, spony). Vzor každého produktu jde dál z jeho fotky, takže to zlepší všechny '
       + 'produkty naráz. U jedné šablony tlačítko [Realisticky]; zpět na kreslenou [Vrátit kreslenou].',

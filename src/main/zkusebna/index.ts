@@ -2,7 +2,7 @@ import fs from 'fs';
 import { getSetting, setSetting } from '../db';
 import { encrypt } from '../secure';
 import {
-  ZkNahled, ZkPrehled, ZkProduktRadek, ZkVrstva, ZkVrstvaProOkno, ZkVrstvaTyp, ZK_KSANDY_DIL, ZK_VRSTVY,
+  ZkFrontaRadek, ZkNahled, ZkPrehled, ZkProduktRadek, ZkVrstva, ZkVrstvaProOkno, ZkVrstvaTyp, ZK_KSANDY_DIL, ZK_VRSTVY,
   vrstvaDef, vzhledDoTextu, vzhledZTextu
 } from '../../shared/zkusebna';
 import { nacti, uloz } from './png';
@@ -14,6 +14,7 @@ import * as ukazka from './ukazka';
 import * as rozpoznani from './rozpoznani';
 export * as revize from './revize';
 export * as vykresleni from './vykresleni';
+import * as vykresleniModul from './vykresleni';
 export * as realisticke from './realisticke';
 import * as realisticke from './realisticke';
 import * as produkty from './produkty';
@@ -395,8 +396,32 @@ export async function rozpoznejProdukt(kod: string) {
   return rozpoznani.rozpoznej(kod);
 }
 
-export async function rozpoznejProdukty(rozsah: 'sady' | 'vse', hlas?: (p: { hotovo: number; celkem: number; co: string }) => void) {
-  return rozpoznani.rozpoznejVse(rozsah === 'vse' ? 'vse' : 'sady', hlas);
+export async function rozpoznejProdukty(
+  rozsah: 'nove' | 'sady' | 'vse',
+  hlas?: (p: { hotovo: number; celkem: number; co: string; kod?: string }) => void,
+  kody?: string[]
+) {
+  return rozpoznani.rozpoznejVse(rozsah, hlas, kody);
+}
+
+/** Kolik produktů čeká na přípravu AI (rozpoznání s měřením vzoru). */
+export function kPriprave(): number {
+  return rozpoznani.kRozpoznani('nove').length;
+}
+
+function radekProduktu(row: store.ZkProduktRow, p: { nazev: string; obrazek?: string; cena?: string } | undefined): ZkProduktRadek {
+  return {
+    kod: row.kod, typ: row.typ, varianta: row.varianta, hex: row.hex, vzorek: row.vzorek,
+    rucne: row.rucne, velikosti: row.velikosti, schvaleno: row.schvaleno,
+    kontrola: row.kontrola || '',
+    meritko: row.meritko || 1,
+    casti: (row.casti ?? []).map(c => ({ typ: c.typ, varianta: c.varianta, hex: c.hex, vzorek: c.vzorek })),
+    ai: row.ai ?? null,
+    nazev: p?.nazev ?? row.kod,
+    obrazek: p?.obrazek ?? '',
+    cena: p?.cena ?? '',
+    vKabine: !!p && (!row.kontrola || row.schvaleno) && (!produkty.jenSchvalene() || row.schvaleno)
+  };
 }
 
 export function produktyPrehled(limit = 300): ZkProduktRadek[] {
@@ -406,21 +431,41 @@ export function produktyPrehled(limit = 300): ZkProduktRadek[] {
   const mapa = new Map(vKabine.map(one => [one.kod, one]));
   /* Co ke kontrole, napřed: na sadu, která čeká, se v seznamu čtyř set kusů jinak nenarazí */
   const serazene = [...rows].sort((a, b) => Number(!!b.kontrola && !b.schvaleno) - Number(!!a.kontrola && !a.schvaleno));
-  return serazene.slice(0, limit).map(row => {
-    const p = mapa.get(row.kod);
+  return serazene.slice(0, limit).map(row => radekProduktu(row, mapa.get(row.kod)));
+}
+
+/**
+ * Fronta ke schválení — celý katalog, ale jen to, co je potřeba na seznam.
+ *
+ * Celé řádky mají vzorky a kontrolní obrázky jako `data:` adresy; pět set
+ * produktů by bylo desítky megabajtů do okna při každém obnovení. Fronta
+ * nese kód, název, fotku a stav; detail jednoho produktu se načte zvlášť.
+ */
+export function fronta(): ZkFrontaRadek[] {
+  const vKabine = new Map(produkty.proKabinu(5000, true).map(one => [one.kod, one]));
+  const vykreslene = new Set(vykresleniModul.doKabiny().keys());
+  return store.produktyRows().filter(one => one.typ).map(row => {
+    const p = vKabine.get(row.kod);
     return {
-      kod: row.kod, typ: row.typ, varianta: row.varianta, hex: row.hex, vzorek: row.vzorek,
-      rucne: row.rucne, velikosti: row.velikosti, schvaleno: row.schvaleno,
-      kontrola: row.kontrola || '',
-      meritko: row.meritko || 1,
-      casti: (row.casti ?? []).map(c => ({ typ: c.typ, varianta: c.varianta, hex: c.hex, vzorek: c.vzorek })),
-      ai: row.ai ?? null,
-      nazev: p?.nazev ?? row.kod,
-      obrazek: p?.obrazek ?? '',
-      cena: p?.cena ?? '',
-      vKabine: !!p && (!row.kontrola || row.schvaleno)
+      kod: row.kod, nazev: p?.nazev ?? row.kod, obrazek: p?.obrazek ?? '', typ: row.typ, varianta: row.varianta,
+      schvaleno: row.schvaleno, kontrola: row.kontrola || '',
+      pripraveno: !!row.ai && (row.ai.verze ?? 1) >= rozpoznani.VERZE,
+      skladem: !!p,
+      vykresleno: vykreslene.has(row.kod),
+      sada: (row.casti?.length ?? 0) > 0
     };
   });
+}
+
+export function produktDetail(kod: string): ZkProduktRadek | null {
+  const row = store.produktyRows().find(one => one.kod === kod);
+  if (!row) return null;
+  return radekProduktu(row, produkty.proKabinu(5000, true).find(one => one.kod === kod));
+}
+
+export function jenSchvalene(hodnota?: boolean): boolean {
+  if (typeof hodnota === 'boolean') setSetting('zkJenSchvalene', hodnota ? '1' : '0');
+  return produkty.jenSchvalene();
 }
 
 /**

@@ -1,11 +1,11 @@
 import fs from 'fs';
 import { getSetting, setSetting } from '../db';
-import { ZK_PODKLAD_HEX, ZkVrstvaTyp, ZkVek, barvaPodMapu, hardLight } from '../../shared/zkusebna';
+import { ZK_PODKLAD_HEX, ZkDruhFotky, ZkVrstvaTyp, ZkVek, barvaPodMapu, hardLight } from '../../shared/zkusebna';
 import { Obraz, nacti, novyObraz, uloz } from './png';
 import * as px from './pixely';
 import * as store from './store';
 import * as obrazky from './obrazky';
-import { dekoduj, fotkyProduktu, proKabinu } from './produkty';
+import { fotkyProduktu, proKabinu, stahniFotku } from './produkty';
 
 /**
  * Produkt vykreslený na modelu — celý, ne jako dlaždice vzoru.
@@ -72,14 +72,37 @@ function druhKusu(typ: ZkVrstvaTyp, varianta: string): string {
   return typ;
 }
 
+const DRUH_PRO_MODEL: Record<string, string> = {
+  detail: 'a close-up of the product fabric',
+  cely: 'the product itself',
+  na_modelu: 'the product worn by a person — use it to judge how big the pattern is relative to the item',
+  sada: 'the product set',
+  baleni: 'the product in its box',
+  jine: 'the product'
+};
+
 /** Zadání pro model. Krátké a jednoznačné — každé slovo navíc je prostor pro fantazii. */
-export function zadaniVykresleni(typ: ZkVrstvaTyp, varianta: string, sada: boolean, popis = ''): string {
+export function zadaniVykresleni(
+  typ: ZkVrstvaTyp,
+  varianta: string,
+  sada: boolean,
+  popis = '',
+  druhyFotek: string[] = [],
+  mira?: { cm: number; motivu: number | null; co: string } | null
+): string {
   const kus = NAZVY_PRO_MODEL[druhKusu(typ, varianta)] ?? 'accessory';
+  const predlohy = druhyFotek.map((d, i) => `Image ${i + 2} shows ${DRUH_PRO_MODEL[d] ?? 'the product'}.`).join(' ');
+  const co = !mira ? '' : /pásku/.test(mira.co) ? 'strap is' : /motýlka/.test(mira.co) ? 'bow tie is (wing tip to wing tip)'
+    : /kapesníčku/.test(mira.co) ? 'pocket square edge is' : 'blade is (at its widest point)';
   return [
     'Image 1 is a studio photo of a model. Inside the transparent area of the mask there is a ' + kus
       + ' made by flatly mapping the real fabric of the product onto a template — colours and pattern scale are correct, but it looks flat.',
     'Repaint the masked area as a photorealistic ' + kus + ' that is EXACTLY the product shown in the other image(s):',
     'the same fabric, colours, pattern, pattern size and texture' + (typ === 'ksandy' ? ', the same metal parts and clips' : '') + '.',
+    predlohy,
+    mira ? `Real size: the ${co} ${String(mira.cm).replace(',', '.')} cm`
+      + (mira.motivu ? `, and the pattern motif repeats about ${mira.motivu} times across it` : '')
+      + ' — image 1 already has this pattern scale; keep the motifs exactly that big, do not enlarge or shrink them.' : '',
     'Keep the colours and the pattern scale you see in image 1; the pattern follows the folds and the direction of the ' + kus + '.',
     popis ? 'Product description: ' + popis.replace(/\s+/g, ' ').slice(0, 300) + '.' : '',
     sada ? 'The product photo shows a set — use only the ' + kus + ' from it.' : '',
@@ -87,6 +110,31 @@ export function zadaniVykresleni(typ: ZkVrstvaTyp, varianta: string, sada: boole
     'Real fabric with natural soft folds, depth and subtle highlights matching the soft studio light of image 1.',
     'Do not change anything outside the mask. Do not add any other object, text or logo.'
   ].filter(Boolean).join(' ');
+}
+
+/**
+ * Předlohy pro kreslení podle toho, co AI na fotkách poznala: nejdřív
+ * fotka, ze které je látka, pak další detaily a celý výrobek, nakonec
+ * jedna fotka na modelu (z ní je vidět, jak velký vzor na těle je).
+ * Krabice a cizí věci se neposílají. Nejvýš čtyři — víc model nepřečte
+ * líp, jen pomaleji.
+ */
+async function predlohy(row: store.ZkProduktRow, cast: number): Promise<{ obraz: Obraz; druh: ZkDruhFotky }[]> {
+  const ai = (row.ai?.fotky ?? []).filter(one => one.url);
+  let poradi: { url: string; druh: ZkDruhFotky }[];
+  if (ai.length) {
+    const hlavni = row.ai?.kusy.find(one => one.cast === cast)?.foto;
+    const vaha = (d: ZkDruhFotky) => ({ detail: 1, cely: 1, sada: 2, na_modelu: 3, jine: 8, baleni: 9 }[d] ?? 8);
+    poradi = ai.map((one, i) => ({ ...one, i }))
+      .filter(one => one.druh !== 'baleni' && one.druh !== 'jine')
+      .sort((a, b) => (a.i === hlavni ? -1 : b.i === hlavni ? 1 : vaha(a.druh) - vaha(b.druh) || a.i - b.i));
+    const modelu = poradi.filter(one => one.druh === 'na_modelu');
+    poradi = [...poradi.filter(one => one.druh !== 'na_modelu').slice(0, 3), ...modelu.slice(0, 1)].slice(0, 4);
+  } else {
+    poradi = fotkyProduktu(row.kod, 3).map(url => ({ url, druh: 'cely' as ZkDruhFotky }));
+  }
+  const stazene = await Promise.all(poradi.map(one => stahniFotku(one.url)));
+  return poradi.map((one, i) => ({ obraz: stazene[i]!, druh: one.druh })).filter(one => one.obraz);
 }
 
 /* --------------------------------------------------------- kreslíř */
@@ -266,7 +314,31 @@ export function oriznutaFotka(o: Obraz): Obraz {
 }
 
 /** Postava s kulisou v obvyklých barvách — model kreslí do známého prostředí. */
+const kulisy = new Map<string, { klic: string; obraz: Obraz }>();
+
+/**
+ * Postava s kulisou v obvyklých barvách — model kreslí do známého prostředí.
+ *
+ * Skládá se z pěti PNG po půldruhém megabajtu; při schvalování se kulisa
+ * ukazuje u každého produktu znovu, proto se drží v paměti, dokud se
+ * žádná z vrstev nezmění (klíčem jsou časy souborů).
+ */
 export function kulisa(postavaId: string, sako: boolean, sirka: number, vyska: number): Obraz | null {
+  const soubory = store.vrstvy(postavaId)
+    .filter(one => ['postava', 'boty', 'kalhoty', 'kosile', 'sako'].includes(one.typ) && one.soubor && fs.existsSync(one.soubor))
+    .map(one => `${one.typ}:${one.varianta}:${one.stav}:${fs.statSync(one.soubor).mtimeMs}`).join('|');
+  const klic = `${postavaId}|${sako}|${sirka}x${vyska}`;
+  const mam = kulisy.get(klic);
+  if (mam && mam.klic === soubory) return mam.obraz;
+  const obraz = slozKulisu(postavaId, sako, sirka, vyska);
+  if (obraz) {
+    kulisy.set(klic, { klic: soubory, obraz });
+    if (kulisy.size > 12) kulisy.delete(kulisy.keys().next().value as string);
+  }
+  return obraz;
+}
+
+function slozKulisu(postavaId: string, sako: boolean, sirka: number, vyska: number): Obraz | null {
   const zaklad = nactiVrstvu(postavaId, 'postava', 'zaklad');
   if (!zaklad) return null;
   const kusy: { obraz: Obraz; hex?: string }[] = [{ obraz: zaklad }];
@@ -378,19 +450,14 @@ export async function vykresliKus(
   const r = vyrez(kde, p.sirka, p.vyska, naCm);
 
   /* Fotky se stahují dřív než cokoli se zaplatí — bez fotky se nekreslí */
-  let fotky = moznosti.fotky ?? [];
-  if (!moznosti.fotky) {
-    for (const url of fotkyProduktu(kod).slice(0, 2)) {
-      try {
-        const odpoved = await fetch(url);
-        if (odpoved.ok) fotky.push(dekoduj(Buffer.from(await odpoved.arrayBuffer())));
-      } catch { /* bez fotky se to zkusí s druhou */ }
-    }
-  }
-  fotky = fotky.filter(one => one.sirka > 20).map(one => {
-    const o = oriznutaFotka(one);
+  const vybrane = moznosti.fotky
+    ? moznosti.fotky.map(obraz => ({ obraz, druh: 'cely' as ZkDruhFotky }))
+    : await predlohy(row, cast);
+  const fotky = vybrane.filter(one => one.obraz.sirka > 20).map(one => {
+    /* Na modelu se neořezává — jde o poměr vzoru k tělu a kravatě */
+    const o = one.druh === 'na_modelu' ? one.obraz : oriznutaFotka(one.obraz);
     const k = Math.min(1, 1024 / Math.max(o.sirka, o.vyska));
-    return k < 1 ? px.prevzorkuj(o, Math.round(o.sirka * k), Math.round(o.vyska * k)) : o;
+    return { druh: one.druh, obraz: k < 1 ? px.prevzorkuj(o, Math.round(o.sirka * k), Math.round(o.vyska * k)) : o };
   });
   if (!fotky.length) throw new Error('Produkt nemá fotku, podle které by se dal nakreslit.');
 
@@ -406,8 +473,9 @@ export async function vykresliKus(
   for (let i = 0; i < maska.body.length; i += 4) maska.body[i + 3] = tvarVyrezu.body[i + 3] > 8 ? 0 : 255;
 
   const sada = (row.casti?.length ?? 0) > 0;
-  const popis = row.ai?.kusy.find(one => one.cast === cast && one.typ)?.popis ?? '';
-  const vysledek = px.prevzorkuj(await kreslir(zadaniVykresleni(kus.typ, kus.varianta, sada, popis), vstup, maska, fotky), r.W, r.H);
+  const rozpoznany = row.ai?.kusy.find(one => one.cast === cast && one.typ);
+  const zadani = zadaniVykresleni(kus.typ, kus.varianta, sada, rozpoznany?.popis ?? '', fotky.map(one => one.druh), rozpoznany?.mira);
+  const vysledek = px.prevzorkuj(await kreslir(zadani, vstup, maska, fotky.map(one => one.obraz)), r.W, r.H);
   const k = zkontroluj(vstup, vysledek, tvarVyrezu);
   const potiz = k.potiz;
 
@@ -497,7 +565,7 @@ export async function poSkupinach<T>(
       try {
         await udelej(ukoly[poradi], poradi);
       } catch (e: any) {
-        if (/strop|klíč|verif|401|403|kredit|billing/i.test(String(e?.message ?? e))) stop = true;
+        if (/strop|klíč|API key|credit|verif|401|403|kredit|billing/i.test(String(e?.message ?? e))) stop = true;
         throw e;
       }
     }
@@ -539,6 +607,79 @@ export async function vykresliVse(
   } catch { /* chyba je v posledniChyba */ }
   setSetting('zkVykreslenoKdy', new Date().toISOString());
   return { hotovo, nesedi, chyb, posledniChyba };
+}
+
+/* ------------------------------------------------------- schvalování */
+
+/**
+ * Produkt na modelu tak, jak ho uvidí zákazník — složený tady, zadarmo.
+ *
+ * Patrik (25. 11.): „zaměř se i na UI/UX práce s katalogem a postupným
+ * vygenerováním a schválením každého produktu". Schvaluje se podle toho,
+ * jak kus vypadá **na modelu** (šablona + látka z fotky ve změřeném
+ * měřítku, nebo vykreslení od AI, když je), ne podle dlaždice vzorku.
+ * Výřez je kolem kusu (kravata od límce po pas, motýlek s krkem), ať jsou
+ * vidět detaily vzoru.
+ */
+export function nahledProduktu(kod: string, postavaId?: string): { obraz: string; postava: string; vykresleno: boolean } {
+  const row = store.produktyRows().find(one => one.kod === kod);
+  if (!row || !row.typ) throw new Error('Produkt nemá zařazení v kabině.');
+  const proVek = proKabinu(1000, true).find(one => one.kod === kod)?.proVek;
+  const postava = postavaId && store.postava(postavaId)?.hotovo ? postavaId
+    : postavyPro(proVek)[0] ?? store.postavy().find(one => one.hotovo)?.id;
+  const p = postava ? store.postava(postava) : null;
+  if (!p || !postava) throw new Error('Žádná postava není nakreslená — nejdřív Vizuály.');
+  const naCm = (p.podrazka - p.temeno) / Math.max(40, p.vyskaCm);
+  const kusy = [
+    { cast: -1, typ: row.typ as ZkVrstvaTyp, varianta: row.varianta, hex: row.hex, vzorek: row.vzorek, vzorekCm: row.vzorekCm },
+    ...(row.casti ?? []).map((c, i) => ({ cast: i, ...c }))
+  ];
+  const scena = kulisa(postava, kusy.some(one => one.typ === 'kapesnicek'), p.sirka, p.vyska);
+  if (!scena) throw new Error('Postava nemá základ.');
+  const vrstvy: { obraz: Obraz }[] = [{ obraz: scena }];
+  const kde = new Uint8Array(p.sirka * p.vyska);
+  let vykresleno = false;
+  const hotova = store.vykresleni(kod).filter(one => one.postava === postava && (one.stav === 'hotovo' || one.stav === 'schvaleno'));
+  /* Kšandy pod kravatou, kapesníček nakonec — stejně jako v kabině */
+  const poradi = (t: string) => (t === 'ksandy' ? 0 : t === 'kapesnicek' ? 2 : 1);
+  for (const k of [...kusy].sort((a, b) => poradi(a.typ) - poradi(b.typ))) {
+    const sablona = nactiVrstvu(postava, k.typ, k.varianta);
+    if (!sablona) continue;
+    for (let i = 0; i < kde.length; i++) if (sablona.body[i * 4 + 3] > 8) kde[i] = 255;
+    const v = hotova.find(one => one.cast === k.cast && one.varianta === k.varianta && one.soubor && fs.existsSync(one.soubor));
+    if (v) {
+      const maly = px.prevzorkuj(nacti(fs.readFileSync(v.soubor)), v.w, v.h);
+      vrstvy.push({ obraz: px.vlozObdelnik(novyObraz(p.sirka, p.vyska), maly, { x: v.x, y: v.y, w: v.w, h: v.h }) });
+      vykresleno = true;
+      continue;
+    }
+    vrstvy.push({ obraz: oblecVzorkem(sablona, k, row.meritko ?? 1, naCm) });
+    const kov = nactKovBezpecne(postava, k.typ, k.varianta);
+    if (kov) vrstvy.push({ obraz: kov });
+  }
+  const o = px.okraje(kde, p.sirka, p.vyska);
+  if (!o.w) throw new Error('Postava nemá šablonu pro tenhle kus — překresli šablony ve Vizuálech.');
+  /* Výřez: kus s okrajem, aspoň 22 cm na šířku, poměr 3 : 4 */
+  const okraj = 3 * naCm;
+  let w = Math.max(o.w + 2 * okraj, 22 * naCm); let h = Math.max(o.h + 2 * okraj, w * 4 / 3);
+  w = Math.max(w, h * 3 / 4);
+  w = Math.min(w, p.sirka); h = Math.min(h, p.vyska);
+  const x = Math.max(0, Math.min(p.sirka - w, o.x + o.w / 2 - w / 2));
+  const y = Math.max(0, Math.min(p.vyska - h, o.y + o.h / 2 - h / 2));
+  const r = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+  const slozene = px.vyrizniObdelnik(px.slozeni(vrstvy, p.sirka, p.vyska), r);
+  const k = Math.min(1, 560 / r.h);
+  const maly = px.prevzorkuj(slozene, Math.max(1, Math.round(r.w * k)), Math.max(1, Math.round(r.h * k)));
+  for (let i = 0; i < maly.body.length; i += 4) {
+    const a = maly.body[i + 3] / 255;
+    for (let c = 0; c < 3; c++) maly.body[i + c] = Math.round(maly.body[i + c] * a + 246 * (1 - a));
+    maly.body[i + 3] = 255;
+  }
+  return { obraz: `data:image/png;base64,${uloz(maly).toString('base64')}`, postava, vykresleno };
+}
+
+function nactKovBezpecne(postava: string, typ: ZkVrstvaTyp, varianta: string): Obraz | null {
+  try { return nactiKov(postava, typ, varianta); } catch { return null; }
 }
 
 /* ------------------------------------------------------------- okno */

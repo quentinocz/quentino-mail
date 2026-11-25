@@ -2680,7 +2680,41 @@ for (const okno of OKNA) {
   say('  zadání pro model jde přepsat a vrátit', zadani.pole === 1 && zadani.zpet, zadani.text);
 
   await page.locator('.zk-head-right .tab', { hasText: 'Produkty' }).click();
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(600);
+  /*
+   * Příprava a schválení (Patrik, 25. 11.): AI zpracování je hlavní cesta,
+   * produkty se schvalují jeden po druhém podle toho, jak vypadají na
+   * modelu, s kontrolou měřítka vzoru. Enter = schválit a další.
+   */
+  const schvaleni = await page.evaluate(() => {
+    const el = document.querySelector('.zk-schvaleni');
+    return {
+      stav: (el?.querySelector('.zk-schvaleni-stav')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      pripravit: (el?.querySelector('.zk-schvaleni-hlava .btn.primary')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      nazev: el?.querySelector('.zk-schvaleni-nazev h3')?.textContent ?? '',
+      model: !!el?.querySelector('.zk-schvaleni-model img'),
+      fotek: el?.querySelectorAll('.zk-schvaleni-fotky figure').length ?? 0,
+      role: [...(el?.querySelectorAll('.zk-schvaleni-fotky figcaption') ?? [])].map(one => one.textContent).join(', '),
+      mira: (el?.querySelector('.zk-schvaleni-kus')?.textContent ?? '').replace(/\s+/g, ' '),
+      kontrola: !!el?.querySelector('.zk-meritko-kontrola'),
+      pretika: !!el && el.scrollWidth > el.clientWidth + 1
+    };
+  });
+  say('příprava a schválení: stav, AI příprava s cenou, produkt na modelu a měřítko vzoru',
+    /Schváleno 1 z 3/.test(schvaleni.stav) && /Připravit AI \(1\)/.test(schvaleni.pripravit) && /květy/.test(schvaleni.nazev)
+      && schvaleni.model && schvaleni.fotek === 3 && /na modelu/.test(schvaleni.role)
+      && /312 bodů/.test(schvaleni.mira) && /změřeno/.test(schvaleni.mira) && /3,5 motivu/.test(schvaleni.mira)
+      && schvaleni.kontrola && !schvaleni.pretika,
+    `${schvaleni.stav} · ${schvaleni.pripravit} · ${schvaleni.fotek} fotek (${schvaleni.role}) · ${schvaleni.mira.slice(0, 80)}`);
+  await page.locator('.zk-schvaleni').screenshot({ path: path.join(SHOTS, 'okno-kabina-schvaleni.png') });
+  await page.locator('.zk-schvaleni-nazev h3').click();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  const schvalil = await page.evaluate(() => (window.__calls || []).filter(one => one[0] === 'zk:produkt').pop() || null);
+  say('  Enter schválí a jde na další', !!schvalil && schvalil[1] === 'KRA1' && schvalil[2] && schvalil[2].schvaleno === true,
+    schvalil ? JSON.stringify(schvalil.slice(1)) : 'nic se neposlalo');
+  await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Zařazení a látky' }).click();
+  await page.waitForTimeout(400);
   const produkty = await page.evaluate(() => ({
     radku: document.querySelectorAll('.zk-radek').length,
     bezTypu: [...document.querySelectorAll('.zk-radek select')]

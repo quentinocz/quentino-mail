@@ -867,8 +867,16 @@ export function registerIpc() {
     if (res.canceled || !res.filePaths?.[0]) return null;
     return zkusebna.revize.importuj(res.filePaths[0]);
   });
-  handle('zk:rozpoznej-vse', (rozsah: string) =>
-    zkusebna.rozpoznejProdukty(rozsah === 'vse' ? 'vse' : 'sady', krok => emit('zk:katalog-krok', krok)));
+  handle('zk:rozpoznej-vse', (rozsah: string, kody?: string[]) =>
+    zkusebna.rozpoznejProdukty(rozsah === 'vse' ? 'vse' : rozsah === 'nove' ? 'nove' : 'sady', krok => emit('zk:katalog-krok', krok),
+      Array.isArray(kody) && kody.length ? kody.map(String) : undefined));
+  handle('zk:k-priprave', () => zkusebna.kPriprave());
+  handle('zk:fronta', () => zkusebna.fronta());
+  handle('zk:produkt-detail', (kod: string) => zkusebna.produktDetail(String(kod ?? '')));
+  handle('zk:jen-schvalene', (hodnota?: boolean) => zkusebna.jenSchvalene(typeof hodnota === 'boolean' ? hodnota : undefined));
+  // Produkt na modelu pro schvalování — složený v aplikaci, nic nestojí
+  handle('zk:nahled-produktu', (kod: string, postava?: string) =>
+    zkusebna.vykresleni.nahledProduktu(String(kod ?? ''), postava ? String(postava) : undefined));
   handle('zk:produkty', (limit: number) => zkusebna.produktyPrehled(Number(limit) || 300));
   handle('zk:produkt', (kod: string, co: any) => zkusebna.upravProdukt(String(kod ?? ''), co ?? {}));
   handle('zk:latka', (kod: string, cast: number, data: string) =>

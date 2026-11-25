@@ -1412,6 +1412,92 @@ const realistickeZkouska = async () => {
   sablony.vygenerujSablony(P);
 };
 
+/* ---------- 7i. měřítko vzoru změřené z fotky (AI ukáže, pixely změří) ---------- */
+
+const meritkoZkouska = async () => {
+  console.log('\nměřítko vzoru z fotky');
+  const store = require(path.join(DIST, 'zkusebna/store.js'));
+  const rozpoznani = require(path.join(DIST, 'zkusebna/rozpoznani.js'));
+  const mer = require(path.join(DIST, 'zkusebna/meritko.js'));
+  /*
+   * Patrik (25. 11.): „AI by měla dávat větší pozor i na velikost vzoru,
+   * jak se opakuje v reálu". Fotka: list kravaty šikmo (30°), široký
+   * 140 bodů u špičky a zužující se ke krku, s proužky napříč listem
+   * po 20 bodech. Kravata je 7 cm → proužek má mít 1 cm.
+   */
+  const W = 900; const H = 700; const uhel = Math.PI / 6;
+  const d = [Math.sin(uhel), Math.cos(uhel)]; const n = [Math.cos(uhel), -Math.sin(uhel)];
+  const foto = png.novyObraz(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const px0 = x - 420; const py0 = y - 300;
+    const u = px0 * n[0] + py0 * n[1]; const v = px0 * d[0] + py0 * d[1];
+    const pul = 50 + 20 * (v + 250) / 500;
+    const i = (y * W + x) * 4;
+    let c = [255, 255, 255];
+    if (Math.abs(v) < 250 && Math.abs(u) < pul) c = Math.floor((v + 1000) / 10) % 2 ? [190, 30, 40] : [20, 30, 80];
+    foto.body[i] = c[0]; foto.body[i + 1] = c[1]; foto.body[i + 2] = c[2]; foto.body[i + 3] = 255;
+  }
+  /* Čára od AI: přes list u špičky, o 10° nakřivo a přes okraje */
+  const bod = (v, u) => [(420 + d[0] * v + n[0] * u) / W, (300 + d[1] * v + n[1] * u) / H];
+  const [a1, a2] = bod(200 - 12, -78); const [b1, b2] = bod(200 + 12, 78);
+  let dotazMer = '';
+  rozpoznani.nastavZeptani(async (f, text) => ({
+    model: (dotazMer = text, 'podvrh'),
+    text: JSON.stringify({
+      fotky: [{ druh: 'cely' }, { druh: 'na_modelu' }],
+      kusy: [{ druh: 'kravata', popis: 'pruhovaná kravata', foto: 0, ram: [0.2, 0.05, 0.6, 0.9], latka: [0.45, 0.4, 0.05, 0.05],
+        mira: [a1, a2, b1, b2], motivu: 7, latkaCm: 2, barva: '#5a2030', lem: null, vzor: 'drobny', jistota: 0.9 }]
+    })
+  }));
+  store.zapisProdukt({ kod: 'MER1', typ: 'kravata', varianta: 'kravata', hex: '#808080', vzorek: '', rucne: false, velikosti: false, schvaleno: false, meritko: 1.6 });
+  const model = png.novyObraz(200, 300); for (let i = 3; i < model.body.length; i += 4) model.body[i] = 255;
+  await rozpoznani.rozpoznej('MER1', { fotky: [foto, model], nazev: 'Pruhovaná kravata', dokreslit: false });
+  const row = store.produktyRows().find(one => one.kod === 'MER1');
+  const kus = row.ai && row.ai.kusy[0];
+  ok('šířka kravaty se změří z pixelů (7 cm = 140 bodů), ne z odhadu AI',
+    !!kus && !!kus.mira && kus.mira.zMereni && Math.abs(kus.mira.bodu - 140) <= 8 && kus.mira.motivu === 7,
+    kus ? JSON.stringify(kus.mira) : 'nic');
+  ok('  vzorek má velikost podle měření (3/4 šířky = 5 cm), ruční doladění se vrátí na 100 %',
+    Math.abs(row.vzorekCm - 5.04) < 0.4 && row.meritko === 1, `${row.vzorekCm} cm, ${row.meritko}×`);
+  const t = png.nacti(Buffer.from(row.vzorek.split(',')[1], 'base64'));
+  let vodorovne = 0; let svisle = 0; let prechodu = 0;
+  const sloupec = Math.floor(t.sirka / 2);
+  for (let y = 1; y < t.vyska; y++) for (let x = 1; x < t.sirka; x++) {
+    const i = (y * t.sirka + x) * 4;
+    vodorovne += Math.abs(t.body[i] - t.body[i - 4]);
+    svisle += Math.abs(t.body[i] - t.body[i - t.sirka * 4]);
+  }
+  for (let y = 1; y < t.vyska; y++) {
+    const i = (y * t.sirka + sloupec) * 4; const j = ((y - 1) * t.sirka + sloupec) * 4;
+    if ((t.body[i] > 105) !== (t.body[j] > 105)) prechodu += 1;
+  }
+  const cmNaBod = row.vzorekCm / t.sirka;
+  /* Dva přechody na jedno opakování (tmavý + světlý proužek po 10 bodech = 20 bodů = 1 cm) */
+  const proužekCm = (2 * t.vyska / Math.max(1, prechodu)) * cmNaBod;
+  ok('  látka se vyřízne podél listu: proužky napříč kravatou jsou ve vzorku vodorovně',
+    svisle > vodorovne * 3, `svisle ${svisle}, vodorovně ${vodorovne}`);
+  ok('  a opakování vzoru má na modelu 1 cm jako ve skutečnosti', Math.abs(proužekCm - 1) < 0.15, `${proužekCm.toFixed(2)} cm`);
+  ok('  kontrola měřítka (fotka vedle vzorku) a role fotek jsou uložené',
+    !!kus.kontrolaMeritka && row.ai.verze === 2 && row.ai.fotky.length === 2 && row.ai.fotky[1].druh === 'na_modelu');
+  ok('  AI dostala skutečný rozměr kusu', /Real size of the main item: 7 cm/.test(dotazMer), dotazMer.slice(0, 160));
+
+  /* Čára mimo výrobek → zůstane délka čáry od AI, a ví se to */
+  const mimo = mer.zmerMeritko(foto, mer.maskaVyrobku(foto, require(path.join(DIST, 'zkusebna/pixely.js')).pozadiOdKraje(foto)),
+    [0.02, 0.9, 0.12, 0.9], 7, 'list');
+  ok('čára mimo výrobek: měřítko z délky čáry, označené jako odhad', !!mimo && !mimo.zMereni && Math.abs(mimo.bodu - 90) < 2,
+    mimo ? `${Math.round(mimo.bodu)} bodů` : 'nic');
+  const zad = require(path.join(DIST, 'zkusebna/vykresleni.js')).zadaniVykresleni('kravata', 'kravata', false, '', ['cely', 'na_modelu'],
+    { cm: 7, motivu: 3.5, co: 'šířka kravaty' });
+  ok('vykreslení: model ví, co je na které fotce, a jak velký vzor je (7 cm, 3,5 opakování)',
+    /Image 3 shows the product worn by a person/.test(zad) && /blade is \(at its widest point\) 7 cm/.test(zad) && /about 3.5 times/.test(zad), zad.slice(0, 120));
+  const zr = rozpoznani.__test.znamyRozmer;
+  ok('skutečný rozměr: z katalogu, jinak ze šablony',
+    zr('kravata', 'kravata', { sirkaCm: 7.5 }).cm === 7.5 && zr('ksandy', 'siroke').cm === 3.5
+      && zr('kapesnicek', 'spicka', { sirkaCm: 33 }).cm === 33 && zr('kravata', 'motylek').druh === 'rozpeti');
+  ok('rozsah „nové": kdo nemá přípravu s měřením', rozpoznani.kRozpoznani('nove').includes('REV1')
+    && !rozpoznani.kRozpoznani('nove').includes('MER1'));
+};
+
 /* ---------- 8. košík, velikosti, body na modelu ---------- */
 
 console.log('\nvzhled k nákupu');
@@ -2002,7 +2088,8 @@ console.log('\nskript pro e-shop');
 aiZkouska().catch(e => { failed += 1; console.log('  ✗ rozpoznání spadlo:', e && e.stack || e); })
   .then(() => revizeZkouska()).catch(e => { failed += 1; console.log('  ✗ revize spadla:', e && e.stack || e); })
   .then(() => vykresleniZkouska()).catch(e => { failed += 1; console.log('  ✗ vykreslení spadlo:', e && e.stack || e); })
-  .then(() => realistickeZkouska()).catch(e => { failed += 1; console.log('  ✗ realistické šablony spadly:', e && e.stack || e); }).then(() => {
+  .then(() => realistickeZkouska()).catch(e => { failed += 1; console.log('  ✗ realistické šablony spadly:', e && e.stack || e); })
+  .then(() => meritkoZkouska()).catch(e => { failed += 1; console.log('  ✗ měřítko vzoru spadlo:', e && e.stack || e); }).then(() => {
   console.log(failed ? `\n✗ ${failed} chyb` : '\n✓ zkušební kabina sedí');
   process.exit(failed ? 1 : 0);
 });

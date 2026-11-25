@@ -10737,6 +10737,50 @@ html[data-form-factor="phone"] .kat-preview { --kat-zoom: 0.38; }
 .zk-potiz { color: #a12828; }
 .zk-vykresleni-akce { display: flex; gap: 4px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 .zk-vykresleni-akce .btn { font-size: 11.5px; padding: 3px 8px; }
+/* ---- příprava a schválení produktů: jeden po druhém ---- */
+.zk-schvaleni { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.zk-schvaleni-hlava { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.zk-schvaleni-stav { display: flex; flex-direction: column; gap: 2px; flex: 1 1 260px; min-width: 0; }
+.zk-schvaleni-stav .desc { font-size: 12px; }
+.zk-pruh-dvojity { position: relative; height: 6px; }
+.zk-pruh-dvojity i { position: absolute; left: 0; top: 0; }
+.zk-pruh-dvojity i.pripraveno { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.zk-schvaleni-hlava .zk-akce { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.zk-schvaleni-bezi { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text-2); }
+.zk-schvaleni-prazdno { padding: 30px 0; text-align: center; }
+.zk-schvaleni-telo { display: grid; grid-template-columns: minmax(220px, 340px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.zk-schvaleni-model { position: relative; margin: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  background: #f6f6f6; aspect-ratio: 3 / 4; display: grid; place-items: center; }
+.zk-schvaleni-model img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.zk-schvaleni-model figcaption { position: absolute; left: 8px; top: 8px; }
+.zk-schvaleni-model .zk-potiz { padding: 16px; font-size: 12.5px; text-align: center; }
+.zk-schvaleni-info { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.zk-schvaleni-nazev h3 { margin: 0; font-size: 16px; }
+.zk-schvaleni-zarazeni { display: flex; gap: 6px; flex-wrap: wrap; }
+.zk-schvaleni-fotky { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.zk-schvaleni-fotky figure { margin: 0; flex: 0 0 auto; width: 92px; display: flex; flex-direction: column; gap: 3px; }
+.zk-schvaleni-fotky img, .zk-schvaleni-fotky .zk-chybi { width: 92px; height: 92px; object-fit: contain; border-radius: 8px;
+  background: #fff; border: 1px solid var(--border); display: block; }
+.zk-schvaleni-fotky figcaption { font-size: 10.5px; color: var(--text-3); text-align: center; }
+.zk-schvaleni-kus { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 10px; }
+.zk-schvaleni-kus > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12.5px; }
+.zk-schvaleni-kus .desc { font-size: 11.5px; }
+.zk-meritko-kontrola { width: 200px; max-width: 45%; height: auto; border-radius: 6px; flex: 0 0 auto; }
+.zk-schvaleni-info .zk-meritko input[type="range"] { width: 160px; }
+.zk-schvaleni-tlacitka { display: flex; gap: 8px; flex-wrap: wrap; }
+.zk-schvaleni-tlacitka kbd { font: 600 10px/1 inherit; padding: 2px 4px; border-radius: 4px; margin-left: 4px;
+  background: color-mix(in srgb, currentColor 14%, transparent); }
+.zk-schvaleni-listovani { display: flex; gap: 8px; align-items: center; }
+.zk-schvaleni-fronta { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 4px; }
+.zk-fronta-kus { position: relative; flex: 0 0 auto; width: 52px; height: 52px; padding: 0; border-radius: 8px;
+  border: 1px solid var(--border); background: #fff; cursor: pointer; overflow: hidden; }
+.zk-fronta-kus img, .zk-fronta-kus .zk-chybi { width: 100%; height: 100%; object-fit: contain; display: block; }
+.zk-fronta-kus.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.zk-fronta-kus.ok { opacity: .6; }
+.zk-fronta-fajfka { position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); color: #fff; display: grid; place-items: center; }
+.zk-fronta-ceka { position: absolute; right: 3px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: #d6a84a; }
+@media (max-width: 720px) { .zk-schvaleni-telo { grid-template-columns: 1fr; } }
 /* Realistická šablona: před / po od AI, u nepovedeného návrhu s volbou */
 .zk-ai-navrh { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 8px; background: var(--bg-2, #f4f4f5); }
 .zk-ai-navrh img { width: 100%; max-height: 220px; object-fit: contain; border-radius: 6px; background: #fff; }

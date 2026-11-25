@@ -1,4 +1,7 @@
 import { nativeImage } from 'electron';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import { ask } from '../ai';
 import { getSetting, setSetting } from '../db';
 import { listProducts } from '../products';
@@ -357,12 +360,45 @@ export async function zFotky(
 }
 
 /** Adresy fotek produktu z katalogu — hlavní a pár dalších. */
-export function fotkyProduktu(kod: string): string[] {
+export function fotkyProduktu(kod: string, kolik = 3): string[] {
   try {
     const row = getDb().prepare('SELECT image, images FROM products WHERE code = ?').get(kod) as { image?: string; images?: string } | undefined;
     const vse = [row?.image ?? '', ...String(row?.images ?? '').split('\n')].map(one => one.trim()).filter(Boolean);
-    return [...new Set(vse)].slice(0, 3);
+    return [...new Set(vse)].slice(0, kolik);
   } catch { return []; }
+}
+
+/**
+ * Fotka produktu — stažená jednou, pak z disku.
+ *
+ * Rozpoznání, vykreslení i „znovu" sahají na tytéž fotky; každé stažení
+ * z CDN je půl vteřiny až vteřina a u šesti fotek a tří kroků se to
+ * u pěti set produktů sčítá na hodiny čekání. Uloží se původní bajty
+ * (JPEG je malý), dekóduje se při použití.
+ */
+const fotkyVPameti = new Map<string, Obraz>();
+export async function stahniFotku(url: string): Promise<Obraz | null> {
+  const mam = fotkyVPameti.get(url);
+  if (mam) return mam;
+  const soubor = path.join(store.zkDir(), 'fotky', crypto.createHash('sha1').update(url).digest('hex'));
+  let data: Buffer | null = null;
+  try { if (fs.existsSync(soubor)) data = fs.readFileSync(soubor); } catch { /* stáhne se znovu */ }
+  if (!data) {
+    try {
+      const odpoved = await fetch(url);
+      if (!odpoved.ok) return null;
+      data = Buffer.from(await odpoved.arrayBuffer());
+      fs.mkdirSync(path.dirname(soubor), { recursive: true });
+      fs.writeFileSync(soubor, data);
+    } catch { return null; }
+  }
+  try {
+    const o = dekoduj(data);
+    /* Pár posledních v paměti — schvalování skáče mezi sousedními produkty */
+    fotkyVPameti.set(url, o);
+    if (fotkyVPameti.size > 24) fotkyVPameti.delete(fotkyVPameti.keys().next().value as string);
+    return o;
+  } catch { return null; }
 }
 
 /**
@@ -794,6 +830,15 @@ export function proVek(nazev: string, kategorie: string): ZkVek[] | undefined {
   return ['dospely'];
 }
 
+/**
+ * Do kabiny jen schválené produkty? Při postupném schvalování katalogu
+ * (Patrik, 25. 11.) se dá zapnout, ať zákazník nevidí kus, na který se
+ * ještě nikdo nepodíval. Vypnuto = jako dosud (schválit musí jen sady).
+ */
+export function jenSchvalene(): boolean {
+  return getSetting('zkJenSchvalene', '0') === '1';
+}
+
 export function proKabinu(limit = 400, vcetneKontroly = false): ZkProdukt[] {
   /* Jen zboží, které kabina zná — pásek z dřívějška tu už místo nemá */
   /*
@@ -802,9 +847,10 @@ export function proKabinu(limit = 400, vcetneKontroly = false): ZkProdukt[] {
    * věcí — „nedovolit je bez kontroly". Zákazník, který na takový produkt
    * klikne, dostane slušnou zprávu a podobné kusy (to dělá kabina).
    */
+  const jenSchvalene_ = jenSchvalene();
   const zarazene = store.produktyRows().filter(one => one.typ
     && ZK_VRSTVY.some(d => d.typ === one.typ && d.zbozi)
-    && (vcetneKontroly || !one.kontrola || one.schvaleno));
+    && (vcetneKontroly || ((!one.kontrola || one.schvaleno) && (!jenSchvalene_ || one.schvaleno))));
   if (zarazene.length === 0) return [];
   const mapa = new Map(zarazene.map(one => [one.kod, one]));
   const out: ZkProdukt[] = [];

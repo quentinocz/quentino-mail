@@ -3,13 +3,15 @@ import { client, recordUsage } from '../ai';
 import { getDb, getSetting, setSetting } from '../db';
 import { getSettings } from '../settings';
 import {
-  ZkCast, ZkRozpoznani, ZkRozpoznanyKus, ZkVrstvaTyp, rodinaVarianty
+  ZK_DRUHY_FOTEK, ZkCast, ZkDruhFotky, ZkRozpoznani, ZkRozpoznanyKus, ZkVrstvaTyp, rodinaVarianty, sablonaPro
 } from '../../shared/zkusebna';
 import { Obraz, novyObraz, uloz } from './png';
 import * as px from './pixely';
 import * as store from './store';
 import * as obrazky from './obrazky';
-import { ROH_SABLONY, dekoduj, nahraneLatky } from './produkty';
+import { ROH_SABLONY, Rozmer, fotkyProduktu, nahraneLatky, rozmerProduktu, stahniFotku } from './produkty';
+import { Mereni, latkaZListu, maskaVyrobku, vyrizniOtocene, zmerMeritko } from './meritko';
+import { poSkupinach } from './vykresleni';
 import { bezSvu, vyrovnejSvetlo } from './latka';
 
 /**
@@ -42,35 +44,51 @@ import { bezSvu, vyrovnejSvetlo } from './latka';
 
 const SYSTEM = `You look at product photos of a men's accessories e-shop (ties, bow ties,
 cravats, braces/suspenders, pocket squares, gift sets) for a virtual fitting room.
+The fabric is cut from the photo pixels and put on a model at its TRUE real-world
+size — where you point and what you measure decides how big the pattern looks.
 
-For EVERY separate item visible in the photos return where it is and where on it
-there is a clean, flat piece of its fabric. The fabric is cut from the photo
-pixels, so the rectangle must lie COMPLETELY inside the item's fabric:
-no background, no knot, no outer edge, no stitching seam, no label, no metal
-clip or slider, no deep fold or shadow. Prefer the largest such rectangle; it
-may be narrow (e.g. along one braces strap).
+First say what each photo shows, then describe EVERY separate item.
 
 Return ONLY JSON:
-{"kusy":[{
+{"fotky":[{"druh": "detail" | "cely" | "na_modelu" | "sada" | "baleni" | "jine"}],
+ "kusy":[{
   "druh": "kravata" | "pletena" | "motylek" | "regata" | "ksandy" | "kapesnicek" | "jine",
-  "popis": "short Czech description, colour + pattern, e.g. 'vínový motýlek s bílým puntíkem'",
-  "foto": index of the photo (0-based) where the item is seen best,
+  "popis": "short Czech description, colour + pattern + pattern size, e.g. 'vínový motýlek s drobným bílým puntíkem'",
+  "foto": index (0-based) of the photo where the item lies flat and straight and can be measured;
+          never a photo where it is worn by a person if another photo shows it,
   "ram": [x, y, w, h] whole item in that photo, fractions 0..1 of width/height,
-  "latka": [x, y, w, h] the flat fabric rectangle, fractions 0..1,
-  "latkaCm": real-world size in cm of the latka rectangle's HORIZONTAL side
-             (a tie blade is ~7 cm wide, braces strap 2.5-4 cm, bow tie ~12 x 5.5 cm),
+  "latka": [x, y, w, h] a clean flat fabric rectangle COMPLETELY inside the item's fabric:
+           no background, knot, outer edge, seam, label, metal part, deep fold or shadow,
+  "mira": [x1, y1, x2, y2] a measuring line on the SAME photo, fractions 0..1:
+          tie / knitted tie / cravat: straight across the blade at its widest point just above
+            the tip, from edge to edge, perpendicular to the blade;
+          braces: straight across one strap, edge to edge, perpendicular to it, on a flat part;
+          bow tie: from the left wing tip to the right wing tip;
+          pocket square: along one whole straight edge if it is shown unfolded, otherwise null,
+  "motivu": how many times the main pattern motif repeats along the mira line
+            (e.g. 3.5 flowers across the blade), null for plain fabric,
+  "latkaCm": real-world size in cm of the latka rectangle's HORIZONTAL side,
   "barva": "#rrggbb" main fabric colour,
   "lem": "#rrggbb" or null — only for a pocket square with a differently coloured hem/border,
   "vzor": "jednobarevny" | "drobny" | "vyrazny",
   "jistota": 0..1
 }]}
 
-"jine" = anything not worn on the model (cufflinks, box, tie clip, card).
+Photo kinds: "detail" close-up of the fabric, "cely" whole item laid flat or rolled,
+"na_modelu" worn by a person, "sada" several items together, "baleni" box or packaging,
+"jine" anything else. One entry in "fotky" per photo, in order.
+"jine" item = anything not worn on the model (cufflinks, box, tie clip, card).
 Use "pletena" for knitted ties, "regata" for wedding cravats/ascots.
 Each physical item once; the same item seen in several photos only once.`;
 
-/** Kolik fotek produktu se pošle — víc stojí víc a přidá málo. */
-const FOTEK = 3;
+/**
+ * Kolik fotek produktu se pošle. Dřív tři; Patrik (25. 11.): další fotky
+ * bývají kravata rozložená nebo na modelu — přesně z nich se pozná
+ * velikost vzoru. Šest stojí o pár haléřů víc.
+ */
+const FOTEK = 6;
+/** Verze rozpoznání — starší se při „Připravit" udělají znovu. */
+export const VERZE = 2;
 
 type Zeptej = (fotky: { b64: string; mime: string }[], text: string) => Promise<{ text: string; model: string }>;
 
@@ -105,7 +123,15 @@ export function nastavZeptani(fn: Zeptej | null): void {
 interface SurovyKus {
   druh: string; popis: string; foto: number;
   ram: number[]; latka: number[]; latkaCm: number;
+  mira: number[] | null; motivu: number | null;
   barva: string; lem: string | null; vzor: string; jistota: number;
+}
+
+function cara(v: unknown): number[] | null {
+  if (!Array.isArray(v) || v.length !== 4) return null;
+  const c = v.map(Number);
+  if (c.some(n => !Number.isFinite(n) || n < -0.05 || n > 1.05)) return null;
+  return c.map(n => Math.max(0, Math.min(1, n)));
 }
 
 const DRUHY: Record<string, { typ: ZkVrstvaTyp; rodina: string } | null> = {
@@ -134,6 +160,21 @@ function obdelnik(v: unknown): [number, number, number, number] | null {
   return [Math.max(0, x), Math.max(0, y), Math.min(1 - Math.max(0, x), w), Math.min(1 - Math.max(0, y), h)];
 }
 
+/** Co je na které fotce — podle odpovědi, chybějící jako „jiné". */
+export function druhyFotek(text: string, fotek: number): ZkDruhFotky[] {
+  try {
+    const cisty = text.replace(/```json/gi, '').replace(/```/g, '');
+    const json = JSON.parse(cisty.slice(cisty.indexOf('{'), cisty.lastIndexOf('}') + 1));
+    const pole = Array.isArray(json?.fotky) ? json.fotky : [];
+    return Array.from({ length: fotek }, (_, i) => {
+      const d = String(pole[i]?.druh ?? '');
+      return (d in ZK_DRUHY_FOTEK ? d : 'jine') as ZkDruhFotky;
+    });
+  } catch {
+    return Array.from({ length: fotek }, () => 'jine' as ZkDruhFotky);
+  }
+}
+
 export function rozeberOdpoved(text: string, fotek: number): SurovyKus[] {
   const cisty = text.replace(/```json/gi, '').replace(/```/g, '');
   const od = cisty.indexOf('{');
@@ -152,6 +193,8 @@ export function rozeberOdpoved(text: string, fotek: number): SurovyKus[] {
       druh, popis: String(k.popis ?? '').slice(0, 120), foto,
       ram, latka: latka ?? ram,
       latkaCm: Math.max(0.5, Math.min(30, Number(k.latkaCm) || 0)),
+      mira: cara(k.mira),
+      motivu: Number(k.motivu) > 0 && Number(k.motivu) < 60 ? Math.round(Number(k.motivu) * 10) / 10 : null,
       barva: /^#[0-9a-f]{6}$/i.test(String(k.barva)) ? String(k.barva).toLowerCase() : '',
       lem: /^#[0-9a-f]{6}$/i.test(String(k.lem)) ? String(k.lem).toLowerCase() : null,
       vzor: ['jednobarevny', 'drobny', 'vyrazny'].includes(k.vzor) ? k.vzor : 'drobny',
@@ -326,27 +369,105 @@ export function rohSLemem(latka: Obraz, latkaCm: number, lem: string): Obraz {
   return out;
 }
 
-interface Latka { hex: string; vzorek: string; vzorekCm: number; zdroj: 'fotka' | 'ai' | 'barva'; vyrez: string }
+interface Latka {
+  hex: string; vzorek: string; vzorekCm: number; zdroj: 'fotka' | 'ai' | 'barva'; vyrez: string;
+  mira?: ZkRozpoznanyKus['mira']; kontrolaMeritka?: string;
+}
+
+/** Přes co se měří a jak je to doopravdy velké. */
+export interface ZnamyRozmer { cm: number; druh: 'list' | 'pruh' | 'rozpeti'; co: string }
+
+/**
+ * Skutečný rozměr kusu, přes který AI ukáže čáru: šířka kravaty a kšand
+ * z katalogu (jinak ze šablony), rozpětí motýlka, strana kapesníčku.
+ * Rozměr z katalogu jen u hlavního kusu — u sady patří jen jemu.
+ */
+export function znamyRozmer(typ: ZkVrstvaTyp, varianta: string, rozmer: Rozmer = {}): ZnamyRozmer {
+  const s = sablonaPro(typ, varianta);
+  const r = rozmer.sirkaCm ?? 0;
+  if (typ === 'kapesnicek') return { cm: r >= 15 && r <= 50 ? r : 30, druh: 'rozpeti', co: 'strana kapesníčku' };
+  if (typ === 'ksandy') return { cm: r >= 1.5 && r <= 6 ? r : (s?.sirkaCm ?? 3.5), druh: 'pruh', co: 'šířka pásku' };
+  if (varianta.startsWith('motylek')) return { cm: r >= 6 && r <= 16 ? r : (s?.sirkaCm ?? 12), druh: 'rozpeti', co: 'rozpětí motýlka' };
+  return { cm: r >= 3 && r <= 14 ? r : (s?.sirkaCm ?? 7), druh: 'list', co: varianta === 'regata' ? 'šířka regaty' : 'šířka kravaty' };
+}
+
+/**
+ * Kontrola měřítka pro okno: vlevo kus fotky kolem měření, vpravo
+ * vzorek tak, jak ho vydláždí kabina — **ve stejném měřítku**. Když
+ * jsou květy vpravo stejně velké jako vlevo, sedí to i na modelu.
+ */
+function kontrolaMeritka(fotka: Obraz, m: Mereni, dlazdice: Obraz, cm: number, strana = 150): string {
+  const okno = m.bodu * 1.7;
+  const vlevo = vyrizniOtocene(fotka, m.stred, m.uhel, okno, okno);
+  /* Dlaždice: tolik bodů na centimetr jako výřez z fotky */
+  const naCmDlazdice = dlazdice.sirka / Math.max(0.1, cm);
+  const k = m.bodyNaCm / naCmDlazdice;
+  const vpravo = novyObraz(Math.round(okno), Math.round(okno));
+  for (let y = 0; y < vpravo.vyska; y++) {
+    for (let x = 0; x < vpravo.sirka; x++) {
+      const sx = Math.floor(x / k) % dlazdice.sirka; const sy = Math.floor(y / k) % dlazdice.vyska;
+      const i = (y * vpravo.sirka + x) * 4; const j = (sy * dlazdice.sirka + sx) * 4;
+      vpravo.body[i] = dlazdice.body[j]; vpravo.body[i + 1] = dlazdice.body[j + 1]; vpravo.body[i + 2] = dlazdice.body[j + 2];
+      vpravo.body[i + 3] = 255;
+    }
+  }
+  const a = px.prevzorkuj(vlevo, strana, strana); const b = px.prevzorkuj(vpravo, strana, strana);
+  const out = novyObraz(strana * 2 + 6, strana);
+  out.body.fill(255);
+  for (const [o, dx] of [[a, 0], [b, strana + 6]] as const) {
+    for (let y = 0; y < strana; y++) {
+      for (let x = 0; x < strana; x++) {
+        const i = (y * strana + x) * 4; const j = (y * out.sirka + x + dx) * 4;
+        const al = o.body[i + 3] / 255;
+        for (let c = 0; c < 3; c++) out.body[j + c] = Math.round(o.body[i + c] * al + 245 * (1 - al));
+        out.body[j + 3] = 255;
+      }
+    }
+  }
+  /* Na fotce: značky šířky, přes kterou se měřilo (svislé čárky v poměru 1 : 1,7) */
+  const kraj = Math.round((strana * (1 - 1 / 1.7)) / 2);
+  for (const x of [kraj, strana - 1 - kraj]) {
+    for (let y = 0; y < 10; y++) {
+      for (const yy of [y, strana - 1 - y]) {
+        const j = (yy * out.sirka + x) * 4;
+        out.body[j] = 230; out.body[j + 1] = 40; out.body[j + 2] = 60;
+      }
+    }
+  }
+  return `data:image/png;base64,${uloz(out).toString('base64')}`;
+}
 
 /**
  * Látka jednoho kusu: výřez z fotky, ověřený a převedený na dlaždici.
  *
- * Když výřez nesedí na barvu, kterou AI řekla (souřadnice ujely), nebo
- * je v něm pozadí, zkusí se vystřihnout čtverec z celého kusu postaru.
- * Když nejde ani to, zůstane barva — to je pořád lepší než cizí vzor.
+ * Velikost vzoru se **měří** (meritko.ts): AI ukáže čáru přes kus známé
+ * šířky a body se spočítají z fotky. Kravata a kšandy se pak vyříznou
+ * podél listu (otočené svisle, jako na modelu) a co nejdelší — méně
+ * viditelného opakování. Když měřit nejde, zůstane odhad od AI.
  */
 async function latkaKusu(
   kus: SurovyKus,
   typ: ZkVrstvaTyp,
+  znamy: ZnamyRozmer,
   fotky: Obraz[],
   pozadi: Uint8Array[],
   dokreslit: boolean
 ): Promise<Latka> {
   const fotka = fotky[kus.foto];
   const hex = kus.barva || '';
-  const r = overenyObdelnik(fotka, pozadi[kus.foto], kus.latka);
-  let vyrez = r ? px.vyrizniObdelnik(fotka, r) : null;
-  let cm = r ? kus.latkaCm * (r.w / Math.max(1, kus.latka[2] * fotka.sirka)) : 0;
+  const maska = maskaVyrobku(fotka, pozadi[kus.foto]);
+  const m = kus.mira ? zmerMeritko(fotka, maska, kus.mira, znamy.cm, znamy.druh) : null;
+  let vyrez: Obraz | null = null;
+  let cm = 0;
+  if (m && znamy.druh !== 'rozpeti') {
+    vyrez = latkaZListu(fotka, maska, m);
+    if (vyrez) cm = vyrez.sirka / m.bodyNaCm;
+  }
+  if (!vyrez) {
+    const r = overenyObdelnik(fotka, pozadi[kus.foto], kus.latka);
+    vyrez = r ? px.vyrizniObdelnik(fotka, r) : null;
+    cm = r ? (m ? r.w / m.bodyNaCm : kus.latkaCm * (r.w / Math.max(1, kus.latka[2] * fotka.sirka))) : 0;
+  }
   if (vyrez && hex) {
     /* Výřez úplně jiné barvy, než AI tvrdí = souřadnice ujely; jednobarevný kus to pozná nejlíp */
     const [a, b, c] = prumer(vyrez);
@@ -363,8 +484,7 @@ async function latkaKusu(
         const kousek = px.vzorekLatky(celyKus, strana, 0.03, 'prumer');
         if (kousek) {
           vyrez = kousek;
-          /* Body na centimetr podle toho, co AI řekla o svém obdélníku */
-          const naCm = (kus.latka[2] * fotka.sirka) / Math.max(0.5, kus.latkaCm);
+          const naCm = m ? m.bodyNaCm : (kus.latka[2] * fotka.sirka) / Math.max(0.5, kus.latkaCm);
           cm = naCm > 0 ? kousek.sirka / naCm : 2.8;
           break;
         }
@@ -374,11 +494,14 @@ async function latkaKusu(
   if (!vyrez) return { hex, vzorek: '', vzorekCm: 0, zdroj: 'barva', vyrez: '' };
   const nahledVyrezu = nahled(vyrez);
   const prumerna = naHex(prumer(vyrez));
+  const mira: ZkRozpoznanyKus['mira'] = m
+    ? { cm: znamy.cm, bodu: Math.round(m.bodu), zMereni: m.zMereni, motivu: kus.motivu, co: znamy.co }
+    : undefined;
 
   /* Kapesníček s lemem: špička nakreslená z látky a lemu, přes celý tvar */
   if (typ === 'kapesnicek' && kus.lem) {
     const roh = rohSLemem(dlazdice(vyrez, cm).obraz, cm, kus.lem);
-    return { hex: hex || prumerna, vzorek: `data:image/png;base64,${uloz(roh).toString('base64')}`, vzorekCm: -1, zdroj: 'fotka', vyrez: nahledVyrezu };
+    return { hex: hex || prumerna, vzorek: `data:image/png;base64,${uloz(roh).toString('base64')}`, vzorekCm: -1, zdroj: 'fotka', vyrez: nahledVyrezu, mira };
   }
 
   /*
@@ -396,29 +519,20 @@ async function latkaKusu(
         w: Math.round(nove.sirka * 0.7), h: Math.round(nove.vyska * 0.7)
       });
       const d = dlazdice(stred, cm * 0.7);
-      return { hex: hex || prumerna, vzorek: `data:image/png;base64,${uloz(d.obraz).toString('base64')}`, vzorekCm: d.cm, zdroj: 'ai', vyrez: nahledVyrezu };
+      return {
+        hex: hex || prumerna, vzorek: `data:image/png;base64,${uloz(d.obraz).toString('base64')}`, vzorekCm: d.cm, zdroj: 'ai',
+        vyrez: nahledVyrezu, mira, kontrolaMeritka: m ? kontrolaMeritka(fotka, m, d.obraz, d.cm) : undefined
+      };
     } catch { /* nedokreslilo se — zůstane výřez z fotky */ }
   }
   const d = dlazdice(vyrez, cm || 2.8);
-  return { hex: hex || prumerna, vzorek: `data:image/png;base64,${uloz(d.obraz).toString('base64')}`, vzorekCm: d.cm, zdroj: 'fotka', vyrez: nahledVyrezu };
+  return {
+    hex: hex || prumerna, vzorek: `data:image/png;base64,${uloz(d.obraz).toString('base64')}`, vzorekCm: d.cm, zdroj: 'fotka',
+    vyrez: nahledVyrezu, mira, kontrolaMeritka: m ? kontrolaMeritka(fotka, m, d.obraz, d.cm) : undefined
+  };
 }
 
 /* ---------------------------------------------------------- celé */
-
-/** Adresy fotek produktu z katalogu — hlavní a pár dalších. */
-function adresyFotek(kod: string): string[] {
-  const row = getDb().prepare('SELECT image, images FROM products WHERE code = ?').get(kod) as { image?: string; images?: string } | undefined;
-  const vse = [row?.image ?? '', ...String(row?.images ?? '').split('\n')].map(one => one.trim()).filter(Boolean);
-  return [...new Set(vse)].slice(0, FOTEK);
-}
-
-async function stahni(url: string): Promise<Obraz | null> {
-  try {
-    const odpoved = await fetch(url);
-    if (!odpoved.ok) return null;
-    return dekoduj(Buffer.from(await odpoved.arrayBuffer()));
-  } catch { return null; }
-}
 
 /** Fotka pro AI: nejvýš tisíc bodů, JPEG když jde (menší), jinak PNG. */
 function proAi(o: Obraz): { b64: string; mime: string } {
@@ -442,11 +556,12 @@ export interface VysledekRozpoznani {
 /**
  * Rozpozná produkt z fotek a doplní látku každému kusu.
  *
- * `fotky` jde podvrhnout (zkoušky); jinak se stáhnou z katalogu.
+ * `fotky` jde podvrhnout (zkoušky); jinak se stáhnou z katalogu (všechny
+ * naráz, z mezipaměti na disku, když už tam jsou).
  */
 export async function rozpoznej(
   kod: string,
-  moznosti: { fotky?: Obraz[]; nazev?: string; dokreslit?: boolean } = {}
+  moznosti: { fotky?: Obraz[]; nazev?: string; dokreslit?: boolean; rozmer?: Rozmer } = {}
 ): Promise<VysledekRozpoznani> {
   const row = store.produktyRows().find(one => one.kod === kod);
   if (!row || !row.typ) throw new Error('Produkt není v kabině zařazený — nejdřív mu vyber, kam na model patří.');
@@ -458,25 +573,34 @@ export async function rozpoznej(
   }
   nazev = nazev || kod;
 
-  let fotky = moznosti.fotky ?? [];
-  if (!moznosti.fotky) {
-    for (const url of adresyFotek(kod)) {
-      const o = await stahni(url);
-      if (o) fotky.push(o);
-    }
+  let fotky: Obraz[] = [];
+  let adresy: string[] = [];
+  if (moznosti.fotky) {
+    fotky = moznosti.fotky;
+    adresy = fotky.map(() => '');
+  } else {
+    const urls = fotkyProduktu(kod, FOTEK);
+    const stazene = await Promise.all(urls.map(url => stahniFotku(url)));
+    stazene.forEach((o, i) => { if (o) { fotky.push(o); adresy.push(urls[i]); } });
   }
-  fotky = fotky.filter(one => one.sirka > 20 && one.vyska > 20);
+  const platne = fotky.map(one => one.sirka > 20 && one.vyska > 20);
+  fotky = fotky.filter((_, i) => platne[i]);
+  adresy = adresy.filter((_, i) => platne[i]);
   if (!fotky.length) throw new Error('Produkt nemá fotku, ze které by šlo číst.');
 
   const mista: Misto[] = [
     { cast: -1, typ: row.typ as ZkVrstvaTyp, rodina: rodinaVarianty(row.typ, row.varianta), varianta: row.varianta },
     ...(row.casti ?? []).map((c, i) => ({ cast: i, typ: c.typ, rodina: rodinaVarianty(c.typ, c.varianta), varianta: c.varianta }))
   ];
+  const rozmer = moznosti.rozmer ?? (moznosti.fotky ? {} : rozmerProduktu(kod));
   const ocekavane = mista.map(m => NAZVY[m.rodina] ?? m.typ).join(' + ');
+  const hlavniRozmer = znamyRozmer(row.typ as ZkVrstvaTyp, row.varianta, rozmer);
   const odpoved = await zeptej(fotky.map(proAi),
     `Product name: "${nazev}". By the name it should contain: ${ocekavane}. `
+    + `Real size of the main item: ${hlavniRozmer.cm} cm (${hlavniRozmer.druh === 'rozpeti' ? 'wing tip to wing tip / edge length' : 'width'}). `
     + `There are ${fotky.length} photo(s), in this order. Report what you actually see.`);
   const kusy = rozeberOdpoved(odpoved.text, fotky.length);
+  const druhy = druhyFotek(odpoved.text, fotky.length);
 
   const detsky = /detsk|mini|uzke|kravata-6/.test(`${row.varianta} ${(row.casti ?? []).map(c => c.varianta).join(' ')}`)
     || /d[eě]tsk|kojen|mini/i.test(nazev);
@@ -486,17 +610,21 @@ export async function rozpoznej(
   const nahrane = nahraneLatky();
   const dokreslit = moznosti.dokreslit !== false;
   const shrnuti: ZkRozpoznanyKus[] = [];
+  const souhrn = (k: SurovyKus, typ: ZkVrstvaTyp | '', cast: number | null, l: Latka | null): ZkRozpoznanyKus => ({
+    druh: k.druh, popis: k.popis, typ, cast, jistota: k.jistota, zdroj: l?.zdroj ?? 'barva', vyrez: l?.vyrez ?? '',
+    foto: k.foto, ...(l?.mira ? { mira: l.mira } : {}), ...(l?.kontrolaMeritka ? { kontrolaMeritka: l.kontrolaMeritka } : {})
+  });
 
   let hlavni = { hex: row.hex, vzorek: row.vzorek, vzorekCm: row.vzorekCm ?? 0 };
   const hlavniKus = prirazeni.get(-1);
   if (hlavniKus && !nahrane.has(kod)) {
-    const l = await latkaKusu(hlavniKus, row.typ as ZkVrstvaTyp, fotky, pozadi, dokreslit);
+    const l = await latkaKusu(hlavniKus, row.typ as ZkVrstvaTyp, hlavniRozmer, fotky, pozadi, dokreslit);
     hlavni = {
       hex: row.rucne ? row.hex : (l.hex || row.hex),
       vzorek: l.vzorek || row.vzorek,
       vzorekCm: l.vzorek ? l.vzorekCm : (row.vzorekCm ?? 0)
     };
-    shrnuti.push({ druh: hlavniKus.druh, popis: hlavniKus.popis, typ: row.typ as ZkVrstvaTyp, cast: -1, jistota: hlavniKus.jistota, zdroj: l.zdroj, vyrez: l.vyrez });
+    shrnuti.push(souhrn(hlavniKus, row.typ as ZkVrstvaTyp, -1, l));
   }
 
   const casti: ZkCast[] = [];
@@ -504,17 +632,17 @@ export async function rozpoznej(
     const c = row.casti![i];
     const kus = prirazeni.get(i);
     if (!kus || nahrane.has(`${kod}~${i}`)) { casti.push(c); continue; }
-    const l = await latkaKusu(kus, c.typ, fotky, pozadi, dokreslit);
+    const l = await latkaKusu(kus, c.typ, znamyRozmer(c.typ, c.varianta), fotky, pozadi, dokreslit);
     casti.push({ ...c, hex: l.hex || c.hex, vzorek: l.vzorek, vzorekCm: l.vzorekCm });
-    shrnuti.push({ druh: kus.druh, popis: kus.popis, typ: c.typ, cast: i, jistota: kus.jistota, zdroj: l.zdroj, vyrez: l.vyrez });
+    shrnuti.push(souhrn(kus, c.typ, i, l));
   }
   for (const n of nove) {
-    const l = await latkaKusu(n.kus, n.typ, fotky, pozadi, dokreslit);
+    const l = await latkaKusu(n.kus, n.typ, znamyRozmer(n.typ, n.varianta), fotky, pozadi, dokreslit);
     casti.push({ typ: n.typ, varianta: n.varianta, hex: l.hex, vzorek: l.vzorek, vzorekCm: l.vzorekCm });
-    shrnuti.push({ druh: n.kus.druh, popis: n.kus.popis, typ: n.typ, cast: casti.length - 1, jistota: n.kus.jistota, zdroj: l.zdroj, vyrez: l.vyrez });
+    shrnuti.push(souhrn(n.kus, n.typ, casti.length - 1, l));
   }
   for (const k of kusy) {
-    if (k.druh === 'jine') shrnuti.push({ druh: k.druh, popis: k.popis, typ: '', cast: null, jistota: k.jistota, zdroj: 'barva', vyrez: '' });
+    if (k.druh === 'jine') shrnuti.push(souhrn(k, '', null, null));
   }
 
   /*
@@ -532,41 +660,64 @@ export async function rozpoznej(
   const zmenaStavby = casti.length !== (row.casti ?? []).length;
   const schvaleno = row.schvaleno && !sada && !zmenaStavby && !kontrola;
 
-  const ai: ZkRozpoznani = { kdy: new Date().toISOString(), model: odpoved.model, kusy: shrnuti, poznamky };
+  const ai: ZkRozpoznani = {
+    kdy: new Date().toISOString(), model: odpoved.model, verze: VERZE, kusy: shrnuti, poznamky,
+    fotky: adresy.map((url, i) => ({ url, druh: druhy[i] }))
+  };
   store.zapisProdukt({
-    ...row, ...hlavni, casti, kontrola, schvaleno, ai
+    ...row, ...hlavni, casti, kontrola, schvaleno, ai,
+    /* Nová látka = nové měřítko; ruční doladění vzoru patřilo k té staré */
+    meritko: hlavniKus && !nahrane.has(kod) ? 1 : row.meritko
   });
   return { kod, kusu: shrnuti.filter(one => one.typ).length, poznamky, kontrola };
 }
 
+/** Kolik produktů čeká na rozpoznání v daném rozsahu. */
+export function kRozpoznani(rozsah: 'nove' | 'sady' | 'vse', kody?: string[]): string[] {
+  return store.produktyRows().filter(one => one.typ && (!kody || kody.includes(one.kod))
+    && (rozsah === 'vse'
+      || (rozsah === 'nove' && (!one.ai || (one.ai.verze ?? 1) < VERZE))
+      || (rozsah === 'sady' && (one.kontrola || (one.casti?.length ?? 0) > 0) && !one.ai)))
+    .map(one => one.kod);
+}
+
+/** Kolik naráz: model s viděním odpoví za 10–20 s, čtyři souběžně zkrátí katalog na čtvrtinu. */
+const NARAZ = 4;
+
 /**
- * Rozpozná víc produktů za sebou — sady, nebo celý katalog.
+ * Rozpozná víc produktů — po čtyřech naráz.
  *
- * Jedno rozpoznání stojí kolem centu (dvě tři fotky do modelu s viděním),
- * celý katalog tedy jednotky dolarů. Proto jsou dva rozsahy: `sady`
- * (co čeká na kontrolu a ještě se nerozpoznávalo) a `vse`.
+ * Jedno rozpoznání stojí kolem koruny až dvou (šest fotek do modelu
+ * s viděním). `nove` = co ještě nemá rozpoznání s měřením vzoru.
+ * Po každém hotovém produktu přijde hlášení s jeho kódem, takže okno
+ * může ukazovat hotové ke schválení, zatímco se zbytek ještě zpracovává.
  */
 export async function rozpoznejVse(
-  rozsah: 'sady' | 'vse',
-  hlas?: (p: { hotovo: number; celkem: number; co: string }) => void
+  rozsah: 'nove' | 'sady' | 'vse',
+  hlas?: (p: { hotovo: number; celkem: number; co: string; kod?: string }) => void,
+  kody?: string[]
 ): Promise<{ hotovo: number; chyb: number; posledniChyba: string }> {
-  const rows = store.produktyRows().filter(one => one.typ
-    && (rozsah === 'vse' || ((one.kontrola || (one.casti?.length ?? 0) > 0) && !one.ai)));
-  let hotovo = 0; let chyb = 0; let posledniChyba = '';
-  for (let i = 0; i < rows.length; i++) {
-    hlas?.({ hotovo: i, celkem: rows.length, co: `Rozpoznávám fotky (${i + 1} z ${rows.length})` });
-    try {
-      await rozpoznej(rows[i].kod);
-      hotovo += 1;
-    } catch (e: any) {
-      chyb += 1;
-      posledniChyba = String(e?.message ?? e);
-      /* Chybějící klíč nebo kredit se dalším produktem nespraví — skončí se hned */
-      if (/klíč|API key|credit|kredit|401|403/i.test(posledniChyba)) break;
-    }
-  }
+  const fronta = kRozpoznani(rozsah, kody);
+  let hotovo = 0; let chyb = 0; let posledniChyba = ''; let dokonceno = 0;
+  try {
+    await poSkupinach(fronta, NARAZ, async kod => {
+      try {
+        await rozpoznej(kod);
+        hotovo += 1;
+        dokonceno += 1;
+        hlas?.({ hotovo: dokonceno, celkem: fronta.length, co: `Připravuji produkty (${dokonceno} z ${fronta.length})`, kod });
+      } catch (e: any) {
+        chyb += 1;
+        dokonceno += 1;
+        posledniChyba = String(e?.message ?? e);
+        hlas?.({ hotovo: dokonceno, celkem: fronta.length, co: `Připravuji produkty (${dokonceno} z ${fronta.length})` });
+        /* Chybějící klíč nebo kredit se dalším produktem nespraví — skončí se hned */
+        if (/klíč|API key|credit|kredit|401|403/i.test(posledniChyba)) throw e;
+      }
+    });
+  } catch { /* chyba je v posledniChyba */ }
   setSetting('zkRozpoznanoKdy', new Date().toISOString());
   return { hotovo, chyb, posledniChyba };
 }
 
-export const __test = { rozeberOdpoved, prirad, overenyObdelnik, rohSLemem };
+export const __test = { rozeberOdpoved, druhyFotek, prirad, overenyObdelnik, rohSLemem, znamyRozmer };

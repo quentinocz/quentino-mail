@@ -41,7 +41,7 @@ import type {
 import type { ToolWindowId } from '@shared/windows';
 import type { VidProjekt, VidZnelka } from '@shared/videoedit';
 import type {
-  ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
+  ZkFrontaRadek, ZkKrokProOkno, ZkNahled, ZkNastaveni, ZkPrehled, ZkProduktRadek,
   ZkVrstvaProOkno, ZkVrstvaTyp, ZkZkouskaModelu, ZkKotvy, ZkVykresleniProOkno
 } from '@shared/zkusebna';
 
@@ -1008,8 +1008,18 @@ export const api = {
     realistickeOdhad: (postava?: string) => call<{ kusu: number; usd: number }>('zk:realisticke-odhad', postava ?? ''),
     realistickeVse: (postava?: string) =>
       call<{ hotovo: number; navrhu: number; chyb: number; posledniChyba: string }>('zk:realisticke-vse', postava ?? ''),
-    rozpoznejVse: (rozsah: 'sady' | 'vse') =>
-      call<{ hotovo: number; chyb: number; posledniChyba: string }>('zk:rozpoznej-vse', rozsah),
+    rozpoznejVse: (rozsah: 'nove' | 'sady' | 'vse', kody?: string[]) =>
+      call<{ hotovo: number; chyb: number; posledniChyba: string }>('zk:rozpoznej-vse', rozsah, kody ?? []),
+    /** Kolik produktů ještě nemá AI přípravu (rozpoznání s měřením vzoru). */
+    kPriprave: () => call<number>('zk:k-priprave'),
+    /** Fronta ke schválení: celý katalog, jen to podstatné na seznam. */
+    fronta: () => call<ZkFrontaRadek[]>('zk:fronta'),
+    produktDetail: (kod: string) => call<ZkProduktRadek | null>('zk:produkt-detail', kod),
+    /** Do kabiny jen schválené produkty (bez hodnoty jen přečte). */
+    jenSchvalene: (hodnota?: boolean) => call<boolean>('zk:jen-schvalene', hodnota),
+    /** Produkt na modelu, jak ho uvidí zákazník — pro schvalování. */
+    nahledProduktu: (kod: string, postava?: string) =>
+      call<{ obraz: string; postava: string; vykresleno: boolean }>('zk:nahled-produktu', kod, postava ?? ''),
     produkty: (limit?: number) => call<ZkProduktRadek[]>('zk:produkty', limit ?? 300),
     produkt: (kod: string, co: Partial<{ typ: ZkVrstvaTyp | ''; varianta: string; hex: string; schvaleno: boolean; meritko: number }>) =>
       call<void>('zk:produkt', kod, co),

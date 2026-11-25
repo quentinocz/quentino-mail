@@ -483,6 +483,13 @@ export interface ZkVrstva {
  * rovný kus látky. Pixely se pak berou ze skutečné fotky — vzor na
  * modelu je ten, který zákazník kupuje, ne vymyšlený.
  */
+/** Co je na fotce produktu — podle toho se fotka použije. */
+export type ZkDruhFotky = 'detail' | 'cely' | 'na_modelu' | 'sada' | 'baleni' | 'jine';
+
+export const ZK_DRUHY_FOTEK: Record<ZkDruhFotky, string> = {
+  detail: 'detail látky', cely: 'celý výrobek', na_modelu: 'na modelu', sada: 'sada', baleni: 'balení', jine: 'jiné'
+};
+
 export interface ZkRozpoznanyKus {
   /** Co to je: kravata, motylek, regata, pletena, ksandy, kapesnicek, nebo jine (knoflíčky, krabička). */
   druh: string;
@@ -496,11 +503,25 @@ export interface ZkRozpoznanyKus {
   zdroj: 'fotka' | 'ai' | 'barva';
   /** Výřez z fotky, ze kterého se látka vzala (malý náhled pro kontrolu). */
   vyrez: string;
+  /** Pořadí fotky, ze které je látka. */
+  foto?: number;
+  /**
+   * Měřítko vzoru: přes co se měřilo (cm), kolik to bylo bodů fotky,
+   * jestli změřeno z pixelů (jinak jen čára od AI) a kolik opakování
+   * motivu AI napočítala napříč.
+   */
+  mira?: { cm: number; bodu: number; zMereni: boolean; motivu: number | null; co: string };
+  /** Kontrola měřítka: vlevo fotka, vpravo vzorek z kabiny — ve stejném měřítku. */
+  kontrolaMeritka?: string;
 }
 
 export interface ZkRozpoznani {
   kdy: string;
   model: string;
+  /** 2 = s měřením vzoru a rolemi fotek (25. 11.); starší se rozpoznají znovu. */
+  verze?: number;
+  /** Fotky produktu v pořadí, jak je AI viděla, a co na nich je. */
+  fotky?: { url: string; druh: ZkDruhFotky }[];
   kusy: ZkRozpoznanyKus[];
   /** Česky, co s tím: „na fotce je navíc kapesníček", „motýlek jsem nenašel"… */
   poznamky: string[];
@@ -1710,6 +1731,24 @@ export interface ZkProduktRadek {
   casti: { typ: ZkVrstvaTyp; varianta: string; hex: string; vzorek: string }[];
   /** Co na fotkách poznala AI — null, dokud se nerozpoznávalo. */
   ai: ZkRozpoznani | null;
+}
+
+/** Řádek fronty ke schválení — jen to, co je potřeba na seznam. */
+export interface ZkFrontaRadek {
+  kod: string;
+  nazev: string;
+  obrazek: string;
+  typ: ZkVrstvaTyp | '';
+  varianta: string;
+  schvaleno: boolean;
+  kontrola: string;
+  /** Má AI přípravu (rozpoznání s měřením vzoru). */
+  pripraveno: boolean;
+  /** Je v katalogu a skladem (kabina ho může ukázat). */
+  skladem: boolean;
+  /** Má vykreslení od AI v kabině. */
+  vykresleno: boolean;
+  sada: boolean;
 }
 
 /** Produkt vykreslený na modelu — řádek do okna (mřížka ke kontrole). */

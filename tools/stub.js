@@ -167,6 +167,28 @@
       return one.typ === 'kapesnicek' ? Object.assign(one, { stav: 'hotovo', soubor: '/tmp/kapesnicek.png', nahled: ctverec }) : one;
     });
   })(),
+  /* Příprava a schválení: jeden připravený ke schválení, jeden schválený, jeden bez přípravy */
+  'zk:fronta': [
+    { kod: 'KRA1', nazev: 'Barevná pánská bavlněná kravata s květy', obrazek: '', typ: 'kravata', varianta: 'kravata',
+      schvaleno: false, kontrola: '', pripraveno: true, skladem: true, vykresleno: false, sada: false },
+    { kod: 'MOT1', nazev: 'Motýlek kostkovaný', obrazek: '', typ: 'kravata', varianta: 'motylek',
+      schvaleno: true, kontrola: '', pripraveno: true, skladem: true, vykresleno: false, sada: false },
+    { kod: 'KS1', nazev: 'Kšandy béžové', obrazek: '', typ: 'ksandy', varianta: 'siroke',
+      schvaleno: false, kontrola: '', pripraveno: false, skladem: true, vykresleno: false, sada: false }
+  ],
+  'zk:produkt-detail': { kod: 'KRA1', typ: 'kravata', varianta: 'kravata', hex: '#fcfdf7',
+    vzorek: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==',
+    rucne: false, velikosti: false, schvaleno: false, nazev: 'Barevná pánská bavlněná kravata s květy', obrazek: '', cena: '599 Kč',
+    vKabine: true, kontrola: '', meritko: 1, casti: [],
+    ai: { kdy: '2026-11-25T17:00:00.000Z', model: 'claude', verze: 2, poznamky: [],
+      fotky: [{ url: '', druh: 'cely' }, { url: '', druh: 'detail' }, { url: '', druh: 'na_modelu' }],
+      kusy: [{ druh: 'kravata', popis: 'bílá kravata s barevnými květy', typ: 'kravata', cast: -1, jistota: 0.9, zdroj: 'fotka',
+        vyrez: '', foto: 1, mira: { cm: 7, bodu: 312, zMereni: true, motivu: 3.5, co: 'šířka kravaty' },
+        kontrolaMeritka: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' }] } },
+  'zk:nahled-produktu': { obraz: 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="#f2f2ee"/><path d="M140 40h20l12 300-22 30-22-30z" fill="#c43a8a"/></svg>'),
+    postava: 'dospely-bezny', vykresleno: false },
+  'zk:jen-schvalene': false,
+  'zk:k-priprave': 1,
   'zk:realisticke-odhad': { kusu: 13, usd: 2.6 },
   'zk:realisticka': { ok: true, potiz: '', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' },
   'zk:realisticke-vse': { hotovo: 12, navrhu: 1, chyb: 0, posledniChyba: '' },
