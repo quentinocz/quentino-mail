@@ -3176,6 +3176,38 @@ for (const okno of OKNA) {
   const zpetLupa = await page.evaluate(() => Number(document.querySelector('.qkb-platno canvas').dataset.lupa));
   say('  a „celý model" vrátí pohled zpátky', zpetLupa === 1, String(zpetLupa));
 
+  /* Velký obrázek celého modelu přes celou obrazovku (Patrik, 25. 11.) */
+  await page.locator('.qkb-lupa-velky').click();
+  await page.waitForTimeout(700);
+  const velky = await page.evaluate(() => {
+    const v = document.querySelector('.qkb-velky');
+    const c = v && v.querySelector('canvas');
+    const male = document.querySelector('.qkb-platno canvas');
+    const r = c ? c.getBoundingClientRect() : null;
+    return {
+      videt: !!v && getComputedStyle(v).display !== 'none',
+      cely: !!c && c.height > c.width * 1.6,
+      vetsi: !!r && !!male && r.height > male.getBoundingClientRect().height * 1.3,
+      vejde: !!r && r.height <= innerHeight + 1 && r.width <= innerWidth + 1
+    };
+  });
+  say('velký obrázek celého modelu: od hlavy k patě, přes celou obrazovku', velky.videt && velky.cely && velky.vetsi && velky.vejde,
+    JSON.stringify(velky));
+  await page.screenshot({ path: path.join(SHOTS, 'kabina-velky.png') });
+  await page.locator('.qkb-velky canvas').click();
+  await page.waitForTimeout(200);
+  const plna = await page.evaluate(() => {
+    const v = document.querySelector('.qkb-velky');
+    const c = v.querySelector('canvas').getBoundingClientRect();
+    return { plna: v.classList.contains('plna'), sirsi: c.width > innerWidth };
+  });
+  say('  klepnutí přiblíží na plné rozlišení', plna.plna && plna.sirsi, JSON.stringify(plna));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  say('  Esc velký obrázek zavře (kabina zůstane)', await page.evaluate(() =>
+    getComputedStyle(document.querySelector('.qkb-velky')).display === 'none'
+      && getComputedStyle(document.querySelector('.qkb-pozadi') || document.body).display !== 'none'));
+
   /* Další vzhled k porovnání */
   await page.locator('.qkb-varianty .qkb-chip', { hasText: 'Další vzhled' }).click();
   await page.waitForTimeout(500);

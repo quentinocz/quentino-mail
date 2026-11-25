@@ -106,6 +106,7 @@ const TEMPLATE = String.raw`
       novyVzhledDospely: "Pánský kousek jsme dali na nový vzhled s dospělým modelem.",
       sada: "sada", vSade: "Součást sady",
       priblizit: "Přiblížit", oddalit: "Oddálit", celyModel: "Celý model",
+      velkyObrazek: "Velký obrázek celého modelu", velkyRada: "Klepnutím přiblížíte, dalším vrátíte",
       chybiVrstva: "Pro tenhle model zatím není připravená vrstva — dokresli ji v aplikaci ve Vizuálech."
     },
     sk: {
@@ -141,6 +142,7 @@ const TEMPLATE = String.raw`
       novyVzhledDospely: "Pánsky kúsok sme dali na nový vzhľad s dospelým modelom.",
       sada: "sada", vSade: "Súčasť sady",
       priblizit: "Priblížiť", oddalit: "Oddialiť", celyModel: "Celý model",
+      velkyObrazek: "Veľký obrázok celého modelu", velkyRada: "Ťuknutím priblížite, ďalším vrátite",
       chybiVrstva: "Pre tento model zatiaľ nie je pripravená vrstva."
     },
     en: {
@@ -176,6 +178,7 @@ const TEMPLATE = String.raw`
       novyVzhledDospely: "We put the men's piece on a new look with an adult model.",
       sada: "set", vSade: "Part of the set",
       priblizit: "Zoom in", oddalit: "Zoom out", celyModel: "Whole model",
+      velkyObrazek: "Large image of the whole model", velkyRada: "Tap to zoom in, tap again to fit",
       chybiVrstva: "This layer is not ready for this model yet."
     }
   };
@@ -641,9 +644,34 @@ const TEMPLATE = String.raw`
     return h > 0 && postava.vyskaCm ? h / postava.vyskaCm : 0;
   }
 
+  /*
+   * Celá postava od temene po podrážky — pro velký obrázek. Patrik
+   * (25. 11.): „přidej možnost na PC i mobilu zobrazit větší obrázek
+   * celého poskládaného modela".
+   */
+  function celaPostava(postava) {
+    var vyska = postava.vyska;
+    var temeno = postava.temeno || 0;
+    var podrazka = postava.podrazka || vyska;
+    var h = Math.max(1, podrazka - temeno);
+    var y0 = Math.max(0, Math.round(temeno - h * 0.03));
+    var y1 = Math.min(vyska, Math.round(podrazka + h * 0.02));
+    return { x: 0, y: y0, w: postava.sirka, h: Math.max(10, y1 - y0), sirka: postava.sirka, vyska: vyska };
+  }
+
   function nakresli(platno, v) {
+    if (!plne) plne = document.createElement("canvas");
+    return slozModel(v, plne, vyrezPostavy).then(function (vyrez) {
+      if (!vyrez) return;
+      vyrezTed = vyrez;
+      zmensiNa(platno, plne, vyrez);
+    });
+  }
+
+  /** Složí model do plátna „cil“ v dvojnásobném rozlišení; „oblast“ vybere výřez postavy. */
+  function slozModel(v, cil, oblast) {
     var postava = postavaPro(v);
-    if (!postava) return Promise.resolve();
+    if (!postava) return Promise.resolve(null);
     var sirka = postava.sirka;
     var vyska = postava.vyska;
     var kusy = vrstvyVzhledu(v);
@@ -682,18 +710,16 @@ const TEMPLATE = String.raw`
     }
     var naCm = bodyNaCm(postava);
     return Promise.all(cekani).then(function (nactene) {
-      var vyrez = vyrezPostavy(postava);
-      vyrezTed = vyrez;
-      if (!plne) plne = document.createElement("canvas");
+      var vyrez = oblast(postava);
       /*
        * Plné plátno ve dvojnásobném rozlišení postavy: vykreslené kusy
        * jsou v něm ostré i v přiblížení. Kulisa se jen zvětší (je to
        * hladká látka), práce navíc je jedno zvětšení obrázku na vrstvu.
        */
-      plne.width = Math.round(vyrez.w * PLNE);
-      plne.height = Math.round(vyrez.h * PLNE);
-      var ctx = plne.getContext("2d");
-      ctx.clearRect(0, 0, plne.width, plne.height);
+      cil.width = Math.round(vyrez.w * PLNE);
+      cil.height = Math.round(vyrez.h * PLNE);
+      var ctx = cil.getContext("2d");
+      ctx.clearRect(0, 0, cil.width, cil.height);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
       ctx.save();
@@ -737,7 +763,7 @@ const TEMPLATE = String.raw`
         }
       }
       ctx.restore();
-      zmensiNa(platno, plne, vyrez);
+      return vyrez;
     });
   }
 
@@ -1370,6 +1396,18 @@ const TEMPLATE = String.raw`
     + ".qkb-platno[data-lupa='1'] canvas{cursor:grab}"
     /* Přiblížený model vyplní celou scénu a tlačítka leží na něm */
     + ".qkb-scena[data-lupa='1']{padding:0;box-sizing:border-box}"
+    /* Velký obrázek celého modelu přes celou obrazovku */
+    + ".qkb-velky{position:fixed;inset:0;z-index:20;background:#f4f4f5;display:flex}"
+    + ".qkb-velky-obal{flex:1 1 auto;overflow:auto;display:flex;align-items:center;justify-content:center;cursor:zoom-in;"
+    + "-webkit-overflow-scrolling:touch;overscroll-behavior:contain}"
+    + ".qkb-velky canvas{display:block;max-width:100vw;max-height:100vh;max-height:100dvh;width:auto;height:auto}"
+    + ".qkb-velky.plna .qkb-velky-obal{display:block;cursor:zoom-out}"
+    + ".qkb-velky.plna canvas{max-width:none;max-height:none;margin:0 auto}"
+    + ".qkb-velky-zavrit{position:absolute;top:12px;right:12px;width:42px;height:42px;padding:0;border:0;border-radius:999px;"
+    + "background:#18181b;color:#fff;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.25)}"
+    + ".qkb-velky-rada{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);padding:6px 12px;border-radius:999px;"
+    + "background:rgba(24,24,27,.72);color:#fff;font-size:12px;line-height:1.3;pointer-events:none;white-space:nowrap}"
+    + ".qkb-lupa-velky{display:inline-flex;align-items:center;justify-content:center}"
     + ".qkb-scena[data-lupa='1'] .qkb-platno{position:absolute;inset:0;display:block}"
     + ".qkb-scena[data-lupa='1'] .qkb-platno canvas{width:100%;height:100%;max-width:none}"
     + ".qkb-scena[data-lupa='1'] .qkb-scena-lista{position:absolute;left:0;right:0;bottom:10px;margin:0;z-index:2}"
@@ -1622,9 +1660,16 @@ const TEMPLATE = String.raw`
     var zpet = tlac("qkb-lupa-zpet", "⤢", function (e) { e.stopPropagation(); lupa = { k: 1, x: 0.5, y: 0.5 }; prekresliLupu(); });
     zpet.setAttribute("aria-label", t("celyModel"));
     zpet.setAttribute("title", t("celyModel"));
+    var velkyBtn = tlac("qkb-lupa-velky", null, function (e) { e.stopPropagation(); ukazVelky(); });
+    /* Ikona jako SVG — znak „čtyř rohů" některé telefony nemají v písmu */
+    velkyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" '
+      + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+    velkyBtn.setAttribute("aria-label", t("velkyObrazek"));
+    velkyBtn.setAttribute("title", t("velkyObrazek"));
     lupaLista.appendChild(plus);
     lupaLista.appendChild(minus);
     lupaLista.appendChild(zpet);
+    lupaLista.appendChild(velkyBtn);
     misto.appendChild(lupaLista);
     napojLupu(misto);
     vykresliLupu();
@@ -2540,6 +2585,7 @@ const TEMPLATE = String.raw`
     document.body.appendChild(pozadi);
     document.addEventListener("keydown", function (e) {
       if (e.key !== "Escape" || !pozadi || pozadi.style.display === "none") return;
+      if (velkyOtevren()) { zavriVelky(); return; }
       if (panelOtevren()) { zavriPanel(); return; }
       zavrit();
     });
@@ -2552,6 +2598,7 @@ const TEMPLATE = String.raw`
     window.addEventListener("popstate", function () {
       if (ignorujPopstate) { ignorujPopstate = false; return; }
       if (!pozadi || pozadi.style.display === "none") return;
+      if (velkyOtevren()) { skryjVelky(); return; }
       if (panelOtevren()) { zavriPanelHned(); return; }
       schovej();
     });
@@ -2569,12 +2616,88 @@ const TEMPLATE = String.raw`
     }, 200);
   });
 
+  /*
+   * Velký obrázek celého modelu přes celou obrazovku. Přizpůsobí se
+   * oknu; klepnutí přepne na plné rozlišení (posouvá se prstem nebo
+   * kolečkem) a zpět. Zavírá se křížkem, Esc, klepnutím vedle nebo
+   * tlačítkem zpět v telefonu.
+   */
+  var velky = null;
+  function velkyOtevren() { return !!velky && velky.style.display !== "none"; }
+
+  function ukazVelky() {
+    if (!okno) return;
+    if (!velky) {
+      velky = el("div", "qkb-velky");
+      velky.setAttribute("role", "dialog");
+      velky.setAttribute("aria-label", t("velkyObrazek"));
+      var obal = el("div", "qkb-velky-obal");
+      var c = document.createElement("canvas");
+      c.setAttribute("role", "img");
+      c.setAttribute("aria-label", t("kabina"));
+      obal.appendChild(c);
+      velky.appendChild(obal);
+      var krizek = tlac("qkb-velky-zavrit", "\u00d7", function (e) { e.stopPropagation(); zavriVelky(); });
+      krizek.setAttribute("aria-label", t("zavrit"));
+      krizek.setAttribute("title", t("zavrit"));
+      velky.appendChild(krizek);
+      velky.appendChild(el("div", "qkb-velky-rada", t("velkyRada")));
+      obal.addEventListener("click", function (e) {
+        if (e.target === obal && !/plna/.test(velky.className)) { zavriVelky(); return; }
+        prepniPlnou(e);
+      });
+      pozadi.appendChild(velky);
+    }
+    velky.className = "qkb-velky";
+    velky.style.display = "";
+    var platnoVelke = velky.querySelector("canvas");
+    platnoVelke.style.width = "";
+    platnoVelke.style.height = "";
+    var stav = (history.state && history.state.qkb) || 1;
+    try { history.pushState({ qkb: stav + 1, velky: 1 }, ""); } catch (e) { /* bez historie to jde taky */ }
+    slozModel(vzhled(), platnoVelke, celaPostava);
+  }
+
+  function prepniPlnou(e) {
+    var c = velky.querySelector("canvas");
+    var obal = velky.querySelector(".qkb-velky-obal");
+    var r = c.getBoundingClientRect();
+    var fx = r.width ? (e.clientX - r.left) / r.width : 0.5;
+    var fy = r.height ? (e.clientY - r.top) / r.height : 0.3;
+    if (/plna/.test(velky.className)) {
+      velky.className = "qkb-velky";
+      c.style.width = "";
+      c.style.height = "";
+      return;
+    }
+    velky.className = "qkb-velky plna";
+    var dpr = Math.min(3, window.devicePixelRatio || 1);
+    /* Plné rozlišení: bod plátna na bod displeje, aspoň ale dvakrát větší než přizpůsobený */
+    var sirka = Math.max(r.width * 2, c.width / dpr);
+    c.style.width = Math.round(sirka) + "px";
+    c.style.height = Math.round(sirka * c.height / Math.max(1, c.width)) + "px";
+    /* Místo, kam se klepnulo, zůstane uprostřed */
+    obal.scrollLeft = Math.max(0, fx * sirka - obal.clientWidth / 2);
+    obal.scrollTop = Math.max(0, fy * (sirka * c.height / Math.max(1, c.width)) - obal.clientHeight / 2);
+  }
+
+  function skryjVelky() { if (velky) velky.style.display = "none"; }
+
+  function zavriVelky() {
+    if (history.state && history.state.velky) {
+      ignorujPopstate = true;
+      try { history.back(); } catch (e) { ignorujPopstate = false; }
+    }
+    skryjVelky();
+  }
+
   function doHistorie(uroven) {
     try { history.pushState({ qkb: uroven }, ""); } catch (e) { /* bez historie to jde taky */ }
   }
 
   function schovej() {
     if (!pozadi) return;
+    skryjVelky();
     zavriPanelHned();
     ulozStav();
     pozadi.style.display = "none";
