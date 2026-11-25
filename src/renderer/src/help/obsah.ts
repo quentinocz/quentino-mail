@@ -256,19 +256,19 @@ export const ZKUSEBNA: HelpTopic = {
     'Sady a produkty s víc věcmi na fotce čekají v [Produkty] nahoře. U každého kusu [Nahrát fotku] '
       + 'jen té jedné věci a zařazení potvrď fajfkou — do té doby je zákazník v kabině nevidí.',
     'Přepínač [Mobil] v náhledu ukáže kabinu na šířku telefonu, jak ji uvidí většina zákazníků.',
-    '[Rozpoznat fotky AI]: AI pozná, co je na fotce (kšandy, motýlek, knoflíčky), a ukáže, kde je '
-      + 'rovná látka — vzor se bere ze skutečné fotky. Sady se rozpoznají samy při projití katalogu.',
     'Když v kabině chybí vypínač saka nebo vesty, řekne nad náhledem žlutý pruh, které postavě vrstva chybí.',
     'Nastavení → Revize podkladů → [Exportovat podklady]: ZIP se vším, z čeho se model skládá, k pečlivé '
       + 'kontrole a dotažení. Upravený se vrátí přes [Načíst upravené].',
-    'Produkty → Příprava a schválení: [Připravit AI] projde všechny fotky (čtyři produkty naráz), pozná látku '
-      + 'a změří velikost vzoru z kusu známé šířky. Pak produkt po produktu: na modelu, s fotkami a kontrolou '
-      + 'měřítka (fotka a vzor ve stejném měřítku). [Schválit a další] je Enter, šipky listují, R připraví znovu.',
+    'Produkty → Na modelu: mřížka všech doplňků. [Vykreslit nevykreslené] pošle AI, co ještě nemá obrázek; '
+      + 'kolik se kreslí naráz, určuje výběr vedle (víc = rychleji, ale OpenAI může brzdit). Na kartě, na které '
+      + 'se pracuje, běží „AI kreslí" s časem. Klik otevře velký náhled: [Schválit a další] je Enter, R kreslí znovu.',
     'Vizuály → [Realistické šablony]: AI jednou za postavu dokreslí kravaty, motýlky, kšandy a kapesníček '
       + 'realisticky (záhyby, uzel, spony). Vzor každého produktu jde dál z jeho fotky, takže to zlepší všechny '
       + 'produkty naráz. U jedné šablony tlačítko [Realisticky]; zpět na kreslenou [Vrátit kreslenou].',
-    'Produkty → Vykreslení na modelu: volitelné doladění vybraných kusů — AI dostane kus už v látce z fotky '
-      + 'a jen ho zfotorealističtí. Jeden obrázek na kus, výsledek je vidět vždy; nesedící jde [Přesto použít].'
+    'Tvar kusu (motýlek, kravata) se bere z toho, co AI nakreslila — šablona dává jen místo a velikost. '
+      + 'Nesedí-li barvy s fotkou, karta je „nesedí" a obrázek jde přesto [Přesto použít].',
+    'Body pro šablony doladíš přes [Upravit ve velkém]: model přes celé okno, bod chytíš myší nebo ho po '
+      + 'kliknutí posouváš šipkami. Uloží se jen bod, se kterým jsi hýbal; [Vrátit poslední změnu] ho vrátí.'
   ]
 };
 

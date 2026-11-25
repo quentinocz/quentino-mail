@@ -170,16 +170,18 @@
   /* Příprava a schválení: jeden připravený ke schválení, jeden schválený, jeden bez přípravy */
   'zk:fronta': [
     { kod: 'KRA1', nazev: 'Barevná pánská bavlněná kravata s květy', obrazek: '', typ: 'kravata', varianta: 'kravata',
-      schvaleno: false, kontrola: '', pripraveno: true, skladem: true, vykresleno: false, sada: false },
+      schvaleno: false, kontrola: '', kresba: 'hotovo', potiz: '', kresliSe: '', skladem: true, vykresleno: true, sada: false },
     { kod: 'MOT1', nazev: 'Motýlek kostkovaný', obrazek: '', typ: 'kravata', varianta: 'motylek',
-      schvaleno: true, kontrola: '', pripraveno: true, skladem: true, vykresleno: false, sada: false },
+      schvaleno: true, kontrola: '', kresba: 'schvaleno', potiz: '', kresliSe: '', skladem: true, vykresleno: true, sada: false },
     { kod: 'KS1', nazev: 'Kšandy béžové', obrazek: '', typ: 'ksandy', varianta: 'siroke',
-      schvaleno: false, kontrola: '', pripraveno: false, skladem: true, vykresleno: false, sada: false }
+      schvaleno: false, kontrola: '', kresba: 'zadne', potiz: '', kresliSe: new Date(Date.now() - 42000).toISOString(), skladem: true, vykresleno: false, sada: false },
+    { kod: 'KAP1', nazev: 'Kapesníček bílý s lemem', obrazek: '', typ: 'kapesnicek', varianta: 'spicka',
+      schvaleno: false, kontrola: '', kresba: 'nesedi', potiz: 'Barvy se odchylují od fotky výrobku (shoda 21 %).', kresliSe: '', skladem: true, vykresleno: true, sada: false }
   ],
   'zk:produkt-detail': { kod: 'KRA1', typ: 'kravata', varianta: 'kravata', hex: '#fcfdf7',
     vzorek: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==',
     rucne: false, velikosti: false, schvaleno: false, nazev: 'Barevná pánská bavlněná kravata s květy', obrazek: '', cena: '599 Kč',
-    vKabine: true, kontrola: '', meritko: 1, casti: [],
+    vKabine: true, kontrola: '', meritko: 1, casti: [], fotky: ['', '', ''],
     ai: { kdy: '2026-11-25T17:00:00.000Z', model: 'claude', verze: 2, poznamky: [],
       fotky: [{ url: '', druh: 'cely' }, { url: '', druh: 'detail' }, { url: '', druh: 'na_modelu' }],
       kusy: [{ druh: 'kravata', popis: 'bílá kravata s barevnými květy', typ: 'kravata', cast: -1, jistota: 0.9, zdroj: 'fotka',
@@ -189,6 +191,8 @@
     postava: 'dospely-bezny', vykresleno: false },
   'zk:jen-schvalene': false,
   'zk:k-priprave': 1,
+  'zk:soubezne': 4,
+  'zk:schval-produkt': null,
   'zk:realisticke-odhad': { kusu: 13, usd: 2.6 },
   'zk:realisticka': { ok: true, potiz: '', nahled: 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==' },
   'zk:realisticke-vse': { hotovo: 12, navrhu: 1, chyb: 0, posledniChyba: '' },
@@ -254,7 +258,8 @@
     };
     return {
       bezSaka: svg(false), seSakem: svg(true), sirka: 512, vyska: 768,
-      limec: [0.5, 0.152], pas: 0.404, kapsa: [0.585, 0.235], ramena: 0.085, ramenoY: 0.154, spony: 0.075, rucne: false
+      limec: [0.5, 0.152], pas: 0.404, kapsa: [0.585, 0.235], ramena: 0.085, ramenoY: 0.154, spony: 0.075, rucne: false,
+      vyrez: { x: 0, y: 0, w: 1, h: 1 }, rucneBody: { pas: 0.404 }
     };
   })(),
   'zk:zkouska': { ok: true, model: 'gpt-image-2.5-sunburst', pruhledne: false, bez: ['background'], sekund: 14, chyba: '' },

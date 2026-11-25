@@ -1014,6 +1014,10 @@ export const api = {
     kPriprave: () => call<number>('zk:k-priprave'),
     /** Fronta ke schválení: celý katalog, jen to podstatné na seznam. */
     fronta: () => call<ZkFrontaRadek[]>('zk:fronta'),
+    /** Schválit / zrušit schválení / zamítnout produkt i všechny jeho kresby. */
+    schvalProdukt: (kod: string, co: 'schvalit' | 'zrusit' | 'zamitnout') => call<void>('zk:schval-produkt', kod, co),
+    /** Kolik kusů kreslit naráz (bez hodnoty jen přečte). */
+    soubezne: (n?: number) => call<number>('zk:soubezne', n),
     produktDetail: (kod: string) => call<ZkProduktRadek | null>('zk:produkt-detail', kod),
     /** Do kabiny jen schválené produkty (bez hodnoty jen přečte). */
     jenSchvalene: (hodnota?: boolean) => call<boolean>('zk:jen-schvalene', hodnota),
@@ -1039,10 +1043,10 @@ export const api = {
     /** Jeden levný obrázek (kolem centu) na ověření klíče, modelu a průhlednosti */
     zkouska: () => call<ZkZkouskaModelu>('zk:zkouska'),
     /** Body pro šablony zboží a náhled, na kterém se dají posunout */
-    kotvy: (postava: string) => call<ZkKotvy | null>('zk:kotvy', postava),
+    kotvy: (postava: string, velky = false) => call<ZkKotvy | null>('zk:kotvy', postava, velky),
     kotvyUloz: (postava: string, rucne: {
       limec?: [number, number]; pas?: number; kapsa?: [number, number]; ramena?: number; spony?: number;
-    } | null) => call<ZkKotvy | null>('zk:kotvy-uloz', postava, rucne)
+    } | null, velky = false) => call<ZkKotvy | null>('zk:kotvy-uloz', postava, rucne, velky)
   },
 
   /**

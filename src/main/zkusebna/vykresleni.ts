@@ -1,10 +1,11 @@
 import fs from 'fs';
 import { getSetting, setSetting } from '../db';
-import { ZK_PODKLAD_HEX, ZkDruhFotky, ZkVrstvaTyp, ZkVek, barvaPodMapu, hardLight } from '../../shared/zkusebna';
+import { ZK_PODKLAD_HEX, ZkDruhFotky, ZkVrstvaTyp, ZkVek, barvaPodMapu, hardLight, sablonaPro } from '../../shared/zkusebna';
 import { Obraz, nacti, novyObraz, uloz } from './png';
 import * as px from './pixely';
 import * as store from './store';
 import { naZmenuSablony } from './sablony';
+import { maskaVyrobku } from './meritko';
 import * as obrazky from './obrazky';
 import { fotkyProduktu, proKabinu, stahniFotku } from './produkty';
 
@@ -82,7 +83,15 @@ const DRUH_PRO_MODEL: Record<string, string> = {
   jine: 'the product'
 };
 
-/** Zadání pro model. Krátké a jednoznačné — každé slovo navíc je prostor pro fantazii. */
+/**
+ * Zadání pro model. Krátké a jednoznačné — každé slovo navíc je prostor pro fantazii.
+ *
+ * Patrik (25. 11.): „přípravu a strojové poznání textury bych celé
+ * zrušil… zaměřit se na spolehlivost, rychlost, kvalitu a efektivitu
+ * vykreslování". Model proto nedostává vzorek vystřižený z fotky, ale
+ * jen tvar a světlo šablony; látku, barvy a velikost vzoru bere přímo
+ * z fotek výrobku, které vidí celé.
+ */
 export function zadaniVykresleni(
   typ: ZkVrstvaTyp,
   varianta: string,
@@ -95,16 +104,20 @@ export function zadaniVykresleni(
   const predlohy = druhyFotek.map((d, i) => `Image ${i + 2} shows ${DRUH_PRO_MODEL[d] ?? 'the product'}.`).join(' ');
   const co = !mira ? '' : /pásku/.test(mira.co) ? 'strap is' : /motýlka/.test(mira.co) ? 'bow tie is (wing tip to wing tip)'
     : /kapesníčku/.test(mira.co) ? 'pocket square edge is' : 'blade is (at its widest point)';
+  const sirka = sablonaPro(typ, varianta);
   return [
-    'Image 1 is a studio photo of a model. Inside the transparent area of the mask there is a ' + kus
-      + ' made by flatly mapping the real fabric of the product onto a template — colours and pattern scale are correct, but it looks flat.',
+    'Image 1 is a studio photo of a model. Inside the transparent area of the mask there is a plain placeholder of a ' + kus
+      + ': it gives only the exact shape, position and the studio lighting — its colour is just a rough guess.',
     'Repaint the masked area as a photorealistic ' + kus + ' that is EXACTLY the product shown in the other image(s):',
     'the same fabric, colours, pattern, pattern size and texture' + (typ === 'ksandy' ? ', the same metal parts and clips' : '') + '.',
     predlohy,
     mira ? `Real size: the ${co} ${String(mira.cm).replace(',', '.')} cm`
-      + (mira.motivu ? `, and the pattern motif repeats about ${mira.motivu} times across it` : '')
-      + ' — image 1 already has this pattern scale; keep the motifs exactly that big, do not enlarge or shrink them.' : '',
-    'Keep the colours and the pattern scale you see in image 1; the pattern follows the folds and the direction of the ' + kus + '.',
+      + (mira.motivu ? `, and the pattern motif repeats about ${mira.motivu} times across it` : '') + '.'
+      : sirka && sirka.tvar !== 'kapesnicek'
+        ? `Real size: the ${sirka.tvar === 'motylek' ? 'bow tie is' : sirka.tvar === 'ksandy' ? 'strap is' : 'blade is (at its widest point)'} `
+          + `${sirka.sirkaCm} cm wide — keep the pattern motifs at the same real size as on the product photos, relative to that width.`
+        : '',
+    'The pattern follows the folds and the direction of the ' + kus + '.',
     popis ? 'Product description: ' + popis.replace(/\s+/g, ' ').slice(0, 300) + '.' : '',
     sada ? 'The product photo shows a set — use only the ' + kus + ' from it.' : '',
     'Keep exactly the outline, position, size and angle of the placeholder; fill the masked shape completely.',
@@ -132,7 +145,7 @@ async function predlohy(row: store.ZkProduktRow, cast: number): Promise<{ obraz:
     const modelu = poradi.filter(one => one.druh === 'na_modelu');
     poradi = [...poradi.filter(one => one.druh !== 'na_modelu').slice(0, 3), ...modelu.slice(0, 1)].slice(0, 4);
   } else {
-    poradi = fotkyProduktu(row.kod, 3).map(url => ({ url, druh: 'cely' as ZkDruhFotky }));
+    poradi = fotkyProduktu(row.kod, 4).map(url => ({ url, druh: 'cely' as ZkDruhFotky }));
   }
   const stazene = await Promise.all(poradi.map(one => stahniFotku(one.url)));
   return poradi.map((one, i) => ({ obraz: stazene[i]!, druh: one.druh })).filter(one => one.obraz);
@@ -142,6 +155,10 @@ async function predlohy(row: store.ZkProduktRow, cast: number): Promise<{ obraz:
 
 export type Kreslir = (zadani: string, vstup: Obraz, maska: Obraz, predlohy: Obraz[]) => Promise<Obraz>;
 let kreslir: Kreslir = (zadani, vstup, maska, predlohy) => obrazky.upravPodlePredlohy(zadani, vstup, maska, predlohy);
+
+/** Pro zkoušky: fotky výrobku bez katalogu a sítě. */
+let fotkyNaZkousku: ((kod: string) => Obraz[]) | null = null;
+export function nastavFotky(fn: ((kod: string) => Obraz[]) | null): void { fotkyNaZkousku = fn; }
 
 /** Pro zkoušky: kreslíř bez OpenAI. */
 export function nastavKreslire(fn: Kreslir | null): void {
@@ -291,8 +308,10 @@ export function shodaPalet(a: Float64Array, b: Float64Array): number {
   return s;
 }
 
-/** Pod tuhle shodu palet se výsledek označí „Nesedí" (ověřeno na pruzích a květech v testu). */
-export const MEZ_SHODY = 0.5;
+/** Pod tuhle shodu palet s fotkami výrobku se výsledek označí „Nesedí". */
+export const MEZ_SHODY = 0.35;
+/** Na fotce sady je víc věcí — vykreslený kus pokryje jen část její palety. */
+export const MEZ_SHODY_SADA = 0.18;
 
 /**
  * Fotka výrobku oříznutá na výrobek: na celé fotce je výrobek často
@@ -388,7 +407,13 @@ export function vyrez(okraje: px.Okraje, sirka: number, vyska: number, naCm: num
  *
  * Nic z toho nestojí kredit — počítá se z obrázku, který už je zaplacený.
  */
-export function zkontroluj(vstup: Obraz, vysledek: Obraz, tvar: Obraz): { zmena: number; shoda: number; potiz: string } {
+export function zkontroluj(
+  vstup: Obraz,
+  vysledek: Obraz,
+  tvar: Obraz,
+  fotky: Float64Array | null = null,
+  sada = false
+): { zmena: number; shoda: number; potiz: string } {
   let n = 0; let stejne = 0;
   for (let i = 0; i < tvar.body.length; i += 4) {
     if (tvar.body[i + 3] < 200) continue;
@@ -399,17 +424,44 @@ export function zkontroluj(vstup: Obraz, vysledek: Obraz, tvar: Obraz): { zmena:
   }
   if (!n) return { zmena: 0, shoda: 0, potiz: 'Šablona kusu je prázdná.' };
   const zmena = 1 - stejne / n;
-  const shoda = shodaPalet(paleta(vstup, tvar), paleta(vysledek, tvar));
   if (zmena < 0.05) {
-    return { zmena, shoda, potiz: 'Model obrázek skoro nezměnil — výsledek je stejný jako šablona se vzorkem.' };
+    return { zmena, shoda: 0, potiz: 'Model obrázek skoro nezměnil — kus nenakreslil.' };
   }
-  if (shoda < MEZ_SHODY) {
+  /*
+   * Barvy proti fotkám výrobku (bez pozadí). Na fotce sady je víc věcí,
+   * takže se shoda čeká menší. Neprojde = „Nesedí" s náhledem, žádné
+   * kreslení navíc — rozhodne člověk.
+   */
+  if (!fotky) return { zmena, shoda: 1, potiz: '' };
+  const shoda = shodaPalet(fotky, paleta(vysledek, tvar));
+  const mez = sada ? MEZ_SHODY_SADA : MEZ_SHODY;
+  if (shoda < mez) {
     return {
       zmena, shoda,
-      potiz: `Barvy nebo vzor se odchylují od látky výrobku (shoda ${Math.round(shoda * 100)} %). Podívej se na náhled — když vypadá dobře, dej „Přesto použít".`
+      potiz: `Barvy se odchylují od fotky výrobku (shoda ${Math.round(shoda * 100)} %). Podívej se na náhled — když vypadá dobře, dej „Přesto použít".`
     };
   }
   return { zmena, shoda, potiz: '' };
+}
+
+/** Paleta výrobku ze všech fotek dohromady — jen body výrobku, bez pozadí. */
+export function paletaFotek(fotky: Obraz[]): Float64Array | null {
+  const soucet = new Float64Array(CHROMA * CHROMA * JAS);
+  let pocet = 0;
+  for (const f of fotky) {
+    const maska = maskaVyrobku(f, px.pozadiOdKraje(f));
+    let bodu = 0;
+    for (let i = 0; i < maska.length; i++) if (maska[i]) bodu += 1;
+    if (bodu < 200 || bodu > maska.length * 0.97) continue;
+    const tvar = novyObraz(f.sirka, f.vyska);
+    for (let i = 0; i < maska.length; i++) tvar.body[i * 4 + 3] = maska[i];
+    const p = paleta(f, tvar);
+    for (let k = 0; k < p.length; k++) soucet[k] += p[k];
+    pocet += 1;
+  }
+  if (!pocet) return null;
+  for (let k = 0; k < soucet.length; k++) soucet[k] /= pocet;
+  return soucet;
 }
 
 /* ------------------------------------------------------------ jeden kus */
@@ -429,7 +481,7 @@ export async function vykresliKus(
   kod: string,
   cast: number,
   postavaId: string,
-  moznosti: { fotky?: Obraz[]; nahradit?: boolean } = {}
+  moznosti: { fotky?: Obraz[]; nahradit?: boolean; bezPrenosu?: boolean } = {}
 ): Promise<VykresleniVysledek> {
   const row = store.produktyRows().find(one => one.kod === kod);
   if (!row || !row.typ) throw new Error('Produkt v kabině není zařazený.');
@@ -451,8 +503,9 @@ export async function vykresliKus(
   const r = vyrez(kde, p.sirka, p.vyska, naCm);
 
   /* Fotky se stahují dřív než cokoli se zaplatí — bez fotky se nekreslí */
-  const vybrane = moznosti.fotky
-    ? moznosti.fotky.map(obraz => ({ obraz, druh: 'cely' as ZkDruhFotky }))
+  const podvrzene = moznosti.fotky ?? fotkyNaZkousku?.(kod);
+  const vybrane = podvrzene
+    ? podvrzene.map(obraz => ({ obraz, druh: 'cely' as ZkDruhFotky }))
     : await predlohy(row, cast);
   const fotky = vybrane.filter(one => one.obraz.sirka > 20).map(one => {
     /* Na modelu se neořezává — jde o poměr vzoru k tělu a kravatě */
@@ -462,22 +515,41 @@ export async function vykresliKus(
   });
   if (!fotky.length) throw new Error('Produkt nemá fotku, podle které by se dal nakreslit.');
 
-  /* Vstup: postava s kulisou a na místě kusu skutečná látka pod mapou světla */
+  /*
+   * Vstup: postava s kulisou a na místě kusu šablona — tvar a světlo,
+   * v barvě výrobku jen jako nápověda. Látku model kreslí z fotek.
+   */
   const scena = kulisa(postavaId, kus.typ === 'kapesnicek', p.sirka, p.vyska);
   if (!scena) throw new Error('Postava nemá základ.');
-  const latka = oblecVzorkem(sablona, kus, row.meritko ?? 1, naCm);
-  const sKusem = px.slozeni([{ obraz: scena }, { obraz: latka }, ...(kov ? [{ obraz: kov }] : [])], p.sirka, p.vyska);
+  const sKusem = px.slozeni([{ obraz: scena }, { obraz: sablona, hex: kus.hex || '#8a8a8a' }, ...(kov ? [{ obraz: kov }] : [])],
+    p.sirka, p.vyska);
   const vstup = px.prevzorkuj(px.vyrizniObdelnik(sKusem, r), r.W, r.H);
   const tvarVyrezu = px.prevzorkuj(px.vyrizniObdelnik(sablona, r), r.W, r.H);
-  /* Maska: průhledné = smí se kreslit (tvar šablony), jinak neprůhledné */
+  /*
+   * Maska: kde smí model kreslit. Ne přesně tvar šablony, ale kus kolem
+   * něj — Patrik (25. 11.): „nesedí tvar motýlku dost výrazně". Šablona
+   * je jeden obecný motýlek, výrobky mají křídla kulatá, rovná, špičatá.
+   * Model tvar dotáhne podle fotky a z výsledku se vezme to, co namaloval.
+   */
+  const rozsahCm = DOSAH_CM[druhKusu(kus.typ, kus.varianta)] ?? 0.8;
+  const zaklad = new Uint8Array(p.sirka * p.vyska);
+  for (let i = 0; i < zaklad.length; i++) zaklad[i] = maska0[i] || (kov && kov.body[i * 4 + 3] > 64) ? 255 : 0;
+  const dovoleno = px.rozsir(zaklad, p.sirka, p.vyska, Math.max(2, Math.round(rozsahCm * naCm)));
+  const dovolenoObraz = novyObraz(p.sirka, p.vyska);
+  for (let i = 0; i < dovoleno.length; i++) dovolenoObraz.body[i * 4 + 3] = dovoleno[i];
+  const dovolenoVyrez = px.prevzorkuj(px.vyrizniObdelnik(dovolenoObraz, r), r.W, r.H);
   const maska = novyObraz(r.W, r.H);
-  for (let i = 0; i < maska.body.length; i += 4) maska.body[i + 3] = tvarVyrezu.body[i + 3] > 8 ? 0 : 255;
+  for (let i = 0; i < maska.body.length; i += 4) maska.body[i + 3] = dovolenoVyrez.body[i + 3] > 8 ? 0 : 255;
 
   const sada = (row.casti?.length ?? 0) > 0;
   const rozpoznany = row.ai?.kusy.find(one => one.cast === cast && one.typ);
   const zadani = zadaniVykresleni(kus.typ, kus.varianta, sada, rozpoznany?.popis ?? '', fotky.map(one => one.druh), rozpoznany?.mira);
   const vysledek = px.prevzorkuj(await kreslir(zadani, vstup, maska, fotky.map(one => one.obraz)), r.W, r.H);
-  const k = zkontroluj(vstup, vysledek, tvarVyrezu);
+  /* Tvar kusu z kresby: co se liší od čisté scény (bez šablony), a není to jen stín na košili */
+  const scenaVyrez = px.prevzorkuj(px.vyrizniObdelnik(scena, r), r.W, r.H);
+  const vlastni = tvarZKresby(vysledek, scenaVyrez, dovolenoVyrez, tvarVyrezu, kus.typ === 'ksandy');
+  const tvarKusu = vlastni.tvar ?? tvarVyrezu;
+  const k = zkontroluj(vstup, vysledek, tvarKusu, paletaFotek(fotky.filter(one => one.druh !== 'na_modelu').map(one => one.obraz)), sada);
   const potiz = k.potiz;
 
   const soubor = store.cestaVykresleni(postavaId, kod, cast);
@@ -489,24 +561,154 @@ export async function vykresliKus(
     return { kod, cast, postava: postavaId, stav: 'nesedi', potiz: `${potiz} Zůstává předchozí vykreslení.` };
   }
 
-  /* Vrstva ve dvojnásobném rozlišení; průhlednost z šablony (tvar sedí na límec a kapsu) */
+  /* Vrstva ve dvojnásobném rozlišení; průhlednost z tvaru, který model namaloval */
   const W2 = r.w * MERITKO; const H2 = r.h * MERITKO;
   const obraz = px.prevzorkuj(vysledek, W2, H2);
-  const tvar = px.prevzorkuj(px.vyrizniObdelnik(sablona, r), W2, H2);
+  const tvar = px.prevzorkuj(tvarKusu, W2, H2);
   for (let i = 0; i < obraz.body.length; i += 4) obraz.body[i + 3] = tvar.body[i + 3];
   fs.writeFileSync(soubor, uloz(obraz));
+  /* Šablona, podle které se kreslilo — kresba se pak umí přizpůsobit nové šabloně i jiné postavě */
+  ulozTvarSablony(soubor, sablona, r);
   /* Náhled do okna — uloží se vždy, i u nepovedeného: člověk musí vidět, co je špatně */
-  const scenaVyrez = px.vyrizniObdelnik(scena, r);
-  const maly = px.slozeni([{ obraz: scenaVyrez }, { obraz: px.prevzorkuj(obraz, r.w, r.h) }], r.w, r.h);
+  const maly = px.slozeni([{ obraz: px.vyrizniObdelnik(scena, r) }, { obraz: px.prevzorkuj(obraz, r.w, r.h) }], r.w, r.h);
   const zm = Math.min(1, 320 / Math.max(r.w, r.h));
   fs.writeFileSync(nahled, uloz(px.prevzorkuj(maly, Math.max(1, Math.round(r.w * zm)), Math.max(1, Math.round(r.h * zm)))));
 
+  const poznamka = vlastni.tvar ? '' : vlastni.proc;
   store.zapisVykresleni({
     kod, cast, postava: postavaId, typ: kus.typ, varianta: kus.varianta, soubor, nahled,
-    x: r.x, y: r.y, w: r.w, h: r.h, stav: potiz ? 'nesedi' : 'hotovo', potiz, model: obrazky.model().id,
-    kdy: new Date().toISOString()
+    x: r.x, y: r.y, w: r.w, h: r.h, stav: potiz ? 'nesedi' : 'hotovo', potiz: [potiz, poznamka].filter(Boolean).join(' '),
+    model: obrazky.model().id, kdy: new Date().toISOString()
   });
+  /* Ostatní postavy stejného věku dostanou kresbu přetvarovanou bez AI */
+  if (!moznosti.bezPrenosu) prenesNaDalsi(kod, cast, postavaId);
   return { kod, cast, postava: postavaId, stav: potiz ? 'nesedi' : 'hotovo', potiz };
+}
+
+/** Kolik centimetrů kolem šablony smí model kreslit — dost na jiný tvar, málo na cizí věci. */
+const DOSAH_CM: Record<string, number> = { motylek: 1.6, kravata: 0.8, pletena: 0.8, regata: 1.2, ksandy: 0.5, kapesnicek: 0.8 };
+
+/**
+ * Tvar kusu z kresby od modelu.
+ *
+ * Kus je tam, kde se kresba liší od čisté scény (postava bez šablony).
+ * Stín na košili se liší taky — pozná se tak, že má stejný odstín jako
+ * košile, jen je tmavší; ten se do kusu nebere (košile v kabině mění
+ * barvu a stín v barvě bílé košile by na modré svítil). Když tvar vyjde
+ * nesmyslně (moc malý, moc velký), zůstane tvar šablony.
+ */
+export function tvarZKresby(
+  kresba: Obraz,
+  scena: Obraz,
+  dovoleno: Obraz,
+  sablona: Obraz,
+  vicDilu: boolean
+): { tvar: Obraz | null; proc: string } {
+  const { sirka: w, vyska: h } = kresba;
+  const m = new Uint8Array(w * h);
+  let plochaSablony = 0;
+  for (let i = 0; i < m.length; i++) {
+    const k = i * 4;
+    if (sablona.body[k + 3] > 128) plochaSablony += 1;
+    if (dovoleno.body[k + 3] < 128) continue;
+    const r1 = kresba.body[k], g1 = kresba.body[k + 1], b1 = kresba.body[k + 2];
+    const r0 = scena.body[k], g0 = scena.body[k + 1], b0 = scena.body[k + 2];
+    const d = Math.abs(r1 - r0) + Math.abs(g1 - g0) + Math.abs(b1 - b0);
+    if (d < 54) continue;
+    /* Stín: stejný odstín, nižší jas */
+    const s1 = r1 + g1 + b1 + 1; const s0 = r0 + g0 + b0 + 1;
+    const odstin = Math.abs(r1 / s1 - r0 / s0) + Math.abs(g1 / s1 - g0 / s0);
+    if (odstin < 0.035 && s1 < s0 && scena.body[k + 3] > 128) continue;
+    m[i] = 255;
+  }
+  let tvar = px.zavriDiry(m, w, h, 3);
+  tvar = px.vyplnDiry(tvar, w, h, Math.round(w * h * 0.02));
+  tvar = px.jenVelke(tvar, w, h, vicDilu ? 0.03 : 0.2);
+  let plocha = 0; let spolecne = 0;
+  for (let i = 0; i < tvar.length; i++) {
+    if (!tvar[i]) continue;
+    plocha += 1;
+    if (sablona.body[i * 4 + 3] > 128) spolecne += 1;
+  }
+  if (!plochaSablony) return { tvar: null, proc: '' };
+  if (plocha < plochaSablony * 0.55 || plocha > plochaSablony * 1.8 || spolecne < plochaSablony * 0.45) {
+    return { tvar: null, proc: 'Tvar z kresby se nepovedlo rozpoznat — použitý tvar šablony.' };
+  }
+  const out = novyObraz(w, h);
+  for (let i = 0; i < tvar.length; i++) {
+    const k = i * 4;
+    out.body[k] = kresba.body[k]; out.body[k + 1] = kresba.body[k + 1]; out.body[k + 2] = kresba.body[k + 2];
+    out.body[k + 3] = tvar[i];
+  }
+  return { tvar: px.vyhladObrys(out, 1.5), proc: '' };
+}
+
+function cestaTvaru(soubor: string): string { return soubor.replace(/\.png$/, '-tvar.png'); }
+
+/** Uloží šablonu (průhlednost) ve výřezu, podle kterého se kreslilo. */
+function ulozTvarSablony(soubor: string, sablona: Obraz, r: { x: number; y: number; w: number; h: number }): void {
+  try { fs.writeFileSync(cestaTvaru(soubor), uloz(px.vyrizniObdelnik(sablona, r))); } catch { /* bez tvaru se přizpůsobí podle kresby */ }
+}
+
+/**
+ * Hlavní postava věkové skupiny — na ní se kreslí AI, ostatní dostanou
+ * kresbu přetvarovanou. Běžná postava, když je, jinak první hotová.
+ */
+export function hlavniPostava(proVek?: ZkVek[]): string | null {
+  const vsechny = postavyPro(proVek);
+  const postavy = store.postavy().filter(one => vsechny.includes(one.id));
+  return (postavy.find(one => one.telo === 'bezny') ?? postavy[0])?.id ?? null;
+}
+
+/**
+ * Kresba z hlavní postavy na ostatní postavy stejného věku — bez AI.
+ *
+ * Patrik (25. 11.): „spolehlivost, rychlost, kvalita a efektivita
+ * vykreslování". Štíhlý, běžný a silnější model mají kravatu jen jinak
+ * dlouhou a širokou; kreslit ji třikrát znamená trojí cenu a trojí
+ * riziko, že AI pokaždé namaluje jiný vzor. Kresba se proto přetáhne
+ * ze šablony hlavní postavy na šablonu té druhé (prizpusobKresbu).
+ */
+export function prenesNaDalsi(kod: string, cast: number, zPostavy: string): number {
+  const v = store.vykresleni(kod).find(one => one.cast === cast && one.postava === zPostavy);
+  if (!v || !v.soubor || !fs.existsSync(v.soubor)) return 0;
+  const proVek = proKabinu(5000, true).find(one => one.kod === kod)?.proVek;
+  const kresba = nacti(fs.readFileSync(v.soubor));
+  const staryTvar = fs.existsSync(cestaTvaru(v.soubor)) ? nacti(fs.readFileSync(cestaTvaru(v.soubor))) : null;
+  let preneseno = 0;
+  for (const postava of postavyPro(proVek)) {
+    if (postava === zPostavy) continue;
+    const sablona = nactiVrstvu(postava, v.typ as ZkVrstvaTyp, v.varianta);
+    const p = store.postava(postava);
+    if (!sablona || !p) continue;
+    const stare = store.vykresleni(kod).find(one => one.cast === cast && one.postava === postava);
+    /* Ručně schválené nebo zamítnuté na té postavě se nepřepisuje */
+    if (stare && (stare.stav === 'schvaleno' || stare.stav === 'zamitnuto') && stare.model !== 'přenos') continue;
+    const r = prizpusobKresbu(kresba, { x: v.x, y: v.y, w: v.w, h: v.h }, staryTvar, sablona, kresba.sirka / Math.max(1, v.w));
+    if (!r) continue;
+    const soubor = store.cestaVykresleni(postava, kod, cast);
+    const nahled = store.cestaVykresleni(postava, kod, cast, true);
+    fs.writeFileSync(soubor, uloz(r.obraz));
+    ulozTvarSablony(soubor, sablona, r);
+    ulozNahled(postava, v.typ as ZkVrstvaTyp, r, nahled);
+    store.zapisVykresleni({
+      kod, cast, postava, typ: v.typ, varianta: v.varianta, soubor, nahled, x: r.x, y: r.y, w: r.w, h: r.h,
+      stav: v.stav === 'zamitnuto' ? 'zamitnuto' : v.stav, potiz: v.potiz, model: 'přenos', kdy: new Date().toISOString()
+    });
+    preneseno += 1;
+  }
+  return preneseno;
+}
+
+function ulozNahled(postava: string, typ: ZkVrstvaTyp, r: { obraz: Obraz; x: number; y: number; w: number; h: number }, soubor: string): void {
+  const p = store.postava(postava);
+  if (!p) return;
+  const scena = kulisa(postava, typ === 'kapesnicek', p.sirka, p.vyska);
+  if (!scena) return;
+  const rr = { x: r.x, y: r.y, w: r.w, h: r.h };
+  const maly = px.slozeni([{ obraz: px.vyrizniObdelnik(scena, rr) }, { obraz: px.prevzorkuj(r.obraz, r.w, r.h) }], r.w, r.h);
+  const zm = Math.min(1, 320 / Math.max(r.w, r.h));
+  fs.writeFileSync(soubor, uloz(px.prevzorkuj(maly, Math.max(1, Math.round(r.w * zm)), Math.max(1, Math.round(r.h * zm)))));
 }
 
 /* ------------------------------------------------- nová šablona, stará kresba */
@@ -529,108 +731,106 @@ function useky(maska: Uint8Array, w: number, y: number): [number, number][] {
  *
  * Patrik (25. 11.): „bylo by dobré, kdyby AI vygenerované obrázky se
  * nemusely znovu generovat, kdyby se změnila šablona, ale dokázaly se
- * přizpůsobit, ideálně bez AI". Kravata se po posunu límce nebo pasu
- * jen posune, prodlouží nebo zúží; realistická šablona doladí obrys
- * o pár bodů. Kresba se proto přetáhne **řádek po řádku**: výška podle
- * horního a dolního okraje tvaru, v každém řádku každý úsek (list
- * kravaty, pásek kšand) na odpovídající úsek nového tvaru. Vzor
- * i záhyby zůstanou, jen se natáhnou o tolik, o kolik se změnil tvar.
+ * přizpůsobit, ideálně bez AI". Kravata se po posunu límce nebo pasu jen
+ * posune, prodlouží nebo zúží; na jiné postavě je jinak dlouhá a široká.
  *
- * `stara`: kresba (s průhledností tvaru, ve kterém vznikla) a její
- * obdélník na postavě; `nova`: šablona přes celé plátno. Vrací novou
- * kresbu ve stejném měřítku (`m` bodů kresby na bod postavy).
+ * Přetváří se **podle šablon**, ne podle obrysu kresby: stará šablona
+ * (uložená vedle kresby) a nová šablona dají pro každý řádek posun
+ * a natažení — svisle podle horního a dolního okraje, vodorovně úsek na
+ * úsek (list kravaty, pásek kšand). Tím se kresba přenese i s vlastním
+ * tvarem od modelu (kulatá křídla motýlku), i s tím, co přesahuje
+ * šablonu. Bez uložené šablony (starší kresby) poslouží obrys kresby.
+ *
+ * Vrací kresbu ve stejném měřítku `m` (bodů kresby na bod postavy).
  */
 export function prizpusobKresbu(
   stara: Obraz,
   r: { x: number; y: number; w: number; h: number },
+  staryTvar: Obraz | null,
   nova: Obraz,
   m = MERITKO
 ): { obraz: Obraz; x: number; y: number; w: number; h: number; shoda: number } | null {
-  /* Starý tvar v bodech kresby, nový v bodech postavy → obojí na měřítko kresby */
   const W0 = stara.sirka; const H0 = stara.vyska;
-  const stary = new Uint8Array(W0 * H0);
-  for (let i = 0; i < stary.length; i++) stary[i] = stara.body[i * 4 + 3] > 128 ? 255 : 0;
-  const maskaNove = new Uint8Array(nova.sirka * nova.vyska);
-  for (let i = 0; i < maskaNove.length; i++) maskaNove[i] = nova.body[i * 4 + 3] > 8 ? 255 : 0;
-  const kde = px.okraje(maskaNove, nova.sirka, nova.vyska);
-  if (!kde.w) return null;
-  const okraj = 4;
-  const r2 = {
-    x: Math.max(0, kde.x - okraj), y: Math.max(0, kde.y - okraj),
-    w: Math.min(nova.sirka, kde.x + kde.w + okraj) - Math.max(0, kde.x - okraj),
-    h: Math.min(nova.vyska, kde.y + kde.h + okraj) - Math.max(0, kde.y - okraj)
-  };
-  const tvar = px.prevzorkuj(px.vyrizniObdelnik(nova, r2), r2.w * m, r2.h * m);
-  const W1 = tvar.sirka; const H1 = tvar.vyska;
-  const novy = new Uint8Array(W1 * H1);
-  for (let i = 0; i < novy.length; i++) novy[i] = tvar.body[i * 4 + 3] > 128 ? 255 : 0;
+  /* Stará šablona v bodech postavy ve výřezu r */
+  const T0 = new Uint8Array(r.w * r.h);
+  if (staryTvar && staryTvar.sirka === r.w && staryTvar.vyska === r.h) {
+    for (let i = 0; i < T0.length; i++) T0[i] = staryTvar.body[i * 4 + 3] > 128 ? 255 : 0;
+  } else {
+    const zmenseny = px.prevzorkuj(stara, r.w, r.h);
+    for (let i = 0; i < T0.length; i++) T0[i] = zmenseny.body[i * 4 + 3] > 128 ? 255 : 0;
+  }
+  const T1 = new Uint8Array(nova.sirka * nova.vyska);
+  for (let i = 0; i < T1.length; i++) T1[i] = nova.body[i * 4 + 3] > 128 ? 255 : 0;
+  const k1 = px.okraje(T1, nova.sirka, nova.vyska);
+  const k0 = px.okraje(T0, r.w, r.h);
+  if (!k1.w || !k0.w) return null;
 
-  /* Shoda tvarů na postavě — skoro stejné se nepřetahuje (jen by se rozmazalo) */
+  /* Shoda šablon (stejné místo, stejný tvar) — pak se nic nepřetahuje */
   let oba = 0; let jeden = 0;
-  for (let gy = Math.min(r.y, r2.y); gy < Math.max(r.y + r.h, r2.y + r2.h); gy++) {
-    for (let gx = Math.min(r.x, r2.x); gx < Math.max(r.x + r.w, r2.x + r2.w); gx++) {
-      const sx = Math.round((gx - r.x) * m + m / 2); const sy = Math.round((gy - r.y) * m + m / 2);
-      const a = sx >= 0 && sy >= 0 && sx < W0 && sy < H0 && stary[sy * W0 + sx] > 0;
-      const nx = Math.round((gx - r2.x) * m + m / 2); const ny = Math.round((gy - r2.y) * m + m / 2);
-      const b = nx >= 0 && ny >= 0 && nx < W1 && ny < H1 && novy[ny * W1 + nx] > 0;
+  for (let gy = Math.min(r.y, k1.y); gy < Math.max(r.y + r.h, k1.y + k1.h); gy++) {
+    for (let gx = Math.min(r.x, k1.x); gx < Math.max(r.x + r.w, k1.x + k1.w); gx++) {
+      const lx = gx - r.x; const ly = gy - r.y;
+      const a = lx >= 0 && ly >= 0 && lx < r.w && ly < r.h && T0[ly * r.w + lx] > 0;
+      const b = gx >= 0 && gy >= 0 && gx < nova.sirka && gy < nova.vyska && T1[gy * nova.sirka + gx] > 0;
       if (a && b) oba += 1;
       if (a || b) jeden += 1;
     }
   }
   const shoda = jeden ? oba / jeden : 1;
 
-  /* Svislé okraje obou tvarů (v bodech postavy) */
-  const radky = (mm: Uint8Array, w: number, h: number) => {
-    let od = -1; let po = -1;
-    for (let y = 0; y < h; y++) {
-      let je = false;
-      for (let x = 0; x < w; x++) if (mm[y * w + x]) { je = true; break; }
-      if (je) { if (od < 0) od = y; po = y; }
-    }
-    return { od, po };
+  /* Nový výřez: o tolik větší než šablona, o kolik byl starý výřez větší než stará šablona */
+  const sx = k1.w / k0.w; const sy = k1.h / k0.h;
+  const x0 = Math.floor(k1.x - k0.x * sx); const y0 = Math.floor(k1.y - k0.y * sy);
+  const x1 = Math.ceil(k1.x + k1.w + (r.w - k0.x - k0.w) * sx); const y1 = Math.ceil(k1.y + k1.h + (r.h - k0.y - k0.h) * sy);
+  const r2 = {
+    x: Math.max(0, x0), y: Math.max(0, y0),
+    w: Math.min(nova.sirka, x1) - Math.max(0, x0), h: Math.min(nova.vyska, y1) - Math.max(0, y0)
   };
-  const rs = radky(stary, W0, H0); const rn = radky(novy, W1, H1);
-  if (rs.od < 0 || rn.od < 0) return null;
+  if (r2.w < 2 || r2.h < 2) return null;
 
-  const out = novyObraz(W1, H1);
+  const usekyRadku = (mm: Uint8Array, w: number, y: number, h: number) => (y >= 0 && y < h ? useky(mm, w, y) : []);
+  const W1 = r2.w * m; const H1 = r2.h * m;
+  const out = novyObraz(Math.round(W1), Math.round(H1));
   const vzorek = (x: number, y: number, c: number) => {
-    const x0 = Math.max(0, Math.min(W0 - 1, Math.floor(x))); const y0 = Math.max(0, Math.min(H0 - 1, Math.floor(y)));
-    const x1 = Math.min(W0 - 1, x0 + 1); const y1 = Math.min(H0 - 1, y0 + 1);
-    const tx = Math.max(0, Math.min(1, x - x0)); const ty = Math.max(0, Math.min(1, y - y0));
+    if (x < 0 || y < 0 || x > W0 - 1 || y > H0 - 1) return 0;
+    const xa = Math.floor(x); const ya = Math.floor(y);
+    const xb = Math.min(W0 - 1, xa + 1); const yb = Math.min(H0 - 1, ya + 1);
+    const tx = x - xa; const ty = y - ya;
     const v = (xx: number, yy: number) => stara.body[(yy * W0 + xx) * 4 + c];
-    return (v(x0, y0) * (1 - tx) + v(x1, y0) * tx) * (1 - ty) + (v(x0, y1) * (1 - tx) + v(x1, y1) * tx) * ty;
+    return (v(xa, ya) * (1 - tx) + v(xb, ya) * tx) * (1 - ty) + (v(xa, yb) * (1 - tx) + v(xb, yb) * tx) * ty;
   };
-  for (let y = 0; y < H1; y++) {
-    const nove = useky(novy, W1, y);
-    if (!nove.length) continue;
-    const t = rn.po > rn.od ? (y - rn.od) / (rn.po - rn.od) : 0;
-    let ys = Math.round(rs.od + t * (rs.po - rs.od));
-    let stare = useky(stary, W0, Math.max(0, Math.min(H0 - 1, ys)));
-    /* Řádek bez kresby (nový tvar je jinde delší) — nejbližší řádek, kde kresba je */
-    for (let d = 1; !stare.length && d < 40; d++) {
-      for (const kand of [ys - d, ys + d]) {
-        if (kand < 0 || kand >= H0 || stare.length) continue;
-        const u = useky(stary, W0, kand);
-        if (u.length) { stare = u; ys = kand; }
+  for (let Y = 0; Y < out.vyska; Y++) {
+    const gy = r2.y + (Y + 0.5) / m;
+    /* Svisle: poměrem k okrajům šablon (i mimo ně — přesah kresby) */
+    const ly0 = k0.y + (gy - k1.y) * (k0.h / k1.h);
+    const rn = Math.max(k1.y, Math.min(k1.y + k1.h - 1, Math.floor(gy)));
+    const ro = Math.max(k0.y, Math.min(k0.y + k0.h - 1, Math.round(ly0)));
+    const nove = usekyRadku(T1, nova.sirka, rn, nova.vyska);
+    const stare = usekyRadku(T0, r.w, ro, r.h);
+    /* Páry úseků: stejný počet po pořadí, jinak celý rozsah řádku */
+    let pary: [[number, number], [number, number]][];
+    if (nove.length && stare.length && nove.length === stare.length) pary = nove.map((u, i) => [u, stare[i]]);
+    else if (nove.length && stare.length) pary = [[[nove[0][0], nove[nove.length - 1][1]], [stare[0][0], stare[stare.length - 1][1]]]];
+    else pary = [[[k1.x, k1.x + k1.w - 1], [k0.x, k0.x + k0.w - 1]]];
+    for (let X = 0; X < out.sirka; X++) {
+      const gx = r2.x + (X + 0.5) / m;
+      /* Nejbližší úsek nové šablony určí natažení i pro body vedle něj */
+      let nej = pary[0]; let vzd = Infinity;
+      for (const par of pary) {
+        const d = gx < par[0][0] ? par[0][0] - gx : gx > par[0][1] ? gx - par[0][1] : 0;
+        if (d < vzd) { vzd = d; nej = par; }
       }
-    }
-    if (!stare.length) continue;
-    /* Párování úseků: stejný počet po pořadí, jinak celý rozsah na celý rozsah */
-    const pary: [[number, number], [number, number]][] = nove.length === stare.length
-      ? nove.map((u, i) => [u, stare[i]])
-      : [[[nove[0][0], nove[nove.length - 1][1]], [stare[0][0], stare[stare.length - 1][1]]]];
-    const yOld = rs.od + t * (rs.po - rs.od);
-    for (const [[a0, a1], [b0, b1]] of pary) {
-      for (let x = a0; x <= a1; x++) {
-        const i = (y * W1 + x) * 4;
-        if (!novy[y * W1 + x] && pary.length > 1) continue;
-        const u = a1 > a0 ? (x - a0) / (a1 - a0) : 0.5;
-        const xs = b0 + u * (b1 - b0);
-        out.body[i] = Math.round(vzorek(xs, yOld, 0));
-        out.body[i + 1] = Math.round(vzorek(xs, yOld, 1));
-        out.body[i + 2] = Math.round(vzorek(xs, yOld, 2));
-        out.body[i + 3] = tvar.body[i + 3];
-      }
+      const [[a0, a1], [b0, b1]] = nej;
+      const delkaN = Math.max(1, a1 - a0 + 1); const delkaS = Math.max(1, b1 - b0 + 1);
+      const lx = b0 + (gx - a0) * (delkaS / delkaN);
+      const i = (Y * out.sirka + X) * 4;
+      const xs = lx * m - 0.5; const ys = ly0 * m - 0.5;
+      const alfa = vzorek(xs, ys, 3);
+      if (alfa <= 0) continue;
+      out.body[i] = Math.round(vzorek(xs, ys, 0));
+      out.body[i + 1] = Math.round(vzorek(xs, ys, 1));
+      out.body[i + 2] = Math.round(vzorek(xs, ys, 2));
+      out.body[i + 3] = Math.round(alfa);
     }
   }
   return { obraz: out, x: r2.x, y: r2.y, w: r2.w, h: r2.h, shoda };
@@ -643,31 +843,18 @@ export function prizpusobKresbu(
 export function prizpusobVykresleni(postavaId: string, typ: ZkVrstvaTyp, varianta: string): number {
   const sablona = nactiVrstvu(postavaId, typ, varianta);
   if (!sablona) return 0;
-  const p = store.postava(postavaId);
   let hotovo = 0;
   for (const v of store.vykresleni().filter(one => one.postava === postavaId && one.typ === typ && one.varianta === varianta)) {
     if (!v.soubor || !fs.existsSync(v.soubor)) continue;
     try {
       const stara = nacti(fs.readFileSync(v.soubor));
-      const m = stara.sirka / Math.max(1, v.w);
-      const r = prizpusobKresbu(stara, { x: v.x, y: v.y, w: v.w, h: v.h }, sablona, m);
+      const staryTvar = fs.existsSync(cestaTvaru(v.soubor)) ? nacti(fs.readFileSync(cestaTvaru(v.soubor))) : null;
+      const r = prizpusobKresbu(stara, { x: v.x, y: v.y, w: v.w, h: v.h }, staryTvar, sablona, stara.sirka / Math.max(1, v.w));
       if (!r || r.shoda > 0.985) continue;
       fs.writeFileSync(v.soubor, uloz(r.obraz));
-      /* Náhled do okna znovu: kus na modelu */
-      if (p && v.nahled) {
-        const scena = kulisa(postavaId, typ === 'kapesnicek', p.sirka, p.vyska);
-        if (scena) {
-          const rr = { x: r.x, y: r.y, w: r.w, h: r.h };
-          const maly = px.slozeni([{ obraz: px.vyrizniObdelnik(scena, rr) }, { obraz: px.prevzorkuj(r.obraz, r.w, r.h) }], r.w, r.h);
-          const zm = Math.min(1, 320 / Math.max(r.w, r.h));
-          fs.writeFileSync(v.nahled, uloz(px.prevzorkuj(maly, Math.max(1, Math.round(r.w * zm)), Math.max(1, Math.round(r.h * zm)))));
-        }
-      }
-      store.zapisVykresleni({
-        ...v, x: r.x, y: r.y, w: r.w, h: r.h,
-        potiz: v.potiz && !/Přizpůsobeno/.test(v.potiz) ? v.potiz : '',
-        kdy: v.kdy
-      });
+      ulozTvarSablony(v.soubor, sablona, r);
+      if (v.nahled) ulozNahled(postavaId, typ, r, v.nahled);
+      store.zapisVykresleni({ ...v, x: r.x, y: r.y, w: r.w, h: r.h });
       hotovo += 1;
     } catch { /* poškozená kresba zůstane, jak byla */ }
   }
@@ -686,20 +873,25 @@ function postavyPro(proVek?: ZkVek[]): string[] {
 
 export interface PlanVykresleni { kod: string; cast: number; postava: string; nazev: string }
 
-/** Co se vykreslí: `chybi` = co ještě nemá vykreslení, `vse` = i znovu (kromě schválených). */
+/**
+ * Co se vykreslí: `chybi` = co ještě nemá vykreslení, `vse` = i znovu
+ * (kromě schválených). AI kreslí jen na hlavní postavu věkové skupiny —
+ * ostatní postavy dostanou kresbu přenesenou (prenesNaDalsi).
+ */
 export function plan(rozsah: 'chybi' | 'vse', kody?: string[]): PlanVykresleni[] {
   const hotove = new Map(store.vykresleni().map(one => [`${one.kod}|${one.cast}|${one.postava}`, one]));
   const out: PlanVykresleni[] = [];
-  for (const p of proKabinu(1000)) {
+  for (const p of proKabinu(5000, true)) {
     if (kody && !kody.includes(p.kod)) continue;
+    const hlavni = hlavniPostava(p.proVek);
+    if (!hlavni) continue;
     const kusy = [{ cast: -1 }, ...(p.casti ?? []).map((_, i) => ({ cast: i }))];
-    for (const postava of postavyPro(p.proVek)) {
-      for (const k of kusy) {
-        const mam = hotove.get(`${p.kod}|${k.cast}|${postava}`);
-        if (mam && (mam.stav === 'schvaleno' || mam.stav === 'zamitnuto')) continue;
-        if (rozsah === 'chybi' && mam && mam.stav === 'hotovo') continue;
-        out.push({ kod: p.kod, cast: k.cast, postava, nazev: p.nazev });
-      }
+    for (const k of kusy) {
+      const mam = hotove.get(`${p.kod}|${k.cast}|${hlavni}`);
+      /* Konkrétní produkt (Nakreslit znovu) se kreslí vždy; hromadně se schválené a zamítnuté nechají být */
+      if (!kody && mam && (mam.stav === 'schvaleno' || mam.stav === 'zamitnuto')) continue;
+      if (rozsah === 'chybi' && mam && (mam.stav === 'hotovo' || mam.stav === 'schvaleno')) continue;
+      out.push({ kod: p.kod, cast: k.cast, postava: hlavni, nazev: p.nazev });
     }
   }
   return out;
@@ -707,13 +899,18 @@ export function plan(rozsah: 'chybi' | 'vse', kody?: string[]): PlanVykresleni[]
 
 export function odhad(rozsah: 'chybi' | 'vse'): { kusu: number; usd: number } {
   const kusu = plan(rozsah).length;
-  /* Každý kus jeden požadavek — automatické opakování už není */
+  /* Každý kus jeden požadavek — automatické opakování už není, ostatní postavy jsou zadarmo */
   return { kusu, usd: Math.round(kusu * obrazky.cenaObrazku() * 100) / 100 };
 }
 
-/** Kolik obrázků se kreslí naráz. Jeden trvá minutu i víc; tři naráz zkrátí dávku na třetinu. */
-export function soubezne(): number {
-  return Math.max(1, Math.min(6, Number(getSetting('zkSoubezne', '3')) || 3));
+/**
+ * Kolik kusů se kreslí naráz. Jeden trvá minutu i víc; čtyři naráz
+ * zkrátí dávku na čtvrtinu. Strop dává OpenAI (obrázků za minutu podle
+ * úrovně účtu) — při „rate limit" stačí ubrat.
+ */
+export function soubezne(hodnota?: number): number {
+  if (typeof hodnota === 'number' && Number.isFinite(hodnota)) setSetting('zkSoubezne', String(Math.max(1, Math.min(8, Math.round(hodnota)))));
+  return Math.max(1, Math.min(8, Number(getSetting('zkSoubezne', '4')) || 4));
 }
 
 /**
@@ -743,26 +940,53 @@ export async function poSkupinach<T>(
   if (chyba && stop) throw chyba.reason;
 }
 
+/** Co se právě kreslí — okno to ukazuje přímo na kartách (i po znovuotevření). */
+const kresliSe = new Map<string, string>();
+export function rozpracovane(): { kod: string; od: string }[] {
+  return [...kresliSe.entries()].map(([kod, od]) => ({ kod, od }));
+}
+
+export interface KrokVykresleni {
+  hotovo: number; celkem: number; co: string;
+  kod?: string; faze?: 'kresli' | 'hotovo' | 'nesedi' | 'chyba'; potiz?: string;
+}
+
 export async function vykresliVse(
   rozsah: 'chybi' | 'vse',
-  hlas?: (p: { hotovo: number; celkem: number; co: string }) => void,
+  hlas?: (p: KrokVykresleni) => void,
   kody?: string[]
 ): Promise<{ hotovo: number; nesedi: number; chyb: number; posledniChyba: string }> {
+  /* Co má kresbu na hlavní postavě a chybí jinde, se dopočítá hned a zadarmo */
+  for (const v of store.vykresleni()) {
+    if (kody && !kody.includes(v.kod)) continue;
+    const proVek = proKabinu(5000, true).find(one => one.kod === v.kod)?.proVek;
+    if (v.postava === hlavniPostava(proVek) && v.model !== 'přenos') {
+      const chybi = postavyPro(proVek).some(id => id !== v.postava
+        && !store.vykresleni(v.kod).some(one => one.cast === v.cast && one.postava === id));
+      if (chybi) prenesNaDalsi(v.kod, v.cast, v.postava);
+    }
+  }
   const ukoly = plan(rozsah, kody);
   let hotovo = 0; let nesedi = 0; let chyb = 0; let posledniChyba = '';
   let dokonceno = 0;
   const jeden = async (u: PlanVykresleni) => {
-    hlas?.({ hotovo: dokonceno, celkem: ukoly.length, co: `Vykresluji ${u.nazev} (${dokonceno + 1} z ${ukoly.length})` });
+    kresliSe.set(u.kod, new Date().toISOString());
+    hlas?.({ hotovo: dokonceno, celkem: ukoly.length, co: `Vykresluji ${u.nazev} (${dokonceno + 1} z ${ukoly.length})`, kod: u.kod, faze: 'kresli' });
     try {
       /* Konkrétní produkt (Nakreslit znovu) nahradí i dobré staré; hromadný běh ne */
       const r = await vykresliKus(u.kod, u.cast, u.postava, { nahradit: !!kody });
       if (r.stav === 'hotovo') hotovo += 1; else nesedi += 1;
+      dokonceno += 1;
+      hlas?.({ hotovo: dokonceno, celkem: ukoly.length, co: `Vykresleno ${dokonceno} z ${ukoly.length}`, kod: u.kod,
+        faze: r.stav === 'hotovo' ? 'hotovo' : 'nesedi', potiz: r.potiz });
     } catch (e: any) {
       chyb += 1;
+      dokonceno += 1;
       posledniChyba = String(e?.message ?? e);
+      hlas?.({ hotovo: dokonceno, celkem: ukoly.length, co: `Vykresleno ${dokonceno} z ${ukoly.length}`, kod: u.kod, faze: 'chyba', potiz: posledniChyba });
       throw e;
     } finally {
-      dokonceno += 1;
+      kresliSe.delete(u.kod);
     }
   };
   try {
@@ -775,6 +999,29 @@ export async function vykresliVse(
   } catch { /* chyba je v posledniChyba */ }
   setSetting('zkVykreslenoKdy', new Date().toISOString());
   return { hotovo, nesedi, chyb, posledniChyba };
+}
+
+/**
+ * Schválení nebo zamítnutí produktu — všech jeho kreseb na všech
+ * postavách naráz (přenesené jsou z jedné kresby, posuzují se spolu).
+ */
+export function nastavStavProduktu(kod: string, stav: 'schvaleno' | 'zamitnuto' | 'hotovo'): number {
+  let n = 0;
+  for (const v of store.vykresleni(kod)) {
+    if (!v.soubor) continue;
+    store.nastavStavVykresleni(v.kod, v.cast, v.postava, stav);
+    n += 1;
+  }
+  return n;
+}
+
+/** Stav kresby produktu pro mřížku: podle hlavního kusu na hlavní postavě. */
+export function stavKresby(kod: string, proVek?: ZkVek[]): { stav: 'zadne' | 'hotovo' | 'nesedi' | 'schvaleno' | 'zamitnuto'; potiz: string } {
+  const hlavni = hlavniPostava(proVek);
+  const rows = store.vykresleni(kod).filter(one => one.cast === -1 && one.soubor);
+  const v = rows.find(one => one.postava === hlavni) ?? rows[0];
+  if (!v) return { stav: 'zadne', potiz: '' };
+  return { stav: v.stav as 'hotovo' | 'nesedi' | 'schvaleno' | 'zamitnuto', potiz: v.potiz };
 }
 
 /* ------------------------------------------------------- schvalování */

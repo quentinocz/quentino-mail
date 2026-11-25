@@ -1664,6 +1664,10 @@ export interface ZkKotvy {
   ramenoY: number;
   spony: number;
   rucne: boolean;
+  /** Výřez obrázků v dílech celé postavy (velký editor ukazuje jen hlavu až boky). */
+  vyrez: { x: number; y: number; w: number; h: number };
+  /** Které body posunul člověk — ukládá se jen to, co se změnilo, zbytek se měří dál. */
+  rucneBody: { limec?: [number, number]; pas?: number; kapsa?: [number, number]; ramena?: number; spony?: number };
 }
 
 export interface ZkZkouskaModelu {
@@ -1731,6 +1735,8 @@ export interface ZkProduktRadek {
   casti: { typ: ZkVrstvaTyp; varianta: string; hex: string; vzorek: string }[];
   /** Co na fotkách poznala AI — null, dokud se nerozpoznávalo. */
   ai: ZkRozpoznani | null;
+  /** Fotky výrobku z katalogu (detail ve schvalování). */
+  fotky?: string[];
 }
 
 /** Řádek fronty ke schválení — jen to, co je potřeba na seznam. */
@@ -1742,8 +1748,12 @@ export interface ZkFrontaRadek {
   varianta: string;
   schvaleno: boolean;
   kontrola: string;
-  /** Má AI přípravu (rozpoznání s měřením vzoru). */
-  pripraveno: boolean;
+  /** Kresba od AI na hlavní postavě: žádná, ke kontrole, nesedí, schválená, zamítnutá. */
+  kresba: 'zadne' | 'hotovo' | 'nesedi' | 'schvaleno' | 'zamitnuto';
+  /** Proč kresba nesedí (česky), nebo prázdné. */
+  potiz: string;
+  /** Právě se kreslí (od kdy) — mřížka to ukazuje přímo na kartě. */
+  kresliSe: string;
   /** Je v katalogu a skladem (kabina ho může ukázat). */
   skladem: boolean;
   /** Má vykreslení od AI v kabině. */

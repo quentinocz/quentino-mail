@@ -884,6 +884,9 @@ export function registerIpc() {
       Array.isArray(kody) && kody.length ? kody.map(String) : undefined));
   handle('zk:k-priprave', () => zkusebna.kPriprave());
   handle('zk:fronta', () => zkusebna.fronta());
+  handle('zk:schval-produkt', (kod: string, co: string) =>
+    zkusebna.schvalProdukt(String(kod ?? ''), co === 'zamitnout' ? 'zamitnout' : co === 'zrusit' ? 'zrusit' : 'schvalit'));
+  handle('zk:soubezne', (n?: number) => zkusebna.vykresleni.soubezne(typeof n === 'number' ? n : undefined));
   handle('zk:produkt-detail', (kod: string) => zkusebna.produktDetail(String(kod ?? '')));
   handle('zk:jen-schvalene', (hodnota?: boolean) => zkusebna.jenSchvalene(typeof hodnota === 'boolean' ? hodnota : undefined));
   // Produkt na modelu pro schvalování — složený v aplikaci, nic nestojí
@@ -903,8 +906,9 @@ export function registerIpc() {
   handle('zk:vystav', () => zkusebna.vystav(krok => emit('zk:vystav-krok', krok)));
   handle('zk:zavadec', () => zkusebna.zavadec());
   handle('zk:zkouska', () => zkusebna.vyzkousejModel());
-  handle('zk:kotvy', (postava: string) => zkusebna.kotvy(String(postava ?? '')));
-  handle('zk:kotvy-uloz', (postava: string, rucne: any) => zkusebna.ulozKotvy(String(postava ?? ''), rucne ?? null));
+  handle('zk:kotvy', (postava: string, velky?: boolean) => zkusebna.kotvy(String(postava ?? ''), !!velky));
+  handle('zk:kotvy-uloz', (postava: string, rucne: any, velky?: boolean) =>
+    zkusebna.ulozKotvy(String(postava ?? ''), rucne ?? null, !!velky));
 
   /* ---------- bannery na úvodní stránce ---------- */
   handle('banners:state', () => banners.bannersState());

@@ -315,8 +315,25 @@ export function kotvyPostavy(postavaId: string): { kotvy: Kotvy; postava: Obraz;
   const kalhoty = maskaVrstvy(postavaId, 'kalhoty', 'oblekove');
   const rucne = rucneKotvy(postavaId);
   const kotvy = zmerKotvy(p, postava, kosile, kalhoty, rucne);
-  /* Kapsa podle saka, pokud ji člověk neposunul ručně */
-  if (!rucne.kapsa) {
+  /*
+   * Kapsa podle saka. Když ji člověk posunul ručně, platí jeho poloha,
+   * ale sklon a šířka kapsy se pořád změří ze saka kolem ní — dřív se po
+   * ručním posunu vrátily na odhad a kapesníček změnil tvar (Patrik,
+   * 25. 11.: „překreslení není přesné").
+   */
+  if (rucne.kapsa) {
+    const sako = store.vrstvy(postavaId).find(one => one.typ === 'sako' && one.varianta === 'jednoradove'
+      && one.soubor && fs.existsSync(one.soubor) && (one.stav === 'hotovo' || one.stav === 'schvaleno'));
+    if (sako) {
+      try {
+        const obraz = nacti(fs.readFileSync(sako.soubor));
+        const nalez = obraz.sirka === postava.sirka ? najdiKapsu(obraz, kotvy.kapsa, kotvy.naCm) : null;
+        if (nalez && Math.hypot(nalez.kapsa.x - kotvy.kapsa.x, nalez.kapsa.y - kotvy.kapsa.y) < 3 * kotvy.naCm) {
+          kotvy.kapsaSklon = nalez.sklon; kotvy.kapsaSirka = nalez.sirka;
+        }
+      } catch { /* bez saka zůstane odhad */ }
+    }
+  } else {
     const sako = store.vrstvy(postavaId).find(one => one.typ === 'sako' && one.varianta === 'jednoradove'
       && one.soubor && fs.existsSync(one.soubor) && (one.stav === 'hotovo' || one.stav === 'schvaleno'));
     if (sako) {
@@ -1065,7 +1082,7 @@ export function vygenerujSablony(
  * jestli body sedí. Dvě podoby — bez saka (kravata a kšandy, ty jsou
  * pod sakem schované) a se sakem (motýlek a kapesníček v klopě).
  */
-export function nahledSablon(postavaId: string, zmenseni = 2): {
+export function nahledSablon(postavaId: string, zmenseni = 2, vyrez?: { x: number; y: number; w: number; h: number }): {
   bezSaka: string; seSakem: string; sirka: number; vyska: number; kotvy: Kotvy;
 } | null {
   const mereni = kotvyPostavy(postavaId);
@@ -1116,7 +1133,9 @@ export function nahledSablon(postavaId: string, zmenseni = 2): {
   se.push({ obraz: kus('kapesnicek', 'spicka'), hex: '#efe7d8' });
 
   const naData = (kusy: { obraz: Obraz; hex?: string }[]) => {
-    const slozene = px.zmensi(px.slozeni(kusy, sirka, vyska), zmenseni);
+    const cele = px.slozeni(kusy, sirka, vyska);
+    /* Velký editor bodů: jen výřez od hlavy po pas, v plném rozlišení */
+    const slozene = px.zmensi(vyrez ? px.vyrizniObdelnik(cele, vyrez) : cele, zmenseni);
     /* Bílé pozadí — na průhledném by tmavé sako splynulo s oknem */
     for (let i = 0; i < slozene.body.length; i += 4) {
       const a = slozene.body[i + 3] / 255;

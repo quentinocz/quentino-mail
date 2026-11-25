@@ -272,8 +272,28 @@ export function schval(postavaId: string, typ: ZkVrstvaTyp, varianta: string, an
 /* --------------------------------------------------- body pro šablony */
 
 /** Náhled šablon na postavě a body, ze kterých se kreslí. */
-export function kotvy(postavaId: string) {
-  const nahled = sablony.nahledSablon(postavaId);
+export function kotvy(postavaId: string, velky = false) {
+  /*
+   * Velký editor bodů (Patrik, 25. 11.: „obrázek je moc malý na přesun
+   * myší, nemůžu se trefit, nevidím, co dělám"): jen výřez od hlavy po
+   * boky v plném rozlišení místo celé postavy zmenšené na polovinu.
+   */
+  let vyrez: { x: number; y: number; w: number; h: number } | undefined;
+  if (velky) {
+    const mereni = sablony.kotvyPostavy(postavaId);
+    const p = store.postava(postavaId);
+    if (mereni && p) {
+      const { kotvy: k0, postava } = mereni;
+      const h0 = Math.max(1, (p.podrazka || postava.vyska) - (p.temeno || 0));
+      const y = Math.max(0, Math.round((p.temeno || 0) + h0 * 0.06));
+      const y2 = Math.min(postava.vyska, Math.round(k0.pas + h0 * 0.1));
+      const h = Math.max(50, y2 - y);
+      const w = Math.min(postava.sirka, Math.round(h * 0.78));
+      const x = Math.max(0, Math.min(postava.sirka - w, Math.round(k0.limec.x - w / 2)));
+      vyrez = { x, y, w, h };
+    }
+  }
+  const nahled = sablony.nahledSablon(postavaId, velky ? 1 : 2, vyrez);
   if (!nahled) return null;
   const { kotvy: k, sirka, vyska } = nahled;
   const dil = (b: { x: number; y: number }) => [b.x / sirka, b.y / vyska] as [number, number];
@@ -281,6 +301,8 @@ export function kotvy(postavaId: string) {
     bezSaka: nahled.bezSaka,
     seSakem: nahled.seSakem,
     sirka, vyska,
+    vyrez: vyrez ? { x: vyrez.x / sirka, y: vyrez.y / vyska, w: vyrez.w / sirka, h: vyrez.h / vyska } : { x: 0, y: 0, w: 1, h: 1 },
+    rucneBody: sablony.rucneKotvy(postavaId),
     limec: dil(k.limec),
     pas: k.pas / vyska,
     kapsa: dil(k.kapsa),
@@ -295,10 +317,10 @@ export function kotvy(postavaId: string) {
  * Uloží ručně posunuté body a šablony podle nich překreslí.
  * Null = zapomenout ruční body a měřit znovu z obrázku.
  */
-export function ulozKotvy(postavaId: string, rucne: sablony.KotvyRucne | null) {
+export function ulozKotvy(postavaId: string, rucne: sablony.KotvyRucne | null, velky = false) {
   sablony.ulozRucneKotvy(postavaId, rucne);
   sablony.vygenerujSablony(postavaId);
-  return kotvy(postavaId);
+  return kotvy(postavaId, velky);
 }
 
 /* ------------------------------------------------------------- zadání */
@@ -397,20 +419,14 @@ export function ulozKontakt(co: { text: string; telefon: string; mail: string })
 export async function projdiKatalog(sAi: boolean, sBarvami: boolean, hlas?: (p: { hotovo: number; celkem: number; co: string }) => void) {
   const vysledek = await produkty.projdiKatalog({ sAi, sBarvami, hlas });
   /*
-   * Sady se rovnou rozpoznají z fotek: bez toho by u sady kšandy +
-   * motýlek měl motýlek jen barvu odhadnutou z celé fotky (Patrik,
-   * 23. 11.). Jen ty, které se ještě nerozpoznávaly — opakované projití
-   * katalogu tak nic navíc nestojí.
+   * Rozpoznání fotek AI se tu dřív pouštělo u sad. Patrik (25. 11.):
+   * „přípravu a strojové poznání textury bych celé zrušil" — kus teď
+   * kreslí AI rovnou z fotek výrobku (vykreslení), takže se tu už nic
+   * nerozpoznává a nic se za to neplatí.
    */
-  let rozpoznano = 0;
-  let chybaRozpoznani = '';
-  if (sAi) {
-    try {
-      const r = await rozpoznani.rozpoznejVse('sady', hlas);
-      rozpoznano = r.hotovo;
-      chybaRozpoznani = r.posledniChyba;
-    } catch (e: any) { chybaRozpoznani = String(e?.message ?? e); }
-  }
+  const rozpoznano = 0;
+  const chybaRozpoznani = '';
+  void sAi;
   return { ...vysledek, rozpoznano, chybaRozpoznani };
 }
 
@@ -467,12 +483,14 @@ export function produktyPrehled(limit = 300): ZkProduktRadek[] {
 export function fronta(): ZkFrontaRadek[] {
   const vKabine = new Map(produkty.proKabinu(5000, true).map(one => [one.kod, one]));
   const vykreslene = new Set(vykresleniModul.doKabiny().keys());
+  const rozpracovane = new Map(vykresleniModul.rozpracovane().map(one => [one.kod, one.od]));
   return store.produktyRows().filter(one => one.typ).map(row => {
     const p = vKabine.get(row.kod);
     return {
       kod: row.kod, nazev: p?.nazev ?? row.kod, obrazek: p?.obrazek ?? '', typ: row.typ, varianta: row.varianta,
       schvaleno: row.schvaleno, kontrola: row.kontrola || '',
-      pripraveno: !!row.ai && (row.ai.verze ?? 1) >= rozpoznani.VERZE,
+      ...(() => { const k = vykresleniModul.stavKresby(row.kod, p?.proVek); return { kresba: k.stav, potiz: k.potiz }; })(),
+      kresliSe: rozpracovane.get(row.kod) ?? '',
       skladem: !!p,
       vykresleno: vykreslene.has(row.kod),
       sada: (row.casti?.length ?? 0) > 0
@@ -483,7 +501,18 @@ export function fronta(): ZkFrontaRadek[] {
 export function produktDetail(kod: string): ZkProduktRadek | null {
   const row = store.produktyRows().find(one => one.kod === kod);
   if (!row) return null;
-  return radekProduktu(row, produkty.proKabinu(5000, true).find(one => one.kod === kod));
+  return { ...radekProduktu(row, produkty.proKabinu(5000, true).find(one => one.kod === kod)), fotky: produkty.fotkyProduktu(kod, 6) };
+}
+
+/**
+ * Schválení produktu ve mřížce: produkt i všechny jeho kresby naráz.
+ * Zamítnutí: kresby pryč z kabiny, produkt neschválený.
+ */
+export function schvalProdukt(kod: string, co: 'schvalit' | 'zrusit' | 'zamitnout'): void {
+  const row = store.produktyRows().find(one => one.kod === kod);
+  if (!row) return;
+  store.zapisProdukt({ ...row, schvaleno: co === 'schvalit' });
+  vykresleniModul.nastavStavProduktu(kod, co === 'schvalit' ? 'schvaleno' : co === 'zamitnout' ? 'zamitnuto' : 'hotovo');
 }
 
 export function jenSchvalene(hodnota?: boolean): boolean {

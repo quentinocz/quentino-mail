@@ -2692,6 +2692,36 @@ for (const okno of OKNA) {
     `${realne.hromadne} · jedna ${realne.jedna} · vrátit ${realne.vratit} · ${realne.navrh.slice(0, 60)}`);
   await page.locator('.zk-ai-navrh.nesedi').first().locator('xpath=ancestor::div[contains(@class,"zk-karta")]').screenshot({ path: path.join(SHOTS, 'okno-kabina-ai-sablona.png') }).catch(() => {});
   await page.locator('.zk-body').screenshot({ path: path.join(SHOTS, 'okno-kabina-body.png') });
+  {
+    const posun = await page.evaluate(() => (window.__calls || []).filter(one => one[0] === 'zk:kotvy-uloz').pop() || null);
+    say('  ukládá se jen posunutý bod (a co bylo ručně dřív), ostatní se měří dál',
+      !!posun && posun[2] && posun[2].limec && posun[2].pas === 0.404 && posun[2].kapsa === undefined && posun[2].spony === undefined,
+      posun ? JSON.stringify(posun[2]) : 'nic');
+  }
+  /* Velký editor: výřez v plném rozlišení, větší body s popisem, šipky */
+  await page.locator('.zk-body .btn', { hasText: 'Upravit ve velkém' }).click();
+  await page.waitForTimeout(500);
+  const editor = await page.evaluate(() => {
+    const el = document.querySelector('.zk-body-popup .zk-body.velky');
+    const obr = el?.querySelector('.zk-body-obr')?.getBoundingClientRect();
+    return {
+      je: !!el, vyska: obr ? Math.round(obr.height) : 0,
+      popisy: [...(el?.querySelectorAll('.zk-bod-popis') ?? [])].map(one => one.textContent).join(','),
+      velkyDotaz: !!(window.__calls || []).find(one => one[0] === 'zk:kotvy' && one[2] === true)
+    };
+  });
+  say('velký editor bodů: přes okno, body s popisem, výřez v plném rozlišení',
+    editor.je && editor.vyska > 500 && /Límec/.test(editor.popisy) && /Kapsa/.test(editor.popisy) && editor.velkyDotaz,
+    JSON.stringify(editor));
+  await page.locator('.zk-body-popup .zk-bod').first().click();
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(900);
+  const sipky = await page.evaluate(() => (window.__calls || []).filter(one => one[0] === 'zk:kotvy-uloz').pop() || null);
+  say('  šipky posunou vybraný bod o body a uloží', !!sipky && sipky[2] && sipky[2].limec && Math.abs(sipky[2].limec[1] - (0.152 + 3 / 768)) < 0.0005,
+    sipky ? JSON.stringify(sipky[2]) : 'nic');
+  await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-body-velky.png') });
+  await page.locator('.zk-body-popup .btn', { hasText: 'Hotovo' }).click();
+  await page.waitForTimeout(200);
 
   /* Zadání pro model se dá přepsat — bez něj se nepovedená vrstva nespraví */
   await page.locator('.zk-karta .zk-karta-btns .icon-btn').first().click();
@@ -2706,55 +2736,52 @@ for (const okno of OKNA) {
   await page.locator('.zk-head-right .tab', { hasText: 'Produkty' }).click();
   await page.waitForTimeout(600);
   /*
-   * Příprava a schválení (Patrik, 25. 11.): AI zpracování je hlavní cesta,
-   * produkty se schvalují jeden po druhém podle toho, jak vypadají na
-   * modelu, s kontrolou měřítka vzoru. Enter = schválit a další.
+   * Na modelu (Patrik, 25. 11.): bez přípravy AI — vykreslit, zkontrolovat
+   * na modelu, schválit. Mřížka ukazuje, na čem AI zrovna kreslí, a kreslí
+   * se několik kusů naráz.
    */
-  /* Mřížka: karta s náhledem na modelu, výběr a hromadné akce; klik otevře velký náhled */
   await page.waitForTimeout(400);
   const mrizka = await page.evaluate(() => ({
     karet: document.querySelectorAll('.zk-karta-produktu').length,
-    model: !!document.querySelector('.zk-karta-produktu .zk-karta-model img')
+    model: !!document.querySelector('.zk-karta-produktu .zk-karta-model img'),
+    kresli: (document.querySelector('.zk-karta-produktu.kresli .zk-karta-kresli')?.textContent ?? '').replace(/\s+/g, ' '),
+    nesedi: (document.querySelector('.zk-karta-produktu.kresba-nesedi .zk-karta-potiz')?.textContent ?? ''),
+    hlava: (document.querySelector('.zk-schvaleni-hlava')?.textContent ?? '').replace(/\s+/g, ' '),
+    priprava: /Připravit AI/.test(document.querySelector('.zk-schvaleni')?.textContent ?? '')
   }));
   await page.locator('.zk-mrizka-lista input[type="checkbox"]').check();
   const lista = (await page.locator('.zk-mrizka-lista').textContent() ?? '').replace(/\s+/g, ' ');
-  say('příprava a schválení: mřížka produktů s náhledem na modelu a hromadné akce',
-    mrizka.karet === 1 && mrizka.model && /Připravit AI \(1\)/.test(lista) && /Schválit vybrané/.test(lista) && /Vykreslit AI \(1\)/.test(lista),
-    `${mrizka.karet} karet · ${lista.slice(0, 90)}`);
+  say('na modelu: mřížka produktů, na čem AI kreslí (s časem), nesedící s důvodem, bez přípravy AI',
+    mrizka.karet === 4 && mrizka.model && /AI kreslí/.test(mrizka.kresli) && /\d:\d\d/.test(mrizka.kresli)
+      && /Barvy/.test(mrizka.nesedi) && /Vykreslit nevykreslené \(12\)/.test(mrizka.hlava) && /naráz/.test(mrizka.hlava) && !mrizka.priprava,
+    `${mrizka.karet} karet · ${mrizka.kresli} · ${mrizka.hlava.slice(0, 120)}`);
+  say('  výběr: vykreslit, schválit, zamítnout najednou',
+    /Vykreslit AI \(4\)/.test(lista) && /Schválit/.test(lista) && /Zamítnout/.test(lista), lista.slice(0, 100));
   await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-mrizka.png') });
   await page.locator('.zk-mrizka-lista input[type="checkbox"]').uncheck();
-  await page.locator('.zk-karta-produktu').first().click();
+  await page.locator('.zk-karta-produktu', { hasText: 'květy' }).first().click();
   await page.waitForTimeout(500);
   const schvaleni = await page.evaluate(() => {
-    const el = document.querySelector('.zk-schvaleni');
+    const el = document.querySelector('.zk-popup');
     return {
-      stav: (el?.querySelector('.zk-schvaleni-stav')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
-      pripravit: (el?.querySelector('.zk-schvaleni-hlava .btn.primary')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
       nazev: el?.querySelector('.zk-schvaleni-nazev h3')?.textContent ?? '',
       model: !!el?.querySelector('.zk-schvaleni-model img'),
       fotek: el?.querySelectorAll('.zk-schvaleni-fotky figure').length ?? 0,
-      role: [...(el?.querySelectorAll('.zk-schvaleni-fotky figcaption') ?? [])].map(one => one.textContent).join(', '),
-      mira: (el?.querySelector('.zk-schvaleni-kus')?.textContent ?? '').replace(/\s+/g, ' '),
-      kontrola: !!el?.querySelector('.zk-meritko-kontrola'),
-      pretika: !!el && el.scrollWidth > el.clientWidth + 1
+      tlacitka: [...(el?.querySelectorAll('.zk-schvaleni-tlacitka .btn') ?? [])].map(one => one.textContent.replace(/\s+/g, ' ').trim()).join(' | ')
     };
   });
-  say('příprava a schválení: stav, AI příprava s cenou, produkt na modelu a měřítko vzoru',
-    /Schváleno 1 z 3/.test(schvaleni.stav) && /Připravit AI \(1\)/.test(schvaleni.pripravit) && /květy/.test(schvaleni.nazev)
-      && schvaleni.model && schvaleni.fotek === 3 && /na modelu/.test(schvaleni.role)
-      && /312 bodů/.test(schvaleni.mira) && /změřeno/.test(schvaleni.mira) && /3,5 motivu/.test(schvaleni.mira)
-      && schvaleni.kontrola && !schvaleni.pretika,
-    `${schvaleni.stav} · ${schvaleni.pripravit} · ${schvaleni.fotek} fotek (${schvaleni.role}) · ${schvaleni.mira.slice(0, 80)}`);
-  say('  klik na kartu otevře okno s velkým náhledem', await page.locator('.zk-popup .zk-schvaleni-model img').isVisible());
+  say('  klik na kartu: velký náhled na modelu, fotky výrobku, schválit / znovu / zamítnout',
+    /květy/.test(schvaleni.nazev) && schvaleni.model && schvaleni.fotek === 3 && /Schválit a další/.test(schvaleni.tlacitka)
+      && /Vykreslit znovu/.test(schvaleni.tlacitka) && /Zamítnout/.test(schvaleni.tlacitka), schvaleni.tlacitka);
   await page.screenshot({ path: path.join(SHOTS, 'okno-kabina-schvaleni.png') });
   await page.locator('.zk-schvaleni-nazev h3').click();
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
-  const schvalil = await page.evaluate(() => (window.__calls || []).filter(one => one[0] === 'zk:produkt').pop() || null);
-  say('  Enter schválí a jde na další', !!schvalil && schvalil[1] === 'KRA1' && schvalil[2] && schvalil[2].schvaleno === true,
+  const schvalil = await page.evaluate(() => (window.__calls || []).filter(one => one[0] === 'zk:schval-produkt').pop() || null);
+  say('  Enter schválí a jde na další', !!schvalil && schvalil[1] === 'KRA1' && schvalil[2] === 'schvalit',
     schvalil ? JSON.stringify(schvalil.slice(1)) : 'nic se neposlalo');
   await page.keyboard.press('Escape');
-  await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Zařazení a látky' }).click();
+  await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Zařazení' }).click();
   await page.waitForTimeout(400);
   const produkty = await page.evaluate(() => ({
     radku: document.querySelectorAll('.zk-radek').length,
@@ -2782,33 +2809,10 @@ for (const okno of OKNA) {
       tlacitkoAi: !!document.querySelector('.zk-ai-rozpoznani .btn')
     };
   });
-  /*
-   * AI jako oko: u sady je vidět, co na fotce poznala (kšandy, motýlek,
-   * krabička), odkud je látka a co na model nepatří.
-   */
-  say('u sady je vidět, co AI na fotce poznala a odkud je látka',
-    sadaVOkne.aiKusu === 3 && /dokreslená AI/.test(sadaVOkne.aiText) && /nepatří/.test(sadaVOkne.aiText) && sadaVOkne.tlacitkoAi,
-    sadaVOkne.aiText.slice(0, 120));
   say('sada čekající na kontrolu je nahoře a ke každému kusu jde nahrát fotku',
     sadaVOkne.ceka && /Sada/.test(sadaVOkne.nazev) && /fajfkou/.test(sadaVOkne.rada) && sadaVOkne.kusu === 2 && sadaVOkne.nahrat === 2,
     `${sadaVOkne.nazev} · ${sadaVOkne.kusu} kusy · ${sadaVOkne.rada.slice(0, 60)}`);
   await page.locator('.zk-tabulka').screenshot({ path: path.join(SHOTS, 'okno-kabina-produkty.png') });
-  /* Vykreslení na modelu: mřížka ke kontrole, odhad ceny, stavy */
-  await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Vykreslení na modelu' }).click();
-  await page.waitForTimeout(400);
-  const vykresleni = await page.evaluate(() => ({
-    kusu: document.querySelectorAll('.zk-vykresleni-kus').length,
-    stavy: [...document.querySelectorAll('.zk-vykresleni-kus .zk-stav')].map(one => one.textContent.trim()),
-    tlacitko: (document.querySelector('.zk-vykresleni-hlava .btn.primary')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
-    presto: [...document.querySelectorAll('.zk-vykresleni-kus.chyba .btn')].some(one => /Přesto použít/.test(one.textContent || ''))
-  }));
-  say('vykreslení na modelu: mřížka ke kontrole s odhadem ceny',
-    vykresleni.kusu === 2 && vykresleni.stavy.includes('Ke kontrole') && vykresleni.stavy.includes('Nesedí') && /12 kusů/.test(vykresleni.tlacitko)
-      && vykresleni.presto,
-    `${vykresleni.kusu} · ${vykresleni.stavy.join(', ')} · ${vykresleni.tlacitko}`);
-  await page.locator('.zk-vykresleni').screenshot({ path: path.join(SHOTS, 'okno-kabina-vykresleni.png') });
-  await page.locator('.zk-produkty-pohled .pk-seg-btn', { hasText: 'Zařazení a látky' }).click();
-  await page.waitForTimeout(200);
 
   await page.locator('.zk-head-right .tab', { hasText: 'Nastavení' }).click();
   await page.waitForTimeout(500);
