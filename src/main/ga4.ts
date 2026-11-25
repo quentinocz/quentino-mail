@@ -1664,6 +1664,119 @@ export async function ga4Banners(days = 28, force = false): Promise<BannerStats 
   }
 }
 
+/* ---------- zdroj jednotlivých objednávek ---------- */
+
+/** Jedna transakce z Analytics — odkud přišla návštěva, ve které se nakoupilo. */
+export interface Ga4Transakce {
+  id: string;
+  datum: string;
+  zdroj: string;
+  medium: string;
+  kampan: string;
+  kanal: string;
+  zarizeni: string;
+  vstup: string;
+  trzba: number | null;
+  adsKampan: string;
+  adsSestava: string;
+  adsKlic: string;
+  term: string;
+  obsah: string;
+  prvniZdroj: string;
+  prvniMedium: string;
+  prvniKampan: string;
+}
+
+/** „(not set)", „(none)" a podobné výplně Analytics nejsou údaj. */
+function hodnota(v: unknown): string {
+  const t = String(v ?? '').trim();
+  return /^\((not set|none|not provided|other)\)$/i.test(t) ? '' : t.slice(0, 200);
+}
+
+/**
+ * Transakce za posledních `days` dní i se zdrojem návštěvy.
+ *
+ * Patrik (25. 11.): „detekce a párování objednávky se zdrojem — organic,
+ * google, facebook, přes proklik i konkrétní kampaň". Upgates zdroj
+ * u objednávky nemá; Analytics ho má u každého nákupu pod číslem
+ * objednávky (`transactionId`). Tři reporty, protože jeden smí mít
+ * nejvýš devět rozměrů: návštěva (zdroj, médium, kampaň, kanál, zařízení,
+ * vstupní stránka), Google Ads (kampaň, sestava, klíčové slovo) a první
+ * návštěva uživatele (odkud o nás poprvé slyšel).
+ */
+export async function ga4Transakce(days = 30): Promise<Ga4Transakce[]> {
+  const cfg = getGa4Config();
+  if (!cfg.ready) throw new Error('Google Analytics není napojené (Nastavení → Přehled → Google Analytics).');
+  const span = Math.max(1, Math.min(400, Math.round(days) || 30));
+  await connect();
+  const tools = await listTools();
+  const plan = await planReport(
+    tools, queryTool(tools), getSetting('ga4AppId', '')!,
+    `Zdroj návštěvy u jednotlivých objednávek e-shopu Quentino za ${span} dní.`, 11
+  );
+  if (!plan) throw new Error('Napojení na Analytics neumí sestavit report.');
+  const dims = (wanted: string[]) => plan.pick(['transactionId', ...wanted], 'dimensions');
+  const prvni = dims(['date', 'sessionSource', 'sessionMedium', 'sessionCampaignName', 'sessionDefaultChannelGroup', 'deviceCategory', 'landingPage']);
+  if (!prvni.includes('transactionId')) {
+    throw new Error('Napojení na Analytics nenabízí číslo transakce (transactionId) — objednávky se nedají spárovat.');
+  }
+  const metrics = plan.pick(['purchaseRevenue', 'totalRevenue'], 'metrics').slice(0, 1);
+  const report = (id: string, dimensions: string[]) => ({
+    id,
+    input: { startDate: dayKey(span - 1), endDate: dayKey(0), dimensions, metrics, limit: 10000 }
+  });
+  const { tables } = await runCalls(plan, [
+    report('navsteva', prvni),
+    report('ads', dims(['sessionGoogleAdsCampaignName', 'sessionGoogleAdsAdGroupName', 'sessionGoogleAdsKeyword', 'sessionManualTerm', 'sessionManualAdContent'])),
+    report('prvni', dims(['firstUserSource', 'firstUserMedium', 'firstUserCampaignName']))
+  ], 111);
+
+  const out = new Map<string, Ga4Transakce>();
+  const radek = (id: string): Ga4Transakce => {
+    let r = out.get(id);
+    if (!r) {
+      r = {
+        id, datum: '', zdroj: '', medium: '', kampan: '', kanal: '', zarizeni: '', vstup: '', trzba: null,
+        adsKampan: '', adsSestava: '', adsKlic: '', term: '', obsah: '', prvniZdroj: '', prvniMedium: '', prvniKampan: ''
+      };
+      out.set(id, r);
+    }
+    return r;
+  };
+  for (const row of tables[0] ?? []) {
+    const id = hodnota(row?.transactionId);
+    if (!id) continue;
+    const r = radek(id);
+    /* Víc návštěv u jedné transakce (vzácné) — platí ta s tržbou, jinak první */
+    if (r.zdroj && !(num(row?.purchaseRevenue ?? row?.totalRevenue) ?? 0)) continue;
+    const d = String(row?.date ?? '');
+    r.datum = /^\d{8}$/.test(d) ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : d;
+    r.zdroj = hodnota(row?.sessionSource); r.medium = hodnota(row?.sessionMedium);
+    r.kampan = hodnota(row?.sessionCampaignName); r.kanal = hodnota(row?.sessionDefaultChannelGroup);
+    r.zarizeni = hodnota(row?.deviceCategory); r.vstup = hodnota(row?.landingPage);
+    r.trzba = num(row?.purchaseRevenue ?? row?.totalRevenue);
+  }
+  for (const row of tables[1] ?? []) {
+    const id = hodnota(row?.transactionId);
+    if (!id || !out.has(id)) continue;
+    const r = radek(id);
+    r.adsKampan = r.adsKampan || hodnota(row?.sessionGoogleAdsCampaignName);
+    r.adsSestava = r.adsSestava || hodnota(row?.sessionGoogleAdsAdGroupName);
+    r.adsKlic = r.adsKlic || hodnota(row?.sessionGoogleAdsKeyword);
+    r.term = r.term || hodnota(row?.sessionManualTerm);
+    r.obsah = r.obsah || hodnota(row?.sessionManualAdContent);
+  }
+  for (const row of tables[2] ?? []) {
+    const id = hodnota(row?.transactionId);
+    if (!id || !out.has(id)) continue;
+    const r = radek(id);
+    r.prvniZdroj = r.prvniZdroj || hodnota(row?.firstUserSource);
+    r.prvniMedium = r.prvniMedium || hodnota(row?.firstUserMedium);
+    r.prvniKampan = r.prvniKampan || hodnota(row?.firstUserCampaignName);
+  }
+  return [...out.values()];
+}
+
 /**
  * Rozbor do zadání pro AI.
  *

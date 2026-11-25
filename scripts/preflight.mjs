@@ -642,7 +642,13 @@ const DESKTOP_ONLY_PREFIXES = ['ptrans:', 'articles:', 'labels:', 'webtexts:',
    * katalogu. Zákazník kabinu stejně nevidí z aplikace, ale z e-shopu —
    * na telefonu by tenhle nástroj neměl co obsluhovat.
    */
-  'zk:'];
+  'zk:',
+  /*
+   * Zdroj objednávek: data z Analytics, ze Supabase a z Google Ads se
+   * stahují a párují na počítači. Karta objednávky v telefonu se na zdroj
+   * zeptá taky — bez odpovědi štítek prostě neukáže.
+   */
+  'zdroje:'];
 const DESKTOP_ONLY = [
   'app:version',
   /*

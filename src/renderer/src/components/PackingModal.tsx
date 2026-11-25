@@ -7,6 +7,7 @@ import { useToast } from '../toast';
 import Icon from './Icon';
 import HelpButton from './HelpPanel';
 import CallContact from './CallContact';
+import ZdrojObjednavky from './ZdrojObjednavky';
 import { useIsPhone } from '../mobile';
 import { inToolWindow } from '../toolwindows';
 
@@ -1602,6 +1603,8 @@ export default function PackingModal({ onClose, onOpenMessage, openOrder }: Prop
                       {current.card.tracking?.trackingCode && (
                         <div className="pk-kv"><span>Zásilka</span><b>{current.card.tracking.trackingCode}</b></div>
                       )}
+                      {/* Odkud zákazník přišel (Reklamy → Objednávky) — jen pro přehled, balení to nemění */}
+                      <ZdrojObjednavky code={current.card.orderNumber} market={current.card.lang} podrobne />
                     </div>
                   </div>
                 </div>

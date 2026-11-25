@@ -4353,3 +4353,65 @@ export interface UpdateState {
    */
   canInstall: boolean;
 }
+
+/* ---------- zdroj objednávek ---------- */
+
+/** Odkud objednávka přišla — kanál, do kterého se zdroj zařadí. */
+export type ZdrojKanal =
+  | 'google_ads' | 'google' | 'sklik' | 'seznam' | 'meta_ads' | 'meta'
+  | 'srovnavac' | 'email' | 'odkaz' | 'primo' | 'jine';
+
+export interface ZdrojStrucne {
+  kanal: ZdrojKanal;
+  /** Česky pro okno: „Google Ads", „Facebook (organicky)"… */
+  nazev: string;
+  kampan: string;
+}
+
+export interface ZdrojObjednavky extends ZdrojStrucne {
+  /** Podrobnosti po řádcích: sestava, klíčové slovo, reklama, vstupní stránka, zařízení */
+  detail: string[];
+  /** Odkud o nás zákazník slyšel poprvé — jen když je jinde než poslední proklik */
+  prvni: ZdrojStrucne | null;
+  /** Kolik prokliků (zdrojů) bylo před nákupem */
+  dotyku: number;
+  /** Ze kterého měření: vlastní skript na e-shopu, Google Analytics, nebo oboje */
+  odkud: 'mereni' | 'ga4' | 'oboje';
+}
+
+export interface ZdrojRadek {
+  code: string;
+  market: string;
+  createdAt: string;
+  total: number;
+  currency: string;
+  status: string;
+  name: string;
+  zdroj: ZdrojObjednavky | null;
+}
+
+export interface ZdrojeStav {
+  ga4: { pripojeno: boolean; kdy: string | null; chyba: string | null; transakci: number };
+  mereni: { nastaveno: boolean; kdy: string | null; chyba: string | null; zaznamu: number; posledni: string | null };
+  googleAds: { pripojeno: boolean; kdy: string | null; chyba: string | null };
+}
+
+export interface ZdrojePrehled {
+  radky: ZdrojRadek[];
+  kanaly: { kanal: ZdrojKanal; nazev: string; pocet: number; trzba: Record<string, number> }[];
+  /** Kolik objednávek zdroj nemá (a proč většinou: odmítnuté cookies, jiný trh bez měření) */
+  bezZdroje: number;
+  stav: ZdrojeStav;
+}
+
+export interface ZdrojeNastaveni {
+  url: string;
+  /** Veřejný (anon) klíč — je stejně ve skriptu na e-shopu */
+  anonKey: string;
+  /** Tajný klíč ke čtení záznamů je uložený (hodnota se do okna neposílá) */
+  maTajny: boolean;
+  /** Tajný klíč se vezme z úložiště médií (stejný projekt Supabase) */
+  tajnyZUloziste: boolean;
+  skript: string;
+  sql: string;
+}

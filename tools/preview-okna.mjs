@@ -455,6 +455,7 @@ for (const okno of OKNA) {
     { label: 'Dnes', must: '.ad-kpis', shot: 'reklamy-dnes' },
     { label: 'Kampaně', must: '.ad-table', shot: 'reklamy-kampane' },
     { label: 'Produkty', must: '.ad-map', shot: 'reklamy-produkty' },
+    { label: 'Objednávky', must: '.zdr-tabulka', shot: 'reklamy-objednavky' },
     { label: 'Návrhy', must: '.ad-prop', shot: 'reklamy-navrhy' },
     { label: 'Report', must: '.ad-findings', shot: 'reklamy-report' },
     { label: 'Sezóny', must: '.ad-season-chart', shot: 'reklamy-sezony' },
@@ -477,6 +478,29 @@ for (const okno of OKNA) {
       `přetéká o ${mira.preteka} px, hlavička o ${mira.hlava} px`);
     await page.screenshot({ path: path.join(SHOTS, `${tab.shot}.png`) });
   }
+  /*
+   * Objednávky a jejich zdroj (Patrik, 25. 11.): souhrn po kanálech, u každé
+   * objednávky zdroj, kampaň a podrobnosti; klik na kanál seznam vyfiltruje.
+   */
+  await page.locator('.ad-tabs button', { hasText: 'Objednávky' }).click();
+  await page.waitForSelector('.zdr-tabulka', { timeout: 4000 }).catch(() => {});
+  const zdr = await page.evaluate(() => ({
+    kanalu: document.querySelectorAll('.zdr-kanal').length,
+    radku: document.querySelectorAll('.zdr-tabulka tbody tr').length,
+    prvni: (document.querySelector('.zdr-tabulka tbody tr')?.textContent ?? '').replace(/\s+/g, ' '),
+    stav: (document.querySelector('.zdr-mereni')?.textContent ?? '').replace(/\s+/g, ' ')
+  }));
+  say('Reklamy › objednávky: souhrn po kanálech a u každé objednávky zdroj a kampaň',
+    zdr.kanalu === 4 && zdr.radku === 4 && /Google Ads/.test(zdr.prvni) && /kšandy na svatbu/.test(zdr.prvni)
+      && /Facebook \/ Instagram reklama/.test(zdr.prvni) && /812 objednávek/.test(zdr.stav),
+    `${zdr.kanalu} kanálů, ${zdr.radku} řádků · ${zdr.prvni.slice(0, 90)}`);
+  await page.locator('.zdr-kanal', { hasText: 'Bez zdroje' }).click();
+  say('  klik na kanál seznam vyfiltruje', await page.locator('.zdr-tabulka tbody tr').count() === 1);
+  await page.locator('.zdr-kanal', { hasText: 'Bez zdroje' }).click();
+  await page.locator('.zdr-stav .btn', { hasText: 'Nastavení měření' }).click();
+  say('  nastavení měření: SQL, skript a ověření', await page.locator('.zdr-kroky li').count() === 4
+    && await page.locator('.zdr-kroky .btn', { hasText: 'Kopírovat skript' }).isEnabled());
+  await page.screenshot({ path: path.join(SHOTS, 'reklamy-objednavky-nastaveni.png') });
   // Mapa: tečky jen u produktů s útratou a klik na segment ztlumí ostatní
   await page.locator('.ad-tabs button', { hasText: 'Produkty' }).click();
   const tecek = await page.locator('.ad-map circle.dot').count();

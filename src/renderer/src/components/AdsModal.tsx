@@ -5,11 +5,13 @@ import type {
   AdsChatTurn, AdsChatSummary, AdsSeasons, AdsSeasonPlan, AdsSeasonEvent, AdsMetaAccount, AdsReport, AdsReportCampaign
 } from '@shared/ads';
 import { SEGMENT_LABELS, MARKET_LABELS, guessMarket } from '@shared/ads';
+import type { ZdrojePrehled, ZdrojeNastaveni } from '@shared/types';
 import { api } from '../api';
 import { useToast } from '../toast';
 import Icon from './Icon';
 import HelpButton from './HelpPanel';
 import { inToolWindow } from '../toolwindows';
+import { BARVY_KANALU, ZdrojStitek } from './ZdrojObjednavky';
 import { ADS_TERMS, SEGMENT_HELP } from '../adsTerms';
 
 /**
@@ -26,7 +28,7 @@ import { ADS_TERMS, SEGMENT_HELP } from '../adsTerms';
  * tom, co se ukáže, že odhady návrhů vycházejí.
  */
 
-type Tab = 'today' | 'campaigns' | 'products' | 'proposals' | 'report' | 'seasons' | 'advisor' | 'settings';
+type Tab = 'today' | 'campaigns' | 'products' | 'orders' | 'proposals' | 'report' | 'seasons' | 'advisor' | 'settings';
 
 const SYSTEM_LABEL: Record<string, string> = { google: 'Google Ads', sklik: 'Sklik', meta: 'Meta' };
 const SYSTEM_SHORT: Record<string, string> = { google: 'G', sklik: 'S', meta: 'M' };
@@ -213,6 +215,7 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
             <button className={tab === 'today' ? 'active' : ''} onClick={() => setTab('today')}>Dnes</button>
             <button className={tab === 'campaigns' ? 'active' : ''} onClick={() => setTab('campaigns')}>Kampaně</button>
             <button className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>Produkty</button>
+            <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}>Objednávky</button>
             <button className={tab === 'proposals' ? 'active' : ''} onClick={() => setTab('proposals')}>
               Návrhy{proposals && proposals.open.length > 0 && <b className="ad-count">{proposals.open.length}</b>}
             </button>
@@ -264,6 +267,7 @@ export default function AdsModal({ onClose }: { onClose: () => void }) {
           )}
           {tab === 'campaigns' && <Campaigns rows={campaigns} />}
           {tab === 'products' && <Products data={products} />}
+          {tab === 'orders' && <Objednavky days={days} market={market} />}
           {tab === 'report' && <Report market={market} />}
           {tab === 'seasons' && status && (
             <Seasons market={market} onChanged={load} onProposals={() => setTab('proposals')} />
@@ -2526,6 +2530,207 @@ function Settings({ status, onStatus, busy, setBusy }: {
           U ostatních se marže odhaduje mediánem kategorie. Ceny se berou z produktového feedu (Nastavení → Produkty).
         </p>
       </section>
+    </div>
+  );
+}
+
+/* ---------- objednávky a jejich zdroj ---------- */
+
+const KANALY_POPIS: Record<string, string> = {
+  google_ads: 'Google Ads', google: 'Google (organicky)', sklik: 'Sklik', seznam: 'Seznam (organicky)',
+  meta_ads: 'Facebook / Instagram reklama', meta: 'Facebook / Instagram', srovnavac: 'Srovnávače',
+  email: 'E-mail / newsletter', odkaz: 'Odkaz z jiného webu', primo: 'Přímo', jine: 'Jiné'
+};
+
+const castky = (t: Record<string, number>) => Object.entries(t)
+  .map(([mena, v]) => `${Math.round(v).toLocaleString('cs-CZ')} ${mena === 'CZK' ? 'Kč' : mena === 'EUR' ? '€' : mena}`).join(' + ');
+
+/**
+ * Všechny objednávky a odkud přišly.
+ *
+ * Patrik (25. 11.): „v sekci reklama sekci se seznamem všech objednávek…
+ * organic, google, facebook, případně přes proklik i konkrétní kampaň".
+ * Nahoře souhrn po kanálech (kolik objednávek a za kolik), pod tím seznam;
+ * u každé zdroj, kampaň a podrobnosti. Měření se nastavuje tady dole —
+ * dokud není, jedou zdroje jen z Google Analytics.
+ */
+function Objednavky({ days, market }: { days: number; market: string }) {
+  const toast = useToast();
+  const [data, setData] = useState<ZdrojePrehled | null>(null);
+  const [kanal, setKanal] = useState('');
+  const [hledat, setHledat] = useState('');
+  const [obnovuji, setObnovuji] = useState(false);
+  const [nastaveniOtevrene, setNastaveniOtevrene] = useState(false);
+  const nacti = useCallback(async () => {
+    try { setData(await api.zdroje.prehled(days, market)); } catch (e: any) { toast(e.message, 'error'); }
+  }, [days, market, toast]);
+  useEffect(() => { void nacti(); }, [nacti]);
+
+  const obnov = async () => {
+    setObnovuji(true);
+    try { await api.zdroje.obnov(); await nacti(); } catch (e: any) { toast(e.message, 'error'); }
+    setObnovuji(false);
+  };
+
+  const radky = useMemo(() => (data?.radky ?? []).filter(r => {
+    if (kanal === '-' ? r.zdroj : kanal && r.zdroj?.kanal !== kanal) return false;
+    const q = hledat.trim().toLowerCase();
+    if (!q) return true;
+    return `${r.code} ${r.name} ${r.zdroj?.nazev ?? ''} ${r.zdroj?.kampan ?? ''} ${r.zdroj?.detail.join(' ') ?? ''}`.toLowerCase().includes(q);
+  }), [data, kanal, hledat]);
+
+  if (!data) return <div className="ad-empty">Načítám…</div>;
+  const st = data.stav;
+  const celkem = data.radky.length;
+  const sZdrojem = celkem - data.bezZdroje;
+  const neniMereni = !st.ga4.pripojeno && !st.mereni.nastaveno;
+
+  return (
+    <div className="zdr">
+      <div className="ad-card zdr-stav">
+        <div className="zdr-mereni">
+          <span className={`zdr-tecka ${st.ga4.pripojeno ? (st.ga4.chyba ? 'chyba' : 'ok') : ''}`} />
+          <span data-tip={st.ga4.chyba ?? 'Zdroj, médium, kampaň a vstupní stránka u každého nákupu — jen český web.'}>
+            Google Analytics: {!st.ga4.pripojeno ? 'nenapojené' : st.ga4.chyba ? 'chyba' : `${st.ga4.transakci} objednávek`}
+          </span>
+          <span className={`zdr-tecka ${st.mereni.nastaveno ? (st.mereni.chyba ? 'chyba' : 'ok') : ''}`} />
+          <span data-tip={st.mereni.chyba ?? 'Přímo proklik (gclid, fbclid, UTM) na všech trzích, první i poslední zdroj.'}>
+            Měření na e-shopu: {!st.mereni.nastaveno ? 'nenastavené' : st.mereni.chyba ? 'chyba' : `${st.mereni.zaznamu} objednávek`}
+          </span>
+          <span className={`zdr-tecka ${st.googleAds.pripojeno ? (st.googleAds.chyba ? 'chyba' : 'ok') : ''}`} />
+          <span data-tip={st.googleAds.chyba ?? 'Podle prokliku (gclid) dohledá přesnou kampaň, sestavu a klíčové slovo.'}>
+            Google Ads: {st.googleAds.pripojeno ? (st.googleAds.chyba ? 'chyba' : 'kampaně z prokliků') : 'nepřipojené'}
+          </span>
+        </div>
+        <span style={{ flex: 1 }} />
+        <span className="muted small">{celkem ? `${sZdrojem} z ${celkem} se zdrojem (${Math.round((sZdrojem / celkem) * 100)} %)` : ''}</span>
+        <button className="btn ghost" onClick={() => void obnov()} disabled={obnovuji}
+          data-tip="Stáhne nové záznamy z měření a z Analytics. Jinak se to děje samo každou půlhodinu.">
+          <Icon name="refresh" size={13} className={obnovuji ? 'spinning' : undefined} /> Obnovit
+        </button>
+        <button className="btn ghost" onClick={() => setNastaveniOtevrene(!nastaveniOtevrene)}>
+          <Icon name="settings" size={13} /> Nastavení měření
+        </button>
+      </div>
+      {[st.ga4.chyba, st.mereni.chyba, st.googleAds.chyba].filter(Boolean).map((one, i) => (
+        <div key={i} className="ad-card zdr-chyba"><Icon name="alert" size={13} /> {one}</div>
+      ))}
+
+      {(nastaveniOtevrene || neniMereni) && <NastaveniMereni onZmena={nacti} />}
+
+      {data.kanaly.length > 0 && (
+        <div className="zdr-kanaly">
+          {data.kanaly.map(k => (
+            <button key={k.kanal} className={`zdr-kanal ${kanal === k.kanal ? 'on' : ''}`}
+              onClick={() => setKanal(kanal === k.kanal ? '' : k.kanal)}>
+              <i style={{ background: BARVY_KANALU[k.kanal] }} />
+              <span>{KANALY_POPIS[k.kanal] ?? k.nazev}</span>
+              <b>{k.pocet}</b>
+              <span className="muted small">{Math.round((k.pocet / Math.max(1, celkem)) * 100)} % · {castky(k.trzba)}</span>
+            </button>
+          ))}
+          {data.bezZdroje > 0 && (
+            <button className={`zdr-kanal ${kanal === '-' ? 'on' : ''}`} onClick={() => setKanal(kanal === '-' ? '' : '-')}
+              data-tip="Zákazník odmítl měření (cookies), objednávka je z trhu bez měření, nebo se ještě nenačetla.">
+              <i style={{ background: '#e5e7eb' }} />
+              <span>Bez zdroje</span>
+              <b>{data.bezZdroje}</b>
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="zdr-filtr">
+        <input type="search" placeholder="Číslo, zákazník, kampaň…" value={hledat} onChange={e => setHledat(e.target.value)} />
+        <span className="muted small">{radky.length} objednávek</span>
+      </div>
+
+      <div className="ad-card ad-table-wrap">
+        <table className="ad-table zdr-tabulka">
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Objednávka</th>
+              <th>Zákazník</th>
+              <th className="r">Částka</th>
+              <th>Zdroj</th>
+              <th>Kampaň</th>
+              <th>Podrobnosti</th>
+              <th>Poprvé přišel</th>
+            </tr>
+          </thead>
+          <tbody>
+            {radky.slice(0, 600).map(r => (
+              <tr key={`${r.market}-${r.code}`}>
+                <td className="nowrap">{new Date(r.createdAt).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                <td className="nowrap">{r.code}{market === 'all' && <span className="ad-market">{MARKET_LABELS[r.market] ?? r.market}</span>}</td>
+                <td className="zdr-jmeno">{r.name}</td>
+                <td className="r nowrap">{Math.round(r.total).toLocaleString('cs-CZ')} {r.currency === 'CZK' ? 'Kč' : r.currency === 'EUR' ? '€' : r.currency}</td>
+                <td>{r.zdroj ? <ZdrojStitek zdroj={r.zdroj} kampan={false} /> : <span className="muted small">—</span>}</td>
+                <td className="zdr-kampan-bunka" title={r.zdroj?.kampan || undefined}>{r.zdroj?.kampan ?? ''}</td>
+                <td className="zdr-detail-bunka">{r.zdroj?.detail.join(' · ') ?? ''}</td>
+                <td className="zdr-detail-bunka">{r.zdroj?.prvni ? `${r.zdroj.prvni.nazev}${r.zdroj.prvni.kampan ? ` (${r.zdroj.prvni.kampan})` : ''}` : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!radky.length && <div className="ad-empty">V tomhle období ani výběru žádná objednávka.</div>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Nastavení měřicího skriptu — tři kroky, každý jedním tlačítkem.
+ * Tajný klíč se do okna nikdy nevrací; když je stejný projekt jako
+ * úložiště médií, vezme se odtamtud a vyplňovat ho není potřeba.
+ */
+function NastaveniMereni({ onZmena }: { onZmena: () => void }) {
+  const toast = useToast();
+  const [n, setN] = useState<ZdrojeNastaveni | null>(null);
+  const [overuji, setOveruji] = useState(false);
+  useEffect(() => { api.zdroje.nastaveni().then(setN).catch((e: any) => toast(e.message, 'error')); }, [toast]);
+  if (!n) return null;
+  const uloz = async (co: { url?: string; anonKey?: string; tajny?: string }) => {
+    try { setN(await api.zdroje.uloz(co)); onZmena(); } catch (e: any) { toast(e.message, 'error'); }
+  };
+  const kopiruj = (text: string, co: string) => { void navigator.clipboard.writeText(text); toast(`${co} zkopírované`, 'info'); };
+  return (
+    <div className="ad-card zdr-nastaveni">
+      <h4>Měření zdroje na e-shopu</h4>
+      <p className="muted small">
+        Google Analytics dává zdroj jen pro český web a jen tak, jak si ho spočítá. Malý skript na e-shopu zapíše přímo
+        proklik (Google Ads, Facebook, Sklik, UTM, odkazující web) na všech trzích a k objednávce ho pošle do vašeho
+        Supabase. Neukládá nic o zákazníkovi a řídí se souhlasem s cookies.
+      </p>
+      <ol className="zdr-kroky">
+        <li>
+          <b>Supabase</b> — adresa projektu a veřejný (anon) klíč, kterým bude e-shop zapisovat.
+          <div className="zdr-pole">
+            <input defaultValue={n.url} placeholder="https://xxxx.supabase.co" onBlur={e => { if (e.target.value !== n.url) void uloz({ url: e.target.value }); }} />
+            <input defaultValue={n.anonKey} placeholder="anon klíč (veřejný)" onBlur={e => { if (e.target.value !== n.anonKey) void uloz({ anonKey: e.target.value }); }} />
+            <input type="password" placeholder={n.maTajny ? (n.tajnyZUloziste ? 'tajný klíč z úložiště médií' : 'tajný klíč je uložený') : 'service_role klíč (jen pro čtení v aplikaci)'}
+              onBlur={e => { if (e.target.value) { void uloz({ tajny: e.target.value }); e.target.value = ''; } }} />
+          </div>
+        </li>
+        <li>
+          <b>Tabulka</b> — v Supabase otevři SQL Editor, vlož a spusť (jednou).
+          <button className="btn ghost" onClick={() => kopiruj(n.sql, 'SQL')}><Icon name="copy" size={12} /> Kopírovat SQL</button>
+        </li>
+        <li>
+          <b>Skript</b> — v administraci Upgates vlož do vlastních kódů (konec hlavičky, všechny stránky).
+          <button className="btn ghost" disabled={!n.skript} onClick={() => kopiruj(n.skript, 'Skript')}
+            data-tip={n.skript ? undefined : 'Nejdřív vyplň adresu a veřejný klíč'}><Icon name="copy" size={12} /> Kopírovat skript</button>
+        </li>
+        <li>
+          <b>Ověřit</b> — aplikace zkusí tabulku přečíst.
+          <button className="btn ghost" disabled={overuji || !n.maTajny} onClick={async () => {
+            setOveruji(true);
+            try { toast(await api.zdroje.over(), 'info'); onZmena(); } catch (e: any) { toast(e.message, 'error'); }
+            setOveruji(false);
+          }}>{overuji ? <span className="spinner-inline" /> : <Icon name="check" size={12} />} Ověřit</button>
+        </li>
+      </ol>
     </div>
   );
 }

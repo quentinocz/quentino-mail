@@ -737,6 +737,12 @@ await page.evaluate(() => window.__emit('packing:changed', {
 }));
 await page.waitForTimeout(200);
 await overflow('balení — odškrtnuto z telefonu'); await snap('26d-baleni-z-telefonu');
+// Zdroj objednávky v detailu (Reklamy → Objednávky): kanál, kampaň a podrobnosti
+{
+  const zdroj = await page.evaluate(() => (document.querySelector('.pk-panel .zdroj-blok')?.textContent ?? '').replace(/\s+/g, ' '));
+  const ok = /Google Ads/.test(zdroj) && /klíčové slovo/.test(zdroj);
+  console.log(`${'balení — zdroj objednávky'.padEnd(28)} ${ok ? '✓' : '✗'} (${zdroj.slice(0, 80)})`);
+}
 await click('.modal-head .icon-btn:last-child');
 await page.waitForTimeout(300);
 

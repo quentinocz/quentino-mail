@@ -32,7 +32,7 @@ import type {
   BannerSet, BannerClash, BannersState, BannerTemplate,
   MediaSetup, MediaFile, MediaResult, MediaTool, MediaWatch, MediaLogRow,
   MediaProductQuery, MediaProductPage, MediaProductSetup, MediaUpload,
-  UpdateState
+  UpdateState, ZdrojePrehled, ZdrojObjednavky, ZdrojeStav, ZdrojeNastaveni
 } from '@shared/types';
 import type {
   AdsStatus, AdsOverview, AdsCampaignRow, AdsProducts, AdsShipMethod, AdsConfig, AdsGoogleCustomer, AdsChatTurn, AdsChatReply, AdsChat, AdsChatSummary, AdsSeasons, AdsSeasonPlan, AdsMetaAccount, AdsReport,
@@ -1457,6 +1457,15 @@ export const api = {
    * Reklamy. Ve fázi 1 jen čtení: data z Google Ads, zisk z objednávek,
    * segmenty produktů a doplňkový feed se segmenty.
    */
+  /** Zdroj objednávek — odkud přišel zákazník, který nakoupil. */
+  zdroje: {
+    prehled: (days: number, market = 'all') => call<ZdrojePrehled>('zdroje:prehled', days, market),
+    objednavka: (code: string, market = 'cz') => call<ZdrojObjednavky | null>('zdroje:objednavka', code, market),
+    obnov: () => call<ZdrojeStav>('zdroje:obnov'),
+    nastaveni: () => call<ZdrojeNastaveni>('zdroje:nastaveni'),
+    uloz: (co: { url?: string; anonKey?: string; tajny?: string }) => call<ZdrojeNastaveni>('zdroje:uloz', co),
+    over: () => call<string>('zdroje:over')
+  },
   ads: {
     status: () => call<AdsStatus>('ads:status'),
     /** `market`: 'all' = všechny trhy dohromady, jinak cz / sk / en */

@@ -67,6 +67,7 @@ import { registerChatIpc } from './chat/ipc';
 import { ga4Notes } from './ga4notes';
 import * as webtexts from './webtexts';
 import * as ads from './ads';
+import * as zdroje from './zdroje';
 import * as adsReport from './ads/report';
 import * as adsAdvisor from './ads/advisor';
 import * as adsChats from './ads/chats';
@@ -733,6 +734,17 @@ export function registerIpc() {
   handle('vault:set', (pass: string) => setVaultPassphrase(String(pass ?? '')));
   handle('vault:forget', () => forgetVaultPassphrase());
 
+  // Zdroj objednávek: odkud přišel zákazník (GA4 + měřicí skript na e-shopu)
+  handle('zdroje:prehled', (days: number, market: string) => zdroje.prehled(Number(days) || 30, String(market || 'all')));
+  handle('zdroje:objednavka', (code: string, market?: string) => zdroje.zdrojObjednavky(String(code ?? ''), String(market || 'cz')));
+  handle('zdroje:obnov', async () => { await zdroje.obnov(true); return zdroje.stav(); });
+  handle('zdroje:nastaveni', () => zdroje.nastaveni());
+  handle('zdroje:uloz', (co: any) => zdroje.ulozNastaveni({
+    url: typeof co?.url === 'string' ? co.url : undefined,
+    anonKey: typeof co?.anonKey === 'string' ? co.anonKey : undefined,
+    tajny: typeof co?.tajny === 'string' ? co.tajny : undefined
+  }));
+  handle('zdroje:over', () => zdroje.overMereni());
   handle('ads:status', () => ads.status());
   // Trh: 'all' = všechny sledované dohromady, jinak cz / sk / en
   handle('ads:overview', (days: number, market?: string) => ads.overview(Number(days) || 30, String(market || 'all')));

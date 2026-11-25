@@ -41,6 +41,21 @@ export const ADS: HelpTopic = {
       ]
     },
     {
+      title: 'Odkud přišla objednávka',
+      when: 'Záložka Objednávky — měření se nastavuje jednou.',
+      steps: [
+        { text: 'Záložka [Objednávky] ukáže všechny objednávky v období a u každé zdroj: Google Ads, Google organicky, '
+            + 'Facebook, Sklik, srovnávač, e-mail, odkaz, přímo — s kampaní, sestavou, klíčovým slovem a vstupní stránkou. '
+            + 'Nahoře je souhrn po kanálech; klik na kanál seznam vyfiltruje.', area: 'tabs' },
+        { text: 'Bez nastavení se zdroj bere z **Google Analytics** podle čísla objednávky — i zpětně, ale jen pro český web.', area: 'tabs' },
+        { text: '[Nastavení měření]: vyplň adresu Supabase a veřejný klíč, [Kopírovat SQL] spusť v Supabase (SQL Editor), '
+            + '[Kopírovat skript] vlož do vlastních kódů v Upgates a dej [Ověřit]. Od té chvíle se zapisuje přímo proklik '
+            + 'na všech trzích a u Google Ads se podle něj dohledá přesná kampaň.', area: 'tabs' },
+        { text: 'Zdroj je vidět i v detailu objednávky v Balení a v kartě objednávky u e-mailu.', area: 'tabs' },
+        { text: '„Bez zdroje" jsou hlavně zákazníci, kteří odmítli cookies — měření jejich souhlas respektuje.', area: 'tabs' }
+      ]
+    },
+    {
       title: 'Připojit Sklik',
       when: 'Jednou — token se na ostatní Macy přenese trezorem.',
       steps: [

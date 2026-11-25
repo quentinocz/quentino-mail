@@ -119,6 +119,7 @@ const ALLOWED_INVOKE = [
   // Trezor sdíleného nastavení (heslo, stav)
   'vault:status', 'vault:set', 'vault:forget',
   // Reklamy: přehled, kampaně, produkty, nastavení a připojení Google Ads
+  'zdroje:prehled', 'zdroje:objednavka', 'zdroje:obnov', 'zdroje:nastaveni', 'zdroje:uloz', 'zdroje:over',
   'ads:status', 'ads:overview', 'ads:campaigns', 'ads:products', 'ads:ship', 'ads:config',
   'ads:connect', 'ads:disconnect', 'ads:customers', 'ads:fetch', 'ads:feed',
   'ads:service', 'ads:sklik', 'ads:sklikOff', 'ads:ask', 'ads:chats', 'ads:chat', 'ads:chatDelete', 'ads:chatRename', 'ads:seasons', 'ads:seasonPlan', 'ads:seasonDrop', 'ads:autopilotResume', 'ads:newCampaign', 'ads:report', 'ads:reportSummary', 'ads:reportPdf', 'ads:metaConnect', 'ads:metaUse', 'ads:metaOff', 'ads:proposals', 'ads:engine', 'ads:apply', 'ads:decide', 'ads:revert',

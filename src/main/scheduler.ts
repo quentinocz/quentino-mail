@@ -14,6 +14,7 @@ import { processQueue as processIgQueue, refreshTokens as refreshIgTokens, syncS
 import { getSetting } from './db';
 import { pollUnread as pollChatUnread } from './chat';
 import { keepAwake } from './keepalive';
+import { obnov as obnovZdroje } from './zdroje';
 import { OutboxItem } from '../shared/types';
 
 const OUTBOX_INTERVAL = 5_000; // kontrola plánovaných odeslání (krátká kvůli „Zpět" po odeslání)
@@ -129,6 +130,12 @@ export function startScheduler() {
    * vypnutý, dožene se po probuzení. Mezitím se převezmou data z Macu,
    * který běh udělal.
    */
+  /*
+   * Zdroj objednávek: záznamy ze skriptu na e-shopu každou půlhodinu,
+   * Analytics si samo hlídá, že se ptá jen jednou za tři hodiny.
+   */
+  setInterval(() => { obnovZdroje(false).catch(() => {}); }, 30 * 60_000);
+  setTimeout(() => { obnovZdroje(false).catch(() => {}); }, 120_000);
   setInterval(() => { adsTick().catch(() => {}); }, 10 * 60_000);
   setTimeout(() => { adsTick().catch(() => {}); }, 90_000);
 

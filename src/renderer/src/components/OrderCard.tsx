@@ -3,6 +3,7 @@ import type { OrderCard as OrderCardData, OrderAddress, OrderCardItem, ShipPhase
 import { api } from '../api';
 import Icon from './Icon';
 import CallContact from './CallContact';
+import ZdrojObjednavky from './ZdrojObjednavky';
 
 /** Popisky karty ve třech jazykových mutacích e-shopu. */
 const T = {
@@ -211,6 +212,9 @@ export default function OrderCard({
           })()}
         </div>
       )}
+
+      {/* Odkud zákazník přišel — Google, Facebook, kampaň (Reklamy → Objednávky) */}
+      <ZdrojObjednavky code={card.orderNumber} market={card.lang} />
 
       {(card.billing || card.shipping) && (
         <div className="oc-addrs">

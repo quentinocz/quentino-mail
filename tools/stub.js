@@ -859,6 +859,37 @@
         estimatedOrders: 61
       };
     })(),
+    /* Zdroj objednávek: kanály s dlouhou kampaní, objednávka bez zdroje, chyba měření */
+    'zdroje:prehled': {
+      radky: [
+        { code: '2026101', market: 'cz', createdAt: '2026-11-25T09:12:00.000Z', total: 1290, currency: 'CZK', status: 'Nová', name: 'Jan Novák',
+          zdroj: { kanal: 'google_ads', nazev: 'Google Ads', kampan: 'Vyhledávání – Kšandy a motýlky na svatbu (CZ, exact)', odkud: 'oboje', dotyku: 2,
+            detail: ['sestava: svatební kšandy', 'klíčové slovo: kšandy na svatbu', 'vstup: /ksandy', 'mobil'],
+            prvni: { kanal: 'meta_ads', nazev: 'Facebook / Instagram reklama', kampan: 'Advantage+ nákupy – kšandy' } } },
+        { code: '2026102', market: 'sk', createdAt: '2026-11-25T08:40:00.000Z', total: 49, currency: 'EUR', status: 'Nová', name: 'Peter Kováč',
+          zdroj: { kanal: 'meta', nazev: 'Facebook / Instagram', kampan: '', odkud: 'mereni', dotyku: 1, detail: ['vstup: /', 'počítač'], prvni: null } },
+        { code: '2026103', market: 'cz', createdAt: '2026-11-24T21:05:00.000Z', total: 690, currency: 'CZK', status: 'Vyřízená', name: 'Eva Malá',
+          zdroj: { kanal: 'google', nazev: 'Google (organicky)', kampan: '', odkud: 'ga4', dotyku: 0, detail: ['vstup: /blog/jak-uvazat-kravatu'], prvni: null } },
+        { code: '2026104', market: 'cz', createdAt: '2026-11-24T18:30:00.000Z', total: 1590, currency: 'CZK', status: 'Nová', name: 'Tomáš Dvořák', zdroj: null }
+      ],
+      kanaly: [
+        { kanal: 'google_ads', nazev: 'Google Ads', pocet: 1, trzba: { CZK: 1290 } },
+        { kanal: 'meta', nazev: 'Facebook / Instagram', pocet: 1, trzba: { EUR: 49 } },
+        { kanal: 'google', nazev: 'Google (organicky)', pocet: 1, trzba: { CZK: 690 } }
+      ],
+      bezZdroje: 1,
+      stav: {
+        ga4: { pripojeno: true, kdy: '2026-11-25T09:00:00.000Z', chyba: null, transakci: 812 },
+        mereni: { nastaveno: true, kdy: '2026-11-25T09:30:00.000Z', chyba: null, zaznamu: 37, posledni: '2026-11-25T09:12:00.000Z' },
+        googleAds: { pripojeno: true, kdy: '2026-11-25T09:30:00.000Z', chyba: null }
+      }
+    },
+    'zdroje:objednavka': { kanal: 'google_ads', nazev: 'Google Ads', kampan: 'Vyhledávání – Kšandy', odkud: 'oboje', dotyku: 2,
+      detail: ['sestava: svatební kšandy', 'klíčové slovo: kšandy na svatbu', 'vstup: /ksandy', 'mobil'],
+      prvni: { kanal: 'meta_ads', nazev: 'Facebook / Instagram reklama', kampan: 'Advantage+ nákupy – kšandy' } },
+    'zdroje:nastaveni': { url: 'https://abc.supabase.co', anonKey: 'eyJhbGciOi…', maTajny: true, tajnyZUloziste: true,
+      skript: '<script>/* Quentino — zdroj objednávky */</script>', sql: 'create table if not exists public.quentino_zdroje (…);' },
+    'zdroje:obnov': { ga4: { pripojeno: true, kdy: null, chyba: null, transakci: 812 }, mereni: { nastaveno: true, kdy: null, chyba: null, zaznamu: 37, posledni: null }, googleAds: { pripojeno: true, kdy: null, chyba: null } },
     'ads:campaigns': [
       { system: 'meta', account: 'meta', market: 'cz', id: '120200001', name: 'Advantage+ nákupy – kšandy', type: 'SALES', status: 'ENABLED', budget: 150, bidding: 'LOWEST_COST_WITHOUT_CAP', targetRoas: null, cost: 3900, clicks: 1800, conversions: 17, value: 23400, profit: 9670, pno: 0.167, targetPno: 0.08 },
       { system: 'sklik', account: 'sklik', market: 'cz', id: '9001', name: 'Zboží.cz – celý katalog', type: 'SHOPPING', status: 'ENABLED', budget: 220, bidding: 'MANUAL_CPC', targetRoas: null, cost: 6200, clicks: 3100, conversions: 44, value: 51800, profit: 23840, pno: 0.12, targetPno: 0.08 },
