@@ -2709,9 +2709,19 @@ function NastaveniMereni({ onZmena }: { onZmena: () => void }) {
           <div className="zdr-pole">
             <input defaultValue={n.url} placeholder="https://xxxx.supabase.co" onBlur={e => { if (e.target.value !== n.url) void uloz({ url: e.target.value }); }} />
             <input defaultValue={n.anonKey} placeholder="anon klíč (veřejný)" onBlur={e => { if (e.target.value !== n.anonKey) void uloz({ anonKey: e.target.value }); }} />
-            <input type="password" placeholder={n.maTajny ? (n.tajnyZUloziste ? 'tajný klíč z úložiště médií' : 'tajný klíč je uložený') : 'service_role klíč (jen pro čtení v aplikaci)'}
+            <input type="password" placeholder={n.maTajny ? (n.tajnyZUloziste ? 'jiný tajný klíč (nepovinné)' : 'tajný klíč je uložený') : 'tajný klíč (service_role / secret)'}
               onBlur={e => { if (e.target.value) { void uloz({ tajny: e.target.value }); e.target.value = ''; } }} />
           </div>
+          {/* Patrik (26. 11.): „nevím kde najít tajný klíč z úložiště médií" — zástupný text
+              vypadal jako pokyn. Když ho aplikace už má, řekne to rovnou. */}
+          {n.tajnyZUloziste
+            ? <p className="zdr-klic-ok small"><Icon name="check" size={12} /> Tajný klíč už aplikace má — bere ho z úložiště médií
+              (Texty na webu → Napojení). Stačí doplnit veřejný klíč.</p>
+            : null}
+          <p className="muted small">
+            Klíče jsou v Supabase v <b>Project Settings → API Keys</b>: veřejný je „anon" (nově „publishable"),
+            tajný „service_role" (nově „secret"). Tajný se nikam na web nedává — aplikace jím jen čte.
+          </p>
         </li>
         <li>
           <b>Tabulka</b> — v Supabase otevři SQL Editor, vlož a spusť (jednou).

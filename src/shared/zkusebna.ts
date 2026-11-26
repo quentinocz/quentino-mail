@@ -336,8 +336,14 @@ export const ZK_SABLONY: Record<string, ZkSablona> = {
   'kravata:kravata-9': { tvar: 'kravata', sirkaCm: 9 },
   'kravata:pletena': { tvar: 'pletena', sirkaCm: 5.5 },
   'kravata:motylek': { tvar: 'motylek', sirkaCm: 12, vyskaCm: 5.5 },
-  'kravata:motylek-detsky': { tvar: 'motylek', sirkaCm: 10, vyskaCm: 4.8 },
-  'kravata:motylek-mini': { tvar: 'motylek', sirkaCm: 8.5, vyskaCm: 4 },
+  /*
+   * Patrik (26. 11.): „šablona je o dost větší než motýlek v reálu".
+   * Rozměry z popisů na e-shopu (feed 18. 11.): dětský nejčastěji
+   * 9 × 4,5 cm (75×, pak 10 × 4 a 10 × 5), MINI 6 × 4 cm (všech 38).
+   * Dřív tu bylo 10 × 4,8 a 8,5 × 4 — MINI o polovinu plochy větší.
+   */
+  'kravata:motylek-detsky': { tvar: 'motylek', sirkaCm: 9, vyskaCm: 4.5 },
+  'kravata:motylek-mini': { tvar: 'motylek', sirkaCm: 6, vyskaCm: 4 },
   'kravata:regata': { tvar: 'regata', sirkaCm: 10, vyskaCm: 22 },
   'ksandy:uzke': { tvar: 'ksandy', sirkaCm: 2.5 },
   'ksandy:siroke': { tvar: 'ksandy', sirkaCm: 3.5 },
@@ -743,10 +749,25 @@ export function vrstvyVzhledu(v: ZkVzhled): { typ: ZkVrstvaTyp; varianta: string
     if (typ === 'sako' && !sako) continue;
     /* Kapesníček je v klopě saka — bez saka nemá kde být */
     if (typ === 'kapesnicek' && !sako) continue;
-    const kus = v.kusy[typ];
+    const kus = v.kusy[typ] ?? (typ === 'vesta' ? vestaKRegate(v) : undefined);
     if (kus) out.push({ typ, varianta: kus.varianta, hex: kus.hex });
   }
   return out;
+}
+
+/**
+ * Regata se nosí pod vestou — vesta k ní patří.
+ *
+ * Patrik (26. 11.): „regata se vykresluje jen část, co zbytek bývá pod
+ * vestou… buď se musí vykreslit celá, nebo nedovolit zobrazení na
+ * modelu bez vesty". Na fotkách z e-shopu je vidět jen to, co kouká
+ * z vesty, takže celou ji AI věrně nenakreslí. Bez vesty se proto na
+ * model dá vesta v barvě saka (jako kapesníček nejde bez saka).
+ */
+export function vestaKRegate(v: ZkVzhled): { varianta: string; hex: string } | undefined {
+  if (v.kusy.vesta || v.kusy.kravata?.varianta !== 'regata') return undefined;
+  const def = ZK_VRSTVY.find(one => one.typ === 'vesta');
+  return { varianta: def?.varianty[0]?.id ?? 'klasicka', hex: v.kusy.sako?.hex || ZK_PODKLAD_HEX.vesta || '#2a3142' };
 }
 
 /* ------------------------------------------------------------ doporučení */

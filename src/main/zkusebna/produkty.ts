@@ -83,8 +83,13 @@ export function rozmerZTextu(parametry: { nazev: string; hodnota: string }[], po
     if (/^sir(k|e)/.test(nazev)) out.sirkaCm = cislo(m[1]);
   }
   const text = bezDiakritiky(popis.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' '));
-  const rozmery = /rozmer\w*\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm/i.exec(
-    popis.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/<[^>]+>/g, ' ')
+  /*
+   * Mezi slovem a čísly bývají až tři slova: „Rozměry motýlku: 12 × 5,5 cm",
+   * „Rozměry motýlku jsou 9 × 4,5 cm", „rozměry uvázaného motýlku
+   * přibližně 12 × 6 cm" (feed 18. 11.) — dřív se chytlo jen „Rozměry: …".
+   */
+  const rozmery = /rozmer\w*(?:\s+[a-z]+){0,3}?\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:x|×|\*)\s*(\d+(?:[.,]\d+)?)\s*cm/i.exec(
+    popis.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/<[^>]+>/g, ' ').replace(/&nbsp;|\u00a0/g, ' ')
   );
   if (rozmery) {
     const a = cislo(rozmery[1]);

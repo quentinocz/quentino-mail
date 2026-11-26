@@ -107,7 +107,8 @@ const TEMPLATE = String.raw`
       sada: "sada", vSade: "Součást sady",
       priblizit: "Přiblížit", oddalit: "Oddálit", celyModel: "Celý model",
       velkyObrazek: "Velký obrázek celého modelu", velkyRada: "Klepnutím přiblížíte, dalším vrátíte",
-      chybiVrstva: "Pro tenhle model zatím není připravená vrstva — dokresli ji v aplikaci ve Vizuálech."
+      chybiVrstva: "Pro tenhle model zatím není připravená vrstva — dokresli ji v aplikaci ve Vizuálech.",
+      regataVesta: "Regata se nosí pod vestou — bez vesty ji nechat nejde."
     },
     sk: {
       kabina: "Skúšobná kabína", podnadpis: "Vyberte si doplnky a pozrite sa, ako sadnú.",
@@ -143,7 +144,8 @@ const TEMPLATE = String.raw`
       sada: "sada", vSade: "Súčasť sady",
       priblizit: "Priblížiť", oddalit: "Oddialiť", celyModel: "Celý model",
       velkyObrazek: "Veľký obrázok celého modelu", velkyRada: "Ťuknutím priblížite, ďalším vrátite",
-      chybiVrstva: "Pre tento model zatiaľ nie je pripravená vrstva."
+      chybiVrstva: "Pre tento model zatiaľ nie je pripravená vrstva.",
+      regataVesta: "Regata sa nosí pod vestou — bez vesty ju nechať nejde."
     },
     en: {
       kabina: "Fitting room", podnadpis: "Pick the accessories and see how they look.",
@@ -179,7 +181,8 @@ const TEMPLATE = String.raw`
       sada: "set", vSade: "Part of the set",
       priblizit: "Zoom in", oddalit: "Zoom out", celyModel: "Whole model",
       velkyObrazek: "Large image of the whole model", velkyRada: "Tap to zoom in, tap again to fit",
-      chybiVrstva: "This layer is not ready for this model yet."
+      chybiVrstva: "This layer is not ready for this model yet.",
+      regataVesta: "An ascot is worn under a waistcoat — it cannot go without one."
     }
   };
 
@@ -505,10 +508,28 @@ const TEMPLATE = String.raw`
       if (typ === "postava") { out.push({ typ: typ, varianta: "zaklad", hex: "" }); continue; }
       if (typ === "sako" && !sako) continue;
       if (typ === "kapesnicek" && !sako) continue;
-      var kus = v.kusy[typ];
+      var kus = v.kusy[typ] || (typ === "vesta" ? vestaKRegate(v) : null);
       if (kus) out.push({ typ: typ, varianta: kus.varianta, hex: kus.hex, produkt: kus.produkt });
     }
     return out;
+  }
+
+  /*
+   * Regata se nosí pod vestou. Patrik (26. 11.): „regata se vykresluje
+   * jen část, co zbytek bývá pod vestou… nedovolit zobrazení na modelu
+   * bez vesty". Na fotkách je vidět jen kus nad vestou, celou ji nikdo
+   * nenafotil — bez vesty se proto na model dá vesta v barvě saka.
+   */
+  function sRegatou(v) {
+    return !!(v && v.kusy && v.kusy.kravata && v.kusy.kravata.varianta === "regata");
+  }
+  function vestaKRegate(v) {
+    if (v.kusy.vesta || !sRegatou(v)) return null;
+    var def = defVrstvy("vesta");
+    return {
+      varianta: def && def.varianty && def.varianty[0] ? def.varianty[0].id : "klasicka",
+      hex: (v.kusy.sako && v.kusy.sako.hex) || posledniVesta || "#2a3142"
+    };
   }
 
   function doTextu(v) {
@@ -1641,6 +1662,11 @@ const TEMPLATE = String.raw`
       if (!ma) {
         b.disabled = true;
         b.setAttribute("title", t("chybiVrstva"));
+      } else if (typ === "vesta" && sRegatou(vzhled())) {
+        /* S regatou vesta zůstane — vypínač ukazuje zapnuto a vysvětlí proč */
+        b.setAttribute("aria-pressed", "true");
+        b.disabled = true;
+        b.setAttribute("title", t("regataVesta"));
       }
       vypinace.appendChild(b);
     };

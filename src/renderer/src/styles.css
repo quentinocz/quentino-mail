@@ -11668,3 +11668,5 @@ button.ad-seg.on { border-color: currentColor; }
 .zk-body-uklada { position: absolute; left: 8px; bottom: 8px; display: inline-flex; gap: 6px; align-items: center; padding: 4px 8px;
   border-radius: 8px; background: rgba(255,255,255,.9); font-size: 11.5px; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
 @media (max-width: 900px) { .zk-body.velky { grid-template-columns: 1fr; } .zk-body.velky .zk-body-obr { height: auto; width: 100%; } }
+
+.zdr-klic-ok { display: flex; align-items: center; gap: 6px; color: var(--ok, #2f8f5b); margin: 6px 0 0; }

@@ -634,6 +634,20 @@ console.log('\nšablony zboží');
   check('šířka kravaty z parametru „Šířka: 7cm"', rz([{ nazev: 'Šířka', hodnota: '7cm' }], '').sirkaCm, 7);
   check('šířka kšand „2,5cm"', rz([{ nazev: 'Šířka', hodnota: '2,5cm' }], '').sirkaCm, 2.5);
   check('rozměr motýlka z popisu', rz([], '<p>Elegantní motýlek. Rozměry: 12 × 5,5 cm.</p>'), { sirkaCm: 12, vyskaCm: 5.5 });
+  check('rozměr motýlka „Rozměry motýlku jsou 9 × 4,5 cm"', rz([], '<p>Rozměry motýlku jsou 9&nbsp;× 4,5 cm.</p>'), { sirkaCm: 9, vyskaCm: 4.5 });
+  check('rozměr „rozměry uvázaného motýlku přibližně 12 × 6 cm"', rz([], 'rozměry uvázaného motýlku přibližně 12 × 6 cm'), { sirkaCm: 12, vyskaCm: 6 });
+  check('MINI 6 × 4 cm → šablona MINI', zk.variantaPodleRozmeru('kravata', 'motylek', { sirkaCm: 6, vyskaCm: 4 }), 'motylek-mini');
+  check('dětský 10 × 5 cm → dětská šablona', zk.variantaPodleRozmeru('kravata', 'motylek', { sirkaCm: 10, vyskaCm: 5 }), 'motylek-detsky');
+  check('šablony motýlků mají rozměr z e-shopu (MINI 6 × 4, dětský 9 × 4,5)',
+    [zk.sablonaPro('kravata', 'motylek-mini').sirkaCm, zk.sablonaPro('kravata', 'motylek-detsky').sirkaCm], [6, 9]);
+  {
+    /* Regata se nosí pod vestou — bez vesty ji kabina dostane sama */
+    const v = { vek: 'dospely', telo: 'bezny', vyskaCm: 180, kusy: { kosile: { varianta: 'klasicka', hex: '#ffffff' }, kravata: { varianta: 'regata', hex: '#802030' } } };
+    const typy = zk.vrstvyVzhledu(v).map(one => one.typ);
+    ok('regata bez vesty dostane vestu (nad regatou)', typy.includes('vesta') && typy.indexOf('vesta') > typy.indexOf('kravata'), typy.join(','));
+    v.kusy.kravata.varianta = 'kravata';
+    ok('obyčejná kravata vestu nedostane', !zk.vrstvyVzhledu(v).some(one => one.typ === 'vesta'));
+  }
   const zarad = produkty.__test.zarad;
   check('kravata 6 cm → šablona šestky', zarad('Šedá pánská kravata', 'Kravaty', { sirkaCm: 6 }).varianta, 'kravata-6');
   check('kravata bez rozměru → sedmička (nejčastější)', zarad('Fialová pánská kravata matná', 'Kravaty').varianta, 'kravata');
@@ -1202,8 +1216,16 @@ const vykresleniZkouska = async () => {
     const out = { sirka: vstup.sirka, vyska: vstup.vyska, body: Uint8Array.from(vstup.body) };
     for (let i = 0; i < out.body.length; i += 4) {
       if (maska.body[i + 3] !== 0) continue;
-      /* Kde model kus nemaluje, domaluje košili */
-      if (!kde(vstup, i)) { if (jinde && naSablone(vstup, i)) { out.body[i] = jinde[0]; out.body[i + 1] = jinde[1]; out.body[i + 2] = jinde[2]; } continue; }
+      /* Kde model kus nemaluje, domaluje košili (barvu vezme vlevo vedle šablony) */
+      if (!kde(vstup, i)) {
+        /* i lem šablony (polovičně vínový) — skutečný model ho přemaluje celý */
+        if (jinde && vstup.body[i] > vstup.body[i + 1] + 6) {
+          let j = i; while (j > 0 && vstup.body[j] > vstup.body[j + 1] + 6 && (j / 4) % vstup.sirka > 0) j -= 4;
+          j -= 4 * 12; if (j < 0) j = i;
+          out.body[i] = vstup.body[j]; out.body[i + 1] = vstup.body[j + 1]; out.body[i + 2] = vstup.body[j + 2];
+        }
+        continue;
+      }
       const [r, g, b2] = fn(Math.floor(i / 4 / vstup.sirka), (i / 4) % vstup.sirka);
       out.body[i] = r; out.body[i + 1] = g; out.body[i + 2] = b2;
     }
@@ -1234,7 +1256,8 @@ const vykresleniZkouska = async () => {
   ok('  model dostal šablonu jen jako tvar a světlo; látku bere z fotky výrobku (bez přípravy a vzorku)',
     !!posledni && posledni.predlohy.length === 1 && /plain placeholder/.test(posledni.zadani)
       && /EXACTLY the product/.test(posledni.zadani) && /Do not change anything outside the mask/.test(posledni.zadani)
-      && /7 cm wide/.test(posledni.zadani));
+      && /7 cm wide/.test(posledni.zadani) && /never make it bigger/.test(posledni.zadani)
+      && !/fill the masked shape completely/.test(posledni.zadani), posledni && posledni.zadani);
   let dovoleno = 0; let sablonovych = 0;
   for (let i = 0; i < posledni.maska.body.length; i += 4) {
     if (posledni.maska.body[i + 3] === 0) dovoleno += 1;
@@ -1256,6 +1279,7 @@ const vykresleniZkouska = async () => {
   const rTvar = await vyk.vykresliKus('REV1', -1, 'dospely-bezny', { fotky: [fotka], nahradit: true });
   const vT = store.vykresleni('REV1').find(one => one.postava === 'dospely-bezny' && one.cast === -1);
   const oT = png.nacti(fs.readFileSync(vT.soubor));
+  if (process.env.ZK_LADENI) fs.writeFileSync(process.env.ZK_LADENI, png.uloz(oT));
   let dole = 0; let vpravoMimo = 0;
   for (let y = 0; y < oT.vyska; y++) for (let x = 0; x < oT.sirka; x++) {
     if (oT.body[(y * oT.sirka + x) * 4 + 3] < 128) continue;
@@ -1309,6 +1333,36 @@ const vykresleniZkouska = async () => {
   const sCernaBila = vyk.__test.shodaPalet(pal(plna([25, 25, 28]), cely), pal(plna([245, 245, 240]), cely));
   ok('  shoda palet: stín nevadí, jiná barva ano (i černá proti bílé)', sVinova > 0.6 && sJina < 0.3 && sCernaBila < 0.4,
     `vínová ve stínu ${sVinova.toFixed(2)}, modrá ${sJina.toFixed(2)}, černá/bílá ${sCernaBila.toFixed(2)}`);
+
+  /*
+   * Patrik (26. 11.): vzory s bílou „působí jako děravé". Bílé květy na
+   * bílé košili se od ní neliší — tvar je ale uvnitř souvislý.
+   */
+  {
+    const T = vyk.__test; const W = 120; const H = 80;
+    const obr = (fn) => { const o = png.novyObraz(W, H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const c = fn(x, y); const i = (y * W + x) * 4; o.body[i] = c[0]; o.body[i + 1] = c[1]; o.body[i + 2] = c[2]; o.body[i + 3] = c[3] ?? 255; } return o; };
+    /* Motýlek: dvě křídla (trojúhelníky) a uzlík; mezi křídly nad uzlíkem je košile */
+    const kridla = (x, y) => { const dx = Math.abs(x - 60); const dy = Math.abs(y - 40); return (dx >= 6 && dx < 50 && dy < 6 + dx * 0.55) || (dx < 6 && dy < 7); };
+    const scena = obr(() => [242, 242, 238]);
+    const kresba = obr((x, y) => !kridla(x, y) ? [242, 242, 238] : ((x % 12 < 5) && (y % 10 < 5) ? [244, 243, 240] : [30, 50, 110]));
+    const dovoleno = obr(() => [0, 0, 0, 255]);
+    const sab = obr((x, y) => [128, 128, 128, kridla(x, y) ? 255 : 0]);
+    const v = T.tvarZKresby(kresba, scena, dovoleno, sab, false);
+    const a = (x, y) => v.tvar ? v.tvar.body[(y * W + x) * 4 + 3] : -1;
+    let der = 0; let kusu = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (kridla(x, y) && Math.abs(x - 60) < 44 && Math.abs(y - 40) < 4 + Math.abs(x - 60) * 0.5) { kusu += 1; if (a(x, y) < 128) der += 1; }
+    ok('bílé květy uvnitř motýlka nejsou díry', !!v.tvar && der < kusu * 0.01, `${der} z ${kusu} průhledných · ${v.proc}`);
+    ok('  zářez mezi křídly nad uzlíkem zůstane košilí', !!v.tvar && a(60, 18) < 128 && a(60, 62) < 128, `${a(60, 18)} ${a(60, 62)}`);
+    /* Košile pro kreslení: k výrobku s bílou se vybere jiná, k tmavému bílá */
+    const fotkaS = (barvy) => obr((x, y) => (x < 20 || x > 100 || y < 10 || y > 70) ? [255, 255, 255] : barvy[(x + y) % barvy.length]);
+    const sBilou = T.kosileProKresbu([fotkaS([[245, 244, 238], [236, 230, 214], [30, 45, 90]])]);
+    const tmava = T.kosileProKresbu([fotkaS([[30, 45, 90], [120, 20, 40]])]);
+    ok('  výrobek s bílou se kreslí na barevné košili, tmavý na bílé', sBilou !== vyk.KOSILE_PRO_KRESBU[0] && tmava === vyk.KOSILE_PRO_KRESBU[0], `${sBilou} / ${tmava}`);
+    /* Šablona v rozměru výrobku */
+    const mensi = T.zvetsiKolemStredu(sab, 0.5, 0.5);
+    let sirka = 0; for (let x = 0; x < W; x++) if (mensi.body[(40 * W + x) * 4 + 3] > 128) sirka += 1;
+    ok('  šablona motýlka se zmenší na rozměr výrobku kolem uzlíku', Math.abs(sirka - 50) <= 3 && mensi.body[(40 * W + 60) * 4 + 3] > 128, `${sirka} bodů`);
+  }
 
   /* Několik naráz: nejvýš tolik souběžně, kolik se řekne, a všechny se udělají */
   let ted = 0; let nejvic = 0; const hotove = [];

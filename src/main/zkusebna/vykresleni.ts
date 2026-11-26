@@ -7,7 +7,7 @@ import * as store from './store';
 import { naZmenuSablony } from './sablony';
 import { maskaVyrobku } from './meritko';
 import * as obrazky from './obrazky';
-import { fotkyProduktu, proKabinu, stahniFotku } from './produkty';
+import { fotkyProduktu, proKabinu, rozmerProduktu, stahniFotku } from './produkty';
 
 /**
  * Produkt vykreslený na modelu — celý, ne jako dlaždice vzoru.
@@ -98,13 +98,17 @@ export function zadaniVykresleni(
   sada: boolean,
   popis = '',
   druhyFotek: string[] = [],
-  mira?: { cm: number; motivu: number | null; co: string } | null
+  mira?: { cm: number; motivu: number | null; co: string } | null,
+  /** Rozměr konkrétního výrobku (motýlek z popisu na e-shopu), jinak varianty */
+  rozmer?: { sirkaCm: number; vyskaCm?: number } | null
 ): string {
   const kus = NAZVY_PRO_MODEL[druhKusu(typ, varianta)] ?? 'accessory';
   const predlohy = druhyFotek.map((d, i) => `Image ${i + 2} shows ${DRUH_PRO_MODEL[d] ?? 'the product'}.`).join(' ');
   const co = !mira ? '' : /pásku/.test(mira.co) ? 'strap is' : /motýlka/.test(mira.co) ? 'bow tie is (wing tip to wing tip)'
     : /kapesníčku/.test(mira.co) ? 'pocket square edge is' : 'blade is (at its widest point)';
-  const sirka = sablonaPro(typ, varianta);
+  const sablona = sablonaPro(typ, varianta);
+  const sirka = sablona ? { ...sablona, ...(rozmer ?? {}) } : null;
+  const cm = (n: number) => String(Math.round(n * 10) / 10).replace(',', '.');
   return [
     'Image 1 is a studio photo of a model. Inside the transparent area of the mask there is a plain placeholder of a ' + kus
       + ': it gives only the exact shape, position and the studio lighting — its colour is just a rough guess.',
@@ -114,13 +118,22 @@ export function zadaniVykresleni(
     mira ? `Real size: the ${co} ${String(mira.cm).replace(',', '.')} cm`
       + (mira.motivu ? `, and the pattern motif repeats about ${mira.motivu} times across it` : '') + '.'
       : sirka && sirka.tvar !== 'kapesnicek'
-        ? `Real size: the ${sirka.tvar === 'motylek' ? 'bow tie is' : sirka.tvar === 'ksandy' ? 'strap is' : 'blade is (at its widest point)'} `
-          + `${sirka.sirkaCm} cm wide — keep the pattern motifs at the same real size as on the product photos, relative to that width.`
+        ? (sirka.tvar === 'motylek' && sirka.vyskaCm
+          ? `Real size: the bow tie is ${cm(sirka.sirkaCm)} cm wide and ${cm(sirka.vyskaCm)} cm tall — exactly as big as the placeholder; `
+          : `Real size: the ${sirka.tvar === 'ksandy' ? 'strap is' : 'blade is (at its widest point)'} ${cm(sirka.sirkaCm)} cm wide — `)
+          + 'keep the pattern motifs at the same real size as on the product photos, relative to that size.'
         : '',
     'The pattern follows the folds and the direction of the ' + kus + '.',
     popis ? 'Product description: ' + popis.replace(/\s+/g, ' ').slice(0, 300) + '.' : '',
     sada ? 'The product photo shows a set — use only the ' + kus + ' from it.' : '',
-    'Keep exactly the outline, position, size and angle of the placeholder; fill the masked shape completely.',
+    /*
+     * Patrik (26. 11.): „šablona motýlku je o dost větší než v reálu".
+     * Dřív tu stálo „vyplň celou masku" — a maska je šablona rozšířená,
+     * aby se vešel jiný tvar křídel. Model ji poslušně vyplnil celou.
+     */
+    'Keep the position, size and angle of the placeholder. The outline may follow the real product (rounder or pointed wings, a different knot),'
+      + ' but never make it bigger than the placeholder.',
+    'Where the masked area is not covered by the product, repaint the shirt exactly as it looks around it in image 1 (same colour, folds and light).',
     'Real fabric with natural soft folds, depth and subtle highlights matching the soft studio light of image 1.',
     'Do not change anything outside the mask. Do not add any other object, text or logo.'
   ].filter(Boolean).join(' ');
@@ -181,6 +194,77 @@ export function nactiVrstvu(postava: string, typ: ZkVrstvaTyp, varianta: string)
 export function nactiKov(postava: string, typ: ZkVrstvaTyp, varianta: string): Obraz | null {
   const v = najdiVrstvu(postava, typ, varianta);
   return v?.kov && fs.existsSync(v.kov) ? nacti(fs.readFileSync(v.kov)) : null;
+}
+
+/**
+ * Šablona pro konkrétní výrobek: u motýlka zvětšená nebo zmenšená na
+ * jeho rozměr z popisu na e-shopu.
+ *
+ * Patrik (26. 11.): „šablona je o dost větší než motýlek v reálu".
+ * Motýlky jedné varianty se liší (dětský 9 × 4,5 i 10 × 5 cm, pánský
+ * 12 × 5,5 i 14 × 8,5 cm „butterfly") — AI kreslí do místa, které
+ * dostane, takže místo musí mít velikost toho výrobku. Měřítko se bere
+ * jen v rozumném rozpětí; nesmyslný rozměr (sada 22 × 22 cm) se ignoruje.
+ */
+const rozmery = new Map<string, { sx: number; sy: number } | null>();
+export function meritkoKusu(kod: string, typ: ZkVrstvaTyp, varianta: string): { sx: number; sy: number } | null {
+  const s = sablonaPro(typ, varianta);
+  if (!s || s.tvar !== 'motylek' || !s.vyskaCm) return null;
+  const klic = `${kod}|${varianta}`;
+  if (rozmery.has(klic)) return rozmery.get(klic) ?? null;
+  let out: { sx: number; sy: number } | null = null;
+  try {
+    const r = rozmerProduktu(kod);
+    if (r.sirkaCm && r.vyskaCm) {
+      const sx = r.sirkaCm / s.sirkaCm; const sy = r.vyskaCm / s.vyskaCm;
+      const ok = (k: number) => k >= 0.7 && k <= 1.45;
+      if (ok(sx) && ok(sy) && (Math.abs(sx - 1) > 0.04 || Math.abs(sy - 1) > 0.04)) out = { sx, sy };
+    }
+  } catch { /* bez rozměru zůstane šablona varianty */ }
+  rozmery.set(klic, out);
+  return out;
+}
+
+/** Zvětší obraz kolem středu jeho neprůhledné části (bilineárně). */
+export function zvetsiKolemStredu(o: Obraz, sx: number, sy: number): Obraz {
+  const { sirka: w, vyska: h } = o;
+  const m = new Uint8Array(w * h);
+  for (let i = 0; i < m.length; i++) m[i] = o.body[i * 4 + 3] > 8 ? 255 : 0;
+  const kde = px.okraje(m, w, h);
+  const out = novyObraz(w, h);
+  if (!kde.w) return out;
+  const cx = kde.x + kde.w / 2; const cy = kde.y + kde.h / 2;
+  const x0 = Math.max(0, Math.floor(cx - (kde.w / 2) * sx) - 2); const x1 = Math.min(w, Math.ceil(cx + (kde.w / 2) * sx) + 2);
+  const y0 = Math.max(0, Math.floor(cy - (kde.h / 2) * sy) - 2); const y1 = Math.min(h, Math.ceil(cy + (kde.h / 2) * sy) + 2);
+  for (let y = y0; y < y1; y++) {
+    const fy = cy + (y + 0.5 - cy) / sy - 0.5;
+    const ya = Math.floor(fy); const ty = fy - ya;
+    for (let x = x0; x < x1; x++) {
+      const fx = cx + (x + 0.5 - cx) / sx - 0.5;
+      const xa = Math.floor(fx); const tx = fx - xa;
+      const k = (y * w + x) * 4;
+      let a = 0; const c = [0, 0, 0];
+      for (const [dx, dy, vaha] of [[0, 0, (1 - tx) * (1 - ty)], [1, 0, tx * (1 - ty)], [0, 1, (1 - tx) * ty], [1, 1, tx * ty]] as const) {
+        const xx = xa + dx; const yy = ya + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h || vaha <= 0) continue;
+        const j = (yy * w + xx) * 4;
+        const aa = o.body[j + 3] * vaha;
+        a += aa; c[0] += o.body[j] * aa; c[1] += o.body[j + 1] * aa; c[2] += o.body[j + 2] * aa;
+      }
+      if (a <= 0) continue;
+      out.body[k] = Math.round(c[0] / a); out.body[k + 1] = Math.round(c[1] / a); out.body[k + 2] = Math.round(c[2] / a);
+      out.body[k + 3] = Math.round(a);
+    }
+  }
+  return out;
+}
+
+/** Šablona kusu na postavě — u motýlka v rozměru konkrétního výrobku. */
+export function sablonaKusu(postava: string, typ: ZkVrstvaTyp, varianta: string, kod?: string, cast = -1): Obraz | null {
+  const s = nactiVrstvu(postava, typ, varianta);
+  if (!s || !kod || cast >= 0) return s;
+  const k = meritkoKusu(kod, typ, varianta);
+  return k ? zvetsiKolemStredu(s, k.sx, k.sy) : s;
 }
 
 function vzorekZDat(data: string | undefined): Obraz | null {
@@ -343,14 +427,14 @@ const kulisy = new Map<string, { klic: string; obraz: Obraz }>();
  * ukazuje u každého produktu znovu, proto se drží v paměti, dokud se
  * žádná z vrstev nezmění (klíčem jsou časy souborů).
  */
-export function kulisa(postavaId: string, sako: boolean, sirka: number, vyska: number): Obraz | null {
+export function kulisa(postavaId: string, sako: boolean, sirka: number, vyska: number, kosile = ZK_PODKLAD_HEX.kosile ?? '#f2f2ee'): Obraz | null {
   const soubory = store.vrstvy(postavaId)
     .filter(one => ['postava', 'boty', 'kalhoty', 'kosile', 'sako'].includes(one.typ) && one.soubor && fs.existsSync(one.soubor))
     .map(one => `${one.typ}:${one.varianta}:${one.stav}:${fs.statSync(one.soubor).mtimeMs}`).join('|');
-  const klic = `${postavaId}|${sako}|${sirka}x${vyska}`;
+  const klic = `${postavaId}|${sako}|${sirka}x${vyska}|${kosile}`;
   const mam = kulisy.get(klic);
   if (mam && mam.klic === soubory) return mam.obraz;
-  const obraz = slozKulisu(postavaId, sako, sirka, vyska);
+  const obraz = slozKulisu(postavaId, sako, sirka, vyska, kosile);
   if (obraz) {
     kulisy.set(klic, { klic: soubory, obraz });
     if (kulisy.size > 12) kulisy.delete(kulisy.keys().next().value as string);
@@ -358,13 +442,13 @@ export function kulisa(postavaId: string, sako: boolean, sirka: number, vyska: n
   return obraz;
 }
 
-function slozKulisu(postavaId: string, sako: boolean, sirka: number, vyska: number): Obraz | null {
+function slozKulisu(postavaId: string, sako: boolean, sirka: number, vyska: number, kosile: string): Obraz | null {
   const zaklad = nactiVrstvu(postavaId, 'postava', 'zaklad');
   if (!zaklad) return null;
   const kusy: { obraz: Obraz; hex?: string }[] = [{ obraz: zaklad }];
   for (const [typ, varianta] of [['boty', 'spolecenske'], ['kalhoty', 'oblekove'], ['kosile', 'klasicka']] as const) {
     const o = nactiVrstvu(postavaId, typ, varianta);
-    if (o) kusy.push({ obraz: o, hex: ZK_PODKLAD_HEX[typ] });
+    if (o) kusy.push({ obraz: o, hex: typ === 'kosile' ? kosile : ZK_PODKLAD_HEX[typ] });
   }
   if (sako) {
     const o = nactiVrstvu(postavaId, 'sako', 'jednoradove');
@@ -464,6 +548,44 @@ export function paletaFotek(fotky: Obraz[]): Float64Array | null {
   return soucet;
 }
 
+/**
+ * Košile, na které se kus kreslí: první z běžných barev košile, která se
+ * s barvami výrobku nepoplete (bílá, světle modrá, tmavě modrá, růžová,
+ * světle zelená). Tvar kusu se pak z kresby pozná i tam, kde má výrobek
+ * bílou — dřív bílé květy na bílé košili z tvaru vypadly jako díry.
+ */
+export const KOSILE_PRO_KRESBU = ['#f2f2ee', '#a9c6e4', '#1f2a40', '#e6b3c3', '#b9dcb0'];
+export function kosileProKresbu(fotky: Obraz[]): string {
+  const body: number[] = [];
+  for (const f of fotky) {
+    const maska = maskaVyrobku(f, px.pozadiOdKraje(f));
+    let n = 0;
+    for (let i = 0; i < maska.length; i++) if (maska[i]) n += 1;
+    if (n < 200 || n > maska.length * 0.97) continue;
+    const krok = Math.max(1, Math.floor(n / 6000));
+    let j = 0;
+    for (let i = 0; i < maska.length; i++) {
+      if (!maska[i] || (j++ % krok)) continue;
+      body.push(f.body[i * 4], f.body[i * 4 + 1], f.body[i * 4 + 2]);
+    }
+  }
+  const vychozi = KOSILE_PRO_KRESBU[0];
+  if (!body.length) return vychozi;
+  let nejlepsi = vychozi; let nejmene = Infinity;
+  for (const hex of KOSILE_PRO_KRESBU) {
+    const r = parseInt(hex.slice(1, 3), 16); const g = parseInt(hex.slice(3, 5), 16); const b = parseInt(hex.slice(5, 7), 16);
+    let blizko = 0;
+    for (let i = 0; i < body.length; i += 3) {
+      if (Math.abs(body[i] - r) + Math.abs(body[i + 1] - g) + Math.abs(body[i + 2] - b) < 90) blizko += 1;
+    }
+    const podil = blizko / (body.length / 3);
+    /* Pod 3 % se bere hned — bílá má přednost, je nejpřirozenější */
+    if (podil < 0.03) return hex;
+    if (podil < nejmene) { nejmene = podil; nejlepsi = hex; }
+  }
+  return nejlepsi;
+}
+
 /* ------------------------------------------------------------ jeden kus */
 
 export interface VykresleniVysledek { kod: string; cast: number; postava: string; stav: string; potiz: string }
@@ -491,7 +613,7 @@ export async function vykresliKus(
   if (!kus) throw new Error('Tahle část sady neexistuje.');
   const p = store.postava(postavaId);
   if (!p || !p.hotovo) throw new Error('Postava není nakreslená.');
-  const sablona = nactiVrstvu(postavaId, kus.typ, kus.varianta);
+  const sablona = sablonaKusu(postavaId, kus.typ, kus.varianta, kod, cast);
   if (!sablona) throw new Error(`Postava nemá šablonu ${kus.typ} ${kus.varianta} — nejdřív ji překresli ve Vizuálech.`);
   const kov = nactiKov(postavaId, kus.typ, kus.varianta);
 
@@ -519,8 +641,16 @@ export async function vykresliKus(
    * Vstup: postava s kulisou a na místě kusu šablona — tvar a světlo,
    * v barvě výrobku jen jako nápověda. Látku model kreslí z fotek.
    */
-  const scena = kulisa(postavaId, kus.typ === 'kapesnicek', p.sirka, p.vyska);
-  if (!scena) throw new Error('Postava nemá základ.');
+  /*
+   * Košile pod kusem v barvě, která se s výrobkem nepoplete. Patrik
+   * (26. 11.): vzory s bílou „působí jako děravé" — bílé květy na bílé
+   * košili se od košile nedají odlišit, tak z tvaru vypadly. Na světle
+   * modré košili jsou vidět; v kabině se pak košile stejně přebarví.
+   */
+  const kosile = kosileProKresbu(fotky.filter(one => one.druh !== 'na_modelu').map(one => one.obraz));
+  const scena = kulisa(postavaId, kus.typ === 'kapesnicek', p.sirka, p.vyska, kosile);
+  const bila = kulisa(postavaId, kus.typ === 'kapesnicek', p.sirka, p.vyska);
+  if (!scena || !bila) throw new Error('Postava nemá základ.');
   const sKusem = px.slozeni([{ obraz: scena }, { obraz: sablona, hex: kus.hex || '#8a8a8a' }, ...(kov ? [{ obraz: kov }] : [])],
     p.sirka, p.vyska);
   const vstup = px.prevzorkuj(px.vyrizniObdelnik(sKusem, r), r.W, r.H);
@@ -543,14 +673,18 @@ export async function vykresliKus(
 
   const sada = (row.casti?.length ?? 0) > 0;
   const rozpoznany = row.ai?.kusy.find(one => one.cast === cast && one.typ);
-  const zadani = zadaniVykresleni(kus.typ, kus.varianta, sada, rozpoznany?.popis ?? '', fotky.map(one => one.druh), rozpoznany?.mira);
+  const mer = cast < 0 ? meritkoKusu(kod, kus.typ, kus.varianta) : null;
+  const sab = sablonaPro(kus.typ, kus.varianta);
+  const rozmer = mer && sab ? { sirkaCm: sab.sirkaCm * mer.sx, vyskaCm: (sab.vyskaCm ?? 0) * mer.sy } : null;
+  const zadani = zadaniVykresleni(kus.typ, kus.varianta, sada, rozpoznany?.popis ?? '', fotky.map(one => one.druh), rozpoznany?.mira, rozmer);
   const vysledek = px.prevzorkuj(await kreslir(zadani, vstup, maska, fotky.map(one => one.obraz)), r.W, r.H);
   /* Tvar kusu z kresby: co se liší od čisté scény (bez šablony), a není to jen stín na košili */
   const scenaVyrez = px.prevzorkuj(px.vyrizniObdelnik(scena, r), r.W, r.H);
   const vlastni = tvarZKresby(vysledek, scenaVyrez, dovolenoVyrez, tvarVyrezu, kus.typ === 'ksandy');
   const tvarKusu = vlastni.tvar ?? tvarVyrezu;
   const k = zkontroluj(vstup, vysledek, tvarKusu, paletaFotek(fotky.filter(one => one.druh !== 'na_modelu').map(one => one.obraz)), sada);
-  const potiz = k.potiz;
+  /* Nepoznaný tvar je k opravě, ne hotový: šablona přes kresbu ukáže košili místo látky */
+  const potiz = [k.potiz, vlastni.tvar ? '' : vlastni.proc].filter(Boolean).join(' ');
 
   const soubor = store.cestaVykresleni(postavaId, kod, cast);
   const nahled = store.cestaVykresleni(postavaId, kod, cast, true);
@@ -570,14 +704,13 @@ export async function vykresliKus(
   /* Šablona, podle které se kreslilo — kresba se pak umí přizpůsobit nové šabloně i jiné postavě */
   ulozTvarSablony(soubor, sablona, r);
   /* Náhled do okna — uloží se vždy, i u nepovedeného: člověk musí vidět, co je špatně */
-  const maly = px.slozeni([{ obraz: px.vyrizniObdelnik(scena, r) }, { obraz: px.prevzorkuj(obraz, r.w, r.h) }], r.w, r.h);
+  const maly = px.slozeni([{ obraz: px.vyrizniObdelnik(bila, r) }, { obraz: px.prevzorkuj(obraz, r.w, r.h) }], r.w, r.h);
   const zm = Math.min(1, 320 / Math.max(r.w, r.h));
   fs.writeFileSync(nahled, uloz(px.prevzorkuj(maly, Math.max(1, Math.round(r.w * zm)), Math.max(1, Math.round(r.h * zm)))));
 
-  const poznamka = vlastni.tvar ? '' : vlastni.proc;
   store.zapisVykresleni({
     kod, cast, postava: postavaId, typ: kus.typ, varianta: kus.varianta, soubor, nahled,
-    x: r.x, y: r.y, w: r.w, h: r.h, stav: potiz ? 'nesedi' : 'hotovo', potiz: [potiz, poznamka].filter(Boolean).join(' '),
+    x: r.x, y: r.y, w: r.w, h: r.h, stav: potiz ? 'nesedi' : 'hotovo', potiz,
     model: obrazky.model().id, kdy: new Date().toISOString()
   });
   /* Ostatní postavy stejného věku dostanou kresbu přetvarovanou bez AI */
@@ -615,14 +748,31 @@ export function tvarZKresby(
     const r0 = scena.body[k], g0 = scena.body[k + 1], b0 = scena.body[k + 2];
     const d = Math.abs(r1 - r0) + Math.abs(g1 - g0) + Math.abs(b1 - b0);
     if (d < 54) continue;
-    /* Stín: stejný odstín, nižší jas */
+    /* Stín nebo záhyb košile: stejný odstín, jen přiměřeně jiný jas. Černý
+       vzor na bílé má taky „stejný odstín", stín to ale není. */
     const s1 = r1 + g1 + b1 + 1; const s0 = r0 + g0 + b0 + 1;
     const odstin = Math.abs(r1 / s1 - r0 / s0) + Math.abs(g1 / s1 - g0 / s0);
-    if (odstin < 0.035 && s1 < s0 && scena.body[k + 3] > 128) continue;
+    if (odstin < 0.035 && s1 > s0 * 0.45 && s1 < s0 * 1.6 && scena.body[k + 3] > 128) continue;
     m[i] = 255;
   }
-  let tvar = px.zavriDiry(m, w, h, 3);
-  tvar = px.vyplnDiry(tvar, w, h, Math.round(w * h * 0.02));
+  /* Poloměry podle velikosti kusu: motýlek MINI i kravata přes celý výřez */
+  const velikost = Math.sqrt(Math.max(1, plochaSablony));
+  let tvar = px.zavriDiry(m, w, h, vicDilu ? 3 : Math.max(3, Math.round(velikost * 0.04)));
+  if (vicDilu) {
+    tvar = px.vyplnDiry(tvar, w, h, Math.round(w * h * 0.02));
+  } else {
+    /*
+     * Jeden kus (motýlek, kravata, kapesníček) je uvnitř souvislý —
+     * mezera v něm je látka, kterou model namaloval podobně jako
+     * košili (bílý květ), ne díra. Patrik (26. 11.): „působí to jako
+     * děravé".
+     */
+    tvar = vyplnUseky(tvar, w, h);
+    tvar = px.vyplnDiry(tvar, w, h, w * h);
+  }
+  /* Tenké čáry (okraj límce nebo légy, které model překreslil o kousek jinak) pryč */
+  const tenke = Math.max(1, Math.round(velikost * (vicDilu ? 0.01 : 0.03)));
+  tvar = px.rozsir(px.zuz(tvar, w, h, tenke), w, h, tenke);
   tvar = px.jenVelke(tvar, w, h, vicDilu ? 0.03 : 0.2);
   let plocha = 0; let spolecne = 0;
   for (let i = 0; i < tvar.length; i++) {
@@ -631,7 +781,7 @@ export function tvarZKresby(
     if (sablona.body[i * 4 + 3] > 128) spolecne += 1;
   }
   if (!plochaSablony) return { tvar: null, proc: '' };
-  if (plocha < plochaSablony * 0.55 || plocha > plochaSablony * 1.8 || spolecne < plochaSablony * 0.45) {
+  if (plocha < plochaSablony * 0.4 || plocha > plochaSablony * 1.8 || spolecne < plochaSablony * 0.45) {
     return { tvar: null, proc: 'Tvar z kresby se nepovedlo rozpoznat — použitý tvar šablony.' };
   }
   const out = novyObraz(w, h);
@@ -641,6 +791,28 @@ export function tvarZKresby(
     out.body[k + 3] = tvar[i];
   }
   return { tvar: px.vyhladObrys(out, 1.5), proc: '' };
+}
+
+/**
+ * Vyplní mezery uvnitř kusu: bod mezi krajními body svého řádku
+ * **a zároveň** svého sloupce. Jen řádky by zalily zářez mezi křídly
+ * motýlka nad uzlíkem (tam je košile), jen sloupce zase prohlubeň
+ * pod uzlem kravaty; obojí naráz platí jen pro skutečné vnitřní mezery.
+ */
+export function vyplnUseky(m: Uint8Array, w: number, h: number): Uint8Array {
+  const radky = new Uint8Array(m.length);
+  for (let y = 0; y < h; y++) {
+    let od = -1; let doK = -1;
+    for (let x = 0; x < w; x++) if (m[y * w + x]) { if (od < 0) od = x; doK = x; }
+    for (let x = od; od >= 0 && x <= doK; x++) radky[y * w + x] = 1;
+  }
+  const out = new Uint8Array(m);
+  for (let x = 0; x < w; x++) {
+    let od = -1; let doK = -1;
+    for (let y = 0; y < h; y++) if (m[y * w + x]) { if (od < 0) od = y; doK = y; }
+    for (let y = od; od >= 0 && y <= doK; y++) if (radky[y * w + x]) out[y * w + x] = 255;
+  }
+  return out;
 }
 
 function cestaTvaru(soubor: string): string { return soubor.replace(/\.png$/, '-tvar.png'); }
@@ -678,7 +850,7 @@ export function prenesNaDalsi(kod: string, cast: number, zPostavy: string): numb
   let preneseno = 0;
   for (const postava of postavyPro(proVek)) {
     if (postava === zPostavy) continue;
-    const sablona = nactiVrstvu(postava, v.typ as ZkVrstvaTyp, v.varianta);
+    const sablona = sablonaKusu(postava, v.typ as ZkVrstvaTyp, v.varianta, kod, cast);
     const p = store.postava(postava);
     if (!sablona || !p) continue;
     const stare = store.vykresleni(kod).find(one => one.cast === cast && one.postava === postava);
@@ -841,12 +1013,13 @@ export function prizpusobKresbu(
  * Volá se samo (sablony.naZmenuSablony); vrací počet přizpůsobených.
  */
 export function prizpusobVykresleni(postavaId: string, typ: ZkVrstvaTyp, varianta: string): number {
-  const sablona = nactiVrstvu(postavaId, typ, varianta);
-  if (!sablona) return 0;
+  if (!nactiVrstvu(postavaId, typ, varianta)) return 0;
   let hotovo = 0;
   for (const v of store.vykresleni().filter(one => one.postava === postavaId && one.typ === typ && one.varianta === varianta)) {
     if (!v.soubor || !fs.existsSync(v.soubor)) continue;
     try {
+      const sablona = sablonaKusu(postavaId, typ, varianta, v.kod, v.cast);
+      if (!sablona) continue;
       const stara = nacti(fs.readFileSync(v.soubor));
       const staryTvar = fs.existsSync(cestaTvaru(v.soubor)) ? nacti(fs.readFileSync(cestaTvaru(v.soubor))) : null;
       const r = prizpusobKresbu(stara, { x: v.x, y: v.y, w: v.w, h: v.h }, staryTvar, sablona, stara.sirka / Math.max(1, v.w));
@@ -1058,7 +1231,7 @@ export function nahledProduktu(kod: string, postavaId?: string, vyska = 560): { 
   /* Kšandy pod kravatou, kapesníček nakonec — stejně jako v kabině */
   const poradi = (t: string) => (t === 'ksandy' ? 0 : t === 'kapesnicek' ? 2 : 1);
   for (const k of [...kusy].sort((a, b) => poradi(a.typ) - poradi(b.typ))) {
-    const sablona = nactiVrstvu(postava, k.typ, k.varianta);
+    const sablona = sablonaKusu(postava, k.typ, k.varianta, kod, k.cast);
     if (!sablona) continue;
     for (let i = 0; i < kde.length; i++) if (sablona.body[i * 4 + 3] > 8) kde[i] = 255;
     const v = hotova.find(one => one.cast === k.cast && one.varianta === k.varianta && one.soubor && fs.existsSync(one.soubor));
@@ -1071,6 +1244,11 @@ export function nahledProduktu(kod: string, postavaId?: string, vyska = 560): { 
     vrstvy.push({ obraz: oblecVzorkem(sablona, k, row.meritko ?? 1, naCm) });
     const kov = nactKovBezpecne(postava, k.typ, k.varianta);
     if (kov) vrstvy.push({ obraz: kov });
+  }
+  /* Regata se nosí pod vestou — jako v kabině (vestaKRegate) */
+  if (kusy.some(one => one.typ === 'kravata' && one.varianta === 'regata')) {
+    const vesta = nactiVrstvu(postava, 'vesta', 'klasicka');
+    if (vesta) vrstvy.push({ obraz: px.slozeni([{ obraz: vesta, hex: ZK_PODKLAD_HEX.vesta }], p.sirka, p.vyska) });
   }
   const o = px.okraje(kde, p.sirka, p.vyska);
   if (!o.w) throw new Error('Postava nemá šablonu pro tenhle kus — překresli šablony ve Vizuálech.');
@@ -1137,4 +1315,4 @@ export function doKabiny(): Map<string, VykresleniDoKabiny[]> {
   return out;
 }
 
-export const __test = { vyrez, zkontroluj, paleta, shodaPalet, oblecVzorkem, prizpusobKresbu };
+export const __test = { vyrez, zkontroluj, paleta, shodaPalet, oblecVzorkem, prizpusobKresbu, tvarZKresby, kosileProKresbu, zvetsiKolemStredu, vyplnUseky };

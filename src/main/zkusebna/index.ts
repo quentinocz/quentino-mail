@@ -101,8 +101,30 @@ export function opravDiryVrstev(): number {
   return opraveno;
 }
 
+/**
+ * Šablony motýlků v rozměrech z e-shopu — jednou po aktualizaci.
+ *
+ * Patrik (26. 11.): „šablona je o dost větší než motýlek v reálu".
+ * Dětský a MINI motýlek dostaly menší rozměr (ZK_SABLONY), ale už
+ * nakreslené šablony v sobě mají ten starý. Překreslí se a hotová AI
+ * vykreslení se k nim sama přizpůsobí (naZmenuSablony).
+ */
+export function prekresliMotylky(): number {
+  if (getSetting('zkMotylkyV2', '') === '1') return 0;
+  let hotovo = 0;
+  for (const p of store.postavy().filter(one => one.hotovo)) {
+    for (const varianta of ['motylek-detsky', 'motylek-mini']) {
+      if (!store.vrstvy(p.id).some(one => one.typ === 'kravata' && one.varianta === varianta)) continue;
+      try { hotovo += sablony.vygenerujSablony(p.id, { typ: 'kravata', varianta }).length; } catch { /* postava bez měření se přeskočí */ }
+    }
+  }
+  setSetting('zkMotylkyV2', '1');
+  return hotovo;
+}
+
 export function vrstvyPostavy(postavaId: string, sirkaNahledu = 150): ZkVrstvaProOkno[] {
   opravDiryVrstev();
+  prekresliMotylky();
   const chci = new Map<string, ZkVrstva>();
   for (const one of store.vrstvy(postavaId)) chci.set(`${one.typ}:${one.varianta}`, one);
   const out: ZkVrstvaProOkno[] = [];
@@ -481,6 +503,7 @@ export function produktyPrehled(limit = 300): ZkProduktRadek[] {
  * nese kód, název, fotku a stav; detail jednoho produktu se načte zvlášť.
  */
 export function fronta(): ZkFrontaRadek[] {
+  prekresliMotylky();
   const vKabine = new Map(produkty.proKabinu(5000, true).map(one => [one.kod, one]));
   const vykreslene = new Set(vykresleniModul.doKabiny().keys());
   const rozpracovane = new Map(vykresleniModul.rozpracovane().map(one => [one.kod, one.od]));
@@ -559,6 +582,7 @@ export function upravProdukt(kod: string, co: { typ?: ZkVrstvaTyp | ''; varianta
  */
 export function nahledKabiny(): ZkNahled {
   opravDiryVrstev();
+  prekresliMotylky();
   const hotove = store.vrstvy().filter(one => one.stav === 'hotovo' || one.stav === 'schvaleno');
   const klicovac = new Map(hotove.map(one => [`${one.postava}:${one.typ}:${one.varianta}`, one]));
   const { url, data } = stashKabinu(
